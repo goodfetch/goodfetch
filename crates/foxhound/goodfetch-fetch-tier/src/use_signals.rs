@@ -24,6 +24,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use goodfetch_counted_work::ParsedHtml;
+use goodfetch_engine::robots_txt;
+use goodfetch_protocol::site_preferences::PURPOSE_VALUES;
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 use tokio::sync::{Mutex, OnceCell};
@@ -34,6 +36,9 @@ pub const TDMREP_FILE: &str = "/.well-known/tdmrep.json";
 
 /// The media type of an RSL license.
 const RSL_TYPE: &str = "application/rsl+xml";
+
+// One Purpose per choice of `site_preferences.purpose`.
+const _: () = assert!(PURPOSE_VALUES.len() == Purpose::ALL.len());
 
 /// What a run declares its results are for (`site_preferences.purpose`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,15 +54,15 @@ pub enum Purpose {
 }
 
 impl Purpose {
-    /// The Purpose `site_preferences.purpose` names.
+    /// Every Purpose, in the order the setting's choices list them
+    /// ([`PURPOSE_VALUES`]).
+    const ALL: [Self; 4] = [Self::Search, Self::AiInput, Self::AiTrain, Self::Collect];
+
+    /// The Purpose `site_preferences.purpose` names, as its choices spell
+    /// them.
     pub fn named(name: &str) -> Option<Self> {
-        match name {
-            "search" => Some(Self::Search),
-            "ai-input" => Some(Self::AiInput),
-            "ai-train" => Some(Self::AiTrain),
-            "collect" => Some(Self::Collect),
-            _ => None,
-        }
+        let at = PURPOSE_VALUES.iter().position(|value| *value == name)?;
+        Self::ALL.get(at).copied()
     }
 
     /// The aipref categories that govern the Purpose, the narrowest first.
@@ -330,36 +335,21 @@ struct TdmRepRule {
 
 /// Whether `TDMRep`'s well-known `file` reserves `url`'s rights against
 /// `purpose`, named: its first rule whose location matches the URL's path
-/// and query decides, as robots.txt targets them, a value other than `1`
-/// or `0` unset; a file that does not
-/// read reserves nothing.
+/// and query decides, a value other than `1` or `0` unset; a file that
+/// does not read reserves nothing. A location matches as a robots.txt
+/// rule's pattern does ([`robots_txt::matches`]): from the path's start,
+/// `*` any characters, a final `$` its end, case-sensitive, in one pass
+/// whatever the site wrote.
 pub fn tdmrep_file_refusing(file: &[u8], url: &Url, purpose: Purpose) -> Option<&'static str> {
     if purpose == Purpose::Search {
         return None;
     }
     let rules: Vec<TdmRepRule> = serde_json::from_slice(file).ok()?;
-    let target = match url.query() {
-        Some(query) => format!("{}?{query}", url.path()),
-        None => url.path().to_owned(),
-    };
+    let target = robots_txt::target(url);
     let rule = rules
         .iter()
-        .find(|rule| location_matches(rule.location.as_bytes(), target.as_bytes()))?;
+        .find(|rule| robots_txt::matches(&rule.location, &target))?;
     (rule.reservation.as_u64() == Some(1)).then_some("TDMRep's `/.well-known/tdmrep.json`")
-}
-
-/// Whether the `TDMRep` location `pattern` matches `path`, as a robots.txt
-/// rule matches: from its start, `*` any characters, a final `$` the
-/// path's end, case-sensitive.
-fn location_matches(pattern: &[u8], path: &[u8]) -> bool {
-    match pattern.split_first() {
-        None => true,
-        Some((b'$', [])) => path.is_empty(),
-        Some((b'*', rest)) => (0..=path.len()).any(|at| location_matches(rest, &path[at..])),
-        Some((first, rest)) => path
-            .split_first()
-            .is_some_and(|(byte, tail)| byte == first && location_matches(rest, tail)),
-    }
 }
 
 /// Whether the RSL `file` refuses `purpose`, named: it does when it holds
@@ -446,7 +436,7 @@ fn is_usage(element: &BytesStart<'_>) -> bool {
 /// fetch that answered no `2xx` keeps no body. Cheap to clone; every clone
 /// shares the files.
 #[derive(Clone, Default)]
-pub struct SignalFiles {
+pub(crate) struct SignalFiles {
     files: Arc<Mutex<HashMap<String, Arc<SignalFile>>>>,
 }
 
@@ -463,7 +453,7 @@ impl SignalFiles {
     /// fetch and keeps nothing: a concurrent or later reader fetches the
     /// file with its own. Dropping any other reader's future loses only
     /// its answer.
-    pub async fn read<F>(&self, url: &Url, fetch: F) -> Option<Arc<[u8]>>
+    pub(crate) async fn read<F>(&self, url: &Url, fetch: F) -> Option<Arc<[u8]>>
     where
         F: Future<Output = Option<Vec<u8>>>,
     {

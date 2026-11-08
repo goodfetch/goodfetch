@@ -81,7 +81,7 @@ use url::Url;
 
 use super::{FetchTiers, ServedPage, lock};
 use crate::driver::{Fetched, Hop, fetch};
-use crate::gate::{Gate, HandOver};
+use crate::gate::{self, Gate, HandOver};
 use crate::redirects;
 use crate::served_calls::{Row, Verdict, verdict};
 use markup::{Shown, shown};
@@ -520,7 +520,7 @@ async fn sent(page: &ServedPage, params: &PageRequestParams) -> Result<Fetched, 
             let _waiting = hand_over.lease.permit_wait(hop.url.as_str());
             gate.admitted(&hop.url)
                 .await
-                .map_err(|refusal| refused(hop.url.as_str(), &refusal))?
+                .map_err(|refusal| refused(hop.url.as_str(), &gate::refusal(refusal)))?
         };
         // The wait for the permit may outlast the lease.
         leased(hand_over, PAGE_REQUEST.name)?;

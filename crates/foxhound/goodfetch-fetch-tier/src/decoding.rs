@@ -25,7 +25,9 @@
 use std::io::Read;
 
 use bytes::Bytes;
-use goodfetch_engine::response_limits::{ContentCoding, LimitExceeded, Limits, has_zlib_header};
+use goodfetch_engine::response_limits::{
+    ContentCoding, GZIP_MAGIC, LimitExceeded, Limits, ZSTD_MAGIC, has_zlib_header,
+};
 
 /// Why a body did not decode as its codings say.
 #[derive(Debug, PartialEq, Eq)]
@@ -155,9 +157,6 @@ fn decoded(
     }
 }
 
-/// The two bytes a gzip stream opens with (RFC 1952).
-const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
-
 /// What a decoder's `error` means: a stream that ended early is cut.
 fn failure(error: &std::io::Error) -> DecodingFailed {
     match error.kind() {
@@ -216,7 +215,7 @@ fn brotli(body: &[u8], bound: &Bound<'_>) -> Result<Vec<u8>, DecodingFailed> {
 /// `application/xhtml+xml`, `application/javascript` and any `+json` or
 /// `+xml` type.
 pub(crate) fn still_compressed(content_type: Option<&str>, body: &[u8]) -> bool {
-    let compressed = body.starts_with(&[0x1f, 0x8b]) || body.starts_with(&[0x28, 0xb5, 0x2f, 0xfd]);
+    let compressed = body.starts_with(&GZIP_MAGIC) || body.starts_with(&ZSTD_MAGIC);
     compressed && content_type.is_some_and(is_text)
 }
 

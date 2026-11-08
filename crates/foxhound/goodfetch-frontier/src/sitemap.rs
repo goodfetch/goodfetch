@@ -31,7 +31,7 @@ use std::collections::BTreeMap;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::egress::{Judgment, Policy, Request, RequestKind, judge};
-use goodfetch_engine::response_limits::{BodyFailure, Decoding, LimitExceeded, Limits};
+use goodfetch_engine::response_limits::{BodyFailure, Decoding, GZIP_MAGIC, LimitExceeded, Limits};
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_page::url_pattern::{UnsupportedPattern, UrlPattern};
 use goodfetch_protocol::foxhound::crawl::{SitemapRule, SitemapSeed};
@@ -139,8 +139,11 @@ impl std::fmt::Display for Unreadable {
 /// sitemaps.org's most URLs in one sitemap or sitemap index.
 pub const MAX_ENTRIES: usize = 50_000;
 
+/// sitemaps.org's most megabytes of one sitemap, uncompressed.
+const MAX_MEGABYTES: usize = 50;
+
 /// sitemaps.org's most bytes of one sitemap, uncompressed: 50 MB.
-pub const MAX_BYTES: usize = 52_428_800;
+pub const MAX_BYTES: usize = MAX_MEGABYTES * 1024 * 1024;
 
 /// Why a sitemap's file was not read.
 #[derive(Debug)]
@@ -205,17 +208,32 @@ pub fn fuzz_sitemap(data: &[u8]) {
     {
         assert!(
             locs.len() <= MAX_ENTRIES,
-            "a sitemap read lists at most 50,000 URLs"
+            "a sitemap read lists at most {} URLs",
+            grouped(MAX_ENTRIES)
         );
     }
 }
 
-/// The two bytes a gzip file opens with (RFC 1952).
-const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
-
-/// A file past sitemaps.org's 50 MB uncompressed.
+/// A file past sitemaps.org's [`MAX_BYTES`] uncompressed.
 fn too_large() -> Unreadable {
-    Unreadable("it is larger than sitemaps.org's 50 MB (52,428,800 bytes) uncompressed".to_owned())
+    Unreadable(format!(
+        "it is larger than sitemaps.org's {MAX_MEGABYTES} MB ({} bytes) uncompressed",
+        grouped(MAX_BYTES)
+    ))
+}
+
+/// `count` as its messages write it, its digits grouped by three with
+/// commas: `52,428,800`.
+fn grouped(count: usize) -> String {
+    let digits = count.to_string();
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (at, digit) in digits.chars().enumerate() {
+        if at > 0 && (digits.len() - at).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    grouped
 }
 
 /// Reads the sitemap `body`: a `urlset`'s entries or a `sitemapindex`'s
@@ -271,9 +289,10 @@ pub fn parse(body: &[u8]) -> Result<Document, Unreadable> {
                     && let Some(text) = loc.take()
                 {
                     if locs.len() == MAX_ENTRIES {
-                        return Err(Unreadable(
-                            "it lists more than sitemaps.org's 50,000 URLs".to_owned(),
-                        ));
+                        return Err(Unreadable(format!(
+                            "it lists more than sitemaps.org's {} URLs",
+                            grouped(MAX_ENTRIES)
+                        )));
                     }
                     locs.push(text.trim().to_owned());
                 }

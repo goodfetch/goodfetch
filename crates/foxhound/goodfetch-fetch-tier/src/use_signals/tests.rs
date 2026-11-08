@@ -162,6 +162,21 @@ fn a_tdmrep_file_reserves_what_its_first_matching_rule_does(
     );
 }
 
+/// A site's file can state any location: one of 24 wildcards before a
+/// byte the path lacks is judged against a path of 400 bytes in one pass,
+/// as robots.txt's rules are, where trying every split of the path for
+/// each wildcard would take longer than the test is given.
+#[test]
+fn a_hostile_location_of_many_wildcards_is_judged_on_a_long_path() {
+    let location = format!("/{}*b", "*a".repeat(24));
+    let file = format!(r#"[{{"location":"{location}","tdm-reservation":1}}]"#);
+    let at = url(&format!("https://example.test/{}", "a".repeat(400)));
+
+    let reserved = tdmrep_file_refusing(file.as_bytes(), &at, Purpose::Collect);
+
+    assert_eq!(reserved, None);
+}
+
 /// A license as RSL 1.0 writes one, holding `body`.
 fn license(body: &str) -> String {
     format!(

@@ -20,3 +20,27 @@ use super::pattern;
 fn a_path_pattern_generalizes_numbers_dates_and_tokens(#[case] path: &str, #[case] expected: &str) {
     assert_eq!(pattern(path), expected);
 }
+
+/// A learned rule the run file holds under a kind no rule has, or a form
+/// no rule merges, cannot be read: the report's read fails rather than
+/// name a rule that was never learned.
+#[rstest]
+#[case::an_unknown_kind("mystery", "")]
+#[case::an_unknown_form("equivalent_form", "mystery")]
+fn a_learned_rule_of_an_unknown_kind_or_form_is_not_read(#[case] kind: &str, #[case] form: &str) {
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    for statement in super::TABLES.statements {
+        connection.execute(statement, []).unwrap();
+    }
+    connection
+        .execute(
+            "INSERT INTO learned_rules (kind, host, path, parameter, form, evidence)
+             VALUES (?1, 'shop.test', '', '', ?2, 'two pairs')",
+            (kind, form),
+        )
+        .unwrap();
+
+    let read = super::learned_rules(&connection);
+
+    assert!(read.is_err(), "{read:?}");
+}

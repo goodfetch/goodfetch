@@ -27,6 +27,9 @@
 //! - `/sniffed/<case>` serves a body with no `Content-Type`, typed by MIME
 //!   sniffing, and `/redirect/301/untyped` a 301 with neither a type nor a
 //!   body (ADR 0119).
+//! - `/redirect/unreachable-robots` redirects to a page of
+//!   `2.access-policy.test`, whose robots.txt never answers `200`, so a
+//!   redirect hop's robots.txt can fail where its first hop's read.
 //! - `/endless/pdf` serves an `application/pdf` head and a chunked body
 //!   that never ends, over HTTP/1.1, so a crawl that skips the type before
 //!   its body is read ends at once, and one that reads it never does (ADR
@@ -217,6 +220,9 @@ fn redirect(rest: &str, request: &Request) -> Answer {
         // `bücher.test` in punycode.
         "punycode" => to(302, &format!("http://xn--bcher-kva.test{port}/target")),
         "robots" => to(302, "/private/target"),
+        // To the `access-policy` family's host whose robots.txt answers
+        // `503` to every request.
+        "unreachable-robots" => to(302, &format!("http://2.access-policy.test{port}/catalog/1")),
         hops => match hops
             .strip_prefix("hops/")
             .and_then(|n| n.parse::<u32>().ok())

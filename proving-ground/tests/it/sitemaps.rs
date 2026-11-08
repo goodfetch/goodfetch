@@ -14,7 +14,7 @@ use regex::Regex;
 use serde_json::{Value, json};
 
 use crate::crawler::field;
-use crate::proving_ground::ProvingGround;
+use crate::proving_ground::{ProvingGround, submission};
 
 const SEED: u64 = 1538;
 /// The protocol's limit of entries in one sitemap index (sitemaps.org).
@@ -113,12 +113,6 @@ fn within(crawled: &[(usize, Value)], entries: usize) -> Vec<Value> {
         .collect()
 }
 
-fn judge(proving_ground: &ProvingGround, task: &str, records: &[Value]) -> Value {
-    proving_ground
-        .judge(&json!({ "task": task, "status": "success", "records": records }))
-        .json()
-}
-
 #[test]
 fn the_index_lists_more_sitemaps_than_the_protocol_allows_and_its_gzip_form_holds_the_same() {
     let proving_ground = ProvingGround::start(SEED);
@@ -208,8 +202,9 @@ fn a_crawl_of_every_entry_is_verified_and_one_that_stops_at_the_protocols_limit_
     let every = within(&crawled, usize::MAX);
     let truncated = within(&crawled, PROTOCOL_LIMIT);
 
-    let verified = ["sitemaps/1", "sitemaps/2"].map(|task| judge(&proving_ground, task, &every));
-    let answer = judge(&proving_ground, "sitemaps/2", &truncated);
+    let verified = ["sitemaps/1", "sitemaps/2"]
+        .map(|task| proving_ground.judge(&submission(task, "success", &every)));
+    let answer = proving_ground.judge(&submission("sitemaps/2", "success", &truncated));
 
     assert_eq!(every.len(), 96);
     for verified in &verified {

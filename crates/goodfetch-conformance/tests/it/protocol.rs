@@ -18,11 +18,11 @@ use goodfetch_protocol::result_document::{
     TargetIdentity, read,
 };
 use goodfetch_test_support::{
-    ATTACHED_RECORD, ATTACHED_SCRIPT, TestEnv, Tool, browser_cache_in_home, tools,
+    ATTACHED_RECORD, ATTACHED_SCRIPT, ProvingGround as LocalCopy, TestEnv, Tool,
+    browser_cache_in_home, tools,
 };
 use serde_json::{Value, json};
 
-use crate::proving_ground::LocalCopy;
 use crate::schema_violations;
 
 /// The Scripted engine's scripts this suite's tests play.
@@ -88,8 +88,8 @@ const PROVED: [(&str, Outcome); 4] = [
 #[test]
 fn the_scripted_engine_playing_the_suite_is_proved_in_every_capability() {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let target = scripted(&env, "conforming-attached.json", EngineMode::Attached);
 
     let document =
@@ -102,8 +102,8 @@ fn the_scripted_engine_playing_the_suite_is_proved_in_every_capability() {
 #[test]
 fn a_target_that_drops_cancellation_mid_suite_fails_it_and_never_proves_it() {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let target = scripted(
         &env,
         "drops-cancellation-attached.json",
@@ -153,8 +153,8 @@ fn a_target_that_drops_cancellation_mid_suite_fails_it_and_never_proves_it() {
 #[test]
 fn the_document_names_the_engine_hello_reported_and_carries_each_cases_evidence() {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let target = scripted(
         &env,
         "drops-cancellation-attached.json",
@@ -225,8 +225,8 @@ fn the_document_names_the_engine_hello_reported_and_carries_each_cases_evidence(
 #[test]
 fn the_harness_announces_the_suites_product_in_hello() {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let target = scripted(&env, "conforming-attached.json", EngineMode::Attached);
 
     run_protocol_suite(&ProtocolSuite::embedded(), &target, &proving_ground).unwrap();
@@ -241,8 +241,8 @@ fn the_harness_announces_the_suites_product_in_hello() {
 #[test]
 fn the_scripted_engine_as_a_daemon_playing_the_suite_is_proved_in_every_capability() {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let target = scripted(&env, "conforming-daemon.json", EngineMode::Daemon);
 
     let document =
@@ -260,8 +260,8 @@ fn the_scripted_engine_as_a_daemon_playing_the_suite_is_proved_in_every_capabili
 #[test]
 fn a_daemons_token_reaches_no_document_and_its_hello_keeps_the_rest() {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let target = scripted(&env, "conforming-daemon.json", EngineMode::Daemon);
 
     let document =
@@ -305,8 +305,8 @@ fn the_suite_runs_unchanged_against_collies_attached_engine_and_daemon(
     #[values(EngineMode::Attached, EngineMode::Daemon)] mode: EngineMode,
 ) {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let target = target(&env, Tool::Collie, mode);
 
     let document =
@@ -340,8 +340,8 @@ fn the_suite_runs_unchanged_against_collies_attached_engine_and_daemon(
 #[test]
 fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let target = target(&env, Tool::Foxhound, EngineMode::Attached);
 
     let document = run_protocol_suite(&ProtocolSuite::fetch(), &target, &proving_ground).unwrap();
@@ -426,8 +426,8 @@ fn the_delivery_suite_is_proved_against_foxhounds_attached_engine_and_daemon(
     #[values(EngineMode::Attached, EngineMode::Daemon)] mode: EngineMode,
 ) {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let target = target(&env, Tool::Foxhound, mode);
 
     let document =
@@ -504,8 +504,8 @@ fn the_reset_gate_is_proved_against_collie_in_either_layout(
         settings.push_str("run_state.layout = \"per_install\"\n");
     }
     env.user_configuration(&settings);
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let target = target(&env, Tool::Collie, mode);
 
     let document = run_protocol_suite(&ProtocolSuite::reset(), &target, &proving_ground).unwrap();
@@ -562,8 +562,8 @@ fn a_suite_that_needs_foxhound_runs_on_foxhounds_executable(
     #[values(EngineMode::Attached, EngineMode::Daemon)] mode: EngineMode,
 ) {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let target = target(&env, Tool::Foxhound, mode);
 
     let document = run_protocol_suite(&foxhound_suite(), &target, &proving_ground).unwrap();
@@ -581,8 +581,8 @@ fn a_suite_that_needs_foxhound_runs_on_foxhounds_executable(
 #[test]
 fn collies_executable_refuses_a_suite_that_needs_foxhound_with_not_in_product() {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let target = target(&env, Tool::Collie, EngineMode::Attached);
 
     let refused = run_protocol_suite(&foxhound_suite(), &target, &proving_ground).unwrap_err();
@@ -599,8 +599,8 @@ fn a_suite_whose_contract_collie_carries_is_not_run_on_foxhounds_executable(
     #[values(EngineMode::Attached, EngineMode::Daemon)] mode: EngineMode,
 ) {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let target = target(&env, Tool::Foxhound, mode);
 
     let refused =

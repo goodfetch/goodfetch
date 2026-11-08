@@ -8,8 +8,8 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::proving_ground::ProvingGround;
-use crate::reading::{every, judge, origin, start_url, task};
+use crate::proving_ground::{ProvingGround, submission};
+use crate::reading::{every, origin, start_url, task};
 
 const SEED: u64 = 786;
 const TASK: &str = "extraction/9";
@@ -95,12 +95,7 @@ fn every_pages_formats_as_json_values_are_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let origin = origin(start_url(&task(&proving_ground, TASK))).to_owned();
 
-    let answer = judge(
-        &proving_ground,
-        TASK,
-        "success",
-        &records(&origin, |_, _| {}),
-    );
+    let answer = proving_ground.judge(&submission(TASK, "success", &records(&origin, |_, _| {})));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -113,8 +108,7 @@ fn a_wrong_base_a_broken_url_given_or_a_row_header_dropped_is_a_false_success() 
     let proving_ground = ProvingGround::start(SEED);
     let origin = origin(start_url(&task(&proving_ground, TASK))).to_owned();
 
-    let answer = judge(
-        &proving_ground,
+    let answer = proving_ground.judge(&submission(
         TASK,
         "success",
         &records(&origin, |id, record| match id {
@@ -130,7 +124,7 @@ fn a_wrong_base_a_broken_url_given_or_a_row_header_dropped_is_a_false_success() 
             }
             _ => {}
         }),
-    );
+    ));
 
     let wrong: Vec<(&Value, &Value)> = answer["wrong"]
         .as_array()

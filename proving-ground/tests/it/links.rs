@@ -10,7 +10,7 @@
 use serde_json::{Value, json};
 
 use crate::crawler::{Base, Crawler, Fetched, field, finding_kinds, links, script_links};
-use crate::proving_ground::ProvingGround;
+use crate::proving_ground::{ProvingGround, submission};
 
 const SEED: u64 = 1538;
 
@@ -34,18 +34,12 @@ fn start_url(proving_ground: &ProvingGround, task: &str) -> String {
         .to_owned()
 }
 
-fn judge(proving_ground: &ProvingGround, task: &str, status: &str, records: &[Value]) -> Value {
-    proving_ground
-        .judge(&json!({ "task": task, "status": status, "records": records }))
-        .json()
-}
-
 #[test]
 fn a_crawl_that_resolves_against_the_base_element_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let pages = Crawler::new(&proving_ground).crawl(&start_url(&proving_ground, "links/1"));
 
-    let answer = judge(&proving_ground, "links/1", "success", &records(&pages));
+    let answer = proving_ground.judge(&submission("links/1", "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
     assert_eq!(answer["findings"], json!([]));
@@ -59,7 +53,7 @@ fn a_crawl_that_ignores_the_base_element_is_a_false_success_with_wrong_base_find
     crawler.base = Base::Requested;
     let pages = crawler.crawl(&start_url(&proving_ground, "links/1"));
 
-    let answer = judge(&proving_ground, "links/1", "success", &records(&pages));
+    let answer = proving_ground.judge(&submission("links/1", "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["missing"].as_array().unwrap().len(), 8, "{answer}");
@@ -73,7 +67,7 @@ fn a_crawl_that_resolves_against_the_url_a_redirect_named_is_verified() {
     assert_eq!(proving_ground.get(&start).status, 301);
     let pages = Crawler::new(&proving_ground).crawl(&start);
 
-    let answer = judge(&proving_ground, "links/2", "success", &records(&pages));
+    let answer = proving_ground.judge(&submission("links/2", "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
     assert_eq!(records(&pages).len(), 8, "{answer}");
@@ -86,7 +80,7 @@ fn a_crawl_that_resolves_against_the_url_before_the_redirect_is_caught() {
     crawler.base = Base::Requested;
     let pages = crawler.crawl(&start_url(&proving_ground, "links/2"));
 
-    let answer = judge(&proving_ground, "links/2", "needs-review", &records(&pages));
+    let answer = proving_ground.judge(&submission("links/2", "needs-review", &records(&pages)));
 
     assert_eq!(answer["outcome"], "failed", "{answer}");
     assert_eq!(finding_kinds(&answer), ["wrong_base"], "{answer}");
@@ -97,7 +91,7 @@ fn a_crawl_that_follows_the_script_only_links_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let pages = Crawler::new(&proving_ground).crawl(&start_url(&proving_ground, "links/3"));
 
-    let answer = judge(&proving_ground, "links/3", "success", &records(&pages));
+    let answer = proving_ground.judge(&submission("links/3", "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
     assert_eq!(records(&pages).len(), 12, "{answer}");
@@ -111,7 +105,7 @@ fn a_crawl_that_reads_only_the_html_links_is_a_false_success_naming_the_rooms_it
     crawler.follow_scripts = false;
     let pages = crawler.crawl(&start);
 
-    let answer = judge(&proving_ground, "links/3", "success", &records(&pages));
+    let answer = proving_ground.judge(&submission("links/3", "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     let scripted = script_links(&proving_ground.get(&start).body);

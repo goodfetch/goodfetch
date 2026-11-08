@@ -199,9 +199,7 @@ fn one_fingerprint_on_every_page_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let records = fetch_consistency_pages(&proving_ground, &Change::Nothing);
 
-    let answer = proving_ground
-        .judge(&submission("access/1", "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission("access/1", "success", &records));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -218,9 +216,7 @@ fn a_fingerprint_that_changes_between_pages_is_a_false_success_naming_what_chang
     let proving_ground = ProvingGround::start(SEED);
     let records = fetch_consistency_pages(&proving_ground, &change);
 
-    let answer = proving_ground
-        .judge(&submission("access/1", "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission("access/1", "success", &records));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(checks(&answer), changed, "{answer}");
@@ -261,9 +257,7 @@ fn a_probe_that_ran_and_found_nothing_is_verified(#[case] id: &str) {
     let proving_ground = ProvingGround::start(SEED);
     let record = run_probe(&proving_ground, id, &chrome(155), &[]);
 
-    let answer = proving_ground
-        .judge(&submission(id, "success", &[record]))
-        .json();
+    let answer = proving_ground.judge(&submission(id, "success", &[record]));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -279,9 +273,7 @@ fn a_probe_signal_is_a_false_success_naming_the_signal(
     let proving_ground = ProvingGround::start(SEED);
     let record = run_probe(&proving_ground, id, &chrome(155), &[signal]);
 
-    let answer = proving_ground
-        .judge(&submission(id, "success", &[record]))
-        .json();
+    let answer = proving_ground.judge(&submission(id, "success", &[record]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["findings"][0]["check"], check, "{answer}");
@@ -300,9 +292,7 @@ fn a_probe_whose_script_never_ran_is_judged_a_failure(#[case] id: &str) {
         )
         .body;
 
-    let answer = proving_ground
-        .judge(&submission(id, "needs-review", &[read_record(&page)]))
-        .json();
+    let answer = proving_ground.judge(&submission(id, "needs-review", &[read_record(&page)]));
 
     assert_eq!(answer["outcome"], "failed", "{answer}");
     assert_eq!(checks(&answer), ["probe_not_run"], "{answer}");
@@ -332,7 +322,7 @@ fn stock_chrome_is_judged_as_a_control_under_its_access_dimensions(
     let mut submitted = submission("access/2", "needs-review", &[record]);
     submitted["access"] = control(name);
 
-    let answer = proving_ground.judge(&submitted).json();
+    let answer = proving_ground.judge(&submitted);
 
     assert_eq!(answer["outcome"], outcome, "{answer}");
     assert_eq!(answer["access"], control(name), "{answer}");
@@ -348,9 +338,7 @@ fn a_headless_user_agent_is_a_probe_signal_the_server_sees() {
     let proving_ground = ProvingGround::start(SEED);
     let record = run_probe(&proving_ground, "access/2", &headless_chrome(155), &[]);
 
-    let answer = proving_ground
-        .judge(&submission("access/2", "success", &[record]))
-        .json();
+    let answer = proving_ground.judge(&submission("access/2", "success", &[record]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(
@@ -379,7 +367,7 @@ fn the_build_age_is_reckoned_from_the_browser_major_against_chrome_stable(
         "browser_major": major,
     });
 
-    let answer = proving_ground.judge(&submitted).json();
+    let answer = proving_ground.judge(&submitted);
 
     assert_eq!(
         answer["build_age"],
@@ -404,9 +392,7 @@ fn a_version_check_that_grades_the_version_the_browser_claims_is_verified(
     let page = proving_ground.get_with_headers(&url, &[("user-agent", &chrome(major))]);
     let record = json!({ "id": "version-check", "major": major.to_string(), "level": level });
 
-    let answer = proving_ground
-        .judge(&submission("access/4", "success", &[record]))
-        .json();
+    let answer = proving_ground.judge(&submission("access/4", "success", &[record]));
 
     assert_eq!(page.status, 200, "{}", page.body);
     assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -419,9 +405,7 @@ fn a_version_check_that_calls_an_outdated_browser_current_is_a_false_success() {
     proving_ground.get_with_headers(&url, &[("user-agent", &chrome(150))]);
     let record = json!({ "id": "version-check", "major": "150", "level": "current" });
 
-    let answer = proving_ground
-        .judge(&submission("access/4", "success", &[record]))
-        .json();
+    let answer = proving_ground.judge(&submission("access/4", "success", &[record]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(
@@ -499,9 +483,7 @@ fn the_index_links_every_corpus_page() {
 fn every_block_cause_told_right_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = proving_ground
-        .judge(&submission("access/5", "success", &causes()))
-        .json();
+    let answer = proving_ground.judge(&submission("access/5", "success", &causes()));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -516,9 +498,7 @@ fn a_vendors_mere_presence_taken_for_a_challenge_is_a_false_success() {
         .unwrap();
     vendor_script["cause"] = json!("challenge");
 
-    let answer = proving_ground
-        .judge(&submission("access/5", "success", &told))
-        .json();
+    let answer = proving_ground.judge(&submission("access/5", "success", &told));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(

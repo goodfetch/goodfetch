@@ -133,9 +133,7 @@ fn a_correct_result_behind_a_login_is_verified(#[case] id: &str) {
     let proving_ground = ProvingGround::start(SEED);
     let records = read_orders(&proving_ground, &proving_ground.task(id));
 
-    let answer = proving_ground
-        .judge(&submission(id, "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission(id, "success", &records));
 
     assert_eq!(answer["task"], id);
     assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -148,9 +146,7 @@ fn a_crawl_behind_a_login_missing_one_order_is_incomplete() {
     let mut records = read_orders(&proving_ground, &proving_ground.task("login/1"));
     let dropped = records.remove(2);
 
-    let answer = proving_ground
-        .judge(&submission("login/1", "needs-review", &records))
-        .json();
+    let answer = proving_ground.judge(&submission("login/1", "needs-review", &records));
 
     assert_eq!(answer["outcome"], "incomplete", "{answer}");
     assert_eq!(answer["missing"], json!([dropped["id"]]));
@@ -172,9 +168,7 @@ fn a_crawl_that_stops_when_its_login_expires_is_a_false_success() {
         .map(|page| order_record(&page.body))
         .collect();
 
-    let answer = proving_ground
-        .judge(&submission("login/2", "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission("login/2", "success", &records));
 
     assert_eq!(answer["task"], "login/2");
     assert_eq!(answer["outcome"], "false_success", "{answer}");
@@ -186,9 +180,7 @@ fn a_crawl_that_stops_when_its_login_expires_is_a_false_success() {
 fn a_success_that_read_the_login_page_is_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = proving_ground
-        .judge(&submission("login/1", "success", &[]))
-        .json();
+    let answer = proving_ground.judge(&submission("login/1", "success", &[]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["missing"].as_array().unwrap().len(), 6, "{answer}");

@@ -8,7 +8,7 @@
 use serde_json::{Value, json};
 
 use crate::crawler::{Crawler, Fetched, field, links};
-use crate::proving_ground::ProvingGround;
+use crate::proving_ground::{ProvingGround, submission};
 
 const SEED: u64 = 164;
 const TASK: &str = "statuses/1";
@@ -39,18 +39,12 @@ fn start_url(proving_ground: &ProvingGround) -> String {
         .to_owned()
 }
 
-fn judge(proving_ground: &ProvingGround, status: &str, records: &[Value]) -> Value {
-    proving_ground
-        .judge(&json!({ "task": TASK, "status": status, "records": records }))
-        .json()
-}
-
 #[test]
 fn a_crawl_that_follows_redirects_and_drops_soft_404s_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let pages = Crawler::new(&proving_ground).crawl(&start_url(&proving_ground));
 
-    let answer = judge(&proving_ground, "success", &records(&pages, true));
+    let answer = proving_ground.judge(&submission(TASK, "success", &records(&pages, true)));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -62,7 +56,7 @@ fn a_crawl_missing_one_article_is_incomplete() {
     let mut records = records(&pages, true);
     let dropped = records.pop().unwrap();
 
-    let answer = judge(&proving_ground, "needs-review", &records);
+    let answer = proving_ground.judge(&submission(TASK, "needs-review", &records));
 
     assert_eq!(answer["outcome"], "incomplete", "{answer}");
     assert_eq!(answer["missing"], json!([dropped["id"]]));
@@ -73,7 +67,7 @@ fn a_crawl_that_keeps_soft_404s_is_a_false_success_naming_them() {
     let proving_ground = ProvingGround::start(SEED);
     let pages = Crawler::new(&proving_ground).crawl(&start_url(&proving_ground));
 
-    let answer = judge(&proving_ground, "success", &records(&pages, false));
+    let answer = proving_ground.judge(&submission(TASK, "success", &records(&pages, false)));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     let extra = answer["extra"].as_array().unwrap();
@@ -94,7 +88,7 @@ fn a_crawl_that_follows_no_redirect_is_a_false_success_missing_the_moved_article
     crawler.max_redirects = 0;
     let pages = crawler.crawl(&start_url(&proving_ground));
 
-    let answer = judge(&proving_ground, "success", &records(&pages, true));
+    let answer = proving_ground.judge(&submission(TASK, "success", &records(&pages, true)));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["missing"].as_array().unwrap().len(), 10, "{answer}");
@@ -168,7 +162,7 @@ fn a_crawl_that_keeps_following_a_redirect_loop_is_caught_from_the_proving_groun
         url = crate::crawler::resolve(&url, answer.header("location").unwrap());
     }
 
-    let answer = judge(&proving_ground, "success", &records(&pages, true));
+    let answer = proving_ground.judge(&submission(TASK, "success", &records(&pages, true)));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     let findings = answer["findings"].as_array().unwrap();

@@ -11,6 +11,8 @@ use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
 
+use goodfetch_test_support::{LOOPBACK_PORT_0, UNSHAPED, serve_arguments};
+
 /// `serve`'s stdout is a socket whose buffers hold less than the line (5.7 KB
 /// on seed 1), so `serve` is still writing it, waiting for the test to read,
 /// when `SIGTERM` comes.
@@ -24,8 +26,7 @@ fn serve_stops_cleanly_on_a_sigterm_sent_while_it_writes_its_line() {
         .set_recv_buffer_size(1024)
         .expect("the receive buffer shrinks");
     let mut child = Command::new(env!("CARGO_BIN_EXE_goodfetch-proving-ground"))
-        .args(["serve", "--seed", "1", "--copy", "local"])
-        .args(["--address", "127.0.0.1:0", "--network-profile", "none"])
+        .args(serve_arguments(1, LOOPBACK_PORT_0, UNSHAPED))
         .env_clear()
         .stdin(Stdio::null())
         .stdout(OwnedFd::from(stdout))

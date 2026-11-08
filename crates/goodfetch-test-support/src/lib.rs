@@ -169,8 +169,9 @@ pub use protocol_fuzz::{
     ProtocolTransport, SchemaUnreadable, TransportFailure,
 };
 pub use proving_ground::{
-    ClientCertificate, PROVING_GROUND_DEADLINE, ProvingGround, ProvingGroundDescription,
-    ProvingGroundError, ProvingGroundFixtures,
+    ClientCertificate, LOOPBACK_PORT_0, PROVING_GROUND_DEADLINE, ProvingGround,
+    ProvingGroundDescription, ProvingGroundError, ProvingGroundFixtures, UNSHAPED, path_of,
+    serve_arguments,
 };
 pub use proving_ground_format::{
     FixtureAddresses, OWN_TARGETS, Observations, ObservedRequest, OracleSubmission,

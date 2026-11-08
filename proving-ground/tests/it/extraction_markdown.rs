@@ -7,8 +7,8 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::proving_ground::ProvingGround;
-use crate::reading::{every, judge, origin, start_url, task};
+use crate::proving_ground::{ProvingGround, submission};
+use crate::reading::{every, origin, start_url, task};
 
 const SEED: u64 = 783;
 
@@ -114,12 +114,11 @@ fn the_hand_written_markdown_in_another_syntax_is_verified() {
     let task = task(&proving_ground, "extraction/7");
     let origin = origin(start_url(&task)).to_owned();
 
-    let answer = judge(
-        &proving_ground,
+    let answer = proving_ground.judge(&submission(
         "extraction/7",
         "success",
         &records(|_, markdown| other_syntax(&origin, markdown)),
-    );
+    ));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -130,7 +129,7 @@ fn a_page_left_out_is_incomplete() {
     let mut records = records(|_, markdown| markdown.to_owned());
     records.retain(|record| record["id"] != "/markdown/tables/simple");
 
-    let answer = judge(&proving_ground, "extraction/7", "failure", &records);
+    let answer = proving_ground.judge(&submission("extraction/7", "failure", &records));
 
     assert_eq!(
         (&answer["outcome"], &answer["missing"]),
@@ -145,8 +144,7 @@ fn a_page_left_out_is_incomplete() {
 fn headings_written_as_paragraphs_are_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = judge(
-        &proving_ground,
+    let answer = proving_ground.judge(&submission(
         "extraction/7",
         "success",
         &records(|_, markdown| {
@@ -156,7 +154,7 @@ fn headings_written_as_paragraphs_are_a_false_success() {
                 .collect::<Vec<_>>()
                 .join("\n")
         }),
-    );
+    ));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
 }
@@ -167,8 +165,7 @@ fn headings_written_as_paragraphs_are_a_false_success() {
 fn the_navigation_of_a_page_with_no_main_content_is_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = judge(
-        &proving_ground,
+    let answer = proving_ground.judge(&submission(
         "extraction/7",
         "success",
         &records(|id, markdown| {
@@ -178,7 +175,7 @@ fn the_navigation_of_a_page_with_no_main_content_is_a_false_success() {
                 markdown.to_owned()
             }
         }),
-    );
+    ));
 
     assert_eq!(
         (&answer["outcome"], &answer["wrong"][0]["id"]),

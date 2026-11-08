@@ -33,6 +33,43 @@ use crate::tools::{Tool, ToolsError, tools};
 /// nextest's slow timeout rather than as an unnamed test timeout (ADR 0064).
 pub const PROVING_GROUND_DEADLINE: Duration = Duration::from_secs(30);
 
+/// The address a test's Proving ground binds: port 0 of loopback.
+pub const LOOPBACK_PORT_0: &str = "127.0.0.1:0";
+
+/// The network profile of a Proving ground that shapes nothing.
+pub const UNSHAPED: &str = "none";
+
+/// The arguments of `serve` for a test's Proving ground on `seed`: the
+/// local copy, bound to `address`, under the network profile
+/// `network_profile`. Every test that starts the Proving ground spells its
+/// command line through it, so a renamed flag fails one place.
+pub fn serve_arguments(seed: u64, address: &str, network_profile: &str) -> [String; 9] {
+    [
+        "serve".to_owned(),
+        "--seed".to_owned(),
+        seed.to_string(),
+        "--copy".to_owned(),
+        "local".to_owned(),
+        "--address".to_owned(),
+        address.to_owned(),
+        "--network-profile".to_owned(),
+        network_profile.to_owned(),
+    ]
+}
+
+/// The path of `url`, an absolute URL such as one of the Proving ground's
+/// pages, without its query or fragment, `/` for an origin, as the URL
+/// standard parses it: what a test compares of a URL the engine answers,
+/// whose port the Proving ground chose. `None` when `url` is not absolute.
+pub fn path_of(url: &str) -> Option<&str> {
+    let (_, rest) = url.split_once("://")?;
+    let path = rest[rest.find(['/', '?', '#']).unwrap_or(rest.len())..]
+        .split(['?', '#'])
+        .next()
+        .unwrap_or_default();
+    Some(if path.is_empty() { "/" } else { path })
+}
+
 /// How long a Proving ground has to exit once asked to stop: it closes its
 /// connections and undoes its network shaping first.
 const STOP_DEADLINE: Duration = Duration::from_secs(10);
@@ -122,17 +159,7 @@ impl ProvingGround {
         deadline: Duration,
     ) -> Result<Self, ProvingGroundError> {
         let mut command = env.process_command(program);
-        command.args([
-            "serve",
-            "--seed",
-            &seed.to_string(),
-            "--copy",
-            "local",
-            "--address",
-            "127.0.0.1:0",
-            "--network-profile",
-            "none",
-        ]);
+        command.args(serve_arguments(seed, LOOPBACK_PORT_0, UNSHAPED));
         let process = env.spawn(&mut command).map_err(ProvingGroundError::Start)?;
         // On any failure the process is stopped, so the test's teardown finds
         // none alive.
@@ -408,3 +435,6 @@ pub struct ClientCertificate {
     /// Its PKCS #8 private key, as PEM.
     pub key: String,
 }
+
+#[cfg(test)]
+mod tests;

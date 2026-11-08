@@ -8,7 +8,7 @@
 use serde_json::{Value, json};
 
 use crate::crawler::{Crawler, Fetched, every_url, field, finding_kinds, links};
-use crate::proving_ground::ProvingGround;
+use crate::proving_ground::{ProvingGround, submission};
 
 const SEED: u64 = 164;
 const TASK: &str = "traps/1";
@@ -41,18 +41,12 @@ fn start_url(proving_ground: &ProvingGround) -> String {
         .to_owned()
 }
 
-fn judge(proving_ground: &ProvingGround, status: &str, records: &[Value]) -> Value {
-    proving_ground
-        .judge(&json!({ "task": TASK, "status": status, "records": records }))
-        .json()
-}
-
 #[test]
 fn a_crawl_that_fetches_each_page_once_and_leaves_the_traps_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let pages = known_right(&proving_ground).crawl(&start_url(&proving_ground));
 
-    let answer = judge(&proving_ground, "success", &records(&pages));
+    let answer = proving_ground.judge(&submission(TASK, "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
     assert_eq!(answer["findings"], json!([]));
@@ -65,7 +59,7 @@ fn a_crawl_missing_one_item_is_incomplete() {
     let mut records = records(&pages);
     let dropped = records.remove(0);
 
-    let answer = judge(&proving_ground, "failure", &records);
+    let answer = proving_ground.judge(&submission(TASK, "failure", &records));
 
     assert_eq!(answer["outcome"], "incomplete", "{answer}");
     assert_eq!(answer["missing"], json!([dropped["id"]]));
@@ -78,7 +72,7 @@ fn a_crawl_that_fetches_every_url_of_a_page_is_caught_fetching_duplicates() {
     crawler.key = every_url;
     let pages = crawler.crawl(&start_url(&proving_ground));
 
-    let answer = judge(&proving_ground, "success", &records_once(&pages));
+    let answer = proving_ground.judge(&submission(TASK, "success", &records_once(&pages)));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(finding_kinds(&answer), ["duplicate"], "{answer}");
@@ -92,7 +86,7 @@ fn a_crawl_that_stays_in_a_trap_is_caught() {
     crawler.limit = 200;
     let pages = crawler.crawl(&start_url(&proving_ground));
 
-    let answer = judge(&proving_ground, "success", &records(&pages));
+    let answer = proving_ground.judge(&submission(TASK, "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(finding_kinds(&answer), ["trap"], "{answer}");
@@ -106,7 +100,7 @@ fn a_complete_crawl_that_fetched_duplicates_left_to_review_is_failed() {
     crawler.key = every_url;
     let pages = crawler.crawl(&start_url(&proving_ground));
 
-    let answer = judge(&proving_ground, "needs-review", &records_once(&pages));
+    let answer = proving_ground.judge(&submission(TASK, "needs-review", &records_once(&pages)));
 
     assert_eq!(answer["outcome"], "failed", "{answer}");
 }
@@ -118,7 +112,7 @@ fn a_crawl_that_follows_a_hidden_link_is_caught_and_its_address_refused() {
     crawler.follow_hidden = true;
     let pages = crawler.crawl(&start_url(&proving_ground));
 
-    let answer = judge(&proving_ground, "success", &records(&pages));
+    let answer = proving_ground.judge(&submission(TASK, "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert!(

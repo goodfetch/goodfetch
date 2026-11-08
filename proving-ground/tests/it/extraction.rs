@@ -9,8 +9,8 @@
 
 use serde_json::{Value, json};
 
-use crate::proving_ground::ProvingGround;
-use crate::reading::{every, first, judge, origin, start_url, task};
+use crate::proving_ground::{ProvingGround, submission};
+use crate::reading::{every, first, origin, start_url, task};
 
 const SEED: u64 = 165;
 
@@ -86,7 +86,7 @@ mod metadata {
         let proving_ground = ProvingGround::start(SEED);
         let records = known_right(&proving_ground);
 
-        let answer = judge(&proving_ground, "extraction/1", "success", &records);
+        let answer = proving_ground.judge(&submission("extraction/1", "success", &records));
 
         assert_eq!(records.len(), 12);
         assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -98,7 +98,7 @@ mod metadata {
         let mut records = known_right(&proving_ground);
         let dropped = records.remove(5);
 
-        let answer = judge(&proving_ground, "extraction/1", "failure", &records);
+        let answer = proving_ground.judge(&submission("extraction/1", "failure", &records));
 
         assert_eq!(answer["outcome"], "incomplete", "{answer}");
         assert_eq!(answer["missing"], json!([dropped["id"]]));
@@ -113,7 +113,7 @@ mod metadata {
             .map(|page| labelled(page))
             .collect();
 
-        let answer = judge(&proving_ground, "extraction/1", "success", &records);
+        let answer = proving_ground.judge(&submission("extraction/1", "success", &records));
 
         assert_eq!(answer["outcome"], "false_success", "{answer}");
         let quality = &answer["quality"]["fields"];
@@ -157,7 +157,7 @@ mod hidden_api {
         let task = task(&proving_ground, "extraction/2");
         let records = known_right(&proving_ground, &task);
 
-        let answer = judge(&proving_ground, "extraction/2", "success", &records);
+        let answer = proving_ground.judge(&submission("extraction/2", "success", &records));
 
         assert_eq!(records.len(), 12);
         assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -170,7 +170,7 @@ mod hidden_api {
         let mut records = known_right(&proving_ground, &task);
         records.truncate(6);
 
-        let answer = judge(&proving_ground, "extraction/2", "needs-review", &records);
+        let answer = proving_ground.judge(&submission("extraction/2", "needs-review", &records));
 
         assert_eq!(answer["outcome"], "incomplete", "{answer}");
         assert_eq!(answer["missing"].as_array().map(Vec::len), Some(6));
@@ -186,7 +186,7 @@ mod hidden_api {
             .map(|id| json!({ "id": id }))
             .collect();
 
-        let answer = judge(&proving_ground, "extraction/2", "success", &records);
+        let answer = proving_ground.judge(&submission("extraction/2", "success", &records));
 
         assert!(records.is_empty(), "the shop's HTML lists no product");
         assert_eq!(answer["outcome"], "false_success", "{answer}");
@@ -206,7 +206,7 @@ mod class_churn {
             .map(|page| labelled(page))
             .collect();
 
-        let answer = judge(&proving_ground, "extraction/3", "success", &records);
+        let answer = proving_ground.judge(&submission("extraction/3", "success", &records));
 
         assert_eq!(records.len(), 12);
         assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -222,7 +222,7 @@ mod class_churn {
             .collect();
         records.pop();
 
-        let answer = judge(&proving_ground, "extraction/3", "failure", &records);
+        let answer = proving_ground.judge(&submission("extraction/3", "failure", &records));
 
         assert_eq!(answer["outcome"], "incomplete", "{answer}");
     }
@@ -250,7 +250,7 @@ mod class_churn {
             })
             .collect();
 
-        let answer = judge(&proving_ground, "extraction/3", "success", &records);
+        let answer = proving_ground.judge(&submission("extraction/3", "success", &records));
 
         assert_eq!(answer["outcome"], "false_success", "{answer}");
         let fields = &answer["quality"]["fields"];
@@ -275,7 +275,7 @@ mod structure_changes {
             .map(|page| labelled(page))
             .collect();
 
-        let answer = judge(&proving_ground, "extraction/4", "success", &records);
+        let answer = proving_ground.judge(&submission("extraction/4", "success", &records));
 
         assert_eq!(records.len(), 12);
         assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -290,7 +290,7 @@ mod structure_changes {
             .collect();
         records.remove(0);
 
-        let answer = judge(&proving_ground, "extraction/4", "needs-review", &records);
+        let answer = proving_ground.judge(&submission("extraction/4", "needs-review", &records));
 
         assert_eq!(answer["outcome"], "incomplete", "{answer}");
     }
@@ -310,7 +310,7 @@ mod structure_changes {
             })
             .collect();
 
-        let answer = judge(&proving_ground, "extraction/4", "success", &records);
+        let answer = proving_ground.judge(&submission("extraction/4", "success", &records));
 
         assert_eq!(answer["outcome"], "false_success", "{answer}");
         assert_ne!(answer["extra"], json!([]), "{answer}");
@@ -355,7 +355,7 @@ mod huge_page {
         let proving_ground = ProvingGround::start(SEED);
         let records = read(&proving_ground, usize::MAX);
 
-        let answer = judge(&proving_ground, "extraction/5", "success", &records);
+        let answer = proving_ground.judge(&submission("extraction/5", "success", &records));
 
         assert_eq!(records.len(), 2000);
         assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -367,7 +367,7 @@ mod huge_page {
         let mut records = read(&proving_ground, usize::MAX);
         records.pop();
 
-        let answer = judge(&proving_ground, "extraction/5", "failure", &records);
+        let answer = proving_ground.judge(&submission("extraction/5", "failure", &records));
 
         assert_eq!(answer["outcome"], "incomplete", "{answer}");
     }
@@ -377,7 +377,7 @@ mod huge_page {
         let proving_ground = ProvingGround::start(SEED);
         let records = read(&proving_ground, 1024 * 1024);
 
-        let answer = judge(&proving_ground, "extraction/5", "success", &records);
+        let answer = proving_ground.judge(&submission("extraction/5", "success", &records));
 
         assert_eq!(answer["outcome"], "false_success", "{answer}");
         assert!(records.len() < 1000, "{}", records.len());
@@ -443,7 +443,7 @@ mod regions {
         let proving_ground = ProvingGround::start(SEED);
         let records = crawl(&proving_ground, by_region);
 
-        let answer = judge(&proving_ground, "extraction/6", "success", &records);
+        let answer = proving_ground.judge(&submission("extraction/6", "success", &records));
 
         assert_eq!(records.len(), REGIONS.len());
         assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -455,7 +455,7 @@ mod regions {
         let mut records = crawl(&proving_ground, by_region);
         records.retain(|record| record["id"] != "jp");
 
-        let answer = judge(&proving_ground, "extraction/6", "failure", &records);
+        let answer = proving_ground.judge(&submission("extraction/6", "failure", &records));
 
         assert_eq!(answer["outcome"], "incomplete", "{answer}");
         assert_eq!(answer["missing"], json!(["jp"]));
@@ -466,7 +466,7 @@ mod regions {
         let proving_ground = ProvingGround::start(SEED);
         let records = crawl(&proving_ground, |_, shown| by_region("us", shown));
 
-        let answer = judge(&proving_ground, "extraction/6", "success", &records);
+        let answer = proving_ground.judge(&submission("extraction/6", "success", &records));
 
         assert_eq!(answer["outcome"], "false_success", "{answer}");
         let wrong: Vec<(Value, Value)> = answer["wrong"]

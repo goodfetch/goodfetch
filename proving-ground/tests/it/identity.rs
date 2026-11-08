@@ -355,13 +355,9 @@ fn the_oracle_judges_a_tasks_signatures_from_the_records() {
     }
     let submission = |task: &str, records: &[Value]| json!({ "task": task, "status": "success", "records": records });
 
-    let signed = proving_ground
-        .judge(&submission("identity/1", &records))
-        .json();
+    let signed = proving_ground.judge(&submission("identity/1", &records));
     raw_clients::get(&proving_ground, &identified, "/catalog/1", &[]);
-    let one_unsigned = proving_ground
-        .judge(&submission("identity/1", &records))
-        .json();
+    let one_unsigned = proving_ground.judge(&submission("identity/1", &records));
     let headers = signed_headers(
         &RFC_KEY,
         &origin,
@@ -381,9 +377,7 @@ fn the_oracle_judges_a_tasks_signatures_from_the_records() {
         );
         standard_records.extend(records_on(&String::from_utf8_lossy(arrived.body())));
     }
-    let standard_signed = proving_ground
-        .judge(&submission("identity/2", &standard_records))
-        .json();
+    let standard_signed = proving_ground.judge(&submission("identity/2", &standard_records));
 
     assert_eq!(signed["outcome"], "verified", "{signed}");
     assert_eq!(one_unsigned["outcome"], "false_success", "{one_unsigned}");

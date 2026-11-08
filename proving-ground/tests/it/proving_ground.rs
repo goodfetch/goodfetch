@@ -6,7 +6,9 @@
 use std::io::{BufRead as _, BufReader};
 use std::process::{Child, ChildStdout, Command, Stdio};
 
-use goodfetch_test_support::{Observations, ROUTES, ServeLine};
+use goodfetch_test_support::{
+    LOOPBACK_PORT_0, Observations, ROUTES, ServeLine, UNSHAPED, serve_arguments,
+};
 use serde_json::{Value, json};
 
 /// A running `serve`, stopped when dropped.
@@ -60,26 +62,20 @@ impl Answer {
 impl ProvingGround {
     /// Starts `serve` on port 0 of the loopback address.
     pub(crate) fn start(seed: u64) -> Self {
-        Self::start_on(seed, "127.0.0.1:0")
+        Self::start_on(seed, LOOPBACK_PORT_0)
     }
 
     /// Starts `serve` on the given address.
     pub(crate) fn start_on(seed: u64, address: &str) -> Self {
-        Self::start_with(
-            seed,
-            &["--address", address, "--network-profile", "none"],
-            &[],
-        )
+        Self::start_with(&serve_arguments(seed, address, UNSHAPED))
     }
 
-    /// Starts `serve` with the given address and network arguments, in an
-    /// environment that holds only `environment`.
-    pub(crate) fn start_with(seed: u64, arguments: &[&str], environment: &[(&str, &str)]) -> Self {
+    /// Starts the Proving ground with `arguments`, `serve`'s from
+    /// [`serve_arguments`] and any after them, in an empty environment.
+    pub(crate) fn start_with(arguments: &[String]) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_goodfetch-proving-ground"))
-            .args(["serve", "--seed", &seed.to_string(), "--copy", "local"])
             .args(arguments)
             .env_clear()
-            .envs(environment.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -385,8 +381,22 @@ impl ProvingGround {
         Self::answer(response)
     }
 
-    /// Submits a result to the oracle.
-    pub(crate) fn judge(&self, submission: &Value) -> Answer {
+    /// The oracle's verdict on a submitted result, which it must answer
+    /// with 200: an error page fails here, naming its status and body,
+    /// never later as a wrong outcome.
+    pub(crate) fn judge(&self, submission: &Value) -> Value {
+        let answer = self.submit(submission);
+        assert_eq!(
+            answer.status, 200,
+            "the oracle judges the submission: {}",
+            answer.body
+        );
+        answer.json()
+    }
+
+    /// Submits a result to the oracle, answering whatever it answers, for a
+    /// test of a refused submission.
+    pub(crate) fn submit(&self, submission: &Value) -> Answer {
         let response = self
             .agent
             .post(format!("http://{}{}", self.address, ROUTES.oracle))

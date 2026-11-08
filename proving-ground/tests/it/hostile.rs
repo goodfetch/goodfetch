@@ -91,12 +91,10 @@ fn a_redirect_case_answers_as_its_stand_in_and_its_typed_refusal_is_verified(
     let proving_ground = ProvingGround::start(SEED);
     let page = proving_ground.get(&start_url(&proving_ground, id));
 
-    let answer = proving_ground
-        .judge(&refusal(
-            id,
-            &json!({ "code": "egress_refused", "rule": rule }),
-        ))
-        .json();
+    let answer = proving_ground.judge(&refusal(
+        id,
+        &json!({ "code": "egress_refused", "rule": rule }),
+    ));
 
     assert_eq!(page.status, status);
     assert_eq!(page.header("location"), Some(location));
@@ -108,9 +106,7 @@ fn a_redirect_case_refused_with_another_typed_error_fails_and_names_both() {
     let proving_ground = ProvingGround::start(SEED);
     let reported = json!({ "code": "egress_refused", "rule": "scheme" });
 
-    let answer = proving_ground
-        .judge(&refusal("redirects/1", &reported))
-        .json();
+    let answer = proving_ground.judge(&refusal("redirects/1", &reported));
 
     assert_eq!(answer["outcome"], "failed", "{answer}");
     assert_eq!(
@@ -133,9 +129,7 @@ fn a_tool_that_does_not_refuse_a_redirect_case_is_judged_a_failure(
 ) {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = proving_ground
-        .judge(&submission("redirects/6", status, &[]))
-        .json();
+    let answer = proving_ground.judge(&submission("redirects/6", status, &[]));
 
     assert_eq!(answer["outcome"], outcome, "{answer}");
 }
@@ -160,9 +154,7 @@ fn a_tool_that_refuses_the_redirect_to_the_proving_grounds_own_loopback_is_verif
     let page = proving_ground.get(&start_url(&proving_ground, "redirects/16"));
     let error = json!({ "code": "egress_refused", "rule": "private_address" });
 
-    let answer = proving_ground
-        .judge(&refusal("redirects/16", &error))
-        .json();
+    let answer = proving_ground.judge(&refusal("redirects/16", &error));
 
     assert_eq!(page.status, 302);
     assert_eq!(
@@ -190,9 +182,7 @@ fn a_tool_that_follows_the_redirect_to_its_own_loopback_is_recorded_reaching_it(
     );
     let error = json!({ "code": "egress_refused", "rule": "private_address" });
 
-    let answer = proving_ground
-        .judge(&refusal("redirects/16", &error))
-        .json();
+    let answer = proving_ground.judge(&refusal("redirects/16", &error));
 
     assert_eq!(reached.status, 200);
     assert_eq!(answer["outcome"], "failed", "{answer}");
@@ -204,13 +194,11 @@ fn a_chain_of_19_redirects_is_followed_to_its_record() {
     let proving_ground = ProvingGround::start(SEED);
     let (page, followed) = follow(&proving_ground, &start_url(&proving_ground, "redirects/17"));
 
-    let answer = proving_ground
-        .judge(&submission(
-            "redirects/17",
-            "success",
-            &[read_record(&page)],
-        ))
-        .json();
+    let answer = proving_ground.judge(&submission(
+        "redirects/17",
+        "success",
+        &[read_record(&page)],
+    ));
 
     assert_eq!(followed, 19);
     assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -255,10 +243,8 @@ fn a_chain_leaves_its_hosts_family_at_its_third_redirect() {
 fn too_many_redirects_is_the_only_right_answer_past_19(#[case] id: &str) {
     let proving_ground = ProvingGround::start(SEED);
 
-    let refused = proving_ground
-        .judge(&refusal(id, &json!({ "code": "too_many_redirects" })))
-        .json();
-    let claimed = proving_ground.judge(&submission(id, "success", &[])).json();
+    let refused = proving_ground.judge(&refusal(id, &json!({ "code": "too_many_redirects" })));
+    let claimed = proving_ground.judge(&submission(id, "success", &[]));
 
     assert_eq!(refused["outcome"], "verified", "{refused}");
     assert_eq!(claimed["outcome"], "false_success", "{claimed}");
@@ -269,13 +255,11 @@ fn a_tool_that_follows_a_chain_of_20_and_keeps_its_record_is_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
     let (page, followed) = follow(&proving_ground, &start_url(&proving_ground, "redirects/18"));
 
-    let answer = proving_ground
-        .judge(&submission(
-            "redirects/18",
-            "success",
-            &[read_record(&page)],
-        ))
-        .json();
+    let answer = proving_ground.judge(&submission(
+        "redirects/18",
+        "success",
+        &[read_record(&page)],
+    ));
 
     assert_eq!(followed, 20);
     assert_eq!(answer["outcome"], "false_success", "{answer}");
@@ -337,10 +321,8 @@ fn a_malformed_head_is_sent_as_its_bytes_and_only_a_refusal_is_verified(
     let response = raw_get(&proving_ground, &start_url(&proving_ground, id));
     let kept = read_record(&body(&response));
 
-    let refused = proving_ground.judge(&submission(id, "failure", &[])).json();
-    let claimed = proving_ground
-        .judge(&submission(id, "success", &[kept]))
-        .json();
+    let refused = proving_ground.judge(&submission(id, "failure", &[]));
+    let claimed = proving_ground.judge(&submission(id, "success", &[kept]));
 
     assert!(
         holds(head(&response), line),
@@ -372,10 +354,8 @@ fn a_head_the_browser_keeps_is_sent_as_its_bytes_and_its_record_is_verified(
     let response = raw_get(&proving_ground, &start_url(&proving_ground, id));
     let kept = read_record(&body(&response));
 
-    let answer = proving_ground
-        .judge(&submission(id, "success", &[kept]))
-        .json();
-    let refused = proving_ground.judge(&submission(id, "failure", &[])).json();
+    let answer = proving_ground.judge(&submission(id, "success", &[kept]));
+    let refused = proving_ground.judge(&submission(id, "failure", &[]));
 
     assert!(holds(head(&response), line));
     assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -387,16 +367,12 @@ fn an_oversized_head_is_sent_and_only_a_refusal_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let response = raw_get(&proving_ground, &start_url(&proving_ground, "headers/1"));
 
-    let refused = proving_ground
-        .judge(&submission("headers/1", "failure", &[]))
-        .json();
-    let claimed = proving_ground
-        .judge(&submission(
-            "headers/1",
-            "success",
-            &[read_record(&body(&response))],
-        ))
-        .json();
+    let refused = proving_ground.judge(&submission("headers/1", "failure", &[]));
+    let claimed = proving_ground.judge(&submission(
+        "headers/1",
+        "success",
+        &[read_record(&body(&response))],
+    ));
 
     assert!(head(&response).len() > 256 * 1024);
     assert_eq!(refused["outcome"], "verified", "{refused}");
@@ -433,13 +409,11 @@ fn a_tool_that_sends_an_injected_cookie_back_as_set_is_verified() {
     );
 
     let page = proving_ground.get_with_cookie(&next, Some(&cookie));
-    let answer = proving_ground
-        .judge(&submission(
-            "headers/9",
-            "success",
-            &[read_record(&page.body)],
-        ))
-        .json();
+    let answer = proving_ground.judge(&submission(
+        "headers/9",
+        "success",
+        &[read_record(&page.body)],
+    ));
 
     assert_eq!(cookie, "note=one%0D%0AX-Injected%3A%20yes");
     assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -452,13 +426,11 @@ fn a_tool_that_decodes_an_injected_cookie_is_recorded_and_fails() {
     let next = format!("{}/cookie-injection/next", origin(&start));
 
     let page = proving_ground.get_with_cookie(&next, Some("note=one"));
-    let answer = proving_ground
-        .judge(&submission(
-            "headers/9",
-            "success",
-            &[read_record(&page.body)],
-        ))
-        .json();
+    let answer = proving_ground.judge(&submission(
+        "headers/9",
+        "success",
+        &[read_record(&page.body)],
+    ));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(
@@ -473,9 +445,7 @@ fn a_location_holding_an_encoded_crlf_is_followed_with_its_encoding_untouched() 
     let start = start_url(&proving_ground, "headers/10");
 
     let (page, followed) = follow(&proving_ground, &start);
-    let answer = proving_ground
-        .judge(&submission("headers/10", "success", &[read_record(&page)]))
-        .json();
+    let answer = proving_ground.judge(&submission("headers/10", "success", &[read_record(&page)]));
 
     assert_eq!(followed, 1);
     assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -524,9 +494,7 @@ fn a_download_suggests_its_hostile_name(#[case] id: &str, #[case] disposition: &
 fn a_hostile_name_kept_as_one_safe_name_is_verified(#[case] id: &str, #[case] name: &str) {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = proving_ground
-        .judge(&saved_as(&proving_ground, id, name))
-        .json();
+    let answer = proving_ground.judge(&saved_as(&proving_ground, id, name));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -547,9 +515,7 @@ fn a_tool_that_saves_under_the_hostile_name_is_judged_a_failure(
 ) {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = proving_ground
-        .judge(&saved_as(&proving_ground, id, name))
-        .json();
+    let answer = proving_ground.judge(&saved_as(&proving_ground, id, name));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["unsafe_files"], json!([name]), "{answer}");
@@ -560,9 +526,7 @@ fn a_name_too_long_for_a_file_system_is_refused_as_saved() {
     let proving_ground = ProvingGround::start(SEED);
     let name = format!("{}.csv", "a".repeat(296));
 
-    let answer = proving_ground
-        .judge(&saved_as(&proving_ground, "downloads/18", &name))
-        .json();
+    let answer = proving_ground.judge(&saved_as(&proving_ground, "downloads/18", &name));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
 }
@@ -573,12 +537,8 @@ fn a_name_too_long_for_a_file_system_is_refused_as_saved() {
 fn a_harmless_name_is_kept_exactly(#[case] id: &str, #[case] name: &str) {
     let proving_ground = ProvingGround::start(SEED);
 
-    let kept = proving_ground
-        .judge(&saved_as(&proving_ground, id, name))
-        .json();
-    let renamed = proving_ground
-        .judge(&saved_as(&proving_ground, id, "download.csv"))
-        .json();
+    let kept = proving_ground.judge(&saved_as(&proving_ground, id, name));
+    let renamed = proving_ground.judge(&saved_as(&proving_ground, id, "download.csv"));
 
     assert_eq!(kept["outcome"], "verified", "{kept}");
     assert_ne!(renamed["outcome"], "verified", "{renamed}");
@@ -635,8 +595,8 @@ fn a_decompression_bomb_is_served_compressed_and_only_a_refusal_is_verified(
         body_bytes(&response).len()
     );
 
-    let refused = proving_ground.judge(&refusal(id, &ratio_refused())).json();
-    let claimed = proving_ground.judge(&submission(id, "success", &[])).json();
+    let refused = proving_ground.judge(&refusal(id, &ratio_refused()));
+    let claimed = proving_ground.judge(&submission(id, "success", &[]));
 
     assert_eq!(refused["outcome"], "verified", "{refused}");
     assert_eq!(claimed["outcome"], "false_success", "{claimed}");
@@ -666,7 +626,7 @@ fn a_bomb_refused_with_the_wrong_limit_setting_fails_and_names_both() {
     let proving_ground = ProvingGround::start(SEED);
     let reported = json!({ "code": "response_limit_exceeded", "setting": "network.max_body_size" });
 
-    let answer = proving_ground.judge(&refusal("bombs/1", &reported)).json();
+    let answer = proving_ground.judge(&refusal("bombs/1", &reported));
 
     assert_eq!(answer["outcome"], "failed", "{answer}");
     assert_eq!(
@@ -683,9 +643,7 @@ fn the_safe_compressed_page_is_kept() {
     assert!(holds(head(&response), b"content-encoding: gzip"));
 
     let page = String::from_utf8(gunzip(body_bytes(&response))).expect("the safe page is UTF-8");
-    let answer = proving_ground
-        .judge(&submission("bombs/6", "success", &[read_record(&page)]))
-        .json();
+    let answer = proving_ground.judge(&submission("bombs/6", "success", &[read_record(&page)]));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }

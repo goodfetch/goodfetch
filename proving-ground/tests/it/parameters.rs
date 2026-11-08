@@ -8,7 +8,7 @@
 use serde_json::{Value, json};
 
 use crate::crawler::{Crawler, Fetched, field, fixed_rules, links};
-use crate::proving_ground::ProvingGround;
+use crate::proving_ground::{ProvingGround, submission};
 
 const SEED: u64 = 164;
 const TASK: &str = "parameters/1";
@@ -52,18 +52,12 @@ fn start_url(proving_ground: &ProvingGround) -> String {
         .to_owned()
 }
 
-fn judge(proving_ground: &ProvingGround, status: &str, records: &[Value]) -> Value {
-    proving_ground
-        .judge(&json!({ "task": TASK, "status": status, "records": records }))
-        .json()
-}
-
 #[test]
 fn a_crawl_that_keeps_every_colour_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let pages = Crawler::new(&proving_ground).crawl(&start_url(&proving_ground));
 
-    let answer = judge(&proving_ground, "success", &records(&pages));
+    let answer = proving_ground.judge(&submission(TASK, "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -75,7 +69,7 @@ fn a_crawl_missing_one_product_page_is_incomplete() {
     let mut records = records(&pages);
     let dropped = records.pop().unwrap();
 
-    let answer = judge(&proving_ground, "needs-review", &records);
+    let answer = proving_ground.judge(&submission(TASK, "needs-review", &records));
 
     assert_eq!(answer["outcome"], "incomplete", "{answer}");
     assert_eq!(answer["missing"], json!([dropped["id"]]));
@@ -88,7 +82,7 @@ fn a_crawl_that_merges_the_colours_is_a_false_success_naming_the_pages_it_lost()
     crawler.key = colour_learned_as_no_effect;
     let pages = crawler.crawl(&start_url(&proving_ground));
 
-    let answer = judge(&proving_ground, "success", &records(&pages));
+    let answer = proving_ground.judge(&submission(TASK, "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     let missing = answer["missing"].as_array().unwrap();

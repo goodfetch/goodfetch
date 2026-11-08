@@ -10,6 +10,7 @@
 use std::io::{BufRead as _, BufReader};
 use std::process::{Command, Stdio};
 
+use goodfetch_test_support::{LOOPBACK_PORT_0, serve_arguments};
 use serde_json::Value;
 
 /// Where `tc` lives, for the Proving ground's cleared environment.
@@ -29,23 +30,8 @@ fn loopback_queueing() -> String {
 #[test]
 fn serve_sets_the_declared_netem_parameters_until_it_stops() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_goodfetch-proving-ground"))
-        .args([
-            "serve",
-            "--seed",
-            "160",
-            "--copy",
-            "local",
-            "--address",
-            "127.0.0.1:0",
-        ])
-        .args([
-            "--network-profile",
-            "rtt-20",
-            "--loss",
-            "1",
-            "--shaper",
-            "netem",
-        ])
+        .args(serve_arguments(160, LOOPBACK_PORT_0, "rtt-20"))
+        .args(["--loss", "1", "--shaper", "netem"])
         .env_clear()
         .env("PATH", PATH)
         .stdin(Stdio::null())

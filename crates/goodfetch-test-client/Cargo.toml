@@ -1,6 +1,6 @@
 [package]
 name = "goodfetch-test-client"
-description = "Goodfetch's protocol-aware Rust test helpers (ADR 0062's note of 2026-11-07): the test home's layout and what a test reads there; only ever a dev-dependency."
+description = "Goodfetch's protocol-aware Rust test helpers (ADR 0062's note of 2026-11-07): the test home's layout, what a test reads there and the one test Client stack, the hello, an Attached engine and a Client Connection; only ever a dev-dependency."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,6 +15,9 @@ goodfetch-protocol.workspace = true
 goodfetch-test-support.workspace = true
 serde_json.workspace = true
 goodfetch-workspace-hack.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
 
 [lints]
 workspace = true

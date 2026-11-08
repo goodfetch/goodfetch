@@ -2911,6 +2911,7 @@ dependencies = [
  "goodfetch-protocol",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
+ "rstest",
  "serde_json",
 ]
 

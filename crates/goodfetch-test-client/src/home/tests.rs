@@ -1,10 +1,11 @@
 use goodfetch_protocol::connection::{DaemonEndpoint, ProductVersion};
-use goodfetch_protocol::console::ConsoleState;
+use goodfetch_protocol::console::{ConsoleFailure, ConsoleState};
 use goodfetch_protocol::daemon::{DaemonRuntimeFile, DaemonToken};
 use goodfetch_test_support::{
     ConsoleState as TestConsoleState, DAEMON_SERVING_LOCK, DAEMON_SOCKET,
     DaemonEndpoint as TestDaemonEndpoint, RuntimeFile, TestEnv,
 };
+use rstest::rstest;
 
 use super::*;
 
@@ -57,16 +58,38 @@ fn the_scripted_daemons_lock_and_socket_are_named_as_a_daemons() {
     );
 }
 
-/// The runtime file a Daemon writes reads as the one the Scripted engine
-/// writes for the CLI and the SDKs, so the two cannot drift apart.
-#[test]
-fn a_daemons_runtime_file_reads_as_test_supports() {
+/// The runtime file a Daemon writes, in each state of its Console, reads as
+/// test support's copy of the format, which the Scripted engine writes for the
+/// CLI and the SDKs. It holds this direction: a Client reading what the
+/// Scripted engine writes is the scripted Daemon tests' to prove.
+#[rstest]
+#[case::serving(
+    ConsoleState::Serving("http://127.0.0.1:7801/".to_owned()),
+    TestConsoleState::Serving("http://127.0.0.1:7801/".to_owned()),
+)]
+#[case::failed(
+    ConsoleState::Failed(ConsoleFailure {
+        code: "console_port_in_use".to_owned(),
+        message: "The port is in use.".to_owned(),
+        fix: "Free the port.".to_owned(),
+    }),
+    TestConsoleState::Failed {
+        code: "console_port_in_use".to_owned(),
+        message: "The port is in use.".to_owned(),
+        fix: "Free the port.".to_owned(),
+    },
+)]
+#[case::absent(ConsoleState::Absent, TestConsoleState::Absent)]
+fn a_daemons_runtime_file_reads_as_test_supports(
+    #[case] console: ConsoleState,
+    #[case] read_as: TestConsoleState,
+) {
     let written = serde_json::to_string(&DaemonRuntimeFile {
         endpoint: DaemonEndpoint::Unix("/home/daemon.sock".into()),
         token: DaemonToken::new("token"),
         version: ProductVersion::parse("0.0.1").unwrap(),
         pid: 42,
-        console: ConsoleState::Serving("http://127.0.0.1:7801/".to_owned()),
+        console,
     })
     .unwrap();
 
@@ -79,7 +102,7 @@ fn a_daemons_runtime_file_reads_as_test_supports() {
             token: "token".to_owned(),
             version: "0.0.1".to_owned(),
             pid: 42,
-            console: TestConsoleState::Serving("http://127.0.0.1:7801/".to_owned()),
+            console: read_as,
         }
     );
 }

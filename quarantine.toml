@@ -16,3 +16,21 @@
 #   vitest      its full name, suites and title joined by ` > `;
 #   playwright  its file, suites and title joined by ` › `;
 #   pytest      its node ID, `tests/test_page.py::test_title`.
+
+[[test]]
+runner = "nextest"
+id = "goodfetch-collie::it page_events::a_listener_whose_client_reads_too_slowly_ends_with_page_events_lost"
+issue = 2224
+date = 2026-11-08
+
+[[test]]
+runner = "nextest"
+id = "goodfetch-collie::it browser_pool::a_recycled_browser_hands_its_session_over_with_its_cookies_and_storage::case_2_past_its_memory_cap"
+issue = 2225
+date = 2026-11-08
+
+[[test]]
+runner = "nextest"
+id = "goodfetch-foxhound::it navigation_gate::a_handlers_navigations_through_a_fresh_egress_relay_reach_their_domain_the_delay_apart"
+issue = 2226
+date = 2026-11-08

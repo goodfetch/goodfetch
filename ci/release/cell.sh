@@ -99,10 +99,10 @@ case "$part" in
     # profile runs before it: its executables were built again and
     # overwritten there, and its xtask never ran (6.5 of the 15 minutes the
     # build took on the server on 2026-10-23).
-    cargo run --quiet --locked --bin xtask -- test-tools --cargo-profile ci-test \
+    cargo run --quiet --locked --bin xtask -- test-tools build --cargo-profile ci-test \
       --target "$target" --out "$GOODFETCH_TEST_TOOLS"
     cargo run --quiet --locked --bin xtask -- quarantine exclude >"$exclusions"
-    cargo run --quiet --locked --bin xtask -- test-tools --cargo-profile ci \
+    cargo run --quiet --locked --bin xtask -- test-tools build --cargo-profile ci \
       --target "$target" --out "$rss_tools"
     ;;
   size)

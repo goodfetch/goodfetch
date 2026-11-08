@@ -10,8 +10,8 @@
 # The workspace defaults to the repository's. `DENY_FORMAT=json` passes
 # cargo-deny's JSON output through (the proofs read it). Before each
 # Product's check it prints `product: <name>`. A Product whose executable
-# crate does not exist yet (area 3's engine tracer adds them) is skipped and
-# listed; its configuration is still proven on ci/proofs/product-bans/.
+# crate is no package of the workspace fails the check, so a moved or
+# renamed crate (xtask/src/products.rs holds each) cannot skip it.
 set -euo pipefail
 
 repository=$(cd "$(dirname "$0")/../.." && pwd)
@@ -30,9 +30,8 @@ for entry in "${products[@]}"; do
   echo "product: $product"
   crate_manifest=$(awk -F'\t' -v name="$crate" '$1 == name { print $2 }' <<<"$members")
   if [[ -z "$crate_manifest" ]]; then
-    mkdir -p "$repository/target"
-    echo "$product's bans: skipped, its executable crate $crate does not exist yet" >>"$repository/target/skipped.txt"
-    echo "skipped: $product's executable crate $crate does not exist yet"
+    echo "error: $product's executable crate $crate is no package of $manifest; name the crate here as xtask/src/products.rs does" >&2
+    failed=1
     continue
   fi
   # -A unused-wrapper: a wrapper for a crate the Product does not link is

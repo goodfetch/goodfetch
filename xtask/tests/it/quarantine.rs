@@ -25,7 +25,29 @@ fn quarantine(workspace: &Workspace, runner: &str, id: &str) {
 }
 
 fn check(workspace: &Workspace, github: &GitHub) -> Outcome {
-    workspace.xtask(&["quarantine", "check", "--api-url", github.url()])
+    workspace.xtask_with_env(
+        &["quarantine", "check", "--api-url", github.url()],
+        &[("GITHUB_TOKEN", "a-read-token".as_ref())],
+    )
+}
+
+/// Without a token, a private repository answers 404 for every issue: the
+/// check names the missing token instead of each entry's issue.
+#[test]
+fn an_entry_read_without_a_github_token_fails_naming_the_token() {
+    let workspace = Workspace::from_fixture("quarantine");
+    quarantine(&workspace, "nextest", "sample tests::flaky");
+    let github = GitHub::serving(&[]);
+
+    let outcome = workspace.xtask(&["quarantine", "check", "--api-url", github.url()]);
+
+    assert_ne!(outcome.code, 0);
+    assert_eq!(outcome.findings(), vec![]);
+    assert!(
+        outcome.stderr.contains("no GitHub token"),
+        "{}",
+        outcome.stderr
+    );
 }
 
 #[test]
@@ -51,7 +73,10 @@ fn an_empty_list_runs_no_runner_and_builds_nothing() {
         workspace
             .xtask_with_env(
                 &["quarantine", "check", "--api-url", github.url()],
-                &[("CARGO", no_cargo.as_os_str())],
+                &[
+                    ("CARGO", no_cargo.as_os_str()),
+                    ("GITHUB_TOKEN", "a-read-token".as_ref()),
+                ],
             )
             .code
     };

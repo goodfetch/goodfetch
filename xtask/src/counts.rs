@@ -1352,12 +1352,6 @@ fn executables(
     Ok(executables)
 }
 
-/// The one message of Cargo's JSON output this command reads.
-#[derive(Deserialize)]
-struct Message {
-    executable: Option<PathBuf>,
-}
-
 /// Builds `family`'s target and answers its executable.
 fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
     // The package's dev-dependency on itself turns its executable on, which
@@ -1381,9 +1375,8 @@ fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
     if !output.status.success() {
         bail!("cargo build of {}'s benchmark failed", family.name);
     }
-    let built = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Message>(line).ok())
+    let built = crate::child_cargo::messages(&output.stdout)?
+        .into_iter()
         .find_map(|message| message.executable)
         .with_context(|| format!("cargo build reported no executable for {}", family.name))?;
     // Every family's example is `counts`, which Cargo leaves at one path, so

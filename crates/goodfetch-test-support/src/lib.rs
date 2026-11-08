@@ -44,6 +44,7 @@ pub mod callgrind;
 mod canaries;
 mod cli;
 mod colour;
+mod command_tree;
 mod counting_vfs;
 mod crash_dumps;
 mod crash_vfs;
@@ -113,6 +114,9 @@ pub use cli::{
     Cli, CliError, CliJson, CliOutput, Mode, Stream, cli, record_command, record_command_in,
 };
 pub use colour::{ColourError, ColourProperty};
+pub use command_tree::{
+    certificate_verification_switches, command_help, command_paths, long_flags,
+};
 pub use counting_vfs::CountingVfs;
 pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};
 pub use crash_vfs::{

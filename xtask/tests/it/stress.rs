@@ -211,6 +211,93 @@ fn quarantined_test_is_not_stressed() {
     assert_eq!(selection, expected);
 }
 
+/// `steady.rs`'s `flaky` test on the quarantine list, alone.
+const FLAKY_ON_THE_LIST: &[u8] = b"[[test]]\nrunner = \"nextest\"\nid = \"stressed steady::tests::flaky\"\nissue = 1601\ndate = 2026-10-18\n";
+
+/// A base whose quarantine list holds no test.
+fn base_with_an_empty_list() -> (Workspace, String) {
+    let workspace = Workspace::from_fixture("stress");
+    workspace.install_runners();
+    workspace.write("quarantine.toml", b"");
+    let base = workspace.commit_all();
+    (workspace, base)
+}
+
+/// Commits `flaky` onto the quarantine list, then commits it off.
+fn quarantine_and_lift_flaky(workspace: &Workspace) {
+    workspace.write("quarantine.toml", FLAKY_ON_THE_LIST);
+    workspace.commit_all();
+    workspace.write("quarantine.toml", b"");
+    workspace.commit_all();
+}
+
+/// The base's list never held it and its file is as the base has it, so
+/// nothing but the branch's commits say it was ever quarantined.
+#[test]
+fn a_test_quarantined_and_lifted_on_the_branch_runs_200_times_with_its_file_untouched() {
+    let (workspace, base) = base_with_an_empty_list();
+    quarantine_and_lift_flaky(&workspace);
+
+    let selection = select(&workspace, &["--base", &base, "--within", "stressed"]);
+
+    assert_eq!(
+        selection,
+        [selected(
+            UNQUARANTINED,
+            "nextest",
+            "stressed steady::tests::flaky"
+        )]
+    );
+}
+
+/// Its changed file would give it 20 runs: the larger count holds. The
+/// file's other test is only changed.
+#[test]
+fn a_test_quarantined_and_lifted_on_the_branch_runs_200_times_with_its_file_changed() {
+    let (workspace, base) = base_with_an_empty_list();
+    quarantine_and_lift_flaky(&workspace);
+    workspace.edit(
+        "src/steady.rs",
+        "fn flaky() {}",
+        "fn flaky() { let _ = 1; }",
+    );
+    workspace.commit_all();
+
+    let selection = select(&workspace, &["--base", &base, "--within", "stressed"]);
+
+    assert_eq!(
+        selection,
+        [
+            selected(CHANGED, "nextest", "stressed steady::tests::unchanged"),
+            selected(UNQUARANTINED, "nextest", "stressed steady::tests::flaky"),
+        ]
+    );
+}
+
+/// The merge leaves the list as both its parents have it, so Git's default
+/// history of the file leaves out the side branch that held the entry.
+#[test]
+fn a_test_quarantined_and_lifted_on_a_merged_branch_runs_200_times() {
+    let (workspace, base) = base_with_an_empty_list();
+    workspace.git(&["switch", "--quiet", "--create", "side"]);
+    quarantine_and_lift_flaky(&workspace);
+    workspace.git(&["switch", "--quiet", "--detach", &base]);
+    workspace.write("notes.txt", b"a commit the side branch lacks\n");
+    workspace.commit_all();
+    workspace.git(&["merge", "--quiet", "--no-ff", "--no-edit", "side"]);
+
+    let selection = select(&workspace, &["--base", &base, "--within", "stressed"]);
+
+    assert_eq!(
+        selection,
+        [selected(
+            UNQUARANTINED,
+            "nextest",
+            "stressed steady::tests::flaky"
+        )]
+    );
+}
+
 /// A runner may hold no test, as Playwright before the first Playwright
 /// test exists: it lists none, and the others' tests are still chosen.
 #[test]

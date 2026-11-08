@@ -3,10 +3,11 @@
 //!   the base's listing, so a renamed test too) or changed (their file
 //!   changed, plus what Vitest's `--changed` and Playwright's
 //!   `--only-changed` reach) run 20 times; a test the change takes off the
-//!   quarantine list runs 200 times. A test still on the list runs never, as
-//!   in every suite. The base's listings are read from those the
-//!   cache-warming job saved for its commit, else listed from a checkout of
-//!   the base in the same job.
+//!   quarantine list, on it at the base or at any of the change's commits and
+//!   not at the head, runs 200 times, whatever its file's state. A test still
+//!   on the list runs never, as in every suite. The base's listings are read
+//!   from those the cache-warming job saved for its commit, else listed from
+//!   a checkout of the base in the same job.
 //!   The incremental gate (ADR 0135) narrows it `--within` the members the
 //!   change since an earlier gate run reaches, and adds every test whose
 //!   file that change (`--since` the earlier run's head) changed.
@@ -198,7 +199,7 @@ fn select(
     } else {
         BTreeSet::new()
     };
-    let base_list = quarantined(base_quarantine(root, &base)?);
+    let listed_in_the_change = quarantined(lists_in_the_change(root, &base)?);
     let base_listings = base_listings(root, runners, &base, saved, &lists)?;
     let packages = metadata::packages(runners.cargo, root)?;
     let root = canonical(root)?;
@@ -228,7 +229,7 @@ fn select(
                 continue;
             }
             let test_file = file(&root, &packages, &location, &test);
-            let pull_request = if base_list.contains(&(runner, test.clone())) {
+            let pull_request = if listed_in_the_change.contains(&(runner, test.clone())) {
                 Some(UNQUARANTINED_RUNS)
             } else if !listed_at_base.contains(&test)
                 || reached.contains(&test)
@@ -263,9 +264,28 @@ fn select(
     })
 }
 
-/// The base commit's quarantine list; none when it has no list.
-fn base_quarantine(root: &Path, base: &str) -> Result<Vec<quarantine::Entry>> {
-    let object = format!("{base}:{}", quarantine::LIST);
+/// Every entry the quarantine list holds at `base` or at a commit of the
+/// change: a test the change's commits put on the list and take off leaves it
+/// in this change, though the base never held it.
+fn lists_in_the_change(root: &Path, base: &str) -> Result<Vec<quarantine::Entry>> {
+    let mut entries = quarantine_at(root, base)?;
+    let range = format!("{base}..HEAD");
+    // Git's default history of a file leaves out a merged branch that left the
+    // file as it found it, which is what putting an entry on and taking it off
+    // does.
+    let commits = git::text(
+        root,
+        &["rev-list", "--full-history", &range, "--", quarantine::LIST],
+    )?;
+    for commit in commits.lines() {
+        entries.extend(quarantine_at(root, commit)?);
+    }
+    Ok(entries)
+}
+
+/// A commit's quarantine list; none when it has no list.
+fn quarantine_at(root: &Path, commit: &str) -> Result<Vec<quarantine::Entry>> {
+    let object = format!("{commit}:{}", quarantine::LIST);
     if !git::succeeds(root, &["cat-file", "-e", "--end-of-options", &object])? {
         return Ok(Vec::new());
     }

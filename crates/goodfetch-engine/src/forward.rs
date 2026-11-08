@@ -17,6 +17,7 @@ use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface
 use goodfetch_protocol::daemon::DaemonEndpoint;
 use goodfetch_protocol::jsonrpc::{ErrorObject, META, Message, Request, RequestId, Version};
 use goodfetch_protocol::run::{RUN_ABORT, RunAbortParams, RunId, RunOwner, RunReport};
+use goodfetch_protocol::settings::TIMEOUT_CLOSE;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tracing::Instrument as _;
@@ -24,14 +25,23 @@ use tracing::Instrument as _;
 use crate::attached::read_token;
 use crate::clock::Clock;
 use crate::daemon::files::DaemonFiles;
+use crate::deadline::Deadline;
 use crate::home::Home;
 use crate::runs::{Forwarder, ReadAnswer};
 use crate::tasks::TaskOwner;
 use crate::{trace, transport};
 
-/// How long the owner has to answer `hello`: a live owner answers at once,
-/// and a Run's own abort then takes what its next safe point takes.
+/// How long the owner has to answer `hello`: a live owner answers at once.
 const HELLO_DEADLINE: Duration = Duration::from_secs(5);
+
+/// How long the owner has to answer the forwarded call once it accepted
+/// `hello`: what `timeout.close` gives a stop by default, since an abort
+/// waits for the Run's next safe point. An owner that answers nothing by
+/// then counts as one that did not take the action, so the abort retries
+/// the writer lock rather than waiting forever.
+fn answer_deadline() -> Duration {
+    Deadline::declared(&TIMEOUT_CLOSE).duration()
+}
 
 /// Forwards to the owner the Run index names: a Daemon of one major, or an
 /// Attached engine.
@@ -131,9 +141,10 @@ impl Forwarder for ToOwner {
 
 /// Opens a Connection to `owner`, says `hello`, sends `method` with
 /// `params` and reads its answer: its result, or the failure it answered;
-/// `Err` when it gave neither. The call is a request the engine sends, so
-/// it opens a `CLIENT` span, whose Trace context its `_meta` carries (ADR
-/// 0132); `hello` opens the Connection and carries none.
+/// `Err` when it gave neither, or not within its deadline. The call is a
+/// request the engine sends, so it opens a `CLIENT` span, whose Trace
+/// context its `_meta` carries (ADR 0132); `hello` opens the Connection and
+/// carries none.
 async fn call(
     owner: &DaemonEndpoint,
     hello: &HelloParams,
@@ -187,7 +198,10 @@ async fn exchange(
         () = clock.sleep(HELLO_DEADLINE) => return Err("no answer to `hello`".to_owned()),
     }
     send(&mut writer, CALL, method, params).await?;
-    let answer = reply(&mut lines, CALL).await?;
+    let answer = tokio::select! {
+        answer = reply(&mut lines, CALL) => answer?,
+        () = clock.sleep(answer_deadline()) => return Err(format!("no answer to `{method}`")),
+    };
     let _ = writer.shutdown().await;
     Ok(answer)
 }
@@ -237,3 +251,6 @@ async fn send(
     };
     sent.map_err(|error| format!("`{method}` not sent: {error}"))
 }
+
+#[cfg(test)]
+mod tests;

@@ -19,7 +19,7 @@
 use std::time::{Duration, Instant};
 
 use goodfetch_protocol::page::{PageOpened, SessionId};
-use goodfetch_test_client::{HomeLayout, robots_txt_readings};
+use goodfetch_test_client::{HomeLayout, robots_txt_read, robots_txt_readings};
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use rstest::rstest;
 use serde_json::{Map, Value, json};
@@ -318,6 +318,65 @@ fn a_recycled_browser_hands_its_session_over_with_its_cookies_and_storage(#[case
             ],
             (2, &json!({}), 1),
         )
+    );
+}
+
+/// The page the engine opens in a Session to read a document's robots.txt
+/// moves no Session, whatever its browser reached: the Session stays with
+/// the page that is still loading, so what that page writes once the
+/// reading reached the site is written before the Session's next page moves
+/// it, and is carried.
+/// Covers: story:3-62, setting:governor.browser.recycle_pages, setting:governor.browser.memory_cap, operation:session.new_page
+#[cfg(unix)]
+#[rstest]
+#[case::after_its_pages(json!({ "recycle_pages": 1 }))]
+#[case::past_its_memory_cap(json!({ "memory_cap": 1 }))]
+fn storage_written_after_the_engines_own_page_read_robots_txt_is_carried(#[case] limit: Value) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        "reading",
+        &pool(limit),
+        |_| {},
+    );
+    let session = new_session(&mut engine, 2, "reading");
+    let first = page_in(&mut engine, 3, &session);
+    let stored = store(&mut engine, 4, &proving_ground, &first, "first");
+    robots_txt_read(&env, "reading");
+
+    let written = engine.ask(
+        5,
+        "page.evaluate",
+        &json!({
+            "page_id": first.page_id,
+            "function": "() => { localStorage.setItem(\"mark\", \"after-reading\"); }",
+        }),
+    );
+    let second = page_in(&mut engine, 6, &session);
+    let carried = store(&mut engine, 7, &proving_ground, &second, "second");
+    let _ = engine.ask(8, "run.finish", &json!({ "run_id": "reading" }));
+    let _ = engine.finish();
+
+    assert_eq!(
+        (
+            (stored, written.get("result").is_some(), carried),
+            storage_requests(&proving_ground, "/storage/found")
+                .into_iter()
+                .map(|(target, _)| target)
+                .collect::<Vec<_>>(),
+        ),
+        (
+            (json!(200), true, json!(200)),
+            vec![
+                "/storage/found?mark=none".to_owned(),
+                "/storage/found?mark=after-reading".to_owned(),
+            ],
+        ),
+        "{written}"
     );
 }
 

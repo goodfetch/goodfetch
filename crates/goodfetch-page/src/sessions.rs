@@ -892,9 +892,7 @@ impl Sessions {
         }
         open.life.call().await?;
         lease_holds(value)?;
-        // Hidden, so Chromium asks no site for the icon of the document it
-        // loads (ticket #1608).
-        let (driver, in_browser) = open.seat.new_page(Visibility::Hidden).await?;
+        let (driver, in_browser) = open.seat.new_engine_page().await?;
         Ok(EnginePage {
             driver: driver.with_value(value.clone(), open.run.clock()),
             in_browser: Some(in_browser),

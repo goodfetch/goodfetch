@@ -15,7 +15,8 @@
 //! 0040: a Session is not its browser); the pages a Session left behind
 //! stay open where they are, and the recycled browser closes once none is
 //! left, taking along the cookies and storage of a Session that had not
-//! moved yet. A browser holding a page in a Human pause, under a person in
+//! moved yet. Only a page a program opens moves a Session, never one the
+//! engine opens for itself. A browser holding a page in a Human pause, under a person in
 //! the Live view or under a raw CDP attach is recycled only once that page
 //! is released. A Borrowed browser never enters the pool, so it is neither
 //! recycled nor counted.
@@ -974,7 +975,27 @@ impl Seat {
         &self,
         visibility: Visibility,
     ) -> Result<(PageDriver, InBrowser), CallError> {
-        let (number, driver, opening) = self.shared.seated(true).await?;
+        self.page_seated(true, visibility).await
+    }
+
+    /// Opens a page the engine drives itself in the browser the Session is
+    /// seated in, recycled or not: only a program's page moves a Session. The
+    /// engine opens one as a page's document arrives, to read its robots.txt,
+    /// so a move here would take the Session's storage before that page's
+    /// scripts wrote it. Hidden, so Chromium asks no site for the icon of the
+    /// document it loads (ticket #1608).
+    pub(crate) async fn new_engine_page(&self) -> Result<(PageDriver, InBrowser), CallError> {
+        self.page_seated(false, Visibility::Hidden).await
+    }
+
+    /// Opens a page of `visibility` where the Session is seated, having first
+    /// left a recycled browser when `moving`.
+    async fn page_seated(
+        &self,
+        moving: bool,
+        visibility: Visibility,
+    ) -> Result<(PageDriver, InBrowser), CallError> {
+        let (number, driver, opening) = self.shared.seated(moving).await?;
         let in_browser = self.shared.pool.page_opening(number, self.shared.number);
         drop(opening);
         let page = driver.new_page(visibility).await?;

@@ -3,10 +3,9 @@
 //! marked with the smallest Product that carries it by where it is defined,
 //! Foxhound's own in the `foxhound` module (ADRs 0095 and 0099).
 //!
-//! The `emit` example writes the committed JSON Schema bundle and catalog
-//! file; `xtask codegen` runs it and generates every other surface from them.
-//! The entries here are samples that carry the pipeline until each area
-//! defines its own contracts.
+//! `xtask codegen` emits the committed JSON Schema bundle and catalog file
+//! from them, through the catalog's [`catalog::sections`], and generates
+//! every other surface from those.
 #![warn(missing_docs)]
 
 pub mod audit;
@@ -23,7 +22,6 @@ pub mod daemon;
 pub mod dns;
 pub mod download;
 pub mod egress;
-pub mod emit;
 pub mod engine;
 pub mod entries;
 pub mod events;

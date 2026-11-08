@@ -1,9 +1,9 @@
-//! The JSON Schema bundle and catalog file, which `goodfetch-protocol`
-//! writes through schemars (ADR 0038). On the workspace `xtask` is built
-//! from, `xtask` links that crate and emits them itself, so `xtask codegen
-//! --check` starts no process. Another workspace, such as a test's fixture
-//! with its own `goodfetch-protocol`, is emitted by running its `emit`
-//! example: the Rust toolchain, never a generator.
+//! The JSON Schema bundle and catalog file of `goodfetch-protocol`'s types
+//! (ADR 0038). On the workspace `xtask` is built from, `xtask` links that
+//! crate and emits them itself (`emit`), so `xtask codegen --check` starts
+//! no process. Another workspace, such as a test's fixture with its own
+//! `goodfetch-protocol`, is emitted by running that crate's `emit` example:
+//! the Rust toolchain, never a generator.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -40,7 +40,7 @@ pub(super) fn built_from(root: &Path) -> bool {
 /// The files as the `emit` example writes them: pretty JSON with a final
 /// newline.
 fn linked() -> Result<Emitted> {
-    let emitted = goodfetch_protocol::emit::emit();
+    let emitted = super::emit::emit();
     let text = |value: &serde_json::Value| -> Result<Vec<u8>> {
         let mut text = serde_json::to_string_pretty(value)?;
         text.push('\n');

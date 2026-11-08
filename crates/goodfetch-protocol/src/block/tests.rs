@@ -1,12 +1,24 @@
 use rstest::rstest;
+use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
 use super::BlockCause;
-use crate::emit::emit;
+use crate::catalog::sections::Sections;
+use crate::entries::MODULES;
+
+/// The catalog file's sections of every module's entries.
+fn catalog() -> Value {
+    let mut generator = SchemaSettings::draft2020_12().into_generator();
+    let mut sections = Sections::default();
+    for entries in MODULES {
+        sections.add(entries, &mut generator);
+    }
+    sections.into_catalog(Vec::new())
+}
 
 /// The catalog's entry of the Block cause `name`, if it lists one.
 fn catalog_entry(name: &str) -> Option<Value> {
-    emit().catalog["shared_type_values"]
+    catalog()["shared_type_values"]
         .as_array()?
         .iter()
         .find(|value| value["type"] == "block_cause" && value["name"] == name)
@@ -40,9 +52,9 @@ fn each_block_cause_is_on_the_wire_as_written_and_in_the_catalog_under_its_produ
 
 #[test]
 fn the_catalog_lists_no_block_cause_beyond_the_closed_list() {
-    let emitted = emit();
+    let catalog = catalog();
 
-    let mut names: Vec<&str> = emitted.catalog["shared_type_values"]
+    let mut names: Vec<&str> = catalog["shared_type_values"]
         .as_array()
         .unwrap()
         .iter()
@@ -53,35 +65,6 @@ fn the_catalog_lists_no_block_cause_beyond_the_closed_list() {
 
     assert_eq!(
         names,
-        [
-            "captcha",
-            "challenge",
-            "consent_required",
-            "decoy",
-            "ip_block",
-            "payment_required",
-            "rate_limit"
-        ]
-    );
-}
-
-#[test]
-fn the_bundle_holds_the_block_cause_type_with_every_cause() {
-    let emitted = emit();
-
-    assert_eq!(
-        emitted.bundle["shared_types"]["block_cause"],
-        json!({ "$ref": "#/$defs/BlockCause" })
-    );
-    let mut values: Vec<&str> = emitted.bundle["$defs"]["BlockCause"]["oneOf"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|value| value["const"].as_str().unwrap())
-        .collect();
-    values.sort_unstable();
-    assert_eq!(
-        values,
         [
             "captcha",
             "challenge",

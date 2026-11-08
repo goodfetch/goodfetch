@@ -1,5 +1,5 @@
 //! The committed JSON Schema bundle and catalog file, emitted from every
-//! module's entries through schemars (ADR 0038). The bundle holds every
+//! module of `goodfetch-protocol`'s entries through schemars (ADR 0038). The bundle holds every
 //! type's schema under `$defs`; the catalog lists every entry with its
 //! Product mark (ADR 0095) and refers to its types in the bundle.
 //!
@@ -35,46 +35,46 @@
 use schemars::generate::SchemaSettings;
 use serde_json::{Value, json};
 
-use crate::block::BlockCause;
-use crate::browser_cache::{BrowserCleaned, BrowserInstalled};
-use crate::case_log::CaseLogEntry;
-use crate::catalog::sections::Sections;
-use crate::catalog::{PROTOCOL_VERSION, Product};
-use crate::cli::{CommandFailed, ExitCodeRow, exit_code_table};
-use crate::connection::{CancelParams, HelloParams, HelloResult};
-use crate::console::ConsoleOpened;
-use crate::daemon::{
+use goodfetch_protocol::block::BlockCause;
+use goodfetch_protocol::browser_cache::{BrowserCleaned, BrowserInstalled};
+use goodfetch_protocol::case_log::CaseLogEntry;
+use goodfetch_protocol::catalog::sections::Sections;
+use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
+use goodfetch_protocol::cli::{CommandFailed, ExitCodeRow, exit_code_table};
+use goodfetch_protocol::connection::{CancelParams, HelloParams, HelloResult};
+use goodfetch_protocol::console::ConsoleOpened;
+use goodfetch_protocol::daemon::{
     DaemonHealthOutput, DaemonStatus, DaemonUninstallOutput, HttpListenerToken, TokenRotated,
 };
-use crate::entries::MODULES;
-use crate::events::{CreditParams, EventBatch};
-use crate::formats::FORMATS;
-use crate::foxhound::dataset::RecordRead;
-use crate::foxhound::frontier::{EnqueuedBatch, SeedBatch};
-use crate::journey::{Journey, JourneyCatalog};
-use crate::jsonrpc::{META, TraceContext};
-use crate::key_value_store::KeyValueStoreKey;
-use crate::log::LogEvent;
-use crate::page::Chunk;
-use crate::releases::ReleasesFile;
-use crate::result_document::ResultDocument;
-use crate::run::RunsReindexOutput;
-use crate::settings::SettingsExplanation;
-use crate::versions::FilesUpgraded;
+use goodfetch_protocol::entries::MODULES;
+use goodfetch_protocol::events::{CreditParams, EventBatch};
+use goodfetch_protocol::formats::FORMATS;
+use goodfetch_protocol::foxhound::dataset::RecordRead;
+use goodfetch_protocol::foxhound::frontier::{EnqueuedBatch, SeedBatch};
+use goodfetch_protocol::journey::{Journey, JourneyCatalog};
+use goodfetch_protocol::jsonrpc::{META, TraceContext};
+use goodfetch_protocol::key_value_store::KeyValueStoreKey;
+use goodfetch_protocol::log::LogEvent;
+use goodfetch_protocol::page::Chunk;
+use goodfetch_protocol::releases::ReleasesFile;
+use goodfetch_protocol::result_document::ResultDocument;
+use goodfetch_protocol::run::RunsReindexOutput;
+use goodfetch_protocol::settings::SettingsExplanation;
+use goodfetch_protocol::versions::FilesUpgraded;
 
 /// The bundle's `files` key of every Journey file, `journeys/J-NNN.toml`.
-pub const JOURNEY_FILES: &str = "journeys/J-*.toml";
+pub(super) const JOURNEY_FILES: &str = "journeys/J-*.toml";
 
 /// The two committed files, as JSON values.
-pub struct Emitted {
+pub(super) struct Emitted {
     /// The JSON Schema bundle.
-    pub bundle: Value,
+    pub(super) bundle: Value,
     /// The catalog file.
-    pub catalog: Value,
+    pub(super) catalog: Value,
 }
 
 /// Emits the bundle and catalog of every entry this crate defines.
-pub fn emit() -> Emitted {
+pub(super) fn emit() -> Emitted {
     let mut generator = SchemaSettings::draft2020_12().into_generator();
     let mut sections = Sections::default();
     for entries in MODULES {

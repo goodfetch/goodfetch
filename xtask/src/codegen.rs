@@ -1,6 +1,6 @@
-//! `xtask codegen` (ADRs 0038, 0087, 0094 and 0095): builds `goodfetch-protocol`'s
-//! `emit` example, which writes the JSON Schema bundle and catalog file
-//! through schemars, and writes from them every generated file: each
+//! `xtask codegen` (ADRs 0038, 0087, 0094 and 0095): emits the JSON Schema
+//! bundle and catalog file from `goodfetch-protocol`'s types through
+//! schemars (`emit`), and writes from them every generated file: each
 //! Product's projection, the names only Foxhound carries, the namespaces of
 //! the commands Collie's executable generates, the cargo-deny
 //! `wrappers` list of Foxhound's crates and Collie's ban of them, cargo-deny's
@@ -43,6 +43,7 @@ mod console;
 mod counted_work;
 mod deny;
 mod digest;
+mod emit;
 mod emitter;
 mod executables;
 mod facts;
@@ -68,8 +69,8 @@ use crate::check::Finding;
 use crate::compat;
 use crate::environment::Environment;
 use crate::features;
+use emit::JOURNEY_FILES;
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::emit::JOURNEY_FILES;
 use layer::Layer;
 
 /// Where `goodfetch-protocol`'s committed outputs live.

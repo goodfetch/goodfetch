@@ -2,7 +2,7 @@ use rstest::rstest;
 use serde_json::json;
 
 use super::emit;
-use crate::catalog::Product;
+use goodfetch_protocol::catalog::Product;
 
 #[test]
 fn the_bundle_holds_the_schema_of_the_releases_file() {
@@ -477,7 +477,36 @@ fn no_requests_params_type_is_a_member_of_another_type() {
 #[case::a_number(r#"{ "traceparent": 1 }"#, false)]
 fn a_trace_context_reads_only_its_two_strings(#[case] meta: &str, #[case] reads: bool) {
     assert_eq!(
-        serde_json::from_str::<crate::jsonrpc::TraceContext>(meta).is_ok(),
+        serde_json::from_str::<goodfetch_protocol::jsonrpc::TraceContext>(meta).is_ok(),
         reads
+    );
+}
+
+#[test]
+fn the_bundle_holds_the_block_cause_type_with_every_cause() {
+    let emitted = emit();
+
+    assert_eq!(
+        emitted.bundle["shared_types"]["block_cause"],
+        json!({ "$ref": "#/$defs/BlockCause" })
+    );
+    let mut values: Vec<&str> = emitted.bundle["$defs"]["BlockCause"]["oneOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| value["const"].as_str().unwrap())
+        .collect();
+    values.sort_unstable();
+    assert_eq!(
+        values,
+        [
+            "captcha",
+            "challenge",
+            "consent_required",
+            "decoy",
+            "ip_block",
+            "payment_required",
+            "rate_limit"
+        ]
     );
 }

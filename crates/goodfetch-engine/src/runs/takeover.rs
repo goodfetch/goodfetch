@@ -17,7 +17,7 @@ use goodfetch_protocol::run::{
     Lifecycle, Presence, RunAxes, RunId, RunIndexRow, RunReport, StopReason,
 };
 
-use super::folder::{Recorded, point_in_time, read_recorded, write_end};
+use super::folder::{Recorded, read_recorded, write_end};
 use super::lifecycle::{self, Next, RunEvent};
 use super::report::{self, EndFacts, ReportPart};
 use super::writer::{retried, try_lock};
@@ -255,7 +255,7 @@ impl TakeOver {
             lifecycle,
             stop_reason: Some(StopReason::Abort { by: self.by }),
             started_at: recorded.started_at.clone(),
-            ended_at: point_in_time(&self.clock),
+            ended_at: self.clock.point_in_time(),
             policy_version: recorded.policy_version.clone(),
             weakened: recorded.weakened.clone(),
             settings: None,

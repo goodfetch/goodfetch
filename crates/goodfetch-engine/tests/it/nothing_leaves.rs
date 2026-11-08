@@ -17,7 +17,7 @@ use goodfetch_engine::browser_cache::{
 };
 
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::http_client::Resolve;
+use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, InstallOutcome, PinnedBy};
 use goodfetch_protocol::catalog::Product;
@@ -92,8 +92,8 @@ fn fetching(proving_ground: &ProvingGround, offline: Option<SettingsLayer>) -> F
     let resolve = description
         .resolve
         .iter()
-        .fold(Resolve::new(), |resolve, (host, address)| {
-            resolve.with(host.clone(), vec![address.parse::<IpAddr>().unwrap()])
+        .fold(HostMapping::default(), |resolve, (host, address)| {
+            resolve.with(host, vec![address.parse::<IpAddr>().unwrap()])
         })
         .with(UNSERVED_HOST, vec![target.ip()]);
     Fetching {

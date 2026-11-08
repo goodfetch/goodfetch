@@ -34,3 +34,10 @@ tracing-subscriber.workspace = true
 
 [lints]
 workspace = true
+
+# Its tests run test support's goodfetch-scripted-engine and Collie's
+# executable through the test tool manifest `kennel/scripts/check.sh`
+# writes, so a change to either, or to what either is built from, runs the
+# Kennel's job (`xtask affected`, ADR 0141).
+[package.metadata.goodfetch]
+runs = ["goodfetch-test-support", "goodfetch-collie"]

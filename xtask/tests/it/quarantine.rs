@@ -4,6 +4,8 @@
 //! and each runner lists the fixture workspace's tests for real.
 //! Covers: story:1-65
 
+use std::collections::BTreeMap;
+
 use rstest::rstest;
 use serde_json::Value;
 
@@ -173,13 +175,9 @@ fn nextest_entry_whose_name_is_part_of_another_tests_name_fails() {
 fn exclusions(workspace: &Workspace, runner: &str) -> Vec<String> {
     let outcome = workspace.xtask(&["quarantine", "exclude"]);
     assert_eq!(outcome.code, 0);
-    outcome
-        .stdout
-        .lines()
-        .filter_map(|line| line.split_once('\t'))
-        .filter(|(line_runner, _)| *line_runner == runner)
-        .map(|(_, argument)| argument.to_owned())
-        .collect()
+    let mut exclusions: BTreeMap<String, Vec<String>> =
+        serde_json::from_str(&outcome.stdout).expect("`xtask quarantine exclude` prints JSON");
+    exclusions.remove(runner).expect("every runner is listed")
 }
 
 /// Runs a command in the workspace and returns its stdout.

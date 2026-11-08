@@ -3,15 +3,10 @@
 //! the test-only crates) reach through normal dependencies, never through a
 //! dev or build dependency, as npm and Python list only shipped packages.
 //! cargo-deny still checks the whole graph.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "xtask is synchronous; the blocking-process and blocking-fs bans target async crates (STYLE.md)"
-)]
 
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
@@ -72,7 +67,7 @@ struct Package {
 /// Every crate a shipped member reaches through normal dependencies, the
 /// members themselves aside.
 pub(super) fn entries(cargo: &OsStr, root: &Path) -> Result<Vec<Entry>> {
-    let output = Command::new(cargo)
+    let output = crate::child_cargo::command(cargo)
         .args([
             "metadata",
             "--format-version",

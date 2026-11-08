@@ -1227,21 +1227,17 @@ fn every_case_of_the_ssrf_table_a_browser_connection_meets_is_refused_at_the_rel
 /// `127.0.0.1`, `dns` its resolver, `case`'s lookups its mapping.
 fn bound_network(case: &SsrfCase, dns: &goodfetch_engine::dns::Dns) -> super::Tcp {
     super::Tcp {
-        mapping: case
-            .lookups
-            .iter()
-            .map(|lookup| {
-                let addresses = lookup
-                    .answers
-                    .iter()
-                    .map(|answer| match answer {
-                        goodfetch_test_support::Answer::Public => PUBLIC,
-                        goodfetch_test_support::Answer::Address(address) => *address,
-                    })
-                    .collect();
-                (lookup.name.clone(), addresses)
-            })
-            .collect(),
+        mapping: goodfetch_engine::dns::HostMapping::new(case.lookups.iter().map(|lookup| {
+            let addresses = lookup
+                .answers
+                .iter()
+                .map(|answer| match answer {
+                    goodfetch_test_support::Answer::Public => PUBLIC,
+                    goodfetch_test_support::Answer::Address(address) => *address,
+                })
+                .collect();
+            (lookup.name.clone(), addresses)
+        })),
         upstream: None,
         judged: None,
         local: Some(goodfetch_engine::http_client::LocalBinding::new(
@@ -1287,7 +1283,7 @@ fn with_local_addresses_every_address_case_of_the_ssrf_table_is_refused_at_the_r
     )
     .unwrap();
     let dns = goodfetch_engine::dns::Dns::new(
-        goodfetch_engine::dns::HostMapping::new([]),
+        goodfetch_engine::dns::HostMapping::default(),
         goodfetch_engine::dns::ResolverConfiguration::name_servers([]),
         goodfetch_engine::clock::Clock::system(),
     );

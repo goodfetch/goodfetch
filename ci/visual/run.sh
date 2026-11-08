@@ -7,9 +7,10 @@
 #                   deny
 #   run.sh test     compares every Reference screenshot; writes none. It
 #                   skips the tests on the test quarantine list (ADR 0064),
-#                   through target/visual/quarantine.tsv, which
-#                   ci/vm/visual.sh install wrote with `xtask quarantine
-#                   exclude`: the image has no Rust to run it
+#                   through target/visual/quarantine-<runner>.txt, one
+#                   argument a line, which ci/vm/visual.sh install wrote
+#                   from `xtask quarantine exclude`: the image has no Rust
+#                   to run it
 #   run.sh update   rewrites the Reference screenshots that changed or are
 #                   missing (the `update-screenshots` workflow only)
 #   run.sh measure <browser,…>
@@ -35,13 +36,11 @@ case "$mode" in
   test)
     vitest_flags=()
     playwright_flags=()
-    if [[ -f target/visual/quarantine.tsv ]]; then
-      while IFS=$'\t' read -r runner argument; do
-        case "$runner" in
-          vitest) vitest_flags+=("$argument") ;;
-          playwright) playwright_flags+=("$argument") ;;
-        esac
-      done <target/visual/quarantine.tsv
+    if [[ -f target/visual/quarantine-vitest.txt ]]; then
+      while IFS= read -r argument; do vitest_flags+=("$argument"); done <target/visual/quarantine-vitest.txt
+    fi
+    if [[ -f target/visual/quarantine-playwright.txt ]]; then
+      while IFS= read -r argument; do playwright_flags+=("$argument"); done <target/visual/quarantine-playwright.txt
     fi
     ;;
   update)

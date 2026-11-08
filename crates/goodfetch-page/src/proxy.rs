@@ -32,8 +32,9 @@ use tokio::time::Instant;
 
 use goodfetch_cdp::NetError;
 use goodfetch_engine::CallError;
-use goodfetch_engine::egress::{self, EndpointPolicy};
-use goodfetch_engine::http_client::{self, Resolve};
+use goodfetch_engine::dns::HostMapping;
+use goodfetch_engine::egress::{EndpointPolicy, Gate};
+use goodfetch_engine::http_client;
 use goodfetch_engine::run::secret_error;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::secrets::Purpose;
@@ -49,7 +50,7 @@ use goodfetch_protocol::page::proxy::{
 };
 use goodfetch_protocol::politeness::POLITENESS_PROXY_CONCURRENCY;
 use goodfetch_protocol::secret_reference::SecretReference;
-use goodfetch_protocol::settings::{NETWORK_RESOLVE, SETTING_INVALID, SettingInvalidDetails};
+use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails};
 use secrecy::{ExposeSecret as _, SecretString};
 
 use self::limits::{Account, ProxyLimits};
@@ -848,13 +849,7 @@ impl SessionProxy {
 /// lookup runs off the async workers), so no Session's open reads the
 /// system's resolver configuration; none when it has none.
 async fn lookup(server: &ProxyServer, settings: &Resolved) -> Option<Vec<SocketAddr>> {
-    let mapping = settings
-        .hosts(&NETWORK_RESOLVE)
-        .into_iter()
-        .fold(Resolve::new(), |mapping, (host, addresses)| {
-            mapping.with(host, addresses)
-        });
-    http_client::lookup(&server.host, server.port, &mapping)
+    http_client::lookup(&server.host, server.port, &HostMapping::of(settings))
         .await
         .ok()
 }
@@ -889,7 +884,10 @@ where
         }
         return Ok(Vec::new());
     };
-    egress::judge_endpoint_addresses(&server.to_string(), &addresses, judged)
+    let named = server.to_string();
+    Gate::Endpoint(judged)
+        .judge_host(&server.host, &named)
+        .and_then(|judged| judged.addresses(&addresses))
         .map_err(|refused| refused.error())?;
     Ok(addresses)
 }

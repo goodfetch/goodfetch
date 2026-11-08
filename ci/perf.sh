@@ -18,6 +18,8 @@ cd "$root"
 
 # shellcheck source=ci/container.sh
 source "$root/ci/container.sh"
+# shellcheck source=ci/output-value.sh
+source "$root/ci/output-value.sh"
 
 requested=${1:-}
 base=$requested
@@ -95,7 +97,7 @@ counting=$!
 status=0
 {
   selection=$(cargo run --quiet --bin xtask -- affected "${change[@]}") &&
-    targets=$(sed -n 's/^bench-targets=//p' <<<"$selection") &&
+    targets=$(output_value bench-targets "$selection") &&
     cargo run --quiet --bin xtask -- perf build --base "$base" --bench-targets "$targets"
 } || status=$?
 counted=0

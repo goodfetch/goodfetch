@@ -1,10 +1,51 @@
-//! The tables of TESTING.md's Quality register, and of any Markdown section
-//! found by its heading, read by their columns' names.
+//! TESTING.md's Quality register as every reader finds it (`xtask register`,
+//! `xtask counts` and the floor guard): its section, found by its heading
+//! line, the sections and tables under it by theirs, and the tables of any
+//! Markdown section read by their columns' names.
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use regex::Regex;
+
+use crate::markdown::{self, Table};
+
+/// The file holding the register, from the workspace's folder.
+pub(crate) const FILE: &str = "TESTING.md";
+
+/// The register's heading line in it.
+pub(crate) const SECTION: &str = "## Quality register";
+
+/// The heading of the table of enforced limits.
+pub(crate) const ENFORCED: &str = "### Enforced";
+
+/// The heading of the table of Exceptions.
+pub(crate) const EXCEPTIONS: &str = "### Exceptions";
+
+/// The register's own section of `testing`, a `TESTING.md`.
+pub(crate) struct Document<'a> {
+    lines: Vec<&'a str>,
+}
+
+impl<'a> Document<'a> {
+    /// The register in `testing`, found by its heading line, so prose quoting
+    /// the heading is no register; `None` when it has none.
+    pub(crate) fn find(testing: &'a str) -> Option<Self> {
+        markdown::section(testing.lines(), SECTION).map(|lines| Self { lines })
+    }
+
+    /// The lines under the register's `heading` (`### Floor`), up to the next
+    /// heading of its level or above; `None` when it has no such heading.
+    pub(crate) fn section(&self, heading: &str) -> Option<Vec<&'a str>> {
+        markdown::section(self.lines.iter().copied(), heading)
+    }
+
+    /// The first table under the register's `heading`; `None` when it has
+    /// no such heading or the heading no table.
+    pub(crate) fn table(&self, heading: &str) -> Option<Table<'a>> {
+        markdown::first_table(&self.section(heading)?)
+    }
+}
 
 /// One row of a table: its first cell, and each cell by its column's name.
 pub(crate) struct Row {
@@ -43,44 +84,36 @@ impl Row {
     }
 }
 
-/// The rows of the table under `heading`, which holds every one of `columns`.
-/// `None` when the section, the table or a column is missing, or it has no row.
+/// The rows of the table under `heading` in `text`, which holds every one of
+/// `columns`. `None` when the section, the table or a column is missing, or
+/// it has no row.
 pub(crate) fn table(text: &str, heading: &str, columns: &[&str]) -> Option<Vec<Row>> {
-    let mut lines = text
-        .lines()
-        .skip_while(|line| line.trim() != heading)
-        .skip(1)
-        .take_while(|line| !line.starts_with('#'))
-        .skip_while(|line| !line.starts_with('|'))
-        .take_while(|line| line.starts_with('|'));
-    let header = cells(lines.next()?);
-    if !columns.iter().all(|column| header.contains(column)) {
+    rows(
+        &markdown::first_table(&markdown::section(text.lines(), heading)?)?,
+        columns,
+    )
+}
+
+/// The rows of `table`, which holds every one of `columns`; `None` when a
+/// column is missing or it has no row.
+fn rows(table: &Table<'_>, columns: &[&str]) -> Option<Vec<Row>> {
+    if !columns.iter().all(|column| table.header.contains(column)) {
         return None;
     }
-    let rows: Vec<Row> = lines
-        // The header's separator.
-        .skip(1)
-        .map(|line| {
-            let values = cells(line);
-            Row {
-                first: values.first().map_or("", |first| *first).to_owned(),
-                cells: header
-                    .iter()
-                    .zip(&values)
-                    .map(|(column, value)| ((*column).to_owned(), (*value).to_owned()))
-                    .collect(),
-            }
+    let rows: Vec<Row> = table
+        .rows
+        .iter()
+        .map(|row| Row {
+            first: row.cells.first().map_or("", |first| *first).to_owned(),
+            cells: table
+                .header
+                .iter()
+                .zip(&row.cells)
+                .map(|(column, value)| ((*column).to_owned(), (*value).to_owned()))
+                .collect(),
         })
         .collect();
     (!rows.is_empty()).then_some(rows)
-}
-
-fn cells(line: &str) -> Vec<&str> {
-    line.trim()
-        .trim_matches('|')
-        .split('|')
-        .map(str::trim)
-        .collect()
 }
 
 /// `text` with the `column` cell of the row of `counter`, in the table under
@@ -93,25 +126,17 @@ pub(crate) fn with_cell(
     column: &str,
     value: &str,
 ) -> Option<String> {
-    let mut lines = text
-        .lines()
-        .skip_while(|line| line.trim() != heading)
-        .skip(1)
-        .take_while(|line| !line.starts_with('#'))
-        .skip_while(|line| !line.starts_with('|'))
-        .take_while(|line| line.starts_with('|'));
-    let position = cells(lines.next()?)
-        .iter()
-        .position(|cell| *cell == column)?;
-    let row = lines.find(|line| {
-        cells(line)
+    let table = markdown::first_table(&markdown::section(text.lines(), heading)?)?;
+    let position = table.column(column)?;
+    let row = table.rows.iter().find(|row| {
+        row.cells
             .first()
             .is_some_and(|first| code_spans(first).first() == Some(&counter))
     })?;
-    let mut pieces: Vec<String> = row.split('|').map(str::to_owned).collect();
+    let mut pieces: Vec<String> = row.line.split('|').map(str::to_owned).collect();
     // The piece before the row's first `|` is empty.
     *pieces.get_mut(position + 1)? = format!(" {value} ");
-    Some(text.replacen(row, &pieces.join("|"), 1))
+    Some(text.replacen(row.line, &pieces.join("|"), 1))
 }
 
 /// The heading of the table of measured rows.
@@ -135,27 +160,20 @@ pub(crate) struct Register {
 impl Register {
     /// The register in TESTING.md's `text`; `None` when a table is missing.
     pub(crate) fn read(text: &str) -> Option<Self> {
-        let section: String = text
-            .lines()
-            .skip_while(|line| line.trim() != "## Quality register")
-            .skip(1)
-            .take_while(|line| !line.starts_with("## "))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let mut enforced = table(
-            &section,
-            "### Enforced",
+        let document = Document::find(text)?;
+        let mut enforced = rows(
+            &document.table(ENFORCED)?,
             &["Dimension", "Rule", "Checked by"],
         )?;
         // No row promoted yet leaves the counted work without a heading; one
         // under its heading that cannot be read is a missing table.
-        if section.lines().any(|line| line.trim() == COUNTED_WORK) {
-            enforced.extend(table(&section, COUNTED_WORK, &ROW_COLUMNS)?);
+        if document.section(COUNTED_WORK).is_some() {
+            enforced.extend(rows(&document.table(COUNTED_WORK)?, &ROW_COLUMNS)?);
         }
         Some(Self {
             enforced,
-            measured: table(&section, MEASURED, &ROW_COLUMNS)?,
-            exceptions: table(&section, "### Exceptions", &["ID", "Rule", "Expires"])?,
+            measured: rows(&document.table(MEASURED)?, &ROW_COLUMNS)?,
+            exceptions: rows(&document.table(EXCEPTIONS)?, &["ID", "Rule", "Expires"])?,
         })
     }
 

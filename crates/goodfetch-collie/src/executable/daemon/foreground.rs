@@ -37,8 +37,8 @@ use goodfetch_engine::browser_cache::{
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Drain, Holds, Succession};
+use goodfetch_engine::endpoint::Authorities;
 use goodfetch_engine::ops::{ConfiguredBrowsers, Ops, OpsOptions};
-use goodfetch_engine::rpc::Authorities;
 use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::settings::{Resolved, SettingsError};
 use goodfetch_engine::transport::{Network, listen_ops};

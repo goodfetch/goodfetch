@@ -64,7 +64,8 @@ case "$mode" in
     # nextest skips what `just test` skips: the quarantined tests (ADR 0064)
     # and those needing an OS service this host lacks (ci/nextest-skips.sh).
     skip=()
-    skips=$(ci/nextest-skips.sh)
+    exclusions=$(cargo run --quiet --bin xtask -- quarantine exclude)
+    skips=$(ci/nextest-skips.sh "$exclusions")
     while IFS= read -r argument; do [[ -z "$argument" ]] || skip+=("$argument"); done <<<"$skips"
     status=0
     cargo mutants --in-diff "$out/change.diff" --test-tool nextest --shard "$shard" \

@@ -119,15 +119,21 @@ fn backstop_with_env(workspace: &Workspace, stand_in: &Path, variables: &[(&str,
 fn each_reused_result_the_full_run_finds_red_is_a_miss_that_fails_the_backstop() {
     let workspace = backstop_repository();
     let stand_in = stand_in_just(&workspace);
-    std::fs::write(
-        stand_in.join("compare"),
-        "miss\tperf\tgated\tearlier\n\
-         suspect\tpre-merge:goodfetch-engine\tgated\tearlier\n\
-         suspect\tpre-merge:goodfetch-frontier\tgated\tearlier\n\
-         suspect\tstress:goodfetch-engine\tgated\tearlier\n\
-         unchecked\tmiri\tgated\tearlier\n",
-    )
-    .unwrap();
+    let found = |kind: &str, step: &str, member: Option<&str>| {
+        let unit = member.map_or_else(|| step.to_owned(), |member| format!("{step}:{member}"));
+        serde_json::json!({
+            "kind": kind, "unit": unit, "step": step, "member": member,
+            "run": "gated", "origin": "earlier",
+        })
+    };
+    let compared = serde_json::json!([
+        found("miss", "perf", None),
+        found("suspect", "pre-merge", Some("goodfetch-engine")),
+        found("suspect", "pre-merge", Some("goodfetch-frontier")),
+        found("suspect", "stress", Some("goodfetch-engine")),
+        found("unchecked", "miri", None),
+    ]);
+    std::fs::write(stand_in.join("compare"), compared.to_string()).unwrap();
     std::fs::write(
         stand_in.join("failing"),
         "test pre-merge goodfetch-frontier\n",

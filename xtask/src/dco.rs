@@ -3,15 +3,10 @@
 //! trailer naming its author, as `git commit -s` writes it. Merge commits are
 //! not judged, as the DCO app does not judge them: they add no line of their
 //! own, and GitHub writes some (a branch updated from its base).
-#![expect(
-    clippy::disallowed_methods,
-    reason = "xtask is synchronous; the blocking-process ban targets async crates (STYLE.md)"
-)]
 
 use std::path::Path;
-use std::process::Command;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Result, bail};
 
 use crate::check::Finding;
 
@@ -29,20 +24,16 @@ struct Commit<'a> {
 
 pub(crate) fn check(root: &Path, base: &str, head: &str) -> Result<Vec<Finding>> {
     let format = "%H%x1f%an%x1f%ae%x1f%(trailers:key=Signed-off-by,valueonly,separator=%x1f)%x1e";
-    let output = Command::new("git")
-        .args(["log", "--no-merges", &format!("--format={format}")])
-        .arg(format!("{base}..{head}"))
-        .arg("--")
-        .current_dir(root)
-        .output()
-        .context("running git log")?;
-    if !output.status.success() {
-        bail!(
-            "git log {base}..{head} failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    let log = String::from_utf8(output.stdout).context("reading git log's output")?;
+    let log = crate::git::text(
+        root,
+        &[
+            "log",
+            "--no-merges",
+            &format!("--format={format}"),
+            &format!("{base}..{head}"),
+            "--",
+        ],
+    )?;
     let mut findings = Vec::new();
     for record in log
         .split(RECORD)

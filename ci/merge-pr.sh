@@ -62,6 +62,8 @@ compiler_cache=$(cd "$(dirname "$0")" && pwd)/compiler-cache.sh
 # to the exact head (ci/gate-worktree.sh).
 # shellcheck source=ci/gate-worktree.sh
 source "$(dirname "$0")/gate-worktree.sh"
+# shellcheck source=ci/output-value.sh
+source "$(dirname "$0")/output-value.sh"
 gate_worktree_lock
 
 # A failing gate's log and test results are kept in the repository's common
@@ -112,18 +114,22 @@ echo "The gate's target/ is on $mount, with $free_gb GB free (at least $min_free
 
 gate_worktree_checkout "$head"
 
-# The head's own `xtask affected` decides, so a head from before `gate=`
-# existed prints no such line and gets the full gate.
-gate=$(cd "$worktree" && cargo run --quiet --locked --bin xtask -- affected --base "origin/$base" --head "$head" |
-  sed -n 's/^gate=//p')
-if [[ $gate == quick ]]; then
-  ran="\`just pre-merge quick\` (no test, benchmark, model, container or Evaluation reads the change)"
-elif [[ $gate == docs ]]; then
-  ran="\`just pre-merge docs\` (the change is documents alone)"
-else
-  gate=all
-  ran="\`just pre-merge all\`, which starts with \`just quick all\`'s lint and Quick suite,"
-fi
+# The head's own `xtask affected` decides; a selection without a `gate=`
+# line or with a gate this script does not know fails before any step.
+selection=$(cd "$worktree" && cargo run --quiet --locked --bin xtask -- affected --base "origin/$base" --head "$head")
+gate=$(output_value gate "$selection")
+case $gate in
+  quick) ran="\`just pre-merge quick\` (no test, benchmark, model, container or Evaluation reads the change)" ;;
+  docs) ran="\`just pre-merge docs\` (the change is documents alone)" ;;
+  full)
+    gate=all
+    ran="\`just pre-merge all\`, which starts with \`just quick all\`'s lint and Quick suite,"
+    ;;
+  *)
+    echo "error: \`xtask affected\` gave the gate $gate, which is quick, docs or full" >&2
+    exit 1
+    ;;
+esac
 echo "Running the local gate ($gate) on #$number at $head in $worktree"
 started=$(date -u +%s)
 status=0
@@ -152,11 +158,14 @@ if ((status != 0)); then
   exit "$status"
 fi
 # The incremental gate's verdict combines this run with the green results it
-# reused from earlier runs on ancestor heads (ADR 0135); the plan names the
-# nearest such run.
-reused=$(awk -F'\t' '$1 == "previous" { print $2 }' "$worktree/target/gate-runs/$head.plan" 2>/dev/null || true)
-if [[ -n "$reused" && "$reused" != none ]]; then
-  ran+=" reusing the green results of the gate run on $reused for the steps the change since did not reach (ADR 0135),"
+# reused from earlier runs on ancestor heads (ADR 0135); the full gate's plan
+# names the nearest such run.
+if [[ $gate == all ]]; then
+  plan=$(cat "$worktree/target/gate-runs/$head.plan")
+  reused=$(output_value previous "$plan")
+  if [[ $reused != none ]]; then
+    ran+=" reusing the green results of the gate run on $reused for the steps the change since did not reach (ADR 0135),"
+  fi
 fi
 
 past=""

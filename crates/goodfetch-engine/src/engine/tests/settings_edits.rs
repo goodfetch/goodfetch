@@ -7,7 +7,9 @@
 //! and writes nothing. `config.user_write` writes a user-level value that
 //! `config.explain` then shows, and is refused where an Operator policy
 //! locks the key. `config.explain` marks the keys user configuration may
-//! hold and those fixed for a Run's life.
+//! hold and those fixed for a Run's life. Every such write, the "Needs you"
+//! answers' included, holds the lock beside the Operator policy from its
+//! read to its rename, so a write in flight elsewhere keeps its change.
 #![expect(
     clippy::disallowed_methods,
     reason = "the tests write and read the Goodfetch home's settings files themselves"
@@ -17,11 +19,16 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::path::PathBuf;
+use std::sync::mpsc;
+use std::time::Duration;
+
 use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::TestEnv;
+use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::consent_walls::audit_entries;
+use super::consent_walls::{audit_entries, unrecordable};
 use super::run::call;
 use super::{Client, attached_on, engine_with};
 
@@ -364,5 +371,174 @@ fn a_policy_write_from_an_sdk_is_refused() {
             file(&env, "operator-policy.toml").exists()
         ),
         (true, false)
+    );
+}
+
+/// A user-level value the Audit log cannot record is written all the same,
+/// and the write answers `internal_error` saying the entry is missing
+/// rather than succeeding unrecorded.
+///
+/// Covers: operation:config.user_write
+#[test]
+fn a_write_the_audit_log_cannot_record_is_made_and_says_so() {
+    let env = TestEnv::new();
+    let home = env.home().to_path_buf();
+
+    let written = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            opened(&mut client, "console", "collie").await;
+            unrecordable(&home);
+            call(
+                &mut client,
+                1,
+                "config.user_write",
+                json!({ "changes": [{ "key": "timeout.navigation", "value": 45_000 }] }),
+            )
+            .await
+        },
+    );
+
+    assert_eq!(
+        (
+            &written["error"]["code"],
+            std::fs::read_to_string(file(&env, "configuration.toml"))
+                .unwrap()
+                .contains("navigation = 45000"),
+        ),
+        (&json!(-32603), true),
+        "{written}"
+    );
+}
+
+/// How long the other writer holds the lock waiting for the answer under
+/// test, at most.
+const HELD: Duration = Duration::from_millis(300);
+
+/// User configuration with one value of its own.
+const CONFIGURATION: &str = "version = \"0.1\"\n\n[settings]\ntimeout.navigation = 20000\n";
+
+/// Another writer of the machine's settings files, as another engine of the
+/// major writes them: it holds the lock beside the Operator policy from its
+/// read of a file to its write of it.
+struct OtherWriter {
+    answered: mpsc::Sender<()>,
+    thread: std::thread::JoinHandle<()>,
+}
+
+impl OtherWriter {
+    /// Takes the lock, reads the file at `path`, and answers once it holds
+    /// both; it then waits for [`Self::answered`] or [`HELD`], writes what it
+    /// read with `from` replaced by `to`, and lets the lock go.
+    fn holding(path: PathBuf, from: &'static str, to: &'static str) -> Self {
+        let (held, holds) = mpsc::channel();
+        let (answered, waits) = mpsc::channel::<()>();
+        let thread = std::thread::spawn(move || {
+            let lock = std::fs::File::create(path.with_file_name("operator-policy.lock")).unwrap();
+            lock.lock().unwrap();
+            let read = std::fs::read_to_string(&path).unwrap();
+            held.send(()).unwrap();
+            let _ = waits.recv_timeout(HELD);
+            std::fs::write(&path, read.replace(from, to)).unwrap();
+            drop(lock);
+        });
+        holds.recv().unwrap();
+        Self { answered, thread }
+    }
+
+    /// Tells it the answer under test replied, then waits for its write.
+    fn answered(self) {
+        let _ = self.answered.send(());
+        self.thread.join().unwrap();
+    }
+}
+
+/// The values at each of `paths`, dotted, of the settings file `text`, as
+/// JSON.
+fn values_at(text: &str, paths: &[&str]) -> Vec<Value> {
+    fn json_of(value: &toml_edit::Value) -> Value {
+        match value {
+            toml_edit::Value::Integer(integer) => json!(integer.value()),
+            toml_edit::Value::String(text) => json!(text.value()),
+            toml_edit::Value::Array(array) => array.iter().map(json_of).collect(),
+            other => panic!("no such value in these tests: {other}"),
+        }
+    }
+    let document: toml_edit::DocumentMut = text.parse().unwrap();
+    paths
+        .iter()
+        .map(|path| {
+            path.split('.')
+                .try_fold(document.as_item(), |item, key| item.get(key))
+                .and_then(toml_edit::Item::as_value)
+                .map_or(Value::Null, json_of)
+        })
+        .collect()
+}
+
+/// A person's settings write, made while another writer holds the lock
+/// beside the Operator policy between its read and its write of the same
+/// file, waits for that write and keeps it: both changes land.
+#[rstest]
+/// Covers: operation:needs_you.deny_wall_domain
+#[case::a_wall_domain_denied(
+    "operator-policy.toml",
+    POLICY,
+    ("run = 900000", "run = 600000"),
+    "needs_you.deny_wall_domain",
+    json!({ "domain": "walled.test", "reason": "The site's owner objected." }),
+    ["cap.timeout.run", "settings.wall.denied_domains"],
+    [json!(600_000), json!(["walled.test"])],
+)]
+/// Covers: operation:needs_you.allow_consent_domain
+#[case::a_consent_domain_allowed(
+    "configuration.toml",
+    CONFIGURATION,
+    ("= 20000", "= 30000"),
+    "needs_you.allow_consent_domain",
+    json!({ "domain": "example.com" }),
+    ["settings.timeout.navigation", "settings.consent.domains"],
+    [json!(30_000), json!(["example.com"])],
+)]
+/// Covers: operation:config.user_write
+#[case::a_user_level_value_written(
+    "configuration.toml",
+    CONFIGURATION,
+    ("= 20000", "= 30000"),
+    "config.user_write",
+    json!({ "changes": [{ "key": "timeout.run", "value": 60_000 }] }),
+    ["settings.timeout.navigation", "settings.timeout.run"],
+    [json!(30_000), json!(60_000)],
+)]
+fn a_settings_write_waits_for_a_write_in_flight_and_both_land(
+    #[case] name: &str,
+    #[case] text: &str,
+    #[case] other_change: (&'static str, &'static str),
+    #[case] method: &'static str,
+    #[case] params: Value,
+    #[case] paths: [&str; 2],
+    #[case] expected: [Value; 2],
+) {
+    let env = TestEnv::new();
+    write(&env, name, text);
+    let other = OtherWriter::holding(file(&env, name), other_change.0, other_change.1);
+
+    let answer = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            opened(&mut client, "console", "collie").await;
+            let answer = call(&mut client, 1, method, params).await;
+            other.answered();
+            answer
+        },
+    );
+
+    let written = std::fs::read_to_string(file(&env, name)).unwrap();
+    assert_eq!(
+        (answer["error"].clone(), values_at(&written, &paths)),
+        (Value::Null, expected.to_vec()),
+        "{written}"
     );
 }

@@ -30,7 +30,7 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::sync::Semaphore;
 
-use crate::endpoint::{Refusals, names_an_address, same_token};
+use crate::endpoint::{self, Hosts, Origins, Refusals, same_token};
 use crate::engine_context::EngineContext;
 use crate::runs::{Runs, critical_among};
 use crate::tasks::TaskOwner;
@@ -266,15 +266,12 @@ impl Serving {
         let host = headers
             .get(header::HOST)
             .and_then(|host| host.to_str().ok());
-        if !names_an_address(host) {
-            return self
-                .refused(StatusCode::FORBIDDEN, RefusalReason::HostForeign)
-                .await;
-        }
-        if headers.contains_key(header::ORIGIN) {
-            return self
-                .refused(StatusCode::FORBIDDEN, RefusalReason::OriginForeign)
-                .await;
+        // Any `Origin` is refused, even one that is no text.
+        let origin = headers
+            .get(header::ORIGIN)
+            .map(|origin| origin.to_str().unwrap_or_default());
+        if let Some(refusal) = endpoint::refusal(host, origin, Hosts::Address, Origins::Forbidden) {
+            return self.refused(StatusCode::FORBIDDEN, refusal.reason()).await;
         }
         if request.method() != Method::GET && request.method() != Method::HEAD {
             let mut answer = empty(StatusCode::METHOD_NOT_ALLOWED);

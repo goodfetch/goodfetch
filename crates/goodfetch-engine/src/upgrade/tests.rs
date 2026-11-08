@@ -223,6 +223,25 @@ fn no_file_of_the_older_majors_daemon_reaches_the_new_major() {
     assert_eq!(reached, Vec::<PathBuf>::new());
 }
 
+/// A Goodfetch home that cannot be read is an error, never "nothing to
+/// upgrade", which would leave the older major's files behind unsaid.
+///
+/// Covers: story:3-96
+#[test]
+fn a_goodfetch_home_that_cannot_be_read_is_an_error_not_nothing_to_upgrade() {
+    let env = TestEnv::new();
+    let root = env.folder().join("a file, not a home");
+    std::fs::write(&root, "").unwrap();
+    let paths = UpgradePaths::parse("[[source]]\nmajor = \"2\"\n").unwrap();
+
+    let upgraded = upgrade_files(&Home::new(root), &version("3.1.0"), None, &paths);
+
+    assert!(
+        matches!(upgraded, Err(UpgradeError::Io { .. })),
+        "{upgraded:?}"
+    );
+}
+
 /// A file the new major already holds, other than the older major's, is
 /// kept as it is (ADR 0030: never lose what the new major wrote).
 ///

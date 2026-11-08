@@ -25,15 +25,17 @@ use sha2::{Digest as _, Sha256};
 
 use crate::environment::Environment;
 use crate::output;
+use crate::products;
+use crate::tree;
 
 /// Collie's Console package, from the root.
 pub(crate) const PACKAGE: &str = "console/collie";
 /// The folder Collie's executable embeds, from the root.
-pub(crate) const BUILD: &str = "crates/goodfetch-collie/console-build";
+pub(crate) const BUILD: &str = concat!(products::collie_folder!(), "/console-build");
 /// Foxhound's Console package, `@goodfetch/console-foxhound`, from the root.
 pub(crate) const FOXHOUND_PACKAGE: &str = "console/foxhound";
 /// The folder Foxhound's executable embeds, from the root.
-pub(crate) const FOXHOUND_BUILD: &str = "crates/foxhound/goodfetch-foxhound/console-build";
+pub(crate) const FOXHOUND_BUILD: &str = concat!(products::foxhound_folder!(), "/console-build");
 /// What, beside the packages, a build reads.
 const LOCKFILE: &str = "pnpm-lock.yaml";
 /// What changes the output without changing an input: this command's own
@@ -322,7 +324,7 @@ fn collect(folder: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
     {
         let entry = entry.with_context(|| format!("reading {}", folder.display()))?;
         if entry.file_type()?.is_dir() {
-            if entry.file_name() != "node_modules" {
+            if !tree::generated(&entry.file_name().to_string_lossy()) {
                 collect(&entry.path(), files)?;
             }
         } else {

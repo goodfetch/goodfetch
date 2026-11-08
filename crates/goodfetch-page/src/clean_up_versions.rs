@@ -42,14 +42,14 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, HeldArtifact};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
-use goodfetch_engine::pinned_download::{Digest, Fetching};
+use goodfetch_engine::pinned_download::Digest;
+use goodfetch_engine::rule_sources::Sourcing;
 use goodfetch_engine::run_state::run_row;
 use goodfetch_engine::runs::{
     Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext, Run,
 };
 use goodfetch_engine::settings::{Resolved, RunSettings, catalog_value, get_or_default};
 use goodfetch_engine::tasks::TaskOwner;
-use goodfetch_engine::tls::read_certificates;
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::clean_up_rules::{CleanUpRulesManifest, MANIFEST_FILE, RulesSource};
 use goodfetch_protocol::formats::{CLEAN_UP_RULES, Compatibility};
@@ -59,7 +59,6 @@ use goodfetch_protocol::settings::{
     CLEAN_UP_CHANNEL, CLEAN_UP_FETCH_TIMEOUT, CLEAN_UP_LISTS, CLEAN_UP_UPDATE, CLEAN_UP_VERSION,
     SettingsLayer, UPSTREAM_LISTS,
 };
-use goodfetch_protocol::tls::TLS_TRUSTED_CAS;
 use serde_json::{Value, json};
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
@@ -300,9 +299,10 @@ impl Kept {
 
 /// Where versions come from and are kept, under one Run's settings.
 pub(crate) struct Sources {
-    /// What a fetch may do: `egress.offline`, `network.resolve`, and the
-    /// certificate authorities `tls.trusted_cas` lists.
-    pub(crate) fetching: Fetching,
+    /// What a fetch may do: `egress.offline`, `network.resolve`,
+    /// `egress.no_private_endpoints`, and the certificate authorities
+    /// `tls.trusted_cas` lists for each source's own domain.
+    pub(crate) sourcing: Sourcing,
     /// Where the versions are kept.
     pub(crate) kept: Kept,
     /// The sources' state file.
@@ -332,28 +332,12 @@ impl Sources {
                 }
             }
         }
-        let mut fetching = Fetching::new(context.clock);
-        if let Some(settings) = settings {
-            fetching = Fetching::of(settings, context.clock);
-            let files = authority_files(settings.value(&TLS_TRUSTED_CAS));
-            fetching.trusted_certificates = owner
-                .blocking(move || {
-                    files
-                        .iter()
-                        .filter_map(|file| match std::fs::read(file) {
-                            Ok(bytes) => read_certificates(&bytes).ok(),
-                            Err(error) => {
-                                tracing::warn!(%error, file = %file.display(), "a certificate authority of `tls.trusted_cas` cannot be read");
-                                None
-                            }
-                        })
-                        .flatten()
-                        .collect()
-                })
-                .await;
-        }
+        let sourcing = match settings {
+            Some(settings) => Sourcing::of(settings, context.clock, &owner).await,
+            None => Sourcing::new(context.clock),
+        };
         Self {
-            fetching,
+            sourcing,
             kept: Kept::in_home(context.home, owner),
             state: context
                 .home
@@ -418,20 +402,6 @@ fn replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     Ok(())
 }
 
-/// The certificate files `tls.trusted_cas`, `value`, lists for any domain:
-/// the authorities a source's endpoint is trusted under.
-fn authority_files(value: &Value) -> Vec<PathBuf> {
-    value
-        .as_object()
-        .into_iter()
-        .flat_map(|domains| domains.values())
-        .filter_map(Value::as_array)
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(PathBuf::from)
-        .collect()
-}
-
 /// The `manifest.json` of a version of the Clean-up rules, as the engine
 /// writes it for the lists it fetched itself (ADR 0047): the format's
 /// writer, which the Compatibility corpus's `clean-up-rules` set runs.
@@ -488,7 +458,7 @@ fn readable_manifest(files: &[(String, Vec<u8>)]) -> Result<CleanUpRulesManifest
 
 /// Wall time now on `clock`.
 fn now_of(clock: Clock) -> jiff::Timestamp {
-    jiff::Timestamp::try_from(clock.wall()).unwrap_or(jiff::Timestamp::UNIX_EPOCH)
+    clock.timestamp()
 }
 
 /// `fetching`, ended as [`Unobtained::TimedOut`] once `limit` passed on

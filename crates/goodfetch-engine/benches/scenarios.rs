@@ -12,12 +12,11 @@
 //! #564's `Mask`). Inputs are literals; no network, no sleep, no work whose
 //! amount depends on timing.
 
-use std::io::Write as _;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::egress::{Judgment, Policy, Request, RequestKind, judge, judge_addresses};
+use goodfetch_engine::egress::{Gate, Judgment, Policy, Request, RequestKind, judge};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::mask::{Mask, Masks, Reach, Redaction, Scope};
@@ -308,22 +307,23 @@ pub(crate) fn egress_policy_with_private_ranges(
     (policy, requests)
 }
 
-/// Judges every request of `requests` under `policy` as [`judge_all`]
-/// does, then the addresses each allowed one resolved to, as its
-/// connection is judged, and returns how many it allowed.
+/// Judges every request of `requests` under `policy` through its
+/// connection's gate, as [`judge_all`] does, then the addresses each
+/// allowed one resolved to, and returns how many it allowed.
 pub(crate) fn judge_all_with_addresses(
     policy: &Policy,
     requests: &[(String, Vec<SocketAddr>)],
 ) -> usize {
+    let gate = Gate::Session {
+        policy,
+        kind: RequestKind::Fetch,
+    };
     requests
         .iter()
         .filter(|(url, addresses)| {
-            let request = Request {
-                url,
-                kind: RequestKind::Fetch,
-            };
-            matches!(judge(&request, policy), Judgment::Allowed(_))
-                && judge_addresses(url, addresses, policy).is_ok()
+            gate.judge(url)
+                .and_then(|judged| judged.addresses(addresses))
+                .is_ok()
         })
         .count()
 }
@@ -366,19 +366,15 @@ pub(crate) fn mask_input(values: usize, bytes: usize) -> (Masks, Mask, Vec<u8>) 
     (masks, mask, stream)
 }
 
-/// Writes `stream` through a writer of `masks`, as the log writers do, in
-/// chunks of 4 KiB, and returns how many bytes it wrote.
+/// Masks `stream` as the log writers do, each whole line through
+/// [`Masks::apply_bytes`] in the kept outputs' scope, and returns how many
+/// bytes the masked lines hold.
 pub(crate) fn mask_stream(masks: &Masks, stream: &[u8]) -> usize {
-    let mut writer = masks.writer(Vec::with_capacity(stream.len()), Scope::KeptOutput);
-    for chunk in stream.chunks(4096) {
-        writer
-            .write_all(chunk)
-            .expect("invariant: a Vec takes every write");
+    let mut written = Vec::with_capacity(stream.len());
+    for line in stream.split_inclusive(|byte| *byte == b'\n') {
+        written.extend_from_slice(&masks.apply_bytes(line, Scope::KeptOutput));
     }
-    writer
-        .finish()
-        .expect("invariant: a Vec takes every write")
-        .len()
+    written.len()
 }
 
 /// Joins one resolved value of one Run `joins` times, as each Session's

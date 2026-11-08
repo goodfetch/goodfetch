@@ -79,8 +79,12 @@ output="$root/target/visual-image"
 rm -rf "$output"
 mkdir -p "$output/visual"
 # The image has no Rust, so the test quarantine list's exclusions are written
-# here, where ci/visual/run.sh test reads them (ADR 0064).
-cargo run --quiet --locked --bin xtask -- quarantine exclude >"$output/visual/quarantine.tsv"
+# here, where ci/visual/run.sh test reads them (ADR 0064): each runner's
+# arguments in a file of its own, one a line.
+exclusions=$(cargo run --quiet --locked --bin xtask -- quarantine exclude)
+for runner in vitest playwright; do
+  jq -r --arg runner "$runner" '.[$runner][]' <<<"$exclusions" >"$output/visual/quarantine-$runner.txt"
+done
 
 environment=(--env CI=true --env "GOODFETCH_VISUAL_IMAGE=$PLAYWRIGHT_DIGEST")
 if [[ "$mode" == update ]]; then

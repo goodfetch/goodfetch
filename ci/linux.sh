@@ -52,11 +52,10 @@ if [[ "${1:-}" == in-container ]]; then
   # (ADR 0064).
   skips=()
   exclusions=$(cargo run --quiet --locked --bin xtask -- quarantine exclude)
-  while IFS=$'\t' read -r runner argument; do
-    case "$runner" in
-      nextest) skips+=("$argument") ;;
-    esac
-  done <<<"$exclusions"
+  quarantined=$(jq -r '.nextest[]' <<<"$exclusions")
+  while IFS= read -r argument; do
+    [[ -z "$argument" ]] || skips+=("$argument")
+  done <<<"$quarantined"
   exec cargo nextest run "${packages[@]}" --locked --profile ci --cargo-profile test \
     -E "$filter" ${skips[@]+"${skips[@]}"}
 fi

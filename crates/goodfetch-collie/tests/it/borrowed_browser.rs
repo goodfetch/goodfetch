@@ -74,6 +74,11 @@ const LARGE: &str = "/large";
 /// The person's own tab, which they open themselves.
 const MINE: &str = "/mine";
 
+/// How long the site stays silent, once the popup that opens the leaking
+/// one has closed, for the test to say nothing leaked: the request would
+/// leave at once, so a short window the test sets is enough.
+const LEAK_WINDOW: Duration = Duration::from_secs(2);
+
 /// How long the site waits before it answers [`MINE`]: the tab's
 /// navigation is still on its way when the person first reaches the tab,
 /// so a script they send at once would run in the blank document the
@@ -1389,7 +1394,25 @@ fn a_popup_whose_opener_went_never_runs_outside_the_interception() {
         "locator.click",
         &json!({ "locator": { "page_id": popup, "selector": "#leak" } }),
     );
-    std::thread::sleep(Duration::from_secs(2));
+    // The popup opens its own popup, then closes itself in the same
+    // handler: once it is gone from the Session, the leak path ran, and
+    // only then does the site's silence say anything.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let pages = program.call("session.pages", &json!({ "session_id": session }));
+        let listed = pages["result"]["pages"]
+            .as_array()
+            .is_some_and(|pages| pages.contains(&popup));
+        if !listed {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the popup never closed: {pages}"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    std::thread::sleep(LEAK_WINDOW);
     let leaked = site.hosts().iter().any(|host| host == "leak.test");
     program.finish("popups");
     lent.stop();

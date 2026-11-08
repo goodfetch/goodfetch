@@ -349,7 +349,8 @@ impl Engine {
             owner,
             self.metrics.counted_work().clone(),
         );
-        let sandbox_probe = SandboxProbe::of(dependencies.environment.clone());
+        let sandbox_probe =
+            SandboxProbe::of(sandbox_probe::this_host, dependencies.environment.clone());
         let settings = host_settings(
             SettingsFiles::of(&dependencies.home, &self.identity().product_version),
             self.identity().product,

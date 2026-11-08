@@ -32,14 +32,14 @@ fn refusing_host() -> Host {
 /// its own environment map: neither takes the first one's answer.
 #[test]
 fn two_engines_in_one_process_each_answer_from_their_own_environment() {
-    let on_lambda = SandboxProbe::over(
+    let on_lambda = SandboxProbe::of(
         refusing_host,
         BTreeMap::from([(
             OsString::from("AWS_LAMBDA_FUNCTION_NAME"),
             OsString::from("a-function"),
         )]),
     );
-    let elsewhere = SandboxProbe::over(refusing_host, BTreeMap::new());
+    let elsewhere = SandboxProbe::of(refusing_host, BTreeMap::new());
 
     assert_eq!(
         on_lambda.probed(),

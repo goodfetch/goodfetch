@@ -174,14 +174,9 @@ struct Probing {
 }
 
 impl SandboxProbe {
-    /// The probe of an engine started with `environment`.
-    pub(crate) fn of(environment: BTreeMap<OsString, OsString>) -> Self {
-        Self::over(this_host, environment)
-    }
-
     /// The probe of an engine started with `environment`, on the host
-    /// `host` reads.
-    fn over(host: fn() -> Host, environment: BTreeMap<OsString, OsString>) -> Self {
+    /// `host` reads: [`this_host`], for a real engine.
+    pub(crate) fn of(host: fn() -> Host, environment: BTreeMap<OsString, OsString>) -> Self {
         Self(Arc::new(Probing {
             environment,
             host,
@@ -202,7 +197,7 @@ impl SandboxProbe {
 
 /// What this process's host allows, read once: no engine's environment
 /// changes it, and the child's fork costs each read.
-fn this_host() -> Host {
+pub(crate) fn this_host() -> Host {
     static HOST: OnceLock<Host> = OnceLock::new();
     *HOST.get_or_init(read_host)
 }

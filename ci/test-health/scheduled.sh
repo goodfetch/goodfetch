@@ -18,9 +18,10 @@
 #                report is kept beside the log.
 # Each run appends one line to `<log>/results.txt`, `<UTC day> <commit>
 # <run>=<pass|fail>`, or `<run>=skipped (…)` when `just merge`'s gate runs,
-# the disk lacks room or the worktree is busy; its log is `<log>/<day>-<run>.log`, with `<log>`
-# GOODFETCH_TEST_HEALTH_LOG or ~/test-health. It fails when the run fails
-# or is skipped. It keeps to bash 3.2, which stock macOS runs.
+# the disk lacks room or the worktree is busy; a run that ends on its setup,
+# before its tests, reads `fail`. Its log is `<log>/<day>-<run>.log`, with
+# `<log>` GOODFETCH_TEST_HEALTH_LOG or ~/test-health. It fails when the run
+# fails or is skipped. It keeps to bash 3.2, which stock macOS runs.
 set -euo pipefail
 
 run=${1:?usage: just test-health <constrained|mutants> [ref]}
@@ -39,11 +40,22 @@ day=$(date -u +%F)
 exec >>"$logs/$day-$run.log" 2>&1
 echo "== $(date -u +%FT%TZ) the $run test-health run on $ref"
 
-git fetch --quiet origin
-commit=$(git rev-parse --verify "$ref^{commit}")
+commit=unknown
+said=""
+locked=""
 result() {
   echo "$day $commit $run=$1" >>"$logs/results.txt"
+  said=yes
 }
+# `set -e` ends the run on a setup that fails: its line still says so.
+on_exit() {
+  [[ -n $said ]] || result fail
+  [[ -z $locked ]] || rm -rf "$lock"
+}
+trap on_exit EXIT
+
+git fetch --quiet origin
+commit=$(git rev-parse --verify "$ref^{commit}")
 
 gate_worktree_name="gate-backstop"
 # shellcheck source=ci/gate-worktree.sh
@@ -75,7 +87,7 @@ if [[ -n $holder ]]; then
   exit 1
 fi
 gate_worktree_lock
-trap 'rm -rf "$lock"' EXIT
+locked=yes
 gate_worktree_checkout "$commit"
 cd "$worktree"
 just fetch

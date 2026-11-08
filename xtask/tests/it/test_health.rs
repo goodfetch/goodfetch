@@ -1,7 +1,8 @@
 //! The test-health runs the gate host's cron starts (`just test-health`,
-//! `ci/test-health/scheduled.sh`; TESTING.md's After merge): a run skips while
-//! `just merge`'s gate runs, and says so in its results line, so the two never
-//! share the host's cores. `just` is a stand-in that records each call. The
+//! `ci/test-health/scheduled.sh`; TESTING.md's After merge): a run does not start
+//! while `just merge`'s gate runs, and says so in its results line. A gate started
+//! during a run still shares the host's cores with it, under the run's `nice`.
+//! `just` is a stand-in that records each call. The
 //! local gate is repository tooling, so the module declares no Feature.
 #![cfg(unix)]
 
@@ -23,8 +24,9 @@ fn write_executable(path: &Path, contents: &str) {
 }
 
 /// A stand-in `just` that appends its arguments to `calls`, and them with the
-/// OS services' variables it was given to `variables`, and writes its whole
-/// environment to `environment-<first argument>`. Beside it, `sudo` keeps
+/// OS services' variables it was given to `variables`, writes its whole
+/// environment to `environment-<first argument>`, and fails with status 3
+/// while `failing-<first argument>` exists. Beside it, `sudo` keeps
 /// nothing of its caller's environment, as `env_reset` does, and `systemd-run`
 /// runs what follows `--`, so the constrained run's suite sees only what the
 /// script hands it.
@@ -36,7 +38,8 @@ fn stand_in_just(workspace: &Workspace) -> PathBuf {
         &format!(
             "#!/bin/sh\necho \"$*\" >>\"{calls}\"\n\
              echo \"$1|${{XDG_RUNTIME_DIR:-}}|${{GOODFETCH_OS_SERVICES:-}}\" >>\"{variables}\"\n\
-             env >\"{folder}/environment-$1\"\n",
+             env >\"{folder}/environment-$1\"\n\
+             if [ -f \"{folder}/failing-$1\" ]; then exit 3; fi\n",
             calls = folder.join("calls").display(),
             variables = folder.join("variables").display(),
             folder = folder.display(),
@@ -172,6 +175,28 @@ fn a_run_skips_while_the_merge_gate_has_a_live_owner(#[case] run: &str) {
         outcome.results
     );
     assert!(outcome.calls.is_empty(), "{:?}", outcome.calls);
+}
+
+/// A reader of the results sees every day's run: one that ends before its
+/// tests, on a setup it needs, reads as failed, never as nothing.
+#[cfg(target_os = "linux")]
+#[rstest]
+#[case::the_fetch("fetch")]
+#[case::the_os_services("_os-services")]
+fn a_run_whose_setup_fails_leaves_a_failed_results_line(#[case] setup: &str) {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join(format!("failing-{setup}")), "").unwrap();
+
+    let outcome = scheduled(&workspace, &stand_in, "mutants");
+
+    assert_eq!(outcome.code, Some(3), "{}", outcome.log);
+    assert!(
+        outcome.results.ends_with(" mutants=fail\n"),
+        "{}",
+        outcome.results
+    );
+    assert_eq!(outcome.results.lines().count(), 1, "{}", outcome.results);
 }
 
 /// Cron gives a run no user session, so without the OS services' setup the

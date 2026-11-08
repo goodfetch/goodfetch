@@ -650,9 +650,6 @@ fn folder_name(test: &str) -> String {
         .collect()
 }
 
-/// Writes `home`'s user configuration of the workspace's major: its format
-/// version, then [`TEST_SETTINGS`] and `settings` under `[settings]`; when
-/// `settings` sets the Console's address itself, its value alone.
 /// Sets `log.level` to `filter` in `home`'s user configuration: its line
 /// replaced, or one added after the last `log.` key under `[settings]`
 /// (where the engine's settings writer keeps it, [`TEST_SETTINGS`]), or
@@ -690,19 +687,22 @@ fn write_user_configuration(home: &Path, settings: &str, log_level: &str) -> io:
     let folder = home.join(major_folder(env!("CARGO_PKG_VERSION")));
     std::fs::create_dir_all(&folder)?;
     let level = format!("log.level = \"{log_level}\"\n");
+    let set: Vec<&str> = settings.lines().map(key_of).collect();
     let defaults: String = TEST_SETTINGS
         .lines()
         .map(|line| format!("{line}\n"))
         .chain(std::iter::once(level))
-        .filter(|line| {
-            let key = line.split('=').next().unwrap_or_default().trim();
-            !settings.contains(key)
-        })
+        .filter(|line| !set.contains(&key_of(line)))
         .collect();
     replace(
         &folder.join(USER_CONFIGURATION),
         &format!("version = \"0.1\"\n\n[settings]\n{defaults}{settings}"),
     )
+}
+
+/// The key a `key = value` line of the configuration sets.
+fn key_of(line: &str) -> &str {
+    line.split('=').next().unwrap_or_default().trim()
 }
 
 /// Replaces `file` with `text` at once: an engine reading it meanwhile, as

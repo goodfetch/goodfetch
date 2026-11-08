@@ -18,6 +18,13 @@ fn daemon_hello(token: &str) -> goodfetch_test_client::Hello {
         .token(token)
 }
 
+/// A Client of the Daemon `found` names, past that `hello`.
+fn daemon_client(
+    found: &goodfetch_test_support::RuntimeFile,
+) -> goodfetch_test_client::DaemonClient {
+    goodfetch_test_client::DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token))
+}
+
 mod attached;
 mod audit;
 #[cfg(unix)]

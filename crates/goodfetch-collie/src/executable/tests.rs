@@ -12,6 +12,9 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::service::LaunchedCommand;
 use goodfetch_engine::mask::{Masks, Reach, Redaction};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_test_support::{
+    certificate_verification_switches, command_help, command_paths, long_flags,
+};
 use rstest::rstest;
 use secrecy::SecretString;
 use tracing_subscriber::layer::SubscriberExt as _;
@@ -30,7 +33,7 @@ const FOXHOUNDS_CATALOG: OwnCommands = OwnCommands {
     members: foxhounds_catalog_members,
 };
 
-fn foxhounds_catalog_members(group: clap::Command) -> clap::Command {
+pub(super) fn foxhounds_catalog_members(group: clap::Command) -> clap::Command {
     members(group, Product::Foxhound, &[])
 }
 
@@ -42,52 +45,18 @@ fn own(product: Product) -> OwnCommands {
     }
 }
 
-/// Every command path below `command`, each group before its commands,
-/// hidden ones included.
-fn paths(command: &clap::Command) -> Vec<Vec<String>> {
-    command
-        .get_subcommands()
-        .flat_map(|sub| {
-            std::iter::once(vec![sub.get_name().to_owned()]).chain(paths(sub).into_iter().map(
-                |mut path| {
-                    path.insert(0, sub.get_name().to_owned());
-                    path
-                },
-            ))
-        })
-        .collect()
-}
-
-/// The help the executable prints for `path`, rendered by its own command
-/// line.
-fn help(command: &clap::Command, path: &[String]) -> String {
-    let arguments = std::iter::once(command.get_name().to_owned())
-        .chain(path.iter().cloned())
-        .chain(std::iter::once("--help".to_owned()));
-    command
-        .clone()
-        .try_get_matches_from(arguments)
-        .err()
-        .unwrap()
-        .to_string()
-}
-
-#[rstest]
-#[case::collie(Product::Collie)]
-#[case::foxhound(Product::Foxhound)]
-fn the_command_line_holds_no_clap_misconfiguration(#[case] product: Product) {
-    command(product, own(product)).debug_assert();
+#[test]
+fn the_command_line_holds_no_clap_misconfiguration() {
+    command(Product::Collie, OwnCommands::COLLIE).debug_assert();
 }
 
 /// A start builds no group's commands, hand-written or generated: clap
 /// builds them only for the group it parses or shows help for, so
 /// `--version` and every command skip building the rest of the tree (ADR
 /// 0071's startup figure).
-#[rstest]
-#[case::collie(Product::Collie)]
-#[case::foxhound(Product::Foxhound)]
-fn a_start_builds_no_command_of_any_group(#[case] product: Product) {
-    let (command_line, _) = command_line(product, own(product));
+#[test]
+fn a_start_builds_no_command_of_any_group() {
+    let (command_line, _) = command_line(Product::Collie, OwnCommands::COLLIE);
 
     let built: Vec<(&str, Vec<&str>)> = command_line
         .get_subcommands()
@@ -108,17 +77,21 @@ fn a_start_builds_no_command_of_any_group(#[case] product: Product) {
 fn the_help_of_every_command_is_rendered_from_the_command_line() {
     let command = command(Product::Collie, OwnCommands::COLLIE);
 
-    let tree =
-        std::iter::once(Vec::new())
-            .chain(paths(&command))
-            .fold(String::new(), |mut tree, path| {
-                let words: Vec<&str> = std::iter::once("goodfetch-collie")
-                    .chain(path.iter().map(String::as_str))
-                    .chain(std::iter::once("--help"))
-                    .collect();
-                let _ = writeln!(tree, "$ {}\n{}", words.join(" "), help(&command, &path));
-                tree
-            });
+    let tree = std::iter::once(Vec::new())
+        .chain(command_paths(&command))
+        .fold(String::new(), |mut tree, path| {
+            let words: Vec<&str> = std::iter::once("goodfetch-collie")
+                .chain(path.iter().map(String::as_str))
+                .chain(std::iter::once("--help"))
+                .collect();
+            let _ = writeln!(
+                tree,
+                "$ {}\n{}",
+                words.join(" "),
+                command_help(&command, &path)
+            );
+            tree
+        });
 
     insta::assert_snapshot!("help_tree", tree);
 }
@@ -201,55 +174,22 @@ fn the_daemon_launched_command_is_one_the_command_line_reads(#[case] product: Pr
     );
 }
 
-/// Every argument of `command` and of each command below it.
-fn arguments(command: &clap::Command) -> Vec<&clap::Arg> {
-    command
-        .get_arguments()
-        .chain(command.get_subcommands().flat_map(arguments))
-        .collect()
-}
-
-/// Story 4-31: no flag of either executable turns certificate verification
-/// off. No flag reads a variable either: clap's `env` feature is off.
+/// Story 4-31: no flag of Collie's executable turns certificate verification
+/// off, as Foxhound's crate tests of Foxhound's. No flag reads a variable
+/// either: clap's `env` feature is off.
 /// Covers: story:4-31
-#[rstest]
-fn no_flag_switches_certificate_verification_off(
-    #[values(Product::Collie, Product::Foxhound)] product: Product,
-) {
-    // Words naming certificates or turning their checks off; not `verif`
-    // alone, which `--require-verified` (a Verdict's) holds.
-    const WORDS: [&str; 7] = [
-        "insecure",
-        "no-verify",
-        "skip-verif",
-        "cert",
-        "tls",
-        "ssl",
-        "danger",
-    ];
-    let command = command(product, own(product));
-    let every = arguments(&command);
-
-    let switches: Vec<String> = every
-        .iter()
-        .flat_map(|argument| {
-            argument
-                .get_long_and_visible_aliases()
-                .into_iter()
-                .flatten()
-                .map(str::to_owned)
-        })
-        .filter(|name| {
-            let name = name.to_ascii_lowercase();
-            WORDS.iter().any(|word| name.contains(word))
-        })
-        .collect();
+#[test]
+fn no_flag_switches_certificate_verification_off() {
+    let flags = long_flags(&command(Product::Collie, OwnCommands::COLLIE));
 
     assert!(
-        every.iter().any(|argument| argument.get_id() == COLOR),
+        flags.iter().any(|flag| flag == COLOR),
         "the enumeration reaches the executable's flags"
     );
-    assert_eq!(switches, Vec::<String>::new());
+    assert_eq!(
+        certificate_verification_switches(&flags),
+        Vec::<String>::new()
+    );
 }
 
 /// What a log writer was given, shared with the test.

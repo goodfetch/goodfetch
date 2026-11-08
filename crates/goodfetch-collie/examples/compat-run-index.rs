@@ -36,10 +36,10 @@ use goodfetch_protocol::catalog::{
 };
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::home::{RUN_INDEX, per_major};
 use goodfetch_protocol::needs_you::NeedsYouItem;
 use goodfetch_protocol::run::{PointInTime, RunId};
 use goodfetch_test_client::Hello;
-use goodfetch_test_client::HomeLayout;
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
@@ -270,9 +270,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .nth(1)
             .ok_or("usage: compat-run-index <folder>")?,
     );
+    let version = ProductVersion::parse("0.0.0")?;
     let identity = Identity {
         product: Product::Collie,
-        product_version: ProductVersion::parse("0.0.0")?,
+        product_version: version.clone(),
         channel: Channel::CratesIo,
     };
     let engine = Engine::new(
@@ -334,7 +335,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     })?;
     drop(runtime);
-    let index = rusqlite::Connection::open(HomeLayout::of(home.path()).run_index())?;
+    // The folder of the engine's own pinned version, not of the workspace's.
+    let index = rusqlite::Connection::open(per_major(home.path(), &version).join(RUN_INDEX))?;
     std::fs::write(
         folder.join("run-index.sql"),
         goodfetch_test_support::sql_dump(&index)?,

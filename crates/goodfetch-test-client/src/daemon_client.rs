@@ -147,8 +147,9 @@ impl DaemonClient {
             Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
                 panic!("the engine sent nothing for {:?}", self.deadline)
             }
-            // An engine that closes with a message unread resets the
-            // Connection rather than ending it.
+            // The engine dropped the Connection: one that closes with a
+            // message unread resets it rather than ending it. Anything else,
+            // bytes that are not text among them, is no close.
             Err(error)
                 if matches!(
                     error.kind(),

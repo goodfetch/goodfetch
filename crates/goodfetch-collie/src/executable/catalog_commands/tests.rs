@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 
 use super::{
     BOUND, Call, Generated, NAMESPACES, Namespace, Offer, OwnCommands, bound_of, command, duration,
-    member, members, members_of, offer,
+    member, members_of, offer,
 };
 use crate::executable::engine_choice::{Choice, Lifetime};
 
@@ -270,12 +270,6 @@ fn the_generated_namespaces_mark_the_two_only_foxhound_has() {
     assert_eq!(foxhounds, ["crawl", "dataset"]);
 }
 
-/// The generated commands of Foxhound's catalog, none written by hand:
-/// Foxhound's own commands are its crate's, which tests them.
-fn foxhounds_catalog_members(group: Command) -> Command {
-    members(group, Product::Foxhound, &[])
-}
-
 /// The command line of `product`'s executable, with no hand-written
 /// command, and the generated commands it carries.
 fn command_line(product: Product) -> (Command, Generated) {
@@ -283,7 +277,7 @@ fn command_line(product: Product) -> (Command, Generated) {
         Product::Collie => OwnCommands::COLLIE,
         Product::Foxhound => OwnCommands {
             commands: &[],
-            members: foxhounds_catalog_members,
+            members: crate::executable::tests::foxhounds_catalog_members,
         },
     };
     let generated = Generated::beside(product, own, &Command::new("goodfetch"));

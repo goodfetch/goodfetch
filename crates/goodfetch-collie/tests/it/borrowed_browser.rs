@@ -38,6 +38,7 @@ use std::time::{Duration, Instant};
 
 use goodfetch_engine::pinned_download::chromium_background_traffic_off;
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::home::RUN_TRACE_PROVENANCE;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
@@ -50,7 +51,7 @@ use crate::COLLIE;
 use crate::page::{BROWSER_DEADLINE, opened};
 use crate::page_ends::{call_in_flight, crashes_counted};
 use crate::page_events::Exchange;
-use goodfetch_test_client::{Attached, hello};
+use goodfetch_test_client::{Attached, Hello};
 
 /// What the engine resolves the site's public name to: a globally
 /// reachable address, which the test's browser never connects to, since
@@ -298,13 +299,11 @@ struct Program {
 }
 
 impl Program {
-    fn start(env: &TestEnv, cache: &Path, surface: &str) -> Self {
+    fn start(env: &TestEnv, cache: &Path, surface: Surface) -> Self {
         let mut engine = Attached::start_with(env, COLLIE, BROWSER_DEADLINE, |command| {
             command.env(BROWSERS_PATH_VARIABLE, cache);
         });
-        let mut greeting = hello(Product::Collie);
-        greeting["params"]["surface"] = json!(surface);
-        engine.send(&greeting);
+        engine.send(&Hello::needing(Product::Collie).surface(surface).message());
         let _ = engine.next();
         Self { engine, next_id: 0 }
     }
@@ -387,7 +386,7 @@ fn a_borrowed_browser_is_refused_a_private_address_at_interception_and_provenanc
     let cache = browser_cache(&env).unwrap();
     let lent = Lent::start(&env, &cache);
     let site = Site::start();
-    let mut program = Program::start(&env, &cache, "sdk_python");
+    let mut program = Program::start(&env, &cache, Surface::SdkPython);
     program.run(
         "borrowed",
         &[(SITE, &[PUBLIC]), ("internal.test", &["10.0.0.1"])],
@@ -463,7 +462,7 @@ fn a_body_past_sixteen_mebibytes_reads_on_a_borrowed_browser_and_the_session_goe
     let cache = browser_cache(&env).unwrap();
     let lent = Lent::start(&env, &cache);
     let site = Site::start();
-    let mut program = Program::start(&env, &cache, "sdk_python");
+    let mut program = Program::start(&env, &cache, Surface::SdkPython);
     program.run("large", &[(SITE, &[PUBLIC])]);
     let borrowed = program.borrow("large", &lent.cdp_url);
     let page = program.new_page(&borrowed["result"]["session_id"]);
@@ -512,14 +511,14 @@ fn a_loopback_cdp_url_in_a_models_project_configuration_is_refused() {
     let (port, accepted) = stand_in();
     let stand_in_url = format!("ws://127.0.0.1:{port}/devtools/browser/stand-in");
 
-    let mut program = Program::start(&env, &cache, "sdk_python");
+    let mut program = Program::start(&env, &cache, Surface::SdkPython);
     let started = program.call(
         "run.start",
         &json!({ "run_id": "own", "project": project_source(&lent.cdp_url) }),
     );
     let own = program.call("run.new_page", &json!({ "run_id": "own" }));
     program.finish("own");
-    let mut model = Program::start(&env, &cache, "mcp");
+    let mut model = Program::start(&env, &cache, Surface::Mcp);
     let model_started = model.call(
         "run.start",
         &json!({ "run_id": "model", "project": project_source(&stand_in_url) }),
@@ -573,12 +572,12 @@ fn a_loopback_cdp_url_opens_for_the_programs_own_code_alone() {
     let mixed_url = format!("ws://debugger.test:{port}/devtools/browser/stand-in");
     let resolve: &[(&str, &[&str])] = &[("debugger.test", &["127.0.0.1", "10.0.0.9"])];
 
-    let mut program = Program::start(&env, &cache, "sdk_typescript");
+    let mut program = Program::start(&env, &cache, Surface::SdkTypescript);
     program.run("own", resolve);
     let own = program.borrow("own", &lent.cdp_url);
     let mixed = program.borrow("own", &mixed_url);
     program.finish("own");
-    let mut model = Program::start(&env, &cache, "mcp");
+    let mut model = Program::start(&env, &cache, Surface::Mcp);
     model.run("model", resolve);
     let refused = model.borrow("model", &stand_in_url);
     model.finish("model");
@@ -640,13 +639,13 @@ fn a_resumed_run_reopens_a_borrowed_session_on_its_browser() {
     let env = TestEnv::new();
     let cache = browser_cache(&env).unwrap();
     let lent = Lent::start(&env, &cache);
-    let mut program = Program::start(&env, &cache, "sdk_typescript");
+    let mut program = Program::start(&env, &cache, Surface::SdkTypescript);
     program.run("borrowed-resumed", &[]);
     let session = program.borrow("borrowed-resumed", &lent.cdp_url)["result"]["session_id"].clone();
     let _ = program.new_page(&session);
     program.engine.kill();
 
-    let mut resumed = Program::start(&env, &cache, "sdk_typescript");
+    let mut resumed = Program::start(&env, &cache, Surface::SdkTypescript);
     let resume = resumed.call(
         "run.resume",
         &json!({ "run_id": "borrowed-resumed", "settings": { "network": { "resolve": {} } } }),
@@ -681,7 +680,7 @@ fn a_call_on_a_borrowed_browser_that_went_answers_without_waiting_for_its_exit()
     let env = TestEnv::new();
     let cache = browser_cache(&env).unwrap();
     let lent = Lent::start(&env, &cache);
-    let mut program = Program::start(&env, &cache, "sdk_typescript");
+    let mut program = Program::start(&env, &cache, Surface::SdkTypescript);
     // Past the client's deadline for each message (`BROWSER_DEADLINE`), so
     // a call that waited for an exit would never answer in time.
     let started = program.call(
@@ -710,7 +709,7 @@ fn a_borrowed_browser_that_went_under_a_call_cancels_it_naming_the_browser() {
     let env = TestEnv::new();
     let cache = browser_cache(&env).unwrap();
     let lent = Lent::start(&env, &cache);
-    let mut program = Program::start(&env, &cache, "sdk_typescript");
+    let mut program = Program::start(&env, &cache, Surface::SdkTypescript);
     program.run("lent-quit", &[]);
     let session = program.borrow("lent-quit", &lent.cdp_url)["result"]["session_id"].clone();
     let page = program.new_page(&session);
@@ -766,7 +765,7 @@ fn a_cdp_url_in_operator_policy_opens_on_a_private_address() {
     let lent = Lent::start(&env, &cache);
     let site = Site::start();
     operator_policy(&env, &lent.cdp_url, false);
-    let mut model = Program::start(&env, &cache, "mcp");
+    let mut model = Program::start(&env, &cache, Surface::Mcp);
     model.run("configured", &[(SITE, &[PUBLIC])]);
 
     let page = model.call("run.new_page", &json!({ "run_id": "configured" }));
@@ -789,7 +788,7 @@ fn a_cdp_url_in_operator_policy_is_refused_a_private_address_under_no_private_en
     let (port, accepted) = stand_in();
     let url = format!("ws://127.0.0.1:{port}/devtools/browser/stand-in");
     operator_policy(&env, &url, true);
-    let mut program = Program::start(&env, &cache, "sdk_python");
+    let mut program = Program::start(&env, &cache, Surface::SdkPython);
     program.run("configured", &[]);
 
     let refused = program.call("run.new_page", &json!({ "run_id": "configured" }));
@@ -837,7 +836,7 @@ fn a_name_the_engine_cannot_resolve_is_refused_on_a_borrowed_browser_not_on_loop
     let lent = Lent::start(&env, &cache);
     let site = Site::start();
     operator_policy(&env, &lent.cdp_url.replace("127.0.0.1", "0.0.0.0"), false);
-    let mut program = Program::start(&env, &cache, "sdk_python");
+    let mut program = Program::start(&env, &cache, Surface::SdkPython);
     program.run("unresolved", &[(SITE, &[PUBLIC])]);
 
     let elsewhere = opened(&program.call("run.new_page", &json!({ "run_id": "unresolved" })))
@@ -902,7 +901,7 @@ fn a_local_address_is_refused_on_a_borrowed_and_a_third_party_cdp_browser() {
     let lent = Lent::start(&env, &cache);
     let site = Site::start();
     let third_party = "ws://cloud-browser.test:9222/devtools/browser/third-party";
-    let mut program = Program::start(&env, &cache, "sdk_python");
+    let mut program = Program::start(&env, &cache, Surface::SdkPython);
     let started = program.call(
         "run.start",
         &json!({
@@ -1031,7 +1030,7 @@ fn every_borrowed_browser_case_of_the_ssrf_table_is_refused_at_interception() {
         "#
     ))
     .unwrap();
-    let mut program = Program::start(&env, &cache, "sdk_python");
+    let mut program = Program::start(&env, &cache, Surface::SdkPython);
     let public = PUBLIC.parse().unwrap();
     // One Run per mapping, each with its Session on the lent browser.
     let mut sessions: Vec<(Mapping, String)> = Vec::new();
@@ -1105,7 +1104,7 @@ fn going_back_on_a_borrowed_browser_answers_a_page_its_cache_restored() {
     let cache = browser_cache(&env).unwrap();
     let lent = Lent::start(&env, &cache);
     let site = Site::start();
-    let mut program = Program::start(&env, &cache, "sdk_python");
+    let mut program = Program::start(&env, &cache, Surface::SdkPython);
     let started = program.call(
         "run.start",
         &json!({
@@ -1268,7 +1267,7 @@ fn a_borrowed_browser_lets_go_of_the_persons_own_tabs() {
     let cache = browser_cache(&env).unwrap();
     let lent = Lent::start(&env, &cache);
     let site = Site::start();
-    let mut program = Program::start(&env, &cache, "sdk_python");
+    let mut program = Program::start(&env, &cache, Surface::SdkPython);
     program.run("tabs", &[(SITE, &[PUBLIC])]);
     let session = program.borrow("tabs", &lent.cdp_url)["result"]["session_id"].clone();
     let page = program.new_page(&session);
@@ -1364,7 +1363,7 @@ fn a_popup_whose_opener_went_never_runs_outside_the_interception() {
     let cache = browser_cache(&env).unwrap();
     let lent = Lent::start(&env, &cache);
     let site = Site::start();
-    let mut program = Program::start(&env, &cache, "sdk_python");
+    let mut program = Program::start(&env, &cache, Surface::SdkPython);
     program.run("popups", &[(SITE, &[PUBLIC]), ("leak.test", &["10.0.0.1"])]);
     let session = program.borrow("popups", &lent.cdp_url)["result"]["session_id"].clone();
     let page = program.new_page(&session);
@@ -1399,9 +1398,12 @@ fn a_popup_whose_opener_went_never_runs_outside_the_interception() {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     loop {
         let pages = program.call("session.pages", &json!({ "session_id": session }));
+        // An error reply says nothing of the popup: only a list without it
+        // says it closed.
         let listed = pages["result"]["pages"]
             .as_array()
-            .is_some_and(|pages| pages.contains(&popup));
+            .unwrap_or_else(|| panic!("no list of pages: {pages}"))
+            .contains(&popup);
         if !listed {
             break;
         }
@@ -1502,7 +1504,7 @@ fn every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_a_borrowed_bro
         "#
     ))
     .unwrap();
-    let mut program = Program::start(&env, &cache, "sdk_python");
+    let mut program = Program::start(&env, &cache, Surface::SdkPython);
     let public = PUBLIC.parse().unwrap();
     let mut sessions: Vec<(Mapping, String)> = Vec::new();
 

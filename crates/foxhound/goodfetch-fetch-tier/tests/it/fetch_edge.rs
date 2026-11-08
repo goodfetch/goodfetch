@@ -16,7 +16,7 @@ use rstest::rstest;
 use serde_json::Value;
 use url::Url;
 
-use crate::{Stack, running_clock_runtime, transport};
+use crate::{Stack, requests_for, running_clock_runtime, transport};
 
 /// Any seed: the fetch edge pages are served on every one.
 const SEED: u64 = 763;
@@ -71,17 +71,6 @@ fn get(proving_ground: &ProvingGround, over: Over, host: &str, path: &str) -> Ho
             .unwrap(),
         ),
     }
-}
-
-/// The requests the Proving ground received for `path` on `host`.
-fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<Value> {
-    proving_ground
-        .received_requests()
-        .unwrap()
-        .of_the_case()
-        .filter(|request| request.host.split(':').next() == Some(host) && request.target == path)
-        .map(|request| serde_json::to_value(request).unwrap())
-        .collect()
 }
 
 /// Covers: story:5-126, story:5-122

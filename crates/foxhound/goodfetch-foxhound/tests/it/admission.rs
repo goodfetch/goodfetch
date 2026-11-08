@@ -18,10 +18,9 @@ use std::time::Duration;
 
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::TestEnv;
-use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::attached;
+use crate::{attached, run_file};
 
 /// The Resource governor's HTTP admissions, fixed at every crawl's handler
 /// concurrency here or above: under pressure the governor lowers a kind's
@@ -31,10 +30,6 @@ const GOVERNOR: &str = "governor.http.floor = 3\ngovernor.http.ceiling = 3\n";
 
 fn seed(url: &str, priority: i64) -> Value {
     json!({ "url": url, "label": "page", "priority": priority })
-}
-
-fn run_file(env: &TestEnv, run_id: &str) -> Connection {
-    Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap()
 }
 
 /// Crawls `seeds` under `settings` and answers, in turn, each set of

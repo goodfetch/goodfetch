@@ -17,12 +17,13 @@
 )]
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, cli};
 use serde_json::{Map, Value, json};
 
 use crate::page::{opened, started_with};
-use goodfetch_test_client::Attached;
+use goodfetch_test_client::{Attached, Hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -257,19 +258,15 @@ fn an_operator_policy_that_locks_the_check_refuses_the_switch() {
 #[test]
 fn a_client_acting_for_a_model_lists_no_private_range() {
     let env = TestEnv::new();
-    let start = |surface: Option<&str>| {
+    let start = |run_id: &str, hello: Hello| {
         let mut engine = Attached::start(&env, COLLIE);
-        let mut hello = goodfetch_test_client::hello(Product::Collie);
-        if let Some(surface) = surface {
-            hello["params"]["surface"] = json!(surface);
-        }
-        engine.send(&hello);
+        engine.send(&hello.message());
         let _ = engine.next();
         let answered = engine.ask(
             1,
             "run.start",
             &json!({
-                "run_id": surface.unwrap_or("program"),
+                "run_id": run_id,
                 "settings": { "egress": { "private_ranges": ["127.0.0.0/8"] } },
             }),
         );
@@ -277,7 +274,11 @@ fn a_client_acting_for_a_model_lists_no_private_range() {
         answered
     };
 
-    let (for_a_model, own) = (start(Some("mcp")), start(None));
+    let program = Hello::needing(Product::Collie);
+    let (for_a_model, own) = (
+        start("mcp", program.clone().surface(Surface::Mcp)),
+        start("program", program),
+    );
 
     assert_eq!(
         (

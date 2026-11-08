@@ -24,7 +24,7 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use crate::daemon::{StopsTheDaemon, json_of, short_idle};
-use crate::daemon_hello;
+use crate::{daemon_client, daemon_hello};
 use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -162,7 +162,7 @@ fn the_daemon_forwards_an_abort_of_an_attached_engines_run_to_its_private_endpoi
     json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
     let found =
         RuntimeFile::read(&RuntimeFile::path(env.home(), env!("CARGO_PKG_VERSION"))).unwrap();
-    let mut client = DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token));
+    let mut client = daemon_client(&found);
 
     let aborted = client.call(2, "run.abort", &json!({ "run_id": "attached" }));
 

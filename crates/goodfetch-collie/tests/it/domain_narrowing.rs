@@ -14,12 +14,13 @@
 use std::path::Path;
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
 use serde_json::{Value, json};
 
 use crate::COLLIE;
 use crate::page::{BROWSER_DEADLINE, opened};
-use goodfetch_test_client::{Attached, hello};
+use goodfetch_test_client::{Attached, Hello};
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 624;
@@ -49,9 +50,11 @@ fn for_a_model(env: &TestEnv, cache: &Path) -> Attached {
     let mut engine = Attached::start_with(env, COLLIE, BROWSER_DEADLINE, |command| {
         command.env(BROWSERS_PATH_VARIABLE, cache);
     });
-    let mut greeting = hello(Product::Collie);
-    greeting["params"]["surface"] = json!("mcp");
-    engine.send(&greeting);
+    engine.send(
+        &Hello::needing(Product::Collie)
+            .surface(Surface::Mcp)
+            .message(),
+    );
     let _ = engine.next();
     engine
 }

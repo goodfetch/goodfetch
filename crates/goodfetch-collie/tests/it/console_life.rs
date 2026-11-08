@@ -15,13 +15,12 @@
 use std::net::{SocketAddr, TcpStream};
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_test_client::DaemonClient;
 use goodfetch_test_support::MESSAGE_DEADLINE;
 use goodfetch_test_support::{RuntimeFile, TestEnv, cli};
 use serde_json::{Value, json};
 
 use crate::daemon::StopsTheDaemon;
-use crate::daemon_hello;
+use crate::daemon_client;
 use crate::sign_in::{agent, sign_in};
 use goodfetch_test_client::{Attached, hello};
 
@@ -127,7 +126,7 @@ fn a_runs_link_names_the_public_url_and_carries_no_credential() {
         .unwrap();
     assert_eq!(started.exit, Some(0), "{}", started.stderr);
     let found = RuntimeFile::read(&RuntimeFile::path(env.home(), VERSION)).unwrap();
-    let mut client = DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token));
+    let mut client = daemon_client(&found);
 
     client.call(1, "run.start", &json!({ "run_id": "linked" }));
     let finished = client.call(2, "run.finish", &json!({ "run_id": "linked" }));

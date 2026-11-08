@@ -81,10 +81,9 @@ use goodfetch_protocol::checkpoint::RunBinding;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
-use goodfetch_protocol::home::RUN_FILE;
+use goodfetch_protocol::home::{OPERATOR_POLICY_FILE, RUN_FILE, RUNS, per_major};
 use goodfetch_protocol::run::{NothingDone, RunId, RunKind, RunWarning, Tags};
 use goodfetch_test_client::Hello;
-use goodfetch_test_client::HomeLayout;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
@@ -727,16 +726,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .nth(1)
             .ok_or("usage: compat-run-state <folder>")?,
     );
+    let version = ProductVersion::parse("0.0.0")?;
     let identity = Identity {
         product: Product::Foxhound,
-        product_version: ProductVersion::parse("0.0.0")?,
+        product_version: version.clone(),
         channel: Channel::CratesIo,
     };
     let engine = Engine::new(identity, &goodfetch_foxhound::composition().with(bound()))?;
     let home = tempfile::tempdir()?;
-    std::fs::create_dir_all(HomeLayout::of(home.path()).per_major())?;
+    // The folder of the engine's own pinned version, not of the workspace's.
+    let engine_folder = per_major(home.path(), &version);
+    std::fs::create_dir_all(&engine_folder)?;
     std::fs::write(
-        HomeLayout::of(home.path()).operator_policy(),
+        engine_folder.join(OPERATOR_POLICY_FILE),
         "version = \"0.1\"\n",
     )?;
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -801,7 +803,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         served?;
         talked
     })?;
-    let runs = HomeLayout::of(home.path()).runs();
+    let runs = engine_folder.join(RUNS);
     runtime.block_on(leave_unclean(&runs.join("unclean").join(RUN_FILE)))?;
     dump_run_files(&runs, &folder)?;
     std::fs::copy(

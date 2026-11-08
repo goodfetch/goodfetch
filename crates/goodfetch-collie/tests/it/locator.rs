@@ -20,10 +20,11 @@ use std::path::Path;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
 use goodfetch_protocol::page::{PageOpened, TargetNotUniqueDetails};
+use goodfetch_test_client::Hello;
 use goodfetch_test_client::HomeLayout;
-use goodfetch_test_client::hello;
 use goodfetch_test_support::ToolStatus;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, Mode, ProvingGround, TestEnv, browser_cache, cli,
@@ -85,7 +86,7 @@ impl OnTask {
         cache: &Path,
         proving_ground: &ProvingGround,
         task: &str,
-        surface: &str,
+        surface: Surface,
         action_timeout: u64,
     ) -> Self {
         Self::open_with(
@@ -105,16 +106,14 @@ impl OnTask {
         cache: &Path,
         proving_ground: &ProvingGround,
         task: &str,
-        surface: &str,
+        surface: Surface,
         action_timeout: u64,
         settings: &Map<String, Value>,
     ) -> Self {
         let mut engine = Attached::start_with(env, COLLIE, BROWSER_DEADLINE, |command| {
             command.env(BROWSERS_PATH_VARIABLE, cache);
         });
-        let mut hello = hello(Product::Collie);
-        hello["params"]["surface"] = json!(surface);
-        engine.send(&hello);
+        engine.send(&Hello::needing(Product::Collie).surface(surface).message());
         let _ = engine.next();
         let resolve: Map<String, Value> = proving_ground
             .description()
@@ -229,7 +228,14 @@ fn verified_by_the_oracle(task: &str, steps: &[Step]) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut page = OnTask::open(&env, &cache, &proving_ground, task, "sdk_python", 10_000);
+    let mut page = OnTask::open(
+        &env,
+        &cache,
+        &proving_ground,
+        task,
+        Surface::SdkPython,
+        10_000,
+    );
 
     let answers: Vec<Value> = steps.iter().map(|step| page.act(*step)).collect();
     let verdict = outcome(&proving_ground, task, ToolStatus::Success);
@@ -258,17 +264,17 @@ fn verified_by_the_oracle(task: &str, steps: &[Step]) {
 /// Covers: story:5-3, error:target_not_unique, setting:timeout.action, operation:locator.click
 #[rstest]
 #[case::python(
-    "sdk_python",
+    Surface::SdkPython,
     "page.locator(\"#target\")",
     ["page.locator(\"#target\").nth(0)", "page.locator(\"#target\").nth(1)"]
 )]
 #[case::typescript(
-    "sdk_typescript",
+    Surface::SdkTypescript,
     "page.locator('#target')",
     ["page.locator('#target').nth(0)", "page.locator('#target').nth(1)"]
 )]
 fn a_target_still_ambiguous_at_the_deadline_raises_target_not_unique_listing_every_match(
-    #[case] surface: &str,
+    #[case] surface: Surface,
     #[case] target: &str,
     #[case] matches: [&str; 2],
 ) {
@@ -340,7 +346,14 @@ fn a_target_never_actionable_raises_deadline_exceeded_naming_the_step(
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut page = OnTask::open(&env, &cache, &proving_ground, task, "sdk_python", 1_000);
+    let mut page = OnTask::open(
+        &env,
+        &cache,
+        &proving_ground,
+        task,
+        Surface::SdkPython,
+        1_000,
+    );
 
     let clicked = page.act(Step::Click(selector));
     let verdict = outcome(&proving_ground, task, ToolStatus::Failure);
@@ -409,7 +422,7 @@ fn a_click_with_no_animation_running_checks_and_arms_in_one_round_trip() {
         &cache,
         &proving_ground,
         "actionability/1",
-        "sdk_python",
+        Surface::SdkPython,
         10_000,
         &settings,
     );

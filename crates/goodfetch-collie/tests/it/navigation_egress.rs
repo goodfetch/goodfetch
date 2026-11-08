@@ -24,6 +24,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_test_client::robots_txt_read;
 use goodfetch_test_support::{
     Answer, BROWSERS_PATH_VARIABLE, Outcome, ProvingGround, Refusal, Route, Runner, SsrfCase,
@@ -34,7 +35,7 @@ use serde_json::{Map, Value, json};
 
 use crate::COLLIE;
 use crate::page::{BROWSER_DEADLINE, opened};
-use goodfetch_test_client::{Attached, hello};
+use goodfetch_test_client::{Attached, Hello};
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 631;
@@ -64,13 +65,16 @@ struct Program {
 }
 
 impl Program {
-    fn start(env: &TestEnv, cache: &Path, proving_ground: &ProvingGround, surface: &str) -> Self {
+    fn start(
+        env: &TestEnv,
+        cache: &Path,
+        proving_ground: &ProvingGround,
+        surface: Surface,
+    ) -> Self {
         let mut engine = Attached::start_with(env, COLLIE, BROWSER_DEADLINE, |command| {
             command.env(BROWSERS_PATH_VARIABLE, cache);
         });
-        let mut greeting = hello(Product::Collie);
-        greeting["params"]["surface"] = json!(surface);
-        engine.send(&greeting);
+        engine.send(&Hello::needing(Product::Collie).surface(surface).message());
         let _ = engine.next();
         let resolve = proving_ground
             .description()
@@ -88,7 +92,7 @@ impl Program {
                 .cloned()
                 .collect(),
             resolve,
-            for_model: surface == "mcp",
+            for_model: surface == Surface::Mcp,
         }
     }
 
@@ -171,12 +175,7 @@ fn requests(proving_ground: &ProvingGround) -> Vec<(String, String)> {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .map(|request| {
-            (
-                request.host.as_str().to_owned(),
-                request.target.as_str().to_owned(),
-            )
-        })
+        .map(|request| (request.host.clone(), request.target.clone()))
         .collect()
 }
 
@@ -198,7 +197,7 @@ fn a_chain_whose_third_hop_leaves_the_policy_is_refused_at_that_hop() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    let mut program = Program::start(&env, &cache, &proving_ground, Surface::SdkPython);
     let start = proving_ground.url(STAND_INS, "/leaves/3");
     let target = proving_ground.url("catalog.test", "/catalog/1");
     program.run("held", &["redirects.test"]);
@@ -358,7 +357,7 @@ fn every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_chromium() {
         "#,
     )
     .unwrap();
-    let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    let mut program = Program::start(&env, &cache, &proving_ground, Surface::SdkPython);
     // A hop to a name the table resolves privately reaches the relay with
     // the name's answer from the Run's mapping, which no range lists.
     for case in cases {
@@ -552,7 +551,7 @@ fn navigations_are_refused_on_chromium(test: &str) -> Runner {
     )
     .unwrap();
     let listed = ["proxied.ssrf.test".to_owned()];
-    let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    let mut program = Program::start(&env, &cache, &proving_ground, Surface::SdkPython);
     let mut groups: Vec<(Value, Vec<&SsrfCase>)> = Vec::new();
     for case in controls.cases.iter().chain(runner.cases()) {
         let settings = case_settings(&program, &proving_ground, case, &listed);
@@ -660,7 +659,7 @@ fn the_programs_own_code_loads_a_file_url_on_a_local_engine() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let file = local_file(&env, REPORT);
-    let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    let mut program = Program::start(&env, &cache, &proving_ground, Surface::SdkPython);
     program.run("files", &["*"]);
     let page = program.new_page("files");
 
@@ -685,7 +684,7 @@ fn a_client_acting_for_a_model_is_refused_a_file_url() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let file = local_file(&env, REPORT);
-    let mut program = Program::start(&env, &cache, &proving_ground, "mcp");
+    let mut program = Program::start(&env, &cache, &proving_ground, Surface::Mcp);
     program.run("files", &["*"]);
     let page = program.new_page("files");
 
@@ -719,7 +718,7 @@ fn a_refused_navigation_answers_once_the_browsers_error_page_for_it_loaded() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    let mut program = Program::start(&env, &cache, &proving_ground, Surface::SdkPython);
     program.run("refused", &["catalog.test"]);
     let page = program.new_page("refused");
 
@@ -761,7 +760,7 @@ fn a_javascript_url_runs_in_a_frame_the_policy_allows_and_opens_no_connection(
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    let mut program = Program::start(&env, &cache, &proving_ground, Surface::SdkPython);
     program.run("scripts", &["catalog.test"]);
     let page = program.new_page("scripts");
     let went = program.goto(&page, &proving_ground.url("catalog.test", "/catalog/1"));
@@ -794,7 +793,7 @@ fn a_javascript_url_in_a_frame_whose_origin_the_policy_refuses_does_not_run() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    let mut program = Program::start(&env, &cache, &proving_ground, Surface::SdkPython);
     program.run("scripts", &["catalog.test"]);
     let page = program.new_page("scripts");
     let went = program.goto(&page, &proving_ground.url("elsewhere.test", "/offsite"));

@@ -33,7 +33,7 @@ use goodfetch_test_support::{
 };
 use serde_json::{Value, json};
 
-use crate::daemon_hello;
+use crate::daemon_client;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -388,7 +388,7 @@ fn a_killed_daemon_leaves_its_run_resumable_and_a_runtime_file_the_next_start_re
         .read_line(&mut ready)
         .unwrap();
     let found: RuntimeFile = serde_json::from_str(&ready).unwrap();
-    let mut client = DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token));
+    let mut client = daemon_client(&found);
     client.call(1, "run.start", &json!({ "run_id": "cut" }));
 
     daemon.child().kill().unwrap();

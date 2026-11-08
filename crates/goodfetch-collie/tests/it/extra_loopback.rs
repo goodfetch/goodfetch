@@ -86,12 +86,7 @@ fn request_kinds(observations: &Value) -> BTreeSet<(String, String)> {
     ReceivedRequests::of(observations)
         .every()
         .filter(|request| PAGE_HOSTS.contains(&request.host.as_str()))
-        .map(|request| {
-            (
-                request.protocol.as_str().to_owned(),
-                request.kind.as_str().to_owned(),
-            )
-        })
+        .map(|request| (request.protocol.clone(), request.kind.clone()))
         .collect()
 }
 

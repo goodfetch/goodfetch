@@ -61,7 +61,7 @@ fn requests(proving_ground: &ProvingGround) -> Vec<(String, Value)> {
         .received_requests()
         .unwrap()
         .every()
-        .filter(|request| request.target != json!("/favicon.ico"))
+        .filter(|request| request.target != "/favicon.ico")
         .map(|request| {
             (
                 request

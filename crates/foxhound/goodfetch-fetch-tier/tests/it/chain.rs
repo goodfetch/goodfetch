@@ -39,7 +39,7 @@ use rstest::rstest;
 use serde_json::Value;
 use url::Url;
 
-use crate::{Stack, reqwest, running_clock_runtime, transport};
+use crate::{Stack, requests_for, reqwest, running_clock_runtime, transport};
 
 const SEED: u64 = 762;
 const HOST: &str = "fetch-edge.test";
@@ -170,17 +170,6 @@ fn followed(
 
 fn hop(proving_ground: &ProvingGround, path: &str) -> Hop {
     Hop::get(Url::parse(&proving_ground.url(HOST, path)).unwrap())
-}
-
-/// The requests the Proving ground received on `host` for `path`.
-fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<Value> {
-    proving_ground
-        .received_requests()
-        .unwrap()
-        .of_the_case()
-        .filter(|request| request.host.split(':').next() == Some(host) && request.target == path)
-        .map(|request| serde_json::to_value(request).unwrap())
-        .collect()
 }
 
 /// The value of a request's header `name`, if it has one.

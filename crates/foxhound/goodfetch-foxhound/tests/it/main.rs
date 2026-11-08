@@ -22,6 +22,33 @@ const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 /// schema or key.
 const PUSHED_INTO: [&str; 4] = ["pages", "books", "items", "links"];
 
+/// The Run file of `run_id` in `env`'s home, opened.
+pub(crate) fn run_file(env: &TestEnv, run_id: &str) -> rusqlite::Connection {
+    rusqlite::Connection::open(goodfetch_test_client::HomeLayout::of(env.home()).run_file(run_id))
+        .unwrap()
+}
+
+/// Which of `arrived`, a host's requests in order of arrival, its robots.txt
+/// first, reached it before their turn under `delay` microseconds between
+/// starts. The first after robots.txt counts its delay from that file's
+/// response and each later one from the start before it, so the request `n`
+/// places after robots.txt leaves at least `n` delays after the file's request
+/// arrived, and arrives later still: no way to the site can bring it closer, so
+/// this holds with no allowance. A gap between two requests alone is not
+/// judged: it also holds the difference of their ways to the site, which no
+/// figure bounds on a loaded host.
+pub(crate) fn before_their_turn(arrived: &[(String, u64)], delay: u64) -> Vec<String> {
+    let Some((_, read)) = arrived.first() else {
+        return Vec::new();
+    };
+    arrived
+        .iter()
+        .zip(0..)
+        .filter(|((_, at), places)| *at < read + places * delay)
+        .map(|((target, _), _)| target.clone())
+        .collect()
+}
+
 /// Foxhound's Attached engine, its logs at `trace`, once it answered the
 /// Python SDK's `hello`; a `crawl.start` sent through it that declares no
 /// Dataset declares [`PUSHED_INTO`].

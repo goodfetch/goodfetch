@@ -149,7 +149,7 @@ filter = """
 (binary_id(goodfetch-collie::it) & test(/^(browser_pool|page_ends|request_kinds|storage)::/))
 | (binary_id(goodfetch-conformance::it) & test(/^protocol::/))
 | (binary_id(goodfetch-engine) & test(/^engine::tests::settings_edits::/))
-| (binary_id(goodfetch-foxhound::it) & test(/^(fetch_tiers|limits|navigation_gate|pacing|robots_txt|staging|tier_race)::/))
+| (binary_id(goodfetch-foxhound::it) & test(/^(fetch_tiers|limits|navigation_gate|pacing|robots_txt|sitemap|staging|tier_race)::/))
 | (binary_id(goodfetch-page::it) & test(/^(listener_arming|navigation_gate)::/))
 | (binary_id(goodfetch-test-support::it) & test(/^seeded_kill::/))
 | (binary_id(xtask::it) & test(/^(merge_pr|pre_merge)::/))

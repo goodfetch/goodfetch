@@ -12,12 +12,13 @@
 )]
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{LazyFs, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use goodfetch_test_client::{Attached, hello};
+use goodfetch_test_client::{Attached, Hello, hello};
 
 use crate::COLLIE;
 
@@ -163,7 +164,7 @@ fn a_consent_domain_allowed_before_a_power_cut_is_still_allowed_after_it() {
 /// A `hello` from the CLI, a person's surface, which may answer a consent
 /// wall.
 fn from_the_cli() -> Value {
-    let mut hello = hello(Product::Collie);
-    hello["params"]["surface"] = json!("cli");
-    hello
+    Hello::needing(Product::Collie)
+        .surface(Surface::Cli)
+        .message()
 }

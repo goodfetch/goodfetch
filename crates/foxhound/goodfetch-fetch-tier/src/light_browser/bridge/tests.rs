@@ -221,11 +221,12 @@ async fn a_request_with_the_token_to_an_allowed_host_reaches_the_site() {
 #[tokio::test(start_paused = true)]
 async fn a_client_that_sends_no_request_head_is_given_up_at_the_head_deadline() {
     let (_lightpanda, accepted) = tokio::io::duplex(64);
-    let check = check();
+    let (check, clock) = (check(), Clock::system());
+    let started = clock.now();
 
     let ended = tokio::time::timeout(
         Duration::from_secs(60),
-        relay(accepted, &check, AUTHORIZATION, &Clock::system()),
+        relay(accepted, &check, AUTHORIZATION, &clock),
     )
     .await;
 
@@ -233,4 +234,7 @@ async fn a_client_that_sends_no_request_head_is_given_up_at_the_head_deadline() 
         matches!(&ended, Ok(Err(error)) if error.kind() == std::io::ErrorKind::TimedOut),
         "{ended:?}"
     );
+    // The paused clock moved exactly to the deadline, give or take the timer's
+    // millisecond.
+    assert_eq!((clock.now() - started).as_secs(), 10);
 }

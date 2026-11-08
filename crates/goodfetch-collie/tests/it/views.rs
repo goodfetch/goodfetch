@@ -10,12 +10,11 @@
 )]
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_test_client::DaemonClient;
 use goodfetch_test_support::{RuntimeFile, TestEnv};
 use serde_json::{Value, json};
 
 use crate::daemon::{StopsTheDaemon, json_of, short_idle};
-use crate::daemon_hello;
+use crate::daemon_client;
 use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -39,7 +38,7 @@ fn an_attached_engine_reads_a_run_the_daemon_works_through_the_daemon() {
     json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
     let found =
         RuntimeFile::read(&RuntimeFile::path(env.home(), env!("CARGO_PKG_VERSION"))).unwrap();
-    let mut owner = DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token));
+    let mut owner = daemon_client(&found);
     owner.call(1, "run.start", &json!({ "run_id": "followed" }));
     owner.call(
         2,

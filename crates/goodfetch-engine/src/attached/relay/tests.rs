@@ -15,12 +15,12 @@ const TOKEN: &str = "the-daemons-token";
 /// A Connection's two ends.
 async fn connection() -> (Connection, Connection) {
     let (network, dialer) = transport::in_memory();
-    let dialed = dialer.connect().await.unwrap();
-    let served = Network::InMemory(network)
+    let near = dialer.connect().await.unwrap();
+    let far = Network::InMemory(network)
         .attached_connection()
         .await
         .unwrap();
-    (dialed, served)
+    (near, far)
 }
 
 /// The params of a current `hello`.
@@ -33,7 +33,7 @@ fn current_hello() -> Value {
 }
 
 /// The params the Daemon reads of a `hello` the Client sent with `params`.
-fn relayed(params: Value) -> Value {
+fn relayed(params: &Value) -> Value {
     goodfetch_test_support::runtime().block_on(async {
         let (client, client_end) = connection().await;
         let (daemon_end, daemon) = connection().await;
@@ -64,7 +64,7 @@ fn a_hello_with_a_field_this_build_does_not_know_reaches_the_daemon_with_the_tok
     let mut params = current_hello();
     params["from_a_newer_client"] = json!(true);
 
-    let read = relayed(params);
+    let read = relayed(&params);
 
     assert_eq!(
         (read["token"].clone(), read["from_a_newer_client"].clone()),
@@ -79,7 +79,7 @@ fn a_current_hello_reads_with_the_token_and_keeps_its_trace_context() {
     let mut params = current_hello();
     params[META] = json!({ "traceparent": "the-trace-context" });
 
-    let mut read = relayed(params);
+    let mut read = relayed(&params);
     let meta = read.as_object_mut().unwrap().remove(META);
     let hello: HelloParams = serde_json::from_value(read).unwrap();
 

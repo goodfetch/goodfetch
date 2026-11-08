@@ -7,8 +7,8 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::proving_ground::ProvingGround;
-use crate::reading::{every, judge, origin, start_url, task};
+use crate::proving_ground::{ProvingGround, submission};
+use crate::reading::{every, origin, start_url, task};
 
 const SEED: u64 = 787;
 const TASK: &str = "extraction/10";
@@ -84,12 +84,7 @@ fn every_pages_metadata_and_contacts_as_json_values_are_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let origin = origin(start_url(&task(&proving_ground, TASK))).to_owned();
 
-    let answer = judge(
-        &proving_ground,
-        TASK,
-        "success",
-        &records(&origin, |_, _| {}),
-    );
+    let answer = proving_ground.judge(&submission(TASK, "success", &records(&origin, |_, _| {})));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -102,8 +97,7 @@ fn a_json_ld_block_left_out_a_guessed_country_or_a_tag_left_out_is_a_false_succe
     let proving_ground = ProvingGround::start(SEED);
     let origin = origin(start_url(&task(&proving_ground, TASK))).to_owned();
 
-    let answer = judge(
-        &proving_ground,
+    let answer = proving_ground.judge(&submission(
         TASK,
         "success",
         &records(&origin, |id, record| match id {
@@ -121,7 +115,7 @@ fn a_json_ld_block_left_out_a_guessed_country_or_a_tag_left_out_is_a_false_succe
             }
             _ => {}
         }),
-    );
+    ));
 
     let wrong: Vec<(&Value, &Value)> = answer["wrong"]
         .as_array()

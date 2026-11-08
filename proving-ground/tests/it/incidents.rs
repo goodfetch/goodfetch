@@ -61,12 +61,6 @@ fn shelf_records(proving_ground: &ProvingGround, host: &str) -> Vec<Value> {
         .collect()
 }
 
-fn judge(proving_ground: &ProvingGround, submission: &Value) -> Value {
-    let answer = proving_ground.judge(submission);
-    assert_eq!(answer.status, 200, "{}", answer.body);
-    answer.json()
-}
-
 /// Covers: story:2-40
 #[test]
 fn a_429_and_a_503_answer_once_then_the_page() {
@@ -85,10 +79,8 @@ fn a_429_and_a_503_answer_once_then_the_page() {
     assert_eq!(once.status(), Some(503));
     assert_eq!(after.status(), Some(200));
     let records = shelf_records(&proving_ground, &limited);
-    let answer = judge(
-        &proving_ground,
-        &json!({ "task": "incidents/1", "status": "success", "records": records }),
-    );
+    let answer = proving_ground
+        .judge(&json!({ "task": "incidents/1", "status": "success", "records": records }));
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
 
@@ -176,18 +168,12 @@ fn the_oracle_tells_incomplete_records_claimed_as_success_from_complete_ones_del
     incomplete.extend(records_on(&String::from_utf8_lossy(third.body())));
     let complete = shelf_records(&proving_ground, &host);
 
-    let late = judge(
-        &proving_ground,
-        &json!({ "task": "incidents/6", "status": "success", "records": complete }),
-    );
-    let false_success = judge(
-        &proving_ground,
-        &json!({ "task": "incidents/6", "status": "success", "records": incomplete }),
-    );
-    let reported = judge(
-        &proving_ground,
-        &json!({ "task": "incidents/6", "status": "failure", "records": incomplete }),
-    );
+    let late = proving_ground
+        .judge(&json!({ "task": "incidents/6", "status": "success", "records": complete }));
+    let false_success = proving_ground
+        .judge(&json!({ "task": "incidents/6", "status": "success", "records": incomplete }));
+    let reported = proving_ground
+        .judge(&json!({ "task": "incidents/6", "status": "failure", "records": incomplete }));
 
     assert_eq!(complete.len(), 6);
     assert_eq!(late["outcome"], "failed", "{late}");
@@ -214,7 +200,7 @@ fn the_robots_task_is_judged_by_rfc_9309_from_the_requests_made() {
     let records = records_on(&String::from_utf8_lossy(first.body()));
     let submission = json!({ "task": "access-policy/1", "status": "success", "records": records });
 
-    let obeyed = judge(&proving_ground, &submission);
+    let obeyed = proving_ground.judge(&submission);
     for (agent, path) in [
         ("Browser/1", "/doc.pdf"),
         ("Browser/1", "/doc.pdf?download=1"),
@@ -226,7 +212,7 @@ fn the_robots_task_is_judged_by_rfc_9309_from_the_requests_made() {
     ] {
         raw_clients::get(&proving_ground, &host, path, &[("User-Agent", agent)]);
     }
-    let disobeyed = judge(&proving_ground, &submission);
+    let disobeyed = proving_ground.judge(&submission);
 
     assert!(String::from_utf8_lossy(robots.body()).contains("Disallow: /private/"));
     assert!(String::from_utf8_lossy(first.body()).contains("href=\"/private/catalog/2\""));
@@ -271,20 +257,15 @@ fn site_policies_are_served_and_the_only_right_result_is_a_refusal() {
     assert!(String::from_utf8_lossy(challenge.body()).contains("Just a moment..."));
 
     let refused = |task: &str, records: &[Value]| {
-        judge(
-            &proving_ground,
-            &json!({ "task": task, "status": "failure", "records": records }),
-        )
+        proving_ground.judge(&json!({ "task": task, "status": "failure", "records": records }))
     };
     let first_page = records_on(&String::from_utf8_lossy(get(7, "/catalog/1").body()));
     assert_eq!(
         refused("access-policy/7", &first_page)["outcome"],
         "verified"
     );
-    let claimed = judge(
-        &proving_ground,
-        &json!({ "task": "access-policy/7", "status": "success", "records": first_page }),
-    );
+    let claimed = proving_ground
+        .judge(&json!({ "task": "access-policy/7", "status": "success", "records": first_page }));
     assert_eq!(claimed["outcome"], "false_success", "{claimed}");
     assert_eq!(refused("access-policy/2", &[])["outcome"], "verified");
     get(3, "/catalog/1");
@@ -359,26 +340,16 @@ fn content_coding_pages_are_labelled_as_adr_0119_lists() {
         "code": "navigation_failed",
         "network_error": "net::ERR_CONTENT_DECODING_FAILED",
     });
-    let failed = judge(
-        &proving_ground,
+    let failed = proving_ground.judge(
         &json!({ "task": "content-coding/1", "status": "failure", "error": decoding_failed }),
     );
-    let other_error = judge(
-        &proving_ground,
-        &json!({ "task": "content-coding/6", "status": "failure", "error": { "code": "response_truncated" } }),
-    );
-    let read = judge(
-        &proving_ground,
-        &json!({
+    let other_error = proving_ground.judge(&json!({ "task": "content-coding/6", "status": "failure", "error": { "code": "response_truncated" } }));
+    let read = proving_ground.judge(&json!({
             "task": "content-coding/3",
             "status": "success",
             "records": [{ "id": "C-3", "text": "Content coding page 3, decoded once and as labelled." }],
-        }),
-    );
-    let garbled = judge(
-        &proving_ground,
-        &json!({ "task": "content-coding/7", "status": "success", "records": [{ "id": "C-7", "text": "(\u{fffd}/\u{fffd}" }] }),
-    );
+        }));
+    let garbled = proving_ground.judge(&json!({ "task": "content-coding/7", "status": "success", "records": [{ "id": "C-7", "text": "(\u{fffd}/\u{fffd}" }] }));
     assert_eq!(failed["outcome"], "verified", "{failed}");
     assert_eq!(other_error["outcome"], "failed", "{other_error}");
     assert_eq!(other_error["wrong_error"]["expected"], decoding_failed);

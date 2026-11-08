@@ -8,8 +8,8 @@ use std::fmt::Write as _;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
-use crate::proving_ground::{ProvingGround, RawAnswer};
-use crate::reading::{every, first, judge, origin, start_url, task};
+use crate::proving_ground::{ProvingGround, RawAnswer, submission};
+use crate::reading::{every, first, origin, start_url, task};
 
 const SEED: u64 = 165;
 
@@ -79,7 +79,7 @@ fn every_response_typed_as_a_navigation_types_it_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let records = crawl(&proving_ground, navigation_type);
 
-    let answer = judge(&proving_ground, "files/1", "success", &records);
+    let answer = proving_ground.judge(&submission("files/1", "success", &records));
 
     assert_eq!(records.len(), 7);
     assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -91,7 +91,7 @@ fn a_crawl_missing_the_zip_is_incomplete() {
     let mut records = crawl(&proving_ground, navigation_type);
     records.retain(|record| record["id"] != "/files/archive.zip");
 
-    let answer = judge(&proving_ground, "files/1", "failure", &records);
+    let answer = proving_ground.judge(&submission("files/1", "failure", &records));
 
     assert_eq!(answer["outcome"], "incomplete", "{answer}");
     assert_eq!(answer["missing"], json!(["/files/archive.zip"]));
@@ -107,7 +107,7 @@ fn a_success_that_never_sniffs_is_a_false_success_naming_the_untyped_responses()
             .map_or_else(|| "application/octet-stream".to_owned(), essence)
     });
 
-    let answer = judge(&proving_ground, "files/1", "success", &records);
+    let answer = proving_ground.judge(&submission("files/1", "success", &records));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     let wrong: Vec<Value> = answer["wrong"]
@@ -164,12 +164,11 @@ fn the_pdfs_title_and_text_are_verified() {
     let task = task(&proving_ground, "files/2");
     let (title, text) = read_pdf(&proving_ground.get_raw(start_url(&task)).body);
 
-    let answer = judge(
-        &proving_ground,
+    let answer = proving_ground.judge(&submission(
         "files/2",
         "success",
         &[json!({ "id": "report", "title": title, "text": text })],
-    );
+    ));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -182,12 +181,11 @@ fn a_success_that_reads_the_pdfs_bytes_as_text_is_a_false_success() {
     let (title, _) = read_pdf(&bytes);
     let body = String::from_utf8_lossy(&bytes);
 
-    let answer = judge(
-        &proving_ground,
+    let answer = proving_ground.judge(&submission(
         "files/2",
         "success",
         &[json!({ "id": "report", "title": title, "text": body })],
-    );
+    ));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["wrong"][0]["field"], "text", "{answer}");
@@ -252,7 +250,7 @@ fn the_file_the_download_link_offers_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let record = download(&proving_ground, false);
 
-    let answer = judge(&proving_ground, "files/3", "success", &[record]);
+    let answer = proving_ground.judge(&submission("files/3", "success", &[record]));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -262,7 +260,7 @@ fn a_success_that_names_the_file_after_its_url_is_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
     let record = download(&proving_ground, true);
 
-    let answer = judge(&proving_ground, "files/3", "success", &[record]);
+    let answer = proving_ground.judge(&submission("files/3", "success", &[record]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["wrong"][0]["field"], "file_name", "{answer}");

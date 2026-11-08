@@ -17,6 +17,7 @@
 use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::settings::{
     SettingLimit, SettingsLayer, TIMEOUT_ACTION, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION,
 };
@@ -47,7 +48,7 @@ fn a_wait_past_its_first_byte_timeout_ends_with_deadline_exceeded_naming_the_set
     let ended = goodfetch_test_support::runtime().block_on(async {
         let clock = Clock::paused(UNIX_EPOCH);
         deadline
-            .within(&clock, "first_byte", std::future::pending::<()>())
+            .within(&clock, WaitedFor::FIRST_BYTE, std::future::pending::<()>())
             .await
     });
 
@@ -77,7 +78,7 @@ fn a_navigation_answered_within_its_default_thirty_seconds_ends_well() {
     let answered = goodfetch_test_support::runtime().block_on(async {
         let clock = Clock::paused(UNIX_EPOCH);
         deadline
-            .within(&clock, "navigation", async {
+            .within(&clock, WaitedFor::NAVIGATION, async {
                 tokio::time::sleep(Duration::from_secs(29)).await;
                 "loaded"
             })

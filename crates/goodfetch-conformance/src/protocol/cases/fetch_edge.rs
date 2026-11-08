@@ -14,6 +14,7 @@
 
 use goodfetch_protocol::connection::CANCEL;
 use goodfetch_protocol::events::{CREDIT, EVENTS, EVENTS_SUBSCRIBE};
+use goodfetch_protocol::page::request::MAX_REDIRECTS;
 use goodfetch_protocol::page::{
     PAGE_DOWNLOAD, PAGE_GOTO, PAGE_RELOAD, RESPONSE_TRUNCATED, TOO_MANY_REDIRECTS,
 };
@@ -78,13 +79,13 @@ impl Case {
     }
 }
 
+/// How many redirects the pinned Chromium follows before it fails a
+/// navigation, as the protocol gives it for `page.request` (ADR 0118).
+const FOLLOWED: u32 = MAX_REDIRECTS;
+
 /// The browser's redirect count (ADR 0118): a navigation's chain holds at
 /// most this many requests, its first included.
-const BROWSER_REDIRECTS: usize = 20;
-
-/// How many redirects the pinned Chromium follows before it fails a
-/// navigation: its chain's requests but the first.
-const FOLLOWED: usize = BROWSER_REDIRECTS - 1;
+const BROWSER_REDIRECTS: u32 = FOLLOWED + 1;
 
 /// The network error of a body whose listed coding does not decode.
 const DECODING_FAILED: &str = "net::ERR_CONTENT_DECODING_FAILED";
@@ -124,7 +125,7 @@ fn redirect_loop(
     checks.check("it names the first URL", data["url"] == json!(looping));
     checks.check(
         format!("it names the {FOLLOWED} hops followed"),
-        data["hops"].as_array().map(Vec::len) == Some(FOLLOWED),
+        data["hops"].as_array().map(Vec::len) == usize::try_from(FOLLOWED).ok(),
     );
     checks.check(
         "it names the browser's count as the limit",

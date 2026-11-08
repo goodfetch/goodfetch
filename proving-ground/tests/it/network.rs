@@ -5,23 +5,15 @@
 //! recorded, never asserted (ADR 0064); the proxy's delays themselves are
 //! checked on Tokio's paused clock, in its module's tests.
 
+use goodfetch_test_support::{LOOPBACK_PORT_0, serve_arguments};
 use serde_json::{Value, json};
 
 use crate::proving_ground::ProvingGround;
 
 fn shaped(seed: u64, profile: &str) -> ProvingGround {
-    ProvingGround::start_with(
-        seed,
-        &[
-            "--address",
-            "127.0.0.1:0",
-            "--network-profile",
-            profile,
-            "--shaper",
-            "proxy",
-        ],
-        &[],
-    )
+    let mut arguments = serve_arguments(seed, LOOPBACK_PORT_0, profile).to_vec();
+    arguments.extend(["--shaper".to_owned(), "proxy".to_owned()]);
+    ProvingGround::start_with(&arguments)
 }
 
 fn network(proving_ground: &ProvingGround) -> Value {

@@ -9,6 +9,7 @@
 use std::time::Duration;
 
 use goodfetch_recording_gate::RecordingGate;
+use goodfetch_test_support::path_of;
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
@@ -16,13 +17,6 @@ use crate::handler_page::with_handler_page;
 
 /// The navigation test whose page links to `/b`.
 const HISTORY: &str = "2.navigation.test";
-
-/// The path of `url`.
-fn path_of(url: &Value) -> Option<String> {
-    url.as_str()
-        .and_then(|url| url::Url::parse(url).ok())
-        .map(|url| url.path().to_owned())
-}
 
 /// A click on a link, or Enter pressed on it, answers once the navigation
 /// it started committed, so the next call acts on the document it reached:
@@ -51,7 +45,10 @@ fn an_action_answers_once_the_navigation_it_started_committed(
         assert_eq!(
             (
                 acted.get("result").is_some(),
-                path_of(&back["result"]["response"]["url"]),
+                back["result"]["response"]["url"]
+                    .as_str()
+                    .and_then(path_of)
+                    .map(str::to_owned),
             ),
             (true, Some("/".to_owned())),
             "{acted} {back}"

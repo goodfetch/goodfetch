@@ -7,8 +7,8 @@
 
 use serde_json::{Value, json};
 
-use crate::proving_ground::ProvingGround;
-use crate::reading::{every, first, judge, origin, start_url, task};
+use crate::proving_ground::{ProvingGround, submission};
+use crate::reading::{every, first, origin, start_url, task};
 
 const SEED: u64 = 165;
 
@@ -65,7 +65,7 @@ fn a_crawl_that_keeps_each_text_as_served_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let records = crawl(&proving_ground, as_served);
 
-    let answer = judge(&proving_ground, "languages/1", "success", &records);
+    let answer = proving_ground.judge(&submission("languages/1", "success", &records));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -80,12 +80,11 @@ fn the_page_on_the_idn_host_name_read_as_served_is_verified() {
     );
     let page = proving_ground.get(start_url(&task)).body;
 
-    let answer = judge(
-        &proving_ground,
+    let answer = proving_ground.judge(&submission(
         "languages/2",
         "success",
         &[read_page("idn", &page, &as_served)],
-    );
+    ));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -96,7 +95,7 @@ fn a_crawl_missing_the_thai_page_is_incomplete() {
     let mut records = crawl(&proving_ground, as_served);
     records.retain(|record| record["id"] != "thai");
 
-    let answer = judge(&proving_ground, "languages/1", "needs-review", &records);
+    let answer = proving_ground.judge(&submission("languages/1", "needs-review", &records));
 
     assert_eq!(answer["outcome"], "incomplete", "{answer}");
     assert_eq!(answer["missing"], json!(["thai"]));
@@ -111,7 +110,7 @@ fn a_success_that_drops_combining_marks_is_a_false_success_naming_the_mark() {
             .collect()
     });
 
-    let answer = judge(&proving_ground, "languages/1", "success", &records);
+    let answer = proving_ground.judge(&submission("languages/1", "success", &records));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     let marks = answer["wrong"]
@@ -135,7 +134,7 @@ fn a_success_that_collapses_white_space_is_a_false_success_naming_the_tab() {
         text.split_whitespace().collect::<Vec<_>>().join(" ")
     });
 
-    let answer = judge(&proving_ground, "languages/1", "success", &records);
+    let answer = proving_ground.judge(&submission("languages/1", "success", &records));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     let record = answer["wrong"]
@@ -155,7 +154,7 @@ fn a_success_that_drops_the_query_is_a_false_success_missing_its_page() {
     let mut records = crawl(&proving_ground, as_served);
     records.retain(|record| record["id"] != "path-and-query");
 
-    let answer = judge(&proving_ground, "languages/1", "success", &records);
+    let answer = proving_ground.judge(&submission("languages/1", "success", &records));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["missing"], json!(["path-and-query"]));

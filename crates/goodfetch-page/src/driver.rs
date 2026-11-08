@@ -63,6 +63,7 @@ use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::tls::CertificateInvalid;
+use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::functions::World;
 use goodfetch_protocol::page::{
@@ -1368,7 +1369,7 @@ impl PageDriver {
     /// deadline counted, its permit waits left out (ADRs 0080 and 0093).
     pub(crate) async fn within_navigation_deadline<F: Future>(
         &self,
-        waited_for: &str,
+        waited_for: WaitedFor,
         future: F,
     ) -> Result<F::Output, CallError> {
         Box::pin(self.within(Some(&self.browser.deadlines.navigation), waited_for, future)).await
@@ -1407,7 +1408,7 @@ impl PageDriver {
     async fn within<F: Future>(
         &self,
         deadline: Option<&Deadline>,
-        waited_for: &str,
+        waited_for: WaitedFor,
         future: F,
     ) -> Result<F::Output, CallError> {
         let Some(deadline) = deadline else {
@@ -2080,10 +2081,10 @@ pub(crate) fn detached(events: &mut Subscription) -> bool {
 
 /// What a navigation that answers at `wait_until` waits for, as its
 /// `deadline_exceeded` names it: the state, as the call spells it.
-fn waited_for(wait_until: WaitUntil) -> &'static str {
+fn waited_for(wait_until: WaitUntil) -> WaitedFor {
     match wait_until {
-        WaitUntil::Commit => "commit",
-        WaitUntil::DomContentLoaded => "domcontentloaded",
-        WaitUntil::Load => "load",
+        WaitUntil::Commit => WaitedFor::COMMIT,
+        WaitUntil::DomContentLoaded => WaitedFor::DOM_CONTENT_LOADED,
+        WaitUntil::Load => WaitedFor::LOAD,
     }
 }

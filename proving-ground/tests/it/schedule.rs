@@ -127,9 +127,7 @@ fn a_correct_watch_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let records = watch(&proving_ground);
 
-    let answer = proving_ground
-        .judge(&submission("schedule/1", "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission("schedule/1", "success", &records));
 
     assert_eq!(answer["task"], "schedule/1");
     assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -142,9 +140,7 @@ fn a_watch_missing_one_revision_is_incomplete() {
     let mut records = watch(&proving_ground);
     records.remove(2);
 
-    let answer = proving_ground
-        .judge(&submission("schedule/1", "failure", &records))
-        .json();
+    let answer = proving_ground.judge(&submission("schedule/1", "failure", &records));
 
     assert_eq!(answer["outcome"], "incomplete", "{answer}");
     assert_eq!(answer["missing"], json!(["R-2"]));
@@ -158,9 +154,7 @@ fn a_watch_that_reports_each_visit_as_a_change_is_a_false_success() {
     let repeated = records[1].clone();
     records.insert(2, repeated.clone());
 
-    let answer = proving_ground
-        .judge(&submission("schedule/1", "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission("schedule/1", "success", &records));
 
     assert_eq!(answer["task"], "schedule/1");
     assert_eq!(answer["outcome"], "false_success", "{answer}");
@@ -174,9 +168,7 @@ fn a_watch_that_stops_at_its_first_read_is_a_false_success() {
     let mut records = watch(&proving_ground);
     records.truncate(1);
 
-    let answer = proving_ground
-        .judge(&submission("schedule/1", "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission("schedule/1", "success", &records));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["missing"], json!(["R-1", "R-2", "R-3"]));

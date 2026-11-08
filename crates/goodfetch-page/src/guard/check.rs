@@ -5,6 +5,7 @@
 
 use std::time::Duration;
 
+use goodfetch_protocol::connection::WaitedFor;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -151,8 +152,7 @@ pub(crate) enum Step {
 }
 
 impl Step {
-    /// Its name, as `check.js` and `deadline_exceeded`'s `waited_for` give
-    /// it.
+    /// Its name, as `check.js` gives it.
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Count => "count",
@@ -165,6 +165,23 @@ impl Step {
             Self::Editable => "editable",
             Self::Stable => "stable",
             Self::ReceivesEvents => "receives_events",
+        }
+    }
+
+    /// What a call that waited for this check to pass waited for, as its
+    /// `deadline_exceeded` names it.
+    pub(crate) fn waited_for(self) -> WaitedFor {
+        match self {
+            Self::Count => WaitedFor::TARGET_COUNT,
+            Self::Detached => WaitedFor::TARGET_DETACHED,
+            Self::Unique => WaitedFor::TARGET_UNIQUE,
+            Self::Hidden => WaitedFor::TARGET_HIDDEN,
+            Self::Attached => WaitedFor::TARGET_ATTACHED,
+            Self::Visible => WaitedFor::TARGET_VISIBLE,
+            Self::Enabled => WaitedFor::TARGET_ENABLED,
+            Self::Editable => WaitedFor::TARGET_EDITABLE,
+            Self::Stable => WaitedFor::TARGET_STABLE,
+            Self::ReceivesEvents => WaitedFor::TARGET_RECEIVES_EVENTS,
         }
     }
 }

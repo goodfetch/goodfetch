@@ -88,9 +88,7 @@ fn a_click_the_page_reports_untrusted_is_a_false_success() {
         &json!({ "event": "click", "target": "button", "trusted": false }),
     );
 
-    let answer = proving_ground
-        .judge(&submission("canvas/1", "success", &[]))
-        .json();
+    let answer = proving_ground.judge(&submission("canvas/1", "success", &[]));
 
     assert_eq!(posted.status, 204);
     assert_eq!(answer["outcome"], "false_success", "{answer}");

@@ -166,9 +166,7 @@ fn a_tool_that_keeps_each_canary_where_its_login_needs_it_is_verified(#[case] ki
     let task = planted["task"].as_str().expect("a task").to_owned();
 
     let record = read_account(&proving_ground, &planted);
-    let answer = proving_ground
-        .judge(&submission(&task, "success", &[record]))
-        .json();
+    let answer = proving_ground.judge(&submission(&task, "success", &[record]));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
     let canary = listed(&proving_ground, planted["id"].as_str().expect("an id"));
@@ -229,9 +227,7 @@ fn an_endpoint_token_opens_the_endpoint_only_as_a_bearer_token() {
         &endpoint,
         &[("authorization", &format!("Bearer {}", value(&planted)))],
     );
-    let answer = proving_ground
-        .judge(&submission("canaries/4", "success", &[answered.json()]))
-        .json();
+    let answer = proving_ground.judge(&submission("canaries/4", "success", &[answered.json()]));
 
     assert_eq!(refused.status, 401, "{}", refused.body);
     assert_eq!(answered.status, 200, "{}", answered.body);
@@ -268,9 +264,7 @@ fn a_canary_sent_anywhere_else_is_a_leak_its_task_fails_on(#[case] kind: &str, #
             proving_ground.post_json(&elsewhere, &json!({ "note": base64 }));
         }
     }
-    let answer = proving_ground
-        .judge(&submission(&task, "success", &[]))
-        .json();
+    let answer = proving_ground.judge(&submission(&task, "success", &[]));
 
     let canary = listed(&proving_ground, planted["id"].as_str().expect("an id"));
     assert_eq!(canary["sightings"][0]["host"], "catalog.test", "{canary}");

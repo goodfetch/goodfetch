@@ -8,7 +8,7 @@ use proptest::prelude::*;
 use serde_json::{Value, json};
 
 use crate::crawler::{Crawler, Fetched, field, links};
-use crate::proving_ground::ProvingGround;
+use crate::proving_ground::{ProvingGround, submission};
 
 const SEED: u64 = 164;
 const ITEMS: u64 = 4_194_304;
@@ -33,12 +33,6 @@ fn start_url(proving_ground: &ProvingGround, task: &str) -> String {
         .to_owned()
 }
 
-fn judge(proving_ground: &ProvingGround, task: &str, status: &str, records: &[Value]) -> Value {
-    proving_ground
-        .judge(&json!({ "task": task, "status": status, "records": records }))
-        .json()
-}
-
 /// A crawl that stays in the start page's section: its listing or its
 /// sitemaps, and the items they list.
 fn section_crawl(proving_ground: &ProvingGround, task: &str) -> Vec<Fetched> {
@@ -54,7 +48,7 @@ fn a_crawl_of_a_section_from_its_listing_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let pages = section_crawl(&proving_ground, "scale/1");
 
-    let answer = judge(&proving_ground, "scale/1", "success", &records(&pages));
+    let answer = proving_ground.judge(&submission("scale/1", "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
     assert_eq!(records(&pages).len(), 256);
@@ -65,7 +59,7 @@ fn a_crawl_of_a_section_from_its_sitemap_index_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let pages = section_crawl(&proving_ground, "scale/2");
 
-    let answer = judge(&proving_ground, "scale/2", "success", &records(&pages));
+    let answer = proving_ground.judge(&submission("scale/2", "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -77,7 +71,7 @@ fn a_crawl_missing_one_item_is_incomplete() {
     let mut records = records(&pages);
     let dropped = records.pop().unwrap();
 
-    let answer = judge(&proving_ground, "scale/1", "failure", &records);
+    let answer = proving_ground.judge(&submission("scale/1", "failure", &records));
 
     assert_eq!(answer["outcome"], "incomplete", "{answer}");
     assert_eq!(answer["missing"], json!([dropped["id"]]));
@@ -90,7 +84,7 @@ fn a_crawl_stopped_early_that_claims_success_is_a_false_success() {
     crawler.limit = 100;
     let pages = crawler.crawl(&start_url(&proving_ground, "scale/2"));
 
-    let answer = judge(&proving_ground, "scale/2", "success", &records(&pages));
+    let answer = proving_ground.judge(&submission("scale/2", "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert!(

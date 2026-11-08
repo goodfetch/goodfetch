@@ -260,7 +260,7 @@ fn the_never_settling_board_never_becomes_idle_so_a_failure_is_verified() {
         &browser::start_url(&proving_ground, "live/2"),
         json!({ "deadline_ms": 3000 }),
     );
-    let answer = proving_ground.judge(&result).json();
+    let answer = proving_ground.judge(&result);
 
     assert_eq!(result["status"], "failure", "{result}");
     assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -280,9 +280,7 @@ fn a_board_claimed_from_the_never_settling_page_is_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
     let record = json!({ "id": "board", "state": "updating", "updates": "9", "reading": "R-0000" });
 
-    let answer = proving_ground
-        .judge(&submission("live/2", "success", &[record]))
-        .json();
+    let answer = proving_ground.judge(&submission("live/2", "success", &[record]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
 }

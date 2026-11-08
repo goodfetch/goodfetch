@@ -948,6 +948,16 @@ fn health_text(health: &DaemonHealth) -> String {
     }
 }
 
+/// A crawl's part `T` among a progress's or a report's kind parts, under
+/// its `requests` key.
+fn part<T: serde::de::DeserializeOwned>(
+    parts: &serde_json::Map<String, serde_json::Value>,
+) -> Option<T> {
+    parts
+        .get("requests")
+        .and_then(|requests| serde_json::from_value(requests.clone()).ok())
+}
+
 fn product_name(product: Product) -> &'static str {
     match product {
         Product::Collie => "Collie",

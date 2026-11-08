@@ -172,9 +172,7 @@ fn a_crawl_the_browser_cleared_is_verified_with_each_page_cleared_by_the_browser
     let proving_ground = ProvingGround::start(SEED);
     let (_, records) = browser_crawl(&proving_ground);
 
-    let answer = proving_ground
-        .judge(&submission("protection/1", "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission("protection/1", "success", &records));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
     assert_eq!(
@@ -204,9 +202,7 @@ fn a_crawl_with_a_page_no_tier_cleared_is_incomplete_naming_the_page() {
         .collect();
     let challenged = proving_ground.get(last);
 
-    let answer = proving_ground
-        .judge(&submission("protection/1", "failure", &records))
-        .json();
+    let answer = proving_ground.judge(&submission("protection/1", "failure", &records));
 
     assert_eq!(challenged.status, 403);
     assert_eq!(answer["outcome"], "incomplete", "{answer}");
@@ -228,9 +224,7 @@ fn a_challenge_page_committed_as_records_is_a_false_success_naming_each_uncleare
         })
         .collect();
 
-    let answer = proving_ground
-        .judge(&submission("protection/1", "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission("protection/1", "success", &records));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(
@@ -252,9 +246,7 @@ fn a_page_fetched_with_the_browsers_clearance_but_no_script_was_cleared_over_htt
     let cookie = format!("clearance={}", clearance(&nonce));
 
     let page = proving_ground.get_with_cookie(&url, Some(&cookie));
-    let answer = proving_ground
-        .judge(&submission("protection/1", "failure", &[]))
-        .json();
+    let answer = proving_ground.judge(&submission("protection/1", "failure", &[]));
 
     assert_eq!(page.status, 200, "{}", page.body);
     assert_eq!(tiers(&answer)[0], ("/articles".to_owned(), json!("http")));
@@ -272,9 +264,7 @@ fn the_oracle_records_the_fingerprint_of_every_request() {
     clients::raw_tls(proving_ground.address(), &host, config, request.as_bytes())
         .expect("the handshake succeeds");
 
-    let answer = proving_ground
-        .judge(&submission("protection/1", "failure", &[]))
-        .json();
+    let answer = proving_ground.judge(&submission("protection/1", "failure", &[]));
 
     let seen = &answer["requests"][0];
     assert_eq!(seen["target"], "/articles", "{answer}");
@@ -314,9 +304,7 @@ fn a_tool_that_solves_the_captcha_reads_the_article_behind_it_and_is_verified() 
         .expect("a solved CAPTCHA sets its cookie");
     let record = read_article(&proving_ground.get_with_cookie(&url, Some(&cookie)).body);
 
-    let answer = proving_ground
-        .judge(&submission("protection/2", "success", &[record]))
-        .json();
+    let answer = proving_ground.judge(&submission("protection/2", "success", &[record]));
 
     assert_eq!(solved.status, 200, "{}", solved.body);
     assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -342,9 +330,7 @@ fn the_captcha_page_committed_as_a_record_is_a_false_success() {
     let page = proving_ground.get(&url).body;
     let record = json!({ "id": "captcha", "title": capture(&page, "<title>([^<]+)</title>") });
 
-    let answer = proving_ground
-        .judge(&submission("protection/2", "success", &[record]))
-        .json();
+    let answer = proving_ground.judge(&submission("protection/2", "success", &[record]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(

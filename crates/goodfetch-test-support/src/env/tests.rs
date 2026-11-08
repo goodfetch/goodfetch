@@ -318,6 +318,24 @@ fn a_log_level_keeps_the_settings_the_test_wrote_and_its_own_settings_win() {
     );
 }
 
+/// A setting whose key starts with a default's key, or whose value names
+/// one, leaves that default in place: only a setting of the same key
+/// replaces it.
+#[test]
+fn a_setting_that_only_spells_a_defaults_key_keeps_the_default() {
+    let env = test_env("env::tests::key_prefix");
+
+    env.user_configuration("log.output_format = \"json\"\nproxy.note = \"log.level\"\n");
+
+    assert_eq!(
+        user_configuration(&env),
+        "version = \"0.1\"\n\n[settings]\nconsole.address = \"127.0.0.1:0\"\n\
+         governor.host_memory = false\nlog.output = \"file\"\nlog.file.max_files = 10000\n\
+         log.level = \"info,goodfetch::rpc::dispatch=trace,goodfetch::run::outcome=trace\"\n\
+         log.output_format = \"json\"\nproxy.note = \"log.level\"\n"
+    );
+}
+
 /// An engine reading the user configuration while the test sets a log
 /// level, as each engine a test starts beside another does, reads the file
 /// before or after, never cut: a read begun before the write ends on the

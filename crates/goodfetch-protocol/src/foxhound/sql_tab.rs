@@ -15,6 +15,7 @@ use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
     ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
+use crate::connection::WaitedFor;
 use crate::run::RunId;
 use crate::settings::SettingLimit;
 
@@ -159,6 +160,10 @@ fn five_hundred_twelve_mebibytes() -> Value {
 fn ten_thousand() -> Value {
     json!(10_000)
 }
+
+/// What a `dataset.query` past `timeout.dataset_query` waited for, as its
+/// `deadline_exceeded` names it.
+pub const QUERY_ANSWER: WaitedFor = WaitedFor::named("query");
 
 /// `timeout.dataset_query` (ADR 0080; spec #593).
 pub const TIMEOUT_DATASET_QUERY: Setting = Setting {

@@ -745,7 +745,86 @@ pub struct DeadlineExceededDetails {
     pub elapsed: u64,
     /// What it waited for, such as `first_byte` or `navigation`.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub waited_for: String,
+    pub waited_for: WaitedFor,
+}
+
+/// What a call past its deadline waited for, as `deadline_exceeded` names
+/// it: a value of a type both Products share, open as ADR 0099 has such
+/// types, so Foxhound adds its own (`goodfetch_protocol::foxhound`'s) and a
+/// reader keeps one it does not know. Each of Collie's values is an
+/// associated constant.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
+#[schemars(transparent)]
+pub struct WaitedFor(Cow<'static, str>);
+
+impl WaitedFor {
+    /// A response's first byte.
+    pub const FIRST_BYTE: Self = Self::named("first_byte");
+    /// A navigation's end.
+    pub const NAVIGATION: Self = Self::named("navigation");
+    /// A request the page sends.
+    pub const REQUEST: Self = Self::named("request");
+    /// A response to a request.
+    pub const RESPONSE: Self = Self::named("response");
+    /// A request's end.
+    pub const FINISHED_REQUEST: Self = Self::named("finished request");
+    /// A response's whole body.
+    pub const RESPONSE_BODY: Self = Self::named("response body");
+    /// The page's URL to match.
+    pub const URL: Self = Self::named("url");
+    /// A page function to return a truthy value.
+    pub const FUNCTION: Self = Self::named("function");
+    /// A navigation's commit.
+    pub const COMMIT: Self = Self::named("commit");
+    /// The document's `DOMContentLoaded`.
+    pub const DOM_CONTENT_LOADED: Self = Self::named("domcontentloaded");
+    /// The document's `load`.
+    pub const LOAD: Self = Self::named("load");
+    /// The page's network to be idle.
+    pub const NETWORK_IDLE: Self = Self::named("networkidle");
+    /// The browser's answer to a command.
+    pub const BROWSER_ANSWER: Self = Self::named("browser_answer");
+    /// A Run's end.
+    pub const RUN_END: Self = Self::named("Run's end");
+    /// A Run's next safe point.
+    pub const RUN_SAFE_POINT: Self = Self::named("Run's next safe point");
+    /// A locator's matches to number what its count allows.
+    pub const TARGET_COUNT: Self = Self::named("target_count");
+    /// A locator's target to be detached.
+    pub const TARGET_DETACHED: Self = Self::named("target_detached");
+    /// A locator to match one element.
+    pub const TARGET_UNIQUE: Self = Self::named("target_unique");
+    /// A locator's target to be hidden.
+    pub const TARGET_HIDDEN: Self = Self::named("target_hidden");
+    /// A locator's target to be attached.
+    pub const TARGET_ATTACHED: Self = Self::named("target_attached");
+    /// A locator's target to be visible.
+    pub const TARGET_VISIBLE: Self = Self::named("target_visible");
+    /// A locator's target to be enabled.
+    pub const TARGET_ENABLED: Self = Self::named("target_enabled");
+    /// A locator's target to be editable.
+    pub const TARGET_EDITABLE: Self = Self::named("target_editable");
+    /// A locator's target to stop moving.
+    pub const TARGET_STABLE: Self = Self::named("target_stable");
+    /// A locator's target to be the one that receives the event.
+    pub const TARGET_RECEIVES_EVENTS: Self = Self::named("target_receives_events");
+
+    /// The value named `name`, for a Product's own constant.
+    pub const fn named(name: &'static str) -> Self {
+        Self(Cow::Borrowed(name))
+    }
+
+    /// Its name on the wire.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for WaitedFor {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
 }
 
 /// Who stopped a call (ADR 0113).

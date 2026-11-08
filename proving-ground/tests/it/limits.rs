@@ -17,7 +17,7 @@ use std::net::TcpStream;
 use serde_json::{Value, json};
 
 use crate::crawler::{Crawler, Fetched, field, finding_kinds};
-use crate::proving_ground::ProvingGround;
+use crate::proving_ground::{ProvingGround, submission};
 
 const SEED: u64 = 164;
 
@@ -42,23 +42,12 @@ pub(crate) fn start_url(proving_ground: &ProvingGround, task: &str) -> String {
         .to_owned()
 }
 
-pub(crate) fn judge(
-    proving_ground: &ProvingGround,
-    task: &str,
-    status: &str,
-    records: &[Value],
-) -> Value {
-    proving_ground
-        .judge(&json!({ "task": task, "status": status, "records": records }))
-        .json()
-}
-
 #[test]
 fn a_crawl_that_waits_each_retry_after_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let pages = Crawler::new(&proving_ground).crawl(&start_url(&proving_ground, "limits/1"));
 
-    let answer = judge(&proving_ground, "limits/1", "success", &records(&pages));
+    let answer = proving_ground.judge(&submission("limits/1", "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -85,7 +74,7 @@ fn a_crawl_that_ignores_retry_after_is_flagged_and_caught() {
     let start = start_url(&proving_ground, "limits/1");
     let pages = crawler.crawl(&start);
 
-    let answer = judge(&proving_ground, "limits/1", "success", &records(&pages));
+    let answer = proving_ground.judge(&submission("limits/1", "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(finding_kinds(&answer), ["retry_after_ignored"], "{answer}");
@@ -113,12 +102,7 @@ fn a_crawl_from_one_address_left_to_review_is_incomplete() {
     let proving_ground = ProvingGround::start(SEED);
     let pages = Crawler::new(&proving_ground).crawl(&start_url(&proving_ground, "limits/2"));
 
-    let answer = judge(
-        &proving_ground,
-        "limits/2",
-        "needs-review",
-        &records(&pages),
-    );
+    let answer = proving_ground.judge(&submission("limits/2", "needs-review", &records(&pages)));
 
     assert_eq!(answer["outcome"], "incomplete", "{answer}");
     assert_eq!(answer["missing"].as_array().unwrap().len(), 15, "{answer}");
@@ -129,7 +113,7 @@ fn a_crawl_from_one_address_that_claims_success_is_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
     let pages = Crawler::new(&proving_ground).crawl(&start_url(&proving_ground, "limits/2"));
 
-    let answer = judge(&proving_ground, "limits/2", "success", &records(&pages));
+    let answer = proving_ground.judge(&submission("limits/2", "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
 }
@@ -139,7 +123,7 @@ fn a_crawl_with_one_request_in_flight_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let pages = Crawler::new(&proving_ground).crawl(&start_url(&proving_ground, "limits/3"));
 
-    let answer = judge(&proving_ground, "limits/3", "success", &records(&pages));
+    let answer = proving_ground.judge(&submission("limits/3", "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -151,7 +135,7 @@ fn a_crawl_missing_one_item_is_incomplete() {
     let mut records = records(&pages);
     let dropped = records.pop().unwrap();
 
-    let answer = judge(&proving_ground, "limits/3", "failure", &records);
+    let answer = proving_ground.judge(&submission("limits/3", "failure", &records));
 
     assert_eq!(answer["outcome"], "incomplete", "{answer}");
     assert_eq!(answer["missing"], json!([dropped["id"]]));
@@ -186,7 +170,7 @@ fn a_third_request_in_flight_is_refused_and_caught() {
         })
         .collect();
     statuses.sort();
-    let answer = judge(&proving_ground, "limits/3", "success", &records(&pages));
+    let answer = proving_ground.judge(&submission("limits/3", "success", &records(&pages)));
 
     assert_eq!(statuses, ["200", "200", "503"]);
     assert_eq!(answer["outcome"], "false_success", "{answer}");

@@ -9,9 +9,8 @@ use goodfetch_protocol::result_document::{
     CaseOutcome, CaseResult, ConformanceDocument, LoadedDocument, OracleOutcome, Outcome,
     ResultDocument, TargetIdentity, read,
 };
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{ProvingGround as LocalCopy, TestEnv};
 
-use crate::proving_ground::LocalCopy;
 use crate::schema_violations;
 
 fn task(id: &str) -> TaskId {
@@ -41,8 +40,8 @@ fn cases_with(document: &ConformanceDocument, outcome: CaseOutcome) -> Vec<&Case
 #[test]
 fn the_self_test_proves_every_capability_on_the_reference_results() {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let references = References::read(&proving_ground).unwrap();
 
     let document = run_self_test(&proving_ground, &references).unwrap();
@@ -62,8 +61,8 @@ fn the_self_test_proves_every_capability_on_the_reference_results() {
 #[test]
 fn the_self_test_document_names_the_proving_ground_it_judged_and_matches_its_schema() {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let references = References::read(&proving_ground).unwrap();
     let version = proving_ground.task_list().unwrap().proving_ground.version;
 
@@ -99,8 +98,8 @@ fn the_self_test_document_names_the_proving_ground_it_judged_and_matches_its_sch
 #[test]
 fn a_wrong_reference_result_fails_the_self_test_naming_the_case_and_the_oracles_answer() {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let mut references = References::read(&proving_ground).unwrap();
     let record = &mut references.records.get_mut(&task("catalog/2")).unwrap()[0];
     record.price = if record.price == "0.01" {
@@ -133,8 +132,8 @@ fn a_wrong_reference_result_fails_the_self_test_naming_the_case_and_the_oracles_
 #[test]
 fn a_task_with_no_reference_result_leaves_its_capabilities_unproved() {
     let env = TestEnv::new();
-    let copy = LocalCopy::start(&env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let mut references = References::read(&proving_ground).unwrap();
     references.records.remove(&task("catalog/2"));
 

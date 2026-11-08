@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_protocol::connection::CLOSED;
-use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::connection::{Surface, WaitedFor};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::functions::{Evaluated, World};
 use goodfetch_protocol::page::waits::{
@@ -318,7 +318,7 @@ impl Pages {
         ));
         page.life
             .call(PageEvent::Read, async {
-                deadline.within("function", truthy).await?
+                deadline.within(WaitedFor::FUNCTION, truthy).await?
             })
             .await
     }

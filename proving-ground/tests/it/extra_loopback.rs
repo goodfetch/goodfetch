@@ -17,8 +17,8 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::TcpSocket;
 
-use crate::limits::{judge, start_url};
-use crate::proving_ground::ProvingGround;
+use crate::limits::start_url;
+use crate::proving_ground::{ProvingGround, submission};
 
 /// Sends `GET path` with `host` from the address `local`, and returns the
 /// answer's status and body.
@@ -97,7 +97,7 @@ fn a_crawl_that_moves_to_another_address_once_flagged_is_verified() {
         })
         .collect();
 
-    let answer = judge(&proving_ground, "limits/2", "success", &records);
+    let answer = proving_ground.judge(&submission("limits/2", "success", &records));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }

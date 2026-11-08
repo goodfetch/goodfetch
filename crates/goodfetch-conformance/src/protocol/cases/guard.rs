@@ -10,7 +10,7 @@
 
 use std::time::{Duration, Instant};
 
-use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
+use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, WaitedFor};
 use goodfetch_protocol::journey::TaskId;
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::{
@@ -204,8 +204,13 @@ pub(crate) fn never_actionable(
             data["code"] == DEADLINE_EXCEEDED.name,
         );
         checks.check(
-            "it names the step it waited for, `target_enabled`, and `timeout.action`",
-            data["waited_for"] == "target_enabled" && data["limit"]["key"] == TIMEOUT_ACTION.name,
+            format!(
+                "it names the step it waited for, `{}`, and `{}`",
+                WaitedFor::TARGET_ENABLED,
+                TIMEOUT_ACTION.name
+            ),
+            data["waited_for"] == WaitedFor::TARGET_ENABLED.as_str()
+                && data["limit"]["key"] == TIMEOUT_ACTION.name,
         );
         checks.check(
             "the oracle sees no click",

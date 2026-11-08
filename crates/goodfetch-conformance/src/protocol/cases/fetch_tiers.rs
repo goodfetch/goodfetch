@@ -17,16 +17,11 @@ use serde_json::{Value, json};
 
 use super::{Checks, Site};
 use crate::protocol::connection::{Connection, Gone};
+use crate::protocol::foxhound::{CRAWL_REQUEST_HANDLE, CRAWL_START};
 use crate::protocol::target::DEADLINE;
 
 mod chain;
 mod edge;
-
-/// `crawl.start`, Foxhound's.
-const CRAWL_START: &str = "crawl.start";
-
-/// `crawl_request.handle`, Foxhound's handler request.
-const CRAWL_REQUEST_HANDLE: &str = "crawl_request.handle";
 
 /// The task whose page the crawl fetches: labelled `gzip`.
 const TASK: &str = "content-coding/8";

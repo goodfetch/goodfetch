@@ -5,7 +5,9 @@
 //! `xtask` included, so `xtask codegen` gets them by running
 //! `goodfetch-test-env`: `--print-schemas` prints one JSON object keyed by
 //! each schema's path under `test-support/fixtures/`, and
-//! `--print-canary-rule` the rule; neither starts anything.
+//! `--print-canary-rule` the rule, and `--print-secret-kinds` the Secret
+//! canaries' kinds, which `facts` writes for the TypeScript and Python
+//! helpers; none starts anything.
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::path::Path;
@@ -39,6 +41,13 @@ pub(super) fn schemas(cargo: &OsStr, root: &Path) -> Result<BTreeMap<String, Val
 /// --print-canary-rule` prints it.
 pub(super) fn canary_rule(cargo: &OsStr, root: &Path) -> Result<Vec<u8>> {
     print(cargo, root, "--print-canary-rule")
+}
+
+/// The Secret canaries' kinds by name, in declaration order, as
+/// `goodfetch-test-env --print-secret-kinds` prints them.
+pub(super) fn secret_kinds(cargo: &OsStr, root: &Path) -> Result<Vec<String>> {
+    let output = print(cargo, root, "--print-secret-kinds")?;
+    serde_json::from_slice(&output).context("reading goodfetch-test-env's Secret canary kinds")
 }
 
 /// What `goodfetch-test-env <flag>` prints on stdout. The binary is named

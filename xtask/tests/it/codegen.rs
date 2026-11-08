@@ -84,8 +84,10 @@ fn generated_files(workspace: &Workspace) -> Vec<(String, String)> {
     files
 }
 
-const GENERATED_FOLDERS: [&str; 8] = [
+const GENERATED_FOLDERS: [&str; 10] = [
     "crates/goodfetch-protocol/generated",
+    "crates/goodfetch-test-support/generated",
+    "xtask/generated",
     "test-support/fixtures/schemas",
     "test-support/typescript/src/generated",
     "test-support/python/src/goodfetch_test_support/generated",
@@ -392,11 +394,130 @@ fn check_fails_when_the_committed_canary_rule_drifts_from_the_kinds() {
 
     assert_eq!(
         outcome.findings(),
-        vec![finding("drift", CANARY_RULE)],
+        vec![
+            finding("drift", CANARY_RULE),
+            finding("drift", PYTHON_SECRET_KINDS),
+            finding("drift", TYPESCRIPT_SECRET_KINDS),
+        ],
         "{}",
         outcome.stderr
     );
     assert_eq!(outcome.code, 1);
+}
+
+/// The Secret canary kinds `xtask codegen` writes for the Python and
+/// TypeScript helpers from test support's.
+const PYTHON_SECRET_KINDS: &str =
+    "test-support/python/src/goodfetch_test_support/generated/secret_kinds.py";
+const TYPESCRIPT_SECRET_KINDS: &str = "test-support/typescript/src/generated/secret-kinds.ts";
+
+/// The facts `xtask codegen` writes for test support and for `xtask` from
+/// their sources in Rust.
+const TEST_SUPPORT_FACTS: &str = "crates/goodfetch-test-support/generated/facts.rs";
+const XTASK_FACTS: &str = "xtask/generated/test_facts.rs";
+
+/// Covers: story:1-57
+#[rstest]
+#[case::chrome_for_testing_pin(
+    "crates/goodfetch-collie/src/pins.json",
+    "\"1.0.0.1\"",
+    &[TEST_SUPPORT_FACTS, XTASK_FACTS]
+)]
+#[case::lightpanda_pin(
+    "crates/foxhound/goodfetch-fetch-tier/src/light_browser/pins.json",
+    "\"0.0.1\"",
+    &[TEST_SUPPORT_FACTS]
+)]
+#[case::playwright_revision(
+    "crates/goodfetch-test-support/src/browsers.rs",
+    "\"1\"",
+    &[XTASK_FACTS]
+)]
+#[case::dispatch_target(
+    "crates/goodfetch-engine/src/rpc.rs",
+    "\"fixture::rpc::dispatch\"",
+    &[TEST_SUPPORT_FACTS, XTASK_FACTS]
+)]
+#[case::outcome_target(
+    "crates/goodfetch-engine/src/runs/outcome.rs",
+    "\"fixture::run::outcome\"",
+    &[TEST_SUPPORT_FACTS, XTASK_FACTS]
+)]
+#[case::command_target(
+    "crates/goodfetch-test-support/src/exercise.rs",
+    "\"fixture::test::command\"",
+    &[XTASK_FACTS]
+)]
+fn check_fails_when_a_fact_changes_at_its_source_and_was_not_regenerated(
+    #[case] source: &str,
+    #[case] value: &str,
+    #[case] readers: &[&str],
+) {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(source, value, "\"changed\"");
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        readers
+            .iter()
+            .map(|reader| finding("drift", reader))
+            .collect::<Vec<_>>(),
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// Covers: story:1-57
+#[test]
+fn codegen_writes_each_fact_its_source_gives() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(
+        "crates/goodfetch-collie/src/pins.json",
+        "\"1.0.0.1\"",
+        "\"2.0.0.2\"",
+    );
+
+    codegen(&workspace);
+
+    assert!(
+        workspace
+            .read_text(TEST_SUPPORT_FACTS)
+            .contains("pub const CHROME_FOR_TESTING_BUILD: &str = \"2.0.0.2\";\n"),
+        "{}",
+        workspace.read_text(TEST_SUPPORT_FACTS)
+    );
+    assert!(
+        workspace
+            .read_text(XTASK_FACTS)
+            .contains("pub(crate) const CHROME_FOR_TESTING_BUILD: &str = \"2.0.0.2\";\n"),
+        "{}",
+        workspace.read_text(XTASK_FACTS)
+    );
+}
+
+/// Covers: story:1-57
+#[test]
+fn codegen_fails_naming_a_fact_its_source_no_longer_holds() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(
+        "crates/goodfetch-engine/src/rpc.rs",
+        "DISPATCH_TARGET",
+        "RENAMED_TARGET",
+    );
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+    assert!(
+        outcome.stderr.contains(
+            "crates/goodfetch-engine/src/rpc.rs has no string constant `DISPATCH_TARGET`"
+        ),
+        "{}",
+        outcome.stderr
+    );
 }
 
 /// Covers: story:1-57

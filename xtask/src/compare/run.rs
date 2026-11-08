@@ -660,7 +660,7 @@ pub(crate) fn run(
             scrapy: SCRAPY_VERSION.to_owned(),
             playwright: PLAYWRIGHT_VERSION.to_owned(),
             scrapy_playwright: SCRAPY_PLAYWRIGHT_VERSION.to_owned(),
-            browser: super::trial::CHROME_FOR_TESTING_BUILD.to_owned(),
+            browser: crate::test_facts::CHROME_FOR_TESTING_BUILD.to_owned(),
             scenarios: options.scenarios.clone(),
         },
         machine,

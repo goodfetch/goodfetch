@@ -179,7 +179,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 None => trial::chrome_folder().with_context(|| {
                     format!(
                         "Playwright's Chrome for Testing {} is not installed: run `pnpm exec playwright install chromium`, or name its folder with --browser",
-                        trial::CHROME_FOR_TESTING_BUILD
+                        crate::test_facts::CHROME_FOR_TESTING_BUILD
                     )
                 })?,
             };

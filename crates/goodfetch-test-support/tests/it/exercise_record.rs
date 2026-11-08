@@ -5,7 +5,9 @@
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::path::Path;
 
-use goodfetch_test_support::{RECORDS_VARIABLE, TestEnv, Tool, tools};
+use goodfetch_test_support::{
+    DISPATCH_TARGET, OUTCOME_TARGET, RECORDS_VARIABLE, TestEnv, Tool, tools,
+};
 use serde_json::{Value, json};
 
 use crate::probe;
@@ -33,7 +35,7 @@ fn json_lines(folder: &Path) -> Vec<Value> {
 fn dispatched(lines: &[Value]) -> Vec<Value> {
     lines
         .iter()
-        .filter(|line| line["target"] == "goodfetch::rpc::dispatch")
+        .filter(|line| line["target"] == DISPATCH_TARGET)
         .map(|line| line["fields"]["method"].clone())
         .collect()
 }
@@ -42,7 +44,7 @@ fn dispatched(lines: &[Value]) -> Vec<Value> {
 fn recorded(lines: &[Value]) -> Vec<Value> {
     lines
         .iter()
-        .filter(|line| line["target"] == "goodfetch::run::outcome")
+        .filter(|line| line["target"] == OUTCOME_TARGET)
         .map(|line| line["fields"]["error_code"].clone())
         .collect()
 }

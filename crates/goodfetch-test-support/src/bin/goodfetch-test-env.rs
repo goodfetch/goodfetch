@@ -15,7 +15,9 @@
 //! between, instead of one the OS chooses.
 //! `--print-schemas` prints the JSON
 //! Schemas of the crate's file types for `xtask codegen` and starts nothing;
-//! `--print-canary-rule` prints the Secret canaries' `gitleaks` rule for it.
+//! `--print-canary-rule` prints the Secret canaries' `gitleaks` rule for it,
+//! and `--print-secret-kinds` their kinds, which it writes for the
+//! TypeScript and Python helpers.
 //! On Linux, `dns-namespace` runs a program in a network and mount
 //! namespace whose resolver is the DNS fixture (`DnsNamespace`), and exits
 //! with its status; it exits 125 when the namespace cannot be made.
@@ -25,8 +27,8 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use goodfetch_test_support::{
-    DAEMON_DEADLINE, Daemon, Description, PROVING_GROUND_DEADLINE, Product, ProvingGround, TestEnv,
-    Tool, Variables, gitleaks_rule, schemas, tools,
+    DAEMON_DEADLINE, Daemon, Description, PROVING_GROUND_DEADLINE, Product, ProvingGround,
+    SecretKind, TestEnv, Tool, Variables, gitleaks_rule, schemas, tools,
 };
 
 #[derive(Parser)]
@@ -75,6 +77,10 @@ struct Arguments {
     /// kinds, and starts nothing.
     #[arg(long, exclusive = true)]
     print_canary_rule: bool,
+    /// Prints the Secret canaries' kinds as one JSON array of their names,
+    /// in declaration order, and starts nothing.
+    #[arg(long, exclusive = true)]
+    print_secret_kinds: bool,
 }
 
 #[cfg(target_os = "linux")]
@@ -150,6 +156,10 @@ fn main() -> ExitCode {
         print_schemas()
     } else if arguments.print_canary_rule {
         write_text(&gitleaks_rule())
+    } else if arguments.print_secret_kinds {
+        serde_json::to_string(&SecretKind::ALL)
+            .map_err(Failure::from)
+            .and_then(|kinds| write_line(&kinds))
     } else {
         serve(&arguments)
     };

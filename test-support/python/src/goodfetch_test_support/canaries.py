@@ -15,18 +15,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-SecretKind = Literal[
-    "typed_password",
-    "totp_seed",
-    "proxy_password",
-    "model_api_key",
-    "webhook_signing_secret",
-    "sink_credential",
-    "session_cookie",
-    "endpoint_token",
-    "run_data_key",
-]
-"""The kinds of secret a canary stands for."""
+from goodfetch_test_support.generated.secret_kinds import (
+    SECRET_KINDS as SECRET_KINDS,
+)
+from goodfetch_test_support.generated.secret_kinds import (
+    SecretKind as SecretKind,
+)
 
 Encoding = Literal["raw", "json_escaped", "url_encoded", "base64", "hex"]
 """The encodings a value is searched in."""

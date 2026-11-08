@@ -8,7 +8,8 @@
 use std::path::Path;
 
 use goodfetch_test_support::{
-    Cli, CliError, Mode, RUNTIME_FILE, TestEnv, Tool, assert_cli_snapshot, cli, tools,
+    Cli, CliError, DISPATCH_TARGET, Mode, RUNTIME_FILE, TestEnv, Tool, assert_cli_snapshot, cli,
+    tools,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -254,9 +255,7 @@ fn dispatched(home: &Path, method: &str) -> bool {
             .unwrap()
             .lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .any(|line| {
-                line["target"] == "goodfetch::rpc::dispatch" && line["fields"]["method"] == method
-            })
+            .any(|line| line["target"] == DISPATCH_TARGET && line["fields"]["method"] == method)
     })
 }
 

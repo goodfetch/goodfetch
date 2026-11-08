@@ -17,7 +17,8 @@ use std::process::Stdio;
 use std::time::{Duration, SystemTime};
 
 use crate::crash_dumps::{self, CRASH_DUMP_VARIABLE, CrashDumps};
-use crate::exercise::{self, DISPATCH_TARGET, ExerciseRecord, OUTCOME_TARGET};
+use crate::exercise::{self, ExerciseRecord};
+use crate::facts::{DISPATCH_TARGET, OUTCOME_TARGET};
 use crate::locales::{LocaleTableError, table_lang, table_zone};
 use crate::process::{Process, ProcessTracker, ProcessesAlive};
 use crate::runtime_file::{

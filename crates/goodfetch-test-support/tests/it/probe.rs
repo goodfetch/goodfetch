@@ -8,7 +8,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use goodfetch_test_support::{
-    JourneyRun, ObservationLog, Operation, Record, Redacted, TestEnv, Tool, tools,
+    DISPATCH_TARGET, JourneyRun, OUTCOME_TARGET, ObservationLog, Operation, Record, Redacted,
+    TestEnv, Tool, tools,
 };
 
 #[test]
@@ -104,8 +105,8 @@ fn dispatches_under_the_test_subscriber() {
 
     tracing::subscriber::with_default(subscriber, || {
         tracing::info!(target: "goodfetch::engine", "engine started");
-        tracing::trace!(target: "goodfetch::rpc::dispatch", method = "engine.info", "request answered");
-        tracing::trace!(target: "goodfetch::run::outcome", error_code = "handler_lost", "the run recorded an error code");
+        tracing::trace!(target: DISPATCH_TARGET, method = "engine.info", "request answered");
+        tracing::trace!(target: OUTCOME_TARGET, error_code = "handler_lost", "the run recorded an error code");
     });
 }
 

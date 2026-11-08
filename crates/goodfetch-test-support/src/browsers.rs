@@ -17,13 +17,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::env::{START_TIME, TestEnv};
+use crate::facts::{CHROME_FOR_TESTING_BUILD, LIGHTPANDA_BUILD};
 use crate::variables::{PLAYWRIGHT_BROWSERS_VARIABLE, Variables};
 
-/// The Chrome for Testing build Collie pins, which Playwright's pinned
-/// release (1.64.1, `browsers.json`) also runs.
-pub const CHROME_FOR_TESTING_BUILD: &str = "156.0.8078.4";
-
-/// Playwright's revision of that build, the name of its folder.
+/// Playwright's revision of the Chrome for Testing build Collie pins, which
+/// Playwright's pinned release (1.64.1, `browsers.json`) also runs: the name
+/// of its folder.
 const PLAYWRIGHT_REVISION: &str = "1248";
 
 /// The variable that points an engine at a Browser cache (ADR 0059).
@@ -165,10 +164,6 @@ fn chrome_for_testing_at(root: PathBuf) -> Result<PathBuf, BrowserCacheError> {
     fs::write(entry.join("entry.json"), installed.to_string())?;
     Ok(root)
 }
-
-/// The Lightpanda build Foxhound pins (`goodfetch-fetch-tier`'s
-/// `light_browser/pins.json`): a launch's digest check catches a drift.
-pub const LIGHTPANDA_BUILD: &str = "1.0.2";
 
 /// The variable naming the folder `ci/lightpanda-fetch.sh` downloads the
 /// tests' copy of Lightpanda into, `~/.cache/goodfetch/lightpanda` by

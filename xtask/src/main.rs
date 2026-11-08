@@ -72,6 +72,7 @@ mod stress;
 mod sweep_target;
 mod targets;
 mod telemetry;
+mod test_facts;
 mod test_tools;
 mod tlc;
 mod tree;

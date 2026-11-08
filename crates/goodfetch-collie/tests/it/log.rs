@@ -28,7 +28,9 @@ use std::sync::mpsc;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_test_client::HomeLayout;
-use goodfetch_test_support::{Canaries, MESSAGE_DEADLINE, Output, SecretKind, TestEnv};
+use goodfetch_test_support::{
+    Canaries, DISPATCH_TARGET, MESSAGE_DEADLINE, Output, SecretKind, TestEnv,
+};
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::any_value::Value as AnyValue;
 use rstest::rstest;
@@ -75,7 +77,7 @@ fn with_log_output_file_the_engine_writes_its_dispatch_records_as_json_lines_int
 
     let dispatched: Vec<(Value, Value)> = log_lines(env.home())
         .into_iter()
-        .filter(|line| line["target"] == "goodfetch::rpc::dispatch")
+        .filter(|line| line["target"] == DISPATCH_TARGET)
         .map(|line| {
             (
                 line["fields"]["method"].clone(),
@@ -159,7 +161,7 @@ fn an_attached_engine_writes_its_logs_on_stderr_in_the_format_log_format_names(
         &env,
         COLLIE,
         MESSAGE_DEADLINE,
-        "info,goodfetch::rpc::dispatch=trace",
+        &format!("info,{DISPATCH_TARGET}=trace"),
         |_| {},
     );
     engine.send(&hello(Product::Collie));
@@ -172,7 +174,7 @@ fn an_attached_engine_writes_its_logs_on_stderr_in_the_format_log_format_names(
     let (values, text) = json_lines(&stderr);
     let dispatched: Vec<&Value> = values
         .iter()
-        .filter(|line| line["target"] == "goodfetch::rpc::dispatch")
+        .filter(|line| line["target"] == DISPATCH_TARGET)
         .map(|line| &line["fields"]["method"])
         .collect();
     if json_lines_only {
@@ -240,8 +242,7 @@ fn a_client_whose_hello_names_a_log_level_receives_the_engines_log_events_as_log
     let logged: Vec<(Value, Value)> = sent
         .iter()
         .filter(|message| {
-            message["method"] == "$/log"
-                && message["params"]["target"] == "goodfetch::rpc::dispatch"
+            message["method"] == "$/log" && message["params"]["target"] == DISPATCH_TARGET
         })
         .map(|message| {
             (

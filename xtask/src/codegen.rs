@@ -15,7 +15,11 @@
 //! the JSON Schemas of `goodfetch-test-support`'s file types, which
 //! `goodfetch-test-env --print-schemas` prints (ADR 0062), the script
 //! format's among the engine scripts (ADR 0069), and `goodfetch-cdp`'s CDP
-//! bindings, from the pinned Chromium's protocol file (spec #577).
+//! bindings, from the pinned Chromium's protocol file (spec #577), and the
+//! facts tests read across crates and languages (`facts`): the Secret
+//! canary kinds, the pinned browser builds and the `tracing` targets, each
+//! written from its one source in Rust for test support, `xtask` and the
+//! TypeScript and Python helpers.
 //! It writes the resolved-address classification's table into
 //! `goodfetch-protocol`, from IANA's special-purpose registries committed
 //! beside it with their date (ADR 0067), and the label values of
@@ -41,6 +45,7 @@ mod deny;
 mod digest;
 mod emitter;
 mod executables;
+mod facts;
 mod helpers;
 mod layer;
 mod names;
@@ -282,6 +287,8 @@ impl Plan {
             executables::COLLIE_FOLDER,
             cdp::FOLDER,
             test_support::FOLDER,
+            facts::TEST_SUPPORT_FOLDER,
+            facts::XTASK_FOLDER,
             helpers::TYPESCRIPT_FOLDER,
             helpers::PYTHON_FOLDER,
             console::FOLDER,
@@ -385,6 +392,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         test_support::CANARY_RULE.to_owned(),
         test_support::canary_rule(cargo, root)?,
     );
+    files.extend(facts::files(cargo, root)?);
     files.extend(cdp::generate(root)?);
     for (path, text) in console::all_files(root, &collie, &foxhound, &foxhound_names)? {
         files.insert(path, text.into_bytes());

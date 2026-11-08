@@ -8,18 +8,9 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { TestSupportError } from "./errors.ts";
+import type { SecretKind } from "./generated/secret-kinds.ts";
 
-/** The kinds of secret a canary stands for. */
-export type SecretKind =
-  | "typed_password"
-  | "totp_seed"
-  | "proxy_password"
-  | "model_api_key"
-  | "webhook_signing_secret"
-  | "sink_credential"
-  | "session_cookie"
-  | "endpoint_token"
-  | "run_data_key";
+export { SECRET_KINDS, type SecretKind } from "./generated/secret-kinds.ts";
 
 /** The encodings a value is searched in. */
 export type Encoding = "raw" | "json_escaped" | "url_encoded" | "base64" | "hex";

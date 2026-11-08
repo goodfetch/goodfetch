@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_test_client::{Attached, DaemonClient, Hello, HomeLayout};
-use goodfetch_test_support::{DaemonEndpoint, TestEnv};
+use goodfetch_test_support::{DaemonEndpoint, OUTCOME_TARGET, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -183,7 +183,7 @@ fn outcomes(env: &TestEnv, pid: u32) -> Vec<String> {
         .unwrap()
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|record| record["target"] == "goodfetch::run::outcome")
+        .filter(|record| record["target"] == OUTCOME_TARGET)
         .map(|record| record["fields"]["error_code"].as_str().unwrap().to_owned())
         .collect()
 }

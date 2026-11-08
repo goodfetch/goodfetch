@@ -13,7 +13,8 @@ use std::path::PathBuf;
 
 use goodfetch_protocol::home::RUNS;
 use goodfetch_test_support::{
-    CliOutput, Mode, SnapshotValues, TestEnv, assert_cli_snapshot, cli, snapshot_settings,
+    CliOutput, DISPATCH_TARGET, Mode, SnapshotValues, TestEnv, assert_cli_snapshot, cli,
+    snapshot_settings,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -44,7 +45,7 @@ fn printed(mut output: CliOutput) -> CliOutput {
     output.stderr = output
         .stderr
         .lines()
-        .filter(|line| !line.contains("goodfetch::rpc::dispatch"))
+        .filter(|line| !line.contains(DISPATCH_TARGET))
         .fold(String::new(), |mut kept, line| {
             kept.push_str(line);
             kept.push('\n');

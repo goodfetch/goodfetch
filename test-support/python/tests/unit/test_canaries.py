@@ -1,6 +1,7 @@
 """The Secret canary search (ADR 0067) on the fixture set Rust and TypeScript share."""
 
 import json
+import tomllib
 from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
@@ -15,8 +16,11 @@ from goodfetch_test_support import (
     SecretKind,
     search_canaries,
 )
+from goodfetch_test_support.canaries import SECRET_KINDS
 
 FIXTURE = Path(__file__).resolve().parents[3] / "fixtures" / "canaries" / "search.json"
+CANARY_RULE = FIXTURE.with_name("gitleaks.toml")
+"""The `gitleaks` rule `xtask codegen` writes from Rust's kinds, one rule per kind."""
 
 
 class _FixtureCanary(TypedDict):
@@ -56,6 +60,19 @@ CANARIES = [
     )
     for canary in _FIXTURE["canaries"]
 ]
+
+
+def test_secret_kinds_names_every_kind_rust_test_support_plants() -> None:
+    """The kinds are Rust's, in its order: one per rule of the `gitleaks` rule."""
+    rules = cast(
+        "list[dict[str, str]]", tomllib.loads(CANARY_RULE.read_text("utf-8"))["rules"]
+    )
+    planted = [
+        rule["id"].removeprefix("goodfetch-secret-canary-").replace("-", "_")
+        for rule in rules
+    ]
+
+    assert list(SECRET_KINDS) == planted
 
 
 @pytest.mark.parametrize(

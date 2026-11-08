@@ -54,6 +54,7 @@ mod dns_namespace;
 mod endpoints;
 mod env;
 mod exercise;
+mod facts;
 mod fuzz;
 mod hostile;
 mod invariants;
@@ -99,10 +100,9 @@ mod user_namespaces;
 mod variables;
 
 pub use browsers::{
-    BROWSERS_PATH_VARIABLE, BrowserCacheError, CHROME_FOR_TESTING_BUILD, LIGHTPANDA_BUILD,
-    LIGHTPANDA_DOWNLOADS_VARIABLE, browser_cache, browser_cache_in_home,
-    browser_cache_with_lightpanda, chrome_for_testing_files, lay_out_browser_entry,
-    lightpanda_copy,
+    BROWSERS_PATH_VARIABLE, BrowserCacheError, LIGHTPANDA_DOWNLOADS_VARIABLE, browser_cache,
+    browser_cache_in_home, browser_cache_with_lightpanda, chrome_for_testing_files,
+    lay_out_browser_entry, lightpanda_copy,
 };
 pub use canaries::{
     Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SHORT_VALUE,
@@ -130,9 +130,8 @@ pub use endpoints::{
     Hello, Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
 };
 pub use env::{START_TIME, TEST_SETTINGS, TestEnv, TestEnvError, command};
-pub use exercise::{
-    ANSWER_RECORD, AnsweredCalls, COMMAND_RECORD, COMMAND_TARGET, DISPATCH_TARGET, OUTCOME_TARGET,
-};
+pub use exercise::{ANSWER_RECORD, AnsweredCalls, COMMAND_RECORD, COMMAND_TARGET};
+pub use facts::{CHROME_FOR_TESTING_BUILD, DISPATCH_TARGET, LIGHTPANDA_BUILD, OUTCOME_TARGET};
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
 pub use hostile::{
     BodyFraming, ExpectedError, HeaderSource, HeaderValue, HostileCase, HostileTable,

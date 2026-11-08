@@ -5,6 +5,13 @@ members = [
   "crates/foxhound/goodfetch-*",
   "crates/foxhound/sinks/goodfetch-*",
 ]
+# The sources of the facts `xtask codegen` writes for the tests (its
+# `facts`), which it reads as files and never builds.
+exclude = [
+  "crates/goodfetch-collie",
+  "crates/goodfetch-engine",
+  "crates/foxhound/goodfetch-fetch-tier",
+]
 
 [workspace.package]
 version = "0.0.0"

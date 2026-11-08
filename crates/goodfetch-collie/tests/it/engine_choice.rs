@@ -15,7 +15,7 @@
 
 use goodfetch_test_client::DaemonClient;
 use goodfetch_test_support::{
-    RuntimeFile, SnapshotValues, TestEnv, cli, redact, snapshot_settings,
+    DISPATCH_TARGET, RuntimeFile, SnapshotValues, TestEnv, cli, redact, snapshot_settings,
 };
 use serde_json::{Value, json};
 
@@ -80,10 +80,7 @@ pub(crate) fn daemon_dispatched(env: &TestEnv, method: &str) -> bool {
                 .unwrap()
                 .lines()
                 .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-                .any(|line| {
-                    line["target"] == "goodfetch::rpc::dispatch"
-                        && line["fields"]["method"] == method
-                })
+                .any(|line| line["target"] == DISPATCH_TARGET && line["fields"]["method"] == method)
         })
 }
 

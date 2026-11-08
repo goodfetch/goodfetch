@@ -3,8 +3,10 @@
 //! Daemon of its major, holding its endpoint, per-launch token, Product
 //! version and PID. `goodfetch-scripted-engine --mode socket` writes it, so
 //! the CLI and every SDK find the Scripted engine exactly as they find a
-//! Daemon (ADR 0069); the CLI's own test that it connects to this file
-//! keeps the two from drifting.
+//! Daemon (ADR 0069). Test support takes no Goodfetch crate, so
+//! `goodfetch-test-client`'s tests read a Daemon's own runtime file
+//! (`goodfetch-protocol`'s `DaemonRuntimeFile`) as this one, and its lock's
+//! and socket's names as the Daemon's, to keep the two from drifting.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support writes and reads the runtime file outside any async worker (ADR 0062)"

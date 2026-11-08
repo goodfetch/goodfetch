@@ -1,4 +1,10 @@
-use goodfetch_test_support::{RuntimeFile, TestEnv};
+use goodfetch_protocol::connection::{DaemonEndpoint, ProductVersion};
+use goodfetch_protocol::console::ConsoleState;
+use goodfetch_protocol::daemon::{DaemonRuntimeFile, DaemonToken};
+use goodfetch_test_support::{
+    ConsoleState as TestConsoleState, DAEMON_SERVING_LOCK, DAEMON_SOCKET,
+    DaemonEndpoint as TestDaemonEndpoint, RuntimeFile, TestEnv,
+};
 
 use super::*;
 
@@ -38,5 +44,42 @@ fn a_runs_file_and_trace_sit_in_its_run_folder_under_the_per_major_folder() {
             layout.per_major().join("runs/first/run.sqlite"),
             layout.per_major().join("runs/first/trace/provenance.jsonl"),
         )
+    );
+}
+
+#[test]
+fn the_scripted_daemons_lock_and_socket_are_named_as_a_daemons() {
+    let names = (DAEMON_SERVING_LOCK, DAEMON_SOCKET);
+
+    assert_eq!(
+        names,
+        (DaemonFile::ServingLock.name(), DaemonFile::Socket.name())
+    );
+}
+
+/// The runtime file a Daemon writes reads as the one the Scripted engine
+/// writes for the CLI and the SDKs, so the two cannot drift apart.
+#[test]
+fn a_daemons_runtime_file_reads_as_test_supports() {
+    let written = serde_json::to_string(&DaemonRuntimeFile {
+        endpoint: DaemonEndpoint::Unix("/home/daemon.sock".into()),
+        token: DaemonToken::new("token"),
+        version: ProductVersion::parse("0.0.1").unwrap(),
+        pid: 42,
+        console: ConsoleState::Serving("http://127.0.0.1:7801/".to_owned()),
+    })
+    .unwrap();
+
+    let read: RuntimeFile = serde_json::from_str(&written).unwrap();
+
+    assert_eq!(
+        read,
+        RuntimeFile {
+            endpoint: TestDaemonEndpoint::Unix("/home/daemon.sock".into()),
+            token: "token".to_owned(),
+            version: "0.0.1".to_owned(),
+            pid: 42,
+            console: TestConsoleState::Serving("http://127.0.0.1:7801/".to_owned()),
+        }
     );
 }

@@ -21,10 +21,10 @@ use goodfetch_protocol::run::Period;
 use goodfetch_protocol::usage::{USAGE_RAISE, UsageRaiseParams};
 
 /// Asks the person at the terminal to raise the Limit `params` names, and
-/// raises it when they answer yes: on the engine `choice` and the
-/// Daemon `machine` reaches, choose, a command whose value does not
-/// outlive it ([`engine_choice`]), or else an Attached engine, `engine` on
-/// `dependencies`.
+/// raises it when they answer yes: on the engine that `choice` and the
+/// Daemon `machine` reaches choose for a command whose value does not
+/// outlive it ([`engine_choice`]), which is the Daemon or an Attached
+/// engine, `engine` on `dependencies`.
 pub(super) fn raise(
     engine: &Engine,
     dependencies: Dependencies,

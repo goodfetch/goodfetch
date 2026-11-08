@@ -3,9 +3,9 @@
 //! ones included, and the namespaces of the commands the `catalog_commands`
 //! module generates, as the source of its committed `namespaces.rs`. `xtask
 //! codegen` commits what [`printed_command_line`] gives each Product, through
-//! Foxhound's `command-lines` example, so that `xtask` builds no engine crate and needs
-//! no Console build; each Product's tests check the committed files against
-//! what its executable prints.
+//! Foxhound's `command-lines` example, so that `xtask` builds no engine crate
+//! and needs no Console build; each Product's tests check the committed files
+//! against what its executable prints.
 
 use std::process::ExitCode;
 

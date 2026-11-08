@@ -3,7 +3,7 @@
 browsers = ["env", "facts", "variables"]
 callgrind = []
 canaries = ["proving_ground", "proving_ground_format", "seeded"]
-cli = ["daemon", "env", "exercise", "locales", "snapshot"]
+cli = ["daemon", "env", "exercise", "facts", "locales", "snapshot"]
 colour = ["env", "pty"]
 counting_vfs = []
 crash_dumps = []

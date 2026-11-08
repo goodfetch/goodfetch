@@ -12,6 +12,10 @@
     clippy::disallowed_methods,
     reason = "the tests read the user's session from their own process, and the service's files themselves"
 )]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 #[cfg(unix)]
 use std::path::Path;

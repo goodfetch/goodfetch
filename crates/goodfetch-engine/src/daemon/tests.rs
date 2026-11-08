@@ -14,6 +14,7 @@ use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::daemon::{
     DaemonEndpoint, DaemonRuntimeFile, InstalledService, ServiceManager,
 };
+use goodfetch_protocol::home::DaemonFile;
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 
@@ -147,24 +148,31 @@ fn a_daemon_leaves_a_runtime_file_that_does_not_parse_when_it_unpublishes() {
     );
 }
 
-/// A service record that does not parse is a record this Client cannot
-/// read, never "no service": `daemon uninstall` would otherwise leave the
-/// service registered and report none.
+/// A service record that does not parse beside a held serving lock is a
+/// service this Client cannot read, never "no service", so no one replaces
+/// what the running Daemon was installed from; without the lock it is no
+/// service, which `daemon install` replaces and an auto-start passes.
 ///
 /// Covers: story:3-21
 #[test]
-fn a_service_record_that_does_not_parse_is_unreadable_not_absent() {
+fn a_service_record_that_does_not_parse_is_unreadable_only_while_a_daemon_holds_its_lock() {
     let env = TestEnv::new();
-    let files = DaemonFiles::of(
-        &Home::new(env.home().to_owned()),
-        &ProductVersion::parse("1.5.0").unwrap(),
+    let home = Home::new(env.home().to_owned());
+    let version = ProductVersion::parse("1.5.0").unwrap();
+    let files = DaemonFiles::of(&home, &version);
+    let folder = home.per_major(&version);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join(DaemonFile::ServiceRecord.name()), b"[").unwrap();
+
+    let dead = files.service().map_err(|error| error.kind());
+    let held = files.serving_lock().unwrap();
+    let running = files.service().map_err(|error| error.kind());
+    drop(held);
+
+    assert_eq!(
+        (dead, running),
+        (Ok(None), Err(std::io::ErrorKind::InvalidData))
     );
-    std::fs::create_dir_all(env.home().join("1")).unwrap();
-    std::fs::write(env.home().join("1").join("daemon-service.json"), b"[").unwrap();
-
-    let found = files.service().map_err(|error| error.kind());
-
-    assert_eq!(found, Err(std::io::ErrorKind::InvalidData));
 }
 
 /// Covers: story:3-11, story:3-22

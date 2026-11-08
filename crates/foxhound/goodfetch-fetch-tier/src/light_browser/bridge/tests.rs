@@ -5,6 +5,7 @@
 //! and in each the site, a listener of the test's own, receives no
 //! connection. The positive control: with the token, a request to an
 //! allowed host reaches the site in origin form, its proxy headers dropped.
+//! A client that sends no request head is given up at the head deadline.
 //!
 //! Covers: story:5-120
 #![expect(
@@ -209,4 +210,25 @@ async fn a_request_with_the_token_to_an_allowed_host_reaches_the_site() {
         "{received}"
     );
     assert_eq!(status(&answer), "HTTP/1.1 200 OK");
+}
+
+/// A client that connects and sends no request head holds no bridge task
+/// past the bridge's head deadline: the relay gives it up, on the Run's
+/// clock, as the egress relay does (deep review finding 577-8).
+#[tokio::test(start_paused = true)]
+async fn a_client_that_sends_no_request_head_is_given_up_at_the_head_deadline() {
+    let bridge = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let _lightpanda = TcpStream::connect(bridge.local_addr().unwrap())
+        .await
+        .unwrap();
+    let (accepted, _) = bridge.accept().await.unwrap();
+    let (check, expected) = (check(), expected());
+
+    let ended =
+        tokio::time::timeout(Duration::from_secs(60), relay(accepted, &check, &expected)).await;
+
+    assert!(
+        matches!(&ended, Ok(Err(error)) if error.kind() == std::io::ErrorKind::TimedOut),
+        "{ended:?}"
+    );
 }

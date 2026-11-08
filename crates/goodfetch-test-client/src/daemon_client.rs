@@ -146,7 +146,20 @@ impl DaemonClient {
             Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
                 panic!("the engine sent nothing for {:?}", self.deadline)
             }
-            Err(_) => 0,
+            // The engine dropped the Connection, whether its close reached
+            // the read or reset it. Anything else, bytes that are not text
+            // among them, is no close.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    ErrorKind::ConnectionReset
+                        | ErrorKind::ConnectionAborted
+                        | ErrorKind::BrokenPipe
+                ) =>
+            {
+                0
+            }
+            Err(error) => panic!("reading from the engine failed: {error}"),
             Ok(read) => read,
         };
         (read > 0)

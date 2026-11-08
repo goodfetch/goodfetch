@@ -613,7 +613,7 @@ fn a_take_whose_read_meets_a_damaged_disk_is_reported_as_a_storage_failure() {
     run(async |owner| {
         engine(&env, "first", owner).await;
     });
-    damage_table(&path, "permits");
+    damage_table(&path, "permits").unwrap();
     let now = SystemTime::now();
 
     let (failed, reported) = run(async |owner| {

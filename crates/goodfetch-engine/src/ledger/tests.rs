@@ -600,7 +600,7 @@ fn a_read_that_meets_a_damaged_disk_fails_as_a_storage_failure() {
     ledger
         .add_limit(&limit(install(), "requests", 10), now())
         .unwrap();
-    damage_table(ledger.path(), "limits");
+    damage_table(ledger.path(), "limits").unwrap();
 
     let read = ledger.limits();
 

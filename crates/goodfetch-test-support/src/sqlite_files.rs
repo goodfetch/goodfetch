@@ -2,10 +2,24 @@
 //! write-ahead log beside it, and its pages damaged as a failing disk
 //! damages them.
 
-use std::io::{Seek as _, SeekFrom, Write as _};
+use std::io::{Read as _, Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
+
+/// Why [`damage_table`] damaged nothing.
+#[derive(Debug, thiserror::Error)]
+pub enum DamageTableError {
+    /// SQLite could not read the file.
+    #[error(transparent)]
+    Sqlite(#[from] rusqlite::Error),
+    /// The file could not be written.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    /// The file holds no such table.
+    #[error("the file holds no table `{0}`")]
+    NoTable(String),
+}
 
 /// Where the write-ahead log of the SQLite file at `path` is.
 pub fn wal_of(path: &Path) -> PathBuf {
@@ -19,33 +33,30 @@ pub fn wal_of(path: &Path) -> PathBuf {
 /// that are no B-tree page: SQLite reads them as it reads a page that met
 /// an I/O error, whichever of them a query starts from.
 ///
-/// # Panics
+/// # Errors
 ///
 /// When the file cannot be read or written, or holds no such table.
-pub fn damage_table(path: &Path, table: &str) {
-    let connection = Connection::open(path).unwrap();
-    connection
-        .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
-        .unwrap();
-    let page_size: i64 = connection
-        .query_row("PRAGMA page_size", [], |row| row.get(0))
-        .unwrap();
-    let roots: Vec<i64> = connection
-        .prepare("SELECT rootpage FROM sqlite_master WHERE tbl_name = ?1 AND rootpage > 0")
-        .unwrap()
-        .query_map([table], |row| row.get(0))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap();
-    assert!(!roots.is_empty(), "the file holds no table `{table}`");
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test damages its own store's file, as a failing disk would, beneath every counted function"
+)]
+pub fn damage_table(path: &Path, table: &str) -> Result<(), DamageTableError> {
+    let connection = Connection::open(path)?;
+    connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+    let page_size: u32 = connection.query_row("PRAGMA page_size", [], |row| row.get(0))?;
+    let roots: Vec<u32> = connection
+        .prepare("SELECT rootpage FROM sqlite_master WHERE tbl_name = ?1 AND rootpage > 0")?
+        .query_map([table], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
     drop(connection);
-    let mut file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
-    for root in roots {
-        file.seek(SeekFrom::Start(
-            u64::try_from((root - 1) * page_size).unwrap(),
-        ))
-        .unwrap();
-        file.write_all(&vec![0xff; usize::try_from(page_size).unwrap()])
-            .unwrap();
+    if roots.is_empty() {
+        return Err(DamageTableError::NoTable(table.to_owned()));
     }
+    let mut file = std::fs::OpenOptions::new().write(true).open(path)?;
+    for root in roots {
+        let page_size = u64::from(page_size);
+        file.seek(SeekFrom::Start((u64::from(root) - 1) * page_size))?;
+        std::io::copy(&mut std::io::repeat(0xff).take(page_size), &mut file)?;
+    }
+    Ok(())
 }

@@ -197,7 +197,7 @@ pub use special_purpose::{
     Cidr, Reachability, RegistryError, SpecialPurposeBlock, SpecialPurposeRegistries,
 };
 pub use sql_dump::sql_dump;
-pub use sqlite_files::{damage_table, wal_of};
+pub use sqlite_files::{DamageTableError, damage_table, wal_of};
 pub use ssrf::{
     Answer, CaseDomains, CaseLookup, CoverageGap, CoverageGaps, EgressRule, Family, Layer,
     LayerGap, LayerGaps, LayerRunner, LetThrough, Miss, Outcome, Pending, Redirect, Refusal, Route,

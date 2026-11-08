@@ -42,6 +42,13 @@ const LINK_TOKEN: &str = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5
 /// The address the tests sign in from.
 const HERE: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
 
+/// How long the tests' sign-ins last and how often an address may try: the
+/// settings' defaults, 30 days and 10 attempts a minute.
+const POLICY: SignInPolicy = SignInPolicy {
+    idle_expiry: Duration::from_hours(30 * 24),
+    rate: 10,
+};
+
 /// ADR 0059's test `Clock` start, 2026-01-05T09:00:00Z.
 fn start() -> SystemTime {
     UNIX_EPOCH + Duration::from_hours(491_001)
@@ -68,7 +75,7 @@ fn driver_of(env: &TestEnv, major: &str, policy: SignInPolicy) -> SignInDriver {
 }
 
 fn driver(env: &TestEnv) -> SignInDriver {
-    driver_of(env, "1.0.0", SignInPolicy::default())
+    driver_of(env, "1.0.0", POLICY)
 }
 
 /// A driver over `env`'s accounts store and Console key whose Audit log
@@ -84,7 +91,7 @@ fn driver_unrecorded(env: &TestEnv) -> SignInDriver {
         store: AccountsStore::at(home.accounts_store(&version("1.0.0"))),
         key: ConsoleKey::at(home.console_key()),
         audit: AuditLog::of(&Home::new(file), None),
-        policy: SignInPolicy::default(),
+        policy: POLICY,
         clock: Clock::paused(start()),
         owner: Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
     })
@@ -251,7 +258,7 @@ fn a_shorter_idle_expiry_from_the_operator_policy_ends_sign_ins_sooner() {
     runtime().block_on(async {
         let policy = SignInPolicy {
             idle_expiry: Duration::from_secs(60),
-            ..SignInPolicy::default()
+            ..POLICY
         };
         let driver = driver_of(&env, "1.0.0", policy);
         let signed_in = driver.with_link(LINK_TOKEN, HERE).await.unwrap();
@@ -307,8 +314,8 @@ fn a_revoked_sign_in_ends_and_the_others_last() {
 fn rotating_the_console_key_ends_every_sign_in_of_every_major() {
     let env = TestEnv::new();
     runtime().block_on(async {
-        let first = driver_of(&env, "1.0.0", SignInPolicy::default());
-        let second = driver_of(&env, "2.0.0", SignInPolicy::default());
+        let first = driver_of(&env, "1.0.0", POLICY);
+        let second = driver_of(&env, "2.0.0", POLICY);
         let of_first = first.with_link(LINK_TOKEN, HERE).await.unwrap();
         let also_first = first.with_link(LINK_TOKEN, HERE).await.unwrap();
         let of_second = second.with_link(LINK_TOKEN, HERE).await.unwrap();
@@ -654,7 +661,7 @@ fn a_sign_ins_offline_key_unwraps_only_for_its_cookie_and_outlives_its_daemon() 
             .offline_key(own.cookie(), None)
             .await
             .expect("a sign-in gets an offline key");
-        let restarted = driver_of(&env, "1.0.0", SignInPolicy::default());
+        let restarted = driver_of(&env, "1.0.0", POLICY);
         let unwrapped = restarted
             .offline_key(own.cookie(), Some(created.wrapped()))
             .await

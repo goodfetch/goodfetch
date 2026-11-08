@@ -124,16 +124,6 @@ pub struct SignInPolicy {
     pub rate: u64,
 }
 
-impl Default for SignInPolicy {
-    /// The settings' defaults: 30 days, 10 attempts a minute.
-    fn default() -> Self {
-        Self {
-            idle_expiry: Duration::from_hours(30 * 24),
-            rate: 10,
-        }
-    }
-}
-
 /// A sign-in just created: the cookie that carries it.
 #[derive(Debug)]
 pub struct SignedIn {

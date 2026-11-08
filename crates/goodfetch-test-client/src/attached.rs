@@ -17,14 +17,19 @@ use std::time::Duration;
 
 use goodfetch_protocol::cli::ATTACHED_ENGINE;
 use goodfetch_protocol::events::EVENTS_SUBSCRIBE;
-use goodfetch_protocol::foxhound::crawl::{CRAWL_REQUEST_HANDLE, CRAWL_START};
 use goodfetch_protocol::jsonrpc::Message;
 use goodfetch_test_support::{
     AnsweredCalls, MESSAGE_DEADLINE, Process, StrictStdout, TestEnv, record_command_in,
 };
 use serde_json::{Value, json};
 
+use crate::handler_request::is_handler_request;
 use crate::hello::Hello;
+
+/// The operation that starts a crawl, which [`Attached::send`] declares its
+/// default Datasets on. Spelled here: Collie's tests take this crate, and no
+/// crate outside Foxhound's names the `foxhound` module (ADR 0099).
+const CRAWL_START: &str = "crawl.start";
 
 /// A running Attached engine, started in a test's setup.
 pub struct Attached {
@@ -134,7 +139,7 @@ impl Attached {
     pub fn send(&mut self, message: &Value) {
         let mut message = message.clone();
         if !self.declared_by_default.is_empty()
-            && message["method"] == CRAWL_START.name
+            && message["method"] == CRAWL_START
             && message["params"].get("datasets").is_none()
         {
             message["params"]["datasets"] = self
@@ -229,7 +234,7 @@ impl Attached {
         self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
         loop {
             let message = self.next().expect("the engine closed before replying");
-            if message["method"] == CRAWL_REQUEST_HANDLE.name {
+            if is_handler_request(&message) {
                 if let Some(mut reply) = handler(&message["params"]) {
                     reply["jsonrpc"] = json!("2.0");
                     reply["id"] = message["id"].clone();

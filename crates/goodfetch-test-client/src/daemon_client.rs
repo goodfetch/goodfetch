@@ -10,10 +10,10 @@
 use std::io::{BufRead as _, BufReader, ErrorKind, Read, Write};
 use std::time::Duration;
 
-use goodfetch_protocol::foxhound::crawl::CRAWL_REQUEST_HANDLE;
 use goodfetch_test_support::DaemonEndpoint;
 use serde_json::{Value, json};
 
+use crate::handler_request::is_handler_request;
 use crate::hello::Hello;
 
 /// One Client's Connection.
@@ -177,7 +177,7 @@ impl DaemonClient {
         self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
         loop {
             let message = self.next().expect("the engine closed before replying");
-            if message["method"] == CRAWL_REQUEST_HANDLE.name {
+            if is_handler_request(&message) {
                 if let Some(mut reply) = handler(&message["params"]) {
                     reply["jsonrpc"] = json!("2.0");
                     reply["id"] = message["id"].clone();

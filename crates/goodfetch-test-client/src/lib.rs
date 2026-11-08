@@ -12,6 +12,7 @@
 
 mod attached;
 mod daemon_client;
+mod handler_request;
 mod hello;
 mod home;
 mod run_trace;

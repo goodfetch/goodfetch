@@ -1,7 +1,8 @@
 # Which of goodfetch-test-client's top-level modules may import which (ADR 0126).
 [modules]
-attached = ["hello"]
-daemon_client = ["hello"]
+attached = ["handler_request", "hello"]
+daemon_client = ["handler_request", "hello"]
+handler_request = []
 hello = ["home"]
 home = []
 run_trace = ["home"]

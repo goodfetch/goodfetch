@@ -861,12 +861,7 @@ async fn close_deadline(context: &CallContext, run_id: &RunId) -> Deadline {
         Ok(run) => run.settings().map(|settings| settings.resolved().clone()),
         Err(_) => None,
     };
-    resolved
-        .and_then(|resolved| Deadline::of(&resolved, &TIMEOUT_CLOSE))
-        .unwrap_or_else(|| {
-            let default = (TIMEOUT_CLOSE.default)().as_u64().unwrap_or(30_000);
-            Deadline::given(&TIMEOUT_CLOSE, default, SettingsLayer::Default)
-        })
+    Deadline::of_resolved(resolved.as_ref(), &TIMEOUT_CLOSE)
 }
 
 /// What a call that ends a Run answers once it ended: its report, or the

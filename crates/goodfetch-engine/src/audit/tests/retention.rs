@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 
 use super::export::{joined, jsonl};
 use super::{at, broken, log, now, origin, tamper};
-use crate::audit::{AuditError, AuditLog, verify_exported};
+use crate::audit::{AuditLog, verify_exported};
 use crate::home::Home;
 use crate::settings::SettingsFiles;
 
@@ -289,28 +289,51 @@ fn a_second_pruning_moves_the_anchor_and_the_log_verifies_from_it() {
     );
 }
 
-/// An append under machine layers whose `audit.retention` cannot be read
-/// is refused, appending nothing, rather than appended unpruned: the
-/// retention may be one that prunes what it would keep.
+/// Settings files the machine's layers cannot be read from say nothing of
+/// the entry: an append under them keeps it and prunes nothing on that
+/// pass, entries older than any retention included.
 /// Covers: story:4-72, setting:audit.retention
-#[test]
-fn an_append_whose_retention_cannot_be_read_is_refused_rather_than_never_pruned() {
+#[rstest::rstest]
+#[case::a_typo_in_user_configuration(None, "version = \"0.1\"\n\n[settings\n")]
+#[case::a_lock_on_a_key_user_configuration_sets(
+    Some("version = \"0.1\"\n\n[lock.timeout]\nnavigation = 10000\n"),
+    "version = \"0.1\"\n\n[settings.timeout]\nnavigation = 2000\n"
+)]
+fn an_append_under_settings_that_cannot_be_read_keeps_its_entry_and_prunes_nothing(
+    #[case] policy: Option<&str>,
+    #[case] configuration: &str,
+) {
     let env = TestEnv::in_memory();
     let home = Home::new(env.home().to_path_buf());
     let version = ProductVersion::parse("1.4.0").unwrap();
     let files = SettingsFiles::of(&home, &version);
-    let configuration = files.user_configuration().to_owned();
-    std::fs::create_dir_all(configuration.parent().unwrap()).unwrap();
-    std::fs::write(&configuration, "version = \"0.1\"\n\n[settings\n").unwrap();
-    let log = log(&env).retained_under(files, Product::Collie);
+    std::fs::create_dir_all(files.user_configuration().parent().unwrap()).unwrap();
+    std::fs::write(files.user_configuration(), configuration).unwrap();
+    if let Some(policy) = policy {
+        std::fs::write(files.operator_policy(), policy).unwrap();
+    }
+    let log = aged(&env, 2, 0).retained_under(files, Product::Collie);
 
-    let recorded = log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now());
+    let recorded = log
+        .record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
+        .unwrap();
 
     assert_eq!(
         (
-            matches!(recorded, Err(AuditError::Retention { .. })),
-            log.export().unwrap()
+            recorded.sequence,
+            log.export()
+                .unwrap()
+                .iter()
+                .map(|entry| (entry.entry.sequence, entry.entry.kind.clone()))
+                .collect::<Vec<_>>()
         ),
-        (true, Vec::new())
+        (
+            3,
+            vec![
+                (1, "secret_reference_used".to_owned()),
+                (2, "secret_reference_used".to_owned()),
+                (3, "secret_reference_used".to_owned()),
+            ]
+        )
     );
 }

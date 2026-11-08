@@ -125,6 +125,22 @@ describe("a Collie Connection", () => {
   );
 
   test(
+    "refuses an engine of a newer preview minor, which counts as a major",
+    { tags: ["error:protocol_version_unsupported"] },
+    async () => {
+      const played = playScript("connect/answered-with-another-preview-minor.json");
+
+      const error = await failure(connectOver(played.transport));
+
+      expect(error).toMatchObject({
+        code: "protocol_version_unsupported",
+        details: { client_protocol_version: "0.1", engine_protocol_version: "0.2" },
+      });
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
     "refuses an engine whose hello answer names no protocol version",
     { tags: ["error:protocol_version_unsupported"] },
     async () => {

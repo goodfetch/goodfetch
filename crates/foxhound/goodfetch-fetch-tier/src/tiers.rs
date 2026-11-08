@@ -2531,9 +2531,7 @@ fn chosen_extractor(run: &Run, label: Option<BuiltIn>) -> BuiltIn {
     label
         .or_else(|| {
             run.settings()
-                .map(|settings| settings.resolved().value(&CONTENT_EXTRACTOR))
-                .and_then(serde_json::Value::as_str)
-                .and_then(BuiltIn::named)
+                .and_then(|settings| BuiltIn::named(settings.resolved().get(&CONTENT_EXTRACTOR)))
         })
         .unwrap_or_default()
 }

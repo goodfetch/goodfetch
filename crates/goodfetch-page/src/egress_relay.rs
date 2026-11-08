@@ -331,10 +331,7 @@ fn session_policy(settings: Option<&ResolvedSettings>) -> io::Result<Policy> {
 /// Whether `settings`, a Session's, send its browser through the relay:
 /// `security.raw_cdp_egress_proxy` on, its default.
 pub(crate) fn relayed(settings: &ResolvedSettings) -> bool {
-    settings
-        .value(&SECURITY_RAW_CDP_EGRESS_PROXY)
-        .as_bool()
-        .unwrap_or(true)
+    settings.get(&SECURITY_RAW_CDP_EGRESS_PROXY)
 }
 
 impl EgressRelay {

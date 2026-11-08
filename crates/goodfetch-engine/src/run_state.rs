@@ -257,8 +257,8 @@ impl Durability {
     /// The Durability level `run_state.durability`'s value `level` names,
     /// `periodic` at `commit_interval`; `None` for a value that names none,
     /// which the settings resolver never lets through.
-    pub fn named(level: &serde_json::Value, commit_interval: std::time::Duration) -> Option<Self> {
-        match level.as_str()? {
+    pub fn named(level: &str, commit_interval: std::time::Duration) -> Option<Self> {
+        match level {
             DURABILITY_FULL => Some(Self::Full),
             DURABILITY_FAST => Some(Self::Fast),
             DURABILITY_PERIODIC => Some(Self::Periodic {

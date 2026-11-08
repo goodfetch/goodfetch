@@ -250,11 +250,9 @@ impl Scope {
                 .collect()
         };
         Ok(Self::new(
-            settings
-                .value(&CRAWL_SCOPE_STRATEGY)
-                .as_str()
-                .and_then(Strategy::named)
-                .unwrap_or_default(),
+            Strategy::named(settings.get(&CRAWL_SCOPE_STRATEGY)).expect(
+                "invariant: the settings resolver lets only `crawl.scope.strategy`'s choices through",
+            ),
             Patterns::globs(&globs(&CRAWL_SCOPE_INCLUDE))?,
             Patterns::globs(&globs(&CRAWL_SCOPE_EXCLUDE))?,
         ))

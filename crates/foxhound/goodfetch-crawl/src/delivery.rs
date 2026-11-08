@@ -246,8 +246,7 @@ pub(crate) async fn drive(
         run_tier,
         run_encoding: settings
             .resolved()
-            .value(&FETCH_ENCODING)
-            .as_str()
+            .get::<Option<&str>>(&FETCH_ENCODING)
             .map(str::to_owned),
         // Its shape was checked when the crawl started.
         run_content_types: ContentTypes::of(settings.resolved().value(&CRAWL_CONTENT_TYPES))
@@ -319,11 +318,7 @@ fn sampling(resolved: &Resolved) -> Sampling {
     let built_in = Sampling::default();
     let refresh = SampleRefresh::read(resolved.value(&FETCH_SAMPLE_REFRESH_AFTER)).ok();
     Sampling {
-        count: resolved
-            .value(&FETCH_SAMPLE_COUNT)
-            .as_u64()
-            .and_then(|count| usize::try_from(count).ok())
-            .unwrap_or(built_in.count),
+        count: usize::try_from(resolved.get::<u64>(&FETCH_SAMPLE_COUNT)).unwrap_or(built_in.count),
         requests: refresh.map_or(built_in.requests, |refresh| refresh.requests),
         after_ms: refresh.map_or(built_in.after_ms, |refresh| refresh.after),
     }

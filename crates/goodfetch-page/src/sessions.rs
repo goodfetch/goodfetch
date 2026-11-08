@@ -1339,7 +1339,7 @@ async fn open_proxy(
     };
     // A Proxy provider's price must be in the currency of each currency
     // Limit on `proxy_bytes` that holds the Run (ADR 0101).
-    let currencies = if resolved.value(&PROXY_PROVIDER).is_null() {
+    let currencies = if resolved.get::<Option<&str>>(&PROXY_PROVIDER).is_none() {
         Vec::new()
     } else {
         run.usage()

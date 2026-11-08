@@ -141,6 +141,9 @@ fn a_crawl_reads_robots_txt_once_a_day_from_the_copy_its_users_runs_share() {
 /// answers `503`.
 const UNREACHABLE_HOST: &str = "2.access-policy.test";
 
+/// The fetch edge pages' host.
+const EDGE_HOST: &str = "fetch-edge.test";
+
 /// The named host whose robots.txt has groups for `Goodfetch-Foxhound`
 /// (`/foxhound/`), the operator token `operator-bot` (`/operator/`), a bare
 /// `Foxhound` (`/bare/`) and `*` (`/star/`).
@@ -379,6 +382,93 @@ fn a_request_whose_robots_txt_keeps_failing_ends_skipped_after_its_retries() {
             vec![ended("/catalog/1", "skipped", Some("robots_txt"))],
             (2, 0),
         )
+    );
+}
+
+/// The `fetch-edge.test` page that redirects to a page of
+/// [`UNREACHABLE_HOST`].
+const REDIRECT_TO_UNREACHABLE: &str = "/redirect/unreachable-robots";
+
+/// A redirect hop whose host's robots.txt keeps answering `503`, with no
+/// earlier copy, is never sent, and its crawl request is retried as one
+/// whose own robots.txt failed: each failed robots.txt fetch counts as one
+/// of its attempts, and once its retries ran out it ends `skipped` with
+/// `robots_txt`.
+///
+/// Covers: story:6-242, setting:crawl.retry.max
+#[test]
+fn a_request_whose_redirect_hops_robots_txt_keeps_failing_ends_skipped_after_its_retries() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let ip = proving_ground.address().ip().to_string();
+
+    let crawled = crawl_seeds(
+        &env,
+        &proving_ground,
+        "unreachable-hop",
+        &[(EDGE_HOST, REDIRECT_TO_UNREACHABLE)],
+        &json!({
+            "crawl": { "retry": { "max": 1 } },
+            "politeness": { "backoff": { "initial": 100, "max": 200 } },
+            "network": { "resolve": { EDGE_HOST: [&ip], UNREACHABLE_HOST: [&ip] } },
+            "egress": { "private_ranges": [EDGE_HOST, UNREACHABLE_HOST] },
+        }),
+        &|_| Vec::new(),
+    );
+
+    assert_eq!(
+        (
+            crawled.handled.len(),
+            crawled.outcomes,
+            received(&proving_ground, UNREACHABLE_HOST),
+        ),
+        (
+            0,
+            vec![ended(
+                REDIRECT_TO_UNREACHABLE,
+                "skipped",
+                Some("robots_txt")
+            )],
+            (2, 0),
+        )
+    );
+}
+
+/// A request robots.txt disallows is refused as soon as its robots.txt is
+/// read, before any wait for its domain's delay after that robots.txt: it
+/// takes no start of its domain, so a request it never sent holds back no
+/// other.
+///
+/// Covers: story:6-239, story:6-241, setting:politeness.domain.delay, format:politeness-file
+#[test]
+fn a_request_robots_txt_disallows_takes_no_start_of_its_domain() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+
+    let crawled = crawl_seeds(
+        &env,
+        &proving_ground,
+        "disallowed-unstarted",
+        &[(FILE_HOST, "/private/catalog/1")],
+        &json!({ "politeness": { "domain": { "delay": 2_000 } } }),
+        &|_| Vec::new(),
+    );
+    let file = rusqlite::Connection::open(env.home().join("politeness.sqlite")).unwrap();
+    let (last_start, fetched_at): (i64, i64) = file
+        .query_row(
+            "SELECT (SELECT MAX(last_start) FROM domain_limits), (SELECT MAX(fetched_at) FROM robots_txt)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+
+    assert_eq!(
+        (crawled.outcomes, last_start <= fetched_at),
+        (
+            vec![ended("/private/catalog/1", "skipped", Some("robots_txt"))],
+            true
+        ),
+        "the domain's last start {last_start}, its robots.txt fetched at {fetched_at}"
     );
 }
 

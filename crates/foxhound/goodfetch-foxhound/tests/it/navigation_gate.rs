@@ -1524,9 +1524,9 @@ fn a_handlers_page_past_its_work_items_lease_sends_nothing_more() {
                 "page.goto",
                 &json!({ "page_id": pages[0], "url": url("/catalog/1") }),
             ));
-            std::thread::sleep(Duration::from_secs(12));
-            let lease_ended = requested_in_all(&proving_ground);
             let engine = inside.engine();
+            next_seed_delivered(engine, &mut others);
+            let lease_ended = requested_in_all(&proving_ground);
             (refused, later) = past_the_lease(engine, &pages, &url, &mut others);
             requests = Some((lease_ended, requested_in_all(&proving_ground)));
             // The second seed's attempt, delivered meanwhile, ends at once.
@@ -1609,6 +1609,21 @@ fn program_page(engine: &mut Attached, settings: &Value, others: &mut Vec<Value>
         "params": { "run_id": "program" },
     }));
     answer_to(engine, "program-page", others)["result"]["page_id"].clone()
+}
+
+/// Waits until the crawl delivers its next seed, keeping what comes in
+/// `others`: at a handler concurrency of 1, it does once the attempt in
+/// flight ended, which a handler that only holds its pages does when its
+/// lease ends. The wait fails past the engine's message deadline.
+fn next_seed_delivered(engine: &mut Attached, others: &mut Vec<Value>) {
+    loop {
+        let message = engine.next().expect("the engine answers");
+        let delivered = message["method"] == "crawl_request.handle";
+        others.push(message);
+        if delivered {
+            return;
+        }
+    }
 }
 
 /// What a handler past its lease gets: the codes of a click on its first

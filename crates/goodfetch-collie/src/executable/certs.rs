@@ -11,9 +11,10 @@
 
 use std::process::ExitCode;
 
-use super::engine_choice::{Daemons, EngineChoice, EngineFlags};
+use super::catalog_commands::{Joined, Joining, command_words};
+use super::daemon::Machine;
+use super::engine_choice::{EngineChoice, EngineFlags};
 use super::exit_codes;
-use super::generated::{Joined, Joining, command_words};
 use super::operation::run_operation;
 use super::output::{self, Human};
 use clap::Subcommand;
@@ -77,12 +78,12 @@ pub(super) fn run(
     command: CertsCommand,
     engine: &Engine,
     dependencies: Dependencies,
-    daemons: &dyn Daemons,
+    machine: &Machine<'_>,
     human: &Human,
 ) -> ExitCode {
     match command {
         CertsCommand::Generated(joining) => {
-            joining.call().run(engine, dependencies, daemons, human)
+            joining.call().run(engine, dependencies, machine, human)
         }
         CertsCommand::Own(OwnCertsCommand::Accept {
             host,
@@ -90,7 +91,7 @@ pub(super) fn run(
             engine: flags,
         }) => {
             let warn = |text: &str| human.warning(text);
-            let reach = EngineChoice::passing(flags.choice(), daemons, &warn);
+            let reach = EngineChoice::passing(flags.choice(), machine, &warn);
             accept(engine, dependencies, &reach, &host, json, human)
         }
         CertsCommand::Own(OwnCertsCommand::Forget {
@@ -99,7 +100,7 @@ pub(super) fn run(
             engine: flags,
         }) => {
             let warn = |text: &str| human.warning(text);
-            let reach = EngineChoice::passing(flags.choice(), daemons, &warn);
+            let reach = EngineChoice::passing(flags.choice(), machine, &warn);
             forget(engine, dependencies, &reach, &host, json, human)
         }
     }

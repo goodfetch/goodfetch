@@ -12,9 +12,15 @@
 //! in the Browser cache and waits for the line the Daemon prints once its
 //! runtime file is written. A Client finds the Daemon through that file,
 //! replaces one whose Daemon died, and opens with `hello` and the file's
-//! token; a refusal marked as a handover makes it wait for the pick, and
-//! any other refusal fails with a `fix` naming this executable's
-//! `daemon restart`. A Daemon that hands over starts the pick itself.
+//! token; a refusal marked as a handover makes it wait for the pick, and a
+//! refusal by Product or protocol version fails with a `fix` naming this
+//! executable's `daemon restart`. A Daemon that hands over starts the pick
+//! itself. Every Client, a `daemon` command's and a command's call alike,
+//! goes through that one Daemon client, [`Machine::open_daemon`].
+//!
+//! The machine's settings are read once, by `main`, and held on the
+//! [`Machine`]: a command that needs them and cannot read them fails with
+//! their Error code, and no Daemon starts on them.
 //!
 //! Once `daemon install` registered the major's service with socket
 //! activation (macOS and Linux), a Client that finds no running Daemon
@@ -43,15 +49,14 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use goodfetch_engine::browser_cache::{
-    self, BROWSERS_PATH_VARIABLE, CacheLocation, HOME_FOLDER, MaxUnusedAge,
-};
+use goodfetch_engine::browser_cache::{self, CacheLocation, HOME_FOLDER, MaxUnusedAge};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::files::DaemonFiles;
 use goodfetch_engine::daemon::{RefusedClient, RefusedExecutable, refusal_fix};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::installed::{InstalledList, Seen, fingerprint, pick, stores_floor};
-use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::run::local_settings_error;
+use goodfetch_engine::settings::{Resolved, SettingsError};
 use goodfetch_engine::{CallError, Identity};
 use goodfetch_protocol::browser_cache::MAX_UNUSED_AGE;
 use goodfetch_protocol::catalog::Product;
@@ -68,17 +73,15 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-use super::engine_choice::{Interrupts, Link, Opening, hello, unreachable};
+use super::engine_choice::{Interrupt, Interrupts, Link, Opening, hello, unreachable};
 use super::exit_codes;
 use super::output::{self, Human};
 
-use super::browsers;
-
-mod engine_choice;
 mod foreground;
 mod launched;
 #[cfg(target_os = "linux")]
 mod reaper;
+mod remote;
 
 use launched::launch;
 pub(super) use launched::{launched, start_console};
@@ -128,8 +131,10 @@ const STOPPING: Duration = Duration::from_secs(30);
 /// runtime file.
 const LOOK_AGAIN: Duration = Duration::from_millis(50);
 
-/// What every `daemon` command and every Client of the Daemon works with.
-pub(super) struct Machine<'a> {
+/// What every `daemon` command and every Client of the Daemon works with:
+/// the executable's machine, as `main` read it once, and the one Daemon
+/// client every command reaches its major's Daemon through.
+pub struct Machine<'a> {
     /// The executable's Product, version and channel.
     pub(super) identity: &'a Identity,
     /// Goodfetch home.
@@ -140,6 +145,9 @@ pub(super) struct Machine<'a> {
     pub(super) executable: Option<PathBuf>,
     /// Where it reads wall time: the engine's Clock.
     pub(super) clock: Clock,
+    /// The machine's settings, its Operator policy and user configuration,
+    /// which `main` read once, or why they cannot be read.
+    pub(super) settings: &'a Result<Resolved, SettingsError>,
 }
 
 /// Why reaching the Daemon failed.
@@ -212,7 +220,7 @@ impl Failure {
     }
 
     /// Its error object, with its Error code.
-    fn into_error(self) -> ErrorObject {
+    pub(super) fn into_error(self) -> ErrorObject {
         match self {
             Self::Refused { error, .. } | Self::DaemonRefused(error) => error,
             Self::Unavailable(problem) => unreachable(problem, UNAVAILABLE_FIX),
@@ -255,18 +263,20 @@ impl Machine<'_> {
         InstalledList::of(self.home)
     }
 
+    /// The Browser cache this executable uses: `GOODFETCH_BROWSERS_PATH`,
+    /// else `browsers` in Goodfetch home.
+    pub(super) fn cache_location(&self) -> CacheLocation {
+        CacheLocation::new(
+            self.home.root(),
+            self.home.browsers_path().map(Path::to_owned),
+        )
+    }
+
     /// The Browser cache the Daemon's copies go in: the one this executable
     /// uses, or `browsers` in Goodfetch home when that one cannot be
     /// written (ADR 0098's note under #259).
     pub(super) fn cache(&self) -> PathBuf {
-        let location = CacheLocation::new(
-            self.home.root(),
-            self.environment
-                .get(std::ffi::OsStr::new(BROWSERS_PATH_VARIABLE))
-                .filter(|value| !value.is_empty())
-                .map(PathBuf::from),
-        );
-        let root = location.root().to_owned();
+        let root = self.cache_location().root().to_owned();
         if std::fs::create_dir_all(&root).is_ok()
             && tempfile::Builder::new()
                 .prefix(".write-check")
@@ -279,15 +289,22 @@ impl Machine<'_> {
         }
     }
 
-    /// `browser_cache.max_unused_age` from the machine's settings.
+    /// The machine's settings, as the engine resolves them before any Run;
+    /// or, when they cannot be read, the failure every command that needs
+    /// them fails with, their Error code's.
+    pub(super) fn settings(&self) -> Result<&Resolved, Failure> {
+        self.settings.as_ref().map_err(|error| {
+            Failure::of(local_settings_error(error, self.identity).to_error_object())
+        })
+    }
+
+    /// `browser_cache.max_unused_age` from the machine's settings, or its
+    /// default where they cannot be read: only a refusal's `fix` reads the
+    /// pick then, since a start fails first ([`Self::start_pick`]).
     fn max_unused_age(&self) -> MaxUnusedAge {
-        browsers::machine_settings(
-            self.home,
-            self.identity.product,
-            &self.identity.product_version,
-        )
-        .map(|settings| MaxUnusedAge::new(settings.get(&MAX_UNUSED_AGE)))
-        .unwrap_or_default()
+        self.settings()
+            .map(|settings| MaxUnusedAge::new(settings.get(&MAX_UNUSED_AGE)))
+            .unwrap_or_default()
     }
 
     /// The major's pick now.
@@ -351,6 +368,7 @@ impl Machine<'_> {
             endpoint: DaemonEndpoint::Unix(socket),
             token: DaemonToken::new(token),
             service: true,
+            remote: false,
         }))
     }
 
@@ -428,8 +446,11 @@ impl Machine<'_> {
     }
 
     /// Starts the major's pick from its versioned copy and waits for its
-    /// runtime file; whoever calls it holds the start lock.
+    /// runtime file; whoever calls it holds the start lock. A Daemon starts
+    /// only on machine settings it can read, so it fails first with their
+    /// Error code when they cannot be.
     pub(super) fn start_pick(&self, keep_alive: bool) -> Result<DaemonRuntimeFile, Failure> {
+        self.settings()?;
         let Some(picked) = self.pick() else {
             let install = stores_floor(self.home, &self.identity.product_version).map_or_else(
                 || self.identity.product_version.to_string(),
@@ -447,57 +468,125 @@ impl Machine<'_> {
 
     /// A Connection to the Daemon that `hello` opened, needing `needs`: the
     /// running Daemon, or the pick this starts when `start` and none runs.
+    /// A `daemon` command's, which listens for no interrupt.
     pub(super) fn connect(
         &self,
         start: bool,
         needs: Product,
     ) -> Result<Option<Connected>, Failure> {
         let runtime = runtime();
+        let wanted = Wanted {
+            start,
+            remote: false,
+            needs,
+        };
+        match self.open_daemon(&runtime, &wanted, Interrupts::none) {
+            Ok(Some((connection, found))) => Ok(Some(Connected {
+                runtime,
+                connection,
+                endpoint: found.endpoint,
+                next: 1,
+            })),
+            Ok(None) => Ok(None),
+            Err(NotOpened::Failed(failure)) => Err(failure),
+            Err(NotOpened::Refused(error)) => Err(Failure::of(error)),
+            Err(NotOpened::RefusedByProductOrVersion(error)) => Err(Failure::DaemonRefused(error)),
+            Err(NotOpened::Interrupted(_)) => Err(Failure::Unavailable(
+                "a `daemon` command listens for no interrupt".to_owned(),
+            )),
+        }
+    }
+
+    /// The one Daemon client's opening (ADRs 0024 and 0098): finds the
+    /// Daemon `wanted` asks for, opens a Link to it with `hello`, listening
+    /// for `interrupts`, and looks again when it went away or hands over,
+    /// at most [`ATTEMPTS`] times; `None` when none runs and none is to be
+    /// started. A refusal by Product or protocol version gets the `fix`
+    /// naming this executable's `daemon restart`; a remote Daemon is never
+    /// waited for nor told how to restart.
+    pub(super) fn open_daemon(
+        &self,
+        runtime: &tokio::runtime::Runtime,
+        wanted: &Wanted,
+        interrupts: fn() -> Interrupts,
+    ) -> Result<Option<(Link, Reach)>, NotOpened> {
         for _ in 0..ATTEMPTS {
-            let found = if start {
-                Some(self.running_or_started(false)?.0)
-            } else {
-                self.running()?
-            };
-            let Some(found) = found else {
+            // Found and started outside the runtime, which this blocking
+            // work would stall.
+            let Some(found) = self.find(wanted).map_err(NotOpened::Failed)? else {
                 return Ok(None);
             };
-            match runtime.block_on(self.open(&found, needs)) {
-                Ok(connection) => {
-                    return Ok(Some(Connected {
-                        runtime,
-                        connection,
-                        endpoint: found.endpoint,
-                        next: 1,
-                    }));
+            let hello = hello(self.identity, wanted.needs, Some(&found.token));
+            let opening = match runtime.block_on(Link::open(&found.endpoint, &hello, interrupts)) {
+                Ok(link) => return Ok(Some((link, found))),
+                Err(opening) => opening,
+            };
+            match opening {
+                Opening::Interrupted(interrupt) => return Err(NotOpened::Interrupted(interrupt)),
+                Opening::Refused(error) => return Err(self.refusal(error, found.remote)),
+                Opening::HandOver(error) if found.remote => return Err(NotOpened::Refused(error)),
+                // It hands over: once the start lock is free, the pick runs.
+                Opening::HandOver(_) => drop(
+                    self.files()
+                        .start_lock()
+                        .map_err(unavailable("the Daemon's start lock cannot be taken"))
+                        .map_err(NotOpened::Failed)?,
+                ),
+                Opening::Gone if found.remote => {
+                    return Err(NotOpened::Failed(Failure::of(unreachable(
+                        format!(
+                            "The Daemon at {} closed the Connection before it answered `hello`, as it does for a token it does not take.",
+                            found.endpoint
+                        ),
+                        "Set `GOODFETCH_TOKEN` to the token the Daemon `GOODFETCH_URL` names takes, then run the command again.",
+                    ))));
+                }
+                Opening::Unreachable if found.remote => {
+                    return Err(NotOpened::Failed(Failure::of(unreachable(
+                        format!(
+                            "Nothing answers at {}, the Daemon `GOODFETCH_URL` names.",
+                            found.endpoint
+                        ),
+                        "Start the Daemon `GOODFETCH_URL` names, or unset `GOODFETCH_URL` to use this machine's, then run the command again.",
+                    ))));
                 }
                 // The service's socket answers no connection: its service
                 // manager does not listen there.
-                Err(Opening::Unreachable) if found.service => {
-                    return Err(Failure::Unavailable(format!(
+                Opening::Unreachable if found.service => {
+                    return Err(NotOpened::Failed(Failure::Unavailable(format!(
                         "the service of major {} does not answer at {}: run `daemon install` again to repair it, or `daemon uninstall`",
                         self.major(),
                         found.endpoint
-                    )));
+                    ))));
                 }
-                // It hands over: once the start lock is free, the pick runs.
-                Err(Opening::HandOver(_)) => drop(
-                    self.files()
-                        .start_lock()
-                        .map_err(unavailable("the Daemon's start lock cannot be taken"))?,
-                ),
-                // It went away in between: once it stopped, look again. A
-                // `daemon` command's Link listens for no interrupt.
-                Err(Opening::Gone | Opening::Unreachable | Opening::Interrupted(_)) => {
-                    self.stopped(&found.endpoint)?;
+                // It went away in between: once it stopped, look again.
+                Opening::Gone | Opening::Unreachable => {
+                    self.stopped(&found.endpoint).map_err(NotOpened::Failed)?;
                 }
-                Err(Opening::Refused(error)) => return Err(self.refused(error)),
             }
         }
-        Err(Failure::Unavailable(format!(
+        Err(NotOpened::Failed(Failure::Unavailable(format!(
             "the Daemon of major {} went away {ATTEMPTS} times while this Client connected",
             self.major()
-        )))
+        ))))
+    }
+
+    /// The Daemon `wanted` asks for: the remote one `GOODFETCH_URL` names,
+    /// when it asks for it and the variable is set; else the running Daemon
+    /// of the major, the installed service's socket, or, when it asks to
+    /// start one, the pick this starts; `None` when none runs and none is
+    /// to be started.
+    fn find(&self, wanted: &Wanted) -> Result<Option<Reach>, Failure> {
+        if wanted.remote
+            && let Some(remote) = self.remote().map_err(Failure::of)?
+        {
+            return Ok(Some(remote));
+        }
+        if wanted.start {
+            Ok(Some(self.running_or_started(false)?.0))
+        } else {
+            self.running()
+        }
     }
 
     /// A Link to the Daemon `found`, opened with this Client's `hello`
@@ -507,9 +596,15 @@ impl Machine<'_> {
         Link::open(&found.endpoint, &hello, Interrupts::none).await
     }
 
-    /// The refusal of this Client, its `fix` adding this executable's
-    /// `daemon restart` (ADR 0098).
-    fn refused(&self, mut error: ErrorObject) -> Failure {
+    /// The refusal `error` of this Client's `hello` by a Daemon, `remote`
+    /// or the major's: by Product or protocol version from the major's, its
+    /// `fix` adding this executable's `daemon restart` (ADR 0098).
+    fn refusal(&self, mut error: ErrorObject, remote: bool) -> NotOpened {
+        let by_product_or_version = [NOT_IN_PRODUCT.name, PROTOCOL_VERSION_UNSUPPORTED.name]
+            .contains(&error.data.code.as_str());
+        if remote || !by_product_or_version {
+            return NotOpened::Refused(error);
+        }
         let given = error
             .data
             .details
@@ -521,16 +616,7 @@ impl Machine<'_> {
             .data
             .details
             .insert("fix".to_owned(), Value::from(fix));
-        if [NOT_IN_PRODUCT.name, PROTOCOL_VERSION_UNSUPPORTED.name]
-            .contains(&error.data.code.as_str())
-        {
-            Failure::DaemonRefused(error)
-        } else {
-            Failure::Refused {
-                error,
-                operation: None,
-            }
-        }
+        NotOpened::RefusedByProductOrVersion(error)
     }
 
     /// Waits, at most [`STOPPING`], until the Daemon of the major that
@@ -658,7 +744,16 @@ impl Machine<'_> {
         let runtime = runtime();
         let connection = match runtime.block_on(self.open(&found, Product::Collie)) {
             Ok(connection) => connection,
-            Err(Opening::Refused(error)) => return Err(self.refused(error)),
+            Err(Opening::Refused(error)) => {
+                return Err(match self.refusal(error, false) {
+                    NotOpened::RefusedByProductOrVersion(error) => Failure::DaemonRefused(error),
+                    NotOpened::Refused(error) => Failure::of(error),
+                    NotOpened::Failed(failure) => failure,
+                    NotOpened::Interrupted(_) => Failure::Unavailable(
+                        "a `daemon` command listens for no interrupt".to_owned(),
+                    ),
+                });
+            }
             Err(
                 Opening::HandOver(_)
                 | Opening::Gone
@@ -720,13 +815,17 @@ impl Machine<'_> {
     }
 }
 
-/// Where a Client reaches the Daemon, and the token its `hello` carries.
+/// Where a Client reaches the Daemon, and the token its `hello` carries,
+/// which nothing prints.
 pub(super) struct Reach {
-    endpoint: DaemonEndpoint,
+    pub(super) endpoint: DaemonEndpoint,
     token: DaemonToken,
     /// Whether it is the installed service's socket, which starts the
     /// Daemon at its first connection.
     service: bool,
+    /// Whether it is a remote Daemon `GOODFETCH_URL` names, which no
+    /// command starts, waits for or falls back from.
+    remote: bool,
 }
 
 impl From<DaemonRuntimeFile> for Reach {
@@ -735,8 +834,35 @@ impl From<DaemonRuntimeFile> for Reach {
             endpoint: found.endpoint,
             token: found.token,
             service: false,
+            remote: false,
         }
     }
+}
+
+/// Which Daemon a Client looks for.
+pub(super) struct Wanted {
+    /// Whether it starts the major's pick when no Daemon runs.
+    pub(super) start: bool,
+    /// Whether the remote Daemon `GOODFETCH_URL` names comes first, as it
+    /// does for a command's call; the `daemon` commands ask the major's.
+    pub(super) remote: bool,
+    /// The Product its `hello` needs.
+    pub(super) needs: Product,
+}
+
+/// Why the one Daemon client opened no Link.
+pub(super) enum NotOpened {
+    /// The Daemon refused this Client's `hello` by Product or protocol
+    /// version and cannot hand over, its `fix` naming this executable's
+    /// `daemon restart`.
+    RefusedByProductOrVersion(ErrorObject),
+    /// The Daemon refused this Client's `hello` otherwise, or a remote
+    /// Daemon refused it.
+    Refused(ErrorObject),
+    /// The command was interrupted first.
+    Interrupted(Interrupt),
+    /// No Daemon could be found, started or reached, as its Error code says.
+    Failed(Failure),
 }
 
 /// A Client's open Connection to the Daemon.

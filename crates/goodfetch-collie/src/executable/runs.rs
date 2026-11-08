@@ -8,29 +8,26 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use goodfetch_engine::Identity;
-use goodfetch_engine::home::Home;
 use goodfetch_engine::runs::reindex as rebuild;
 use goodfetch_protocol::run::{RUN_STATE_LOCATION, RunsReindexOutput};
 
-use super::browsers::machine_settings;
-use super::output;
+use super::daemon::Machine;
+use super::output::{self, Human};
 
 /// Rebuilds the Run index from the configured locations and `paths`,
-/// relative ones read from `folder`.
+/// relative ones read from `folder`; machine settings it cannot read fail
+/// it as every command's failure prints, with their Error code's row.
 pub(super) fn reindex(
-    identity: &Identity,
-    home: &Home,
+    machine: &Machine<'_>,
     folder: &std::path::Path,
     paths: Vec<PathBuf>,
     json: bool,
+    human: &Human,
 ) -> ExitCode {
-    let settings = match machine_settings(home, identity.product, &identity.product_version) {
+    let (identity, home) = (machine.identity, machine.home);
+    let settings = match machine.settings() {
         Ok(settings) => settings,
-        Err(error) => {
-            tracing::error!(code = error.code(), "{error}");
-            return ExitCode::FAILURE;
-        }
+        Err(failure) => return failure.print(json, human),
     };
     let configured = settings
         .effective(&RUN_STATE_LOCATION)

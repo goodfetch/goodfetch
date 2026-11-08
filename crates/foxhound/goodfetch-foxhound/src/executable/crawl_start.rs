@@ -36,13 +36,12 @@ use std::process::ExitCode;
 
 use clap::builder::{PossibleValue, PossibleValuesParser};
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use goodfetch_collie::executable::engine_choice::{
-    self, CommandCall, Daemons, Failed, Input, Next, Values,
-};
-use goodfetch_collie::executable::exit_codes;
-use goodfetch_collie::executable::generated::{
+use goodfetch_collie::executable::Machine;
+use goodfetch_collie::executable::catalog_commands::{
     Call, FOLLOW, OwnCall, OwnCommand, REQUIRE_VERIFIED, resolved,
 };
+use goodfetch_collie::executable::engine_choice::{self, CommandCall, Failed, Input, Next, Values};
+use goodfetch_collie::executable::exit_codes;
 use goodfetch_collie::executable::output::{self, Human, Progress};
 use goodfetch_engine::rpc::framing::MAX_MESSAGE_BYTES;
 use goodfetch_engine::{Dependencies, Engine};
@@ -309,10 +308,10 @@ impl OwnCall for Flags {
         call: &Call,
         engine: &Engine,
         dependencies: Dependencies,
-        daemons: &dyn Daemons,
+        machine: &Machine<'_>,
         human: &Human,
     ) -> ExitCode {
-        run(call, &self, engine, dependencies, daemons, human)
+        run(call, &self, engine, dependencies, machine, human)
     }
 }
 
@@ -416,7 +415,7 @@ fn run(
     flags: &Flags,
     engine: &Engine,
     dependencies: Dependencies,
-    daemons: &dyn Daemons,
+    machine: &Machine<'_>,
     human: &Human,
 ) -> ExitCode {
     let json = call.json();
@@ -496,7 +495,7 @@ fn run(
         stopper: Some(&mut stop),
     };
     let warn = |text: &str| human.warning(text);
-    let reach = call.reach(daemons, &warn);
+    let reach = call.reach(machine, &warn);
     let answer = engine_choice::call(engine, dependencies, call.product(), &reach, command_call);
     drop(shown);
     // Once the Run ID is out, a failure goes to stderr alone, naming the

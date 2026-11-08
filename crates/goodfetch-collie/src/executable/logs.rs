@@ -446,7 +446,7 @@ fn export(
         .build()
         .map_err(|error| error.to_string())?;
     let resource = opentelemetry_sdk::Resource::builder_empty()
-        .with_service_name(format!("goodfetch-{}", product.as_str()))
+        .with_service_name(product.executable_name())
         .build();
     let provider = SdkTracerProvider::builder()
         .with_batch_exporter(exporter)

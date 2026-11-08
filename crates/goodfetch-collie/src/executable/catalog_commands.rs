@@ -63,9 +63,10 @@ use goodfetch_protocol::run::RunReport;
 use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value, json};
 
+use super::daemon::Machine;
 use super::engine_choice::{
-    self, Answer, Choice, CommandCall, Daemons, EngineChoice, Failed, Follower, Input, Lifetime,
-    Next, Pager, ReadValues, Values,
+    self, Answer, Choice, CommandCall, EngineChoice, Failed, Follower, Input, Lifetime, Next,
+    Pager, ReadValues, Values,
 };
 use super::operation::failed;
 use super::output::text;
@@ -103,7 +104,7 @@ pub trait OwnCall {
         call: &Call,
         engine: &Engine,
         dependencies: Dependencies,
-        daemons: &dyn Daemons,
+        machine: &Machine<'_>,
         human: &Human,
     ) -> ExitCode;
 }
@@ -997,11 +998,11 @@ impl Call {
 
     /// The engine its call runs on: as its command line and its value
     /// choose, its refusals warned of through `warn`.
-    pub fn reach<'a>(&self, daemons: &'a dyn Daemons, warn: &'a dyn Fn(&str)) -> EngineChoice<'a> {
+    pub fn reach<'a>(&self, machine: &'a Machine<'a>, warn: &'a dyn Fn(&str)) -> EngineChoice<'a> {
         EngineChoice {
             choice: self.choice,
             lifetime: self.lifetime(),
-            daemons,
+            machine,
             warn,
         }
     }
@@ -1021,7 +1022,7 @@ impl Call {
     }
 
     /// Calls the operation on the engine its command line and its value
-    /// choose ([`engine_choice`]): the executable's Daemon, `daemons`, or
+    /// choose ([`engine_choice`]): the Daemon `machine` reaches, or
     /// an Attached engine in this process, `engine` on `dependencies`;
     /// prints what it answered as `human` shows it, or under `--follow`
     /// what it sent, and answers the exit code.
@@ -1033,7 +1034,7 @@ impl Call {
         mut self,
         engine: &Engine,
         dependencies: Dependencies,
-        daemons: &dyn Daemons,
+        machine: &Machine<'_>,
         human: &Human,
     ) -> ExitCode {
         let words = command_words(self.operation.name);
@@ -1041,7 +1042,7 @@ impl Call {
             human.warning(&format!("`{words}`: {}", deprecation(deprecated)));
         }
         if let Some(own) = self.own.take() {
-            return own.run(&self, engine, dependencies, daemons, human);
+            return own.run(&self, engine, dependencies, machine, human);
         }
         let json = self.json;
         let offered = offer(self.operation);
@@ -1151,7 +1152,7 @@ impl Call {
             !self.follow && !matches!(offered, Some(Offer::Input | Offer::Committed));
         let progress = prints_at_its_end.then(|| human.progress(&words));
         let warn = |text: &str| human.warning(text);
-        let reach = self.reach(daemons, &warn);
+        let reach = self.reach(machine, &warn);
         let answer = engine_choice::call(engine, dependencies, self.product, &reach, call);
         drop(progress);
         // Once the array of Records is open on stdout, it closes whatever

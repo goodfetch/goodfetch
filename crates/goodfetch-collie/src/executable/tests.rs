@@ -14,7 +14,7 @@ use rstest::rstest;
 use secrecy::SecretString;
 use tracing_subscriber::layer::SubscriberExt as _;
 
-use super::generated::members;
+use super::catalog_commands::members;
 use super::log_file::{LogFile, Rotation};
 use super::logs::Masked;
 use super::{COLOR, OwnCommands, command, command_line};

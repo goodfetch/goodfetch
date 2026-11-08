@@ -226,13 +226,11 @@ impl ToOwner {
         }
         .instrument(span.clone())
         .await;
-        match &answer {
-            Ok(Ok(_)) => trace::record_id(&span, &RequestId::Number(CALL)),
-            Ok(Err(failure)) => {
-                trace::record_id(&span, &RequestId::Number(CALL));
+        if let Ok(answered) = &answer {
+            trace::record_id(&span, &RequestId::Number(CALL));
+            if let Err(failure) = answered {
                 trace::record_failure(&span, &failure.data.code, failure.code);
             }
-            Err(_) => {}
         }
         answer
     }

@@ -17,7 +17,6 @@
 //!   stderr for the run's log, with the evidence that reaches a member the
 //!   selection misses; and writes the plan and the carried results into the
 //!   run's record.
-
 //! - **record**: appends a step's result to the run's record, only for the
 //!   planned head on a clean tree. A failed step run per member records
 //!   green each crate its nextest JUnit files show passed in full, and its

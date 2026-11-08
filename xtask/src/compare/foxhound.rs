@@ -17,6 +17,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::events::CREDIT;
 use goodfetch_protocol::foxhound::crawl::CODE_FREE_DATASET;
+use goodfetch_protocol::foxhound::dataset::RECORD;
 use serde_json::{Value, json};
 
 use crate::rss::crawl::Site;
@@ -177,7 +178,7 @@ impl Engine {
                 }
                 return Ok(records);
             }
-            if message["method"] == "$/record" && message["params"]["id"] == id {
+            if message["method"] == RECORD && message["params"]["id"] == id {
                 let record = &message["params"]["record"];
                 records.push((
                     record["url"].as_str().unwrap_or_default().to_owned(),

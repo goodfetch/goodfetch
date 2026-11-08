@@ -78,7 +78,7 @@ enum Products {
 pub(crate) struct Selection {
     jobs: BTreeSet<Job>,
     /// The changed crates and their dependants, for runs that select crates
-    /// by name (`cargo -p`) rather than through nextest's `rdeps(…)`.
+    /// by name (`cargo -p`).
     crates: BTreeSet<String>,
     vitest_packages: BTreeSet<RepoPath>,
     pytest_packages: BTreeSet<RepoPath>,

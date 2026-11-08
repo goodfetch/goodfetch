@@ -10,9 +10,8 @@
 //!   2026-11-07).
 //! - The Proving ground depends on no Goodfetch crate but
 //!   `goodfetch-test-support`, so on no engine crate, nor on
-//!   `goodfetch-conformance`, `goodfetch-protocol` or
-//!   `goodfetch-test-client` (ADR 0032): the oracle
-//!   stays independent of what it judges.
+//!   `goodfetch-conformance`, `goodfetch-protocol` or `goodfetch-test-client`
+//!   (ADR 0032): the oracle stays independent of what it judges.
 //! - `goodfetch-conformance` depends on no Goodfetch crate but
 //!   `goodfetch-protocol` (and `goodfetch-test-support` for its tests): the
 //!   harness tests only through the interface.

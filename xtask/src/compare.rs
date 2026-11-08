@@ -36,7 +36,7 @@ mod trial;
 mod trials;
 
 use std::path::{Path, PathBuf};
-use std::process::{Command as Process, ExitCode};
+use std::process::ExitCode;
 
 use anyhow::{Context as _, Result};
 use clap::{Args, Subcommand, ValueEnum};
@@ -158,9 +158,8 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
     match command {
         Command::Run(arguments) => {
             let tools = ToolManifest::read(&environment.path(&arguments.tools))?;
-            let commit = Process::new("git")
+            let commit = crate::git::command(&environment.root)
                 .args(["rev-parse", "HEAD"])
-                .current_dir(&environment.root)
                 .output()
                 .context("running git rev-parse")?;
             let browser = match &arguments.browser {

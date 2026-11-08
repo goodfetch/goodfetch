@@ -20,7 +20,9 @@ use lol_html::html_content::{Element, TextChunk, TextType};
 use lol_html::{AsciiCompatibleEncoding, HandlerResult, HtmlRewriter, Settings, element, text};
 use url::Url;
 
+use crate::canonical::is_canonical_link;
 use crate::character_references::{Place, decode};
+use crate::whitespace::collapsed;
 
 /// What the pass reads.
 #[derive(Debug, Default)]
@@ -39,7 +41,8 @@ pub(crate) struct Head {
     pub(crate) title: Option<String>,
     /// The first `<meta name="description">`'s content.
     pub(crate) description: Option<String>,
-    /// The first `<link rel="canonical">`'s `href`, not resolved.
+    /// The first `<link rel="canonical">`'s `href` ahead of the `<body>`,
+    /// not resolved.
     pub(crate) canonical: Option<String>,
     /// The root element's `lang`.
     pub(crate) lang: Option<String>,
@@ -78,6 +81,9 @@ struct State {
     title: Title,
     /// Whether the root element was read.
     root_read: bool,
+    /// Whether the `<body>` began: a canonical link after it is the body's,
+    /// never the page's.
+    in_body: bool,
 }
 
 /// Where the reading of the first `<title>` stands.
@@ -115,6 +121,7 @@ pub(crate) fn references(html: &str, base_url: &str) -> References {
         head: Head::default(),
         title: Title::Ahead,
         root_read: false,
+        in_body: false,
     }));
     let handler = |read: fn(&Shared, &str, &mut Element<'_, '_>) -> HandlerResult| {
         let state = Rc::clone(&state);
@@ -146,6 +153,13 @@ pub(crate) fn references(html: &str, base_url: &str) -> References {
             "html",
             handler(|state, html, element| {
                 read_root(state, html, element);
+                Ok(())
+            })
+        ))
+        .append_element_content_handler(element!(
+            "body",
+            handler(|state, _, _| {
+                state.borrow_mut().in_body = true;
                 Ok(())
             })
         ))
@@ -267,14 +281,12 @@ fn read_meta(state: &Shared, html: &str, element: &Element<'_, '_>) {
     }
 }
 
-/// Reads the `<link>` `element` is, when it is the first canonical one.
+/// Reads the `<link>` `element` is, when it is the first canonical one
+/// ahead of the `<body>`.
 fn read_canonical(state: &Shared, html: &str, element: &Element<'_, '_>) {
-    let canonical = attribute(html, element, "rel").is_some_and(|rel| {
-        rel.split_ascii_whitespace()
-            .any(|token| token.eq_ignore_ascii_case("canonical"))
-    });
+    let canonical = attribute(html, element, "rel").is_some_and(|rel| is_canonical_link(&rel));
     let mut state = state.borrow_mut();
-    if canonical && state.head.canonical.is_none() {
+    if canonical && !state.in_body && state.head.canonical.is_none() {
         state.head.canonical = attribute(html, element, "href");
     }
 }
@@ -283,11 +295,6 @@ fn read_canonical(state: &Shared, html: &str, element: &Element<'_, '_>) {
 fn starts_with_ignoring_case(text: &str, prefix: &str) -> bool {
     text.get(..prefix.len())
         .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
-}
-
-/// `text` with its white space collapsed.
-fn collapsed(text: &str) -> String {
-    text.split_ascii_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Starts reading the link `element` is.

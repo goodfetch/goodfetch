@@ -9,6 +9,7 @@
 //! Collie page and a Foxhound handler's page read alike (ADRs 0087, 0088).
 
 mod blocks;
+mod canonical;
 mod character_references;
 mod contacts;
 mod extractor;
@@ -24,7 +25,9 @@ mod social;
 mod stream;
 mod structured_data;
 mod tables;
+mod whitespace;
 
+pub use canonical::{canonical_url, is_canonical_link};
 pub use extractor::{BuiltIn, Extractor, Found};
 pub use formats::{
     CleanUp, Context, Document, Measured, Serialization, formats, fuzz_formats,

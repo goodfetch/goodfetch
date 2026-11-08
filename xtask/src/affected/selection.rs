@@ -9,7 +9,7 @@ use std::path::Path;
 use super::workspace::{Crate, Ecosystem, Model, Package, Workspace, is_visual_test};
 use super::{ChangedParts, RepoPath};
 use crate::register::document as register;
-use crate::{foxhound_side, perf, screenshots, tlc};
+use crate::{foxhound_side, kennel, perf, screenshots, tlc};
 
 /// A job of the pull-request tier that the selection may skip, by its job ID
 /// in `.github/workflows/pull-request.yml`. Jobs that are not written yet
@@ -36,8 +36,8 @@ pub(crate) enum Job {
     /// TLC on `models`, with their small constants (ADR 0060).
     Tlc,
     /// The Kennel's checks, `just kennel-check` (ADR 0141): its workspace's
-    /// Clippy and tests, run when it or the protocol crate it is built on
-    /// changes, and for no other change.
+    /// Clippy and tests, run when a change reaches its workspace, a root
+    /// crate it is built on, or the code of an executable its tests run.
     Kennel,
 }
 
@@ -111,10 +111,6 @@ const PROMPT_FOLDERS: [&str; 2] = ["skills", CATALOG_CRATE];
 /// samples are generated too.
 const CATALOG_CRATE: &str = "crates/goodfetch-protocol";
 const PROMPT_SEGMENTS: [&str; 2] = ["prompts", "request-snapshots"];
-
-/// The Kennel's workspace (ADR 0141), no member of the root one: its own
-/// job checks it, and its changes select nothing else.
-const KENNEL_FOLDER: &str = "kennel";
 
 /// Paths no test reads: the Quick suite, which always runs, checks them.
 pub(super) fn needs_no_tests(path: &RepoPath) -> bool {
@@ -275,7 +271,9 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
         if is_prompt_affecting(path) {
             changed.jobs.insert(Job::Evaluation);
         }
-        if path.is_in(KENNEL_FOLDER) || path.is_in(CATALOG_CRATE) {
+        // The Kennel's workspace is no member of the root one: its own job
+        // checks it, and its changes select nothing else (ADR 0141).
+        if path.is_in(kennel::FOLDER) {
             changed.jobs.insert(Job::Kennel);
         }
         match owner(workspace, path) {
@@ -286,7 +284,7 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
             // The models are checked by TLC alone, the Kennel by its job.
             None if needs_no_tests(path)
                 || path.is_in(tlc::MODELS_FOLDER)
-                || path.is_in(KENNEL_FOLDER) => {}
+                || path.is_in(kennel::FOLDER) => {}
             None => everything = true,
         }
     }
@@ -348,6 +346,17 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
     ));
     let runs_a_built_executable =
         |runs: &BTreeSet<String>| runs.iter().any(|run| built.contains(run));
+    // The Kennel builds the root's crates it depends on as libraries, and
+    // its tests run executables of the root's.
+    if workspace
+        .kennel
+        .dependencies
+        .iter()
+        .any(|dependency| built.contains(dependency))
+        || runs_a_built_executable(&workspace.kennel.runs)
+    {
+        changed.jobs.insert(Job::Kennel);
+    }
     changed.crates.extend(
         workspace
             .crates

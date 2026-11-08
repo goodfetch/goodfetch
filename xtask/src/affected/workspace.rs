@@ -3,7 +3,9 @@
 //! members of its own workspace it depends on, and where the visual tests are
 //! (ADR 0073). Cargo's members come from `cargo metadata`; pnpm's from
 //! `pnpm-workspace.yaml` and uv's from the root `pyproject.toml`, whose
-//! patterns use `*` for one folder name.
+//! patterns use `*` for one folder name. The Kennel's workspace, no member
+//! of the root one, is read for what of the root's its build and tests take
+//! (ADR 0141).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -17,7 +19,7 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 use super::{RepoPath, imports};
-use crate::{console, metadata, package_dependencies, tlc, tree};
+use crate::{console, kennel, metadata, package_dependencies, tlc, tree};
 
 pub(crate) struct Workspace {
     pub(crate) crates: Vec<Crate>,
@@ -29,6 +31,21 @@ pub(crate) struct Workspace {
     /// The packages whose build a crate embeds: a change to one changes
     /// that crate's executable.
     pub(crate) embedded: Vec<Embedded>,
+    pub(crate) kennel: Kennel,
+}
+
+/// What the Kennel's workspace (ADR 0141), which `cargo metadata` of the
+/// root leaves out, takes from the root's crates: its job runs when a
+/// change reaches one as it would reach a crate's build or the executables
+/// its tests run. Empty when the repository has no Kennel.
+#[derive(Default)]
+pub(crate) struct Kennel {
+    /// The root's crates its crates depend on, of any kind:
+    /// `goodfetch-protocol`.
+    pub(crate) dependencies: BTreeSet<String>,
+    /// The root's crates whose executables its tests run, from its crates'
+    /// `[package.metadata.goodfetch] runs`.
+    pub(crate) runs: BTreeSet<String>,
 }
 
 /// A package whose build a crate embeds, as Collie's executable embeds the
@@ -111,6 +128,7 @@ pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Workspace> {
     visual_tests.sort();
     let crates = crates(cargo, root)?;
     let embedded = embedded(&crates, &packages);
+    let kennel = kennel(cargo, root, &crates)?;
     Ok(Workspace {
         crates,
         packages,
@@ -124,7 +142,31 @@ pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Workspace> {
             })
             .collect(),
         embedded,
+        kennel,
     })
+}
+
+/// What the Kennel's workspace takes from `crates`, the root's, read from
+/// its own `cargo metadata`.
+fn kennel(cargo: &OsStr, root: &Path, crates: &[Crate]) -> Result<Kennel> {
+    let folder = root.join(kennel::FOLDER);
+    if !folder.join("Cargo.toml").is_file() {
+        return Ok(Kennel::default());
+    }
+    let root_crate = |name: &String| crates.iter().any(|krate| &krate.name == name);
+    let mut found = Kennel::default();
+    for package in metadata::packages(cargo, &folder)? {
+        found.dependencies.extend(
+            package
+                .dependencies
+                .iter()
+                .map(|dependency| &dependency.name)
+                .filter(|name| root_crate(name))
+                .cloned(),
+        );
+        found.runs.extend(package.runs());
+    }
+    Ok(found)
 }
 
 /// Each Product's Console, whose build its executable embeds (ADRs 0057

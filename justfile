@@ -1607,8 +1607,9 @@ _tlc all="":
     ci/tool.sh java "$just" tlc-self-test
 
 # The gate's `kennel` step: the Kennel's checks when the change reaches
-# its job (`xtask affected`'s `kennel`: a change to `kennel/` or
-# goodfetch-protocol, ADR 0141), and always with `all`.
+# its job (`xtask affected`'s `kennel`: a change to `kennel/`, to the root
+# crates it is built on or to the executables its tests run, ADR 0141), and
+# always with `all`.
 _kennel all="":
     #!/usr/bin/env bash
     set -euo pipefail

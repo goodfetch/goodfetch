@@ -191,6 +191,60 @@ fn change_to_what_an_executable_is_built_from_selects_the_tests_that_run_it(
     );
 }
 
+/// The fixture with a Kennel of its own workspace (ADR 0141), built on the
+/// engine, whose tests run the Proving ground's executable, committed and
+/// tagged `with-kennel`.
+fn with_a_kennel(workspace: &Workspace) {
+    workspace.write(
+        "kennel/Cargo.toml",
+        b"[workspace]\nresolver = \"3\"\nmembers = [\"crates/goodfetch-kennel\"]\n",
+    );
+    workspace.write(
+        "kennel/crates/goodfetch-kennel/Cargo.toml",
+        br#"[package]
+name = "goodfetch-kennel"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+goodfetch-engine = { path = "../../../crates/goodfetch-engine" }
+
+[package.metadata.goodfetch]
+runs = ["goodfetch-proving-ground"]
+"#,
+    );
+    workspace.write(
+        "kennel/crates/goodfetch-kennel/src/lib.rs",
+        b"//! The Kennel.\n",
+    );
+    commit_all(workspace, "Add the Kennel");
+    workspace.git(&["tag", "with-kennel"]);
+}
+
+/// The Kennel's job runs for a change to a root crate its own workspace
+/// builds on or whose executable its tests run, read from its manifests.
+#[rstest]
+#[case::a_crate_it_is_built_on("crates/goodfetch-engine/src/lib.rs", true)]
+#[case::an_executable_its_tests_run("proving-ground/src/main.rs", true)]
+#[case::a_crate_it_neither_builds_on_nor_runs(
+    "crates/foxhound/goodfetch-frontier/src/crawl.rs",
+    false
+)]
+fn the_kennels_job_follows_what_its_workspace_builds_on_and_runs(
+    #[case] path: &str,
+    #[case] selected: bool,
+) {
+    let workspace = repository();
+    with_a_kennel(&workspace);
+    workspace.write(path, b"//! Changed.\n");
+    commit_all(&workspace, "Change a root crate");
+
+    let outcome = workspace.xtask(&["affected", "--base", "with-kennel", "--head", "change"]);
+
+    assert_eq!(value(&outcome, "jobs").contains(r#""kennel""#), selected);
+}
+
 #[test]
 fn base_and_head_mode_ignores_what_the_base_changed_since_the_merge_base() {
     let workspace = repository();

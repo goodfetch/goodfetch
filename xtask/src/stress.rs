@@ -181,10 +181,10 @@ fn select(
     saved: Option<&Path>,
     narrowing: Option<&Narrowing>,
 ) -> Result<Selection> {
-    let base = commit(root, base)?;
+    let base = git::commit(root, base)?;
     let changed = changed_since(root, &base)?;
     let since = match narrowing.and_then(|narrowing| narrowing.since.as_deref()) {
-        Some(since) => changed_since(root, &commit(root, since)?)?,
+        Some(since) => changed_since(root, &git::commit(root, since)?)?,
         None => BTreeSet::new(),
     };
     let lists = |runner: Runner| narrowing.is_none_or(|narrowing| narrowing.lists(runner));
@@ -509,7 +509,7 @@ impl<'a> Checkout<'a> {
 /// Writes the four listings of the workspace at `root` into
 /// `<folder>/<HEAD's commit>/`, for later changes whose base it is.
 fn save(root: &Path, runners: &Runners<'_>, folder: &Path) -> Result<PathBuf> {
-    let commit = commit(root, "HEAD")?;
+    let commit = git::commit(root, "HEAD")?;
     let out = folder.join(&commit);
     std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
     for runner in Runner::ALL {
@@ -518,21 +518,6 @@ fn save(root: &Path, runners: &Runners<'_>, folder: &Path) -> Result<PathBuf> {
         std::fs::write(&file, output).with_context(|| format!("writing {}", file.display()))?;
     }
     Ok(out)
-}
-
-/// The commit `revision` names, in full.
-fn commit(root: &Path, revision: &str) -> Result<String> {
-    Ok(git::text(
-        root,
-        &[
-            "rev-parse",
-            "--verify",
-            "--end-of-options",
-            &format!("{revision}^{{commit}}"),
-        ],
-    )?
-    .trim()
-    .to_owned())
 }
 
 fn canonical(path: &Path) -> Result<PathBuf> {

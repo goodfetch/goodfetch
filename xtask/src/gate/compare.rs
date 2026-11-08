@@ -10,7 +10,7 @@ use anyhow::{Context as _, Result};
 use serde::Serialize;
 
 use super::plan::Step;
-use super::{commit, runs};
+use super::runs;
 use crate::git;
 use crate::output;
 
@@ -40,7 +40,7 @@ struct Found {
 /// [`Found`] objects. Fails when the run on `full` reused anything, so it is
 /// no full run.
 pub(super) fn compare(root: &Path, records: &Path, others: &Path, full: &str) -> Result<ExitCode> {
-    let full = commit(root, full)?;
+    let full = crate::git::commit(root, full)?;
     let record = runs::read(records, &full)?;
     if let Some((unit, outcome)) = record
         .units

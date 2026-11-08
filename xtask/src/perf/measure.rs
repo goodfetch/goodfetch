@@ -141,10 +141,10 @@ fn reference_tree(root: &Path) -> PathBuf {
 /// Checks out `base`, and the reference build when one is pinned, and builds
 /// their and the head's `targets`.
 pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) -> Result<()> {
-    let commit = commit_of(root, base)?;
+    let commit = git::commit(root, base)?;
     let reference = reference::pinned(root)?
         .map(|revision| {
-            commit_of(root, &revision)
+            git::commit(root, &revision)
                 .with_context(|| format!("resolving the revision {} pins", reference::PIN_FILE))
         })
         .transpose()?;
@@ -243,20 +243,6 @@ pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) 
     std::fs::write(out.join("plan.json"), serde_json::to_vec_pretty(&plan)?)
         .context("writing the plan")?;
     Ok(())
-}
-
-/// The commit `revision` names.
-fn commit_of(root: &Path, revision: &str) -> Result<String> {
-    let commit = git::text(
-        root,
-        &[
-            "rev-parse",
-            "--verify",
-            "--end-of-options",
-            &format!("{revision}^{{commit}}"),
-        ],
-    )?;
-    Ok(commit.trim().to_owned())
 }
 
 /// Moves the kept worktree at `tree` to `commit`, leaving none of an

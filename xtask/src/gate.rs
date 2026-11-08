@@ -256,14 +256,14 @@ struct Options {
 
 fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Result<()> {
     let root = environment.root.as_path();
-    let head = commit(root, "HEAD")?;
+    let head = git::commit(root, "HEAD")?;
     let plan_file = runs::plan_file(records, &head);
     let dirty = !git::line(root, &["status", "--porcelain"])?.is_empty();
     if dirty && !options.dry_run {
         return plan_dirty(&plan_file);
     }
 
-    let base = commit(
+    let base = git::commit(
         root,
         &git::line(root, &["merge-base", BASE_BRANCH, "HEAD"])?,
     )?;
@@ -277,7 +277,7 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
             "a full run was asked for (GOODFETCH_GATE_FULL)".to_owned(),
         )
     } else if let Some(assumed) = &options.assume_green {
-        let assumed = commit(root, assumed)?;
+        let assumed = git::commit(root, assumed)?;
         let record = assumed_green(
             root,
             &assumed,
@@ -801,7 +801,7 @@ fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
         ));
         return Ok(());
     };
-    let checked_out = commit(root, "HEAD")?;
+    let checked_out = git::commit(root, "HEAD")?;
     let dirty = !git::line(root, &["status", "--porcelain"])?.is_empty();
     if &checked_out != head || dirty {
         std::fs::remove_file(&plan_file)
@@ -910,19 +910,6 @@ fn listed(crates: &BTreeSet<String>) -> String {
     } else {
         crates.iter().cloned().collect::<Vec<_>>().join(" ")
     }
-}
-
-/// The commit `revision` names, in full.
-fn commit(root: &Path, revision: &str) -> Result<String> {
-    Ok(git::line(
-        root,
-        &[
-            "rev-parse",
-            "--verify",
-            "--end-of-options",
-            &format!("{revision}^{{commit}}"),
-        ],
-    )?)
 }
 
 #[cfg(test)]

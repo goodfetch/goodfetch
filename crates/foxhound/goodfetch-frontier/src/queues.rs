@@ -32,7 +32,7 @@ use goodfetch_engine::admission::{
     Admitted, Ended, Gate, Gates, Held, Journal, Keys, QueuedGroup, Waiting,
 };
 use goodfetch_engine::entropy::Entropy;
-use goodfetch_engine::politeness::{Ending, PermitRule};
+use goodfetch_engine::politeness::{Ending, PermitRule, milliseconds};
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::settings::Resolved;
 use rusqlite::Connection;
@@ -636,13 +636,6 @@ impl Gate for DomainQueues {
 /// A domain's key and its journal row: its wait's end in milliseconds of
 /// wall time and its backoffs in a row, or none once released.
 type JournalRow = (String, Option<(Option<i64>, u32)>);
-
-/// Milliseconds of `wall` since the Unix epoch.
-fn milliseconds(wall: SystemTime) -> i64 {
-    wall.duration_since(UNIX_EPOCH).map_or(0, |since| {
-        i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
-    })
-}
 
 /// The gates Foxhound's composition passes in: each crawl's per-domain
 /// queues, keyed under its `crawl.domain_keys`.

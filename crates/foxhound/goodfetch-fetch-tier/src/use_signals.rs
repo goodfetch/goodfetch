@@ -25,6 +25,7 @@ use std::sync::Arc;
 
 use goodfetch_counted_work::ParsedHtml;
 use goodfetch_engine::robots_txt;
+use goodfetch_protocol::site_preferences::PURPOSE_VALUES;
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 use tokio::sync::{Mutex, OnceCell};
@@ -35,6 +36,9 @@ pub const TDMREP_FILE: &str = "/.well-known/tdmrep.json";
 
 /// The media type of an RSL license.
 const RSL_TYPE: &str = "application/rsl+xml";
+
+// One Purpose per choice of `site_preferences.purpose`.
+const _: () = assert!(PURPOSE_VALUES.len() == Purpose::ALL.len());
 
 /// What a run declares its results are for (`site_preferences.purpose`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,15 +54,15 @@ pub enum Purpose {
 }
 
 impl Purpose {
-    /// The Purpose `site_preferences.purpose` names.
+    /// Every Purpose, in the order the setting's choices list them
+    /// ([`PURPOSE_VALUES`]).
+    const ALL: [Self; 4] = [Self::Search, Self::AiInput, Self::AiTrain, Self::Collect];
+
+    /// The Purpose `site_preferences.purpose` names, as its choices spell
+    /// them.
     pub fn named(name: &str) -> Option<Self> {
-        match name {
-            "search" => Some(Self::Search),
-            "ai-input" => Some(Self::AiInput),
-            "ai-train" => Some(Self::AiTrain),
-            "collect" => Some(Self::Collect),
-            _ => None,
-        }
+        let at = PURPOSE_VALUES.iter().position(|value| *value == name)?;
+        Self::ALL.get(at).copied()
     }
 
     /// The aipref categories that govern the Purpose, the narrowest first.

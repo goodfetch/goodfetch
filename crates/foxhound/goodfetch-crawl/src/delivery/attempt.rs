@@ -126,13 +126,13 @@ pub(super) use learning::{Taught, learns};
 use site_preferences::{escaped_refusal, share_robots_txt};
 
 /// The Error code of a page the site refused, which Collie's page raises
-/// with the Block cause in its details (ADRs 0035 and 0079); declared with
-/// the page's errors (#711).
-const BLOCKED: &str = "blocked";
+/// with the Block cause in its details (ADRs 0035 and 0079), and the call
+/// that moves a request to the browser when a Challenge escalates it.
+const BLOCKED: &str = goodfetch_protocol::page::BLOCKED.name;
 
 /// The Error code of a page that failed its Page check (ADR 0006), which
-/// scores its Session down; declared with the Page check (area 5).
-const PAGE_CHECK_FAILED: &str = "page_check_failed";
+/// scores its Session down.
+const PAGE_CHECK_FAILED: &str = goodfetch_protocol::page::PAGE_CHECK_FAILED.name;
 
 /// How an attempt ended, before its outcome is committed.
 pub(super) enum Answer {

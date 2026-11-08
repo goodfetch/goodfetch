@@ -1,9 +1,13 @@
-use goodfetch_protocol::foxhound::export::{ExportCompression, ExportFormat};
+use std::collections::BTreeSet;
+
+use goodfetch_protocol::foxhound::export::{
+    CSV_NESTED_VALUES, ExportCompression, ExportFormat, PARQUET_COMPRESSION_VALUES,
+};
 use rstest::rstest;
 
 use super::{
-    Columns, Compressor, ExportEncoder, ExportOptions, Exported, FeedFields, Nested, csv_delimiter,
-    feed_field, json_indent, sheet_name, xml_name,
+    Columns, Compressor, ExportEncoder, ExportOptions, Exported, FeedFields, Nested, ParquetCodec,
+    csv_delimiter, feed_field, json_indent, sheet_name, xml_name,
 };
 
 /// When the test's Records were committed: ADR 0059's test `Clock` start.
@@ -187,11 +191,13 @@ fn a_delimiter_is_one_character_a_field_does_not_hold(
 fn a_sheet_name_is_checked_and_the_built_in_one_made_fit() {
     assert_eq!(
         (
-            sheet_name("Livres 2026").as_deref(),
-            sheet_name(""),
-            sheet_name(&"x".repeat(32)),
-            sheet_name("a/b"),
-            sheet_name("'quoted'"),
+            sheet_name("Livres 2026").as_deref().map_err(String::as_str),
+            sheet_name("").as_deref().map_err(String::as_str),
+            sheet_name(&"x".repeat(32))
+                .as_deref()
+                .map_err(String::as_str),
+            sheet_name("a/b").as_deref().map_err(String::as_str),
+            sheet_name("'quoted'").as_deref().map_err(String::as_str),
             ExportOptions::of("books[2026]/fr").xlsx_sheet,
             ExportOptions::of(&"y".repeat(40)).xlsx_sheet,
         ),
@@ -346,7 +352,7 @@ fn json_indent_writes_the_array_pretty_printed() {
             serde_json::to_string_pretty(&parsed).unwrap(),
             "[]".to_owned(),
             Ok(8),
-            Err("is more than 8"),
+            Err("is more than 8".to_owned()),
         )
     );
 }
@@ -518,5 +524,25 @@ fn compression_gives_back_the_bytes_written_in_parts(#[case] compression: Export
             [b"one ".to_vec(), "ünï ".repeat(1000).into_bytes()].concat(),
             true
         )
+    );
+}
+
+/// Each choice the catalog gives `export.csv.nested` and
+/// `export.parquet.compression` names a way of its own, so none falls back
+/// to another.
+#[test]
+fn each_choice_of_the_catalog_names_its_own_way() {
+    let nested: BTreeSet<String> = CSV_NESTED_VALUES
+        .iter()
+        .map(|choice| format!("{:?}", Nested::of(choice).unwrap()))
+        .collect();
+    let codecs: BTreeSet<String> = PARQUET_COMPRESSION_VALUES
+        .iter()
+        .map(|choice| format!("{:?}", ParquetCodec::of(choice).unwrap()))
+        .collect();
+
+    assert_eq!(
+        (nested.len(), codecs.len()),
+        (CSV_NESTED_VALUES.len(), PARQUET_COMPRESSION_VALUES.len())
     );
 }

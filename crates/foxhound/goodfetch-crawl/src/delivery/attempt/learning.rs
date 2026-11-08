@@ -6,7 +6,7 @@
 //! code-free attempt's outcome learns in its own job (ADR 0138).
 
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::RunSettings;
+use goodfetch_engine::settings::{RunSettings, get_or_default};
 use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_protocol::foxhound::frontier::FRONTIER_LEARNING;
 use goodfetch_protocol::page::PageId;
@@ -85,7 +85,8 @@ pub(super) async fn learn(
 /// Whether a crawl under `run`'s settings learns from its pages:
 /// `frontier.learning`, on unless set off (ADR 0138).
 pub(in crate::delivery) fn learns(run: &Run) -> bool {
-    run.settings()
-        .map(RunSettings::resolved)
-        .is_none_or(|settings| settings.boolean(FRONTIER_LEARNING.name) != Some(false))
+    get_or_default(
+        run.settings().map(RunSettings::resolved),
+        &FRONTIER_LEARNING,
+    )
 }

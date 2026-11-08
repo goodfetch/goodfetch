@@ -19,6 +19,7 @@ use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
+use goodfetch_engine::settings::{RunSettings, get_or_default};
 use goodfetch_protocol::foxhound::crawl::CRAWL_MAX_STAGED_ENQUEUES;
 use goodfetch_protocol::foxhound::settings::DATASET_RECORDS;
 use goodfetch_protocol::run::RunId;
@@ -98,9 +99,7 @@ pub(crate) struct Crawls(Arc<Mutex<BTreeMap<RunId, Live>>>);
 /// Whether the crawl `run` keeps Records, its `dataset.records` (ADR 0138):
 /// off, it checks and commits none.
 pub(crate) fn keeps_records(run: &Run) -> bool {
-    run.settings()
-        .and_then(|settings| settings.resolved().boolean(DATASET_RECORDS.name))
-        != Some(false)
+    get_or_default(run.settings().map(RunSettings::resolved), &DATASET_RECORDS)
 }
 
 impl Crawls {
@@ -112,10 +111,10 @@ impl Crawls {
         let datasets = datasets.keeping_records(keeps_records(run));
         let (joining, joined) = mpsc::channel(JOINING);
         let seeded = Arc::new(Notify::new());
-        let staging = run
-            .settings()
-            .and_then(|settings| settings.resolved().count(CRAWL_MAX_STAGED_ENQUEUES.name))
-            .map_or_else(Staging::default, Staging::bounded);
+        let staging = Staging::bounded(get_or_default(
+            run.settings().map(RunSettings::resolved),
+            &CRAWL_MAX_STAGED_ENQUEUES,
+        ));
         run.stage_attempt_writes_through(Arc::new(staging.clone()));
         let egress = Arc::new(egress);
         let intake = Intake::default();

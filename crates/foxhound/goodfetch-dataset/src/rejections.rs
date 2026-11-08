@@ -88,24 +88,34 @@ pub(crate) struct Page {
     pub(crate) next: u64,
 }
 
+/// How a reader of a rejection table finds an entry's URL, its crawl
+/// request's: the reader of the crawl's work items, which own each crawl
+/// request's URL (`goodfetch_crawl::url_of`); `None` for an ID no work item
+/// has.
+pub type RequestUrl = fn(&Connection, &str) -> rusqlite::Result<Option<String>>;
+
 /// The entries of `dataset`'s rejection table after `after`, at most a
 /// page, in number order, read in one transaction. Each entry's URL is its
-/// crawl request's, read from the crawl's `work_items` table.
+/// crawl request's, as `request_url` reads it, empty for a request it does
+/// not find.
 ///
 /// # Errors
 ///
 /// The run file's, when the rows cannot be read or an entry no longer
 /// decodes.
-pub(crate) fn page(connection: &Connection, dataset: &str, after: u64) -> rusqlite::Result<Page> {
+pub(crate) fn page(
+    connection: &Connection,
+    dataset: &str,
+    after: u64,
+    request_url: RequestUrl,
+) -> rusqlite::Result<Page> {
     let transaction = connection.unchecked_transaction()?;
     let records = transaction
         .prepare_cached(
-            "SELECT rejected.number, rejected.data, rejected.rejection, rejected.work_item,
-                    coalesce(work_items.url, '')
-             FROM rejected_records AS rejected
-             LEFT JOIN work_items ON work_items.id = rejected.work_item
-             WHERE rejected.dataset = ?1 AND rejected.number > ?2
-             ORDER BY rejected.number LIMIT ?3",
+            "SELECT number, data, rejection, work_item
+             FROM rejected_records
+             WHERE dataset = ?1 AND number > ?2
+             ORDER BY number LIMIT ?3",
         )?
         .query_map(
             (
@@ -119,12 +129,12 @@ pub(crate) fn page(connection: &Connection, dataset: &str, after: u64) -> rusqli
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
                 ))
             },
         )?
         .map(|row| {
-            row.and_then(|(number, data, rejection, request_id, url)| {
+            row.and_then(|(number, data, rejection, request_id)| {
+                let url = request_url(&transaction, &request_id)?.unwrap_or_default();
                 let (data, why) = decode(&data, &rejection).map_err(|error| {
                     rusqlite::Error::FromSqlConversionFailure(
                         1,

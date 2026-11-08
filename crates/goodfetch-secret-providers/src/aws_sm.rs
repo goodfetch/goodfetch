@@ -85,10 +85,10 @@ impl AwsSecretsManager {
         environment: &BTreeMap<OsString, OsString>,
         clock: Clock,
     ) -> Self {
-        let text = |name: &str| resolved.value(name).as_str().map(str::to_owned);
+        let text = |setting| resolved.get::<Option<&str>>(setting).map(str::to_owned);
         Self::new(
-            text(SECRET_PROVIDERS_AWS_SM_REGION.name),
-            text(SECRET_PROVIDERS_AWS_SM_ENDPOINT.name),
+            text(&SECRET_PROVIDERS_AWS_SM_REGION),
+            text(&SECRET_PROVIDERS_AWS_SM_ENDPOINT),
             environment,
             SecretProviderEndpoint::of(resolved, clock),
             clock,

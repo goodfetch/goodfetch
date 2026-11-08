@@ -1,16 +1,16 @@
 //! What both Products' executables give `xtask codegen` (ADRs 0071, 0072,
 //! 0087 and 0099): their command lines, which the `command:` Features and
 //! the table of Foxhound's names read, and the namespaces of the commands
-//! `goodfetch-cli` generates from Foxhound's catalog, which holds Collie's,
-//! as the Rust constant in `goodfetch-cli` a start reads instead of walking
-//! the catalog. `xtask` builds no engine crate (ADR 0072's amendment of
-//! 2026-11-06): `xtask codegen` runs Collie's `command-lines` example, which
-//! gives what each executable's hidden `command-line` command prints, and
-//! commits it, and `--check` reads the committed files, so it starts no
-//! process for them. Each executable's tests check the committed files
-//! against what it prints. A workspace without Collie's executable crate,
-//! such as a test's fixture, keeps the files it holds, none when it holds
-//! none.
+//! Collie's executable generates from Foxhound's catalog, which holds
+//! Collie's, as the Rust constant in Collie's crate a start reads instead of
+//! walking the catalog. `xtask` builds no engine crate (ADR 0072's
+//! amendment of 2026-11-06): `xtask codegen` runs Foxhound's `command-lines`
+//! example, which gives what each executable's hidden `command-line`
+//! command prints, and commits it, and `--check` reads the committed files,
+//! so it starts no process for them. Each executable's tests check the
+//! committed files against what it prints. A workspace without Foxhound's
+//! executable crate, such as a test's fixture, keeps the files it holds,
+//! none when it holds none.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -26,14 +26,11 @@ use serde_json::{Value, json};
 use crate::features::CommandLines;
 use crate::products;
 
-/// The crate that reads the namespaces.
-const CLI_CRATE: &str = "crates/goodfetch-cli";
+/// Where Collie's crate's generated files live.
+pub(super) const COLLIE_FOLDER: &str = concat!(products::collie_folder!(), "/generated");
 
-/// Where `goodfetch-cli`'s generated files live.
-pub(super) const CLI_FOLDER: &str = "crates/goodfetch-cli/generated";
-
-/// The file of the namespaces.
-const NAMESPACES: &str = "crates/goodfetch-cli/generated/namespaces.rs";
+/// The file of the namespaces, which Collie's executable reads.
+const NAMESPACES: &str = concat!(products::collie_folder!(), "/generated/namespaces.rs");
 
 /// The file of both executables' command lines: `{"collie": <tree>,
 /// "foxhound": <tree>}`, each tree a command's `name` and the `commands`
@@ -76,9 +73,9 @@ impl Files {
     }
 
     /// The files as the executables at `root` print them, or those `root`
-    /// holds when it has no Collie's executable crate.
+    /// holds when it has no Foxhound's executable crate.
     pub(super) fn printed(cargo: &OsStr, root: &Path) -> Result<Self> {
-        if !root.join(products::COLLIE.folder).is_dir() {
+        if !root.join(products::FOXHOUND.folder).is_dir() {
             return Ok(Self::committed(root));
         }
         let Both { collie, foxhound } = run_example(cargo, root)?;
@@ -90,10 +87,10 @@ impl Files {
                 "collie": collie.command_line,
                 "foxhound": foxhound.command_line,
             }))?),
-            // A workspace without `goodfetch-cli`, such as a test's
+            // A workspace without Collie's crate, such as a test's
             // fixture, has no file of its namespaces.
             namespaces: root
-                .join(CLI_CRATE)
+                .join(products::COLLIE.folder)
                 .is_dir()
                 .then(|| collie.namespaces.into_bytes()),
         })
@@ -132,7 +129,7 @@ fn run_example(cargo: &OsStr, root: &Path) -> Result<Both> {
             "run",
             "--quiet",
             "--package",
-            products::COLLIE.package,
+            products::FOXHOUND.package,
             "--features",
             "executable",
             "--example",
@@ -142,14 +139,14 @@ fn run_example(cargo: &OsStr, root: &Path) -> Result<Both> {
         .arg(folder.path())
         .current_dir(root)
         .output()
-        .context("running goodfetch-collie's command-lines example")?;
+        .context("running goodfetch-foxhound's command-lines example")?;
     if !output.status.success() {
         bail!(
-            "goodfetch-collie's command-lines example failed: {}",
+            "goodfetch-foxhound's command-lines example failed: {}",
             String::from_utf8_lossy(&output.stderr)
         );
     }
     let path = folder.path().join(WRITTEN);
     let text = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-    serde_json::from_slice(&text).context("reading goodfetch-collie's command lines")
+    serde_json::from_slice(&text).context("reading goodfetch-foxhound's command lines")
 }

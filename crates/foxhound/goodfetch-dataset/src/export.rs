@@ -1,8 +1,8 @@
 //! A Dataset's Export (ADRs 0103, 0116, 0119 and 0122): `run.export` reads
 //! the number of the Dataset's last committed Record when the call is
 //! made, then streams the Records up to it, in number order, a page at a
-//! time on the Run reader's read-only connection, through the encoder into
-//! the engine's keeping of an Export, which writes them whole into the
+//! time on the Run reader's read-only connection, through the Export's
+//! pipeline into the engine's keeping of an Export, which writes them whole into the
 //! Run's folder or not at all; so it serves a live Run and one that ended,
 //! and Records committed meanwhile are not in it. A table format reads the
 //! same Records twice: once for the columns, the fields every Record holds
@@ -35,15 +35,13 @@ use goodfetch_protocol::settings::{
 };
 use tokio::sync::mpsc;
 
-use crate::declaration::Declarations;
 use crate::encoding::{
-    Columns, Compressor, ExportEncoder, ExportOptions, Exported, Nested, ParquetCodec,
-    csv_delimiter, feed_field, json_indent, sheet_name, xml_name,
+    ExportOptions, Nested, ParquetCodec, csv_delimiter, feed_field, json_indent, sheet_name,
+    xml_name,
 };
-use crate::records::{self, CommittedText, Query};
-
-/// The most Records one read of the run file takes.
-const PAGE: usize = 256;
+use crate::open::{open_dataset, open_run};
+use crate::pipeline::{Encoding, Pipeline};
+use crate::records::{self, Pages};
 
 /// How many encoded pages wait for the file's writer at most.
 const QUEUED: usize = 4;
@@ -105,16 +103,7 @@ impl Read for Parts {
 async fn export(params: RunExportParams, context: CallContext) -> Result<Export, CallError> {
     let options = options(&params, &context).await?;
     let failed = |error: RunError| run_error(error, context.identity());
-    let mut reader = context
-        .runs()
-        .reader(params.run_id.clone())
-        .await
-        .map_err(failed)?;
-    reader
-        .read(Declarations::read)
-        .await
-        .map_err(failed)?
-        .readable(&params.dataset)?;
+    let mut reader = open_dataset(&context, params.run_id.clone(), &params.dataset).await?;
     let dataset = params.dataset.clone();
     let through = reader
         .read(move |connection| records::last_number(connection, &dataset))
@@ -127,39 +116,22 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
         read: 0,
         ended: false,
     };
-    let mut columns = Columns::new(options.nested(params.format));
-    if params.format.is_table() {
-        let mut last = 0;
+    let compression = params.compression.unwrap_or_default();
+    let mut pipeline = Pipeline::new(params.format, options, compression);
+    if pipeline.reads_columns() {
+        let mut pages = Pages::new(&params.dataset, 0, Some(through), params.wall);
         loop {
-            let page = page(&mut reader, &params.dataset, last, through, params.wall)
-                .await
-                .map_err(failed)?;
-            let full = page.len() == PAGE;
-            for record in page {
-                columns.see(&exported(&record).marked());
-                last = record.number;
-            }
+            let (page, full) = pages.next_values(&mut reader).await.map_err(failed)?;
+            pipeline.see(&page);
             if !full {
                 break;
             }
         }
     }
-    let encoder = ExportEncoder::new(params.format, &options, columns);
-    let compression = params.compression.unwrap_or_default();
-    let reading = Reading {
-        dataset: &params.dataset,
-        through,
-        wall: params.wall,
-    };
+    let pages = Pages::new(&params.dataset, 0, Some(through), params.wall);
     let (kept, written) = tokio::join!(
         context.runs().keep_export(params.run_id.clone(), source),
-        encode(
-            &mut reader,
-            reading,
-            encoder,
-            Compressor::new(compression),
-            send
-        ),
+        encode(&mut reader, pages, pipeline.encoding(), send),
     );
     let (records, last_number) = written.map_err(failed)?;
     let kept = match kept {
@@ -184,88 +156,31 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
     })
 }
 
-/// Which Records an Export reads: its Dataset's, through a number, with
-/// or without a Wall marker.
-#[derive(Clone, Copy)]
-struct Reading<'a> {
-    dataset: &'a str,
-    through: u64,
-    wall: Option<bool>,
-}
-
-/// A committed Record as the encoder takes it.
-fn exported(record: &CommittedText) -> Exported<'_> {
-    Exported {
-        number: record.number,
-        value: &record.value,
-        wall: record.wall.as_deref(),
-        committed_at: &record.committed_at,
-    }
-}
-
-/// Reads the Records `reading` takes, in number order, a page at a time,
-/// and sends their encoded bytes, compressed by `compressor`, to `send`,
-/// then the end; answers how many it encoded and the last one's number. It
-/// stops, sending no end, once the file's writer stops taking them.
+/// Reads the Records `pages` takes, a page at a time, and sends their
+/// compressed bytes as `encoding` writes them to `send`, then the end;
+/// answers how many it encoded and the last one's number. It stops,
+/// sending no end, once the file's writer stops taking them.
 async fn encode(
     reader: &mut RunReader,
-    reading: Reading<'_>,
-    mut encoder: ExportEncoder,
-    mut compressor: Compressor,
+    mut pages: Pages,
+    mut encoding: Encoding,
     send: mpsc::Sender<Part>,
 ) -> Result<(u64, u64), RunError> {
-    let mut bytes = Vec::new();
-    encoder.begin(&mut bytes);
-    let mut last = 0;
     loop {
-        let page = page(reader, reading.dataset, last, reading.through, reading.wall).await?;
-        let full = page.len() == PAGE;
-        for record in &page {
-            encoder.value(&exported(record), &mut bytes);
-            last = record.number;
-        }
+        let (page, full) = pages.next_values(reader).await?;
+        encoding.write(&page);
         if !full {
             break;
         }
-        let compressed = compressor.write(std::mem::take(&mut bytes));
-        if send.send(Part::Bytes(compressed)).await.is_err() {
-            return Ok((encoder.values(), last));
+        if send.send(Part::Bytes(encoding.take())).await.is_err() {
+            return Ok((encoding.records(), pages.after()));
         }
     }
-    encoder.end(&mut bytes);
-    let mut compressed = compressor.write(bytes);
-    compressed.append(&mut compressor.finish());
-    if send.send(Part::Bytes(compressed)).await.is_ok() {
+    let encoded = (encoding.records(), pages.after());
+    if send.send(Part::Bytes(encoding.finish())).await.is_ok() {
         let _ = send.send(Part::End).await;
     }
-    Ok((encoder.values(), last))
-}
-
-/// The next page of `dataset`'s Records after the number `after`, through
-/// the number `through`, with or without a Wall marker as `wall` says, as
-/// committed.
-async fn page(
-    reader: &mut RunReader,
-    dataset: &str,
-    after: u64,
-    through: u64,
-    wall: Option<bool>,
-) -> Result<Vec<CommittedText>, RunError> {
-    let dataset = dataset.to_owned();
-    reader
-        .read(move |connection| {
-            records::read_values(
-                connection,
-                Query {
-                    dataset: &dataset,
-                    after,
-                    through: Some(through),
-                    wall,
-                },
-                PAGE,
-            )
-        })
-        .await
+    Ok(encoded)
 }
 
 /// What the `export.*` settings of the call make of its format, resolved
@@ -275,7 +190,7 @@ async fn options(
     context: &CallContext,
 ) -> Result<ExportOptions, CallError> {
     let (settings, _) = context
-        .runs()
+        .engine()
         .settings()
         .open(Opening {
             run: None,
@@ -291,39 +206,32 @@ async fn options(
     let mut options = ExportOptions::of_run(params.run_id.as_str(), &params.dataset);
     match params.format {
         ExportFormat::Csv => {
-            options.csv_bom = resolved.boolean(EXPORT_CSV_BOM.name).unwrap_or(false);
-            if let Some(text) = resolved.value(EXPORT_CSV_DELIMITER.name).as_str() {
-                options.csv_delimiter =
-                    checked(resolved, &EXPORT_CSV_DELIMITER, csv_delimiter(text))?;
-            }
-            if resolved.value(EXPORT_CSV_NESTED.name).as_str() == Some("flatten") {
-                options.csv_nested = Nested::Flatten;
-            }
+            options.csv_bom = resolved.get(&EXPORT_CSV_BOM);
+            let delimiter = csv_delimiter(resolved.get(&EXPORT_CSV_DELIMITER));
+            options.csv_delimiter = checked(resolved, &EXPORT_CSV_DELIMITER, delimiter)?;
+            options.csv_nested = Nested::of(resolved.get(&EXPORT_CSV_NESTED))
+                .expect("invariant: the resolver lets only `export.csv.nested`'s choices through");
         }
         ExportFormat::Xlsx => {
-            if let Some(text) = resolved.value(EXPORT_XLSX_SHEET.name).as_str() {
+            if let Some(text) = resolved.get::<Option<&str>>(&EXPORT_XLSX_SHEET) {
                 options.xlsx_sheet = checked(resolved, &EXPORT_XLSX_SHEET, sheet_name(text))?;
             }
         }
         ExportFormat::Json => {
-            if let Some(count) = resolved.value(EXPORT_JSON_INDENT.name).as_u64() {
-                options.json_indent = checked(resolved, &EXPORT_JSON_INDENT, json_indent(count))?;
-            }
+            let indent = json_indent(resolved.get(&EXPORT_JSON_INDENT));
+            options.json_indent = checked(resolved, &EXPORT_JSON_INDENT, indent)?;
         }
         ExportFormat::Xml => {
-            if let Some(text) = resolved.value(EXPORT_XML_ROOT.name).as_str() {
-                options.xml_root = checked(resolved, &EXPORT_XML_ROOT, xml_name(text))?;
-            }
-            if let Some(text) = resolved.value(EXPORT_XML_RECORD.name).as_str() {
-                options.xml_record = checked(resolved, &EXPORT_XML_RECORD, xml_name(text))?;
-            }
+            let root = xml_name(resolved.get(&EXPORT_XML_ROOT));
+            options.xml_root = checked(resolved, &EXPORT_XML_ROOT, root)?;
+            let record = xml_name(resolved.get(&EXPORT_XML_RECORD));
+            options.xml_record = checked(resolved, &EXPORT_XML_RECORD, record)?;
         }
         ExportFormat::Parquet => {
-            options.parquet_codec = match resolved.value(EXPORT_PARQUET_COMPRESSION.name).as_str() {
-                Some("snappy") => ParquetCodec::Snappy,
-                Some("none") => ParquetCodec::None,
-                _ => ParquetCodec::Zstd,
-            };
+            options.parquet_codec = ParquetCodec::of(resolved.get(&EXPORT_PARQUET_COMPRESSION))
+                .expect(
+                    "invariant: the resolver lets only `export.parquet.compression`'s choices through",
+                );
         }
         ExportFormat::Rss | ExportFormat::Atom => {
             for (setting, field) in [
@@ -332,9 +240,7 @@ async fn options(
                 (&EXPORT_FEED_PUBLISHED, &mut options.feed.published),
                 (&EXPORT_FEED_SUMMARY, &mut options.feed.summary),
             ] {
-                if let Some(text) = resolved.value(setting.name).as_str() {
-                    *field = checked(resolved, setting, feed_field(text))?;
-                }
+                *field = checked(resolved, setting, feed_field(resolved.get(setting)))?;
             }
         }
         ExportFormat::Jsonl
@@ -351,12 +257,12 @@ async fn options(
 fn checked<T>(
     resolved: &Resolved,
     setting: &Setting,
-    value: Result<T, &str>,
+    value: Result<T, impl std::fmt::Display>,
 ) -> Result<T, CallError> {
     value.map_err(|reason| {
-        let given = resolved.value(setting.name);
+        let given = resolved.value(setting);
         let layer = resolved
-            .get(setting.name)
+            .effective(setting)
             .map_or(SettingsLayer::Run, |effective| effective.layer);
         CallError::new(
             &SETTING_INVALID,
@@ -395,12 +301,7 @@ async fn kept_export(
         return Err(no_export(export_id));
     };
     let failed = |error: RunError| run_error(error, context.identity());
-    let mut reader = context
-        .runs()
-        .reader(run_id.clone())
-        .await
-        .map_err(failed)?;
-    reader.read(Declarations::read).await.map_err(failed)?;
+    open_run(context, RunId::clone(&run_id)).await?;
     let folder = context
         .runs()
         .folder(RunId::clone(&run_id))

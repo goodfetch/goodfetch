@@ -22,7 +22,8 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use super::{Client, attached_on, attached_with, dependencies, engine_with, hello};
-use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Dependencies;
 use crate::home::RunStateLocation;
 use crate::runs::{EndedBy, Ending, Start, Started};

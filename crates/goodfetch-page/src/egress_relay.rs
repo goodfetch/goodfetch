@@ -64,6 +64,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use data_encoding::BASE64;
+use goodfetch_cdp::NetError;
 use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
@@ -76,7 +77,7 @@ use goodfetch_engine::known_certificates::ExceptionKind;
 use goodfetch_engine::local_addresses::SessionAddresses;
 use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::Resolved as ResolvedSettings;
+use goodfetch_engine::settings::{Resolved as ResolvedSettings, RunSettings};
 use goodfetch_engine::tls::{
     CertificateExceptions, CertificateInvalid, Examiner, ExceptionUsed, Trust,
 };
@@ -231,7 +232,11 @@ const CONNECT_DEADLINE: Duration = Duration::from_secs(10);
 /// `proxy_unavailable`, before the navigation's own deadline (deep review
 /// finding 577-4).
 pub(crate) fn connect_deadline(run: &Run) -> Duration {
-    let navigation = Deadline::of_run(run, &TIMEOUT_NAVIGATION).duration();
+    let navigation = Deadline::of_resolved(
+        run.settings().map(RunSettings::resolved),
+        &TIMEOUT_NAVIGATION,
+    )
+    .duration();
     CONNECT_DEADLINE.min(navigation / 2)
 }
 
@@ -328,7 +333,7 @@ fn session_policy(settings: Option<&ResolvedSettings>) -> io::Result<Policy> {
 /// `settings`, by lowercase host.
 fn mapping_of(settings: Option<&ResolvedSettings>) -> BTreeMap<String, Vec<IpAddr>> {
     settings
-        .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
+        .map(|settings| settings.hosts(&NETWORK_RESOLVE))
         .unwrap_or_default()
         .into_iter()
         .map(|(host, addresses)| (host.to_ascii_lowercase(), addresses))
@@ -339,7 +344,7 @@ fn mapping_of(settings: Option<&ResolvedSettings>) -> BTreeMap<String, Vec<IpAdd
 /// `security.raw_cdp_egress_proxy` on, its default.
 pub(crate) fn relayed(settings: &ResolvedSettings) -> bool {
     settings
-        .value(SECURITY_RAW_CDP_EGRESS_PROXY.name)
+        .value(&SECURITY_RAW_CDP_EGRESS_PROXY)
         .as_bool()
         .unwrap_or(true)
 }
@@ -380,9 +385,7 @@ impl EgressRelay {
             "Basic {}",
             BASE64.encode(format!("{USERNAME}:{password}").as_bytes())
         );
-        let settings = run
-            .settings()
-            .map(goodfetch_engine::settings::RunSettings::resolved);
+        let settings = run.settings().map(RunSettings::resolved);
         let policy = session_policy(settings)?;
         let mapping = mapping_of(settings);
         let RelayTls {
@@ -580,23 +583,28 @@ impl EgressRelay {
 }
 
 impl EgressRelay {
-    /// The browser's own name of the failure of a request to `url` that
-    /// failed with `error`, when the relay could not reach its site
-    /// itself: the browser sees only the relay's answer, such as
-    /// `net::ERR_TUNNEL_CONNECTION_FAILED` or `net::ERR_EMPTY_RESPONSE`,
-    /// where it would name the site's failure, such as
-    /// `net::ERR_NAME_NOT_RESOLVED`. With `mark`, where the relay stood as
-    /// a navigation to `url` began, the latest such failure since then
-    /// names a later hop's when `url`'s site was reached.
+    /// The browser's own network error for the failure of a request to
+    /// `url` that failed with `error`, when the relay could not reach its
+    /// site itself: the browser sees only the relay's answer, such as
+    /// [`NetError::TunnelRefused`] or [`NetError::EmptyResponse`], where it
+    /// would name the site's failure, such as [`NetError::NameNotResolved`].
+    /// With `mark`, where the relay stood as a navigation to `url` began,
+    /// the latest such failure since then names a later hop's when `url`'s
+    /// site was reached.
     pub(crate) fn net_error(
         &self,
         url: &str,
-        error: &str,
+        error: &NetError,
         mark: Option<u64>,
-    ) -> Option<&'static str> {
+    ) -> Option<NetError> {
+        // An error the browser does not name is reported as its generic
+        // one, which the relay's answer can be.
         let relayed = matches!(
-            error.strip_prefix("net::").unwrap_or(error),
-            "ERR_TUNNEL_CONNECTION_FAILED" | "ERR_EMPTY_RESPONSE" | "ERR_FAILED"
+            error,
+            NetError::TunnelRefused
+                | NetError::EmptyResponse
+                | NetError::Failed
+                | NetError::Unrecognized(_)
         );
         if !relayed {
             return None;

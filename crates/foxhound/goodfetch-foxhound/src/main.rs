@@ -26,6 +26,7 @@ fn main() -> ExitCode {
         // none, and never prints the age notice (ADR 0030).
         release_date: option_env!("GOODFETCH_RELEASE_DATE"),
         composition: console_build::composition,
+        commands: goodfetch_foxhound::executable::COMMANDS,
         arguments: std::env::args_os().collect(),
         environment: std::env::vars_os().collect(),
     })

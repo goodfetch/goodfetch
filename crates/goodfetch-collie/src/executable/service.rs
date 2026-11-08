@@ -41,7 +41,7 @@ use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
 
 use super::browsers;
 use super::daemon::{Failure, Machine};
-use goodfetch_cli::output::{self, Human};
+use super::output::{self, Human};
 
 fn unavailable(what: &str) -> impl Fn(std::io::Error) -> Failure + '_ {
     move |error| Failure::Unavailable(format!("{what}: {error}"))
@@ -241,12 +241,7 @@ fn console_socket(machine: &Machine<'_>, manager: ServiceManager) -> Option<Cons
     let configured =
         browsers::machine_settings(machine.home, identity.product, &identity.product_version)
             .ok()
-            .and_then(|settings| {
-                settings
-                    .value(CONSOLE_ADDRESS.name)
-                    .as_str()
-                    .map(str::to_owned)
-            })
+            .and_then(|settings| settings.value(&CONSOLE_ADDRESS).as_str().map(str::to_owned))
             .unwrap_or_else(|| default_address(&identity.product_version).to_string());
     let Ok(address) = configured.parse::<SocketAddr>() else {
         tracing::warn!(address = %configured, "`console.address` is no `host:port`, so the first visit to the Console does not start the Daemon");

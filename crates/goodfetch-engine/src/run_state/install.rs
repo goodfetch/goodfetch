@@ -34,13 +34,17 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::formats::RUN_STATE;
-use rusqlite::{Connection, ErrorCode, OpenFlags, OptionalExtension as _, TransactionBehavior};
+use rusqlite::{Connection, ErrorCode, OptionalExtension as _};
 use sqlite_plugin::flags::{AccessFlags, CreateMode, LockLevel, OpenMode, OpenOpts, ShmLockMode};
 use sqlite_plugin::vars;
 use sqlite_plugin::vfs::{RegisterOpts, Vfs, VfsHandle, VfsResult, register_static};
 
-use super::{RunStateError, RunStateOptions, check_format, sqlite_error};
+use super::{RUN_FILE, RunStateError, RunStateOptions, sqlite_error};
 use crate::home::{Home, RunStateLocation};
+use crate::sqlite_store::{
+    Access, Durability, File, Folder, FullFsync, OpenError, Opening, Schema, Synchronous, Wait,
+    WalOnClose,
+};
 
 /// The install database's file name, in the per-major folder.
 pub const INSTALL_FILE: &str = "run-state.sqlite";
@@ -62,7 +66,6 @@ const SHM_LOCKS: usize = 8;
 const ERASED: &str = "name >= ?1 AND name < ?2";
 
 const SCHEMA: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT",
     "CREATE TABLE IF NOT EXISTS files (name TEXT NOT NULL PRIMARY KEY, size INTEGER NOT NULL) STRICT",
     "CREATE TABLE IF NOT EXISTS chunks (
         name TEXT NOT NULL,
@@ -175,10 +178,10 @@ impl InstallDatabase {
         let state = lock(&self.install.state);
         let mut statement = state
             .connection
-            .prepare("SELECT name FROM files WHERE name LIKE '%/run.sqlite' ORDER BY name")
+            .prepare("SELECT name FROM files WHERE name LIKE '%/' || ?1 ORDER BY name")
             .map_err(|error| sqlite_error(&self.install.path, &error))?;
         let names = statement
-            .query_map([], |row| row.get::<_, String>(0))
+            .query_map([RUN_FILE], |row| row.get::<_, String>(0))
             .and_then(Iterator::collect::<rusqlite::Result<Vec<String>>>)
             .map_err(|error| sqlite_error(&self.install.path, &error))?;
         Ok(names
@@ -259,63 +262,37 @@ impl Drop for InstallDatabase {
 /// and checks its format.
 fn open_database(path: &Path, vfs: Option<&str>) -> Result<Connection, RunStateError> {
     let failed = |error: rusqlite::Error| sqlite_error(path, &error);
-    if let Some(folder) = path.parent()
-        && vfs.is_none()
-    {
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "opening the install database blocks: the engine runs it under its blocking policy"
-        )]
-        std::fs::create_dir_all(folder).map_err(|error| sqlite_error(path, &error))?;
-    }
-    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
-        | OpenFlags::SQLITE_OPEN_CREATE
-        | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let mut connection = match vfs {
-        Some(vfs) => Connection::open_with_flags_and_vfs(path, flags, vfs),
-        None => Connection::open_with_flags(path, flags),
-    }
-    .map_err(failed)?;
+    let connection = File::new(path, vfs)
+        .open(&Opening {
+            folder: if vfs.is_none() {
+                Folder::Make
+            } else {
+                Folder::Exists
+            },
+            access: Access::Create,
+            wait: Wait::Switch(super::SWITCH_TIMEOUT),
+            durability: Durability {
+                synchronous: Synchronous::Normal,
+                opening: Synchronous::Normal,
+                full_fsync: FullFsync::CommitsAndCheckpoints,
+                wal_on_close: WalOnClose::Checkpointed,
+            },
+            counting: None,
+            schema: Some(Schema {
+                format: &RUN_STATE,
+                statements: &[SCHEMA],
+            }),
+        })
+        .map_err(|error| match error {
+            OpenError::Format(refusal) => refusal.into(),
+            other => sqlite_error(path, &other),
+        })?;
     connection.set_prepared_statement_cache_capacity(super::STATEMENTS);
-    crate::sqlite_wal::enter(&connection, super::SWITCH_TIMEOUT).map_err(failed)?;
-    connection
-        .pragma_update(None, "synchronous", "NORMAL")
-        .map_err(failed)?;
     // Every page a Run's rewritten or deleted chunks free is zeroed, so a
     // discarded Run's bytes are kept nowhere in the database (ADR 0002).
     connection
         .pragma_update(None, "secure_delete", "ON")
         .map_err(failed)?;
-    if cfg!(target_os = "macos") {
-        connection
-            .pragma_update(None, "fullfsync", "ON")
-            .map_err(failed)?;
-        connection
-            .pragma_update(None, "checkpoint_fullfsync", "ON")
-            .map_err(failed)?;
-    }
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(failed)?;
-    for statement in SCHEMA {
-        transaction.execute(statement, []).map_err(failed)?;
-    }
-    let version = RUN_STATE.version.to_string();
-    transaction
-        .execute(
-            "INSERT INTO format (name, version) VALUES (?1, ?2) ON CONFLICT (name) DO NOTHING",
-            (RUN_STATE.name, &version),
-        )
-        .map_err(failed)?;
-    let found: String = transaction
-        .query_row(
-            "SELECT version FROM format WHERE name = ?1",
-            [RUN_STATE.name],
-            |row| row.get(0),
-        )
-        .map_err(failed)?;
-    check_format(&RUN_STATE, &found)?;
-    transaction.commit().map_err(failed)?;
     Ok(connection)
 }
 

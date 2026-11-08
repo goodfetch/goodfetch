@@ -36,6 +36,14 @@ use std::process::ExitCode;
 
 use clap::builder::{PossibleValue, PossibleValuesParser};
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use goodfetch_collie::executable::engine_choice::{
+    self, CommandCall, Daemons, Failed, Input, Next, Values,
+};
+use goodfetch_collie::executable::exit_codes;
+use goodfetch_collie::executable::generated::{
+    Call, FOLLOW, OwnCall, OwnCommand, REQUIRE_VERIFIED, resolved,
+};
+use goodfetch_collie::executable::output::{self, Human, Progress};
 use goodfetch_engine::rpc::framing::MAX_MESSAGE_BYTES;
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::catalog::Operation;
@@ -45,20 +53,25 @@ use goodfetch_protocol::run::{Lifecycle, RUN_PROGRESS_READ, RUN_REPORT, RUN_STOP
 use schemars::generate::SchemaSettings;
 use serde_json::{Map, Value, json};
 
-use super::{Call, FOLLOW, REQUIRE_VERIFIED, resolved};
-use crate::engine_choice::{self, Answer, CommandCall, Daemons, Input, Next, Values};
-use crate::exit_codes;
-use crate::output::{self, Human, Progress};
+/// `crawl start <url>…`, written by hand in place of `crawl.start`'s
+/// generated command.
+pub(super) const COMMAND: OwnCommand = OwnCommand {
+    operation: OPERATION,
+    replaces: REPLACES,
+    about: Some(ABOUT),
+    args,
+    read: read_flags,
+};
 
 /// The operation whose command this is.
-pub(super) const OPERATION: &str = "crawl.start";
+const OPERATION: &str = "crawl.start";
 
 /// The params its own flags give, and `datasets`, which a crawl with an
 /// `extraction` refuses, so its command offers no flag for it.
-pub(super) const REPLACES: &[&str] = &[SEEDS, EXTRACTION, DATASETS];
+const REPLACES: &[&str] = &[SEEDS, EXTRACTION, DATASETS];
 
 /// Its help, in place of `crawl.start`'s, which tells of a handler's crawl.
-pub(super) const ABOUT: &str = "Starts a code-free crawl of its seeds, the URLs given and those of `--seeds-file`, whose Records of the Dataset `pages` hold what its flags read from each page, and prints its Run ID";
+const ABOUT: &str = "Starts a code-free crawl of its seeds, the URLs given and those of `--seeds-file`, whose Records of the Dataset `pages` hold what its flags read from each page, and prints its Run ID";
 
 /// The param that declares a crawl's Datasets.
 const DATASETS: &str = "datasets";
@@ -89,7 +102,7 @@ const SEEDS_FILE: &str = "seeds-file";
 /// `command` with the flags of `crawl start` that give its seeds and its
 /// `extraction`, and `--follow`; the values `--format` and `--links` take
 /// are read from the catalog's schemas of `operation`'s params.
-pub(super) fn args(command: Command, operation: &Operation) -> Command {
+fn args(command: Command, operation: &Operation) -> Command {
     command
         .arg(
             Arg::new(URL)
@@ -274,6 +287,12 @@ fn url_seed(url: &str) -> Value {
     json!({ "url": url, "label": CODE_FREE_LABEL })
 }
 
+/// Reads `crawl start`'s own flags from the parse `matches`, adding the
+/// seeds and the `extraction` they give to `params`.
+fn read_flags(matches: &ArgMatches, params: &mut Map<String, Value>) -> Box<dyn OwnCall> {
+    Box::new(Flags::read(matches, params))
+}
+
 /// What `crawl start`'s own flags gave beside its params.
 pub(super) struct Flags {
     /// `--follow`.
@@ -282,6 +301,19 @@ pub(super) struct Flags {
     pub(super) require_verified: bool,
     /// The seeds file's seeds `crawl.start` leaves to `run.add_seeds`.
     pub(super) added: Vec<Value>,
+}
+
+impl OwnCall for Flags {
+    fn run(
+        self: Box<Self>,
+        call: &Call,
+        engine: &Engine,
+        dependencies: Dependencies,
+        daemons: &dyn Daemons,
+        human: &Human,
+    ) -> ExitCode {
+        run(call, &self, engine, dependencies, daemons, human)
+    }
 }
 
 /// `seeds` split in two: the first, which `crawl.start` carries, as many
@@ -379,7 +411,7 @@ enum Phase {
 
 /// Runs `call`, the command `crawl start`, whose own flags gave `flags`, on
 /// the engine its command line chooses, and answers its exit code.
-pub(super) fn run(
+fn run(
     call: &Call,
     flags: &Flags,
     engine: &Engine,
@@ -387,7 +419,7 @@ pub(super) fn run(
     daemons: &dyn Daemons,
     human: &Human,
 ) -> ExitCode {
-    let json = call.json;
+    let json = call.json();
     let run_id: RefCell<Option<Value>> = RefCell::new(None);
     let mut phase = Phase::Starting;
     let mut shown: Option<Progress> = Some(human.progress("crawl start"));
@@ -448,12 +480,12 @@ pub(super) fn run(
         let started = run_id.borrow().clone()?;
         Some(next_call(&RUN_STOP, json!({ "run_id": started })))
     };
-    let params = Value::Object(call.params.clone());
+    let params = Value::Object(call.params().clone());
     let mut added = flags.added.iter().cloned();
     let command_call = CommandCall {
-        method: call.operation.name,
+        method: call.operation().name,
         params,
-        cancellable: call.operation.cancellable,
+        cancellable: call.operation().cancellable,
         follower: None,
         pager: Some(&mut next),
         input: Some(Input {
@@ -465,7 +497,7 @@ pub(super) fn run(
     };
     let warn = |text: &str| human.warning(text);
     let reach = call.reach(daemons, &warn);
-    let answer = engine_choice::call(engine, dependencies, call.product, &reach, command_call);
+    let answer = engine_choice::call(engine, dependencies, call.product(), &reach, command_call);
     drop(shown);
     // Once the Run ID is out, a failure goes to stderr alone, naming the
     // call in flight.
@@ -475,18 +507,15 @@ pub(super) fn run(
         Phase::Following => Some(RUN_PROGRESS_READ.name),
         Phase::Reporting => Some(RUN_REPORT.name),
     };
-    match (answer, failing) {
-        (Answer::Result(_), _) if !flags.follow => ExitCode::from(exit_codes::SUCCESS),
-        (Answer::Result(report), _) => ended(report, flags.require_verified, json, human),
-        (Answer::Error(error), None) => call.fail(error, human),
-        (Answer::Error(error), Some(operation)) => {
+    match (answer.into_result(), failing) {
+        (Ok(_), _) if !flags.follow => ExitCode::from(exit_codes::SUCCESS),
+        (Ok(report), _) => ended(report, flags.require_verified, json, human),
+        (Err(Failed::Error(error)), Some(operation)) => {
             let exit = exit_codes::of_error(&error.data.code, exit_codes::group(&error));
             output::failed_after(&output::command_failed(error, Some(operation)), json, human);
             ExitCode::from(exit)
         }
-        (Answer::Refused(error), _) => call.fail_exiting(error, exit_codes::DAEMON_REFUSED, human),
-        (Answer::Unanswered(error), _) => output::fail(error, None, json, human),
-        (Answer::Interrupted(interrupt), _) => ExitCode::from(interrupt.exit_code()),
+        (Err(failure), _) => call.failed(failure, human),
     }
 }
 

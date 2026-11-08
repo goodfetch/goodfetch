@@ -61,8 +61,7 @@ impl Vault {
     ) -> Self {
         Self::new(
             resolved
-                .value(SECRET_PROVIDERS_VAULT_ADDRESS.name)
-                .as_str()
+                .get::<Option<&str>>(&SECRET_PROVIDERS_VAULT_ADDRESS)
                 .map(str::to_owned),
             environment,
             SecretProviderEndpoint::of(resolved, clock),

@@ -8,7 +8,10 @@
 //! a quit ends it, a crash crashes it (S8, S9). A crash counts once in
 //! Usage, a renderer's for its page and a browser's for the browser,
 //! however many pages it held (ADR 0040's note on #731, accepted
-//! 2026-10-28).
+//! 2026-10-28). A page's `crash` goes out once its crash is counted, so a
+//! program that read it reads the count in its Run's Usage: a browser's
+//! crash, counted by the first of its Sessions and pages to take it, is
+//! waited on by every other.
 
 use std::sync::Arc;
 
@@ -33,12 +36,12 @@ use crate::pool::BrowserLoss;
 
 impl Sessions {
     /// Acts on what the end of the page `page_id`, whose state `life` is,
-    /// did (`effect`): a crash emits `crash`, a renderer's counting in Usage
-    /// (ADR 0040); a page that closed emits `close`, then leaves with its
-    /// events and routes, so later calls raise `closed`, or
-    /// `page_memory_exceeded` again for one ended past its memory cap; a
-    /// page whose browser crashed leaves its browser, as a released one
-    /// does.
+    /// did (`effect`): a crash emits `crash`, a renderer's once counted in
+    /// Usage (ADR 0040), a browser's once its caller counted it; a page that
+    /// closed emits `close`, then leaves with its events and routes, so later
+    /// calls raise `closed`, or `page_memory_exceeded` again for one ended
+    /// past its memory cap; a page whose browser crashed leaves its browser,
+    /// as a released one does.
     pub(super) async fn page_ended(
         &self,
         page_id: &PageId,
@@ -49,12 +52,13 @@ impl Sessions {
         let pages = std::slice::from_ref(page_id);
         match effect {
             PageEffect::RendererCrash | PageEffect::BrowserCrash => {
+                if effect == PageEffect::RendererCrash {
+                    charge_a_crash(run).await;
+                }
                 if let Ok(events) = self.events.get(page_id) {
                     events.publish_end(PageEventName::Crash, &PAGE_CRASH);
                 }
-                if effect == PageEffect::RendererCrash {
-                    charge_a_crash(run).await;
-                } else {
+                if effect == PageEffect::BrowserCrash {
                     // Its browser is gone: nothing is left to release, and
                     // the page no longer holds the dead browser in its pool.
                     self.release(page_id, run).await;
@@ -133,9 +137,7 @@ impl Sessions {
         match open.life.apply(event, exit) {
             Ok(SessionEffect::Quit) => true,
             Ok(SessionEffect::Crash) => {
-                if open.seat.first_crash_of(browser) {
-                    charge_a_crash(&open.run).await;
-                }
+                count_browser_crash(open, browser).await;
                 false
             }
             Ok(_) => false,
@@ -251,7 +253,15 @@ impl Sessions {
             let quit = open.seat.is_in(browser).await
                 && sessions.session_lost(&open, browser, &lost).await;
             match life.end(&ending) {
-                Ok(effect) => sessions.page_ended(&page_id, &run, &life, effect).await,
+                Ok(effect) => {
+                    // Its browser's crash is counted before its `crash`
+                    // goes out, by whichever of the browser's Sessions and
+                    // pages took it first.
+                    if effect == PageEffect::BrowserCrash {
+                        count_browser_crash(&open, browser).await;
+                    }
+                    sessions.page_ended(&page_id, &run, &life, effect).await;
+                }
                 Err(error) => tracing::error!(%error, "a page's end was refused"),
             }
             if quit && let Err(error) = sessions.session_ended(&open, &session).await {
@@ -269,6 +279,16 @@ fn run_stop(run: &Run) -> CallError {
         Some(StopReason::Limit(reached)) => limit_reached(&reached),
         _ => cancelled(StoppedBy::Program, ClosedValue::Session),
     }
+}
+
+/// Counts the crash of the browser `browser`, where a page of `open` was,
+/// in its Run's Usage once for the browser (ADR 0040), or waits until the
+/// first of the browser's Sessions and pages to take it counted it.
+async fn count_browser_crash(open: &Session, browser: u64) {
+    open.seat
+        .crash_count_of(browser)
+        .get_or_init(|| charge_a_crash(&open.run))
+        .await;
 }
 
 /// Counts one crash in `run`'s Usage (ADR 0040).

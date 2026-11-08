@@ -39,18 +39,14 @@ impl Pace {
     pub fn of(settings: &Resolved) -> Self {
         Self {
             delay: settings
-                .duration(POLITENESS_DOMAIN_DELAY.name)
+                .get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY)
                 .filter(|delay| !delay.is_zero()),
-            max_crawl_delay: (settings.boolean(SITE_PREFERENCES_RESPECT_ROBOTS_TXT.name)
-                != Some(false))
-            .then(|| settings.duration(SITE_PREFERENCES_MAX_CRAWL_DELAY.name))
-            .flatten(),
-            adaptive_max: (settings.boolean(POLITENESS_DOMAIN_ADAPTIVE_DELAY.name) == Some(true))
-                .then(|| {
-                    settings
-                        .duration(POLITENESS_BACKOFF_MAX.name)
-                        .unwrap_or_default()
-                }),
+            max_crawl_delay: settings
+                .get::<bool>(&SITE_PREFERENCES_RESPECT_ROBOTS_TXT)
+                .then(|| settings.get(&SITE_PREFERENCES_MAX_CRAWL_DELAY)),
+            adaptive_max: settings
+                .get::<bool>(&POLITENESS_DOMAIN_ADAPTIVE_DELAY)
+                .then(|| settings.get(&POLITENESS_BACKOFF_MAX)),
             rate: Rate::of(settings),
         }
     }
@@ -135,8 +131,8 @@ impl Rate {
     /// `politeness.domain.rate`, or with one of 0.
     fn of(settings: &Resolved) -> Option<Self> {
         Self::per_minute(
-            settings.count(POLITENESS_DOMAIN_RATE.name)?,
-            settings.count(POLITENESS_DOMAIN_BURST.name).unwrap_or(1),
+            settings.get::<Option<u64>>(&POLITENESS_DOMAIN_RATE)?,
+            settings.get(&POLITENESS_DOMAIN_BURST),
         )
     }
 

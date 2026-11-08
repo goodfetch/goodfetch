@@ -10,10 +10,11 @@
 //! attempt, with the rejections the attempt staged, which enter their
 //! Datasets' rejection tables. [`read`] answers the committed Records a
 //! [`Query`] takes, in number order: the one query a reader, an Export and
-//! a Sink share.
+//! a Sink share, which [`Pages`] reads a page at a time.
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::mask::{Masks, Scope};
+use goodfetch_engine::runs::{RunError, RunReader};
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::DatasetRecord;
 use goodfetch_protocol::foxhound::outcomes::DatasetRecords;
@@ -172,15 +173,149 @@ pub struct Query<'a> {
 /// JSON text as committed, its Wall marker's JSON text, and when it was
 /// committed.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CommittedText {
+pub(crate) struct CommittedText {
     /// Its number in its Dataset.
-    pub number: u64,
+    pub(crate) number: u64,
     /// Its value's JSON text, as committed.
-    pub value: String,
+    pub(crate) value: String,
     /// The JSON text of the Wall marker its Provenance holds, if any.
-    pub wall: Option<String>,
+    pub(crate) wall: Option<String>,
     /// When it was committed, RFC 3339.
-    pub committed_at: String,
+    pub(crate) committed_at: String,
+}
+
+/// The most Records one read of the run file takes.
+const PAGE: usize = 256;
+
+/// A cursor over one Dataset's committed Records that a [`Query`] takes,
+/// read a page of at most 256 at a time in number order, each page after
+/// the last Record the one before held: the one paging every reader of a
+/// Dataset's Records goes through.
+#[derive(Clone, Debug)]
+pub(crate) struct Pages {
+    dataset: String,
+    after: u64,
+    through: Option<u64>,
+    wall: Option<bool>,
+}
+
+impl Pages {
+    /// The cursor over `dataset`'s Records after the number `after`,
+    /// through the number `through` (none: to the last committed), with or
+    /// without a Wall marker as `wall` says.
+    pub(crate) fn new(dataset: &str, after: u64, through: Option<u64>, wall: Option<bool>) -> Self {
+        Self {
+            dataset: dataset.to_owned(),
+            after,
+            through,
+            wall,
+        }
+    }
+
+    /// The number of the last Record it read, or the one it started after.
+    pub(crate) fn after(&self) -> u64 {
+        self.after
+    }
+
+    fn query(&self) -> Query<'_> {
+        Query {
+            dataset: &self.dataset,
+            after: self.after,
+            through: self.through,
+            wall: self.wall,
+        }
+    }
+
+    /// Goes on after `last`, the number of the last of the `read` Records
+    /// of a page, and answers whether the page was full, so another may
+    /// follow.
+    fn advance(&mut self, read: usize, last: Option<u64>) -> bool {
+        if let Some(last) = last {
+            self.after = last;
+        }
+        read == PAGE
+    }
+
+    /// The next page, each value its JSON text as committed, as an Export
+    /// writes it, and whether it was full.
+    ///
+    /// # Errors
+    ///
+    /// The run file's, when it cannot be read.
+    pub(crate) fn values(
+        &mut self,
+        connection: &Connection,
+    ) -> rusqlite::Result<(Vec<CommittedText>, bool)> {
+        let page = read_values(connection, self.query(), PAGE)?;
+        let full = self.advance(page.len(), page.last().map(|record| record.number));
+        Ok((page, full))
+    }
+
+    /// The next page, whether it was full, and whether every Record
+    /// numbered through its `through` has committed (`false` without one),
+    /// all read from one state of the run file, as [`read_through`] does.
+    ///
+    /// # Errors
+    ///
+    /// As [`read`].
+    pub(crate) fn records_through(
+        &mut self,
+        connection: &Connection,
+    ) -> rusqlite::Result<(Vec<DatasetRecord>, bool, bool)> {
+        let (page, committed) = read_through(connection, self.query(), PAGE)?;
+        let full = self.advance(page.len(), page.last().map(|record| record.number));
+        Ok((page, full, committed))
+    }
+
+    /// [`Pages::values`] on `reader`'s read-only connection.
+    ///
+    /// # Errors
+    ///
+    /// The Run's, when its run file cannot be read.
+    ///
+    /// # Cancel safety
+    ///
+    /// Cancel safe: a dropped read leaves the cursor where it was.
+    pub(crate) async fn next_values(
+        &mut self,
+        reader: &mut RunReader,
+    ) -> Result<(Vec<CommittedText>, bool), RunError> {
+        self.next_on(reader, Self::values).await
+    }
+
+    /// [`Pages::records_through`] on `reader`'s read-only connection.
+    ///
+    /// # Errors
+    ///
+    /// The Run's, when its run file cannot be read.
+    ///
+    /// # Cancel safety
+    ///
+    /// Cancel safe: a dropped read leaves the cursor where it was.
+    pub(crate) async fn next_records_through(
+        &mut self,
+        reader: &mut RunReader,
+    ) -> Result<(Vec<DatasetRecord>, bool, bool), RunError> {
+        self.next_on(reader, Self::records_through).await
+    }
+
+    /// The next page `read` reads on `reader`'s read-only connection, the
+    /// cursor moved there and back.
+    async fn next_on<T: Send + 'static>(
+        &mut self,
+        reader: &mut RunReader,
+        read: fn(&mut Self, &Connection) -> rusqlite::Result<T>,
+    ) -> Result<T, RunError> {
+        let mut pages = self.clone();
+        let (pages, page) = reader
+            .read(move |connection| {
+                let page = read(&mut pages, connection)?;
+                Ok((pages, page))
+            })
+            .await?;
+        *self = pages;
+        Ok(page)
+    }
 }
 
 /// The number of `dataset`'s last committed Record, 0 when it has none.
@@ -188,7 +323,7 @@ pub struct CommittedText {
 /// # Errors
 ///
 /// The run file's, when it cannot be read.
-pub fn last_number(connection: &Connection, dataset: &str) -> rusqlite::Result<u64> {
+pub(crate) fn last_number(connection: &Connection, dataset: &str) -> rusqlite::Result<u64> {
     connection
         .prepare_cached("SELECT coalesce(max(number), 0) FROM records WHERE dataset = ?1")
         .and_then(|mut cached| {
@@ -205,7 +340,7 @@ pub fn last_number(connection: &Connection, dataset: &str) -> rusqlite::Result<u
 /// # Errors
 ///
 /// The run file's, when it cannot be read.
-pub fn read_values(
+pub(crate) fn read_values(
     connection: &Connection,
     query: Query<'_>,
     most: usize,

@@ -29,8 +29,8 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::sync::Semaphore;
 
-use crate::clock::Clock;
 use crate::endpoint::{Refusals, names_an_address, same_token};
+use crate::engine_context::EngineContext;
 use crate::runs::{Runs, critical_among};
 use crate::tasks::TaskOwner;
 use crate::transport::OpsListener;
@@ -172,7 +172,13 @@ const ACCEPT_PAUSE: Duration = Duration::from_secs(1);
 ///
 /// Dropping the future stops accepting; the connections are `owner`'s,
 /// which its stop ends.
-pub(crate) async fn serve(options: OpsOptions, health: Health, owner: TaskOwner, clock: Clock) {
+pub(crate) async fn serve(
+    options: OpsOptions,
+    health: Health,
+    owner: TaskOwner,
+    engine: EngineContext,
+) {
+    let clock = engine.clock();
     let OpsOptions {
         listener,
         token,
@@ -181,7 +187,7 @@ pub(crate) async fn serve(options: OpsOptions, health: Health, owner: TaskOwner,
     let serving = Arc::new(Serving {
         token,
         scrape,
-        refusals: health.runs.refusals(),
+        refusals: engine.refusals(),
         health,
     });
     let open = Arc::new(Semaphore::new(OPEN_AT_MOST));

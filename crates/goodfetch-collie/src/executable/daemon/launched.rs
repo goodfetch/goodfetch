@@ -32,7 +32,7 @@ use goodfetch_engine::installed::{InstalledList, Seen, pick, stores_floor};
 use goodfetch_engine::ops::Ops;
 use goodfetch_engine::people::SignInPolicy;
 use goodfetch_engine::run_state::install::InstallDatabase;
-use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::settings::{Resolved, get_or_default};
 use goodfetch_engine::transport::{
     ConsoleListener, DaemonListener, Network, activated_console, listen_console,
 };
@@ -48,7 +48,7 @@ use goodfetch_protocol::people::{SIGN_IN_IDLE_EXPIRY, SIGN_IN_RATE};
 use goodfetch_protocol::settings::SETTING_INVALID;
 
 use super::{Failure, Machine, multi_thread_runtime, now_of, per_install, unavailable};
-use goodfetch_cli::output;
+use crate::executable::output;
 
 use crate::executable::browsers;
 
@@ -154,14 +154,11 @@ pub(in crate::executable) fn launched(
     };
     let settings =
         browsers::machine_settings(machine.home, identity.product, &identity.product_version).ok();
-    let idle_timeout = settings
-        .as_ref()
-        .and_then(|settings| settings.value(IDLE_TIMEOUT.name).as_u64())
-        .map_or(Duration::from_secs(600), Duration::from_millis);
+    let idle_timeout: Duration = get_or_default(settings.as_ref(), &IDLE_TIMEOUT);
     let console_address = settings.as_ref().map_or_else(
         || default_address(&identity.product_version).to_string(),
         |settings| {
-            settings.value(CONSOLE_ADDRESS.name).as_str().map_or_else(
+            settings.value(&CONSOLE_ADDRESS).as_str().map_or_else(
                 || default_address(&identity.product_version).to_string(),
                 str::to_owned,
             )
@@ -266,11 +263,11 @@ fn sign_in_policy(settings: Option<&Resolved>) -> SignInPolicy {
     };
     SignInPolicy {
         idle_expiry: settings
-            .value(SIGN_IN_IDLE_EXPIRY.name)
+            .value(&SIGN_IN_IDLE_EXPIRY)
             .as_u64()
             .map_or(defaults.idle_expiry, Duration::from_millis),
         rate: settings
-            .value(SIGN_IN_RATE.name)
+            .value(&SIGN_IN_RATE)
             .as_u64()
             .unwrap_or(defaults.rate),
     }
@@ -288,14 +285,15 @@ struct ContentSettings {
 /// The content origin's settings, from user configuration and the
 /// Operator policy.
 fn content_settings(settings: Option<&Resolved>) -> ContentSettings {
-    let text = |name| {
+    let text = |setting| {
         settings
-            .and_then(|settings| settings.value(name).as_str().map(str::to_owned))
+            .and_then(|settings| settings.get::<Option<&str>>(setting))
             .filter(|value| !value.is_empty())
+            .map(str::to_owned)
     };
     ContentSettings {
-        address: text(CONTENT_ADDRESS.name),
-        public_url: text(CONTENT_PUBLIC_URL.name),
+        address: text(&CONTENT_ADDRESS),
+        public_url: text(&CONTENT_PUBLIC_URL),
     }
 }
 
@@ -303,8 +301,9 @@ fn content_settings(settings: Option<&Resolved>) -> ContentSettings {
 /// policy: the address links to the Console name, when set.
 fn public_url(settings: Option<&Resolved>) -> Option<String> {
     settings
-        .and_then(|settings| settings.value(PUBLIC_URL.name).as_str().map(str::to_owned))
+        .and_then(|settings| settings.get::<Option<&str>>(&PUBLIC_URL))
         .filter(|value| !value.is_empty())
+        .map(str::to_owned)
 }
 
 /// Whether `url` is a bare `http` or `https` origin, with at most one

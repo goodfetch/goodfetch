@@ -2296,27 +2296,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "goodfetch-cli"
-version = "0.0.0"
-dependencies = [
- "clap",
- "data-encoding",
- "goodfetch-engine",
- "goodfetch-protocol",
- "goodfetch-test-support",
- "goodfetch-workspace-hack",
- "jiff",
- "proptest",
- "rstest",
- "schemars",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "goodfetch-collie"
 version = "0.0.0"
 dependencies = [
@@ -2327,7 +2306,6 @@ dependencies = [
  "data-encoding",
  "dirs",
  "goodfetch-clean-up-rules",
- "goodfetch-cli",
  "goodfetch-collie",
  "goodfetch-engine",
  "goodfetch-page",
@@ -2349,11 +2327,13 @@ dependencies = [
  "opentelemetry-proto",
  "opentelemetry_sdk",
  "prometheus",
+ "proptest",
  "prost",
  "rcgen",
  "rstest",
  "rusqlite",
  "rustls",
+ "schemars",
  "secrecy",
  "serde",
  "serde_json",
@@ -2412,7 +2392,6 @@ dependencies = [
 name = "goodfetch-crawl"
 version = "0.0.0"
 dependencies = [
- "encoding_rs",
  "fixed_decimal",
  "futures-util",
  "goodfetch-counted-work",
@@ -2640,6 +2619,7 @@ dependencies = [
  "arrow-ipc",
  "arrow-schema",
  "bytes",
+ "clap",
  "csv",
  "data-encoding",
  "flate2",
@@ -2666,7 +2646,9 @@ dependencies = [
  "quick-xml 0.41.0",
  "rstest",
  "rusqlite",
+ "schemars",
  "scraper",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
@@ -2685,6 +2667,7 @@ dependencies = [
  "data-encoding",
  "encoding_rs",
  "flate2",
+ "goodfetch-cdp",
  "goodfetch-counted-work",
  "goodfetch-engine",
  "goodfetch-page",
@@ -2867,13 +2850,6 @@ dependencies = [
  "rstest",
  "rusqlite",
  "serde_json",
-]
-
-[[package]]
-name = "goodfetch-sink"
-version = "0.0.0"
-dependencies = [
- "goodfetch-workspace-hack",
 ]
 
 [[package]]

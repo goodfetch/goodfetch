@@ -20,7 +20,7 @@ use goodfetch_protocol::settings::{NETWORK_RESOLVE, SettingsLayer};
 use url::Url;
 
 use super::{EndpointPolicy, Policy, judge_endpoint_addresses, judge_reachable};
-use crate::composition::CallError;
+use crate::call_error::CallError;
 
 /// What `cdp_url_not_allowed` asks for: the layers whose value is
 /// Operator-configured for every Client, a model's included.

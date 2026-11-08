@@ -364,12 +364,9 @@ fn defines(packages: &[String], id: &str) -> bool {
         "operation" | "error" | "event" | "setting" | "exit" | "format" | "block-cause" => {
             crate_("goodfetch-protocol", "crates/goodfetch-protocol")
         }
-        "command" => {
-            products::EXECUTABLES
-                .iter()
-                .any(|executable| crate_(executable.package, executable.folder))
-                || crate_("goodfetch-cli", "crates/goodfetch-cli")
-        }
+        "command" => products::EXECUTABLES
+            .iter()
+            .any(|executable| crate_(executable.package, executable.folder)),
         "screen" => packages.iter().any(|package| {
             package == "console"
                 || package.starts_with("console/")

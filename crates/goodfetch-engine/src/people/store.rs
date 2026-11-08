@@ -11,24 +11,36 @@ use std::time::Duration;
 
 use goodfetch_protocol::formats::{ACCOUNTS_STORE, Compatibility};
 use goodfetch_protocol::people::SignInRow;
-use rusqlite::{Connection, OpenFlags, OptionalExtension as _, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension as _};
+
+use crate::sqlite_store::{
+    Access, Durability, File, Folder, FullFsync, OpenError, Opening, Schema, Synchronous, Wait,
+    WalOnClose,
+};
 
 /// How long a write waits for another connection's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How its commits reach the disk: each synced, SQLite's default level,
+/// without `F_FULLFSYNC` on macOS, its WAL copied into the file as its last
+/// connection closes.
+const DURABILITY: Durability = Durability {
+    synchronous: Synchronous::Full,
+    opening: Synchronous::Full,
+    full_fsync: FullFsync::Off,
+    wal_on_close: WalOnClose::Checkpointed,
+};
+
 /// The tables of this version. A newer minor only adds tables and columns,
 /// each column with a default.
-const SCHEMA: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT",
-    "CREATE TABLE IF NOT EXISTS sign_ins (
+const SCHEMA: &[&str] = &["CREATE TABLE IF NOT EXISTS sign_ins (
         id TEXT NOT NULL PRIMARY KEY,
         verifier TEXT NOT NULL,
         person TEXT NOT NULL,
         created TEXT NOT NULL,
         last_used TEXT NOT NULL,
         wrapping_key TEXT NOT NULL
-    ) STRICT",
-];
+    ) STRICT"];
 
 /// Why the accounts store could not be read or written.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -164,47 +176,25 @@ impl AccountsStore {
     /// Opens the store, creating it and its tables when it does not exist,
     /// and refuses one of a version this engine cannot read.
     fn open(&self) -> Result<Connection, StoreError> {
-        let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        if let Some(folder) = self.path.parent() {
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "the accounts store's calls run under their caller's blocking policy"
-            )]
-            std::fs::create_dir_all(folder).map_err(|error| failed(&error))?;
-        }
-        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
-            | OpenFlags::SQLITE_OPEN_CREATE
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        let mut connection =
-            Connection::open_with_flags(&self.path, flags).map_err(|error| failed(&error))?;
-        connection
-            .busy_timeout(BUSY_TIMEOUT)
-            .map_err(|error| failed(&error))?;
-        crate::sqlite_wal::enter(&connection, BUSY_TIMEOUT).map_err(|error| failed(&error))?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| failed(&error))?;
-        for statement in SCHEMA {
-            transaction
-                .execute(statement, [])
-                .map_err(|error| failed(&error))?;
-        }
-        transaction
-            .execute(
-                "INSERT INTO format (name, version) VALUES (?1, ?2) ON CONFLICT (name) DO NOTHING",
-                (ACCOUNTS_STORE.name, ACCOUNTS_STORE.version.to_string()),
-            )
-            .map_err(|error| failed(&error))?;
-        let found: String = transaction
-            .query_row(
-                "SELECT version FROM format WHERE name = ?1",
-                [ACCOUNTS_STORE.name],
-                |row| row.get(0),
-            )
-            .map_err(|error| failed(&error))?;
-        transaction.commit().map_err(|error| failed(&error))?;
-        check_format(&found)?;
-        Ok(connection)
+        File::new(&self.path, None)
+            .open(&Opening {
+                folder: Folder::Make,
+                access: Access::Create,
+                wait: Wait::Busy(BUSY_TIMEOUT),
+                durability: DURABILITY,
+                counting: None,
+                schema: Some(Schema {
+                    format: &ACCOUNTS_STORE,
+                    statements: &[SCHEMA],
+                }),
+            })
+            .map_err(|error| match error {
+                OpenError::Format(refusal) => StoreError::Format {
+                    found: refusal.found,
+                    compatibility: refusal.compatibility,
+                },
+                other => self.failed(&other),
+            })
     }
 
     fn failed(&self, error: &dyn std::fmt::Display) -> StoreError {
@@ -225,23 +215,4 @@ fn row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SignInRow> {
         last_used: row.get(4)?,
         wrapping_key: row.get(5)?,
     })
-}
-
-/// Refuses a store of a version the default rule does not let this
-/// engine read.
-fn check_format(found: &str) -> Result<(), StoreError> {
-    let refused = |compatibility| StoreError::Format {
-        found: found.to_owned(),
-        compatibility,
-    };
-    let version = found
-        .parse()
-        .map_err(|_| refused(Compatibility::NewerMajor))?;
-    match ACCOUNTS_STORE
-        .rule
-        .compatibility(ACCOUNTS_STORE.version, version)
-    {
-        Compatibility::Compatible => Ok(()),
-        other => Err(refused(other)),
-    }
 }

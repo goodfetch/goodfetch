@@ -117,42 +117,37 @@ reason = "mocks owned code (ADR 0062)"
 # xtask codegen: begin, the crates under crates/foxhound/ (ADR 0087). Never edit by hand; run `xtask codegen`.
 [[bans.deny]]
 crate = "goodfetch-crawl"
-wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "goodfetch-sql-tab", "xtask"]
+wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sql-tab", "xtask"]
 reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
 crate = "goodfetch-dataset"
-wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "goodfetch-sql-tab", "xtask"]
+wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sql-tab", "xtask"]
 reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
 crate = "goodfetch-fetch-tier"
-wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "goodfetch-sql-tab", "xtask"]
+wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sql-tab", "xtask"]
 reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
 crate = "goodfetch-foxhound"
-wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "goodfetch-sql-tab", "xtask"]
+wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sql-tab", "xtask"]
 reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
 crate = "goodfetch-frontier"
-wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "goodfetch-sql-tab", "xtask"]
+wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sql-tab", "xtask"]
 reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
 crate = "goodfetch-session-pool"
-wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "goodfetch-sql-tab", "xtask"]
-reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
-
-[[bans.deny]]
-crate = "goodfetch-sink"
-wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "goodfetch-sql-tab", "xtask"]
+wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sql-tab", "xtask"]
 reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
 
 [[bans.deny]]
 crate = "goodfetch-sql-tab"
-wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sink", "goodfetch-sql-tab", "xtask"]
+wrappers = ["goodfetch-crawl", "goodfetch-dataset", "goodfetch-fetch-tier", "goodfetch-foxhound", "goodfetch-frontier", "goodfetch-session-pool", "goodfetch-sql-tab", "xtask"]
 reason = "only Foxhound's crates and xtask depend on a crate under crates/foxhound/ (ADR 0087)"
 
 # xtask codegen: end

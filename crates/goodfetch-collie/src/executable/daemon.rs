@@ -53,28 +53,24 @@ use goodfetch_engine::daemon::{RefusedClient, RefusedExecutable, refusal_fix};
 use goodfetch_engine::home::{Home, major_name};
 use goodfetch_engine::installed::{InstalledList, Seen, fingerprint, pick, stores_floor};
 use goodfetch_engine::settings::Resolved;
-use goodfetch_engine::transport::{self, Connection, ConnectionReader, ConnectionWriter};
 use goodfetch_protocol::browser_cache::MAX_UNUSED_AGE;
-use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
-use goodfetch_protocol::connection::{
-    HelloParams, NOT_IN_PRODUCT, PROTOCOL_VERSION_UNSUPPORTED, Surface,
-};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::{NOT_IN_PRODUCT, PROTOCOL_VERSION_UNSUPPORTED};
 use goodfetch_protocol::console::{ConsoleFailure, ConsoleState};
 use goodfetch_protocol::daemon::{
     DaemonEndpoint, DaemonHealth, DaemonHealthOutput, DaemonRuntimeFile, DaemonState, DaemonStatus,
     DaemonStopping, DaemonToken, HealthProbe, Unready,
 };
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
-use goodfetch_protocol::jsonrpc::{ErrorObject, Message, Request, RequestId, Version};
+use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::run::{LAYOUT_PER_INSTALL, RUN_STATE_LAYOUT};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, Lines};
 
-use goodfetch_cli::engine_choice::unreachable;
-use goodfetch_cli::exit_codes;
-use goodfetch_cli::output::{self, Human};
+use super::engine_choice::{Interrupts, Link, Opening, hello, unreachable};
+use super::exit_codes;
+use super::output::{self, Human};
 
 use super::browsers;
 
@@ -115,7 +111,7 @@ pub(super) fn run(
 /// (`run_state.layout`), in which the Daemon alone writes run state.
 pub(super) fn per_install(settings: Option<&Resolved>) -> bool {
     settings.is_some_and(|settings| {
-        settings.value(RUN_STATE_LAYOUT.name).as_str() == Some(LAYOUT_PER_INSTALL)
+        settings.value(&RUN_STATE_LAYOUT).as_str() == Some(LAYOUT_PER_INSTALL)
     })
 }
 
@@ -290,14 +286,7 @@ impl Machine<'_> {
             self.identity.product,
             &self.identity.product_version,
         )
-        .map(|settings| {
-            MaxUnusedAge::new(
-                settings
-                    .value(MAX_UNUSED_AGE.name)
-                    .as_u64()
-                    .map(Duration::from_millis),
-            )
-        })
+        .map(|settings| MaxUnusedAge::new(settings.get(&MAX_UNUSED_AGE)))
         .unwrap_or_default()
     }
 
@@ -492,13 +481,16 @@ impl Machine<'_> {
                     )));
                 }
                 // It hands over: once the start lock is free, the pick runs.
-                Err(Opening::HandOver) => drop(
+                Err(Opening::HandOver(_)) => drop(
                     self.files()
                         .start_lock()
                         .map_err(unavailable("the Daemon's start lock cannot be taken"))?,
                 ),
-                // It went away in between: once it stopped, look again.
-                Err(Opening::Gone | Opening::Unreachable) => self.stopped(&found.endpoint)?,
+                // It went away in between: once it stopped, look again. A
+                // `daemon` command's Link listens for no interrupt.
+                Err(Opening::Gone | Opening::Unreachable | Opening::Interrupted(_)) => {
+                    self.stopped(&found.endpoint)?;
+                }
                 Err(Opening::Refused(error)) => return Err(self.refused(error)),
             }
         }
@@ -508,39 +500,11 @@ impl Machine<'_> {
         )))
     }
 
-    async fn open(&self, found: &Reach, needs: Product) -> Result<Opened, Opening> {
-        let connection = transport::connect_daemon(&found.endpoint)
-            .await
-            .map_err(|_| Opening::Unreachable)?;
-        let mut opened = Opened::new(connection);
-        let hello = HelloParams {
-            protocol_version: PROTOCOL_VERSION,
-            surface: Surface::Cli,
-            form: None,
-            token: Some(found.token.expose().to_owned()),
-            needs: Some(needs),
-            product_version: self.identity.product_version.clone(),
-            log_level: None,
-            client_surface: None,
-            keep_daemon_alive: false,
-        };
-        match opened.call(0, "hello", &hello).await {
-            Ok(_) => Ok(opened),
-            Err(None) => Err(Opening::Gone),
-            Err(Some(error)) => {
-                let handover = error
-                    .data
-                    .details
-                    .get("handover")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
-                if handover {
-                    Err(Opening::HandOver)
-                } else {
-                    Err(Opening::Refused(error))
-                }
-            }
-        }
+    /// A Link to the Daemon `found`, opened with this Client's `hello`
+    /// needing `needs`; it leaves the interrupts to their default.
+    async fn open(&self, found: &Reach, needs: Product) -> Result<Link, Opening> {
+        let hello = hello(self.identity, needs, Some(&found.token));
+        Link::open(&found.endpoint, &hello, Interrupts::none).await
     }
 
     /// The refusal of this Client, its `fix` adding this executable's
@@ -695,7 +659,12 @@ impl Machine<'_> {
         let connection = match runtime.block_on(self.open(&found, Product::Collie)) {
             Ok(connection) => connection,
             Err(Opening::Refused(error)) => return Err(self.refused(error)),
-            Err(Opening::HandOver | Opening::Gone | Opening::Unreachable) => return Ok(None),
+            Err(
+                Opening::HandOver(_)
+                | Opening::Gone
+                | Opening::Unreachable
+                | Opening::Interrupted(_),
+            ) => return Ok(None),
         };
         Ok(Some(Connected {
             runtime,
@@ -770,22 +739,10 @@ impl From<DaemonRuntimeFile> for Reach {
     }
 }
 
-/// Why opening a Connection to a found Daemon failed.
-enum Opening {
-    /// It refused this Client and hands over to its major's pick.
-    HandOver,
-    /// Nothing answered at its endpoint.
-    Unreachable,
-    /// It went away.
-    Gone,
-    /// It refused this Client.
-    Refused(ErrorObject),
-}
-
 /// A Client's open Connection to the Daemon.
 pub(super) struct Connected {
     runtime: tokio::runtime::Runtime,
-    connection: Opened,
+    connection: Link,
     endpoint: DaemonEndpoint,
     next: i64,
 }
@@ -799,9 +756,10 @@ impl Connected {
     ) -> Result<R, Failure> {
         let id = self.next;
         self.next += 1;
+        let params = serde_json::to_value(params).expect("invariant: params encode");
         let answered = self
             .runtime
-            .block_on(self.connection.call(id, method, params));
+            .block_on(self.connection.request(id, method, params));
         let failed = |error| Failure::Refused {
             error,
             operation: Some(method.to_owned()),
@@ -812,7 +770,7 @@ impl Connected {
                     "The Daemon answered `{method}` with no result of it: {error}."
                 )))
             }),
-            Err(None) => Err(failed(goodfetch_cli::engine_choice::connection_lost(
+            Err(None) => Err(failed(super::engine_choice::connection_lost(
                 &self.endpoint,
                 method,
             ))),
@@ -822,59 +780,7 @@ impl Connected {
 
     /// Closes the Connection.
     pub(super) fn close(mut self) {
-        let _ = self.runtime.block_on(self.connection.writer.shutdown());
-    }
-}
-
-/// A Connection's two ends, read line by line.
-struct Opened {
-    lines: Lines<tokio::io::BufReader<ConnectionReader>>,
-    writer: ConnectionWriter,
-}
-
-impl Opened {
-    fn new(connection: Connection) -> Self {
-        let (reader, writer) = connection.split();
-        Self {
-            lines: tokio::io::BufReader::new(reader).lines(),
-            writer,
-        }
-    }
-
-    /// Sends one call and reads its reply: its result, its error, or `None`
-    /// once the Daemon closed the Connection.
-    async fn call(
-        &mut self,
-        id: i64,
-        method: &str,
-        params: &impl Serialize,
-    ) -> Result<Value, Option<ErrorObject>> {
-        let request = Request {
-            jsonrpc: Version,
-            id: RequestId::Number(id),
-            method: method.to_owned(),
-            params: Some(serde_json::to_value(params).expect("invariant: params encode")),
-        };
-        let mut line = serde_json::to_vec(&request).expect("invariant: a request encodes");
-        line.push(b'\n');
-        if self.writer.write_all(&line).await.is_err() || self.writer.flush().await.is_err() {
-            return Err(None);
-        }
-        loop {
-            let Ok(Some(line)) = self.lines.next_line().await else {
-                return Err(None);
-            };
-            match serde_json::from_str::<Message>(&line) {
-                Ok(Message::Response(response)) if response.id == RequestId::Number(id) => {
-                    return Ok(response.result);
-                }
-                Ok(Message::Error(failure)) if failure.id == Some(RequestId::Number(id)) => {
-                    return Err(Some(failure.error));
-                }
-                // Events and others' replies are no answer to this call.
-                _ => {}
-            }
-        }
+        self.runtime.block_on(self.connection.close());
     }
 }
 

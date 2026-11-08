@@ -59,7 +59,7 @@ use crate::people::{SignInDriver, SignInFailure, SignInRefused, sign_in_id};
 use crate::rpc::event_stream::EventStreamBody;
 use crate::rpc::{Authorities, CONSOLE_LISTENER, ConsoleConnection, ConsoleSocket, Refusal};
 use crate::runs::Runs;
-use crate::settings::{Layers, resolve};
+use crate::settings::{Settings, catalog_default};
 use crate::tasks::TaskOwner;
 use crate::transport::{ConsoleListener, ConsoleStream};
 
@@ -143,6 +143,8 @@ pub(crate) struct Served {
     pub(crate) connections: mpsc::Sender<ConsoleConnection>,
     /// Where a Run's files are.
     pub(crate) runs: Runs,
+    /// The engine's settings, whose machine layers set its offline cache.
+    pub(crate) settings: Settings,
     /// The wall time content addresses are signed and checked at.
     pub(crate) clock: Clock,
     /// The content origin, if it started.
@@ -171,6 +173,7 @@ struct Site {
     /// The event streams open, where each `POST` of the fallback goes.
     streams: Streams,
     runs: Runs,
+    settings: Settings,
     clock: Clock,
     /// The content origin, if it started.
     content: Option<Content>,
@@ -193,6 +196,7 @@ pub(crate) async fn serve(served: Served, owner: TaskOwner) {
         cookie,
         connections,
         runs,
+        settings,
         clock,
         content,
     } = served;
@@ -217,6 +221,7 @@ pub(crate) async fn serve(served: Served, owner: TaskOwner) {
         connections,
         streams: Streams::default(),
         runs,
+        settings,
         clock,
         content,
         policy: HeaderValue::from_str(&policy)
@@ -648,24 +653,17 @@ impl Site {
     ///
     /// Dropping the future changes nothing.
     async fn offline_cache(&self) -> bool {
-        let settings = self.runs.settings();
+        let settings = &self.settings;
         let product = settings.product();
-        let read = settings.machine().await.and_then(|machine| {
-            resolve(
-                &Layers {
-                    operator_policy: machine.operator_policy,
-                    user_configuration: machine.user_configuration,
-                    ..Layers::default()
-                },
-                product,
-                product,
-            )
-        });
+        let read = settings
+            .machine()
+            .await
+            .and_then(|machine| machine.resolve(product));
         match read {
-            Ok(resolved) => resolved.value(OFFLINE_CACHE.name).as_bool().unwrap_or(true),
+            Ok(resolved) => resolved.get(&OFFLINE_CACHE),
             Err(error) => {
                 tracing::warn!(%error, "`console.offline_cache` cannot be read: the Console takes its built-in value, on");
-                true
+                catalog_default(&OFFLINE_CACHE)
             }
         }
     }

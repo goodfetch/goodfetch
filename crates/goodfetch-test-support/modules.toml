@@ -2,7 +2,7 @@
 [modules]
 browsers = ["env", "facts", "variables"]
 callgrind = []
-canaries = ["proving_ground", "seeded"]
+canaries = ["proving_ground", "proving_ground_format", "seeded"]
 cli = ["daemon", "env", "exercise", "locales", "snapshot"]
 colour = ["env", "pty"]
 counting_vfs = []

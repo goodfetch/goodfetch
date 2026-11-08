@@ -234,3 +234,50 @@ impl ReceivedRequests {
         self.0.iter()
     }
 }
+
+/// What starts every Secret canary value but a TOTP seed's (ADR 0067), the
+/// keyword of test support's `gitleaks` rule.
+pub const CANARY_MARK: &str = "gfcanary";
+
+/// What starts a TOTP seed canary: a seed is base32, whose alphabet holds
+/// `GFCANARY`.
+pub const TOTP_CANARY_MARK: &str = "GFCANARYTOTP";
+
+/// The base32 characters a TOTP seed canary draws after its mark: with the
+/// mark's 12, 32 characters, 20 bytes, RFC 4226's recommended length for an
+/// HMAC-SHA-1 key.
+pub const TOTP_CANARY_DRAWN: u64 = 20;
+
+/// RFC 4648's base32 alphabet, from which a TOTP seed canary draws.
+pub const BASE32_ALPHABET: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+/// How a kind of Secret canary spells its value after [`CANARY_MARK`]:
+/// `<mark>-<tag>-<hex digits>`. The Proving ground's `canaries` login flows
+/// plant the kinds below, and test support plants and searches every kind
+/// by the same shapes, so a leak the Proving ground plants matches the
+/// search.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CanaryShape {
+    /// The kind's tag, such as `password`.
+    pub tag: &'static str,
+    /// How many lowercase hex digits follow the tag.
+    pub hex_digits: usize,
+}
+
+/// A typed password's canary.
+pub const TYPED_PASSWORD_CANARY: CanaryShape = CanaryShape {
+    tag: "password",
+    hex_digits: 16,
+};
+
+/// A Session cookie's canary.
+pub const SESSION_COOKIE_CANARY: CanaryShape = CanaryShape {
+    tag: "session",
+    hex_digits: 32,
+};
+
+/// An endpoint token's canary.
+pub const ENDPOINT_TOKEN_CANARY: CanaryShape = CanaryShape {
+    tag: "token",
+    hex_digits: 32,
+};

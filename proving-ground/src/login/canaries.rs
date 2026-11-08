@@ -27,6 +27,10 @@ use super::{field, mfa_page, page};
 use crate::clock;
 use crate::exchange::{Reply, Request};
 use crate::generator;
+use crate::interface::{
+    BASE32_ALPHABET, CANARY_MARK, CanaryShape, ENDPOINT_TOKEN_CANARY, SESSION_COOKIE_CANARY,
+    TOTP_CANARY_DRAWN, TOTP_CANARY_MARK, TYPED_PASSWORD_CANARY,
+};
 use crate::sync::Mutex;
 use crate::task::{self, Entry, Expected, Kind, Record, Task};
 use crate::totp;
@@ -45,18 +49,6 @@ const PENDING_PLACE: u64 = 4;
 const SESSION_PLACE: u64 = 5;
 /// The place of a plant's value, under the plant's number.
 const CANARY_PLACE: u64 = 6;
-
-/// The random base32 characters after a TOTP seed's mark: with the mark's
-/// 12, 32 characters, 20 bytes, RFC 4226's recommended length for an
-/// HMAC-SHA-1 key.
-const SEED_RANDOM_CHARACTERS: u64 = 20;
-
-/// The start of a TOTP seed canary, which base32's alphabet holds, so the
-/// `gitleaks` rule of test support's Secret canaries finds it.
-const TOTP_MARK: &str = "GFCANARYTOTP";
-
-/// RFC 4648's base32 alphabet.
-const BASE32: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 /// The most sightings and places sent each canary keeps.
 const RECORD_LIMIT: usize = 256;
@@ -327,20 +319,28 @@ fn hex(seed: u64, place: &[u64]) -> String {
 fn canary_value(seed: u64, kind: SecretKind, number: u64) -> String {
     let place = |index| [FAMILY_PLACE, number, CANARY_PLACE, index];
     let random = format!("{}{}", hex(seed, &place(0)), hex(seed, &place(1)));
+    let shaped = |shape: CanaryShape| {
+        format!(
+            "{CANARY_MARK}-{}-{}",
+            shape.tag,
+            &random[..shape.hex_digits]
+        )
+    };
     match kind {
-        SecretKind::TypedPassword => format!("gfcanary-password-{}", &random[..16]),
-        SecretKind::SessionCookie => format!("gfcanary-session-{random}"),
-        SecretKind::EndpointToken => format!("gfcanary-token-{random}"),
+        SecretKind::TypedPassword => shaped(TYPED_PASSWORD_CANARY),
+        SecretKind::SessionCookie => shaped(SESSION_COOKIE_CANARY),
+        SecretKind::EndpointToken => shaped(ENDPOINT_TOKEN_CANARY),
         SecretKind::TotpSeed => {
-            let random: String = (0..SEED_RANDOM_CHARACTERS)
+            let random: String = (0..TOTP_CANARY_DRAWN)
                 .map(|index| {
                     let at = generator::below(seed, &place(2 + index), 32);
                     char::from(
-                        BASE32[usize::try_from(at).expect("invariant: a value below 32 fits")],
+                        BASE32_ALPHABET
+                            [usize::try_from(at).expect("invariant: a value below 32 fits")],
                     )
                 })
                 .collect();
-            format!("{TOTP_MARK}{random}")
+            format!("{TOTP_CANARY_MARK}{random}")
         }
     }
 }

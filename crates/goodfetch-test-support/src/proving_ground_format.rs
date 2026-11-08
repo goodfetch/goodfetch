@@ -15,8 +15,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[path = "../../../proving-ground/src/interface.rs"]
+#[expect(
+    unreachable_pub,
+    reason = "the Proving ground's own source: its Secret canary shapes are this crate's, read by `canaries`, never re-exported"
+)]
 mod interface;
 
+pub(crate) use interface::{
+    BASE32_ALPHABET, CANARY_MARK, ENDPOINT_TOKEN_CANARY, SESSION_COOKIE_CANARY, TOTP_CANARY_DRAWN,
+    TOTP_CANARY_MARK, TYPED_PASSWORD_CANARY,
+};
 pub use interface::{
     FixtureAddresses, OWN_TARGETS, ObservedRequest, ProxyCredentials, ROUTES, ReceivedRequests,
     RequestTiming, Routes, ServeLine, ToolStatus,

@@ -35,23 +35,18 @@ use chacha20::rand_core::Rng as _;
 use serde::{Deserialize, Serialize};
 
 use crate::proving_ground::ProvingGround;
+use crate::proving_ground_format::{
+    BASE32_ALPHABET, CANARY_MARK, ENDPOINT_TOKEN_CANARY, SESSION_COOKIE_CANARY, TOTP_CANARY_DRAWN,
+    TOTP_CANARY_MARK, TYPED_PASSWORD_CANARY,
+};
 use crate::seeded;
-
-/// Every value's mark, which the `gitleaks` rule's keyword is.
-const MARK: &str = "gfcanary";
 
 /// The end of a value that may hold any character: JSON escaping changes
 /// `"` and `\`, URL encoding every one of them.
 const HARD_TAIL: &str = "\"\\+/=&";
 
-/// The TOTP seed's mark: a seed is base32, whose alphabet holds `GFCANARY`.
-const TOTP_MARK: &str = "GFCANARYTOTP";
-
 /// A canary with each searched form of its value.
 type Searched<'a> = (&'a Canary, Vec<(Encoding, Vec<u8>)>);
-
-/// RFC 4648's base32 alphabet.
-const BASE32: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 /// The length, in characters, under which a value is short (spec #564's
 /// short-value rule, ADR 0067): the engine masks it only where it was typed
@@ -160,10 +155,10 @@ impl SecretKind {
     /// encoding leave it unchanged.
     pub fn pattern(self) -> String {
         if self == Self::TotpSeed {
-            format!("{TOTP_MARK}[A-Z2-7]{{20}}")
+            format!("{TOTP_CANARY_MARK}[A-Z2-7]{{{TOTP_CANARY_DRAWN}}}")
         } else {
             let (tag, hex) = self.shape();
-            format!("{MARK}-{tag}-[0-9a-f]{{{hex}}}")
+            format!("{CANARY_MARK}-{tag}-[0-9a-f]{{{hex}}}")
         }
     }
 
@@ -180,7 +175,7 @@ impl SecretKind {
     /// every kind but the TOTP seed.
     fn shape(self) -> (&'static str, usize) {
         match self {
-            Self::TypedPassword => ("password", 16),
+            Self::TypedPassword => (TYPED_PASSWORD_CANARY.tag, TYPED_PASSWORD_CANARY.hex_digits),
             Self::OneTimeCode => ("code", 16),
             Self::ProxyPassword => ("proxy-password", 16),
             Self::HttpAuthenticationPassword => ("http-password", 16),
@@ -189,8 +184,8 @@ impl SecretKind {
             Self::WebhookSigningSecret => ("webhook-secret", 16),
             Self::SinkCredential => ("sink-credential", 16),
             Self::ModelApiKey => ("model-key", 32),
-            Self::SessionCookie => ("session", 32),
-            Self::EndpointToken => ("token", 32),
+            Self::SessionCookie => (SESSION_COOKIE_CANARY.tag, SESSION_COOKIE_CANARY.hex_digits),
+            Self::EndpointToken => (ENDPOINT_TOKEN_CANARY.tag, ENDPOINT_TOKEN_CANARY.hex_digits),
             // 17 bytes of mark and tag and 15 digits: a 32-byte key.
             Self::RunDataKey => ("run-key", 15),
             Self::TotpSeed => ("totp", 0),
@@ -757,15 +752,15 @@ impl Canaries {
     /// A value of `kind` drawn from the set's stream.
     fn draw(&mut self, kind: SecretKind) -> String {
         if kind == SecretKind::TotpSeed {
-            let random: String = (0..20)
+            let random: String = (0..TOTP_CANARY_DRAWN)
                 .map(|_| {
                     char::from(
-                        BASE32[usize::try_from(self.stream.next_u32() % 32)
+                        BASE32_ALPHABET[usize::try_from(self.stream.next_u32() % 32)
                             .expect("invariant: below 32 fits a usize")],
                     )
                 })
                 .collect();
-            return format!("{TOTP_MARK}{random}");
+            return format!("{TOTP_CANARY_MARK}{random}");
         }
         let (tag, digits) = kind.shape();
         let random = format!(
@@ -778,7 +773,7 @@ impl Canaries {
         } else {
             ""
         };
-        format!("{MARK}-{tag}-{}{tail}", &random[..digits])
+        format!("{CANARY_MARK}-{tag}-{}{tail}", &random[..digits])
     }
 }
 
@@ -909,7 +904,7 @@ pub fn gitleaks_rule() -> String {
             rule,
             "\n[[rules]]\nid = \"goodfetch-secret-canary-{}\"\n\
              description = \"Goodfetch Secret canary: {} (ADR 0067)\"\n\
-             regex = '''{}'''\nkeywords = [\"{MARK}\"]\n",
+             regex = '''{}'''\nkeywords = [\"{CANARY_MARK}\"]\n",
             kind.name().replace('_', "-"),
             kind.label(),
             kind.pattern(),

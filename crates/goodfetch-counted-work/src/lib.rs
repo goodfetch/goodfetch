@@ -23,7 +23,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use compiled::Compiled;
-pub use compiled::{CAPACITY, PATTERN_CAPACITY};
 use sync::Count;
 
 /// A tree of an HTML document, parsed by [`CountedWork::parse_html`]: its
@@ -474,9 +473,10 @@ impl CountedWork {
             .regex(pattern, || self.compile_regex(row, pattern))
     }
 
-    /// The glob `pattern`, from the engine's cache, compiled through
-    /// [`Self::compile_glob`] and counted on `row` only when the cache does
-    /// not keep it.
+    /// The glob `pattern`, from the engine's cache, compiled through the one
+    /// counted function of a glob's compilation and counted on `row` only
+    /// when the cache does not keep it: a glob compiles only through it
+    /// (ADR 0140).
     ///
     /// # Errors
     ///
@@ -487,9 +487,10 @@ impl CountedWork {
             .glob(pattern, || self.compile_glob(row, pattern))
     }
 
-    /// How many selectors the engine's cache keeps, at most [`CAPACITY`].
-    #[must_use]
-    pub fn kept(&self) -> u64 {
+    /// How many selectors the engine's cache keeps, at most
+    /// [`compiled::CAPACITY`].
+    #[cfg(test)]
+    fn kept(&self) -> u64 {
         self.0.compiled.selectors()
     }
 
@@ -518,11 +519,7 @@ impl CountedWork {
         clippy::disallowed_methods,
         reason = "the one counted function of a glob's compilation (ADR 0140)"
     )]
-    pub fn compile_glob(
-        &self,
-        row: Row,
-        pattern: &str,
-    ) -> Result<glob::Pattern, glob::PatternError> {
+    fn compile_glob(&self, row: Row, pattern: &str) -> Result<glob::Pattern, glob::PatternError> {
         self.count(row);
         glob::Pattern::new(pattern)
     }

@@ -11,14 +11,10 @@
 //! one that also sends the value somewhere else.
 //! Covers: story:2-83
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use hmac::{Hmac, Mac as _};
 use rstest::rstest;
 use serde_json::{Value, json};
-use sha1::Sha1;
 
-use crate::proving_ground::{ProvingGround, submission};
+use crate::proving_ground::{ProvingGround, submission, totp_now};
 
 const SEED: u64 = 312;
 
@@ -52,24 +48,6 @@ fn url(proving_ground: &ProvingGround, planted: &Value, path: &str) -> String {
     proving_ground.url(&format!("{ordinal}.canaries.test"), path)
 }
 
-/// The TOTP code (RFC 6238) of a base32 secret now.
-fn totp(secret: &str) -> String {
-    let key = data_encoding::BASE32_NOPAD
-        .decode(secret.as_bytes())
-        .expect("the secret is base32");
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("the clock is past 1970")
-        .as_secs();
-    let mut mac = Hmac::<Sha1>::new_from_slice(&key).expect("HMAC takes any key");
-    mac.update(&(now / 30).to_be_bytes());
-    let hash = mac.finalize().into_bytes();
-    let offset = usize::from(hash[19] & 0x0f);
-    let code =
-        u32::from_be_bytes(hash[offset..offset + 4].try_into().expect("four bytes")) & 0x7fff_ffff;
-    format!("{:06}", code % 1_000_000)
-}
-
 /// Logs in as the plant answer's account and returns the session cookie.
 fn log_in(proving_ground: &ProvingGround, planted: &Value) -> String {
     let account = &planted["account"];
@@ -94,7 +72,7 @@ fn log_in(proving_ground: &ProvingGround, planted: &Value) -> String {
     let pending = login.cookie("pending").expect("a pending login's cookie");
     let mfa = proving_ground.post_form(
         &url(proving_ground, planted, "/mfa"),
-        &[("code", &totp(secret))],
+        &[("code", &totp_now(secret))],
         Some(&pending),
     );
     assert_eq!(mfa.status, 303, "{}", mfa.body);

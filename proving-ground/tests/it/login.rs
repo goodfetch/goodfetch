@@ -7,40 +7,17 @@
 //! plain HTTP, its TOTP code computed here from the account's secret, and
 //! reading each order page, logging in again whenever the site asks.
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use hmac::{Hmac, Mac as _};
 use regex::Regex;
 use rstest::rstest;
 use serde_json::{Value, json};
-use sha1::Sha1;
 
-use crate::proving_ground::{Answer, ProvingGround, submission};
+use crate::proving_ground::{Answer, ProvingGround, submission, totp, totp_now};
 
 const SEED: u64 = 166;
 const HOST: &str = "login.test";
 
-/// The TOTP code (RFC 6238: HMAC-SHA-1, 30-second steps, 6 digits) of a
-/// base32 secret at `unix_seconds`.
-fn totp(secret: &str, unix_seconds: u64) -> String {
-    let key = data_encoding::BASE32_NOPAD
-        .decode(secret.as_bytes())
-        .expect("the secret is base32");
-    let mut mac = Hmac::<Sha1>::new_from_slice(&key).expect("HMAC takes any key");
-    mac.update(&(unix_seconds / 30).to_be_bytes());
-    let hash = mac.finalize().into_bytes();
-    let offset = usize::from(hash[19] & 0x0f);
-    let code =
-        u32::from_be_bytes(hash[offset..offset + 4].try_into().expect("four bytes")) & 0x7fff_ffff;
-    format!("{:06}", code % 1_000_000)
-}
-
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("the clock is past 1970")
-        .as_secs()
-}
+/// RFC 6238's SHA-1 test key, `12345678901234567890`, in base32.
+const RFC_6238_SECRET: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
 
 fn account(task: &Value) -> (String, String, Option<String>) {
     let account = &task["account"];
@@ -71,7 +48,7 @@ fn log_in(proving_ground: &ProvingGround, task: &Value) -> String {
     let pending = login.cookie("pending").expect("a pending login's cookie");
     let mfa = proving_ground.post_form(
         &proving_ground.url(HOST, "/mfa"),
-        &[("code", &totp(&secret, now()))],
+        &[("code", &totp_now(&secret))],
         Some(&pending),
     );
     assert_eq!(mfa.status, 303, "{}", mfa.body);
@@ -123,6 +100,18 @@ fn read_orders(proving_ground: &ProvingGround, task: &Value) -> Vec<Value> {
         .iter()
         .map(|path| order_record(&read(proving_ground, task, &mut session, path)))
         .collect()
+}
+
+/// The last six digits of RFC 6238's eight-digit SHA-1 vectors (Appendix B),
+/// so a login these tests pass proves the Proving ground's check against the
+/// RFC, not against a copy of its own code.
+#[rstest]
+#[case::the_first_step(59, "287082")]
+#[case::in_2005(1_111_111_109, "081804")]
+#[case::in_2009(1_234_567_890, "005924")]
+#[case::in_2033(2_000_000_000, "279037")]
+fn the_test_authenticator_gives_rfc_6238s_codes(#[case] unix_seconds: u64, #[case] code: &str) {
+    assert_eq!(totp(RFC_6238_SECRET, unix_seconds), code);
 }
 
 /// Covers: story:2-31, story:2-33
@@ -252,7 +241,7 @@ fn a_wrong_totp_code_opens_no_session() {
         .expect("a pending login's cookie");
     // Every digit of the current code moved by five: never the code of this
     // step, and the code of a step next to it only by a one in 10^6 chance.
-    let wrong: String = totp(&secret.unwrap(), now())
+    let wrong: String = totp_now(&secret.unwrap())
         .chars()
         .map(|digit| {
             let digit = u8::try_from(digit.to_digit(10).unwrap()).unwrap();

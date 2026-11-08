@@ -5,11 +5,43 @@
 
 use std::io::{BufRead as _, BufReader};
 use std::process::{Child, ChildStdout, Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use goodfetch_test_support::{
     LOOPBACK_PORT_0, Observations, ROUTES, ServeLine, UNSHAPED, serve_arguments,
 };
+use hmac::{Hmac, Mac as _};
 use serde_json::{Value, json};
+use sha1::Sha1;
+
+/// The TOTP code (RFC 6238: HMAC-SHA-1, 30-second steps, 6 digits) of a
+/// base32 secret at `unix_seconds`, as a tool's authenticator computes it,
+/// apart from the Proving ground's own and held to the RFC's vectors
+/// (`login`'s `the_test_authenticator_gives_rfc_6238s_codes`).
+pub(crate) fn totp(secret: &str, unix_seconds: u64) -> String {
+    let key = data_encoding::BASE32_NOPAD
+        .decode(secret.as_bytes())
+        .expect("the secret is base32");
+    let mut mac = Hmac::<Sha1>::new_from_slice(&key).expect("HMAC takes any key");
+    mac.update(&(unix_seconds / 30).to_be_bytes());
+    let hash = mac.finalize().into_bytes();
+    let offset = usize::from(hash[19] & 0x0f);
+    let code =
+        u32::from_be_bytes(hash[offset..offset + 4].try_into().expect("four bytes")) & 0x7fff_ffff;
+    format!("{:06}", code % 1_000_000)
+}
+
+/// [`totp`] of a base32 secret now: the Proving ground checks a code by the
+/// system's clock, as a login page does (RFC 6238's section 5.2), and
+/// accepts the steps next to the current one, so a step ending between the
+/// two reads fails nothing.
+pub(crate) fn totp_now(secret: &str) -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("the clock is past 1970")
+        .as_secs();
+    totp(secret, now)
+}
 
 /// A running `serve`, stopped when dropped.
 pub(crate) struct ProvingGround {

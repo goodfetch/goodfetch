@@ -5,7 +5,12 @@
 //! the Proving ground's port; where the Proving ground must fail too, so is
 //! it.
 #![cfg(unix)]
+#![expect(
+    clippy::disallowed_types,
+    reason = "a test's stand-in Proving ground listens from outside the engine (ADR 0060)"
+)]
 
+use std::fmt::Write as _;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::net::TcpListener;
 use std::os::unix::fs::PermissionsExt as _;
@@ -43,9 +48,11 @@ fn suite(product: &str, cases: &[&str]) -> ProtocolSuite {
         "product = \"{product}\"\n\n[suite]\nname = \"harness-failures\"\nversion = \"1\"\n"
     );
     for case in cases {
-        text.push_str(&format!(
+        write!(
+            text,
             "\n[[capability]]\nname = \"{case}\"\n\n[[capability.case]]\nid = \"{case}\"\ncovers = []\n"
-        ));
+        )
+        .unwrap();
     }
     ProtocolSuite::read(&text).unwrap()
 }
@@ -156,7 +163,7 @@ fn failed_checks(document: &ConformanceDocument, case: &str) -> (CaseOutcome, Ve
     let found = document
         .capabilities()
         .iter()
-        .flat_map(|capability| capability.cases())
+        .flat_map(goodfetch_protocol::result_document::CapabilityResult::cases)
         .find(|found| found.facts().id == case)
         .unwrap_or_else(|| panic!("the document holds no case {case}"));
     let failed = found

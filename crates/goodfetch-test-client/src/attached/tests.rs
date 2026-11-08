@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a synchronous test reads its home's user configuration, outside any async worker"
+)]
+
 use goodfetch_test_support::TestEnv;
 
 use super::*;

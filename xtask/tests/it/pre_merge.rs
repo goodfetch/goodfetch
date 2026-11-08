@@ -16,12 +16,10 @@ use crate::merge_pr::until;
 use crate::workspace::Workspace;
 
 /// One entry of a form's step list, as `xtask gate steps` gives it: its
-/// name, its kind (`step`, `beside` or `command`) and the `just` call it
-/// makes.
+/// name and its kind (`step`, `beside` or `command`).
 struct Listed {
     name: String,
     kind: String,
-    call: String,
 }
 
 /// The steps `just pre-merge <form>` runs, in their order, from the
@@ -34,7 +32,6 @@ fn listed(workspace: &Workspace, form: &str) -> Vec<Listed> {
         .map(|name| Listed {
             name: name.to_owned(),
             kind: value(&outcome, &format!("{name}.kind")),
-            call: value(&outcome, &format!("{name}.just")),
         })
         .collect()
 }
@@ -1468,14 +1465,14 @@ fn a_second_sigterm_does_not_cut_the_suites_end_short() {
             .unwrap();
         assert!(sent.success());
     };
-    until("the host step and `perf`'s end", &|| {
+    until("the host step and `perf`'s end", || {
         held("lint")
             && std::fs::read_to_string(&stdout)
                 .is_ok_and(|output| output.contains("Gate step perf: ended"))
     });
 
     terminate();
-    until("the suite's end recording `perf`", &|| {
+    until("the suite's end recording `perf`", || {
         held("_gate-record planned perf pass")
     });
     terminate();

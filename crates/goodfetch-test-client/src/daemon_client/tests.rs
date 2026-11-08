@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "a test's stand-in engine answers its one Connection on a thread of its own, which ends with it"
+)]
+
 use std::net::{SocketAddr, TcpListener, TcpStream};
 
 use goodfetch_protocol::catalog::Product;

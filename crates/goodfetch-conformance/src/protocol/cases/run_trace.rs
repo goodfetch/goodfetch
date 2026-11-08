@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use goodfetch_protocol::home::{RUN_TRACE_PROVENANCE, RUN_TRACE_REQUESTS, RUNS};
 use serde_json::Value;
 
+use super::Checks;
 use crate::protocol::target::EngineTarget;
 
 /// Why a case has no Run trace to judge.
@@ -38,6 +39,16 @@ pub(super) enum Unread {
         /// Why.
         source: serde_json::Error,
     },
+}
+
+impl Checks {
+    /// What the case read of a Run's trace, or, when it could not, nothing
+    /// and a failed check naming why, so a check on what the Run never
+    /// recorded proves nothing alone.
+    pub(super) fn run_trace<T: Default>(&mut self, read: Result<T, Unread>) -> T {
+        self.needs("the Run trace can be read", read)
+            .unwrap_or_default()
+    }
 }
 
 /// The lines of the Run `run_id`'s request log, under the Goodfetch home

@@ -17,7 +17,7 @@
 //! page's reading is under way.
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use goodfetch_protocol::home::RUNS;
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
@@ -29,7 +29,7 @@ use serde_json::{Value, json};
 
 use super::clean_up::provenance;
 use super::navigation::{answered, call};
-use super::{Checks, Site, finish_run, new_page, start_run};
+use super::{Checks, Site, finish_run, new_page, poll, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::EngineTarget;
 
@@ -122,13 +122,10 @@ fn disallowed(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-robots-txt-disallowed";
-    let (Some(disallowed), Some(allowed)) = (
+    let (disallowed, allowed) = (
         site.named_url(HOST, DISALLOWED),
         site.named_url(HOST, ALLOWED),
-    ) else {
-        checks.check("the Proving ground serves the case's pages", false);
-        return Ok(());
-    };
+    );
     start_run(connection, site, run_id, &json!({}), checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
@@ -188,10 +185,7 @@ fn past_the_size(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-robots-txt-past-the-size";
-    let Some(url) = site.named_url(PAST_THE_SIZE_HOST, "/page") else {
-        checks.check("the Proving ground serves the case's pages", false);
-        return Ok(());
-    };
+    let url = site.named_url(PAST_THE_SIZE_HOST, "/page");
     // 1 MiB, so the read reaches the limit within a few chunks however
     // loaded the machine.
     let settings = json!({ "network": { "max_body_size": 1_048_576 } });
@@ -229,13 +223,10 @@ fn past_the_size(
 /// second document less than its Crawl-delay after the first.
 fn two_tabs(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-robots-txt-two-tabs";
-    let (Some(first_url), Some(second_url)) = (
+    let (first_url, second_url) = (
         site.named_url(HOST, ALLOWED),
         site.named_url(HOST, DISALLOWED),
-    ) else {
-        checks.check("the Proving ground serves the case's pages", false);
-        return Ok(());
-    };
+    );
     start_run(connection, site, run_id, &json!({}), checks)?;
     let first = new_page(connection, run_id, checks)?;
     let second = new_page(connection, run_id, checks)?;
@@ -286,13 +277,10 @@ fn own_copy(
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let (Some(disallowed), Some(allowed)) = (
+    let (disallowed, allowed) = (
         site.named_url(HOST, DISALLOWED),
         site.named_url(HOST, ALLOWED),
-    ) else {
-        checks.check("the Proving ground serves the case's pages", false);
-        return Ok(());
-    };
+    );
     let run_ids = [
         "conformance-robots-txt-own-copy-1",
         "conformance-robots-txt-own-copy-2",
@@ -348,14 +336,11 @@ fn every_document(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-robots-txt-every-document";
-    let (Some(allowed), Some(clicked), Some(scripted)) = (
+    let (allowed, clicked, scripted) = (
         site.named_url(HOST, ALLOWED),
         site.named_url(HOST, CLICKED),
         site.named_url(HOST, SCRIPTED),
-    ) else {
-        checks.check("the Proving ground serves the case's pages", false);
-        return Ok(());
-    };
+    );
     start_run(connection, site, run_id, &json!({}), checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
@@ -383,11 +368,10 @@ fn every_document(
             "arg": clicked,
         }),
     )?;
-    let id = connection.request(
+    let click = connection.call(
         LOCATOR_CLICK.name,
         &json!({ "locator": { "page_id": page.page_id, "selector": "#away" } }),
     )?;
-    let click = connection.browser_answer(id)?.message;
     let reached = wait_for(connection, &page_id, CLICKED)?;
     checks.check(
         "a click on a link navigates the page to the page it names",
@@ -435,10 +419,7 @@ fn page_request(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-robots-txt-page-request";
-    let Some(requested) = site.named_url(HOST, REQUESTED) else {
-        checks.check("the Proving ground serves the case's pages", false);
-        return Ok(());
-    };
+    let requested = site.named_url(HOST, REQUESTED);
     start_run(connection, site, run_id, &json!({}), checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
@@ -482,10 +463,7 @@ fn not_read(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-robots-txt-not-read";
-    let Some(allowed) = site.named_url(SLOW_ROBOTS_HOST, ALLOWED) else {
-        checks.check("the Proving ground serves the case's pages", false);
-        return Ok(());
-    };
+    let allowed = site.named_url(SLOW_ROBOTS_HOST, ALLOWED);
     start_run(connection, site, run_id, &json!({}), checks)?;
     let Some(first) = page_in_new_session(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
@@ -503,11 +481,10 @@ fn not_read(
         200,
         checks,
     );
-    let id = connection.request(
+    let closed = connection.call(
         SESSION_CLOSE.name,
         &json!({ "session_id": first.session_id }),
     )?;
-    let closed = connection.browser_answer(id)?.message;
     checks.check("the first Session closes", closed.get("result").is_some());
     let Some(second) = page_in_new_session(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
@@ -554,13 +531,11 @@ fn page_in_new_session(
     run_id: &str,
     checks: &mut Checks,
 ) -> Result<Option<PageOpened>, Gone> {
-    let id = connection.request(RUN_NEW_SESSION.name, &json!({ "run_id": run_id }))?;
-    let opened = connection.browser_answer(id)?.message;
-    let id = connection.request(
+    let opened = connection.call(RUN_NEW_SESSION.name, &json!({ "run_id": run_id }))?;
+    let paged = connection.call(
         SESSION_NEW_PAGE.name,
         &json!({ "session_id": opened["result"]["session_id"] }),
     )?;
-    let paged = connection.browser_answer(id)?.message;
     let page = serde_json::from_value::<PageOpened>(paged["result"].clone()).ok();
     checks.check("a new Session opens a page", page.is_some());
     Ok(page)
@@ -587,38 +562,27 @@ fn reading_of<'a>(entries: &'a [Value], path: &str) -> Option<&'a Value> {
 
 /// The Run `run_id`'s robots.txt readings in Provenance, once there are
 /// `count` of them or the wait ended.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the synchronous harness polls the Run trace on its own thread, outside any async worker"
-)]
 fn readings(target: &EngineTarget, run_id: &str, count: usize) -> Vec<Value> {
-    let started = Instant::now();
-    loop {
-        let read: Vec<Value> = provenance(target, run_id)
-            .into_iter()
-            .filter(|entry| entry["action"] == json!(ACTION))
-            .collect();
-        if read.len() >= count || started.elapsed() > RECORDED_WITHIN {
-            return read;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    poll::until(
+        RECORDED_WITHIN,
+        Duration::from_millis(100),
+        || {
+            provenance(target, run_id)
+                .into_iter()
+                .filter(|entry| entry["action"] == json!(ACTION))
+                .collect::<Vec<_>>()
+        },
+        |read| read.len() >= count,
+    )
 }
 
 /// Each request the Proving ground received on the site's host, its
 /// target and arrival time in microseconds, in arrival order.
 fn arrivals(site: &Site) -> Vec<(String, u64)> {
-    site.proving_ground
-        .received_requests()
-        .unwrap_or_default()
+    site.received_requests()
         .every()
-        .filter(|request| request["host"] == json!(HOST))
-        .filter_map(|request| {
-            Some((
-                request["target"].as_str()?.to_owned(),
-                request["timing"]["arrived_microseconds"].as_u64()?,
-            ))
-        })
+        .filter(|request| request.host == HOST)
+        .map(|request| (request.target.clone(), request.timing.arrived_microseconds))
         .collect()
 }
 

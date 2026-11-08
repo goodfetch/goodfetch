@@ -144,10 +144,9 @@ fn retry_after_on_a_redirect(
     let run_id = "conformance-retry-after-on-a-redirect";
     let redirect = site.named_url("fetch-edge.test", "/retry-after/302/seconds/long");
     let target = site.named_url("fetch-edge.test", "/target");
-    let Some(page) = open(connection, site, run_id, &[&redirect, &target], checks)? else {
-        return finish_if(connection, run_id, &[&redirect, &target]);
+    let Some(page) = open(connection, site, run_id, &[], checks)? else {
+        return finish_if(connection, run_id, &[]);
     };
-    let (redirect, target) = (redirect.unwrap_or_default(), target.unwrap_or_default());
     let answer = call(
         connection,
         PAGE_GOTO.name,
@@ -193,12 +192,10 @@ fn cut_documents(
         ),
     ]
     .map(|(what, path, declared)| (what, site.named_url("fetch-edge.test", path), declared));
-    let urls: Vec<&Option<String>> = cuts.iter().map(|(_, url, _)| url).collect();
-    let Some(page) = open(connection, site, run_id, &urls, checks)? else {
-        return finish_if(connection, run_id, &urls);
+    let Some(page) = open(connection, site, run_id, &[], checks)? else {
+        return finish_if(connection, run_id, &[]);
     };
     for (what, url, declared) in &cuts {
-        let url = url.clone().unwrap_or_default();
         let loaded = call(connection, PAGE_GOTO.name, &page, &json!({ "url": url }))?;
         let data = &loaded["error"]["data"];
         checks.check(
@@ -235,13 +232,7 @@ fn cut_documents(
             &page,
             &json!({ "url": url, "wait_until": "commit" }),
         )?;
-        answered(
-            &committed,
-            &format!("{what} at `commit`"),
-            &url,
-            200,
-            checks,
-        );
+        answered(&committed, &format!("{what} at `commit`"), url, 200, checks);
     }
     finish_run(connection, run_id)
 }

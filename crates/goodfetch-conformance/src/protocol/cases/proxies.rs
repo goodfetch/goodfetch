@@ -14,6 +14,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::proxy::{PROXY_AUTH_FAILED, PROXY_UNAVAILABLE};
+use goodfetch_protocol::page::proxy::{PROXY_PASSWORD, PROXY_SERVER};
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
 use goodfetch_protocol::page::{PAGE_GOTO, PageOpened, RUN_NEW_PAGE};
 use goodfetch_protocol::run::RUN_START;
@@ -70,13 +71,6 @@ impl Case {
     }
 }
 
-/// Calls `method` with `params` and answers the engine's whole answer,
-/// waiting as long as a browser's launch may take.
-fn call(connection: &mut Connection, method: &str, params: &Value) -> Result<Value, Gone> {
-    let id = connection.request(method, params)?;
-    Ok(connection.browser_answer(id)?.message)
-}
-
 /// `proxy.server` for the Proving ground's proxy `name`, checked to be one
 /// it serves.
 pub(super) fn server(site: &Site, name: &str, checks: &mut Checks) -> Option<String> {
@@ -108,11 +102,9 @@ fn through(
     let page = new_page(connection, run_id, checks)?;
     let url = site
         .named_url("scope.test", "/storage?mark=failing")
-        .unwrap_or_default()
         .replacen("http://", &format!("{scheme}://"), 1);
     let answer = match page {
-        Some(page) => call(
-            connection,
+        Some(page) => connection.call(
             PAGE_GOTO.name,
             &json!({ "page_id": page.page_id, "url": url }),
         )?,
@@ -157,9 +149,7 @@ fn failing(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Res
 /// The relays the Proving ground's proxies carried out to the storage page
 /// with a mark, in arrival order: each one's proxy and mark.
 fn relays(site: &Site) -> Vec<(Value, String)> {
-    site.proving_ground
-        .observations()
-        .ok()
+    site.observations()
         .and_then(|observations| observations["relays"].as_array().cloned())
         .unwrap_or_default()
         .into_iter()
@@ -200,12 +190,9 @@ fn socks5_relay(connection: &mut Connection, site: &Site, checks: &mut Checks) -
         checks,
     )?;
     let page = new_page(connection, run_id, checks)?;
-    let url = site
-        .named_url("scope.test", "/storage?mark=socks5-relay")
-        .unwrap_or_default();
+    let url = site.named_url("scope.test", "/storage?mark=socks5-relay");
     let status = match page {
-        Some(page) => call(
-            connection,
+        Some(page) => connection.call(
             PAGE_GOTO.name,
             &json!({ "page_id": page.page_id, "url": url }),
         )?["result"]["response"]["status"]
@@ -218,9 +205,7 @@ fn socks5_relay(connection: &mut Connection, site: &Site, checks: &mut Checks) -
         status == json!(200),
     );
     let relayed = site
-        .proving_ground
         .observations()
-        .ok()
         .and_then(|observations| observations["relays"].as_array().cloned())
         .unwrap_or_default()
         .iter()
@@ -255,13 +240,11 @@ fn own_proxies(connection: &mut Connection, site: &Site, checks: &mut Checks) ->
         checks,
     )?;
     let default_page = new_page(connection, run_id, checks)?;
-    let opened = call(
-        connection,
+    let opened = connection.call(
         RUN_NEW_SESSION.name,
         &json!({ "run_id": run_id, "settings": { "proxy": { "server": own } } }),
     )?;
-    let own_page = call(
-        connection,
+    let own_page = connection.call(
         SESSION_NEW_PAGE.name,
         &json!({ "session_id": opened["result"]["session_id"] }),
     )?;
@@ -273,11 +256,8 @@ fn own_proxies(connection: &mut Connection, site: &Site, checks: &mut Checks) ->
     if let (Some(default_page), Some(own_page)) = (default_page, own_page) {
         let mut statuses = Vec::new();
         for (page, mark) in [(&default_page, "runs"), (&own_page, "own")] {
-            let url = site
-                .named_url("scope.test", &format!("/storage?mark={mark}"))
-                .unwrap_or_default();
-            let answer = call(
-                connection,
+            let url = site.named_url("scope.test", &format!("/storage?mark={mark}"));
+            let answer = connection.call(
                 PAGE_GOTO.name,
                 &json!({ "page_id": page.page_id, "url": url }),
             )?;
@@ -333,7 +313,8 @@ fn none_per_page(
     let data = &connection.answer(id)?.message["error"]["data"];
     checks.check(
         "a page's own `proxy.server` is `setting_not_applicable` naming the key",
-        data["code"] == json!(SETTING_NOT_APPLICABLE.name) && data["key"] == json!("proxy.server"),
+        data["code"] == json!(SETTING_NOT_APPLICABLE.name)
+            && data["key"] == json!(PROXY_SERVER.name),
     );
     finish_run(connection, run_id)
 }
@@ -354,7 +335,7 @@ fn server_url(connection: &mut Connection, _site: &Site, checks: &mut Checks) ->
         let data = &answer["error"]["data"];
         checks.check(
             format!("`{server}` is `setting_invalid` for `proxy.server`"),
-            data["code"] == json!(SETTING_INVALID.name) && data["key"] == json!("proxy.server"),
+            data["code"] == json!(SETTING_INVALID.name) && data["key"] == json!(PROXY_SERVER.name),
         );
         checks.check(
             format!("the refusal of `{server}` names `proxy.username` and `proxy.password`"),
@@ -409,17 +390,14 @@ fn refused_to_a_model(
 ) -> Result<(), Gone> {
     let server = "http://127.0.0.1:3128";
     let code = json!(SETTING_LOCKED.name);
-    let on_the_run = call(
-        agent,
-        RUN_START.name,
+    let on_the_run = agent.call(RUN_START.name,
         &json!({ "run_id": "conformance-proxy-model", "settings": { "proxy": { "server": server } } }),
     )?;
     checks.check(
         "a model's `proxy.server` on a Run fails with `setting_locked` on the run layer",
-        locked(&on_the_run) == (&code, &json!("proxy.server"), &json!("run")),
+        locked(&on_the_run) == (&code, &json!(PROXY_SERVER.name), &json!("run")),
     );
-    let in_the_project = call(
-        agent,
+    let in_the_project = agent.call(
         RUN_START.name,
         &json!({
             "run_id": "conformance-proxy-model-project",
@@ -434,7 +412,7 @@ fn refused_to_a_model(
         locked(&in_the_project)
             == (
                 &code,
-                &json!("proxy.server"),
+                &json!(PROXY_SERVER.name),
                 &json!("project_configuration"),
             ),
     );
@@ -445,8 +423,7 @@ fn refused_to_a_model(
         &json!({}),
         checks,
     )?;
-    let on_a_session = call(
-        agent,
+    let on_a_session = agent.call(
         RUN_NEW_SESSION.name,
         &json!({
             "run_id": "conformance-proxy-model-session",
@@ -455,7 +432,7 @@ fn refused_to_a_model(
     )?;
     checks.check(
         "a model's `proxy.password` on a Session fails with `setting_locked`",
-        locked(&on_a_session) == (&code, &json!("proxy.password"), &json!("run")),
+        locked(&on_a_session) == (&code, &json!(PROXY_PASSWORD.name), &json!("run")),
     );
     finish_run(agent, "conformance-proxy-model-session")
 }

@@ -14,8 +14,10 @@
 
 use std::collections::BTreeMap;
 
-use goodfetch_protocol::connection::{CANCEL, DEADLINE_EXCEEDED};
+use goodfetch_protocol::connection::{CALL_CANCELLED, CANCEL, DEADLINE_EXCEEDED};
+use goodfetch_protocol::egress::EGRESS_REFUSED;
 use goodfetch_protocol::events::{CREDIT, EVENTS, EVENTS_SUBSCRIBE};
+use goodfetch_protocol::page::events as page_events;
 use goodfetch_protocol::page::events::{
     BODY_UNAVAILABLE, PAGE_ON, PAGE_WAIT_FOR_REQUEST_FINISHED, RESPONSE_BODY,
 };
@@ -267,6 +269,21 @@ fn url_of(data: &Value) -> &str {
     data["url"].as_str().unwrap_or_default()
 }
 
+/// Whether the page's one WebSocket was reported with the frame the page
+/// sent and at least one it received.
+fn web_socket_reported(exchange: &Exchange<'_>, page: &Value) -> bool {
+    let sockets = exchange.data(page_events::PAGE_WEB_SOCKET.name);
+    sockets.len() == 1
+        && exchange.data("web_socket.frame_sent")
+            == vec![json!({
+                "page_id": page,
+                "web_socket_id": sockets[0]["web_socket_id"],
+                "payload": "page-events hello",
+                "binary": false,
+            })]
+        && !exchange.data("web_socket.frame_received").is_empty()
+}
+
 /// Every network event and `load` and `domcontentloaded` carry ADR 0085's
 /// data, and a listener whose call is cancelled no longer fires.
 fn network_and_load(
@@ -296,7 +313,7 @@ fn network_and_load(
     }
     exchange.call(PAGE_GOTO.name, &json!({ "page_id": page, "url": url }))?;
     exchange.until("web_socket.close", |_| true)?;
-    let requests = exchange.data("page.request");
+    let requests = exchange.data(page_events::PAGE_REQUEST.name);
     let document = requests.iter().find(|request| url_of(request) == url);
     checks.check(
         "the document's request is a navigation request of the page, a `GET` of a `document`",
@@ -319,7 +336,7 @@ fn network_and_load(
                 && request["redirect_chain"] == json!([])
         }),
     );
-    let responses = exchange.data("page.response");
+    let responses = exchange.data(page_events::PAGE_RESPONSE.name);
     let status = |suffix: &str| {
         responses
             .iter()
@@ -343,33 +360,29 @@ fn network_and_load(
     checks.check(
         "the body's request finished",
         exchange
-            .data("page.request_finished")
+            .data(page_events::PAGE_REQUEST_FINISHED.name)
             .iter()
             .any(|request| url_of(request).ends_with("/page-events/data.json")),
     );
     checks.check(
         "the request to a host that does not resolve failed with `net::ERR_NAME_NOT_RESOLVED`",
-        exchange.data("page.request_failed").iter().any(|request| {
-            url_of(request).contains("nowhere.invalid")
-                && request["failure"]["error_text"] == json!("net::ERR_NAME_NOT_RESOLVED")
-        }),
+        exchange
+            .data(page_events::PAGE_REQUEST_FAILED.name)
+            .iter()
+            .any(|request| {
+                url_of(request).contains("nowhere.invalid")
+                    && request["failure"]["error_text"] == json!("net::ERR_NAME_NOT_RESOLVED")
+            }),
     );
     checks.check(
         "the page's WebSocket is reported with its URL, its sent frame and a received one",
-        exchange.data("page.web_socket").len() == 1
-            && exchange.data("web_socket.frame_sent")
-                == vec![json!({
-                    "page_id": page,
-                    "web_socket_id": exchange.data("page.web_socket")[0]["web_socket_id"],
-                    "payload": "page-events hello",
-                    "binary": false,
-                })]
-            && !exchange.data("web_socket.frame_received").is_empty(),
+        web_socket_reported(&exchange, &page),
     );
     checks.check(
         "the document fired `domcontentloaded` and `load`",
-        exchange.data("page.dom_content_loaded") == vec![json!({ "page_id": page })]
-            && exchange.data("page.load") == vec![json!({ "page_id": page })],
+        exchange.data(page_events::PAGE_DOM_CONTENT_LOADED.name)
+            == vec![json!({ "page_id": page })]
+            && exchange.data(page_events::PAGE_LOAD.name) == vec![json!({ "page_id": page })],
     );
     no_longer_fires(&mut exchange, &page, &url, request_listener, checks)?;
     exchange.end(run_id)
@@ -391,16 +404,16 @@ fn no_longer_fires(
     let cancelled = exchange.answer(listener)?;
     checks.check(
         "cancelling a listener's call ends it with `call_cancelled`",
-        cancelled["error"]["data"]["code"] == json!("call_cancelled"),
+        cancelled["error"]["data"]["code"] == CALL_CANCELLED.name,
     );
     exchange.events.clear();
     exchange.call(PAGE_RELOAD.name, &json!({ "page_id": page }))?;
-    exchange.until("page.response", |exchange| {
+    exchange.until(page_events::PAGE_RESPONSE.name, |exchange| {
         url_of(&exchange["response"]) == url
     })?;
     checks.check(
         "a reload's requests are no `page.request` events once its listener is gone, its responses still are",
-        exchange.data("page.request").is_empty(),
+        exchange.data(page_events::PAGE_REQUEST.name).is_empty(),
     );
     Ok(())
 }
@@ -422,11 +435,11 @@ fn console_and_page_errors(
     exchange.listen(&page, "console")?;
     exchange.listen(&page, "page_error")?;
     exchange.call(PAGE_RELOAD.name, &json!({ "page_id": page }))?;
-    exchange.until("page.console", |message| {
+    exchange.until(page_events::PAGE_CONSOLE.name, |message| {
         message["text"] == json!("page-events error")
     })?;
-    exchange.until("page.page_error", |_| true)?;
-    let messages = exchange.data("page.console");
+    exchange.until(page_events::PAGE_PAGE_ERROR.name, |_| true)?;
+    let messages = exchange.data(page_events::PAGE_CONSOLE.name);
     checks.check(
         "the reload's three messages arrive with their type and text, none from before the listener",
         messages
@@ -449,7 +462,7 @@ fn console_and_page_errors(
                     .is_some_and(|line| line > 0)
         }),
     );
-    let errors = exchange.data("page.page_error");
+    let errors = exchange.data(page_events::PAGE_PAGE_ERROR.name);
     checks.check(
         "the uncaught exception is a `TypeError` with its message and stack",
         errors.first().is_some_and(|error| {
@@ -489,10 +502,10 @@ fn failed_requests(
         &json!({ "page_id": page, "url": { "kind": "glob", "pattern": "**/page-events/aborted" } }),
     )?;
     exchange.call(PAGE_GOTO.name, &json!({ "page_id": page, "url": url }))?;
-    exchange.until("page.request_failed", |request| {
+    exchange.until(page_events::PAGE_REQUEST_FAILED.name, |request| {
         url_of(request).contains("nowhere.invalid")
     })?;
-    let failed = exchange.data("page.request_failed");
+    let failed = exchange.data(page_events::PAGE_REQUEST_FAILED.name);
     let failure = |part: &str| {
         failed
             .iter()
@@ -504,7 +517,7 @@ fn failed_requests(
     checks.check(
         "the request the domain policy blocked fails with `net::ERR_BLOCKED_BY_CLIENT` and `egress_refused`",
         blocked["error_text"] == json!("net::ERR_BLOCKED_BY_CLIENT")
-            && blocked["error"]["code"] == json!("egress_refused"),
+            && blocked["error"]["code"] == EGRESS_REFUSED.name,
     );
     checks.check(
         "the request a route aborted fails with `net::ERR_FAILED`",
@@ -547,7 +560,7 @@ fn credits(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Res
     exchange
         .connection
         .notify(CREDIT, &json!({ "id": listener, "credits": CREDITS }))?;
-    exchange.until("page.request", |request| {
+    exchange.until(page_events::PAGE_REQUEST.name, |request| {
         url_of(request).contains("nowhere.invalid")
     })?;
     let positions: Vec<u64> = exchange
@@ -560,7 +573,7 @@ fn credits(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Res
         positions.first() == Some(&1)
             && positions.windows(2).all(|pair| pair[0] + 1 == pair[1])
             && exchange
-                .data("page.request")
+                .data(page_events::PAGE_REQUEST.name)
                 .first()
                 .is_some_and(|request| url_of(request) == url),
     );
@@ -584,13 +597,13 @@ fn only_its_call(
     exchange.subscribe()?;
     exchange.listen(&page, "request")?;
     exchange.call(PAGE_GOTO.name, &json!({ "page_id": page, "url": url }))?;
-    exchange.until("page.request", |request| {
+    exchange.until(page_events::PAGE_REQUEST.name, |request| {
         url_of(request).contains("nowhere.invalid")
     })?;
     checks.check(
         "the listening call carries the page's requests",
         exchange
-            .data("page.request")
+            .data(page_events::PAGE_REQUEST.name)
             .iter()
             .any(|request| url_of(request) == url),
     );
@@ -624,9 +637,8 @@ fn only_its_call(
 /// `response_truncated`.
 fn bodies(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-page-bodies";
-    let other = site.page_url.clone();
     let cut = site.named_url("fetch-edge.test", "/cut/content-length");
-    let (Some(other), Some(cut)) = (other, cut) else {
+    let Some(other) = site.page_url.clone() else {
         checks.check("the Proving ground serves the case's pages", false);
         return Ok(());
     };

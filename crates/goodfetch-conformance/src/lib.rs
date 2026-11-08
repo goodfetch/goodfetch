@@ -30,8 +30,7 @@ pub use protocol::{
     run_protocol_suite, send_fabricated_hello,
 };
 pub use proving_ground::{
-    OWN_TARGETS, ProvingGround, ProvingGroundError, ProxyCredentials, ReceivedRequests, Submission,
-    Task, TaskAccount, TaskList,
+    ProvingGround, ProvingGroundError, ProxyCredentials, Submission, Task, TaskAccount, TaskList,
 };
 pub use self_test::{Record, References, SelfTestError, run_self_test};
 pub use writer::{CaseLogError, WriteError, read_case_log, write_document};

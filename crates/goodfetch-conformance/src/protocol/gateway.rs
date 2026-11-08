@@ -18,16 +18,21 @@ use std::fmt;
 
 use goodfetch_protocol::case_log::CaseLogEntry;
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product, ProtocolVersion};
-use goodfetch_protocol::connection::{HELLO, HelloResult, Surface};
+use goodfetch_protocol::connection::{
+    HELLO, HelloParams, HelloResult, NOT_IN_PRODUCT, PROTOCOL_VERSION_UNSUPPORTED, Surface,
+};
+use goodfetch_protocol::page::session::RUN_NEW_SESSION;
 use goodfetch_protocol::result_document::{
     CaseCheck, ConformanceDocument, ConformanceHeader, Evidence, Suite, Target, TargetIdentity,
 };
+use goodfetch_protocol::run::{RUN_CONFLICT, RUN_START, RUN_USAGE};
+use goodfetch_protocol::settings::{SETTING_LOCKED, SETTING_NOT_APPLICABLE};
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use url::{Host, Url};
 
-use super::connection::{Connection, Gone};
+use super::connection::{Connection, Gone, code_of};
 use super::target::{StartError, Started};
 use super::{ProtocolSuiteError, SuiteError, hello_as};
 use crate::case_list::{CaseList, DeclaredCase};
@@ -318,18 +323,15 @@ fn open(
 /// A Collie Client's `hello` that speaks the protocol minor after this
 /// one's, which the version rule refuses during previews and accepts no
 /// newer minor of after (ADRs 0030 and 0066).
-fn hello_of_a_newer_minor(token: Option<&str>) -> Value {
-    let newer = ProtocolVersion {
-        minor: PROTOCOL_VERSION.minor + 1,
-        ..PROTOCOL_VERSION
-    };
-    json!({
-        "protocol_version": newer.to_string(),
-        "surface": Surface::Rust.as_str(),
-        "token": token,
-        "needs": Product::Collie.as_str(),
-        "product_version": env!("CARGO_PKG_VERSION"),
-    })
+fn hello_of_a_newer_minor(connection: &Connection) -> HelloParams {
+    HelloParams {
+        protocol_version: ProtocolVersion {
+            minor: PROTOCOL_VERSION.minor + 1,
+            ..PROTOCOL_VERSION
+        },
+        needs: Some(Product::Collie),
+        ..connection.hello_params(Surface::Rust)
+    }
 }
 
 /// One case's run: its Connections, checks and messages.
@@ -410,13 +412,16 @@ impl<'a> CaseRun<'a> {
         })
     }
 
-    /// The answer to a `hello` that `params` makes, given the token, on a
-    /// new Connection.
-    fn hello_with(&mut self, params: impl FnOnce(Option<&str>) -> Value) -> Result<Value, Gone> {
+    /// The answer to the `hello` `params` makes of a new Connection, on it.
+    fn hello_with(
+        &mut self,
+        params: impl FnOnce(&Connection) -> HelloParams,
+    ) -> Result<Value, Gone> {
         let mut connection = Connection::new(
             Started::gateway(self.target).map_err(|error| Gone::Failed(error.to_string()))?,
         );
-        let params = params(connection.token());
+        let params =
+            serde_json::to_value(params(&connection)).expect("invariant: `hello` serializes");
         let answer = connection
             .request(HELLO, &params)
             .and_then(|id| connection.first_answer(id));
@@ -492,9 +497,9 @@ impl<'a> CaseRun<'a> {
 /// one names in `install`, whatever its channel.
 fn collies_refusal_behind_the_gateway(answer: &Value, requested: &str) -> bool {
     let data = &answer["error"]["data"];
-    data["code"] == "not_in_product"
-        && data["product"] == "collie"
-        && data["needs"] == "foxhound"
+    data["code"] == NOT_IN_PRODUCT.name
+        && data["product"] == Product::Collie.as_str()
+        && data["needs"] == Product::Foxhound.as_str()
         && data["requested"] == requested
         && data.get("install").is_none()
 }
@@ -568,24 +573,24 @@ impl GatewayCase {
                 let answer = run.hello_with(hello_of_a_newer_minor)?;
                 run.check(
                     "a Client's `hello` of another protocol minor answers `protocol_version_unsupported`, as an engine's does",
-                    answer["error"]["data"]["code"] == "protocol_version_unsupported",
+                    code_of(&answer) == PROTOCOL_VERSION_UNSUPPORTED.name,
                 );
                 Ok(())
             }
             Self::ModelsClient => models_client(run),
             Self::CollieClientsRun => {
                 let collie = run.client(As::Program(Product::Collie))?;
-                let run_id = run.start(collie, "run.start", &json!({}))?;
+                let run_id = run.start(collie, RUN_START.name, &json!({}))?;
                 run.landed_on(run_id.as_deref(), Product::Collie)
             }
             Self::FoxhoundClientsRun => {
                 let foxhound = run.client(As::Program(Product::Foxhound))?;
-                let run_id = run.start(foxhound, "run.start", &json!({}))?;
+                let run_id = run.start(foxhound, RUN_START.name, &json!({}))?;
                 run.landed_on(run_id.as_deref(), Product::Foxhound)
             }
             Self::ConsoleRunOfCollie => {
                 let console = run.client(As::Console)?;
-                let run_id = run.start(console, "run.start", &json!({}))?;
+                let run_id = run.start(console, RUN_START.name, &json!({}))?;
                 run.landed_on(run_id.as_deref(), Product::Collie)
             }
             Self::ConsoleCrawlStart => {
@@ -599,12 +604,12 @@ impl GatewayCase {
                 let console = run.client(As::Console)?;
                 let answer = run.call(
                     console,
-                    "run.start",
+                    RUN_START.name,
                     &json!({"settings": {"crawl": {"max_requests": 10}}}),
                 )?;
                 run.check(
                     "Foxhound's engine answers the start, refusing the crawl key on a run that is no crawl with `setting_not_applicable`",
-                    answer["error"]["data"]["code"] == "setting_not_applicable",
+                    code_of(&answer) == SETTING_NOT_APPLICABLE.name,
                 );
                 Ok(())
             }
@@ -622,7 +627,7 @@ impl GatewayCase {
                 let collie = run.client(As::Program(Product::Collie))?;
                 let answer = run.call(
                     collie,
-                    "run.start",
+                    RUN_START.name,
                     &json!({"settings": {"crawl": {"max_requests": 10}}}),
                 )?;
                 run.check(
@@ -633,10 +638,10 @@ impl GatewayCase {
             }
             Self::SessionCrawlSetting => {
                 let collie = run.client(As::Program(Product::Collie))?;
-                let run_id = run.start(collie, "run.start", &json!({}))?;
+                let run_id = run.start(collie, RUN_START.name, &json!({}))?;
                 let answer = run.call(
                     collie,
-                    "run.new_session",
+                    RUN_NEW_SESSION.name,
                     &json!({"run_id": run_id, "settings": {"crawl": {"max_requests": 10}}}),
                 )?;
                 run.check(
@@ -648,7 +653,7 @@ impl GatewayCase {
             Self::ReadsAFoxhoundRun => reads_a_foxhound_run(run),
             Self::CallACollieRunLacks => {
                 let collie = run.client(As::Program(Product::Collie))?;
-                let run_id = run.start(collie, "run.start", &json!({}))?;
+                let run_id = run.start(collie, RUN_START.name, &json!({}))?;
                 let foxhound = run.client(As::Program(Product::Foxhound))?;
                 let answer = run.call(foxhound, "run.seeds", &json!({ "run_id": run_id }))?;
                 run.check(
@@ -673,7 +678,7 @@ fn clients_per_product(run: &mut CaseRun<'_>) -> Result<(), Gone> {
     let foxhound = run.connect(As::Program(Product::Foxhound))?;
     let passed = match &foxhound {
         Ok(_) => true,
-        Err(refused) => refused["data"]["code"] == "not_in_product",
+        Err(refused) => refused["data"]["code"] == NOT_IN_PRODUCT.name,
     };
     run.check(
         "a Foxhound Client's `hello` is answered as Foxhound, or refused with `not_in_product` by a gateway that cannot run Foxhound's engine",
@@ -694,10 +699,10 @@ fn known_run_id(run: &mut CaseRun<'_>) -> Result<(), Gone> {
     let Some(run_id) = run_id else {
         return Ok(());
     };
-    let again = run.call(console, "run.start", &json!({ "run_id": run_id }))?;
+    let again = run.call(console, RUN_START.name, &json!({ "run_id": run_id }))?;
     run.check(
         "the start of the known Run ID reaches its run, which answers `run_conflict` for the start's other inputs",
-        again["error"]["data"]["code"] == "run_conflict"
+        code_of(&again) == RUN_CONFLICT.name
             && again["error"]["data"]["run_id"] == run_id.as_str(),
     );
     run.landed_on(Some(&run_id), Product::Foxhound)
@@ -714,7 +719,7 @@ fn reads_a_foxhound_run(run: &mut CaseRun<'_>) -> Result<(), Gone> {
         return Ok(());
     };
     let collie = run.client(As::Program(Product::Collie))?;
-    let usage = run.call(collie, "run.usage", &json!({ "run_id": run_id }))?;
+    let usage = run.call(collie, RUN_USAGE.name, &json!({ "run_id": run_id }))?;
     run.check(
         "a Collie Client reads the Foxhound run's Usage",
         usage.get("result").is_some(),
@@ -734,20 +739,20 @@ fn reads_a_foxhound_run(run: &mut CaseRun<'_>) -> Result<(), Gone> {
 fn models_client(run: &mut CaseRun<'_>) -> Result<(), Gone> {
     let proxy = json!({"proxy": {"server": "http://proxy.example:3128"}});
     let model = run.client(As::Model)?;
-    let start = run.call(model, "run.start", &json!({ "settings": proxy }))?;
+    let start = run.call(model, RUN_START.name, &json!({ "settings": proxy }))?;
     run.check(
         "a model's `run.start` setting `proxy.server` answers `setting_locked`",
-        start["error"]["data"]["code"] == "setting_locked",
+        code_of(&start) == SETTING_LOCKED.name,
     );
-    let run_id = run.start(model, "run.start", &json!({}))?;
+    let run_id = run.start(model, RUN_START.name, &json!({}))?;
     let session = run.call(
         model,
-        "run.new_session",
+        RUN_NEW_SESSION.name,
         &json!({ "run_id": run_id, "settings": proxy }),
     )?;
     run.check(
         "a model's `run.new_session` setting `proxy.server` answers `setting_locked`",
-        session["error"]["data"]["code"] == "setting_locked",
+        code_of(&session) == SETTING_LOCKED.name,
     );
     Ok(())
 }

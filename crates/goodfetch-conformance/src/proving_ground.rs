@@ -9,6 +9,15 @@
 //! a host name to an address (ADR 0059). ureq opens its own sockets, the
 //! third-party client exception of ADR 0060.
 
+#[path = "../../../proving-ground/src/interface.rs"]
+#[expect(
+    dead_code,
+    unreachable_pub,
+    reason = "the Proving ground's own source, of which the harness reads the observations' requests"
+)]
+mod interface;
+
+pub(crate) use self::interface::{ObservedRequest, ReceivedRequests};
 use goodfetch_protocol::journey::TaskId;
 use goodfetch_protocol::result_document::{OracleAnswer, ProvingGroundCopy};
 use serde::{Deserialize, Serialize};
@@ -117,52 +126,6 @@ pub struct Submission<'a, R> {
     pub records: &'a [R],
 }
 
-/// The targets the engine and the browser ask a site for on their own: the
-/// robots.txt read of a document's origin (ADR 0086) and Chromium's icon.
-pub const OWN_TARGETS: [&str; 2] = ["/robots.txt", "/favicon.ico"];
-
-/// Each request the Proving ground's page hosts received, in arrival order,
-/// as its observations list them: what a case counts through. A site sees
-/// requests no case asked for, which land before or after any count a case
-/// takes (ADR 0064): the robots.txt the engine reads of each document's
-/// origin, which nothing a case calls waits for (ADR 0086), and the icon
-/// Chromium asks for on its own. [`of_the_case`](Self::of_the_case) leaves
-/// them out; a case whose claim covers them reads [`every`](Self::every).
-/// `xtask received-requests` refuses a read of the observations' requests
-/// anywhere else.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct ReceivedRequests(Vec<serde_json::Value>);
-
-impl ReceivedRequests {
-    /// The requests of a Proving ground's `observations`; none when they
-    /// hold no list of requests, so each check over them fails.
-    pub fn of(observations: &serde_json::Value) -> Self {
-        Self(
-            observations["requests"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default(),
-        )
-    }
-
-    /// The requests the case is about: every one but those for
-    /// [`OWN_TARGETS`], which the engine and the browser send on their own,
-    /// whenever they like.
-    pub fn of_the_case(&self) -> impl Iterator<Item = &serde_json::Value> {
-        self.0.iter().filter(|request| {
-            !OWN_TARGETS
-                .iter()
-                .any(|target| request["target"].as_str() == Some(target))
-        })
-    }
-
-    /// Every request, the robots.txt reads and icons included, for a claim
-    /// about them or about all a site saw.
-    pub fn every(&self) -> impl Iterator<Item = &serde_json::Value> {
-        self.0.iter()
-    }
-}
-
 impl ProvingGround {
     /// The local copy `serve` reported at `address` (`host:port`).
     pub fn local(address: &str) -> Self {
@@ -252,10 +215,14 @@ impl ProvingGround {
     ///
     /// # Errors
     ///
-    /// As [`observations`](Self::observations).
-    pub fn received_requests(&self) -> Result<ReceivedRequests, ProvingGroundError> {
-        self.observations()
-            .map(|observations| ReceivedRequests::of(&observations))
+    /// As [`observations`](Self::observations), and when they hold no list
+    /// of requests the Proving ground's format describes.
+    pub(crate) fn received_requests(&self) -> Result<ReceivedRequests, ProvingGroundError> {
+        let observations = self.observations()?;
+        ReceivedRequests::read(&observations).map_err(|source| ProvingGroundError::Unreadable {
+            url: format!("http://{}/observations", self.address),
+            source,
+        })
     }
 
     /// Its network fixtures (`GET /network-fixtures`): each forward proxy's
@@ -407,6 +374,3 @@ pub enum ProvingGroundError {
         source: serde_json::Error,
     },
 }
-
-#[cfg(test)]
-mod tests;

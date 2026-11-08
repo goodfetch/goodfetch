@@ -15,7 +15,7 @@
 //! among it. The consent wall cases (tickets #718 and #859) are `walls`'.
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use goodfetch_protocol::home::{RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PROVENANCE, RUNS};
 use goodfetch_protocol::page::{PAGE_FORMATS, PAGE_GOTO, PageOpened};
@@ -23,7 +23,7 @@ use goodfetch_protocol::run::RUN_FINISH;
 use serde_json::{Value, json};
 
 use super::navigation::call;
-use super::{Checks, Site, new_page, start_run};
+use super::{Checks, Site, new_page, poll, start_run};
 use crate::protocol::connection::{Connection, Gone};
 
 pub(super) mod walls;
@@ -143,13 +143,11 @@ impl Case {
 
 /// The query parameters of each report the pages sent to `path`.
 fn reports(site: &Site, path: &str) -> Vec<Vec<(String, String)>> {
-    site.proving_ground
-        .received_requests()
-        .unwrap_or_default()
+    site.received_requests()
         .of_the_case()
-        .filter(|request| [json!(HOST), json!(FRAME_HOST)].contains(&request["host"]))
+        .filter(|request| [HOST, FRAME_HOST].contains(&request.host.as_str()))
         .filter_map(|request| {
-            let (target, query) = request["target"].as_str()?.split_once('?')?;
+            let (target, query) = request.target.split_once('?')?;
             (target == path).then(|| {
                 query
                     .split('&')
@@ -175,10 +173,6 @@ fn count(site: &Site, path: &str, wanted: &[(&str, &str)]) -> usize {
 
 /// Waits until more than `before` reports to `path` carry `wanted`, or
 /// `wait` passes; whether they did.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the synchronous harness polls the Proving ground on its own thread, outside any async worker"
-)]
 fn arrives(
     site: &Site,
     path: &str,
@@ -186,16 +180,13 @@ fn arrives(
     before: usize,
     wait: Duration,
 ) -> bool {
-    let started = Instant::now();
-    loop {
-        if count(site, path, wanted) > before {
-            return true;
-        }
-        if started.elapsed() > wait {
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
+    let counted = poll::until(
+        wait,
+        Duration::from_millis(200),
+        || count(site, path, wanted),
+        |counted| *counted > before,
+    );
+    counted > before
 }
 
 /// Starts the Run `run_id` with `settings` and opens its page.
@@ -218,7 +209,7 @@ fn visit(
     path: &str,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let url = site.named_url(HOST, path).unwrap_or_default();
+    let url = site.named_url(HOST, path);
     let answer = call(
         connection,
         PAGE_GOTO.name,

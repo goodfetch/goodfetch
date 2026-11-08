@@ -34,7 +34,8 @@ mod hostile;
 mod html;
 #[expect(
     unreachable_pub,
-    reason = "the same source is test support's public interface (`proving_ground_format`)"
+    dead_code,
+    reason = "the same source is test support's public interface (`proving_ground_format`) and the conformance harness's reader of the observations' requests, which the Proving ground writes through `observation`"
 )]
 mod interface;
 mod languages;

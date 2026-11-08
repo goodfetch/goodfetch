@@ -74,11 +74,6 @@ fn a_read_of_the_observations_requests_outside_the_helper_fails(
 
 #[rstest]
 #[case::through_the_helper("crates/goodfetch-collie/tests/it/pages.rs", THROUGH_THE_HELPER)]
-#[case::the_test_support_helper(
-    "crates/goodfetch-test-support/src/received_requests.rs",
-    RAW_COUNT
-)]
-#[case::the_conformance_helper("crates/goodfetch-conformance/src/proving_ground.rs", RAW_COUNT)]
 #[case::a_run_reports_requests_with_no_observations(
     "crates/foxhound/goodfetch-crawl/src/start/tests/report.rs",
     r#"fn succeeded(report: &Value) -> &Value {

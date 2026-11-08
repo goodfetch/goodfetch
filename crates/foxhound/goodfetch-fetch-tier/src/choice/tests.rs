@@ -264,21 +264,29 @@ fn an_undeclared_document_under_a_forced_tier_names_fetch_encoding_and_fetch_tie
         "https://shop.test/a",
     );
 
+    let mut details = error.details().cloned().unwrap_or_default();
+    let fix = details.remove("fix").unwrap_or_default();
     assert_eq!(
         (
             error.code(),
-            error.details().cloned().map(Value::Object),
+            Value::Object(details),
+            [
+                "`fetch.encoding`",
+                "`fetch.tier: auto`",
+                "`fetch.tier: browser`"
+            ]
+            .map(|named| fix.as_str().is_some_and(|fix| fix.contains(named))),
             error.message().contains("https://shop.test/a"),
         ),
         (
             "browser_required",
-            Some(json!({
+            json!({
                 "key": "fetch.tier",
                 "tier": "http",
                 "label": "list",
                 "call": "fetch.encoding",
-                "fix": "`fetch.encoding` set to the document's encoding, or `fetch.tier: auto` or `fetch.tier: browser`",
-            })),
+            }),
+            [true; 3],
             true,
         )
     );

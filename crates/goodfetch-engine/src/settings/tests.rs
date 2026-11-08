@@ -1575,7 +1575,7 @@ fn private_ranges_are_never_a_models_and_a_recipes_only_where_the_operator_polic
             (
                 taken,
                 refused.code(),
-                format!("{refused:?}").contains("egress.private_ranges")
+                matches!(&refused, SettingsError::Locked { key, .. } if key == "egress.private_ranges")
             ),
             (false, "setting_locked", true),
             "{refused:?}"
@@ -1637,7 +1637,7 @@ fn a_private_range_that_is_no_range_address_or_host_is_invalid(#[case] value: Va
     assert_eq!(
         (
             refused.code(),
-            format!("{refused:?}").contains("egress.private_ranges")
+            matches!(&refused, SettingsError::Invalid { key, .. } if key == "egress.private_ranges")
         ),
         ("setting_invalid", true),
         "{refused:?}"
@@ -1913,7 +1913,7 @@ fn a_proxy_providers_price_comes_only_from_user_configuration_and_the_operator_p
             (
                 taken,
                 refused.code(),
-                format!("{refused:?}").contains("`price`")
+                matches!(&refused, SettingsError::Locked { fix, .. } if fix.contains("`price`"))
             ),
             (false, "setting_locked", true),
             "{refused:?}"

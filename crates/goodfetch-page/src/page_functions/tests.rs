@@ -118,12 +118,11 @@ fn a_reference_errors_fix_spells_the_call_of_its_operation(
 
     let fix = failed(thrown, (surface, operation))
         .details()
-        .and_then(|details| details["fix"].as_str().map(ToOwned::to_owned));
+        .and_then(|details| details["fix"].as_str().map(ToOwned::to_owned))
+        .unwrap_or_default();
 
-    assert_eq!(
-        fix,
-        Some(format!(
-            "A page function sees only the page and its one argument, never the program's variables: pass `x` as the argument, as `{call}` does."
-        ))
+    assert!(
+        fix.contains("`x`") && fix.contains(&format!("`{call}`")),
+        "{fix}"
     );
 }

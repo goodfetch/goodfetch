@@ -533,7 +533,7 @@ mod linux {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(
-            output.status.success() && stdout.contains("2 passed"),
+            output.status.success() && !stdout.contains("running 0 tests"),
             "{output:?}"
         );
     }

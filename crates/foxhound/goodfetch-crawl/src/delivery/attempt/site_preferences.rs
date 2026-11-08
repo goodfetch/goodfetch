@@ -14,11 +14,11 @@ use goodfetch_engine::robots_txt::Answer as Fetched;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
-    AfterRobotsTxt, FetchTiers, HttpTier, Reading, Refusal, RefusedBy, Request, skip_reason,
+    AfterRobotsTxt, HttpTier, Reading, Refusal, RefusedBy, Request, UseSignals, skip_reason,
 };
 use goodfetch_frontier::SharedRobotsTxt;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
-use goodfetch_protocol::page::{PageId, SITE_PREFERENCES_REFUSED, SitePreference};
+use goodfetch_protocol::page::{SITE_PREFERENCES_REFUSED, SitePreference};
 use serde_json::{Map, Value};
 use url::Url;
 
@@ -129,26 +129,22 @@ impl On<'_> {
         Ok(reading)
     }
 
-    /// What the AI-use signals the response of the served page `page_id`
-    /// carried, in its headers and its document's markup, say of it
-    /// (`SitePreferences::document_judged`), the RSL license they name
+    /// What the AI-use signals the response of the attempt's served page
+    /// carried, `signals`, in its headers and its document's markup, say of
+    /// it (`SitePreferences::document_judged`), the RSL license they name
     /// fetched on `http` once for the Run: nothing when none refuses the
     /// Run's `site_preferences.purpose`, else the attempt's answer, its
     /// handler never run.
     pub(super) async fn document_refusal(
         &self,
-        tiers: &FetchTiers,
         http: &HttpTier,
-        page_id: &PageId,
+        signals: &UseSignals,
     ) -> Option<Answer> {
         let (run, leased) = (self.run, self.leased);
-        let preferences = &self.hand_over.of_run.site_preferences;
-        if !preferences.honours_use_signals() {
-            return None;
-        }
-        let signals = tiers.use_signals(page_id);
-        preferences
-            .document_judged(&leased.crawl_request.url, &signals, |location| {
+        self.hand_over
+            .of_run
+            .site_preferences
+            .document_judged(&leased.crawl_request.url, signals, |location| {
                 fetched_on(http, run, location)
             })
             .await

@@ -13,8 +13,8 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::admission::SecondCopies;
 use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{
-    Chosen, FetchTiers, HandOver, HttpTier, Judged, PooledSession, Race, RaceEnd, TierChoice,
-    record_race, room_taken,
+    Chosen, FetchTiers, HandOver, HttpTier, Judged, PageFacts, PooledSession, Race, RaceEnd,
+    TierChoice, record_race, room_taken,
 };
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::page::{PageId, PageResponse};
@@ -23,8 +23,8 @@ use serde_json::Map;
 use tokio::sync::oneshot;
 
 use super::{
-    Answer, BLOCKED, BROWSER, On, PAGE_CHECK_FAILED, RACED, Served, Taught, Tiering, failed,
-    judged, learn, reached_through_trap, read_by_browser, record_tier, refused_type,
+    Answer, BLOCKED, BROWSER, Found, On, PAGE_CHECK_FAILED, RACED, Served, Taught, Tiering, failed,
+    learn, reached_through_trap, read_by_browser, record_tier, refused_type,
 };
 use crate::lease::WorkItemLease;
 use crate::tier_race::Raced;
@@ -81,27 +81,22 @@ impl On<'_> {
             );
         }
         let document = Box::pin(async {
-            let served = self.document(tiering, &fetching, &RACED, hand_over).await?;
-            let page_id = served.page_id();
+            let (served, facts) = self.document(tiering, &fetching, &RACED, hand_over).await?;
             let latency = run.clock().now().duration_since(started);
-            // A document only a guess could read never wins: the
-            // browser reads it (ADR 0119).
-            // Nor does a Challenge: the navigation meets it in the
-            // browser, and the domain learns the move (`escalation`).
-            let challenged = match tiers.block(page_id).await {
-                Some((block, _)) if block.checks_the_browser() => {
-                    self.on_block(block.cause, &RACED);
-                    true
+            // Browser-fetch's page is checked as a run on `http` checks
+            // its own. A document only a guess could read never wins: the
+            // browser reads it (ADR 0119). Nor does a Challenge: the
+            // navigation meets it in the browser, and the domain learns
+            // the move (`escalation`).
+            let passed = match self.found(tiering, served.page_id(), &facts).await {
+                Found::Unreadable(_) => false,
+                Found::Challenge(cause, _) => {
+                    self.on_block(cause, &RACED);
+                    false
                 }
-                _ => false,
+                Found::Checked(judged) => matches!(judged, Some(Judged::Passed) | None),
             };
-            let passed = tiers.escalated(page_id).is_none()
-                && !challenged
-                && matches!(
-                    judged(run, tiering, page_id).await,
-                    Some(Judged::Passed) | None
-                );
-            Ok::<_, Answer>((served, latency, passed && raced.agrees))
+            Ok::<_, Answer>((served, facts, latency, passed && raced.agrees))
         });
         let ended = first_to_win(document, (&mut navigation, decoy.map(Lost::Decoy)), lease).await;
         // The loser is cancelled: browser-fetch's connection closed as its
@@ -146,24 +141,20 @@ impl On<'_> {
                     Taught::default(),
                 )
             }
-            Won::BrowserFetch(page_id) => {
+            Won::BrowserFetch(page_id, facts) => {
                 let merged = learn(run, tiers, &page_id, leased, self.code_free.is_some()).await;
-                let encoding = tiers.encoding(&page_id);
-                let certificate_exception = tiers.certificate_exception(&page_id);
                 record_tier(
                     run,
                     leased,
                     self.lease,
                     &BROWSER_FETCH,
                     Chosen::Raced,
-                    encoding,
-                    certificate_exception,
+                    facts.encoding,
+                    facts.certificate_exception,
                 )
                 .await;
-                let response = tiers.response(&page_id);
-                let answer = self.handle(&page_id, FetchTier::Http, response).await;
-                let escalated = self.escalated(tiers, &page_id);
-                tiers.close(&page_id);
+                let answer = self.handle(&page_id, FetchTier::Http, facts.response).await;
+                let escalated = self.escalated(tiers.close(&page_id));
                 let answer = match escalated {
                     Some(call) if !matches!(answer, Answer::LeaseEnded | Answer::ClientGone) => {
                         // The browser's run takes a whole lease of its own, and
@@ -234,7 +225,7 @@ enum Lost {
 impl RaceEnded {
     fn browser_fetch(&self) -> RaceEnd {
         match (&self.won, &self.fetch_lost) {
-            (Won::BrowserFetch(_), _) => RaceEnd::Won,
+            (Won::BrowserFetch(..), _) => RaceEnd::Won,
             (_, Some(_)) => RaceEnd::Failed,
             _ => RaceEnd::Cancelled,
         }
@@ -260,7 +251,7 @@ impl RaceEnded {
 /// is closed.
 async fn first_to_win<'t>(
     mut document: std::pin::Pin<
-        Box<impl Future<Output = Result<(Served<'t>, Duration, bool), Answer>>>,
+        Box<impl Future<Output = Result<(Served<'t>, PageFacts, Duration, bool), Answer>>>,
     >,
     (navigation, lost): (&mut oneshot::Receiver<Navigated>, Option<Lost>),
     lease: &WorkItemLease,
@@ -276,11 +267,11 @@ async fn first_to_win<'t>(
             biased;
             _ = lease.ended() => break Won::Ended(Answer::LeaseEnded),
             fetched = &mut document, if ended.fetch_lost.is_none() => match fetched {
-                Ok((served, took, true)) => {
+                Ok((served, facts, took, true)) => {
                     ended.latency = Some(took);
-                    break Won::BrowserFetch(served.keep());
+                    break Won::BrowserFetch(served.keep(), facts);
                 }
-                Ok((served, took, false)) => {
+                Ok((served, _, took, false)) => {
                     ended.latency = Some(took);
                     drop(served);
                     ended.fetch_lost = Some(Answer::Failed {
@@ -308,8 +299,9 @@ async fn first_to_win<'t>(
 
 /// Which run of a tier race won, if one did.
 enum Won {
-    /// Browser-fetch's page, served on `http`.
-    BrowserFetch(PageId),
+    /// Browser-fetch's page, served on `http`, and what it held of its
+    /// document as it was served.
+    BrowserFetch(PageId, PageFacts),
     /// The navigation's page, in the browser, and its document's
     /// response.
     Navigation(PageId, Option<PageResponse>),

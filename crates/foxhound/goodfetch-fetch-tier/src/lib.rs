@@ -84,7 +84,7 @@ pub use site_preferences::{
 pub use sniffing::sniff;
 pub use tiers::{
     Chosen, FetchTiers, FieldElements, HandedOver, HttpTier, Judged, LinksUnread, PAGE_CHECK_CALL,
-    Race, RaceEnd, ServedLinks, Signed, record_race, record_tier, tier_provenance,
+    PageFacts, Race, RaceEnd, ServedLinks, Signed, record_race, record_tier, tier_provenance,
 };
 pub use transports::{
     AddressCheck, LocalSource, Reqwest, TransportConfig, TransportUnavailable, Wreq,

@@ -18,6 +18,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_protocol::connection::{
     CALL_CANCELLED, CallCancelledDetails, ClosedValue, INTERNAL, InternalDetails, StoppedBy,
+    WaitedFor,
 };
 use goodfetch_protocol::governor::{PAGE_MEMORY_EXCEEDED, PageMemoryExceededDetails};
 use goodfetch_protocol::jsonrpc::{ErrorData, ProtocolFailure};
@@ -68,10 +69,6 @@ pub(crate) enum Call {
     },
 }
 
-/// What a call whose command the browser left unanswered waited for, as
-/// its `deadline_exceeded` names it.
-const BROWSER_ANSWER: &str = "browser_answer";
-
 /// The Error code `failure` raises from `call`; `exit` says how the browser
 /// ended, when it did, and `deadline` is the call's, which bounded the
 /// command. A command the page's lease check withheld raises the error that
@@ -85,7 +82,7 @@ pub(crate) fn call_error(
     // The browser left the command unanswered past the call's own deadline,
     // which bounds each command it sends (ADR 0080).
     if let Failure::TimedOut { .. } = failure {
-        return deadline.exceeded(BROWSER_ANSWER, deadline.duration());
+        return deadline.exceeded(WaitedFor::BROWSER_ANSWER, deadline.duration());
     }
     // A browser lost or refusing before it came up never started: it is
     // the launch that failed, however it ended (ADR 0115).

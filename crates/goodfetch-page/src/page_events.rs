@@ -89,7 +89,7 @@ use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallError, CallStream};
 use goodfetch_protocol::catalog::Event;
-use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::connection::{Surface, WaitedFor};
 use goodfetch_protocol::events::{EventEnvelope, Position};
 use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::page::events::{
@@ -734,7 +734,10 @@ impl PageEvents {
         drop(state);
         let shared = Arc::clone(&self.shared);
         async move {
-            match deadline.within("finished request", answered).await? {
+            match deadline
+                .within(WaitedFor::FINISHED_REQUEST, answered)
+                .await?
+            {
                 Ok(answer) => answer,
                 Err(_) => Err(gone(&shared)),
             }
@@ -771,7 +774,10 @@ impl PageEvents {
         deadline: WaitDeadline,
     ) -> Result<BodyHandle, CallError> {
         deadline
-            .within("response body", self.ended_body(request_id, surface))
+            .within(
+                WaitedFor::RESPONSE_BODY,
+                self.ended_body(request_id, surface),
+            )
             .await?
     }
 

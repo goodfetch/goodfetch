@@ -23,7 +23,7 @@ use goodfetch_engine::settings::{Opening, Resolved, catalog_value, value_as};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_protocol::foxhound::sql_tab::{
     DATASET_QUERY, DATASET_QUERY_MAX_ROWS, DATASET_QUERY_MEMORY_LIMIT, DatasetQueryParams,
-    DatasetQueryResult, MAX_RUNS, QUERY_FAILED, QUERY_INVALID, QUERY_MEMORY_EXCEEDED,
+    DatasetQueryResult, MAX_RUNS, QUERY_ANSWER, QUERY_FAILED, QUERY_INVALID, QUERY_MEMORY_EXCEEDED,
     QueryInvalidDetails, QueryMemoryExceededDetails, TIMEOUT_DATASET_QUERY,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -96,7 +96,7 @@ async fn query(
     let answered = deadline
         .within(
             &context.engine().clock(),
-            "query",
+            QUERY_ANSWER,
             reader.blocking(move || sandbox.query(&sql, limit)),
         )
         .await?;

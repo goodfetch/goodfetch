@@ -9,7 +9,7 @@
 
 use std::time::Duration;
 
-use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
+use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, WaitedFor};
 use goodfetch_protocol::page::waits::{PAGE_WAIT_FOR_RESPONSE, PAGE_WAIT_FOR_URL};
 use goodfetch_protocol::page::{
     NAVIGATION_FAILED, NAVIGATION_INTERRUPTED, Navigated, PAGE_GO_BACK, PAGE_GO_FORWARD, PAGE_GOTO,
@@ -506,7 +506,7 @@ pub(super) fn past_its_deadline(
     );
     checks.check(
         "it waited for the `load` the call named",
-        data["waited_for"] == json!("load"),
+        data["waited_for"] == json!(WaitedFor::LOAD),
     );
     checks.check(
         "it waited at least as long as its limit",

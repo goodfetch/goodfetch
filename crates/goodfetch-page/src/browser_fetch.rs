@@ -45,6 +45,7 @@ use goodfetch_cdp::generated::{emulation, fetch, network, page};
 use goodfetch_cdp::{NetError, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_engine::response_limits::Limits;
+use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::page::{
     PageResponse, RedirectLimit, TOO_MANY_REDIRECTS, TooManyRedirectsDetails,
 };
@@ -183,7 +184,7 @@ pub(crate) async fn send(
     // A wait for the navigation gate's permits counts against no timeout.
     driver
         .within_navigation_deadline(
-            "response",
+            WaitedFor::RESPONSE,
             Load::new(driver, sender, request).follow(events),
         )
         .await?

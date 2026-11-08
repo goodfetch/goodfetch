@@ -39,6 +39,7 @@ use goodfetch_engine::response_limits::{BodyFailure, ContentCoding, Decoding, Li
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tls::{CertificateChanged, CertificateInvalid, ExceptionUsed};
 use goodfetch_frontier::backoff_classes::Met;
+use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::dns::IpFamily;
 use goodfetch_protocol::page::{
     NAVIGATION_FAILED, NavigationFailedDetails, RESPONSE_TRUNCATED, ResponseTruncatedDetails,
@@ -619,7 +620,7 @@ async fn fetch_on(
     let whole = async {
         let mut sent = bounds
             .first_byte
-            .within(clock, "first_byte", answer(transport, hop, reuse))
+            .within(clock, WaitedFor::FIRST_BYTE, answer(transport, hop, reuse))
             .await?
             .map_err(|failure| failure.error(url))?;
         // A type that names none counts as none, so the body is sniffed.
@@ -699,7 +700,7 @@ async fn fetch_on(
             certificate_exception: sent.certificate_exception,
         })
     };
-    bounds.navigation.within(clock, "navigation", whole).await?
+    Deadline::within(&bounds.navigation, clock, WaitedFor::NAVIGATION, whole).await?
 }
 
 /// What reading an answer's body gave.

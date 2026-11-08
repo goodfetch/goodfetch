@@ -9,7 +9,7 @@
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::Setting;
-use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails};
+use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails, WaitedFor};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 
@@ -131,7 +131,7 @@ impl Deadline {
     pub async fn within<T>(
         &self,
         clock: &Clock,
-        waited_for: &str,
+        waited_for: WaitedFor,
         work: impl Future<Output = T>,
     ) -> Result<T, CallError> {
         let started = clock.now();
@@ -147,7 +147,7 @@ impl Deadline {
     /// The `deadline_exceeded` of a call that waited `elapsed` under this
     /// deadline for `waited_for`, which did not come, for a caller that
     /// counts its own time, such as one that leaves some waits out of it.
-    pub fn exceeded(&self, waited_for: &str, elapsed: Duration) -> CallError {
+    pub fn exceeded(&self, waited_for: WaitedFor, elapsed: Duration) -> CallError {
         CallError::new(
             &DEADLINE_EXCEEDED,
             format!(
@@ -157,7 +157,7 @@ impl Deadline {
             &DeadlineExceededDetails {
                 limit: self.limit.clone(),
                 elapsed: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
-                waited_for: waited_for.to_owned(),
+                waited_for,
             },
         )
     }

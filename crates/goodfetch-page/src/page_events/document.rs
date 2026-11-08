@@ -18,6 +18,7 @@ use goodfetch_cdp::generated::page;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
+use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::waits::{LoadState, Reached};
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_WAIT};
@@ -105,13 +106,13 @@ pub(super) struct UrlWaiter {
 #[derive(Default)]
 pub(super) struct InFlight(BTreeMap<String, LoaderId>);
 
-/// The name of `state` on the wire, as Playwright spells it and
-/// `deadline_exceeded` names it.
-fn name(state: LoadState) -> String {
-    serde_json::to_value(state)
-        .ok()
-        .and_then(|name| name.as_str().map(str::to_owned))
-        .expect("invariant: a load state serializes as its name")
+/// What a wait for `state` waits for, as `deadline_exceeded` names it.
+fn waited_for(state: LoadState) -> WaitedFor {
+    match state {
+        LoadState::DomContentLoaded => WaitedFor::DOM_CONTENT_LOADED,
+        LoadState::Load => WaitedFor::LOAD,
+        LoadState::NetworkIdle => WaitedFor::NETWORK_IDLE,
+    }
 }
 
 /// Whether `networkidle` counts the request `sent` while it is in flight.
@@ -347,7 +348,7 @@ impl PageEvents {
                     refused = refused => Err(refused),
                 }
             };
-            match deadline.within("url", outcome).await? {
+            match deadline.within(WaitedFor::URL, outcome).await? {
                 Ok(true) => Ok(Reached {}),
                 Ok(false) => Err(gone(&shared)),
                 Err(refused) => Err(refused),
@@ -375,7 +376,7 @@ impl PageEvents {
             let reached = until_gone(&mut gone_now, async {
                 document.wait_for(|now| now.reached(state)).await.is_ok()
             });
-            if deadline.within(&name(state), reached).await? {
+            if deadline.within(waited_for(state), reached).await? {
                 Ok(Reached {})
             } else {
                 Err(gone(&shared))
@@ -446,7 +447,7 @@ impl WaitDeadline {
     /// As cancel-safe as `work`.
     pub(crate) async fn within<T>(
         &self,
-        waited_for: &str,
+        waited_for: WaitedFor,
         work: impl Future<Output = T>,
     ) -> Result<T, CallError> {
         match &self.deadline {

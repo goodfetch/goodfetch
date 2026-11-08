@@ -654,7 +654,7 @@ fn at_deadline(asked: Asked<'_>, last: Seen, elapsed: Duration) -> CallError {
         &DeadlineExceededDetails {
             limit,
             elapsed,
-            waited_for: format!("target_{}", step.as_str()),
+            waited_for: step.waited_for(),
         },
     )
 }

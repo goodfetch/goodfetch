@@ -25,7 +25,7 @@ use goodfetch_protocol::checkpoint::{
     RunCheckpointParams, RunResumeParams, SESSION_BOUND_TO_MACHINE, SessionBoundToMachineDetails,
     WriteSide,
 };
-use goodfetch_protocol::connection::StoppedBy;
+use goodfetch_protocol::connection::{StoppedBy, WaitedFor};
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::formats::{Compatibility, Format};
 use goodfetch_protocol::run::{
@@ -828,7 +828,7 @@ async fn finish(params: RunWaitParams, context: CallContext) -> Result<RunReport
     let report = match params.timeout {
         Some(millis) => {
             Deadline::given(&TIMEOUT_RUN, millis, SettingsLayer::Run)
-                .within(&context.engine().clock(), "Run's end", finishing)
+                .within(&context.engine().clock(), WaitedFor::RUN_END, finishing)
                 .await?
         }
         None => finishing.await,
@@ -850,7 +850,11 @@ async fn stop(params: RunWaitParams, context: CallContext) -> Result<RunReport, 
         None => close_deadline(&context, &params.run_id).await,
     };
     let report = deadline
-        .within(&context.engine().clock(), "Run's next safe point", stopping)
+        .within(
+            &context.engine().clock(),
+            WaitedFor::RUN_SAFE_POINT,
+            stopping,
+        )
         .await?;
     ending(report.map_err(|error| run_error_of(error, context.identity(), RUN_STOP.name))?)
 }

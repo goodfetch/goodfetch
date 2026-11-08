@@ -544,3 +544,23 @@ fn the_head_sets_store_opens_and_takes_another_pin() {
         .unwrap();
     assert_eq!(accepted.pin.spki_sha256, Some(changed.to_string()));
 }
+
+/// The store's commits sync as every synced per-user store's do: each through
+/// `F_FULLFSYNC` on macOS, and its WAL stays beside it as its last
+/// connection closes (#2110).
+#[test]
+fn each_commit_syncs_through_fullfsync_on_macos_and_the_wal_stays_as_it_closes() {
+    let env = TestEnv::in_memory();
+    let store = store(&env);
+
+    let connection = store.open().unwrap();
+    let fullfsync: i64 = connection
+        .pragma_query_value(None, "fullfsync", |row| row.get(0))
+        .unwrap();
+    drop(connection);
+
+    assert_eq!(fullfsync, i64::from(cfg!(target_os = "macos")));
+    let mut wal = store.path().as_os_str().to_owned();
+    wal.push("-wal");
+    assert!(std::path::Path::new(&wal).exists());
+}

@@ -475,7 +475,12 @@ fn the_accounts_store_keeps_no_cookie() {
         let (_, secret) = signed_in.cookie().split_once('.').unwrap();
         let home = Home::new(env.home().to_path_buf());
 
-        let store = std::fs::read(home.accounts_store(&version("1.0.0"))).unwrap();
+        let path = home.accounts_store(&version("1.0.0"));
+        // Its WAL stays beside it as its connections close (#2110).
+        let mut store = std::fs::read(&path).unwrap();
+        let mut wal = path.into_os_string();
+        wal.push("-wal");
+        store.extend(std::fs::read(wal).unwrap_or_default());
 
         let text = String::from_utf8_lossy(&store);
         assert!(

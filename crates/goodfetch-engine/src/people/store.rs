@@ -21,14 +21,14 @@ use crate::sqlite_store::{
 /// How long a write waits for another connection's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// How its commits reach the disk: each synced, SQLite's default level,
-/// without `F_FULLFSYNC` on macOS, its WAL copied into the file as its last
-/// connection closes.
+/// How its commits reach the disk, as every synced per-user store's: each
+/// synced, through `F_FULLFSYNC` on macOS, and its WAL left as it is when a
+/// connection closes (#2110).
 const DURABILITY: Durability = Durability {
     synchronous: Synchronous::Full,
     opening: Synchronous::Full,
-    full_fsync: FullFsync::Off,
-    wal_on_close: WalOnClose::Checkpointed,
+    full_fsync: FullFsync::Commits,
+    wal_on_close: WalOnClose::Kept,
 };
 
 /// The tables of this version. A newer minor only adds tables and columns,
@@ -216,3 +216,6 @@ fn row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SignInRow> {
         wrapping_key: row.get(5)?,
     })
 }
+
+#[cfg(test)]
+mod tests;

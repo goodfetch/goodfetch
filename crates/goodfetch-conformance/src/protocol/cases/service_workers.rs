@@ -28,10 +28,9 @@ use goodfetch_protocol::page::{PAGE_GOTO, PageOpened};
 use goodfetch_protocol::run::RUN_FINISH;
 use serde_json::{Value, json};
 
-use super::clean_up::run_trace;
 use super::launch::{IDENTITY_HOST, reports};
 use super::routes::{glob, received};
-use super::{Checks, Site, finish_run, new_page, start_run};
+use super::{Checks, Site, finish_run, new_page, run_trace, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::{BROWSER_DEADLINE, EngineTarget};
 use crate::proving_ground::ReceivedRequests;
@@ -434,7 +433,7 @@ fn under_the_interception(
         ) == (1, 0, 0, 0),
     );
     watch.end(run_id, &[session_route, page_route])?;
-    let trace = run_trace(target, run_id);
+    let trace = checks.run_trace(run_trace::requests(target, run_id));
     let traced = |suffix: &str| {
         trace
             .iter()

@@ -25,9 +25,8 @@ use goodfetch_protocol::page::waits::{PAGE_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_URL}
 use goodfetch_protocol::page::{BLOCKED, BlockedDetails, LOCATOR_CLICK, PageOpened};
 use serde_json::{Value, json};
 
-use super::clean_up::{provenance, trace_lines};
 use super::navigation::url_on;
-use super::{Checks, Site, finish_run, new_page, start_run};
+use super::{Checks, Site, finish_run, new_page, run_trace, start_run};
 use crate::protocol::connection::{Connection, Gone, responded_with};
 use crate::protocol::hello_as;
 use crate::protocol::target::EngineTarget;
@@ -139,8 +138,8 @@ fn now() -> SystemTime {
 /// the Run's end cut short holds none. A Session opened in place of a
 /// blocked one names another Session ID and makes a second context in a
 /// browser already holding one.
-fn kept_one_session(target: &EngineTarget, run_id: &str) -> bool {
-    let commands = trace_lines(target, run_id, RUN_TRACE_CDP_COMMANDS);
+fn kept_one_session(target: &EngineTarget, run_id: &str, checks: &mut Checks) -> bool {
+    let commands = checks.run_trace(run_trace::lines_of(target, run_id, RUN_TRACE_CDP_COMMANDS));
     let sent = |method: &str| {
         commands
             .iter()
@@ -148,7 +147,8 @@ fn kept_one_session(target: &EngineTarget, run_id: &str) -> bool {
             .count()
     };
     let contexts = sent(NEW_CONTEXT);
-    let sessions: BTreeSet<String> = provenance(target, run_id)
+    let sessions: BTreeSet<String> = checks
+        .run_trace(run_trace::provenance(target, run_id))
         .iter()
         .filter_map(|entry| entry["session_id"].as_str().map(str::to_owned))
         .collect();
@@ -286,10 +286,8 @@ fn rate_limit(
             && storage_cookies(site, mark) == vec![json!([]), json!([["mark", mark]])],
     );
     finish_run(connection, run_id)?;
-    checks.check(
-        "the Run kept one Session: it was never replaced",
-        kept_one_session(target, run_id),
-    );
+    let kept = kept_one_session(target, run_id, checks);
+    checks.check("the Run kept one Session: it was never replaced", kept);
     politeness_names_nothing(
         target,
         "fetch-edge.test",
@@ -391,7 +389,8 @@ fn next_call(
         pages["result"]["pages"] == json!([page.page_id]),
     );
     finish_run(connection, run_id)?;
-    checks.check("the Run kept one Session", kept_one_session(target, run_id));
+    let kept = kept_one_session(target, run_id, checks);
+    checks.check("the Run kept one Session", kept);
     Ok(())
 }
 
@@ -574,9 +573,10 @@ fn meets_blocks(
         responded_with(&went, 200),
     );
     finish_run(connection, &run_id)?;
+    let kept = kept_one_session(target, &run_id, checks);
     checks.check(
         format!("the {owner}'s Run kept one Session: no block replaced it"),
-        kept_one_session(target, &run_id),
+        kept,
     );
     Ok(())
 }
@@ -620,10 +620,8 @@ fn access_policy(
         );
     }
     finish_run(connection, run_id)?;
-    checks.check(
-        "the Run kept one Session: no second one was opened",
-        kept_one_session(target, run_id),
-    );
+    let kept = kept_one_session(target, run_id, checks);
+    checks.check("the Run kept one Session: no second one was opened", kept);
     politeness_names_nothing(
         target,
         "access-policy.test",

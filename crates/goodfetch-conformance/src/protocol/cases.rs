@@ -35,6 +35,7 @@ mod proxy_limits;
 mod reset;
 mod robots_txt;
 mod routes;
+mod run_trace;
 mod service_workers;
 mod sessions;
 mod waits;
@@ -472,6 +473,14 @@ impl Checks {
                 None
             }
         }
+    }
+
+    /// What the case read of a Run's trace, or, when it could not, nothing
+    /// and a failed check naming why, so a check on what the Run never
+    /// recorded proves nothing alone.
+    fn run_trace<T: Default>(&mut self, read: Result<T, run_trace::Unread>) -> T {
+        self.needs("the Run trace can be read", read)
+            .unwrap_or_default()
     }
 }
 

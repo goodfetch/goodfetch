@@ -27,8 +27,8 @@ use goodfetch_protocol::settings::{CAPABILITY_UNAVAILABLE, SETTING_LOCKED};
 use serde_json::{Value, json};
 
 use super::super::navigation::call;
-use super::super::{Checks, Site, poll, start_run, user_configuration};
-use super::{ANSWER_WAIT, HOST, arrives, count, finish, open, refused, trace, visit};
+use super::super::{Checks, Site, poll, run_trace, start_run, user_configuration};
+use super::{ANSWER_WAIT, HOST, arrives, count, finish, open, refused, visit};
 use crate::protocol::connection::{Connection, Gone, code_of};
 
 /// How long a case waits for the runner's verdict on a page.
@@ -39,11 +39,15 @@ const WALLS: [(&str, &str); 2] = [("/wall", "wall"), ("/pay-or-accept", "pay-or-
 
 /// The Provenance entries of the Consent prompt runner on the Run
 /// `run_id`'s page `page`, each with its `answer`.
-fn consent_entries(home: Option<&str>, run_id: &str, page: &PageOpened) -> Vec<Value> {
-    trace(home, run_id, RUN_TRACE_PROVENANCE)
+fn consent_entries(
+    home: Option<&str>,
+    run_id: &str,
+    page: &PageOpened,
+) -> Result<Vec<Value>, run_trace::Unread> {
+    Ok(run_trace::lines(home, run_id, RUN_TRACE_PROVENANCE)?
         .into_iter()
         .filter(|line| line["action"] == json!("consent") && line["page_id"] == json!(page.page_id))
-        .collect()
+        .collect())
 }
 
 /// Waits until Provenance records the answer `answer` on the document at
@@ -53,17 +57,17 @@ pub(super) fn recorded(
     run_id: &str,
     page: &PageOpened,
     (path, answer): (&str, &str),
-) -> Option<Value> {
-    poll::until(
+) -> Result<Option<Value>, run_trace::Unread> {
+    poll::try_until(
         VERDICT_WAIT,
         Duration::from_millis(200),
         || {
-            consent_entries(home, run_id, page)
+            Ok(consent_entries(home, run_id, page)?
                 .into_iter()
                 .find(|line| {
                     line["answer"] == json!(answer)
                         && line["url"].as_str().is_some_and(|url| url.ends_with(path))
-                })
+                }))
         },
         Option::is_some,
     )
@@ -115,7 +119,7 @@ fn blocked_at(
         &json!(page.page_id),
         &json!({ "url": url }),
     )?;
-    let entry = recorded(home, run_id, page, (path, "wall"));
+    let entry = checks.run_trace(recorded(home, run_id, page, (path, "wall")));
     checks.check(
         format!("Provenance records the prompt at {path} as a wall, `consent_required`"),
         entry
@@ -331,7 +335,7 @@ fn accepted_on(
         "on a domain in `consent.domains`, the wall is accepted through a trusted click",
         arrives(site, "/consent/answered", accept, before, ANSWER_WAIT),
     );
-    let entry = recorded(home, run_id, &page, ("/wall", "accepted"));
+    let entry = checks.run_trace(recorded(home, run_id, &page, ("/wall", "accepted")));
     checks.check(
         "Provenance records the acceptance, its domain and its approval, `consent.domains` in user configuration",
         entry.as_ref().is_some_and(|entry| {

@@ -27,9 +27,8 @@ use goodfetch_protocol::page::waits::PAGE_WAIT_FOR_URL;
 use goodfetch_protocol::page::{LOCATOR_CLICK, PAGE_GOTO, PageOpened};
 use serde_json::{Value, json};
 
-use super::clean_up::provenance;
 use super::navigation::{answered, call};
-use super::{Checks, Site, finish_run, new_page, poll, start_run};
+use super::{Checks, Site, finish_run, new_page, poll, run_trace, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::EngineTarget;
 
@@ -135,7 +134,7 @@ fn disallowed(
         let answer = call(connection, PAGE_GOTO.name, &page_id, &json!({ "url": url }))?;
         answered(&answer, &format!("`goto` to {url}"), url, 200, checks);
     }
-    let entries = readings(target, run_id, 2);
+    let entries = readings(target, run_id, 2, checks);
     let of = |path: &str| {
         entries
             .iter()
@@ -196,7 +195,7 @@ fn past_the_size(
     let page_id = json!(page.page_id);
     let answer = call(connection, PAGE_GOTO.name, &page_id, &json!({ "url": url }))?;
     answered(&answer, &format!("`goto` to {url}"), &url, 200, checks);
-    let entries = readings(target, run_id, 1);
+    let entries = readings(target, run_id, 1, checks);
     checks.check(
         "Provenance records the robots.txt unreachable, past `network.max_body_size`, and the page disallowed",
         entries.first().is_some_and(|entry| {
@@ -296,7 +295,7 @@ fn own_copy(
             let answer = call(connection, PAGE_GOTO.name, &page_id, &json!({ "url": url }))?;
             answered(&answer, &format!("`goto` to {url}"), url, 200, checks);
         }
-        let read = readings(target, run_id, 3);
+        let read = readings(target, run_id, 3, checks);
         checks.check(
             format!(
                 "Run {}: Provenance records each of its three pages",
@@ -391,7 +390,7 @@ fn every_document(
         "a script's `location.assign` navigates the page to the page it names",
         reached,
     );
-    let entries = readings(target, run_id, 3);
+    let entries = readings(target, run_id, 3, checks);
     for path in [CLICKED, SCRIPTED] {
         checks.check(
             format!("Provenance records {path} not allowed by robots.txt, naming its rule"),
@@ -435,7 +434,7 @@ fn page_request(
         "the `page.request` answers its response",
         answer["result"]["url"] == json!(requested),
     );
-    let entries = readings(target, run_id, 1);
+    let entries = readings(target, run_id, 1, checks);
     checks.check(
         "Provenance records the requested page not allowed by robots.txt, naming its rule",
         reading_of(&entries, REQUESTED).is_some_and(|entry| {
@@ -502,7 +501,7 @@ fn not_read(
         200,
         checks,
     );
-    let entries = readings(target, run_id, 2);
+    let entries = readings(target, run_id, 2, checks);
     let of = |page: &PageOpened| {
         entries
             .iter()
@@ -562,18 +561,18 @@ fn reading_of<'a>(entries: &'a [Value], path: &str) -> Option<&'a Value> {
 
 /// The Run `run_id`'s robots.txt readings in Provenance, once there are
 /// `count` of them or the wait ended.
-fn readings(target: &EngineTarget, run_id: &str, count: usize) -> Vec<Value> {
-    poll::until(
+fn readings(target: &EngineTarget, run_id: &str, count: usize, checks: &mut Checks) -> Vec<Value> {
+    checks.run_trace(poll::try_until(
         RECORDED_WITHIN,
         Duration::from_millis(100),
         || {
-            provenance(target, run_id)
+            Ok(run_trace::provenance(target, run_id)?
                 .into_iter()
                 .filter(|entry| entry["action"] == json!(ACTION))
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>())
         },
         |read| read.len() >= count,
-    )
+    ))
 }
 
 /// Each request the Proving ground received on the site's host, its

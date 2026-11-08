@@ -17,10 +17,8 @@
 //! trace the engine writes, its Provenance log included. The retries with
 //! blocking off (ticket #716) are `blocking_off`'s.
 
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use goodfetch_protocol::home::{RUN_TRACE_PROVENANCE, RUN_TRACE_REQUESTS, RUNS};
 use goodfetch_protocol::page::NAVIGATION_FAILED;
 use goodfetch_protocol::page::events as page_events;
 use goodfetch_protocol::page::route::{PAGE_ROUTE, ROUTE_CONTINUE};
@@ -33,7 +31,7 @@ use serde_json::{Value, json};
 use super::blocking_off;
 use super::navigation::{answered, call, failed_with};
 use super::routes::{Act, Routes, glob, goto};
-use super::{Checks, Site, new_page, poll, start_run};
+use super::{Checks, Site, new_page, poll, run_trace, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::EngineTarget;
 
@@ -205,49 +203,6 @@ pub(super) fn finish(connection: &mut Connection, run_id: &str) -> Result<Value,
     Ok(connection.browser_answer(id)?.message)
 }
 
-/// The lines of the Run `run_id`'s request log in the Run trace, under the
-/// Goodfetch home `target` names: `<home>/<major>/runs/<run_id>/trace/`.
-pub(super) fn run_trace(target: &EngineTarget, run_id: &str) -> Vec<Value> {
-    trace_lines(target, run_id, RUN_TRACE_REQUESTS)
-}
-
-/// The lines of the Run `run_id`'s Provenance log in the Run trace.
-pub(super) fn provenance(target: &EngineTarget, run_id: &str) -> Vec<Value> {
-    trace_lines(target, run_id, RUN_TRACE_PROVENANCE)
-}
-
-/// The lines of the Run trace's file `file` of the Run `run_id`.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the harness is synchronous and runs no async worker"
-)]
-pub(super) fn trace_lines(target: &EngineTarget, run_id: &str, file: &str) -> Vec<Value> {
-    let Some(home) = target.environment.get("GOODFETCH_HOME") else {
-        return Vec::new();
-    };
-    std::fs::read_dir(home)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|major| major.path().join(RUNS).join(run_id).join(file))
-        .filter(|file| file.is_file())
-        .flat_map(|file: PathBuf| lines(&file))
-        .collect()
-}
-
-/// The JSON lines of `file`.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the harness is synchronous and runs no async worker"
-)]
-fn lines(file: &Path) -> Vec<Value> {
-    std::fs::read_to_string(file)
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|line| serde_json::from_str(line).ok())
-        .collect()
-}
-
 /// By default the `/ads` page's own style sheet, script and photo load and
 /// its ad, tracker and annoyance do not, each recorded in the Run trace as
 /// failed with `net::ERR_BLOCKED_BY_CLIENT`; a document a Filter list
@@ -291,7 +246,7 @@ fn blocked(
         received(site, BLOCKED_DOCUMENT) == 0,
     );
     finish(connection, run_id)?;
-    let trace = run_trace(target, run_id);
+    let trace = checks.run_trace(run_trace::requests(target, run_id));
     for path in [AD, TRACKER, ANNOYANCE] {
         checks.check(
             format!("the Run trace records {path} failed as `{BLOCKED_BY_CLIENT}`"),
@@ -692,7 +647,7 @@ fn hidden_text_removed(
         read[1].contains("The article's own text") && !read[1].contains("A light ad"),
     );
     finish(connection, run_id)?;
-    let lines = provenance(target, run_id);
+    let lines = checks.run_trace(run_trace::provenance(target, run_id));
     let hiding = removals_of(&lines, "/hiding");
     checks.check(
         "Provenance records `/hiding`'s ad removed by `.ad-slot`, unflagged",
@@ -753,7 +708,7 @@ fn removal_share_measures(
             markdown(connection, &page)?;
         }
         finish(connection, &run_id)?;
-        let lines = provenance(target, &run_id);
+        let lines = checks.run_trace(run_trace::provenance(target, &run_id));
         let [hiding, removal] = ["/hiding", "/removal"].map(|path| {
             removals_of(&lines, path).first().map(|line| {
                 (
@@ -820,7 +775,7 @@ fn hiding_sheet_unseen(
         frame.as_deref() == Some(FRAME_HIDDEN_UNSEEN),
     );
     finish(connection, run_id)?;
-    let lines = provenance(target, run_id);
+    let lines = checks.run_trace(run_trace::provenance(target, run_id));
     checks.check(
         "Provenance records live hiding as `auto` on the page",
         lines
@@ -880,7 +835,7 @@ fn hidden_target_lifted(
         seen.as_deref() == Some(SHOWN),
     );
     finish(connection, run_id)?;
-    let lines = provenance(target, run_id);
+    let lines = checks.run_trace(run_trace::provenance(target, run_id));
     checks.check(
         "Provenance records the rule lifted for the click",
         lines.iter().any(|line| {
@@ -927,7 +882,7 @@ fn live_hiding_modes(
             read.contains(ARTICLE_TEXT) && !read.contains(AD_TEXT),
         );
         finish(connection, &run_id)?;
-        let lines = provenance(target, &run_id);
+        let lines = checks.run_trace(run_trace::provenance(target, &run_id));
         checks.check(
             format!("Provenance records live hiding as `{mode}`"),
             lines

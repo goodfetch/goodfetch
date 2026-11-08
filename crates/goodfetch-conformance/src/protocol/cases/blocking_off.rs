@@ -20,10 +20,10 @@ use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
 use goodfetch_protocol::page::{NAVIGATION_FAILED, PAGE_CHECK_FAILED, PageOpened};
 use serde_json::{Value, json};
 
-use super::clean_up::{AD, ANNOYANCE, HOST, TRACKER, counts, finish, provenance, received, visit};
+use super::clean_up::{AD, ANNOYANCE, HOST, TRACKER, counts, finish, received, visit};
 use super::navigation::{answered, call};
 use super::routes::{Act, Routes, glob, goto};
-use super::{Checks, Site, new_page, start_run};
+use super::{Checks, Site, new_page, run_trace, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::EngineTarget;
 
@@ -113,8 +113,14 @@ fn open_in_session(
 
 /// The Run `run_id`'s Provenance entries of pages loaded with blocking off
 /// whose URL ends with `path`.
-fn blocking_off(target: &EngineTarget, run_id: &str, path: &str) -> Vec<Value> {
-    provenance(target, run_id)
+fn blocking_off(
+    target: &EngineTarget,
+    run_id: &str,
+    path: &str,
+    checks: &mut Checks,
+) -> Vec<Value> {
+    checks
+        .run_trace(run_trace::provenance(target, run_id))
         .into_iter()
         .filter(|line| {
             line["action"] == json!(BLOCKING_OFF)
@@ -180,15 +186,17 @@ fn learned_off(
         counts(site, [AD, TRACKER, ANNOYANCE]) == blocked.map(|count| count + 1),
     );
     finish(connection, run_id)?;
+    let retried = blocking_off(target, run_id, NEEDS_SCRIPT, checks);
     checks.check(
         "Provenance records the retry with blocking off, after the failed Page check, and that blocking was learned off",
-        blocking_off(target, run_id, NEEDS_SCRIPT)
+        retried
             .iter()
             .any(|entry| names(entry, &checked, "page_check_failed", Some(true))),
     );
+    let later = blocking_off(target, run_id, "/ads", checks);
     checks.check(
         "Provenance records that the later page was loaded with blocking learned off",
-        blocking_off(target, run_id, "/ads")
+        later
             .iter()
             .any(|entry| names(entry, &other, "learned", None)),
     );
@@ -239,9 +247,10 @@ fn retry_failed(
         routes.handled.len() == 2,
     );
     finish(connection, run_id)?;
+    let retried = blocking_off(target, run_id, "/ads?retry=fails", checks);
     checks.check(
         "Provenance records the failed retry with blocking off, blocking not learned off",
-        blocking_off(target, run_id, "/ads?retry=fails")
+        retried
             .iter()
             .any(|entry| names(entry, &checked, "page_check_failed", Some(false))),
     );
@@ -292,7 +301,7 @@ fn not_learned_off(
         received(site, AD) == before[1] + 1,
     );
     finish(connection, run_id)?;
-    let entries = blocking_off(target, run_id, "/ads");
+    let entries = blocking_off(target, run_id, "/ads", checks);
     checks.check(
         "Provenance records the retry with blocking off, after the failed Page check, and that blocking was not learned off",
         entries
@@ -359,9 +368,10 @@ fn challenge(
         counts(site, [LISTED_CHALLENGE, CLEARING_SCRIPT]) == [before[0] + 3, before[1] + 2],
     );
     finish(connection, run_id)?;
+    let retried = blocking_off(target, run_id, LISTED_CHALLENGE, checks);
     checks.check(
         "Provenance records the retry with blocking off, after the lists touched a challenge, and that blocking was learned off",
-        blocking_off(target, run_id, LISTED_CHALLENGE)
+        retried
             .iter()
             .any(|entry| names(entry, &page, "challenge", Some(true))),
     );

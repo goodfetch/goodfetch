@@ -32,6 +32,10 @@ const READS_OBSERVATIONS: &str = "the-socks5-proxy-credentials-reach-it-through-
 /// back.
 const CONFIGURES: &str = "a-block-never-replaces-the-programs-or-the-agents-session";
 
+/// A case that reads its Run's Provenance whatever the target answers.
+const READS_THE_TRACE: &str =
+    "the-run-trace-holds-each-formats-call-with-the-rules-version-and-what-they-removed";
+
 /// A suite of `cases`, in order, on Foxhound's executable or Collie's, one
 /// capability each.
 fn suite(product: &str, cases: &[&str]) -> ProtocolSuite {
@@ -305,6 +309,115 @@ fn a_daemon_that_refuses_the_stop_gives_up_the_document() {
     assert!(
         matches!(refused, ProtocolSuiteError::NotStopped { .. }),
         "{refused}"
+    );
+}
+
+/// Where the case [`READS_THE_TRACE`] reads its Run's Provenance, under a major
+/// folder of `env`'s home.
+fn provenance_of_the_case(env: &TestEnv) -> std::path::PathBuf {
+    let file = env
+        .home()
+        .join("major")
+        .join(goodfetch_protocol::home::RUNS)
+        .join("conformance-formats-trace")
+        .join(goodfetch_protocol::home::RUN_TRACE_PROVENANCE);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    file
+}
+
+/// What a case's checks say of a Run trace it could not read is no evidence:
+/// "`Runtime.enable` was never sent" would hold of a lost line. So the case
+/// fails, naming why, whatever else it checks.
+#[rstest]
+#[case::a_line_that_is_no_json(b"{\"action\":\"other\"}\nnot json\n", "line 2 of ")]
+#[case::bytes_that_are_no_text(b"\xff\xfe\n", "line 1 of ")]
+fn a_run_trace_with_a_bad_line_fails_the_case_naming_the_line(
+    #[case] written: &[u8],
+    #[case] why: &str,
+) {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    let target = stand_in_target(&env, HANDLER_REQUEST);
+    std::fs::write(provenance_of_the_case(&env), written).unwrap();
+
+    let document = run_protocol_suite(
+        &suite("collie", &[READS_THE_TRACE]),
+        &target,
+        &proving_ground,
+    )
+    .unwrap();
+
+    let (outcome, failed) = failed_checks(&document, READS_THE_TRACE);
+    assert_eq!(outcome, CaseOutcome::Failed);
+    assert!(
+        failed
+            .iter()
+            .any(|name| { name.starts_with("the Run trace can be read (") && name.contains(why) }),
+        "{failed:?}"
+    );
+}
+
+/// A file the case cannot read at all is the same failure as a bad line, and
+/// so is a target whose home the harness cannot find.
+#[rstest]
+#[case::a_folder_in_the_files_place(true)]
+#[case::no_home(false)]
+fn a_run_trace_that_cannot_be_opened_fails_the_case(#[case] with_home: bool) {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    let mut target = stand_in_target(&env, HANDLER_REQUEST);
+    std::fs::create_dir_all(provenance_of_the_case(&env)).unwrap();
+    if !with_home {
+        target.environment.remove("GOODFETCH_HOME");
+    }
+
+    let document = run_protocol_suite(
+        &suite("collie", &[READS_THE_TRACE]),
+        &target,
+        &proving_ground,
+    )
+    .unwrap();
+
+    let (outcome, failed) = failed_checks(&document, READS_THE_TRACE);
+    assert_eq!(outcome, CaseOutcome::Failed);
+    assert!(
+        failed
+            .iter()
+            .any(|name| name.starts_with("the Run trace can be read (")),
+        "{failed:?}"
+    );
+}
+
+/// A Run that has not written its trace yet, or is partway through a line, has
+/// lost nothing: a read of it is no failure, and the line counts once whole.
+#[rstest]
+#[case::no_file(None)]
+#[case::a_last_line_partly_written(Some(b"{\"action\":\"other\"}\n{\"act".as_slice()))]
+fn a_run_trace_not_yet_written_is_no_failure_to_read(#[case] written: Option<&[u8]>) {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    let target = stand_in_target(&env, HANDLER_REQUEST);
+    let file = provenance_of_the_case(&env);
+    if let Some(written) = written {
+        std::fs::write(file, written).unwrap();
+    }
+
+    let document = run_protocol_suite(
+        &suite("collie", &[READS_THE_TRACE]),
+        &target,
+        &proving_ground,
+    )
+    .unwrap();
+
+    let (_, failed) = failed_checks(&document, READS_THE_TRACE);
+    assert!(
+        !failed
+            .iter()
+            .any(|name| name.starts_with("the Run trace can be read (")),
+        "{failed:?}"
     );
 }
 

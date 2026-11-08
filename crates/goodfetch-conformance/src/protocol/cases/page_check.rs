@@ -23,9 +23,8 @@ use goodfetch_protocol::page::{
 };
 use serde_json::{Value, json};
 
-use super::clean_up::provenance;
 use super::navigation::url_on;
-use super::{Checks, Site, finish_run, new_page, start_run};
+use super::{Checks, Site, finish_run, new_page, run_trace, start_run};
 use crate::protocol::connection::{Connection, Gone, responded_with};
 use crate::protocol::target::EngineTarget;
 use crate::proving_ground::TaskAccount;
@@ -363,7 +362,7 @@ fn built_in(
             && next["error"]["data"]["judged_by"] == json!("built_in"),
     );
     finish_run(connection, run_id)?;
-    let lines = provenance(target, run_id);
+    let lines = checks.run_trace(run_trace::provenance(target, run_id));
     let marked = |path: &str, verdict: &str| {
         lines.iter().any(|line| {
             line["action"] == json!(WEAKLY_CHECKED)

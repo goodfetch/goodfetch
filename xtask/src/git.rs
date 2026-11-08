@@ -15,12 +15,12 @@ use std::process::Command;
 
 /// The variables that name a repository or a part of one, which Git itself
 /// clears before it enters another repository (`git rev-parse
-/// --local-env-vars`, Git 2.53).
-const REPOSITORY_VARIABLES: [&str; 15] = [
+/// --local-env-vars`, Git 2.53). That list's `GIT_CONFIG_PARAMETERS` and
+/// `GIT_CONFIG_COUNT` stay set: they carry settings, not a repository, and
+/// are how a container's script names its workspace `safe.directory`.
+const REPOSITORY_VARIABLES: [&str; 13] = [
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_CONFIG",
-    "GIT_CONFIG_PARAMETERS",
-    "GIT_CONFIG_COUNT",
     "GIT_OBJECT_DIRECTORY",
     "GIT_DIR",
     "GIT_WORK_TREE",

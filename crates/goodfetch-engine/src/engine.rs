@@ -146,14 +146,7 @@ impl Engine {
     /// The same, recording the runtime's metrics on `metrics` (ADR 0050).
     #[must_use]
     pub fn with_metrics(mut self, metrics: Metrics) -> Self {
-        self.dispatch = Arc::new(Dispatch {
-            identity: Arc::clone(&self.dispatch.identity),
-            handlers: self.dispatch.handlers.clone(),
-            drivers: Arc::clone(&self.dispatch.drivers),
-            log_events: self.dispatch.log_events.clone(),
-            masks: self.dispatch.masks.clone(),
-            work: metrics.counted_work().clone(),
-        });
+        Arc::make_mut(&mut self.dispatch).work = metrics.counted_work().clone();
         self.metrics = metrics;
         self
     }
@@ -172,14 +165,7 @@ impl Engine {
     /// at the level the Connection asks for.
     #[must_use]
     pub fn with_log_events(mut self, log_events: LogEvents) -> Self {
-        self.dispatch = Arc::new(Dispatch {
-            identity: Arc::clone(&self.dispatch.identity),
-            handlers: self.dispatch.handlers.clone(),
-            drivers: Arc::clone(&self.dispatch.drivers),
-            log_events: Some(log_events),
-            masks: self.dispatch.masks.clone(),
-            work: self.dispatch.work.clone(),
-        });
+        Arc::make_mut(&mut self.dispatch).log_events = Some(log_events);
         self
     }
 
@@ -188,14 +174,7 @@ impl Engine {
     /// (spec #564); without it the engine masks with its own.
     #[must_use]
     pub fn with_masks(mut self, masks: Masks) -> Self {
-        self.dispatch = Arc::new(Dispatch {
-            identity: Arc::clone(&self.dispatch.identity),
-            handlers: self.dispatch.handlers.clone(),
-            drivers: Arc::clone(&self.dispatch.drivers),
-            log_events: self.dispatch.log_events.clone(),
-            masks,
-            work: self.dispatch.work.clone(),
-        });
+        Arc::make_mut(&mut self.dispatch).masks = masks;
         self
     }
 
@@ -375,6 +354,7 @@ impl Engine {
             self.identity().product,
             owner,
             &dependencies,
+            self.metrics.counted_work().clone(),
         );
         let governor = self.governor(&settings, dependencies.clock, owner, &events);
         let needs_you = NeedsYou::start(
@@ -885,18 +865,16 @@ async fn write_managed(context: EngineContext, version: ProductVersion) {
     }
 }
 
-/// Sends each of the Resource governor's samples as `engine.system_info`
-/// to the subscriptions that take it, and records it in the runtime's
-/// metrics, until `token` is cancelled.
 /// The engine's settings, whose host defaults are the keychain's and
-/// Chromium's sandbox probe's. The probe starts now, at startup, once for
-/// the process (ADR 0049); the host's defaults wait for its answer, which
-/// each browser launch reads.
+/// Chromium's sandbox probe's, their reads counted on `work`. The probe
+/// starts now, at startup, once for the process (ADR 0049); the host's
+/// defaults wait for its answer, which each browser launch reads.
 fn host_settings(
     files: SettingsFiles,
     product: goodfetch_protocol::catalog::Product,
     owner: &TaskOwner,
     dependencies: &Dependencies,
+    work: CountedWork,
 ) -> Settings {
     let probing = Arc::new(owner.child());
     let environment = Arc::new(dependencies.environment.clone());
@@ -911,7 +889,6 @@ fn host_settings(
         });
     }
     let keychain = dependencies.keychain.clone();
-    let work = dependencies.run_state.work.clone();
     Settings::with_host(files, product, owner.child(), work, move || {
         let keychain = keychain.clone();
         let (probing, environment) = (Arc::clone(&probing), Arc::clone(&environment));
@@ -924,6 +901,9 @@ fn host_settings(
     })
 }
 
+/// Sends each of the Resource governor's samples as `engine.system_info`
+/// to the subscriptions that take it, and records it in the runtime's
+/// metrics, until `token` is cancelled.
 async fn report_samples(
     mut samples: watch::Receiver<Option<SystemInfo>>,
     events: Events,

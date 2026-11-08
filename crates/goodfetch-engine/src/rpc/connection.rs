@@ -104,6 +104,7 @@ const LINGER: Duration = Duration::from_secs(2);
 const UNKNOWN_METHOD: &str = "(unknown)";
 
 /// What every Connection of an engine dispatches to.
+#[derive(Clone)]
 pub(crate) struct Dispatch {
     pub(crate) identity: Arc<Identity>,
     pub(crate) handlers: BTreeMap<&'static str, Handler>,

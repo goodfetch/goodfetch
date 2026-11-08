@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::{
-    Call, Generated, NAMESPACES, Namespace, Offer, OwnCommands, command, duration, member, members,
-    members_of, offer,
+    BOUND, Call, Generated, NAMESPACES, Namespace, Offer, OwnCommands, bound_of, command, duration,
+    member, members, members_of, offer,
 };
 use crate::executable::engine_choice::{Choice, Lifetime};
 
@@ -102,6 +102,14 @@ fn an_operation_is_a_command_by_its_kind_and_reach(
     #[case] offered: Option<Offer>,
 ) {
     assert_eq!(offer(&operation), offered);
+}
+
+/// The read that bounds a sequence of what a crawl committed is written by
+/// its name here, so a rename fails on this test and not on the first crawl
+/// that reads such a sequence.
+#[test]
+fn the_read_that_bounds_a_committed_sequence_is_one_of_foxhounds_operations() {
+    assert_eq!(bound_of(Product::Foxhound).name, BOUND);
 }
 
 /// Covers: story:11-198, story:11-218

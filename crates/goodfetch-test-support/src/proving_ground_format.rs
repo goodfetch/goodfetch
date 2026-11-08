@@ -2,11 +2,13 @@
 //! 0063). The serve line, the routes, the tool status and the requests `GET
 //! /observations` lists are the Proving ground's own source,
 //! `proving-ground/src/interface.rs`, compiled here too, as the conformance
-//! harness compiles it; what a test submits to the oracle is written here,
-//! and the Proving ground's own tests check every observations document
-//! they read against them. `xtask
-//! codegen` commits their JSON Schemas and the route list, which the
-//! TypeScript and Python test support read.
+//! harness compiles it. What a test submits to the oracle and the whole
+//! observations document are written here: the oracle has a `Submission` of
+//! its own, of which only `ToolStatus` is shared, and the Proving ground's own
+//! tests check every observations document they read against this one.
+//! `xtask codegen` commits their JSON Schemas and the route list. The
+//! TypeScript and Python test support read the route list, and one Python test
+//! the serve line's and oracle submission's schemas.
 
 use std::collections::BTreeMap;
 

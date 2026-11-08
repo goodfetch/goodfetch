@@ -26,7 +26,7 @@ impl ReceivedRequests {
     /// Proving ground's format does not describe.
     pub fn of(observations: &Value) -> Self {
         Self::read(observations).unwrap_or_else(|error| {
-            panic!("the observations hold no list of requests ({error}): {observations}")
+            panic!("the observations' requests cannot be read ({error}): {observations}")
         })
     }
 }

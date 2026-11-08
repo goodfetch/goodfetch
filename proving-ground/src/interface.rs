@@ -5,10 +5,12 @@
 //! and reads the first three through these types; test support
 //! (`goodfetch-test-support`'s `proving_ground_format`) and the conformance
 //! harness compile this same file, since the Proving ground takes no
-//! Goodfetch crate in its release build, and
-//! `xtask codegen` commits their JSON Schemas and route list for the
-//! TypeScript and Python test support. A renamed field fails to compile or
-//! to validate instead of failing a test far away at run time.
+//! Goodfetch crate in its release build, and `xtask codegen` commits JSON
+//! Schemas and the route list from it. In the Rust that reads through these
+//! types a renamed field fails to compile. The TypeScript and Python test
+//! support read only the route list, and one Python test the serve line's
+//! and oracle submission's schemas, so a test there that spells a route or
+//! reads the serve line itself finds a rename when it runs.
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -91,9 +93,7 @@ pub struct FixtureAddresses {
 }
 
 /// A forward proxy's Basic credentials, derived from the seed.
-#[derive(
-    Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
-)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProxyCredentials {
     /// The username.

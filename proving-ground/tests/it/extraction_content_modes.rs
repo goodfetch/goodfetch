@@ -90,29 +90,30 @@ fn the_hand_written_forms_as_another_serializer_writes_them_are_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let origin = origin(start_url(&task(&proving_ground, TASK))).to_owned();
 
-    let answer = proving_ground.judge(&submission(TASK, "success", &records(|_, record| {
-            let main = record["html_main"]
+    let rewritten = records(|_, record| {
+        let main = record["html_main"]
+            .as_str()
+            .unwrap()
+            .replace("href=\"/", &format!("href=\"{origin}/"));
+        record["html_main"] = json!(format!(
+            "<div id=\"readability-page-1\" class=\"page\"><div>\n<article>{main}</article></div></div>"
+        ));
+        record["text"] = json!(
+            record["text"]
                 .as_str()
                 .unwrap()
-                .replace("href=\"/", &format!("href=\"{origin}/"));
-            record["html_main"] = json!(format!(
-                "<div id=\"readability-page-1\" class=\"page\"><div>\n<article>{main}</article></div></div>"
-            ));
-            record["text"] = json!(
-                record["text"]
-                    .as_str()
-                    .unwrap()
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            );
-            record["markdown_full"] = json!(
-                record["markdown_full"]
-                    .as_str()
-                    .unwrap()
-                    .replace("\n- ", "\n* ")
-            );
-        })));
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        record["markdown_full"] = json!(
+            record["markdown_full"]
+                .as_str()
+                .unwrap()
+                .replace("\n- ", "\n* ")
+        );
+    });
+    let answer = proving_ground.judge(&submission(TASK, "success", &rewritten));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }

@@ -41,8 +41,10 @@ pub const UNSHAPED: &str = "none";
 
 /// The arguments of `serve` for a test's Proving ground on `seed`: the
 /// local copy, bound to `address`, under the network profile
-/// `network_profile`. Every test that starts the Proving ground spells its
-/// command line through it, so a renamed flag fails one place.
+/// `network_profile`. The Rust tests that start the Proving ground spell its
+/// command line through it, so a renamed flag fails there in one place. The
+/// TypeScript and Python Journey document tests, `xtask rss` and the scale
+/// measurement spell theirs.
 pub fn serve_arguments(seed: u64, address: &str, network_profile: &str) -> [String; 9] {
     [
         "serve".to_owned(),

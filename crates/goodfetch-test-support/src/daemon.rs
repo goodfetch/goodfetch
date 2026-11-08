@@ -148,8 +148,8 @@ impl Daemon {
         &self.endpoint
     }
 
-    /// Its process ID, such as for reading its peak resident memory while it
-    /// runs.
+    /// Its process ID, such as for reading its private resident memory while
+    /// it runs.
     pub fn pid(&self) -> u32 {
         self.process.child().id()
     }

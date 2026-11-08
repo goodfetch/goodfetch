@@ -343,13 +343,21 @@ fn content_coding_pages_are_labelled_as_adr_0119_lists() {
     let failed = proving_ground.judge(
         &json!({ "task": "content-coding/1", "status": "failure", "error": decoding_failed }),
     );
-    let other_error = proving_ground.judge(&json!({ "task": "content-coding/6", "status": "failure", "error": { "code": "response_truncated" } }));
+    let other_error = proving_ground.judge(&json!({
+        "task": "content-coding/6",
+        "status": "failure",
+        "error": { "code": "response_truncated" },
+    }));
     let read = proving_ground.judge(&json!({
-            "task": "content-coding/3",
-            "status": "success",
-            "records": [{ "id": "C-3", "text": "Content coding page 3, decoded once and as labelled." }],
-        }));
-    let garbled = proving_ground.judge(&json!({ "task": "content-coding/7", "status": "success", "records": [{ "id": "C-7", "text": "(\u{fffd}/\u{fffd}" }] }));
+        "task": "content-coding/3",
+        "status": "success",
+        "records": [{ "id": "C-3", "text": "Content coding page 3, decoded once and as labelled." }],
+    }));
+    let garbled = proving_ground.judge(&json!({
+        "task": "content-coding/7",
+        "status": "success",
+        "records": [{ "id": "C-7", "text": "(\u{fffd}/\u{fffd}" }],
+    }));
     assert_eq!(failed["outcome"], "verified", "{failed}");
     assert_eq!(other_error["outcome"], "failed", "{other_error}");
     assert_eq!(other_error["wrong_error"]["expected"], decoding_failed);

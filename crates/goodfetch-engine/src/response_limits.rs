@@ -279,6 +279,12 @@ impl Decoding {
     }
 }
 
+/// The two bytes a gzip stream opens with (RFC 1952).
+pub const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
+
+/// The four bytes a zstd frame opens with (RFC 8878).
+pub const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
+
 /// A content coding the engine decodes, as Chrome decodes it: every tier
 /// that reads a body names its codings with this one rule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

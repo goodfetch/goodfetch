@@ -36,11 +36,6 @@ pub(crate) fn name(form: EquivalentForm) -> &'static str {
     }
 }
 
-/// The form [`name`] writes `name`.
-pub(crate) fn named(name: &str) -> Option<EquivalentForm> {
-    FORMS.into_iter().find(|form| self::name(*form) == name)
-}
-
 /// The host a rule of `form` learned on `url` holds on: the bare host for
 /// `www`, `url`'s host for the others.
 pub(crate) fn rule_host(form: EquivalentForm, url: &Url) -> Option<String> {

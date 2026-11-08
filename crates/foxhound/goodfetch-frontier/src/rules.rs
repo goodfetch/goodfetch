@@ -171,6 +171,9 @@ const MATCHING_FORM_PAIRS: i64 = 2;
 /// teach that form.
 const CANONICAL_PAGES: i64 = 3;
 
+// The kinds' names as the run file writes them: the protocol's, which
+// [`learned_rules`] reads them back by, so a name that drifts from the
+// protocol's fails to read rather than name another kind.
 const NO_EFFECT_PARAMETER: &str = "no_effect_parameter";
 const TRAP_PATH: &str = "trap_path";
 const CURSOR_PAGINATION: &str = "cursor_pagination";
@@ -1239,12 +1242,8 @@ pub fn learned_rules(connection: &Connection) -> rusqlite::Result<Vec<LearnedRul
         .prepare_cached("SELECT url FROM learned_merges WHERE rule = ?1 ORDER BY rowid")?;
     let mut learned = Vec::with_capacity(rules.len());
     for (id, kind, host, path, parameter, form, evidence, contradiction) in rules {
-        let kind = match kind.as_str() {
-            NO_EFFECT_PARAMETER => LearnedRuleKind::NoEffectParameter,
-            TRAP_PATH => LearnedRuleKind::TrapPath,
-            EQUIVALENT_FORM => LearnedRuleKind::EquivalentForm,
-            _ => LearnedRuleKind::CursorPagination,
-        };
+        let kind = kind_named(&kind)?;
+        let form = (!form.is_empty()).then(|| form_named(&form)).transpose()?;
         let urls = merges
             .query_map([id], |row| row.get(0))?
             .collect::<rusqlite::Result<Vec<String>>>()?;
@@ -1253,13 +1252,40 @@ pub fn learned_rules(connection: &Connection) -> rusqlite::Result<Vec<LearnedRul
             host,
             path: (!path.is_empty()).then_some(path),
             parameter: (!parameter.is_empty()).then_some(parameter),
-            form: forms::named(&form),
+            form,
             evidence,
             contradiction,
             merged: urls,
         });
     }
     Ok(learned)
+}
+
+/// The kind of learned rule the run file names `name`, as the protocol
+/// spells it.
+///
+/// # Errors
+///
+/// A conversion failure for a name the protocol does not have: a row the
+/// run file should not hold is never read as another kind.
+fn kind_named(name: &str) -> rusqlite::Result<LearnedRuleKind> {
+    serde_json::from_value(serde_json::Value::from(name)).map_err(|error| unread(1, error))
+}
+
+/// The equivalent form the run file names `name`, as the protocol spells
+/// it.
+///
+/// # Errors
+///
+/// A conversion failure for a name the protocol does not have.
+fn form_named(name: &str) -> rusqlite::Result<EquivalentForm> {
+    serde_json::from_value(serde_json::Value::from(name)).map_err(|error| unread(5, error))
+}
+
+/// The failure to read column `column` of a learned rule, whose name
+/// `error` says the protocol does not have.
+fn unread(column: usize, error: serde_json::Error) -> rusqlite::Error {
+    rusqlite::Error::FromSqlConversionFailure(column, rusqlite::types::Type::Text, Box::new(error))
 }
 
 /// Why the learned rules leave a finished crawl `unverified`: the URLs

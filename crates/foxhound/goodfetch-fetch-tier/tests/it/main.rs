@@ -17,6 +17,7 @@ mod fetch_edge;
 mod fingerprint;
 mod light_browser;
 mod transport_failures;
+mod tunnels;
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
@@ -97,16 +98,19 @@ fn reqwest(proving_ground: &ProvingGround, proxy: Option<Url>) -> Reqwest {
     Reqwest::new(config(proving_ground, proxy, &[])).unwrap()
 }
 
+/// `stack`'s transport under `config`.
+fn built(stack: Stack, config: TransportConfig) -> Box<dyn Transport> {
+    match stack {
+        Stack::Reqwest => Box::new(Reqwest::new(config).unwrap()),
+        Stack::Wreq => Box::new(Wreq::new(config, HttpProfile::default()).unwrap()),
+    }
+}
+
 /// `stack`'s transport, under [`config`].
 fn transport(
     stack: Stack,
     proving_ground: &ProvingGround,
     proxy: Option<Url>,
 ) -> Box<dyn Transport> {
-    match stack {
-        Stack::Reqwest => Box::new(reqwest(proving_ground, proxy)),
-        Stack::Wreq => {
-            Box::new(Wreq::new(config(proving_ground, proxy, &[]), HttpProfile::default()).unwrap())
-        }
-    }
+    built(stack, config(proving_ground, proxy, &[]))
 }

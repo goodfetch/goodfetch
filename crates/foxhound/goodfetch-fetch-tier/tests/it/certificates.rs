@@ -37,9 +37,7 @@ use goodfetch_engine::tls::{
     CertificateChanged, CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, Trust,
     read_certificates,
 };
-use goodfetch_fetch_tier::{
-    Hop, HttpProfile, Reqwest, Reuse, Transport, TransportConfig, TransportFailure, Wreq,
-};
+use goodfetch_fetch_tier::{Hop, Reuse, Transport, TransportFailure};
 use goodfetch_protocol::audit::AuditVerified;
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::SettingsLayer;
@@ -53,7 +51,7 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use serde_json::{Value, json};
 use url::Url;
 
-use crate::{Stack, config, running_clock_runtime};
+use crate::{Stack, built, config, running_clock_runtime};
 
 /// Any seed: the `certificates` family is served on every one.
 const SEED: u64 = 679;
@@ -281,14 +279,6 @@ impl Fixture {
             &json!({}),
             self.secrets(BTreeMap::new()),
         )
-    }
-}
-
-/// `stack`'s transport under `config`.
-fn built(stack: Stack, config: TransportConfig) -> Box<dyn Transport> {
-    match stack {
-        Stack::Reqwest => Box::new(Reqwest::new(config).unwrap()),
-        Stack::Wreq => Box::new(Wreq::new(config, HttpProfile::default()).unwrap()),
     }
 }
 

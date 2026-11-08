@@ -40,11 +40,11 @@ use std::process::{Command as Process, ExitCode};
 
 use anyhow::{Context as _, Result};
 use clap::{Args, Subcommand, ValueEnum};
-use serde::Deserialize;
 
 use crate::check;
 use crate::environment::Environment;
 use crate::output;
+use crate::test_tools::{Tool, ToolManifest};
 
 use matrix::Scenario;
 use trials::Comparison;
@@ -154,21 +154,10 @@ pub(crate) struct TrialArguments {
     output: Option<PathBuf>,
 }
 
-/// The entries of the test tool manifest a run takes.
-#[derive(Deserialize)]
-struct Tools {
-    proving_ground: PathBuf,
-    foxhound: PathBuf,
-}
-
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
     match command {
         Command::Run(arguments) => {
-            let path = environment.path(&arguments.tools);
-            let text =
-                std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-            let tools: Tools = serde_json::from_slice(&text)
-                .with_context(|| format!("parsing {}", path.display()))?;
+            let tools = ToolManifest::read(&environment.path(&arguments.tools))?;
             let commit = Process::new("git")
                 .args(["rev-parse", "HEAD"])
                 .current_dir(&environment.root)
@@ -185,8 +174,8 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             };
             let trials = run::run(
                 &run::Executables {
-                    proving_ground: &tools.proving_ground,
-                    foxhound: &tools.foxhound,
+                    proving_ground: tools.path(Tool::ProvingGround)?,
+                    foxhound: tools.path(Tool::Foxhound)?,
                     spider: &environment.path(&arguments.spider),
                     spider_chrome: &environment.path(&arguments.spider_chrome),
                     browser: &browser,

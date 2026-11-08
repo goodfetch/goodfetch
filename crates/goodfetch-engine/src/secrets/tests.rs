@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::secret_reference::{Provider, SecretReference};
-use goodfetch_protocol::secrets::SecretFailure;
+use goodfetch_protocol::secrets::{SecretFailure, SecretInputRefusedReason};
 use goodfetch_protocol::settings::SettingsLayer;
 use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
 use rstest::rstest;
@@ -477,4 +477,52 @@ fn a_host_reached_through_an_exception_is_found_whatever_its_spelling(#[case] as
     });
 
     assert_eq!(found, Some(key));
+}
+
+/// A proxy password goes to its proxy's host, and asks nothing else before it
+/// resolves: this refusal alone keeps it from a host the Run reached through
+/// an exception (ADR 0042). A host the Run reached otherwise still gets it.
+#[test]
+fn no_secret_resolves_for_a_host_the_run_reached_through_an_exception() {
+    let env = TestEnv::new();
+    let password = reference("env:PROXY_PASSWORD");
+    let purpose = |domain| Purpose {
+        placeholder: "proxy.password",
+        domain: Some(domain),
+        domains: &[],
+        layer: Some(SettingsLayer::UserConfiguration),
+        run_id: None,
+    };
+
+    let (to_excepted, to_verified) = goodfetch_test_support::runtime().block_on(async {
+        let secrets =
+            driver(&env, &[("PROXY_PASSWORD", "s3cr3t-value")]).for_run(Duration::from_secs(30));
+        secrets
+            .exception_hosts()
+            .add(
+                "expired.test",
+                crate::known_certificates::KeyHash::of_public_key(b"key"),
+                crate::known_certificates::ExceptionKind::TrustOnFirstUse,
+            )
+            .await;
+        (
+            secrets.resolve(&password, &purpose("expired.test")).await,
+            secrets.resolve(&password, &purpose("verified.test")).await,
+        )
+    });
+
+    let Err(SecretError::InputRefused {
+        placeholder,
+        domain,
+        reason: SecretInputRefusedReason::InvalidCertificateException,
+        ..
+    }) = to_excepted
+    else {
+        panic!("no Secret resolves for a host reached through an exception: {to_excepted:?}");
+    };
+    assert_eq!(
+        (placeholder.as_str(), domain.as_str()),
+        ("proxy.password", "expired.test")
+    );
+    assert_eq!(to_verified.unwrap().expose_secret(), "s3cr3t-value");
 }

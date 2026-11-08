@@ -19,6 +19,7 @@
 mod cases;
 mod connection;
 mod fabricated;
+mod foxhound;
 mod gateway;
 mod target;
 

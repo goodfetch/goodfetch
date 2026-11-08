@@ -17,7 +17,8 @@
 
 use serde_json::{Value, json};
 
-use super::{CRAWL_REQUEST_HANDLE, CRAWL_START, Checks, Connection, Gone, Site};
+use super::{Checks, Connection, Gone, Site};
+use crate::protocol::foxhound::{CRAWL_REQUEST_HANDLE, CRAWL_START, RUN_ADD_SEED, RUN_OUTCOMES};
 use crate::protocol::target::DEADLINE;
 use crate::proving_ground::ObservedRequest;
 use goodfetch_protocol::page::PAGE_FORMATS;
@@ -25,12 +26,6 @@ use goodfetch_protocol::run::RUN_FINISH;
 
 /// The fetch edge pages' host.
 const HOST: &str = "fetch-edge.test";
-
-/// `run.outcomes`, Foxhound's.
-const RUN_OUTCOMES: &str = "run.outcomes";
-
-/// `run.add_seed`, Foxhound's.
-const RUN_ADD_SEED: &str = "run.add_seed";
 
 /// A domain's delay between request starts, which every hop waits out.
 const DOMAIN_DELAY_MS: u64 = 1_500;

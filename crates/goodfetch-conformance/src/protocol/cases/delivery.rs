@@ -14,30 +14,16 @@ use std::collections::VecDeque;
 use std::time::Duration;
 
 use goodfetch_protocol::connection::CANCEL;
+use goodfetch_protocol::events::CREDIT;
 use goodfetch_protocol::run::RUN_FINISH;
 use serde_json::{Value, json};
 
 use super::Checks;
 use crate::protocol::connection::{Connection, Gone};
+use crate::protocol::foxhound::{
+    CRAWL_REQUEST_HANDLE, CRAWL_START, RECORD, RUN_OUTCOMES, RUN_RECORDS,
+};
 use crate::protocol::target::DEADLINE;
-
-/// `crawl.start`, Foxhound's.
-const CRAWL_START: &str = "crawl.start";
-
-/// `crawl_request.handle`, Foxhound's handler request.
-const CRAWL_REQUEST_HANDLE: &str = "crawl_request.handle";
-
-/// `run.records`, Foxhound's cursor over a Dataset's Records.
-const RUN_RECORDS: &str = "run.records";
-
-/// `run.outcomes`, Foxhound's reader of a crawl's outcomes in commit order.
-const RUN_OUTCOMES: &str = "run.outcomes";
-
-/// `$/record`, the notification that carries one Record it reads.
-const RECORD: &str = "$/record";
-
-/// `$/credit`, by which a Client lets a streaming call send more.
-const CREDIT: &str = "$/credit";
 
 /// How long the harness waits for a lease to end: its 10 s margin over the
 /// 1 ms handler timeout, and room for a loaded machine.

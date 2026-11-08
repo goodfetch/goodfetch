@@ -33,6 +33,7 @@ use serde_json::{Value, json};
 use url::{Host, Url};
 
 use super::connection::{Connection, Gone, code_of};
+use super::foxhound::{CRAWL_MAX_REQUESTS, CRAWL_START, RUN_SEEDS};
 use super::target::{StartError, Started};
 use super::{ProtocolSuiteError, SuiteError, hello_as};
 use crate::case_list::{CaseList, DeclaredCase};
@@ -458,10 +459,10 @@ impl<'a> CaseRun<'a> {
     /// Foxhound's answers it.
     fn engine_of(&mut self, run_id: &str) -> Result<Option<Product>, Gone> {
         let foxhound = self.client(As::Program(Product::Foxhound))?;
-        let answer = self.call(foxhound, "run.seeds", &json!({ "run_id": run_id }))?;
+        let answer = self.call(foxhound, RUN_SEEDS, &json!({ "run_id": run_id }))?;
         Ok(if answer.get("result").is_some() {
             Some(Product::Foxhound)
-        } else if collies_refusal_behind_the_gateway(&answer, "run.seeds") {
+        } else if collies_refusal_behind_the_gateway(&answer, RUN_SEEDS) {
             Some(Product::Collie)
         } else {
             None
@@ -595,7 +596,7 @@ impl GatewayCase {
             }
             Self::ConsoleCrawlStart => {
                 let console = run.client(As::Console)?;
-                let run_id = run.start(console, "crawl.start", &crawl_of_nothing())?;
+                let run_id = run.start(console, CRAWL_START, &crawl_of_nothing())?;
                 run.landed_on(run_id.as_deref(), Product::Foxhound)
             }
             Self::ConsoleCrawlSetting => {
@@ -616,10 +617,10 @@ impl GatewayCase {
             Self::KnownRunId => known_run_id(run),
             Self::RawCrawlStart => {
                 let collie = run.client(As::Program(Product::Collie))?;
-                let answer = run.call(collie, "crawl.start", &crawl_of_nothing())?;
+                let answer = run.call(collie, CRAWL_START, &crawl_of_nothing())?;
                 run.check(
                     "Collie's engine refuses `crawl.start` with `not_in_product` naming the run's Product, Collie, and no install",
-                    collies_refusal_behind_the_gateway(&answer, "crawl.start"),
+                    collies_refusal_behind_the_gateway(&answer, CRAWL_START),
                 );
                 Ok(())
             }
@@ -632,7 +633,7 @@ impl GatewayCase {
                 )?;
                 run.check(
                     "Collie's engine refuses the crawl key with `not_in_product` naming the run's Product, Collie, and no install",
-                    collies_refusal_behind_the_gateway(&answer, "crawl.max_requests"),
+                    collies_refusal_behind_the_gateway(&answer, CRAWL_MAX_REQUESTS),
                 );
                 Ok(())
             }
@@ -646,7 +647,7 @@ impl GatewayCase {
                 )?;
                 run.check(
                     "Collie's engine refuses the crawl key in a Session's own settings with `not_in_product` naming the run's Product, Collie, and no install",
-                    collies_refusal_behind_the_gateway(&answer, "crawl.max_requests"),
+                    collies_refusal_behind_the_gateway(&answer, CRAWL_MAX_REQUESTS),
                 );
                 Ok(())
             }
@@ -655,10 +656,10 @@ impl GatewayCase {
                 let collie = run.client(As::Program(Product::Collie))?;
                 let run_id = run.start(collie, RUN_START.name, &json!({}))?;
                 let foxhound = run.client(As::Program(Product::Foxhound))?;
-                let answer = run.call(foxhound, "run.seeds", &json!({ "run_id": run_id }))?;
+                let answer = run.call(foxhound, RUN_SEEDS, &json!({ "run_id": run_id }))?;
                 run.check(
                     "a Foxhound Client's `run.seeds` on a run of Collie's engine answers `not_in_product` naming the run's Product, Collie",
-                    collies_refusal_behind_the_gateway(&answer, "run.seeds"),
+                    collies_refusal_behind_the_gateway(&answer, RUN_SEEDS),
                 );
                 Ok(())
             }
@@ -695,7 +696,7 @@ fn clients_per_product(run: &mut CaseRun<'_>) -> Result<(), Gone> {
 /// engine would start a run of its own.
 fn known_run_id(run: &mut CaseRun<'_>) -> Result<(), Gone> {
     let console = run.client(As::Console)?;
-    let run_id = run.start(console, "crawl.start", &crawl_of_nothing())?;
+    let run_id = run.start(console, CRAWL_START, &crawl_of_nothing())?;
     let Some(run_id) = run_id else {
         return Ok(());
     };
@@ -714,7 +715,7 @@ fn known_run_id(run: &mut CaseRun<'_>) -> Result<(), Gone> {
 /// and 0096).
 fn reads_a_foxhound_run(run: &mut CaseRun<'_>) -> Result<(), Gone> {
     let foxhound = run.client(As::Program(Product::Foxhound))?;
-    let run_id = run.start(foxhound, "crawl.start", &crawl_of_nothing())?;
+    let run_id = run.start(foxhound, CRAWL_START, &crawl_of_nothing())?;
     let Some(run_id) = run_id else {
         return Ok(());
     };
@@ -724,7 +725,7 @@ fn reads_a_foxhound_run(run: &mut CaseRun<'_>) -> Result<(), Gone> {
         "a Collie Client reads the Foxhound run's Usage",
         usage.get("result").is_some(),
     );
-    let seeds = run.call(collie, "run.seeds", &json!({ "run_id": run_id }))?;
+    let seeds = run.call(collie, RUN_SEEDS, &json!({ "run_id": run_id }))?;
     run.check(
         "its `run.seeds`, which the run's engine carries, is answered",
         seeds.get("result").is_some(),

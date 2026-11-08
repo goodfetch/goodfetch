@@ -18,7 +18,11 @@ use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::jsonrpc::ErrorData;
 use serde_json::{Map, Value, json};
 
-use super::{CRAWL_REQUEST_HANDLE, CRAWL_START, Checks, Connection, Gone, Site};
+use super::{Checks, Connection, Gone, Site};
+use crate::protocol::foxhound::{
+    CRAWL_REQUEST_ENQUEUE, CRAWL_REQUEST_HANDLE, CRAWL_START, RUN_FAILED_REQUESTS, RUN_OUTCOMES,
+    RUN_RETRY_FAILED,
+};
 use crate::proving_ground::ObservedRequest;
 use goodfetch_protocol::page::PAGE_FORMATS;
 use goodfetch_protocol::page::RESPONSE_TRUNCATED;
@@ -26,12 +30,6 @@ use goodfetch_protocol::run::RUN_FINISH;
 
 /// The fetch edge pages' host.
 const HOST: &str = "fetch-edge.test";
-
-/// `run.outcomes`, Foxhound's.
-const RUN_OUTCOMES: &str = "run.outcomes";
-
-/// `crawl_request.enqueue`, Foxhound's.
-const CRAWL_REQUEST_ENQUEUE: &str = "crawl_request.enqueue";
 
 /// The cut pages over HTTP/1.1: a body shorter than its `Content-Length`,
 /// a chunked one missing its last chunk, a gzip stream ending early in a
@@ -322,12 +320,6 @@ pub(super) fn resent(
     );
     Ok(())
 }
-
-/// `run.failed_requests`, Foxhound's.
-const RUN_FAILED_REQUESTS: &str = "run.failed_requests";
-
-/// `run.retry_failed`, Foxhound's.
-const RUN_RETRY_FAILED: &str = "run.retry_failed";
 
 /// `/retry-after/503/seconds` answers 503 asking for 2 s, past the crawl's
 /// `politeness.retry_after.max` of 1 s: its handler, the harness, fails

@@ -11,6 +11,7 @@ use std::str::FromStr;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
+pub mod sections;
 mod setting;
 
 pub use setting::{Authority, HostList, PriceValue, ValueKind, ValueShape};

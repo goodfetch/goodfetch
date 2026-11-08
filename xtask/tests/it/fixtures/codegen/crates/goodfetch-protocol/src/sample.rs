@@ -11,8 +11,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, Instrument, Metric, Operation,
-    OperationClass, PluginKind, PluginMethod, ProtocolVersion, Stability, schema_of,
+    Deprecation, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Instrument, Metric,
+    Operation, OperationClass, OperationKind, PluginKind, PluginMethod, ProtocolVersion, Reach,
+    Stability, schema_of,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -68,6 +69,7 @@ pub struct SampleStorePutResult {
 const SAMPLE_ECHOED: Event = Event {
     name: "sample.echoed",
     description: "A text was repeated.",
+    class: EventClass::Telemetry,
     payload: schema_of::<SampleEchoed>,
     stability: Stability::Experimental,
     deprecated: None,
@@ -81,6 +83,8 @@ pub const ENTRIES: Entries = Entries {
         name: "sample.echo",
         description: "Repeats a text back to the caller.",
         class: OperationClass::Read,
+        kind: OperationKind::RoundTrip,
+        reach: Reach::AllSurfaces,
         params: schema_of::<SampleEchoParams>,
         result: schema_of::<SampleEchoResult>,
         events: &[&SAMPLE_ECHOED],
@@ -93,11 +97,13 @@ pub const ENTRIES: Entries = Entries {
         arrived_in: ARRIVED_IN,
     }],
     events: &[SAMPLE_ECHOED],
+    handler_requests: &[],
     error_codes: &[ErrorCodeDefinition {
         name: "sample_refused",
         description: "The sample operation refused the text.",
         group: ErrorGroup::Refused,
         retryable: false,
+        exit_code: None,
         arrived_in: ARRIVED_IN,
     }],
     plugin_kinds: &[PluginKind {
@@ -117,9 +123,13 @@ pub const ENTRIES: Entries = Entries {
         description: "Texts the sample operation repeated.",
         instrument: Instrument::Counter,
         unit: "{echo}",
+        labels: &[],
         stability: Stability::Stable,
         arrived_in: ARRIVED_IN,
     }],
+    settings: &[],
+    hook_stages: &[],
+    shared_type_values: &[],
 };
 
 #[cfg(test)]

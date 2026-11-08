@@ -126,6 +126,38 @@ const JOURNEY: &str = "crates/goodfetch-protocol/src/journey.rs";
 const JOURNEY_SCHEMA: &str = "journeys/journey.schema.json";
 const RESULT_DOCUMENT: &str = "crates/goodfetch-protocol/src/result_document.rs";
 
+/// The fixture's `goodfetch-protocol` holds the protocol crate's `catalog`
+/// module, and the two modules it imports, as they are, so the catalog the
+/// fixture emits has the shape the real emitter writes and a field the
+/// catalog gains reaches these tests (ADR 0038). On a difference, copy the
+/// protocol crate's file over the fixture's and regenerate the fixture's
+/// committed outputs with `xtask codegen` run in a copy of it.
+#[rstest]
+#[case::catalog("src/catalog.rs")]
+#[case::settings_values("src/catalog/setting.rs")]
+#[case::catalog_sections("src/catalog/sections.rs")]
+#[case::wire_names("src/wire_name.rs")]
+#[case::secret_references("src/secret_reference.rs")]
+fn the_fixtures_catalog_module_is_the_protocol_crates_own(#[case] file: &str) {
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let protocol = manifest.join("../crates/goodfetch-protocol").join(file);
+    let fixture = manifest
+        .join("tests/it/fixtures/codegen/crates/goodfetch-protocol")
+        .join(file);
+
+    let (own, held) = (
+        std::fs::read_to_string(&protocol).unwrap(),
+        std::fs::read_to_string(&fixture).unwrap(),
+    );
+
+    assert!(
+        own == held,
+        "{} differs from {}: copy it over, then regenerate the fixture's outputs",
+        fixture.display(),
+        protocol.display()
+    );
+}
+
 /// Covers: story:1-57
 #[rstest]
 #[case::field_added_to_a_collie_type(

@@ -218,28 +218,41 @@ fn a_removed_route_leaves_the_inventory() {
     );
 }
 
-const FIXTURE_EMITTER: &str = "crates/goodfetch-protocol/src/emit.rs";
-const METRICS_SECTION: &str = "\"metrics\": sorted(self.metrics),";
+/// The fixture's modules of Collie's and Foxhound's entries.
+const COLLIE_ENTRIES: &str = "crates/goodfetch-protocol/src/sample.rs";
+const FOXHOUND_ENTRIES: &str = "crates/goodfetch-protocol/src/foxhound.rs";
+/// The list of values of shared types each of them declares, empty.
+const NO_SHARED_TYPE_VALUES: &str = "    shared_type_values: &[],\n";
+
+/// The declaration of the value `name` of the shared type `shared_type`,
+/// one line of its module's `shared_type_values`.
+fn shared_type_value(name: &str, shared_type: &str) -> String {
+    let variant: String = shared_type
+        .split('_')
+        .map(|word| word[..1].to_uppercase() + &word[1..])
+        .collect();
+    format!(
+        "        crate::catalog::SharedTypeValue {{ shared_type: crate::catalog::SharedType::{variant}, name: {name:?}, description: \"A value.\", arrived_in: ARRIVED_IN }},\n"
+    )
+}
 
 /// Gives the fixture's catalog the values of shared types `values` lists,
-/// each as its name, Product and type.
+/// each as its name, Product and type, declared in that Product's module.
 pub(crate) fn add_shared_type_values(workspace: &Workspace, values: &[(&str, &str, &str)]) {
-    let values: Vec<String> = values
-        .iter()
-        .map(|(name, product, shared_type)| {
-            format!(
-                "{{ \"arrived_in\": \"0.1\", \"description\": \"A value.\", \"name\": \"{name}\", \"product\": \"{product}\", \"type\": \"{shared_type}\" }}"
-            )
-        })
-        .collect();
-    workspace.edit(
-        FIXTURE_EMITTER,
-        METRICS_SECTION,
-        &format!(
-            "{METRICS_SECTION}\n            \"shared_type_values\": [{}],",
-            values.join(", ")
-        ),
-    );
+    for (product, module) in [("collie", COLLIE_ENTRIES), ("foxhound", FOXHOUND_ENTRIES)] {
+        let declared: String = values
+            .iter()
+            .filter(|(_, of, _)| *of == product)
+            .map(|(name, _, shared_type)| shared_type_value(name, shared_type))
+            .collect();
+        if !declared.is_empty() {
+            workspace.edit(
+                module,
+                NO_SHARED_TYPE_VALUES,
+                &format!("    shared_type_values: &[\n{declared}    ],\n"),
+            );
+        }
+    }
 }
 
 #[test]
@@ -277,8 +290,8 @@ fn a_removed_block_cause_leaves_the_inventory() {
     );
     codegen(&workspace);
     workspace.edit(
-        FIXTURE_EMITTER,
-        ", { \"arrived_in\": \"0.1\", \"description\": \"A value.\", \"name\": \"rate_limit\", \"product\": \"collie\", \"type\": \"block_cause\" }",
+        COLLIE_ENTRIES,
+        &shared_type_value("rate_limit", "block_cause"),
         "",
     );
 

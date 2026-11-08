@@ -9,6 +9,10 @@
     clippy::disallowed_methods,
     reason = "the tests read the Daemon's token files and logs themselves"
 )]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::fmt::Write as _;
 

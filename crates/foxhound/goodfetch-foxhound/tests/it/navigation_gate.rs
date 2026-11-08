@@ -22,7 +22,9 @@
 use std::time::{Duration, Instant};
 
 use goodfetch_test_client::Attached;
-use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
+use goodfetch_test_support::{
+    BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache, proxy_in_front,
+};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 
@@ -277,16 +279,61 @@ fn arrivals(proving_ground: &ProvingGround, host: &str, targets: &[&str]) -> Vec
     arrivals
 }
 
-/// The targets of `arrivals` that came less than the delay after the one
-/// before them.
-fn too_soon(arrivals: &[(String, u64)]) -> Vec<String> {
+/// The lines of the engine's log of the test's home, in the order they were
+/// written.
+fn engine_log(env: &TestEnv) -> Vec<Value> {
+    std::fs::read_dir(env.home().join("logs"))
+        .unwrap()
+        .flat_map(|file| {
+            std::fs::read_to_string(file.unwrap().path())
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect::<Vec<Value>>()
+        })
+        .collect()
+}
+
+/// What the site `host` and the navigation gate saw of its domain `domain_key`
+/// under the delay, for a site that was asked for `targets`, its robots.txt
+/// first: how many of them arrived; whether the first document came too soon
+/// after that robots.txt, which it counts from the arrival of its response,
+/// so no way to the site can bring the two closer; how many requests the gate
+/// admitted; and how many of those it admitted less than the delay after the
+/// one before. The gate counts each from the send before it, stamped later
+/// than this admission of it, so the last holds with no allowance. An arrival
+/// gap between two later requests is not judged: it also holds the difference
+/// of their ways to the site, which no figure bounds on a loaded host.
+fn permits_of(
+    env: &TestEnv,
+    proving_ground: &ProvingGround,
+    (host, domain_key): (&str, &str),
+    targets: &[&str],
+) -> (usize, bool, usize, usize) {
+    let arrived = arrivals(proving_ground, host, targets);
     // The Proving ground stamps an arrival a little after the engine sent it.
     let least = DELAY_MILLISECONDS * 1_000 * 9 / 10;
-    arrivals
+    let document_too_soon = arrived
+        .get(..2)
+        .is_some_and(|first| first[1].1 - first[0].1 < least);
+    let admitted: Vec<jiff::Timestamp> = engine_log(env)
+        .iter()
+        .filter(|line| {
+            line["target"] == json!("goodfetch::navigation_gate")
+                && line["fields"]["domain_key"] == json!(domain_key)
+        })
+        .map(|line| line["timestamp"].as_str().unwrap().parse().unwrap())
+        .collect();
+    let admitted_too_soon = admitted
         .windows(2)
-        .filter(|pair| pair[1].1 - pair[0].1 < least)
-        .map(|pair| pair[1].0.clone())
-        .collect()
+        .filter(|pair| pair[1].duration_since(pair[0]).as_millis() < i128::from(DELAY_MILLISECONDS))
+        .count();
+    (
+        arrived.len(),
+        document_too_soon,
+        admitted.len(),
+        admitted_too_soon,
+    )
 }
 
 /// A URL matcher for a page's waits: the glob `pattern`.
@@ -296,9 +343,10 @@ fn glob(pattern: &str) -> Value {
 
 /// A handler's `goto`, a click that navigates, a `page.request`, each
 /// redirect hop, a script's redirect and a popup's navigation each take a
-/// permit of their domain's Politeness: under `politeness.domain.delay`,
-/// every one of them, and the robots.txt read for their host, reaches the
-/// site at least the delay after the one before it there.
+/// permit of their domain's Politeness: under `politeness.domain.delay`, the
+/// gate admits every one of them at least the delay after the one before it
+/// there, each reaches the site once, and the first after the robots.txt read
+/// for their host reaches it at least the delay after that read.
 ///
 /// Covers: story:5-134, story:5-112, story:5-113, setting:politeness.domain.delay, operation:page.goto, operation:locator.click, operation:page.request, operation:page.wait_for_url
 #[test]
@@ -330,15 +378,7 @@ fn every_navigation_of_a_handlers_pages_takes_a_permit_of_its_domain() {
                 ("page.goto", url(POPUP_HOST, "/popup")),
                 ("locator.click", click("#open")),
             ];
-            for (method, mut params) in steps {
-                if method != "locator.click" {
-                    params["page_id"] = json!(page_id);
-                }
-                let answer = inside.call(method, &params);
-                if answer.get("result").is_none() {
-                    failed.push(answer);
-                }
-            }
+            failed = steps_on_the_page(inside, &page_id, steps);
             // The popup navigates on its own, once its permit comes: the
             // handler answers once it did, while its lease still holds.
             let until = Instant::now() + Duration::from_secs(10);
@@ -352,10 +392,16 @@ fn every_navigation_of_a_handlers_pages_takes_a_permit_of_its_domain() {
     );
     assert!(engine.finished());
 
-    let history = arrivals(&proving_ground, HISTORY, &["/robots.txt", "/", "/b", "/c"]);
-    let edge = arrivals(
+    let history = permits_of(
+        &env,
         &proving_ground,
-        FETCH_EDGE,
+        (HISTORY, "navigation.test"),
+        &["/robots.txt", "/", "/b", "/c"],
+    );
+    let edge = permits_of(
+        &env,
+        &proving_ground,
+        (FETCH_EDGE, "fetch-edge.test"),
         &[
             "/robots.txt",
             "/redirect/hops/2",
@@ -365,25 +411,112 @@ fn every_navigation_of_a_handlers_pages_takes_a_permit_of_its_domain() {
             "/target",
         ],
     );
-    let popup = arrivals(
+    let popup = permits_of(
+        &env,
         &proving_ground,
-        POPUP_HOST,
+        (POPUP_HOST, "access.test"),
         &["/robots.txt", "/popup", "/popup/opened"],
     );
     assert_eq!(
-        (
-            &report["result"]["lifecycle"],
-            failed,
-            (history.len(), edge.len(), popup.len()),
-            (too_soon(&history), too_soon(&edge), too_soon(&popup)),
-        ),
+        (&report["result"]["lifecycle"], failed, history, edge, popup),
         (
             &json!("finished"),
             Vec::<Value>::new(),
-            (4, 6, 3),
-            (Vec::new(), Vec::new(), Vec::new()),
-        ),
-        "{history:?} {edge:?} {popup:?}"
+            (4, false, 3, 0),
+            (6, false, 5, 0),
+            (3, false, 2, 0),
+        )
+    );
+}
+
+/// Calls each of `steps` on the page `page_id`, the page named in each but a
+/// click's, whose locator names it: answers the calls that failed.
+fn steps_on_the_page<const STEPS: usize>(
+    inside: &mut Inside<'_>,
+    page_id: &str,
+    steps: [(&str, Value); STEPS],
+) -> Vec<Value> {
+    let mut failed = Vec::new();
+    for (method, mut params) in steps {
+        if method != "locator.click" {
+            params["page_id"] = json!(page_id);
+        }
+        let answer = inside.call(method, &params);
+        if answer.get("result").is_none() {
+            failed.push(answer);
+        }
+    }
+    failed
+}
+
+/// How long [`a_navigation_slow_to_reach_its_site_takes_the_next_ones_permit_no_sooner`]
+/// holds the first navigation on its way: past the tenth of the delay an
+/// arrival gap was once allowed to fall short by, and short of the delay.
+const SLOW_ON_ITS_WAY: Duration = Duration::from_millis(300);
+
+/// The losing order of the test above, forced: a click's request stays on its
+/// way to the site, here in the Session's proxy, long after its send, so the
+/// next request arrives sooner than the delay after it with the gate right.
+/// The gate holds the delay between sends (ADR 0086), and on a loaded host no
+/// figure bounds a way to the site.
+///
+/// Covers: story:5-134, setting:politeness.domain.delay, operation:locator.click, operation:page.request
+#[test]
+fn a_navigation_slow_to_reach_its_site_takes_the_next_ones_permit_no_sooner() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let front = proxy_in_front(
+        proving_ground.description().fixtures.proxies["open"].clone(),
+        |line| {
+            if line.contains("/b HTTP/") {
+                std::thread::sleep(SLOW_ON_ITS_WAY);
+            }
+        },
+    );
+    let more = json!({
+        "politeness": { "domain": { "delay": DELAY_MILLISECONDS } },
+        "proxy": { "server": format!("http://{front}") },
+    });
+
+    let mut failed = Vec::new();
+    let report = crawl_with(
+        &mut engine,
+        "slow-way",
+        &[json!({ "url": proving_ground.url(ROBOTS_HOST, "/catalog/1"), "label": "page" })],
+        &settings(&proving_ground, &more),
+        &mut |inside, handle| {
+            let page_id = new_page(inside, handle);
+            let steps = [
+                (
+                    "page.goto",
+                    json!({ "url": proving_ground.url(HISTORY, "/") }),
+                ),
+                (
+                    "locator.click",
+                    json!({ "locator": { "page_id": page_id, "selector": "#next" } }),
+                ),
+                ("page.wait_for_url", json!({ "url": glob("**/b") })),
+                (
+                    "page.request",
+                    json!({ "url": proving_ground.url(HISTORY, "/c") }),
+                ),
+            ];
+            failed = steps_on_the_page(inside, &page_id, steps);
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finished());
+
+    let history = permits_of(
+        &env,
+        &proving_ground,
+        (HISTORY, "navigation.test"),
+        &["/robots.txt", "/", "/b", "/c"],
+    );
+    assert_eq!(
+        (&report["result"]["lifecycle"], failed, history),
+        (&json!("finished"), Vec::<Value>::new(), (4, false, 3, 0))
     );
 }
 
@@ -1751,7 +1884,7 @@ fn a_handlers_navigations_after_a_slow_robots_txt_wait_its_crawl_delay_from_its_
     let delay = SLOW_ROBOTS_CRAWL_DELAY_MILLISECONDS * 1_000;
     let after_robots_txt = arrived.get(1).map(|first| first.1 >= arrived[0].1 + delay);
     // Between two navigations, the arrivals may come a little closer than
-    // their sends (`too_soon`).
+    // their sends.
     let apart = arrived
         .get(2)
         .map(|second| second.1 - arrived[1].1 >= delay * 9 / 10);
@@ -1789,27 +1922,21 @@ const RELAY_DELAY_MILLISECONDS: u64 = 1_000;
 fn navigations_sent(env: &TestEnv) -> Vec<(jiff::Timestamp, bool)> {
     let mut sent = Vec::new();
     let mut latest: Option<(jiff::Timestamp, bool)> = None;
-    for file in std::fs::read_dir(env.home().join("logs")).unwrap() {
-        for line in std::fs::read_to_string(file.unwrap().path())
-            .unwrap()
-            .lines()
-        {
-            let line: Value = serde_json::from_str(line).unwrap();
-            let at = || line["timestamp"].as_str().unwrap().parse().unwrap();
-            let credentials = latest.is_some_and(|(_, credentials)| credentials);
-            match (
-                line["target"].as_str().unwrap_or_default(),
-                line["fields"]["method"].as_str().unwrap_or_default(),
-            ) {
-                ("goodfetch::cdp::command", "Fetch.continueWithAuth") if !credentials => {
-                    latest = Some((at(), true));
-                }
-                ("goodfetch::cdp::command", "Fetch.continueRequest") if !credentials => {
-                    latest = Some((at(), false));
-                }
-                ("goodfetch::rpc::dispatch", "page.goto") => sent.extend(latest.take()),
-                _ => {}
+    for line in engine_log(env) {
+        let at = || line["timestamp"].as_str().unwrap().parse().unwrap();
+        let credentials = latest.is_some_and(|(_, credentials)| credentials);
+        match (
+            line["target"].as_str().unwrap_or_default(),
+            line["fields"]["method"].as_str().unwrap_or_default(),
+        ) {
+            ("goodfetch::cdp::command", "Fetch.continueWithAuth") if !credentials => {
+                latest = Some((at(), true));
             }
+            ("goodfetch::cdp::command", "Fetch.continueRequest") if !credentials => {
+                latest = Some((at(), false));
+            }
+            ("goodfetch::rpc::dispatch", "page.goto") => sent.extend(latest.take()),
+            _ => {}
         }
     }
     sent
@@ -1868,7 +1995,7 @@ fn a_handlers_navigations_through_a_fresh_egress_relay_reach_their_domain_the_de
         .collect();
     let delay = RELAY_DELAY_MILLISECONDS * 1_000;
     // Between two later navigations, the arrivals may come a little closer
-    // than the sends (`too_soon`).
+    // than the sends.
     let least = delay * 9 / 10;
     let sent_gaps: Vec<i64> = sent
         .windows(2)

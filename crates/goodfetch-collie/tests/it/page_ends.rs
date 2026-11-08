@@ -26,8 +26,12 @@
 )]
 
 use std::process::Command;
+use std::sync::mpsc;
+use std::time::Duration;
 
+use goodfetch_protocol::home::USAGE_LEDGER;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
+use rusqlite::Connection;
 use serde_json::{Map, Value, json};
 
 use crate::page::{opened, started_with};
@@ -327,6 +331,57 @@ fn a_browser_killed_by_a_signal_raises_page_crashed_with_its_exit_and_its_sessio
             vec![json!(1)]
         ),
         "{called} {pages} {closed} {after_close}"
+    );
+}
+
+/// How long [`a_browsers_crash_counts_in_usage_before_any_of_its_pages_crash_goes_out`]
+/// holds the Usage ledger after it killed the browser: long past how soon a
+/// page's `crash` follows its browser's exit when nothing holds it back, and
+/// well within the 10 s the ledger's connections wait for a write. A page
+/// whose `crash` went out first shows only if it did so within this; a right
+/// order passes however long it is.
+const LEDGER_HELD: Duration = Duration::from_secs(2);
+
+/// A program that read a page's `crash` reads the crash in its Run's Usage,
+/// whichever of the browser's Sessions and pages took the crash first: with
+/// the first charge held up, by a Limit on the crashes whose Slice the ledger
+/// cannot give yet, no page's `crash` goes out, so a call on the page's
+/// `crash` never finds the count still under way (ADR 0040).
+///
+/// Covers: story:5-28, event:page.crash, operation:run.usage
+#[test]
+fn a_browsers_crash_counts_in_usage_before_any_of_its_pages_crash_goes_out() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let (mut exchange, _, session) = on_a_page(&env, &proving_ground, "counted");
+    let second = opened(&exchange.call("session.new_page", &json!({ "session_id": session })));
+    exchange.listen(&second.page_id.0, "crash");
+    let limit = exchange.call(
+        "usage.set",
+        &json!({ "scope": "install", "usage_kind": "page_crashes", "amount": 10 }),
+    );
+    assert!(limit.get("result").is_some(), "{limit}");
+    let ledger = Connection::open(env.home().join(USAGE_LEDGER)).unwrap();
+    ledger.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let (releasing, released) = mpsc::channel();
+
+    signal("KILL", &browser_processes(&env, browser));
+    let (crash_went_out_while_held, crashes) = std::thread::scope(|scope| {
+        scope.spawn(move || {
+            std::thread::sleep(LEDGER_HELD);
+            let _ = releasing.send(());
+            drop(ledger);
+        });
+        exchange.until("page.crash", |_| true);
+        let held = released.try_recv().is_err();
+        (held, crashes_counted(&mut exchange, "counted"))
+    });
+    let _ = exchange.call("run.finish", &json!({ "run_id": "counted" }));
+    let _ = exchange.engine.finish();
+
+    assert_eq!(
+        (crash_went_out_while_held, crashes),
+        (false, vec![json!(1)])
     );
 }
 

@@ -24,13 +24,14 @@
 )]
 
 use std::collections::BTreeSet;
-use std::sync::mpsc;
+use std::sync::{Arc, Barrier, mpsc};
+use std::time::{Duration, Instant};
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_test_client::robots_txt_read;
+use goodfetch_test_client::robots_txt_readings;
 use goodfetch_test_support::{
     Canaries, Canary, DISPATCH_TARGET, Hit, OUTCOME_TARGET, Output, ProvingGround,
-    ReceivedRequests, SecretKind, TestEnv, browser_cache, cli, pty,
+    ReceivedRequests, SecretKind, TestEnv, browser_cache, cli, proxy_in_front, pty,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -1445,8 +1446,8 @@ fn an_unpriced_provider_under_a_currency_limit_is_refused_naming_its_price() {
 /// would never count. The `page.request` is sent while the robots.txt
 /// read is under way, as when an engine's page the browser showed let
 /// its icon's request out (4 runs of 5). The page the program opened names its
-/// icon inline, so it asks for none either; the Run's end closes the
-/// browser, after which no request can come.
+/// icon inline, so it asks for none either; the Run's end, once each origin's
+/// robots.txt was read, closes the browser, after which no request can come.
 ///
 /// Covers: story:5-88, operation:page.request, setting:proxy.server
 #[test]
@@ -1471,20 +1472,104 @@ fn the_robots_txt_read_and_page_request_each_send_one_request_through_the_sessio
         "page.request",
         &json!({ "page_id": page.page_id, "url": requested }),
     );
-    robots_txt_read(&env, run_id);
+    both_origins_read(&env, run_id);
     let _ = engine.ask(5, "run.finish", &json!({ "run_id": run_id }));
     let _ = engine.finish();
+
+    assert_each_sent_one_request(&proving_ground, (&went, &sent));
+}
+
+/// The losing order of the test above, forced: the robots.txt read of the
+/// document's origin, on its way through the Session's proxy, is held back
+/// until the `page.request` sent after it has its answer. Nothing the page
+/// does waits for a read (ADR 0086), and nothing orders the two: each still
+/// sends its one request.
+///
+/// Covers: story:5-88, operation:page.request, setting:proxy.server
+#[test]
+fn a_robots_txt_read_overtaken_by_a_page_request_still_sends_its_one_request() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let both_on_their_way = Arc::new(Barrier::new(2));
+    let holding = Arc::clone(&both_on_their_way);
+    let held = proving_ground.url("scope.test", "/robots.txt");
+    let front = proxy_in_front(proxy_address(&proving_ground, "open"), move |line| {
+        if line.contains(&held) {
+            holding.wait();
+        }
+    });
+    let run_id = "overtaken";
+    let proxy = json!({ "server": format!("http://{front}") });
+    let mut engine = started_through(&env, &cache, &proving_ground, run_id, proxy, "");
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": run_id })));
+    let document = proving_ground.url("scope.test", "/quiet?mark=read");
+    let requested = proving_ground.url("1.incidents.test", "/robots.txt");
+
+    let went = engine.ask(
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": document }),
+    );
+    let sent = engine.ask(
+        4,
+        "page.request",
+        &json!({ "page_id": page.page_id, "url": requested }),
+    );
+    both_on_their_way.wait();
+    both_origins_read(&env, run_id);
+    let _ = engine.ask(5, "run.finish", &json!({ "run_id": run_id }));
+    let _ = engine.finish();
+
+    assert_each_sent_one_request(&proving_ground, (&went, &sent));
+}
+
+/// Waits, a minute at most, until the Run `run_id` recorded the robots.txt of
+/// both the document's origin and the `page.request`'s: its Provenance entry
+/// is written after each read's answer, so both requests reached the site.
+fn both_origins_read(env: &TestEnv, run_id: &str) {
+    let until = Instant::now() + BROWSER_DEADLINE;
+    while robots_txt_readings(env, run_id).len() < 2 && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// The document comes first and the rest in a fixed order: a robots.txt read
+/// starts only once its document's response arrived, and after that the
+/// reads and the `page.request` go on their own, each on its own connection
+/// from the proxy, so neither the proxy nor the site sees them in an order
+/// anything promises.
+fn document_first<T: Ord>(mut sent: Vec<T>) -> Vec<T> {
+    if let Some(rest) = sent.get_mut(1..) {
+        rest.sort_unstable();
+    }
+    sent
+}
+
+/// `went` loaded the document and `sent` got the `page.request`'s answer, and
+/// the Proving ground's proxy and its site each saw one request for the
+/// document, one for `page.request`, and one read of each origin's robots.txt,
+/// which for the `page.request`'s origin is the same URL.
+fn assert_each_sent_one_request(proving_ground: &ProvingGround, (went, sent): (&Value, &Value)) {
     let observations = proving_ground.observations().unwrap();
-    let relays: Vec<(Value, Value)> = observations["relays"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|relay| (relay["proxy"].clone(), relay["target"].clone()))
-        .collect();
-    let received: Vec<(Value, Value)> = ReceivedRequests::of(&observations)
-        .every()
-        .map(|request| (json!(request.host), json!(request.target)))
-        .collect();
+    let text = |value: &Value| value.as_str().unwrap().to_owned();
+    let relays = document_first(
+        observations["relays"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|relay| (text(&relay["proxy"]), text(&relay["target"])))
+            .collect(),
+    );
+    let received = document_first(
+        ReceivedRequests::of(&observations)
+            .every()
+            .map(|request| (request.host.clone(), request.target.clone()))
+            .collect(),
+    );
+    let relayed = |target: String| ("open".to_owned(), target);
+    let arrived = |host: &str, target: &str| (host.to_owned(), target.to_owned());
+    let requested = proving_ground.url("1.incidents.test", "/robots.txt");
 
     assert_eq!(
         (
@@ -1497,17 +1582,16 @@ fn the_robots_txt_read_and_page_request_each_send_one_request_through_the_sessio
             json!(200),
             json!(404),
             vec![
-                (json!("open"), json!(document)),
-                (
-                    json!("open"),
-                    json!(proving_ground.url("scope.test", "/robots.txt"))
-                ),
-                (json!("open"), json!(requested)),
+                relayed(proving_ground.url("scope.test", "/quiet?mark=read")),
+                relayed(requested.clone()),
+                relayed(requested),
+                relayed(proving_ground.url("scope.test", "/robots.txt")),
             ],
             vec![
-                (json!("scope.test"), json!("/quiet?mark=read")),
-                (json!("scope.test"), json!("/robots.txt")),
-                (json!("1.incidents.test"), json!("/robots.txt")),
+                arrived("scope.test", "/quiet?mark=read"),
+                arrived("1.incidents.test", "/robots.txt"),
+                arrived("1.incidents.test", "/robots.txt"),
+                arrived("scope.test", "/robots.txt"),
             ],
         )
     );

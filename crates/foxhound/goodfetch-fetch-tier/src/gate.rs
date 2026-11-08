@@ -527,6 +527,9 @@ impl Gate {
         if let Some(wait) = start.and_then(|start| start.duration_since(run.clock().wall()).ok()) {
             run.clock().sleep(wait).await;
         }
+        // Stamped before the request leaves, so two of a key are never closer
+        // here than the delay, whatever their ways to the site take.
+        tracing::trace!(target: "goodfetch::navigation_gate", domain_key = %key, "a handler's request was admitted");
         Ok(permit)
     }
 

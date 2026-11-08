@@ -67,7 +67,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
 use super::party::relay_unreachable;
-use crate::egress_relay::answers::{AUTHENTICATE, ESTABLISHED, failed};
+use crate::egress_relay::answers::{AUTHENTICATE, ESTABLISHED, USERNAME, failed};
 use crate::egress_relay::deadlines::{HEAD_DEADLINE, within, within_or_none};
 use crate::egress_relay::head::{self, HEAD_LIMIT, Head, Target, Unread};
 use crate::egress_relay::serve::{Met, socks5_request};

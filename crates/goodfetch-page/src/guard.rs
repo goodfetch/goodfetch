@@ -521,8 +521,10 @@ pub(crate) async fn wait(
         Awaited::State(state) => (state_name(state), (None, None)),
         Awaited::Count(count) => ("count".to_owned(), (count.min, count.max)),
     };
+    let step = serde_json::from_value(serde_json::Value::String(state.clone()))
+        .expect("invariant: each state a locator waits for is a step of the check");
     let mut last = Seen::Waiting {
-        step: state.clone(),
+        step,
         observed: "the page was not checked yet".to_owned(),
         matches: Vec::new(),
     };

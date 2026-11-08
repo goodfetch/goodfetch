@@ -22,8 +22,7 @@ use goodfetch_protocol::page::route::{
 };
 use goodfetch_protocol::page::session_pages::PAGE_CLOSE;
 use goodfetch_protocol::page::{NAVIGATION_FAILED, PAGE_GOTO, PageOpened};
-use goodfetch_protocol::response_limits::NETWORK_MAX_BODY_SIZE;
-use goodfetch_protocol::response_limits::RESPONSE_LIMIT_EXCEEDED;
+use goodfetch_protocol::response_limits::{NETWORK_MAX_BODY_SIZE, RESPONSE_LIMIT_EXCEEDED};
 use goodfetch_protocol::run::RUN_FINISH;
 use serde_json::{Value, json};
 

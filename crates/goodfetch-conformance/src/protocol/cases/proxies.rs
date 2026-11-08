@@ -13,8 +13,9 @@
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::page::proxy::{PROXY_AUTH_FAILED, PROXY_UNAVAILABLE};
-use goodfetch_protocol::page::proxy::{PROXY_PASSWORD, PROXY_SERVER};
+use goodfetch_protocol::page::proxy::{
+    PROXY_AUTH_FAILED, PROXY_PASSWORD, PROXY_SERVER, PROXY_UNAVAILABLE,
+};
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
 use goodfetch_protocol::page::{PAGE_GOTO, PageOpened, RUN_NEW_PAGE};
 use goodfetch_protocol::run::RUN_START;
@@ -390,7 +391,8 @@ fn refused_to_a_model(
 ) -> Result<(), Gone> {
     let server = "http://127.0.0.1:3128";
     let code = json!(SETTING_LOCKED.name);
-    let on_the_run = agent.call(RUN_START.name,
+    let on_the_run = agent.call(
+        RUN_START.name,
         &json!({ "run_id": "conformance-proxy-model", "settings": { "proxy": { "server": server } } }),
     )?;
     checks.check(

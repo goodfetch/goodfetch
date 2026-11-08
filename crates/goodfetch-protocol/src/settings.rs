@@ -5,8 +5,8 @@
 //! files of the two layers kept in Goodfetch home (Operator policy and user
 //! configuration, per major, shared by both Products), the Recipe
 //! manifest's Product and settings, the closed list of deployment
-//! variables (kept in `deployment`), and the keys of areas whose own modules do not exist yet,
-//! each with its area first (ADR 0083). Each later area moves its keys into
+//! variables (kept in `deployment`), and the keys of areas whose own modules
+//! do not exist yet, each with its area first (ADR 0083). Each later area moves its keys into
 //! its own module.
 
 use std::collections::BTreeMap;

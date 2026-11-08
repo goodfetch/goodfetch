@@ -15,8 +15,7 @@
 
 use goodfetch_cdp::NetError;
 
-use crate::egress_relay::answers::RELAY;
-use crate::egress_relay::answers::failed;
+use crate::egress_relay::answers::{RELAY, failed};
 pub(crate) use crate::proxy_status::PROXY_STATUS;
 use crate::proxy_status::{name, nearest, parameter};
 

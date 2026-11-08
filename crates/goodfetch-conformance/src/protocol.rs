@@ -274,8 +274,10 @@ pub const PROXY_PASSWORD_VARIABLE: &str = "PROVING_GROUND_PROXY_PASSWORD";
 /// # Errors
 ///
 /// When the target cannot be reached, refuses or misreads `hello`, or runs
-/// as another Product than the suite's, and when the Proving ground cannot
-/// serve its task list or say which network fixtures it serves.
+/// as another Product than the suite's, when the Proving ground cannot serve
+/// its task list or say which network fixtures it serves, and when a Daemon
+/// the harness started does not take its stop, which gives up the suite's
+/// document.
 pub fn run_protocol_suite(
     suite: &ProtocolSuite,
     target: &EngineTarget,

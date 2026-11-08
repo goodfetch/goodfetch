@@ -24,8 +24,7 @@ use crate::protocol::foxhound::{
     RUN_RETRY_FAILED,
 };
 use crate::proving_ground::ObservedRequest;
-use goodfetch_protocol::page::PAGE_FORMATS;
-use goodfetch_protocol::page::RESPONSE_TRUNCATED;
+use goodfetch_protocol::page::{PAGE_FORMATS, RESPONSE_TRUNCATED};
 use goodfetch_protocol::run::RUN_FINISH;
 
 /// The fetch edge pages' host.

@@ -336,7 +336,8 @@ fn next_call(
         "the page goes on to the corpus's index",
         responded_with(&listed, 200),
     );
-    let clicked = connection.call(LOCATOR_CLICK.name,
+    let clicked = connection.call(
+        LOCATOR_CLICK.name,
         &json!({ "locator": { "page_id": page.page_id, "selector": "a[href=\"/corpus/cloudflare-block\"]" } }),
     )?;
     checks.check(
@@ -346,7 +347,8 @@ fn next_call(
     // The page's next call is the wait, when the refusal's document
     // committed before it came, and else the call after the wait, which
     // answers once the document is there.
-    let arrived = connection.call(PAGE_WAIT_FOR_FUNCTION.name,
+    let arrived = connection.call(
+        PAGE_WAIT_FOR_FUNCTION.name,
         &json!({
             "page_id": page.page_id,
             "function": "() => location.pathname === '/corpus/cloudflare-block' && document.readyState === 'complete'",
@@ -367,10 +369,12 @@ fn next_call(
         after["result"].is_object(),
     );
     connection.goto(&page, &index)?;
-    let clicked = connection.call(LOCATOR_CLICK.name,
+    let clicked = connection.call(
+        LOCATOR_CLICK.name,
         &json!({ "locator": { "page_id": page.page_id, "selector": "a[href=\"/corpus/incapsula-block\"]" } }),
     )?;
-    let waited = connection.call(PAGE_WAIT_FOR_URL.name,
+    let waited = connection.call(
+        PAGE_WAIT_FOR_URL.name,
         &json!({ "page_id": page.page_id, "url": { "kind": "glob", "pattern": "**/corpus/incapsula-block" } }),
     )?;
     checks.check(

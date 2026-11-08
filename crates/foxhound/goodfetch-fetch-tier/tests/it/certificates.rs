@@ -78,6 +78,12 @@ const MUTUAL: &str = "client-certificate.certificates.test";
 /// The other mutual-TLS host.
 const OTHER_MUTUAL: &str = "other-client-certificate.certificates.test";
 
+/// What a hop to a mutual-TLS host that refuses the client certificate it
+/// got, or got none, fails with on each transport: the host's refusal reaches
+/// the client as a TLS alert after its side of the handshake, which no other
+/// variant names.
+const REFUSED_HANDSHAKE: TransportFailure = TransportFailure::Other;
+
 /// A pin of the user's store: its host, its key, its Run and the key that
 /// waits to replace it.
 type PinRow = (String, Option<String>, Option<String>, Option<String>);
@@ -703,7 +709,7 @@ fn two_domains_with_different_client_certificates_are_routed_by_host(
         (verified, mutual, other_mutual),
         (Ok((200, None)), Ok((200, None)), Ok((200, None)))
     );
-    assert!(crossed.is_err(), "{crossed:?}");
+    assert_eq!(crossed, Err(REFUSED_HANDSHAKE));
     assert_eq!(
         (
             fixture.proving_ground.observations().unwrap()["client_certificates"].clone(),
@@ -719,6 +725,37 @@ fn two_domains_with_different_client_certificates_are_routed_by_host(
             .collect();
         assert_eq!(fingerprints.len(), 1, "{fingerprints:?}");
     }
+}
+
+/// Story 4-34 on each transport, the negative control: a client certificate
+/// listed for one host goes to no other, even one of the same parent domain
+/// that requires one, and that would take the listed certificate, its
+/// authority being the Proving ground's own. So it refuses the handshake that
+/// presents none, and has seen no certificate.
+/// Covers: story:4-34, setting:tls.client_certificates
+#[rstest]
+fn a_host_no_listed_domain_covers_gets_no_client_certificate(
+    #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
+) {
+    let fixture = fixture();
+    let listing_one = fixture.mutual(stack, &[VERIFIED, "certificates.test"], &json!({}), true);
+
+    let (listed, unlisted) = running_clock_runtime().block_on(async {
+        (
+            sent(&*listing_one, &hop(&fixture.proving_ground, MUTUAL)).await,
+            sent(&*listing_one, &hop(&fixture.proving_ground, OTHER_MUTUAL)).await,
+        )
+    });
+
+    assert_eq!(listed, Ok((200, None)));
+    assert_eq!(unlisted, Err(REFUSED_HANDSHAKE));
+    assert_eq!(
+        (
+            fixture.proving_ground.observations().unwrap()["client_certificates"].clone(),
+            requested(&fixture.proving_ground)
+        ),
+        (json!([MUTUAL]), vec![MUTUAL.to_owned()])
+    );
 }
 
 /// Story 4-33 on each transport: the Proving ground's private authority,
@@ -815,7 +852,7 @@ fn a_mutual_tls_hosts_key_is_resolved_at_its_first_handshake_and_held_for_the_ru
         )
     });
 
-    assert!(refused.is_err(), "{refused:?}");
+    assert_eq!(refused, Err(REFUSED_HANDSHAKE));
     assert_eq!((first, second), (Ok((200, None)), Ok(None)));
     assert_eq!(requested(&fixture.proving_ground), [MUTUAL, MUTUAL]);
     assert_eq!(

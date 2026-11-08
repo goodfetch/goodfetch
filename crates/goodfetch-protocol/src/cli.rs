@@ -3,7 +3,8 @@
 //! it is retryable, the message, the operation and the code's own details.
 //! A command that succeeds prints its operation's result, the catalog's
 //! type. It also holds ADR 0069's exit-code table, which the catalog file
-//! lists as `exit_codes`.
+//! lists as `exit_codes`, and the name of the hidden command that runs an
+//! executable as an Attached engine, which every launcher starts it with.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,11 @@ use serde_json::{Map, Value};
 
 use crate::catalog::ErrorGroup;
 use crate::entries::MODULES;
+
+/// The hidden command of each Product's executable that runs it as an
+/// Attached engine over stdio, which an SDK, a test's Client and the
+/// harnesses start (ADR 0024).
+pub const ATTACHED_ENGINE: &str = "attached-engine";
 
 /// What a command prints under `--json` when it fails.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]

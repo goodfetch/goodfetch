@@ -185,7 +185,9 @@ impl Started {
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
         match target.mode {
-            EngineMode::Attached => command.arg("attached-engine").stdin(Stdio::piped()),
+            EngineMode::Attached => command
+                .arg(goodfetch_protocol::cli::ATTACHED_ENGINE)
+                .stdin(Stdio::piped()),
             EngineMode::Daemon => command.args(["daemon", "launched"]).stdin(Stdio::null()),
         };
         let mut child = command.spawn().map_err(|source| StartError::Spawn {

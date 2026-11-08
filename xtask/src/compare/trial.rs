@@ -502,12 +502,12 @@ impl Plan<'_> {
             // The executable as shipped, with its own data folder and its
             // default logging, which it writes to stderr.
             command
-                .arg("attached-engine")
-                .env("GOODFETCH_HOME", home)
+                .arg(goodfetch_protocol::cli::ATTACHED_ENGINE)
+                .env(goodfetch_protocol::settings::HOME_VARIABLE, home)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped());
             if let Some(cache) = cache {
-                command.env("GOODFETCH_BROWSERS_PATH", cache);
+                command.env(goodfetch_protocol::settings::BROWSERS_PATH_VARIABLE, cache);
             }
         } else {
             // The other tools crawl from their arguments, in their data

@@ -138,12 +138,7 @@ fn requests(proving_ground: &ProvingGround) -> Vec<(String, String)> {
         .received_requests()
         .unwrap()
         .every()
-        .map(|request| {
-            (
-                request.host.as_str().to_owned(),
-                request.target.as_str().to_owned(),
-            )
-        })
+        .map(|request| (request.host.clone(), request.target.clone()))
         .filter(|(_, target)| target != "/favicon.ico")
         .collect()
 }

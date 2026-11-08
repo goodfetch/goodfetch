@@ -18,14 +18,13 @@ use goodfetch_engine::run_state::run_row;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::home::RUN_FILE;
 use goodfetch_protocol::run::Lifecycle;
-use goodfetch_test_client::DaemonClient;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{RuntimeFile, TestEnv, cli};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use crate::daemon::{StopsTheDaemon, json_of, short_idle, validate};
-use crate::daemon_hello;
+use crate::daemon_client;
 use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -92,7 +91,7 @@ fn an_abort_of_a_run_the_daemon_writes_goes_to_the_daemon_the_run_index_names() 
     json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
     let found =
         RuntimeFile::read(&RuntimeFile::path(env.home(), env!("CARGO_PKG_VERSION"))).unwrap();
-    let mut client = DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token));
+    let mut client = daemon_client(&found);
     client.call(1, "run.start", &json!({ "run_id": "live" }));
     let owned = row(&env, "live");
 
@@ -118,7 +117,7 @@ fn a_killed_daemons_stale_row_never_blocks_another_engines_takeover() {
     let env = TestEnv::new();
     short_idle(&env, 60_000);
     let (daemon, found) = launched(&env);
-    let mut client = DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token));
+    let mut client = daemon_client(&found);
     client.call(1, "run.start", &json!({ "run_id": "cut" }));
     daemon.child().kill().unwrap();
     daemon.child().wait().unwrap();

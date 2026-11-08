@@ -16,18 +16,24 @@
 
 use std::path::Path;
 
-use goodfetch_test_client::DaemonClient;
+use goodfetch_test_client::{DaemonClient, product_version};
 use goodfetch_test_support::{RuntimeFile, TestEnv};
 use serde_json::{Value, json};
 
 use crate::daemon::{StopsTheDaemon, json_of};
-use crate::daemon_hello;
+use crate::daemon_client;
 use crate::daemon_run::{ANY_PORT, Foreground, opened};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
-/// This commit's Product version, whose major folder is `0.0`.
+/// This commit's Product version.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The name of the Daemon's log file of this commit's version line, with
+/// `rotated`, such as `.1`, before its extension.
+fn daemon_log(rotated: &str) -> String {
+    format!("daemon-{}{rotated}.jsonl", product_version().line())
+}
 
 /// The Daemon's log files in `folder`, by name, with their lines.
 fn daemon_files(folder: &Path) -> Vec<(String, Vec<String>)> {
@@ -59,7 +65,7 @@ fn daemon_files(folder: &Path) -> Vec<(String, Vec<String>)> {
 fn started(env: &TestEnv) -> DaemonClient {
     json_of(COLLIE.as_ref(), env, &["daemon", "start", "--json"]);
     let found = RuntimeFile::read(&RuntimeFile::path(env.home(), VERSION)).unwrap();
-    DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token))
+    daemon_client(&found)
 }
 
 /// `daemon run` keeps ADR 0049's JSON lines on stdout, for its platform to
@@ -118,7 +124,7 @@ fn a_started_daemon_rotates_its_log_files_at_their_size_and_keeps_their_count() 
     json_of(COLLIE.as_ref(), &env, &["daemon", "stop", "--json"]);
 
     let files = daemon_files(&env.home().join("logs"));
-    let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
+    let names: Vec<String> = files.iter().map(|(name, _)| name.clone()).collect();
     let oversized: Vec<&str> = files
         .iter()
         .filter(|(_, lines)| {
@@ -136,11 +142,7 @@ fn a_started_daemon_rotates_its_log_files_at_their_size_and_keeps_their_count() 
     assert_eq!(
         (names, oversized, not_json),
         (
-            vec![
-                "daemon-0.0.1.jsonl",
-                "daemon-0.0.2.jsonl",
-                "daemon-0.0.jsonl"
-            ],
+            vec![daemon_log(".1"), daemon_log(".2"), daemon_log("")],
             Vec::<&str>::new(),
             0
         )
@@ -237,7 +239,7 @@ fn on_a_full_filesystem_the_daemon_keeps_serving_and_then_says_how_many_lines_it
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
             .collect()
     };
-    let log = inside_mount(pid, &logs.join("daemon-0.0.jsonl"));
+    let log = inside_mount(pid, &logs.join(daemon_log("")));
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
     let written = loop {
         let written = std::fs::read_to_string(&log).unwrap();

@@ -33,7 +33,7 @@ const FOXHOUNDS_CATALOG: OwnCommands = OwnCommands {
     members: foxhounds_catalog_members,
 };
 
-fn foxhounds_catalog_members(group: clap::Command) -> clap::Command {
+pub(super) fn foxhounds_catalog_members(group: clap::Command) -> clap::Command {
     members(group, Product::Foxhound, &[])
 }
 

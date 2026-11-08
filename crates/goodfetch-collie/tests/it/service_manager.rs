@@ -31,7 +31,7 @@ use serde_json::{Value, json};
 
 use crate::daemon::{short_idle, validate};
 #[cfg(unix)]
-use crate::daemon_hello;
+use crate::{daemon_client, daemon_hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -130,7 +130,7 @@ fn the_first_connection_to_the_installed_services_socket_starts_the_daemon() {
     let before = json_in_session(&env, COLLIE, &["daemon", "status", "--json"]);
     let mut client = {
         let found = service_reach(&env, &service);
-        DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token))
+        daemon_client(&found)
     };
     let status = client.call(1, "daemon.status", &json!({}));
     let found = RuntimeFile::read(&RuntimeFile::path(env.home(), VERSION)).unwrap();
@@ -258,7 +258,7 @@ fn a_reload_of_the_users_systemd_keeps_both_of_the_services_sockets() {
         .unwrap();
     let mut client = {
         let found = service_reach(&env, &installed["service"]);
-        DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token))
+        daemon_client(&found)
     };
     let status = client.call(1, "daemon.status", &json!({}));
     let page = crate::sign_in::agent()

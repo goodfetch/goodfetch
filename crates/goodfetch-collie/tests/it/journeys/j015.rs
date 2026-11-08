@@ -84,10 +84,8 @@ fn visit(
 fn served(proving_ground: &ProvingGround) -> BTreeMap<String, usize> {
     let mut served = BTreeMap::new();
     for request in proving_ground.received_requests().unwrap().of_the_case() {
-        if let Some(path) = Some(request.target.as_str())
-            .filter(|path| request.host == "catalog.test" && path.starts_with("/products/"))
-        {
-            *served.entry(path.to_owned()).or_insert(0) += 1;
+        if request.host == "catalog.test" && request.target.starts_with("/products/") {
+            *served.entry(request.target.clone()).or_insert(0) += 1;
         }
     }
     served

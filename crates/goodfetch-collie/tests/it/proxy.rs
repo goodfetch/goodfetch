@@ -28,6 +28,7 @@ use std::sync::{Arc, Barrier, mpsc};
 use std::time::{Duration, Instant};
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_test_client::robots_txt_readings;
 use goodfetch_test_support::{
     Canaries, Canary, DISPATCH_TARGET, Hit, OUTCOME_TARGET, Output, ProvingGround,
@@ -37,7 +38,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::page::{BROWSER_DEADLINE, opened};
-use goodfetch_test_client::{Attached, hello};
+use goodfetch_test_client::{Attached, Hello, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -98,9 +99,9 @@ fn a_proxy_server_on_socks4_or_with_credentials_in_its_url_is_refused_naming_the
 
 /// A `hello` from the MCP server, a Client acting for a model.
 fn hello_for_a_model() -> Value {
-    let mut hello = hello(Product::Collie);
-    hello["params"]["surface"] = json!("mcp");
-    hello
+    Hello::needing(Product::Collie)
+        .surface(Surface::Mcp)
+        .message()
 }
 
 /// Covers: story:5-88, setting:proxy.server, setting:proxy.password, error:setting_locked

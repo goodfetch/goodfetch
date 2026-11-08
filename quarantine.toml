@@ -19,12 +19,6 @@
 
 [[test]]
 runner = "nextest"
-id = "goodfetch-collie::it page_ends::a_browser_killed_by_a_signal_raises_page_crashed_with_its_exit_and_its_session_stays_crashed"
-issue = 2227
-date = 2026-11-08
-
-[[test]]
-runner = "nextest"
 id = "goodfetch-collie::it proxy::the_robots_txt_read_and_page_request_each_send_one_request_through_the_sessions_proxy"
 issue = 2228
 date = 2026-11-08

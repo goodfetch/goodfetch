@@ -603,15 +603,13 @@ impl SessionProxy {
     }
 
     /// The `proxyBypassList` the browser context takes, as Playwright builds
-    /// it from `proxy.bypass`: each entry trimmed, a leading dot made a
-    /// wildcard, and loopback sent through the proxy too.
+    /// it from `proxy.bypass`: each of [`bypass::rules`], a leading dot made
+    /// a wildcard, and loopback sent through the proxy too.
     pub(crate) fn browser_bypass(&self) -> String {
         let mut rules: Vec<String> = self
             .bypass
             .iter()
-            .flat_map(|bypass| bypass.split(','))
-            .map(str::trim)
-            .filter(|rule| !rule.is_empty())
+            .flat_map(|bypass| bypass::rules(bypass))
             .map(|rule| {
                 if rule.starts_with('.') {
                     format!("*{rule}")

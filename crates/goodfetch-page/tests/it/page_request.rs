@@ -1,13 +1,14 @@
 //! `page.request` on an in-process engine's page (ADRs 0020 and 0121): the
 //! engine's own page that sends it, in the page's Session, closes with the
-//! call, whether it answered or was cancelled, and none opens once the
-//! page's lease ended.
+//! call, whether it answered or was cancelled, none opens once the page's
+//! lease ended, and the Session's proxy's refusal raises its own code.
 
 use goodfetch_engine::lease::LeaseEnded;
 use goodfetch_recording_gate::RecordingGate;
+use goodfetch_test_support::ProvingGround;
 use serde_json::{Map, json};
 
-use crate::handler_page::{Program, settled_or, with_handler_page};
+use crate::handler_page::{Program, settled_or, with_handler_page, with_handler_page_of};
 
 /// The incidents family's host whose second page answers only after 8
 /// seconds.
@@ -85,5 +86,36 @@ fn a_cancelled_page_request_closes_the_page_it_opened() {
         .await;
 
         assert_eq!(cancelled["error"]["data"]["code"], json!("call_cancelled"));
+    });
+}
+
+/// A `page.request` through the Session's HTTP proxy that asks for
+/// credentials the Session does not have raises `proxy_auth_failed`, as a
+/// `page.goto` through it does (ADR 0053): the engine's load answers the
+/// proxy's 407 as the page's own requests do.
+/// Covers: operation:page.request, error:proxy_auth_failed
+#[test]
+fn a_page_request_through_a_proxy_refusing_it_raises_proxy_auth_failed() {
+    let gate = RecordingGate::new();
+    let settings = |proving_ground: &ProvingGround| {
+        let proxy = &proving_ground.description().fixtures.proxies["datacenter"];
+        let mut settings = Map::new();
+        settings.insert(
+            "proxy".to_owned(),
+            json!({ "server": format!("http://{proxy}") }),
+        );
+        settings
+    };
+    with_handler_page_of(&gate, settings, async |program| {
+        let url = program
+            .proving_ground
+            .url("scope.test", "/storage?mark=plain");
+        let refused = program.on_page("page.request", json!({ "url": url })).await;
+
+        assert_eq!(
+            refused["error"]["data"]["code"],
+            json!("proxy_auth_failed"),
+            "{refused}"
+        );
     });
 }

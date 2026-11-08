@@ -71,6 +71,7 @@
 )]
 
 mod answers;
+pub(crate) mod authentication;
 mod clean_up;
 mod hops;
 mod navigations;

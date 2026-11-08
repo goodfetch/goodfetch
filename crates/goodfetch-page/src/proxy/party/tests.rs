@@ -175,7 +175,10 @@ fn a_response_without_proxy_status_is_the_sites() {
 /// Covers: story:5-90
 #[test]
 fn the_relays_own_answer_names_the_relay() {
-    assert!(relay_unreachable().contains(&format!("Proxy-Status: {RELAY}; error=")));
+    assert!(
+        String::from_utf8_lossy(&relay_unreachable())
+            .contains(&format!("Proxy-Status: {RELAY}; error="))
+    );
 }
 
 /// Covers: story:5-88, error:proxy_unavailable

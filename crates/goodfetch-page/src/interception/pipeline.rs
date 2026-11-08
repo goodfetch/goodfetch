@@ -45,6 +45,7 @@ use goodfetch_protocol::secrets::{
 use tokio::sync::oneshot;
 
 use super::answers::{Answer, Answers, Fulfillment, Reply, already_handled};
+use super::authentication;
 use super::hops;
 use super::routes::Route;
 use super::steps::{self, Blocking, Overrides, Stopped, entries};
@@ -389,19 +390,6 @@ const COOKIE: &str = "cookie";
 /// entry that reads them.
 const SESSION_COOKIES: &str = "session.cookies";
 
-/// The answer to an authentication challenge, with `credentials` when it
-/// gives them.
-fn answer_auth(
-    response: fetch::AuthChallengeResponseResponse,
-    credentials: Option<(&str, &str)>,
-) -> fetch::AuthChallengeResponse {
-    fetch::AuthChallengeResponse {
-        response,
-        username: credentials.map(|(username, _)| username.to_owned()),
-        password: credentials.map(|(_, password)| password.to_owned()),
-    }
-}
-
 /// What a route did with a request.
 enum Routed {
     /// It passed it to the route before, with these overrides.
@@ -437,46 +425,24 @@ enum Taken {
 }
 
 impl PageContext {
-    /// Answers a 407 or 401 the browser reports: an HTTP or HTTPS proxy's
-    /// with the Session's credentials, once per request; a second one for
-    /// the same request, or one with no credentials to give, is cancelled,
-    /// and on the page's own document leaves `proxy_auth_failed` for the
-    /// navigation (ADR 0053). A site's own 401 goes on as the browser
-    /// would answer it with no credentials.
+    /// Answers a 407 or 401 the browser reports as [`authentication`]
+    /// says, once per request; a proxy's refusal on the page's own document
+    /// leaves `proxy_auth_failed` for the navigation (ADR 0053).
     async fn authenticate(&self, required: fetch::AuthRequiredEvent) {
-        let proxied = required.auth_challenge.source == Some(fetch::AuthChallengeSource::Proxy)
-            && (self.driver.proxy().is_some() || self.driver.relay().is_some());
         let navigation = required.resource_type == network::ResourceType::Document
             && &required.frame_id == self.driver.main_frame();
-        let mut credentials_given = false;
-        let response = if proxied {
-            let seen = lock(&self.authenticated).seen(&required.request_id);
-            match self.driver.proxy_credentials() {
-                Some(credentials) if !seen => {
-                    credentials_given = true;
-                    answer_auth(
-                        fetch::AuthChallengeResponseResponse::ProvideCredentials,
-                        Some(credentials),
-                    )
-                }
-                // Behind the relay, a second 407 is the upstream proxy's
-                // refusal of the Session's credentials, which the relay
-                // passed on.
-                _ => {
-                    if navigation && let Some(proxy) = self.driver.proxy() {
-                        self.state.leave(proxy.auth_failed(&required.request.url));
-                    }
-                    answer_auth(fetch::AuthChallengeResponseResponse::CancelAuth, None)
-                }
-            }
-        } else {
-            answer_auth(fetch::AuthChallengeResponseResponse::Default, None)
-        };
+        let challenged = authentication::answer(&self.driver, &required, || {
+            lock(&self.authenticated).seen(&required.request_id)
+        });
+        if navigation && let Some(refused) = challenged.refused {
+            self.state.leave(refused);
+        }
+        let credentials_given = challenged.credentials_given;
         let answered = self
             .driver
             .command(&fetch::ContinueWithAuthParams {
                 request_id: required.request_id,
-                auth_challenge_response: response,
+                auth_challenge_response: challenged.response,
             })
             .await;
         match answered {
@@ -499,10 +465,9 @@ impl PageContext {
     /// navigation and whatever a route then does with it, a redirect's
     /// excepted, whose last hop is the document.
     fn received(&self, paused: &fetch::RequestPausedEvent) {
-        let Some(status) = paused.response_status_code else {
-            return;
-        };
-        if (300..400).contains(&status) {
+        if paused.response_status_code.is_none()
+            || cdp_response::redirects(cdp_response::paused_status(paused))
+        {
             return;
         }
         let state = if self.main_document(paused) {
@@ -650,7 +615,7 @@ impl PageContext {
                                 .value()
                                 .gate()
                                 .is_some_and(|gate| gate.reads_document_body())
-                            && !(300..400).contains(&status);
+                            && !cdp_response::redirects(status);
                         let read = if judged {
                             Some(self.body(&paused.request_id).await)
                         } else {
@@ -1398,7 +1363,7 @@ impl PageContext {
         // document reader (ADR 0119), a redirect's excepted.
         if document
             && paused.response_status_code.is_some()
-            && !(300..400).contains(&status)
+            && !cdp_response::redirects(status)
             && let Some(reader) = self.driver.reader()
         {
             self.read_document(reader, paused, status).await;
@@ -1542,7 +1507,7 @@ impl PageContext {
             .driver
             .value()
             .gate()
-            .filter(|_| !(300..400).contains(&status))?;
+            .filter(|_| !cdp_response::redirects(status))?;
         let read;
         let body = match body {
             Some(body) => body,

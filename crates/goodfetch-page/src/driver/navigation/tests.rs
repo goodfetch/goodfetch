@@ -452,3 +452,23 @@ fn a_document_counted_or_from_the_cache_arrives_whole(
         Some(Ok(Arrived::Document(Some(_))))
     ));
 }
+
+/// A document request the browser reports sent twice with no redirect
+/// between is still the hop the page's events name it by: its response's
+/// request ID is the browser's own, as `response.body` looks it up, never
+/// a redirect's hop.
+#[test]
+fn a_document_sent_again_without_a_redirect_keeps_its_request_id() {
+    let mut events = finished_document(false, 494.0);
+    events.insert(1, events[0].clone());
+
+    let arrived = ended_after(&events);
+
+    assert!(
+        matches!(
+            &arrived,
+            Some(Ok(Arrived::Document(Some(response)))) if response.request_id == DOCUMENT_REQUEST
+        ),
+        "{arrived:?}"
+    );
+}

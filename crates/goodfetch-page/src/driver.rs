@@ -75,7 +75,7 @@ use tokio_util::sync::CancellationToken;
 pub(crate) use self::carry::{Carried, Origins};
 pub(crate) use self::children::{Child, ChildKind, OnChild};
 use self::encoding::{encoding_of, encoding_read, isolated_world};
-pub(crate) use self::ending::Lost;
+pub(crate) use self::ending::{ENDING_KNOWN_WITHIN, Lost};
 use self::functions::{evaluation, page_function_world};
 pub(crate) use self::navigation::{Arrived, browser_id, hop_id};
 use self::navigation::{Ended, Expected, Followed, Navigation};

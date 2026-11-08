@@ -165,6 +165,20 @@ fn a_bypassed_host_goes_around_the_proxy() {
     );
 }
 
+/// The browser is handed each rule of `proxy.bypass` the engine reads, a
+/// list split on semicolons included, so the two agree on what goes
+/// around the proxy.
+/// Covers: story:5-90, setting:proxy.bypass
+#[test]
+fn the_browser_takes_each_bypass_rule_the_engine_reads() {
+    let proxy = proxy("http://fwd:3128", Some("a.example; .b.example, c.example"));
+
+    assert_eq!(
+        proxy.browser_bypass(),
+        "a.example;*.b.example;c.example;<-loopback>"
+    );
+}
+
 /// Covers: story:5-90
 #[test]
 fn a_tunnel_refused_is_a_refusal_of_a_proxy_without_a_relay() {

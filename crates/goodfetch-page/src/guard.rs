@@ -24,6 +24,8 @@
 mod check;
 mod keys;
 mod target;
+#[cfg(test)]
+mod tests;
 
 use std::time::Duration;
 
@@ -40,7 +42,7 @@ use goodfetch_protocol::page::{TARGET_NOT_UNIQUE, TargetMatch, TargetNotUniqueDe
 use goodfetch_protocol::settings::SettingLimit;
 use serde::Deserialize;
 
-use self::check::{CHECK, Seen, Target};
+use self::check::{CHECK, Seen, Step, Target};
 use crate::driver::{PageDriver, Turn, Unanswered};
 use crate::hiding::Hidden;
 
@@ -172,7 +174,7 @@ pub(crate) async fn act(
         () = clock.sleep_until(unanswered) => Err(at_deadline(
             asked,
             Seen::Waiting {
-                step: "attached".to_owned(),
+                step: Step::Attached,
                 observed: "the page answered none of the action's checks in time: its main thread is busy, or another action holds its turn".to_owned(),
                 matches: Vec::new(),
             },
@@ -191,7 +193,7 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
     let end = started + request.window.duration;
     let mut turn = page.turn(request.operation).await;
     let mut last = Seen::Waiting {
-        step: "attached".to_owned(),
+        step: Step::Attached,
         observed: "the action waited its turn on the page".to_owned(),
         matches: Vec::new(),
     };
@@ -241,7 +243,7 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
                         }
                         Landed::Intercepted { observed } => {
                             last = Seen::Waiting {
-                                step: "receives_events".to_owned(),
+                                step: Step::ReceivesEvents,
                                 observed,
                                 matches: Vec::new(),
                             };
@@ -274,7 +276,10 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
             },
             Seen::Ready { .. } => return Err(mismatched(&seen)),
             Seen::Invalid { message } => return Err(unparsed(request.selector, &message)),
-            Seen::Waiting { ref step, .. } if step == "visible" => {
+            Seen::Waiting {
+                step: Step::Visible,
+                ..
+            } => {
                 match request
                     .hiding
                     .lift(&mut turn, request.selector, request.operation)
@@ -601,12 +606,12 @@ fn at_deadline(asked: Asked<'_>, last: Seen, elapsed: Duration) -> CallError {
             matches,
         } => (step, observed, matches),
         Seen::Armed { .. } | Seen::Focused { .. } | Seen::Ready { .. } | Seen::Invalid { .. } => (
-            "receives_events".to_owned(),
+            Step::ReceivesEvents,
             "the target was ready".to_owned(),
             Vec::new(),
         ),
     };
-    if step == "unique" {
+    if step == Step::Unique {
         let matches: Vec<TargetMatch> = matches
             .into_iter()
             .enumerate()
@@ -646,16 +651,16 @@ fn at_deadline(asked: Asked<'_>, last: Seen, elapsed: Duration) -> CallError {
             limit.key,
             limit.value,
             limit.layer.as_str(),
-            match step.as_str() {
-                "receives_events" => "receiving the event",
-                "count" => "matched as often as its count allows",
-                other => other,
+            match step {
+                Step::ReceivesEvents => "receiving the event",
+                Step::Count => "matched as often as its count allows",
+                other => other.as_str(),
             },
         ),
         &DeadlineExceededDetails {
             limit,
             elapsed,
-            waited_for: format!("target_{step}"),
+            waited_for: format!("target_{}", step.as_str()),
         },
     )
 }

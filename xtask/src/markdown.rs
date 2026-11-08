@@ -3,7 +3,9 @@
 //! matrix, ADR 0140's inventory). A section is what lies under a heading
 //! line up to the next heading of its level or above, outside fenced code;
 //! a table is a run of lines that start with `|`, its header first and its
-//! separator second; a cell is what lies between two `|`, trimmed.
+//! separator second; a cell is what lies between two `|`, trimmed. The time
+//! budgets' and the matrix's readers walk their own lines and take only the
+//! cells from here.
 
 /// The trimmed cells of a table line: what lies between its first `|` and
 /// its last; `None` for a line that does not start with `|`.

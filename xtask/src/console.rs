@@ -293,8 +293,9 @@ fn compress_tree(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The digest of everything a build reads: each file of `packages` but
-/// their installed packages, by its path, and the pnpm lockfile.
+/// The digest of everything a build reads: each file of `packages` but what
+/// a build or an install writes there (`tree::GENERATED`), by its path, and
+/// the pnpm lockfile.
 fn inputs(root: &Path, packages: &[&str]) -> Result<String> {
     let mut files = Vec::new();
     for package in packages {

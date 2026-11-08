@@ -1,7 +1,8 @@
 //! The committed JSON Schema bundle and catalog file, emitted from every
-//! module of `goodfetch-protocol`'s entries through schemars (ADR 0038). The bundle holds every
-//! type's schema under `$defs`; the catalog lists every entry with its
-//! Product mark (ADR 0095) and refers to its types in the bundle.
+//! module of `goodfetch-protocol`'s entries through schemars (ADR 0038). The
+//! bundle holds every type's schema under `$defs`; the catalog lists every
+//! entry with its Product mark (ADR 0095) and refers to its types in the
+//! bundle.
 //!
 //! The bundle's `files` maps each repository file a contract shapes to its
 //! schema: `compat/releases.toml` (ADR 0066), and the Journey catalog's
@@ -73,7 +74,7 @@ pub(super) struct Emitted {
     pub(super) catalog: Value,
 }
 
-/// Emits the bundle and catalog of every entry this crate defines.
+/// Emits the bundle and catalog of every entry `goodfetch-protocol` defines.
 pub(super) fn emit() -> Emitted {
     let mut generator = SchemaSettings::draft2020_12().into_generator();
     let mut sections = Sections::default();

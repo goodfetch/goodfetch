@@ -3,8 +3,8 @@
 //! own Cargo profile and in one invocation of their own, so both Products'
 //! executables share one resolution of features; then writes the test tool
 //! manifest of their absolute paths, which `goodfetch-test-support`'s
-//! `tools()` and `goodfetch-test-env` read. It is not the test build's invocation: there,
-//! the dev-dependencies' features (test support's Tokio `test-util` among
+//! `tools()` and `goodfetch-test-env` read. It is not the test build's
+//! invocation: there, the dev-dependencies' features (test support's Tokio `test-util` among
 //! them) would reach the executables, which tests then would not run as they
 //! ship, so the crates whose features differ compile twice per suite (ADR
 //! 0094's note).

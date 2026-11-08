@@ -43,8 +43,9 @@ fn table(document: &Document<'_>, heading: &str, columns: &[&str]) -> Result<Row
     rows(&table, heading, columns)
 }
 
-/// The table under the `heading` line inside the section under `section`,
-/// which must hold `columns`; none when the register has no such heading.
+/// The table under the `heading` line of the register, which must hold
+/// `columns`; none when the register has no such heading. `section` is the
+/// section its errors name it by, the one the register holds it under.
 fn subtable(
     document: &Document<'_>,
     section: &str,

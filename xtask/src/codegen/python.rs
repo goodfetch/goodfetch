@@ -2,7 +2,8 @@
 //! models from `datamodel-code-generator`, and, written here, each operation
 //! as an async method and a sync one, the event registry, one exception class
 //! per Error code (the seven group classes in Collie's client package, on the
-//! base its hand-written `goodfetch_error` module declares), the base class of the handlers of each Plugin kind, with the
+//! base its hand-written `goodfetch_error` module declares), the base class
+//! of the handlers of each Plugin kind, with the
 //! catalog's descriptions as Google-style docstrings and its Experimental and
 //! deprecated markers. Foxhound's layer imports what Collie's client package
 //! defines.

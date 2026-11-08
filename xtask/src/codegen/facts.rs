@@ -92,7 +92,7 @@ const CHROME_FOR_TESTING_BUILD: Fact = Fact {
     name: "CHROME_FOR_TESTING_BUILD",
     doc: "The Chrome for Testing build Collie pins.",
     source: Source::Json {
-        path: "crates/goodfetch-collie/src/pins.json",
+        path: concat!(crate::products::collie_folder!(), "/src/pins.json"),
         pointer: "/chrome_for_testing/build",
     },
 };

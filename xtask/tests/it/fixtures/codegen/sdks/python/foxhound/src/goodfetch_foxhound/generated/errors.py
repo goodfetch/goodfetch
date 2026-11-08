@@ -8,7 +8,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Final
 
-from goodfetch_collie_client.generated.errors import GoodfetchError, RefusedError
+from goodfetch_collie_client.generated.errors import RefusedError
+from goodfetch_collie_client.goodfetch_error import GoodfetchError
 
 
 class SampleCrawlRefusedError(RefusedError):

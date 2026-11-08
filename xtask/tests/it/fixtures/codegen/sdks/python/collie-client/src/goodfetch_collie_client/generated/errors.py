@@ -8,26 +8,10 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Final, Literal
 
+from goodfetch_collie_client.goodfetch_error import GoodfetchError
+
 ErrorGroup = Literal["program", "refused", "page", "model", "deadline_exceeded", "unavailable", "internal"]
 """The seven groups of Error codes, named for their remedy."""
-
-
-class GoodfetchError(Exception):
-    """The base of every error a Goodfetch SDK raises (ADR 0079)."""
-
-    code: str
-    """The Error code, as the engine sent it."""
-    group: ErrorGroup
-    """The code's group, named for its remedy."""
-    retryable: bool
-    """Whether the same call may succeed when made again."""
-
-    def __init__(self, message: str, *, code: str, group: ErrorGroup, retryable: bool) -> None:
-        """Takes the message and the code's fields."""
-        super().__init__(message)
-        self.code = code
-        self.group = group
-        self.retryable = retryable
 
 
 class ProgramError(GoodfetchError):

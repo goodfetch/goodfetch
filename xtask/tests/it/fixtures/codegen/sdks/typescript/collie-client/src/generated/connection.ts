@@ -2,3 +2,6 @@
 
 /** The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066). */
 export const PROTOCOL_VERSION = "0.1";
+
+/** The Product version this package carries, `hello`'s `product_version`, which each Product's package pins exactly (ADRs 0090 and 0095). */
+export const PRODUCT_VERSION = "0.0.0";

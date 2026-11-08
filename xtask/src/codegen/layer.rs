@@ -214,6 +214,9 @@ pub(super) struct Layer {
     pub(super) product: Product,
     /// The protocol version `major.minor` the catalog speaks.
     pub(super) protocol_version: String,
+    /// The Product version the workspace carries, which the client package's
+    /// `hello` names.
+    pub(super) product_version: String,
     pub(super) operations: Vec<Operation>,
     pub(super) events: Vec<Event>,
     /// The seven groups, generated once, in Collie's client package.
@@ -238,6 +241,7 @@ impl Layer {
         collie: &Value,
         foxhound: &Value,
         product: Product,
+        product_version: &str,
     ) -> Result<Self> {
         let mut collie: Projection =
             Projection::deserialize(collie).context("reading Collie's projection")?;
@@ -268,6 +272,7 @@ impl Layer {
                 Ok(Self {
                     product,
                     protocol_version: collie.protocol_version,
+                    product_version: product_version.to_owned(),
                     operations: collie
                         .operations
                         .into_iter()
@@ -321,6 +326,7 @@ impl Layer {
                 Ok(Self {
                     product,
                     protocol_version: all.protocol_version,
+                    product_version: product_version.to_owned(),
                     operations,
                     events,
                     error_groups: Vec::new(),
@@ -481,7 +487,7 @@ mod tests {
         let bundle = json!({ "$defs": {} });
 
         let offered = |product| {
-            Layer::new(&bundle, &collie, &foxhound, product)
+            Layer::new(&bundle, &collie, &foxhound, product, "0.0.0")
                 .unwrap()
                 .operations
                 .into_iter()
@@ -523,7 +529,7 @@ mod tests {
             .find(|operation| operation["name"] == "usage.raise")
             .map(|operation| operation["reach"].clone());
         let offers = |product| {
-            Layer::new(&bundle, &collie, &foxhound, product)
+            Layer::new(&bundle, &collie, &foxhound, product, "0.0.0")
                 .unwrap()
                 .operations
                 .iter()
@@ -558,7 +564,7 @@ mod tests {
         let bundle = json!({ "$defs": {} });
 
         let members = |product, name: &str| {
-            let layer = Layer::new(&bundle, &collie, &foxhound, product).unwrap();
+            let layer = Layer::new(&bundle, &collie, &foxhound, product, "0.0.0").unwrap();
             let (input, _) = layer.generator_input("Layer", |name| ("import", name.to_owned()));
             input["$defs"][name]["properties"]
                 .as_object()

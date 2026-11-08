@@ -150,15 +150,6 @@ words = ["hold", "in", "realm"]
 form = "runtime"
 
 [[member]]
-package = "@goodfetch/collie-client/runtime"
-receiver = "(module)"
-member = "PRODUCT_VERSION"
-entry = "none"
-reason = "The Product version `hello` names (ADR 0090)."
-words = ["product", "version"]
-form = "runtime"
-
-[[member]]
 package = "@goodfetch/collie/testing"
 receiver = "(module)"
 member = "connectOver"

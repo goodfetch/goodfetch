@@ -25,4 +25,4 @@ export type {
 } from "./stream.ts";
 export { errorOfReply } from "./errors.ts";
 export type { ErrorClasses } from "./errors.ts";
-export { PRODUCT_VERSION } from "./version.ts";
+export { PRODUCT_VERSION } from "./generated/connection.ts";

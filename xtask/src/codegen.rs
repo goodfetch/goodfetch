@@ -398,9 +398,16 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         files.insert(path, text.into_bytes());
     }
 
+    let product_version = product_version(root)?;
     let mut externals = Vec::new();
     for package in &PACKAGES {
-        let layer = Layer::new(&bundle, &collie, &foxhound, package.product)?;
+        let layer = Layer::new(
+            &bundle,
+            &collie,
+            &foxhound,
+            package.product,
+            &product_version,
+        )?;
         let generated = match package.language {
             Language::TypeScript => typescript::generate(&layer),
             Language::Python => python::generate(&layer),
@@ -720,4 +727,21 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<Exi
         write(cargo, &generators, root)?;
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// The Product version the workspace carries: the root manifest's
+/// `[workspace.package] version`, which every crate takes (ADR 0030).
+fn product_version(root: &Path) -> Result<String> {
+    let path = root.join("Cargo.toml");
+    let manifest: toml::Table = toml::from_str(
+        &std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?,
+    )
+    .with_context(|| format!("reading {}", path.display()))?;
+    manifest
+        .get("workspace")
+        .and_then(|workspace| workspace.get("package"))
+        .and_then(|package| package.get("version"))
+        .and_then(toml::Value::as_str)
+        .map(str::to_owned)
+        .with_context(|| format!("{} has no `[workspace.package] version`", path.display()))
 }

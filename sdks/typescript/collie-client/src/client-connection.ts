@@ -13,6 +13,7 @@ import {
   DeadlineExceededError,
   EngineExitedError,
   EngineOutputInvalidError,
+  PRODUCT_VERSION,
   PROTOCOL_VERSION,
   ProtocolVersionUnsupportedError,
   type CallOptions,
@@ -29,7 +30,6 @@ import type { JsonValue } from "./key-value-store.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
 import { Channel, type Transport, type TransportEnd } from "./rpc.ts";
-import { PRODUCT_VERSION } from "./version.ts";
 
 /** How long `close()` waits for an Attached engine to stop: `timeout.close`'s default (ADR 0080). */
 const CLOSE_TIMEOUT = 30_000;
@@ -378,15 +378,19 @@ function productVersionOf(answer: unknown): string {
   return typeof version === "string" ? version : "of an unknown version";
 }
 
-/** Whether an engine of `version` takes this Client: the same major, the same or a newer minor (ADR 0030). */
+/**
+ * Whether an engine of `version` takes this Client: the same line, at the
+ * same or a newer minor (ADR 0030). During `0.y` previews each `0.y` minor
+ * is a line of its own, as `goodfetch-protocol`'s rule reads a `hello`.
+ */
 function speaks(version: string): boolean {
   const [major, minor] = version.split(".").map(Number);
   const [ownMajor, ownMinor] = PROTOCOL_VERSION.split(".").map(Number);
-  return (
-    major !== undefined &&
-    minor !== undefined &&
-    major === ownMajor &&
-    ownMinor !== undefined &&
-    minor >= ownMinor
-  );
+  if (major === undefined || minor === undefined || ownMinor === undefined) {
+    return false;
+  }
+  if (major === 0) {
+    return ownMajor === 0 && minor === ownMinor;
+  }
+  return major === ownMajor && minor >= ownMinor;
 }

@@ -1,10 +1,9 @@
 //! The order every suite runs its tests in (ADR 0064; TESTING.md,
 //! Randomness): the order seed is the first 8 bytes of the tree under test,
-//! read as an unsigned integer, which `xtask order-seed` prints and
-//! `ci/order-seed.sh` gives where no Cargo runs, and `ci/order-arguments.sh`
-//! turns it into each runner's arguments. This spec's stories stay outside
-//! the Feature inventory (#325, Out of Scope), so the module declares no
-//! Feature.
+//! read as an unsigned integer, which `ci/order-seed.sh` prints, and
+//! `ci/order-arguments.sh` turns it into each runner's arguments. This
+//! spec's stories stay outside the Feature inventory (#325, Out of Scope),
+//! so the module declares no Feature.
 
 use std::path::Path;
 
@@ -15,13 +14,6 @@ use crate::workspace::Workspace;
 /// The tree with no entry, whose hash every Git repository knows.
 const EMPTY_TREE_SEED: &str = "5441014405922516665";
 
-/// The order seed `xtask order-seed` prints, with its arguments.
-fn seed(workspace: &Workspace, args: &[&str]) -> String {
-    let outcome = workspace.xtask(&[&["order-seed"], args].concat());
-    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-    outcome.stdout.trim().to_owned()
-}
-
 /// The empty tree's hash starts with `4b825dc642cb6eb9`, 5441014405922516665
 /// as an unsigned integer.
 #[test]
@@ -29,41 +21,18 @@ fn order_seed_is_the_first_eight_bytes_of_the_head_tree() {
     let workspace = Workspace::from_fixture("empty");
     workspace.remove("README.md");
     workspace.commit_all();
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/order-seed.sh");
 
-    let seed = seed(&workspace, &[]);
+    let output = workspace
+        .command(script)
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .output()
+        .unwrap();
 
-    assert_eq!(seed, EMPTY_TREE_SEED);
-}
-
-#[test]
-fn two_commits_of_one_tree_share_their_order_seed() {
-    let workspace = Workspace::from_fixture("empty");
-    let first = workspace.commit_all();
-    let second = workspace.commit_all();
-
-    let seeds = [
-        seed(&workspace, &["--tree", &first]),
-        seed(&workspace, &["--tree", &second]),
-    ];
-
-    assert_eq!(seeds[0], seeds[1]);
-    assert_ne!(seeds[0], EMPTY_TREE_SEED);
-}
-
-/// `ci/order-seed.sh` gives the seed where no Cargo runs, such as a job's
-/// host before its JUnit upload; it must agree with `xtask order-seed`.
-#[test]
-fn order_seed_script_prints_the_seed_xtask_prints() {
-    let workspace = Workspace::from_fixture("empty");
-    workspace.commit_all();
-    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/order-seed.sh");
-
-    let output = workspace.command(script).output().unwrap();
-
-    assert!(output.status.success());
+    assert!(output.status.success(), "{output:?}");
     assert_eq!(
         String::from_utf8(output.stdout).unwrap().trim(),
-        seed(&workspace, &[])
+        EMPTY_TREE_SEED
     );
 }
 

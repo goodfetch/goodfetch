@@ -2,10 +2,8 @@
 # Prints the seed that orders the tests (TESTING.md, Before merge): the
 # GOODFETCH_ORDER_SEED given, as the constrained test-health run draws a
 # fresh one, else the first eight bytes of the tree under test, HEAD's, read
-# as an unsigned integer, so an order repeats with its tree. `xtask
-# order-seed` prints the same value; this script serves where no Cargo runs, such
-# as a job's host. `just test`, `just repeat`, the Release cells and
-# ci/junit-context.sh read it.
+# as an unsigned integer, so an order repeats with its tree. `just test`,
+# `just repeat`, the Release cells and ci/junit-context.sh read it.
 set -euo pipefail
 
 if [[ -n "${GOODFETCH_ORDER_SEED:-}" ]]; then

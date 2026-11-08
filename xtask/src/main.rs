@@ -49,7 +49,6 @@ mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod notices;
-mod order_seed;
 mod os_services;
 mod output;
 mod output_scans;
@@ -254,10 +253,6 @@ enum Command {
     /// with its license and where its source is; fails on a license ADR
     /// 0018's allowlist refuses for its use (ADRs 0018, 0043 and 0047).
     Notices(notices::Arguments),
-    /// Prints the order seed of a tree, which every suite orders its tests
-    /// by: the first 8 bytes of its hash, read as an unsigned integer (ADR
-    /// 0064).
-    OrderSeed(order_seed::Arguments),
     /// Fails on an upload of a job's outputs that does not follow a passing
     /// `gitleaks` scan of what it uploads (ADR 0067).
     OutputScans,
@@ -540,7 +535,6 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Register { command } => register::run(&command, environment, &Cli::command()),
         Command::ReleaseSuite { command } => release_suite::run(command, environment),
         Command::Repeat(arguments) => repeat::run(arguments, environment),
-        Command::OrderSeed(arguments) => order_seed::run(&arguments, environment),
         Command::Results { command } => run_results(command, environment),
         Command::Compare { command } => compare::run(command, environment),
         Command::Rss { command } => rss::run(command, environment),

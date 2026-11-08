@@ -62,7 +62,7 @@ impl Export {
         }
         let mut builder = SdkMeterProvider::builder().with_resource(
             opentelemetry_sdk::Resource::builder_empty()
-                .with_service_name(format!("goodfetch-{}", product.as_str()))
+                .with_service_name(product.executable_name())
                 .build(),
         );
         let registry = if prometheus {

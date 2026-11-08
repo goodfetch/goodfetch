@@ -98,8 +98,67 @@ pub fn error_code(name: &str) -> Option<&'static ErrorCodeDefinition> {
 
 #[cfg(test)]
 mod tests {
-    use super::operations_of;
+    use std::collections::BTreeSet;
+    use std::path::Path;
+
+    use super::{MODULES, operations_of};
     use crate::catalog::Product;
+
+    /// Adds to `found` the path of each module under `folder`, the module
+    /// `module`, that defines `pub const ENTRIES`, as `module_path!()`
+    /// writes it without the crate's name.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a synchronous unit test reads the crate's own source; no async worker runs"
+    )]
+    fn modules_defining_entries(folder: &Path, module: &str, found: &mut BTreeSet<String>) {
+        for entry in std::fs::read_dir(folder).unwrap() {
+            let path = entry.unwrap().path();
+            let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            let inner = if module.is_empty() {
+                name.to_owned()
+            } else {
+                format!("{module}::{name}")
+            };
+            if path.is_dir() {
+                modules_defining_entries(&path, &inner, found);
+            } else if path.extension().is_some_and(|extension| extension == "rs")
+                && std::fs::read_to_string(&path)
+                    .unwrap()
+                    .lines()
+                    .any(|line| line.starts_with("pub const ENTRIES: Entries"))
+            {
+                found.insert(inner);
+            }
+        }
+    }
+
+    /// A module that defines `ENTRIES` and is not in `MODULES` would leave
+    /// the catalog, and every SDK, without a word: each is listed, once.
+    #[test]
+    fn every_module_that_defines_entries_is_listed_once() {
+        let mut defining = BTreeSet::new();
+        modules_defining_entries(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            "",
+            &mut defining,
+        );
+        let crate_name = concat!(env!("CARGO_CRATE_NAME"), "::");
+        let listed: Vec<String> = MODULES
+            .iter()
+            .map(|entries| entries.defined_in.replacen(crate_name, "", 1))
+            .collect();
+
+        assert_eq!(
+            (
+                listed.iter().cloned().collect::<BTreeSet<_>>(),
+                listed.len()
+            ),
+            (defining.clone(), defining.len())
+        );
+    }
 
     /// Collie's operations, in the catalog's order.
     const COLLIE: [&str; 89] = [

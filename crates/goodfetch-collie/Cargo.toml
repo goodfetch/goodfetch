@@ -7,8 +7,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
-# benches/scenarios.rs would be a module of the bench targets, not a target.
-autobenches = false
 
 [features]
 # The executable's own dependencies (ADR 0094): `cargo install

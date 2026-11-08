@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 use clap::Command;
 use clap::error::ErrorKind;
-use goodfetch_collie::executable::generated::{Call, Generated};
+use goodfetch_collie::executable::catalog_commands::{Call, Generated};
 use goodfetch_collie::executable::{OwnCommands, command};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound_names;

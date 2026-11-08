@@ -18,9 +18,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Arg, ArgMatches, Command};
-use goodfetch_collie::executable::engine_choice::{self, Answer, CommandCall, Daemons, Next};
+use goodfetch_collie::executable::Machine;
+use goodfetch_collie::executable::catalog_commands::{Call, OwnCall, OwnCommand, parameter_help};
+use goodfetch_collie::executable::engine_choice::{self, Answer, CommandCall, Next};
 use goodfetch_collie::executable::exit_codes;
-use goodfetch_collie::executable::generated::{Call, OwnCall, OwnCommand, parameter_help};
 use goodfetch_collie::executable::output::{self, Human};
 use goodfetch_engine::run_files::{SaveError, Saving};
 use goodfetch_engine::{Dependencies, Engine};
@@ -119,10 +120,10 @@ impl OwnCall for Flags {
         call: &Call,
         engine: &Engine,
         dependencies: Dependencies,
-        daemons: &dyn Daemons,
+        machine: &Machine<'_>,
         human: &Human,
     ) -> ExitCode {
-        run(call, &self, engine, dependencies, daemons, human)
+        run(call, &self, engine, dependencies, machine, human)
     }
 }
 
@@ -151,7 +152,7 @@ fn run(
     flags: &Flags,
     engine: &Engine,
     dependencies: Dependencies,
-    daemons: &dyn Daemons,
+    machine: &Machine<'_>,
     human: &Human,
 ) -> ExitCode {
     let mut destination = match &flags.out {
@@ -227,7 +228,7 @@ fn run(
     };
     let progress = human.progress("run export");
     let warn = |text: &str| human.warning(text);
-    let reach = call.reach(daemons, &warn);
+    let reach = call.reach(machine, &warn);
     let answer = engine_choice::call(engine, dependencies, call.product(), &reach, command_call);
     drop(progress);
     if let (Out::Stdout, false) = (&flags.out, matches!(answer, Answer::Interrupted(_))) {

@@ -1,9 +1,10 @@
 //! Settings through Collie's executable (spec #213's Seam 1): `config
 //! explain` from the test's Goodfetch home, the project configuration of
 //! its folder and the CLI's flags, in human and `--json` output; the
-//! strict environment map; and every key only Foxhound honours refused with
-//! `not_in_product` when given explicitly, table-driven from the generated
-//! table of Foxhound's names (ADRs 0028, 0083 and 0087).
+//! strict environment map; machine settings that cannot be read, which
+//! fail every command that needs them; and every key only Foxhound honours
+//! refused with `not_in_product` when given explicitly, table-driven from
+//! the generated table of Foxhound's names (ADRs 0028, 0083 and 0087).
 #![expect(
     clippy::disallowed_methods,
     reason = "the tests write the Goodfetch home's and the project's settings files themselves"
@@ -319,6 +320,36 @@ fn config_explain_shows_browser_headless_true_by_default_and_the_layer_that_set_
                 ["collie", "foxhound"]
             ])],
         )
+    );
+}
+
+/// Machine settings that cannot be read fail every command that needs
+/// them with their Error code, printed as every command's failure is and
+/// exiting its row, before it does anything: no Run index is rebuilt and
+/// no Daemon starts on them, as `browser install` and `browser clean` fail
+/// (`browser.rs`).
+///
+/// Covers: error:setting_invalid, exit:program
+#[rstest]
+/// Covers: command:runs.reindex
+#[case::runs_reindex(&["runs", "reindex", "--json"])]
+/// Covers: command:daemon.start
+#[case::daemon_start(&["daemon", "start", "--json"])]
+fn a_command_that_needs_the_machines_settings_fails_with_their_error_code_when_they_cannot_be_read(
+    #[case] arguments: &[&str],
+) {
+    let env = TestEnv::new();
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    env.user_configuration("timeout.navigation = \"soon\"\n");
+
+    let output = cli(&env, COLLIE).args(arguments).run().unwrap();
+
+    let printed: Value = serde_json::from_str(&output.stdout).unwrap_or_default();
+    assert_eq!(
+        (output.exit, printed["error"]["code"].clone()),
+        (Some(3), json!("setting_invalid")),
+        "{}",
+        output.stderr
     );
 }
 

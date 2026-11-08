@@ -32,6 +32,7 @@ use goodfetch_engine::daemon::service::{
     self, ConsoleSocket, ManagerCommand, ServiceRequest, activates_sockets, manager_of_this_os,
 };
 use goodfetch_engine::installed::fingerprint;
+use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::console::{ADDRESS as CONSOLE_ADDRESS, default_address};
 use goodfetch_protocol::daemon::{
     DaemonStopping, DaemonToken, DaemonUninstallOutput, HttpListenerToken, InstalledService,
@@ -39,7 +40,6 @@ use goodfetch_protocol::daemon::{
 };
 use goodfetch_protocol::executables::{ExecutableKind, InstalledExecutable};
 
-use super::browsers;
 use super::daemon::{Failure, Machine};
 use super::output::{self, Human};
 
@@ -156,6 +156,8 @@ pub(super) fn describe(service: &InstalledService) -> String {
 }
 
 fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonStopping>), Failure> {
+    // The service's Daemon starts only on settings it can read.
+    let settings = machine.settings()?;
     let manager = manager_of_this_os().ok_or_else(|| {
         Failure::Unavailable("this OS has no service manager Goodfetch registers with".to_owned())
     })?;
@@ -195,7 +197,7 @@ fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonSt
     // Held until the service manager listens on it, so no other program
     // takes a port chosen for port 0 in between (#1821).
     let console = match &socket {
-        Some(_) => console_socket(machine, manager),
+        Some(_) => console_socket(machine, settings, manager),
         None => None,
     };
     let domain = launchd_domain(machine, manager)?;
@@ -233,16 +235,19 @@ fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonSt
 }
 
 /// What the service manager listens on for the Console for the Daemon it
-/// starts (ADR 0031): `console.address` from the machine's layers, else its
-/// default, as [`ConsoleSocket::of`] says; none, and the Console's address
-/// left to the Daemon, when it is no `host:port` or no port can be held.
-fn console_socket(machine: &Machine<'_>, manager: ServiceManager) -> Option<ConsoleSocket> {
-    let identity = machine.identity;
-    let configured =
-        browsers::machine_settings(machine.home, identity.product, &identity.product_version)
-            .ok()
-            .and_then(|settings| settings.value(&CONSOLE_ADDRESS).as_str().map(str::to_owned))
-            .unwrap_or_else(|| default_address(&identity.product_version).to_string());
+/// starts (ADR 0031): `console.address` from the machine's `settings`, else
+/// its default, as [`ConsoleSocket::of`] says; none, and the Console's
+/// address left to the Daemon, when it is no `host:port` or no port can be
+/// held.
+fn console_socket(
+    machine: &Machine<'_>,
+    settings: &Resolved,
+    manager: ServiceManager,
+) -> Option<ConsoleSocket> {
+    let configured = settings.value(&CONSOLE_ADDRESS).as_str().map_or_else(
+        || default_address(&machine.identity.product_version).to_string(),
+        str::to_owned,
+    );
     let Ok(address) = configured.parse::<SocketAddr>() else {
         tracing::warn!(address = %configured, "`console.address` is no `host:port`, so the first visit to the Console does not start the Daemon");
         return None;

@@ -19,8 +19,8 @@ use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::foxhound_names;
 use serde_json::Value;
 
+use super::catalog_commands::spelled;
 use super::exit_codes;
-use super::generated::spelled;
 use super::output::{self, Human};
 
 /// The flag whose value follows it, which is no word of the command.

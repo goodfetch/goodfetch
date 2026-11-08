@@ -153,8 +153,6 @@ subtle = { version = "2.6.1", default-features = false }
 glob = { version = "0.3.4", default-features = false }
 # The pinned Chromium's CDP bindings and the client's connection (spec #577).
 goodfetch-cdp = { path = "crates/goodfetch-cdp" }
-# Both executables' command line, which Foxhound's reaches without Collie's
-# executable crate (ADR 0090).
 # The Clean-up rules and their matching (spec #577, ADR 0047).
 goodfetch-clean-up-rules = { path = "crates/goodfetch-clean-up-rules" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }

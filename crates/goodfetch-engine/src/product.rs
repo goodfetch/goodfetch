@@ -25,11 +25,6 @@ pub enum Channel {
     Installer,
 }
 
-/// The deployment variable in which a channel's launcher, wrapper or image
-/// says which channel the executable came from (ADRs 0083 and 0090): one
-/// of [`Channel::name`]'s names.
-pub const CHANNEL_VARIABLE: &str = "GOODFETCH_CHANNEL";
-
 impl Channel {
     /// Every channel.
     pub const ALL: [Self; 6] = [
@@ -41,7 +36,7 @@ impl Channel {
         Self::Installer,
     ];
 
-    /// Its name, as [`CHANNEL_VARIABLE`] and a release build's stamp write
+    /// Its name, as `GOODFETCH_CHANNEL` and a release build's stamp write
     /// it.
     pub fn name(self) -> &'static str {
         match self {

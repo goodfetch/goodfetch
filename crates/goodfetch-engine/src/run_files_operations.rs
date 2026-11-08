@@ -84,7 +84,7 @@ async fn save_as(
     let Some((run_id, position)) = download_id.split() else {
         return Err(no_download(&download_id));
     };
-    let failed = |error: RunError| run_error(error, context.identity());
+    let failed = |error: RunError| run_error(error, &context);
     let mut reader = context
         .runs()
         .reader(run_id.clone())

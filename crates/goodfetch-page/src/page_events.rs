@@ -909,10 +909,7 @@ async fn judged_body(
     url: &str,
     (received, declared): (u64, Option<u64>),
 ) -> Result<Vec<u8>, Unread> {
-    let limits = shared
-        .run
-        .settings()
-        .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
+    let limits = Limits::of_run(shared.run.settings());
     let past = |exceeded: LimitExceeded| Unread::PastLimit(exceeded.error());
     limits
         .judge_decoded(url, received, declared)

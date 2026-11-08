@@ -908,9 +908,7 @@ impl BrowserPages for Opener {
                 .interception
                 .engine_requests_of(&run, &own)
                 .await?;
-            let limits = run
-                .settings()
-                .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
+            let limits = Limits::of_run(run.settings());
             let headers: BTreeMap<String, String> = request.headers.iter().cloned().collect();
             let post_data = request
                 .body
@@ -1208,10 +1206,7 @@ impl Pages {
         tracing::Span::current().record("run_id", page.run.id().as_str());
         let steps = self.interception.engine_requests(&params.page_id)?;
         let events = self.events.get(&params.page_id)?;
-        let limits = page
-            .run
-            .settings()
-            .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
+        let limits = Limits::of_run(page.run.settings());
         let request = browser_fetch::Request {
             url: &params.url,
             method: params.method.as_deref(),

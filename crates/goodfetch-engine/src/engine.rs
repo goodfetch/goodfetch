@@ -54,7 +54,7 @@ use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
 use crate::runs::{CleanUpVersions, ProgressPart, ReportPart, Runs, RunsSetup};
-use crate::sandbox_probe;
+use crate::sandbox_probe::{self, SandboxProbe};
 use crate::secrets::{self, Carried, Keychain, ProviderFactory, Secrets};
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
@@ -349,11 +349,12 @@ impl Engine {
             owner,
             self.metrics.counted_work().clone(),
         );
+        let sandbox_probe = SandboxProbe::of(dependencies.environment.clone());
         let settings = host_settings(
             SettingsFiles::of(&dependencies.home, &self.identity().product_version),
             self.identity().product,
             owner,
-            &dependencies,
+            (dependencies.keychain.clone(), sandbox_probe.clone()),
             self.metrics.counted_work().clone(),
         );
         let governor = self.governor(&settings, dependencies.clock, owner, &events);
@@ -385,7 +386,12 @@ impl Engine {
             version: self.identity().product_version.clone(),
             clock: dependencies.clock,
         });
-        let (context, secrets) = self.engine_context(&mut dependencies, settings, needs_you, owner);
+        let (context, secrets) = self.engine_context(
+            &mut dependencies,
+            settings,
+            (needs_you, sandbox_probe),
+            owner,
+        );
         let runs = Runs::start_registry(
             RunsSetup {
                 engine: context.clone(),
@@ -437,7 +443,7 @@ impl Engine {
         &self,
         dependencies: &mut Dependencies,
         settings: Settings,
-        needs_you: NeedsYou,
+        (needs_you, sandbox_probe): (NeedsYou, SandboxProbe),
         owner: &TaskOwner,
     ) -> (EngineContext, Secrets) {
         let audit = Arc::new(
@@ -453,6 +459,7 @@ impl Engine {
             Arc::clone(&audit),
             Arc::new(owner.child()),
             needs_you,
+            sandbox_probe,
             os_user(&dependencies.environment),
             dependencies.run_state.vfs.clone(),
         );
@@ -865,38 +872,34 @@ async fn write_managed(context: EngineContext, version: ProductVersion) {
     }
 }
 
-/// The engine's settings, whose host defaults are the keychain's and
-/// Chromium's sandbox probe's, their reads counted on `work`. The probe
-/// starts now, at startup, once for the process (ADR 0049); the host's
-/// defaults wait for its answer, which each browser launch reads.
+/// The engine's settings, whose host defaults are `keychain`'s and those of
+/// `probe`, Chromium's sandbox's, their reads counted on `work`. The probe
+/// starts now, at startup (ADR 0049); the host's defaults wait for its
+/// answer, which each browser launch reads.
 fn host_settings(
     files: SettingsFiles,
     product: goodfetch_protocol::catalog::Product,
     owner: &TaskOwner,
-    dependencies: &Dependencies,
+    (keychain, probe): (Keychain, SandboxProbe),
     work: CountedWork,
 ) -> Settings {
     let probing = Arc::new(owner.child());
-    let environment = Arc::new(dependencies.environment.clone());
     {
-        let (probing, environment) = (Arc::clone(&probing), Arc::clone(&environment));
+        let (probing, probe) = (Arc::clone(&probing), probe.clone());
         owner.spawn(async move {
             probing
                 .blocking(move || {
-                    sandbox_probe::probed_in(&environment);
+                    probe.probed();
                 })
                 .await;
         });
     }
-    let keychain = dependencies.keychain.clone();
     Settings::with_host(files, product, owner.child(), work, move || {
         let keychain = keychain.clone();
-        let (probing, environment) = (Arc::clone(&probing), Arc::clone(&environment));
+        let (probing, probe) = (Arc::clone(&probing), probe.clone());
         Box::pin(async move {
-            let probed = probing
-                .blocking(move || sandbox_probe::probed_in(&environment))
-                .await;
-            sandbox_probe::host_defaults(secrets::host_defaults(&keychain).await, probed)
+            let probed = probing.blocking(move || probe.probed().clone()).await;
+            sandbox_probe::host_defaults(secrets::host_defaults(&keychain).await, &probed)
         })
     })
 }

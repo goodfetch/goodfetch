@@ -54,7 +54,7 @@ async fn page(params: DatasetPageParams, context: CallContext) -> Result<Dataset
             )));
         }
     }
-    let failed = |error: RunError| run_error(error, context.identity());
+    let failed = |error: RunError| run_error(error, &context);
     let mut reader = open_dataset(&context, params.run_id.clone(), &params.dataset).await?;
     let (dataset, after, through, sort) =
         (params.dataset, params.after, params.through, params.sort);

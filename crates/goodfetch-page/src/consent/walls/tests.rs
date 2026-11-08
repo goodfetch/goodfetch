@@ -20,6 +20,8 @@ use super::{Approval, Walls};
 #[case::the_domain(json!(["news.example"]), "https://news.example/a", Some("news.example"))]
 #[case::a_subdomain(json!(["news.example"]), "https://www.news.example/a", Some("news.example"))]
 #[case::written_in_capitals(json!(["News.Example."]), "https://news.example/", Some("news.example"))]
+#[case::an_international_name(json!(["Bücher.de"]), "https://bücher.de/a", Some("xn--bcher-kva.de"))]
+#[case::in_punycode(json!(["xn--bcher-kva.de"]), "https://bücher.de/a", Some("xn--bcher-kva.de"))]
 #[case::every_domain(json!(["*"]), "https://shop.example/", Some("shop.example"))]
 #[case::another_domain(json!(["news.example"]), "https://shop.example/", None)]
 #[case::a_lookalike(json!(["news.example"]), "https://news.example.evil.test/", None)]

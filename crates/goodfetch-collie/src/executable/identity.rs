@@ -13,10 +13,11 @@ use clap::ValueEnum;
 use goodfetch_engine::CallError;
 use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::settings::{SettingsError, check_environment, deployment_variable};
-use goodfetch_engine::{CHANNEL_VARIABLE, Channel, Identity};
+use goodfetch_engine::{Channel, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::jsonrpc::ErrorObject;
+use goodfetch_protocol::settings::CHANNEL_VARIABLE;
 
 use super::Start;
 

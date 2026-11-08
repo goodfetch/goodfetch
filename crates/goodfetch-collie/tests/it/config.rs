@@ -128,6 +128,42 @@ fn config_explain_json_shows_each_value_with_the_layer_that_set_and_locked_it(#[
     });
 }
 
+/// A `--project` that names no file sets nothing: the answer lists it as
+/// not found.
+/// Covers: story:3-89, command:config.explain
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn config_explain_lists_a_named_project_file_that_is_missing_as_not_found(#[case] mode: Mode) {
+    let env = TestEnv::new();
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let missing = env.folder().join("no-such-project.toml");
+    let missing = missing.to_str().unwrap();
+
+    let (stdout, _, succeeded) = explain(
+        &env,
+        mode,
+        &["timeout.navigation", "--project", missing, "--json"],
+    );
+
+    assert!(succeeded);
+    let output: Value = serde_json::from_str(&stdout).unwrap();
+    let project: Vec<&Value> = output["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|file| file["layer"] == "project_configuration")
+        .collect();
+    assert_eq!(
+        project,
+        [&json!({
+            "layer": "project_configuration",
+            "path": missing,
+            "found": false,
+        })]
+    );
+}
+
 /// Covers: story:3-89, command:config.explain
 #[rstest]
 #[case::attached(Mode::Attached)]

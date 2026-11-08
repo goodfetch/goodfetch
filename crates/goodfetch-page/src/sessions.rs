@@ -303,7 +303,7 @@ fn unavailable(run: &Run, error: &impl std::fmt::Display, context: &CallContext)
             folder: run.folder().to_owned(),
             error: error.to_string(),
         },
-        context.identity(),
+        context,
     )
 }
 

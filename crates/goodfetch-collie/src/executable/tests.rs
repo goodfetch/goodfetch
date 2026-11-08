@@ -7,7 +7,9 @@ use std::fmt::Write as _;
 use std::sync::{Arc, Mutex};
 
 use super::output::ColourChoice;
+use clap::FromArgMatches as _;
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::daemon::service::LaunchedCommand;
 use goodfetch_engine::mask::{Masks, Reach, Redaction};
 use goodfetch_protocol::catalog::Product;
 use rstest::rstest;
@@ -15,9 +17,10 @@ use secrecy::SecretString;
 use tracing_subscriber::layer::SubscriberExt as _;
 
 use super::catalog_commands::members;
+use super::daemon_command::DaemonCommand;
 use super::log_file::{LogFile, Rotation};
 use super::logs::Masked;
-use super::{COLOR, OwnCommands, command, command_line};
+use super::{COLOR, Command, CommandLine, OwnCommands, command, command_line};
 
 /// Foxhound's catalog's generated commands, none written by hand: Foxhound's
 /// executable's command line but for its own commands, which Foxhound's
@@ -147,6 +150,54 @@ fn color_is_taken_wherever_it_is_given(
     assert_eq!(
         matches.get_one::<ColourChoice>(COLOR).copied(),
         Some(expected)
+    );
+}
+
+/// `daemon launched`'s arguments as `product`'s command line reads them:
+/// the build of its copy, whether it keeps alive, whether the service
+/// starts it and the variables it is passed.
+fn launched(
+    product: Product,
+    launched: &LaunchedCommand<'_>,
+) -> (Option<String>, bool, bool, Vec<String>) {
+    let (command_line, _) = command_line(product, own(product));
+    let matches = command_line
+        .try_get_matches_from(std::iter::once("goodfetch".to_owned()).chain(launched.arguments()))
+        .unwrap();
+    match CommandLine::from_arg_matches(&matches).unwrap().command {
+        Command::Daemon {
+            command:
+                DaemonCommand::Launched {
+                    copy,
+                    keep_alive,
+                    service,
+                    environment,
+                },
+            ..
+        } => (copy, keep_alive, service, environment),
+        _ => panic!("the arguments name `daemon launched`"),
+    }
+}
+
+/// An installed service's definition holds these arguments, so a flag the
+/// command line renames would stop the service at its next start.
+#[rstest]
+#[case::collie(Product::Collie)]
+#[case::foxhound(Product::Foxhound)]
+fn the_daemon_launched_command_is_one_the_command_line_reads(#[case] product: Product) {
+    let copy = Some("0.1.0-abc".to_owned());
+    let passed = "GOODFETCH_HOME=/home/someone/gf".to_owned();
+
+    assert_eq!(
+        launched(
+            product,
+            &LaunchedCommand::of_service("0.1.0-abc", vec![passed.clone()]),
+        ),
+        (copy.clone(), false, true, vec![passed]),
+    );
+    assert_eq!(
+        launched(product, &LaunchedCommand::started("0.1.0-abc", true)),
+        (copy, true, false, Vec::new()),
     );
 }
 

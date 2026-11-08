@@ -15,6 +15,7 @@ use goodfetch_engine::browser_cache::{
 };
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, PinnedBy};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -30,7 +31,10 @@ fn main() {
             .expect("invariant: xtask compat passes the output folder"),
     );
     let scratch = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
-    let cache = BrowserCache::new(&CacheLocation::new(scratch.path(), None));
+    let cache = BrowserCache::new(
+        &CacheLocation::new(scratch.path(), None),
+        TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
+    );
     let id = ArtifactId {
         kind: ArtifactKind::Browser,
         name: "chrome-for-testing".to_owned(),

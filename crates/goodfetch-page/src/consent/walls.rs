@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::needs_you::consent::ConsentDomains;
 use tokio::sync::Notify;
 
 use goodfetch_protocol::page::PageId;
@@ -25,8 +26,8 @@ use crate::interception::domain_key;
 /// resolved it, and the layer that set it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Approval {
-    /// The registrable domains, lowercase, or `*`, written explicitly.
-    domains: Vec<String>,
+    /// The registrable domains, or `*`, written explicitly.
+    domains: ConsentDomains,
     /// The layer whose value the Run resolved.
     pub(crate) layer: SettingsLayer,
 }
@@ -35,12 +36,7 @@ impl Approval {
     /// The approval `value`, `consent.domains` as `layer` set it; none for
     /// an empty list, which approves nothing.
     pub(crate) fn of(value: &Value, layer: SettingsLayer) -> Option<Self> {
-        let domains: Vec<String> = value
-            .as_array()?
-            .iter()
-            .filter_map(Value::as_str)
-            .map(|domain| domain.trim_end_matches('.').to_ascii_lowercase())
-            .collect();
+        let domains = ConsentDomains::of(value);
         (!domains.is_empty()).then_some(Self { domains, layer })
     }
 
@@ -48,10 +44,7 @@ impl Approval {
     /// approval covers it.
     pub(crate) fn covers(&self, url: &str) -> Option<String> {
         let domain = domain_key(url)?;
-        self.domains
-            .iter()
-            .any(|approved| approved == "*" || *approved == domain)
-            .then_some(domain)
+        self.domains.covers(&domain).then_some(domain)
     }
 }
 

@@ -61,7 +61,7 @@ pub fn place_executable_copy(
     let hex = digest.trim_start_matches("sha256:");
     let id = ArtifactId {
         kind: ArtifactKind::ExecutableCopy,
-        name: format!("goodfetch-{}", product.as_str()),
+        name: product.executable_name().to_owned(),
         build: format!("{version}-{}", &hex[..DIGEST_DIGITS.min(hex.len())]),
     };
     let folder = store::entry_folder(root, &id);

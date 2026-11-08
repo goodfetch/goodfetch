@@ -30,7 +30,7 @@ async fn read_records(
     params: RunRecordsParams,
     context: CallContext,
 ) -> Result<RecordsRead, CallError> {
-    let failed = |error: RunError| run_error(error, context.identity());
+    let failed = |error: RunError| run_error(error, &context);
     let mut reader = open_dataset(&context, params.run_id.clone(), &params.dataset).await?;
     let stream = context.stream();
     let after = params.after.unwrap_or_default();

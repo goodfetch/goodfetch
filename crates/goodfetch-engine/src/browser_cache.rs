@@ -422,8 +422,16 @@ impl BrowserCache {
                 && store::writable(&self.root)
             {
                 entry.used_at = now;
-                // A launch still runs when its use cannot be recorded.
-                let _ = store::write_entry(&folder, &entry);
+                // A launch still runs when its use cannot be recorded; the
+                // clean-up then counts the build unused since its last
+                // recorded use.
+                if let Err(error) = store::write_entry(&folder, &entry) {
+                    tracing::warn!(
+                        folder = %folder.display(),
+                        %error,
+                        "the use of a build in the Browser cache could not be recorded",
+                    );
+                }
             }
             return Ok(Present::Held(HeldArtifact {
                 folder,

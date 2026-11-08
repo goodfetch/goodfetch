@@ -34,6 +34,7 @@ use crate::check::{self, Finding};
 use crate::environment::Environment;
 use crate::features;
 use crate::output;
+use crate::products;
 
 #[derive(clap::Subcommand)]
 pub(crate) enum Command {
@@ -56,7 +57,7 @@ pub(crate) enum Command {
 const CASE_LIST: &str = "conformance/clients/cases.toml";
 /// The crates whose tests implement the `cli` surface's cases: each
 /// Product's executable crate (ADR 0094).
-const EXECUTABLE_CRATES: [&str; 2] = ["goodfetch-collie", "goodfetch-foxhound"];
+const EXECUTABLE_CRATES: [&str; 2] = products::PACKAGES;
 /// The module in a test's path that the case's module follows.
 const CASES_MODULE: &str = "client_conformance";
 /// The folder of the packages whose Vitest tests implement the

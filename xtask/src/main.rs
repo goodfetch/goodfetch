@@ -36,14 +36,17 @@ mod fixture_size;
 mod floor_guard;
 mod foxhound_side;
 mod gate;
+mod git;
 mod github;
 mod image_pins;
 mod issues;
 mod journeys;
 mod junit;
 mod junit_summary;
+mod kennel;
 mod lazyfs;
 mod license_allowlist;
+mod markdown;
 mod metadata;
 mod mocking_lockfile;
 mod modules;
@@ -56,6 +59,7 @@ mod output_scans;
 mod package_dependencies;
 mod perf;
 mod pinned;
+mod products;
 mod quarantine;
 mod rate;
 mod received_requests;
@@ -64,6 +68,7 @@ mod release_suite;
 mod repeat;
 mod results;
 mod rss;
+mod runners;
 mod scan;
 mod screenshots;
 mod self_hosted;
@@ -228,6 +233,10 @@ enum Command {
     /// each with its failure's first lines and its seeds; fails on a JUnit
     /// file it cannot read (ADR 0061).
     JunitSummary(junit_summary::Arguments),
+    /// Fails when the Kennel's workspace manifest drifts from the root's: its
+    /// `[workspace.lints]`, the version of a dependency both declare, or its
+    /// `rust-version` (ADR 0141).
+    KennelManifest,
     /// LazyFS, built from pinned source archives, which power-cuts a real
     /// executable on Linux (ADR 0060).
     Lazyfs {
@@ -296,8 +305,8 @@ enum Command {
         #[command(subcommand)]
         command: release_suite::Command,
     },
-    /// Prints, as `<runner>\t<argument>` lines, the arguments that make each
-    /// runner run the chosen tests `--count` times, whatever each run's
+    /// Prints, as a JSON object of each runner's commands, the arguments that
+    /// make each runner run the chosen tests `--count` times, whatever each run's
     /// result (ADR 0064): the diagnostic runs and the daily test-health job.
     Repeat(repeat::Arguments),
     /// The results store, `test-results` (ADR 0064).
@@ -521,6 +530,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
             journeys::run(&command, environment, features::manual_exceptions)
         }
         Command::JunitSummary(arguments) => junit_summary::run(&arguments, environment),
+        Command::KennelManifest => Ok(check::report(&kennel::check(root)?)),
         Command::Lazyfs { command } => lazyfs::run(&command, environment),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules { workspace } => {

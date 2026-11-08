@@ -24,25 +24,18 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::features::CommandLines;
-
-/// Collie's crate, whose executable reads the namespaces.
-const COLLIE: &str = "crates/goodfetch-collie";
+use crate::products;
 
 /// Where Collie's crate's generated files live.
-pub(super) const COLLIE_FOLDER: &str = "crates/goodfetch-collie/generated";
+pub(super) const COLLIE_FOLDER: &str = concat!(products::collie_folder!(), "/generated");
 
 /// The file of the namespaces, which Collie's executable reads.
-const NAMESPACES: &str = "crates/goodfetch-collie/generated/namespaces.rs";
+const NAMESPACES: &str = concat!(products::collie_folder!(), "/generated/namespaces.rs");
 
 /// The file of both executables' command lines: `{"collie": <tree>,
 /// "foxhound": <tree>}`, each tree a command's `name` and the `commands`
 /// under it, hidden ones included.
 const COMMAND_LINES: &str = "crates/goodfetch-protocol/generated/command_lines.json";
-
-/// Foxhound's executable crate, which holds Foxhound's own commands and
-/// depends on Collie's, whose `executable` module both Products'
-/// executables start from (ADR 0087).
-const FOXHOUND: &str = "crates/foxhound/goodfetch-foxhound";
 
 /// The file the example writes into the folder it is given.
 const WRITTEN: &str = "command-lines.json";
@@ -82,7 +75,7 @@ impl Files {
     /// The files as the executables at `root` print them, or those `root`
     /// holds when it has no Foxhound's executable crate.
     pub(super) fn printed(cargo: &OsStr, root: &Path) -> Result<Self> {
-        if !root.join(FOXHOUND).is_dir() {
+        if !root.join(products::FOXHOUND.folder).is_dir() {
             return Ok(Self::committed(root));
         }
         let Both { collie, foxhound } = run_example(cargo, root)?;
@@ -97,7 +90,7 @@ impl Files {
             // A workspace without Collie's crate, such as a test's
             // fixture, has no file of its namespaces.
             namespaces: root
-                .join(COLLIE)
+                .join(products::COLLIE.folder)
                 .is_dir()
                 .then(|| collie.namespaces.into_bytes()),
         })
@@ -136,7 +129,7 @@ fn run_example(cargo: &OsStr, root: &Path) -> Result<Both> {
             "run",
             "--quiet",
             "--package",
-            "goodfetch-foxhound",
+            products::FOXHOUND.package,
             "--features",
             "executable",
             "--example",

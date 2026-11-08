@@ -24,9 +24,13 @@ use crate::environment::Environment;
 use crate::github;
 use crate::issues::{Issues, Label};
 use crate::output;
+use crate::products;
 
 /// The vendors the block-detection rules cover, from the workspace's folder.
-pub(crate) const VENDORS: &str = "crates/goodfetch-collie/src/block_detection/vendors.toml";
+pub(crate) const VENDORS: &str = concat!(
+    products::collie_folder!(),
+    "/src/block_detection/vendors.toml"
+);
 
 /// A list of vendors Goodfetch watches and never takes anything but names
 /// from.

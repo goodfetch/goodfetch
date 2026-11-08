@@ -16,6 +16,7 @@ use goodfetch_protocol::journey::{Journey, Status};
 use serde::Deserialize;
 
 use super::scan::{Declaration, Level, Source};
+use crate::tree;
 
 /// The folder of the Journey catalog.
 const JOURNEYS: &str = "journeys";
@@ -133,7 +134,7 @@ fn case_lists(folder: &Path, lists: &mut Vec<PathBuf>) -> Result<()> {
         let path = entry.path();
         let name = entry.file_name();
         if entry.file_type()?.is_dir() {
-            if name != "node_modules" && name != "target" {
+            if !tree::generated(&name.to_string_lossy()) {
                 case_lists(&path, lists)?;
             }
         } else if name == CASE_LIST {

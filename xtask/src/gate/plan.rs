@@ -7,32 +7,36 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::affected::{Job, RepoPath, Selection};
+use crate::products;
 
-/// A step of `just pre-merge all` that the gate records.
+/// A step of `just pre-merge all` that the gate records, declared in the
+/// order `ci/pre-merge.sh` starts them (`steps`): the checks that judge the
+/// whole change in seconds first, so a red one ends the gate before any
+/// build, then those beside the host's, then the host's others.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Step {
     Dco,
     CommitMessages,
     FloorGuard,
-    Lint,
-    FeatureCombinations,
-    Audit,
     CommitLeaks,
-    FuzzCheck,
-    Proofs,
-    JourneysTasks,
-    FeaturesTests,
+    Audit,
     Notices,
     Perf,
     Linux,
     Visual,
+    Lint,
+    FeatureCombinations,
+    FuzzCheck,
+    Proofs,
     Quick,
     PreMerge,
     Stress,
+    JourneysTasks,
+    FeaturesTests,
     Tlc,
+    Kennel,
     Msrv,
     Miri,
-    Kennel,
 }
 
 /// What a step's result depends on, besides the gate's own inputs.
@@ -52,29 +56,30 @@ enum Reach {
 }
 
 impl Step {
+    /// Every step, in the order `ci/pre-merge.sh` starts them.
     pub(crate) const ALL: [Self; 22] = [
         Self::Dco,
         Self::CommitMessages,
         Self::FloorGuard,
-        Self::Lint,
-        Self::FeatureCombinations,
-        Self::Audit,
         Self::CommitLeaks,
-        Self::FuzzCheck,
-        Self::Proofs,
-        Self::JourneysTasks,
-        Self::FeaturesTests,
+        Self::Audit,
         Self::Notices,
         Self::Perf,
         Self::Linux,
         Self::Visual,
+        Self::Lint,
+        Self::FeatureCombinations,
+        Self::FuzzCheck,
+        Self::Proofs,
         Self::Quick,
         Self::PreMerge,
         Self::Stress,
+        Self::JourneysTasks,
+        Self::FeaturesTests,
         Self::Tlc,
+        Self::Kennel,
         Self::Msrv,
         Self::Miri,
-        Self::Kennel,
     ];
 
     /// The step's name in the plan, the record and `ci/pre-merge.sh`.
@@ -135,6 +140,28 @@ impl Step {
         }
     }
 
+    /// Whether the step reads only the change's commits and the bar, which
+    /// every form of the gate runs first, the docs form's included.
+    pub(crate) const fn reads_the_commits(self) -> bool {
+        matches!(
+            self,
+            Self::Dco | Self::CommitMessages | Self::FloorGuard | Self::CommitLeaks
+        )
+    }
+
+    /// Whether the step judges the whole change in seconds: those that read
+    /// its commits, the advisories and the notices, which the gate runs
+    /// before any build and any step beside the host's.
+    pub(crate) const fn judges_the_whole_change(self) -> bool {
+        self.reads_the_commits() || matches!(self, Self::Audit | Self::Notices)
+    }
+
+    /// Whether the step needs Linux and runs beside the host's, in a
+    /// container of its own.
+    pub(crate) const fn beside(self) -> bool {
+        matches!(self, Self::Perf | Self::Linux | Self::Visual)
+    }
+
     /// Whether the step runs each member's tests separately.
     pub(crate) const fn per_member(self) -> bool {
         matches!(self.reach(), Reach::Members)
@@ -177,7 +204,7 @@ const GATE_INPUTS: [&str; 18] = [
     "proving-ground/fixtures",
     "test-support/fixtures",
     "chromium",
-    "crates/goodfetch-collie/src/pins.json",
+    concat!(products::collie_folder!(), "/src/pins.json"),
 ];
 
 /// The first changed path that is one of the gate's inputs.

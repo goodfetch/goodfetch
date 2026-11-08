@@ -63,7 +63,7 @@ fn matrix_rows(text: &str) -> Vec<MatrixRow> {
     let mut rows = Vec::new();
     let mut columns: Option<Columns> = None;
     for line in text.lines() {
-        let Some(cells) = cells(line) else {
+        let Some(cells) = crate::markdown::cells(line) else {
             columns = None;
             continue;
         };
@@ -106,12 +106,6 @@ impl Columns {
             area: position(&["Spec area", "Spec areas"])?,
         })
     }
-}
-
-/// The trimmed cells of a Markdown table line, or none for another line.
-fn cells(line: &str) -> Option<Vec<&str>> {
-    let inner = line.trim().strip_prefix('|')?.strip_suffix('|')?;
-    Some(inner.split('|').map(str::trim).collect())
 }
 
 /// The number that opens a spec area cell, such as `3` in

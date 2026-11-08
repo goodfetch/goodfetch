@@ -98,7 +98,8 @@ case "${1:-}" in
     # As `just test` does: quarantined tests (ADR 0064) and, on a local host,
     # the tests of an OS service it lacks are skipped (ci/nextest-skips.sh).
     skips=()
-    listed=$(ci/nextest-skips.sh)
+    exclusions=$(cargo run --quiet --bin xtask -- quarantine exclude)
+    listed=$(ci/nextest-skips.sh "$exclusions")
     while IFS= read -r argument; do [[ -z "$argument" ]] || skips+=("$argument"); done <<<"$listed"
     mkdir -p target/junit
     # nextest writes its JUnit file under the workspace's target folder,

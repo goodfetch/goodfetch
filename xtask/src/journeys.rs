@@ -857,22 +857,7 @@ fn working_journeys(root: &Path) -> Result<Vec<Journey>> {
 
 /// Every Journey of the catalog at a Git tag, which must parse.
 fn tagged_journeys(root: &Path, tag: &str) -> Result<Vec<Journey>> {
-    let git = |args: &[&str]| -> Result<String> {
-        let output = std::process::Command::new("git")
-            .args(args)
-            .current_dir(root)
-            .stdin(Stdio::null())
-            .output()
-            .context("running git")?;
-        if !output.status.success() {
-            bail!(
-                "git {} failed: {}",
-                args.join(" "),
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-        String::from_utf8(output.stdout).context("reading git's output")
-    };
+    let git = |args: &[&str]| crate::git::text(root, args);
     let commit = format!("{tag}^{{commit}}");
     let listed = git(&["ls-tree", "--name-only", &commit, &format!("{FOLDER}/")])?;
     listed

@@ -46,7 +46,7 @@ cd "$root"
 archive=target/release-suite/tests.tar.zst
 rss_tools="$root/target/release-suite/rss-tools.json"
 rss_peaks=target/release-suite/rss-peaks.jsonl
-exclusions=target/release-suite/quarantine.tsv
+exclusions=target/release-suite/quarantine.json
 mkdir -p target/junit target/release-suite
 
 # A selection may hold no test of a runner yet; every test it holds runs.
@@ -69,13 +69,13 @@ export GOODFETCH_ORDER_SEED
 
 # Each runner skips the tests on the test quarantine list through its own
 # filter (ADR 0064), as `just test` does; `build` writes the list's
-# `<runner>\t<argument>` lines before the deny.
+# exclusions, `xtask quarantine exclude`'s JSON, before the deny.
 skip() {
   [[ -f "$exclusions" ]] || {
     echo "error: $exclusions is missing; run ci/release/cell.sh build first" >&2
     exit 2
   }
-  awk -F'\t' -v runner="$1" '$1 == runner { print $2 }' "$exclusions"
+  jq -r --arg runner "$1" '.[$runner][]' "$exclusions"
 }
 
 case "$part" in

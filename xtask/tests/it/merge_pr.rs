@@ -29,9 +29,10 @@ const STARTED: &str = "1800000000";
 /// and for `date`, which gives [`STARTED`] for `-u +%s` and leaves every
 /// other format to the system's `date`.
 /// `gh pr view` shows an open pull request at the head of `change`; `cargo
-/// run … affected` prints `gate=quick`, or the gate `gate` names, and its
-/// sweep notes `sweeping` and waits while `sweep-hold` exists; `just
-/// pre-merge` writes the plan a full gate reads and a JUnit file,
+/// run … affected` prints `gate=quick`, or the gate `gate` names, its sweep
+/// notes `sweeping` and waits while `sweep-hold` exists, and its `perf
+/// pull-request` fails while `acceptance-unread` exists; `just pre-merge`
+/// writes the plan a full gate reads, unless `no-plan` exists, and a JUnit file,
 /// notes the signals it ignores in `signals` where the system lists them,
 /// notes its process in `reached`, waits while `hold` exists, writes a line
 /// and, while `failing` exists, fails with status 3.
@@ -58,9 +59,11 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
                      : >\"{sweeping}\"\n\
                      while [ -f \"{sweep_hold}\" ]; do sleep 0.02; done\n\
                      ;;\n\
+                   *\" perf pull-request \"*) if [ -f \"{acceptance_unread}\" ]; then exit 1; fi ;;\n\
                  esac\n",
                 calls = calls.display(),
                 gate = folder.join("gate").display(),
+                acceptance_unread = folder.join("acceptance-unread").display(),
                 sweeping = folder.join("sweeping").display(),
                 sweep_hold = folder.join("sweep-hold").display(),
             ),
@@ -70,7 +73,8 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
             format!(
                 "#!/bin/sh\necho \"just $*\" >>\"{calls}\"\n\
                  if [ \"$1\" = pre-merge ]; then\n\
-                   mkdir -p target/gate-runs && echo previous=none >target/gate-runs/{head}.plan\n\
+                   mkdir -p target/gate-runs\n\
+                   if [ ! -f \"{no_plan}\" ]; then echo previous=none >target/gate-runs/{head}.plan; fi\n\
                    mkdir -p target/nextest/quick && echo '<testsuites/>' >target/nextest/quick/junit.xml\n\
                    if [ -r /proc/self/status ]; then grep '^SigIgn:' /proc/self/status >\"{signals}\"; fi\n\
                    echo $$ >\"{reached}\"\n\
@@ -79,6 +83,7 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
                    if [ -f \"{failing}\" ]; then echo 'a test failed'; exit 3; fi\n\
                  fi\n",
                 calls = calls.display(),
+                no_plan = folder.join("no-plan").display(),
                 signals = folder.join("signals").display(),
                 reached = folder.join("reached").display(),
                 hold = folder.join("hold").display(),
@@ -537,6 +542,61 @@ fn a_full_gate_with_a_lazyfs_build_runs_its_steps() {
 
     assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
     call(&run, "just pre-merge all");
+}
+
+/// A stand-in LazyFS build, and the variables of a full gate that uses it.
+fn full_gate_with_lazyfs(stand_in: &Path) -> PathBuf {
+    std::fs::write(stand_in.join("gate"), "full").unwrap();
+    let lazyfs = stand_in.join("lazyfs");
+    std::fs::write(&lazyfs, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&lazyfs, std::fs::Permissions::from_mode(0o755)).unwrap();
+    lazyfs
+}
+
+/// The read only marks figures accepted in the table, and no figure past its
+/// threshold fails (ADR 0134): GitHub's API being down leaves the verdict to
+/// the gate's steps.
+#[test]
+fn a_full_gate_runs_its_steps_when_the_pull_requests_acceptance_cannot_be_read() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let lazyfs = full_gate_with_lazyfs(&stand_in);
+    std::fs::write(stand_in.join("acceptance-unread"), "").unwrap();
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[
+            ("GOODFETCH_GATE_MIN_FREE_GB", "0"),
+            ("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()),
+        ],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    call(&run, "just pre-merge all");
+    call(&run, "gh pr merge");
+}
+
+/// The plan only names the earlier run the merge's message credits, and a
+/// dirty tree's gate leaves none.
+#[test]
+fn a_green_full_gate_merges_without_a_plan_to_read() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let lazyfs = full_gate_with_lazyfs(&stand_in);
+    std::fs::write(stand_in.join("no-plan"), "").unwrap();
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[
+            ("GOODFETCH_GATE_MIN_FREE_GB", "0"),
+            ("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()),
+        ],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    call(&run, "gh pr merge");
 }
 
 /// No step of a quick or docs gate needs LazyFS, so neither asks for it.

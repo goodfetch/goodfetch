@@ -233,9 +233,11 @@ set -m
     # acceptance comment accept, read at this head for `just perf` (ADR 0134).
     # Until M1's optimization pass it only marks figures accepted in the
     # table: no figure past its threshold fails (ADR 0134, as amended on
-    # 2026-10-22).
+    # 2026-10-22). So a read that fails, GitHub's API being down, is said and
+    # leaves the verdict to the gate's steps.
     GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}" cargo run --quiet --bin xtask -- \
-      perf pull-request --number "$number" --save target/perf-pull-request.json
+      perf pull-request --number "$number" --save target/perf-pull-request.json ||
+      echo "warning: the pull request's acceptance could not be read; the gate's steps decide" >&2
     GOODFETCH_PERF_PULL_REQUEST="$worktree/target/perf-pull-request.json" just pre-merge all
   fi
 ) &
@@ -249,9 +251,11 @@ if ((status != 0)); then
 fi
 # The incremental gate's verdict combines this run with the green results it
 # reused from earlier runs on ancestor heads (ADR 0135); the full gate's plan
-# names the nearest such run.
-if [[ $gate == all ]]; then
-  plan=$(cat "$worktree/target/gate-runs/$head.plan")
+# names the nearest such run. A gate that ran on a dirty tree leaves no plan,
+# and so reused nothing.
+plan_file="$worktree/target/gate-runs/$head.plan"
+if [[ $gate == all && -f $plan_file ]]; then
+  plan=$(cat "$plan_file")
   reused=$(output_value previous "$plan")
   if [[ $reused != none ]]; then
     ran+=" reusing the green results of the gate run on $reused for the steps the change since did not reach (ADR 0135),"

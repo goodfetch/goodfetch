@@ -80,16 +80,22 @@ gate_worktree_checkout "$commit"
 cd "$worktree"
 just fetch
 
+# Cron gives a run no user session: both runs start the OS services their tests
+# use and find them through the setup's environment file, as `just pre-merge`
+# does, so a missing one fails instead of skipping its tests.
+if [[ "$(uname -s)" == Linux ]]; then
+  just _os-services
+  set -a
+  # shellcheck source=/dev/null
+  source "${RUNNER_TEMP:-/tmp}/goodfetch-os-services/env"
+  set +a
+  export GOODFETCH_OS_SERVICES=required
+  export GOODFETCH_TEST_DNS_NAMESPACE=${GOODFETCH_TEST_DNS_NAMESPACE:-sudo}
+fi
+
 status=0
 case $run in
   constrained)
-    just _os-services
-    set -a
-    # shellcheck source=/dev/null
-    source "${RUNNER_TEMP:-/tmp}/goodfetch-os-services/env"
-    set +a
-    export GOODFETCH_OS_SERVICES=required
-    export GOODFETCH_TEST_DNS_NAMESPACE=${GOODFETCH_TEST_DNS_NAMESPACE:-sudo}
     # A fresh seed, as the hosted job draws it, printed to replay the order.
     GOODFETCH_ORDER_SEED=$(shuf --input-range=1-2147483647 --head-count=1)
     export GOODFETCH_ORDER_SEED

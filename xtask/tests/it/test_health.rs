@@ -16,7 +16,8 @@ use crate::workspace::Workspace;
 /// A process ID above every system's limit, so no process has it.
 const NO_PROCESS: &str = "2147483646";
 
-/// A stand-in `just` that appends its arguments to `calls`.
+/// A stand-in `just` that appends its arguments to `calls`, and them with the
+/// OS services' variables it was given to `variables`.
 fn stand_in_just(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
@@ -24,8 +25,10 @@ fn stand_in_just(workspace: &Workspace) -> PathBuf {
     std::fs::write(
         &just,
         format!(
-            "#!/bin/sh\necho \"$*\" >>\"{}\"\n",
-            folder.join("calls").display()
+            "#!/bin/sh\necho \"$*\" >>\"{calls}\"\n\
+             echo \"$1|${{XDG_RUNTIME_DIR:-}}|${{GOODFETCH_OS_SERVICES:-}}\" >>\"{variables}\"\n",
+            calls = folder.join("calls").display(),
+            variables = folder.join("variables").display(),
         ),
     )
     .unwrap();
@@ -46,6 +49,10 @@ fn origin_repository() -> Workspace {
     let workspace = repository();
     let path = workspace.path().display().to_string();
     workspace.git(&["remote", "add", "origin", &path]);
+    workspace.write(
+        "runner-temp/goodfetch-os-services/env",
+        b"XDG_RUNTIME_DIR=/stand-in/runtime\n",
+    );
     workspace
 }
 
@@ -60,6 +67,7 @@ fn scheduled(workspace: &Workspace, stand_in: &Path, run: &str) -> Run {
         .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
         .env("GOODFETCH_TEST_HEALTH_LOG", &logs)
         .env("GOODFETCH_TEST_HEALTH_MIN_FREE_GB", "0")
+        .env("RUNNER_TEMP", workspace.path().join("runner-temp"))
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .output()
@@ -108,6 +116,30 @@ fn a_run_skips_while_the_merge_gate_has_a_live_owner(#[case] run: &str) {
         outcome.results
     );
     assert!(outcome.calls.is_empty(), "{:?}", outcome.calls);
+}
+
+/// Cron gives a run no user session, so without the OS services' setup the
+/// mutation run's baseline failed on Collie's governor test, which needs the
+/// user's systemd through `XDG_RUNTIME_DIR`, and tested no mutant (exit 4 on
+/// 2026-11-07 and 2026-11-08). It starts them as the constrained run does.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_mutation_run_finds_the_os_services_the_setup_started() {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+
+    let outcome = scheduled(&workspace, &stand_in, "mutants");
+
+    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
+    let variables = std::fs::read_to_string(stand_in.join("variables")).unwrap();
+    assert!(
+        variables.contains("\n_os-services||\n"),
+        "the setup did not run: {variables}"
+    );
+    assert!(
+        variables.contains("\nmutants|/stand-in/runtime|required\n"),
+        "{variables}"
+    );
 }
 
 /// A gate that died left its lock behind: that holds up no run, and the lock

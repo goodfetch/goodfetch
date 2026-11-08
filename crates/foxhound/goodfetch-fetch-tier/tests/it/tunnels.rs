@@ -124,7 +124,7 @@ fn relays(observations: &Value) -> Vec<Value> {
 /// over TLS under its own name, not the proxy's.
 /// Covers: story:4-12
 #[rstest]
-fn an_https_site_answers_through_a_proxys_tunnel(
+fn an_https_site_answers_through_the_tunnel_of_a_proxy(
     #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
 ) {
     let env = TestEnv::new();
@@ -147,7 +147,12 @@ fn an_https_site_answers_through_a_proxys_tunnel(
             "relayed"
         ])]
     );
-    assert_eq!(observations["requests"][0]["tls"]["sni"], SITE);
+    let received = proving_ground.received_requests().unwrap();
+    let tls = received
+        .of_the_case()
+        .next()
+        .and_then(|request| request.tls.as_ref());
+    assert_eq!(tls.map(|tls| &tls["sni"]), Some(&json!(SITE)));
 }
 
 /// A proxy's answer to `CONNECT` decides the tunnel, as each transport's
@@ -161,7 +166,7 @@ fn an_https_site_answers_through_a_proxys_tunnel(
     b"HTTP/1.0 204 No Content\r\n\r\n",
     Err(TransportFailure::TunnelRefused)
 )]
-fn a_proxys_answer_to_connect_decides_the_tunnel(
+fn the_answer_of_a_proxy_to_connect_decides_the_tunnel(
     #[case] answer: &'static [u8],
     #[case] expected: Result<u16, TransportFailure>,
     #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,

@@ -9,8 +9,8 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-#[cfg(unix)]
 use goodfetch_protocol::catalog::Product;
+#[cfg(unix)]
 use goodfetch_protocol::page::{PageOpened, SessionId};
 use goodfetch_test_support::{Mode, TestEnv};
 #[cfg(unix)]
@@ -18,8 +18,8 @@ use goodfetch_test_support::{ProvingGround, browser_cache};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-#[cfg(unix)]
 use crate::COLLIE;
+#[cfg(unix)]
 use crate::page::{opened, started, started_with};
 #[cfg(unix)]
 use crate::page_events::Exchange;

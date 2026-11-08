@@ -116,7 +116,8 @@ const HOST_SETUP: &[&str] = if cfg!(target_os = "linux") {
 /// thrown away, writes the child's process ID to `descendant` and waits for
 /// it; the failing step then fails only once that child has started. When
 /// they are `late`'s content, it fails with status 3 once the run's output
-/// holds `awaiting`'s text.
+/// holds `awaiting`'s text. When `holding` lists them, one call a line, it
+/// appends them to `held` and waits while `hold` exists.
 fn stand_in_just(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
@@ -156,6 +157,10 @@ if [ -f "{lingering}" ] && [ "$*" = "$(cat "{lingering}")" ]; then
   echo $! >"{descendant}"
   wait
 fi
+if [ -f "{holding}" ] && grep -qxF -- "$*" "{holding}"; then
+  echo "$*" >>"{held}"
+  while [ -f "{hold}" ]; do sleep 0.02; done
+fi
 if [ -f "{killing}" ] && [ "$*" = "$(cat "{killing}")" ]; then
   kill -KILL "$PPID"
   exit 0
@@ -169,6 +174,9 @@ fi
         xtask = env!("CARGO_BIN_EXE_xtask"),
         failing = folder.join("failing").display(),
         statuses = folder.join("statuses").display(),
+        holding = folder.join("holding").display(),
+        held = folder.join("held").display(),
+        hold = folder.join("hold").display(),
         killing = folder.join("killing").display(),
         lingering = folder.join("lingering").display(),
         descendant = folder.join("descendant").display(),
@@ -1230,5 +1238,72 @@ fn a_failed_host_step_stops_every_process_a_step_beside_it_started() {
         !survived,
         "the child of the stopped `just perf` still runs: {}",
         run.stderr
+    );
+}
+
+/// `just` passes a stop on to its recipe's shell, which the gate's stop has
+/// already reached through its process group, so `ci/pre-merge.sh` gets
+/// SIGTERM twice. The second must not cut its end short: the steps beside are
+/// stopped and recorded, and the gate's records are released.
+#[test]
+fn a_second_sigterm_does_not_cut_the_suites_end_short() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
+    std::fs::write(stand_in.join("hold"), "").unwrap();
+    std::fs::write(
+        stand_in.join("holding"),
+        "lint\n_gate-record planned perf pass\n",
+    )
+    .unwrap();
+    workspace.write(
+        "runner-temp/goodfetch-os-services/env",
+        format!("DBUS_SESSION_BUS_ADDRESS={BUS}\n").as_bytes(),
+    );
+    let stdout = stand_in.join("stdout");
+    let mut suite = workspace
+        .command(Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/pre-merge.sh"))
+        .arg("all")
+        .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
+        .env("RUNNER_TEMP", workspace.path().join("runner-temp"))
+        .stdout(std::fs::File::create(&stdout).unwrap())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let held = |call: &str| {
+        std::fs::read_to_string(stand_in.join("held"))
+            .is_ok_and(|calls| calls.lines().any(|line| line == call))
+    };
+    let until = |what: &str, condition: &dyn Fn() -> bool| {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !condition() {
+            assert!(std::time::Instant::now() < deadline, "no sign of {what}");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    };
+    let terminate = || {
+        let sent = std::process::Command::new("kill")
+            .args(["-TERM", &suite.id().to_string()])
+            .status()
+            .unwrap();
+        assert!(sent.success());
+    };
+    until("the host step and `perf`'s end", &|| {
+        held("lint")
+            && std::fs::read_to_string(&stdout)
+                .is_ok_and(|output| output.contains("Gate step perf: ended"))
+    });
+
+    terminate();
+    until("the suite's end recording `perf`", &|| {
+        held("_gate-record planned perf pass")
+    });
+    terminate();
+    std::fs::remove_file(stand_in.join("hold")).unwrap();
+    suite.wait().unwrap();
+
+    assert!(
+        !workspace.path().join("target/gate-runs/lock").exists(),
+        "the gate's records stayed locked"
     );
 }

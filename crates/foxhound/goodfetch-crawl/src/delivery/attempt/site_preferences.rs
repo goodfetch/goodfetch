@@ -17,10 +17,10 @@ use goodfetch_fetch_tier::{
     AfterRobotsTxt, HttpTier, Reading, Refusal, RefusedBy, Request, UseSignals, skip_reason,
 };
 use goodfetch_frontier::SharedRobotsTxt;
+use goodfetch_frontier::Url;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::page::{SITE_PREFERENCES_REFUSED, SitePreference};
 use serde_json::{Map, Value};
-use url::Url;
 
 use super::{Answer, On};
 

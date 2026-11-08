@@ -897,59 +897,11 @@ impl On<'_> {
         if let Some(plan) = plan {
             tiers.replay_on(&page_id, plan.clone());
         }
-        let judged = match self.found(tiering, &page_id, &facts).await {
-            Found::Unreadable(call) => {
-                tiers.close(&page_id);
-                record_tier(run, leased, lease, choice, how, None, None).await;
-                let message = "The document declares no encoding and is not UTF-8: only the browser reads it.";
-                return Ok((
-                    escalated_unhandled(ATTEMPT_ENDED.name, message, call),
-                    Taught::default(),
-                ));
-            }
-            Found::Challenge(cause, error) => {
-                tiers.close(&page_id);
-                record_tier(run, leased, lease, choice, how, None, None).await;
-                return match self.on_block(cause, choice) {
-                    Action::MoveToBrowser => Ok((
-                        escalated_unhandled(
-                            BLOCKED,
-                            "A Challenge met on a tier short of the browser moved the request there.",
-                            BLOCKED,
-                        ),
-                        Taught::default(),
-                    )),
-                    Action::Blocked => Err((failed(&error), Taught::default())),
-                };
-            }
-            Found::Checked(judged) => judged,
-        };
-        record_tier(
-            run,
-            leased,
-            lease,
-            choice,
-            how,
-            facts.encoding.clone(),
-            facts.certificate_exception.clone(),
-        )
-        .await;
-        match judged {
-            Some(Judged::Passed) | None => {}
-            Some(Judged::Failed(error)) => {
-                tiers.close(&page_id);
-                return Err((failed(&error), Taught::default()));
-            }
-            Some(Judged::Escalated) => {
-                tiers.close(&page_id);
-                // Its handler never ran: the run escalates at the Page
-                // check, and the caller runs the request in the browser.
-                let message = "The page failed its expected page on a tier short of the browser.";
-                return Ok((
-                    escalated_unhandled(PAGE_CHECK_FAILED, message, PAGE_CHECK_CALL),
-                    Taught::default(),
-                ));
-            }
+        if let Some(ended) = self
+            .ended_unhandled(tiering, &page_id, &facts, (choice, how))
+            .await
+        {
+            return ended;
         }
         let merged = self.taught(tiers, &page_id, how).await;
         self.in_flight
@@ -1005,6 +957,75 @@ impl On<'_> {
             self.code_free.is_some(),
         )
         .await
+    }
+
+    /// How the run `how` names on `choice` ends before its handler runs,
+    /// its page `page_id` served with `facts`, by what it found of the page
+    /// ([`Found`]), the page closed; `None` when its handler runs. Records
+    /// the tier the run took either way.
+    async fn ended_unhandled(
+        &self,
+        tiering: &Tiering,
+        page_id: &PageId,
+        facts: &PageFacts,
+        (choice, how): (&TierChoice, Chosen),
+    ) -> Option<Result<(HttpRun, Taught), (Answer, Taught)>> {
+        let (run, leased, lease) = (self.run, self.leased, self.lease);
+        let tiers = &tiering.tiers;
+        let judged = match self.found(tiering, page_id, facts).await {
+            Found::Unreadable(call) => {
+                tiers.close(page_id);
+                record_tier(run, leased, lease, choice, how, None, None).await;
+                let message = "The document declares no encoding and is not UTF-8: only the browser reads it.";
+                return Some(Ok((
+                    escalated_unhandled(ATTEMPT_ENDED.name, message, call),
+                    Taught::default(),
+                )));
+            }
+            Found::Challenge(cause, error) => {
+                tiers.close(page_id);
+                record_tier(run, leased, lease, choice, how, None, None).await;
+                return Some(match self.on_block(cause, choice) {
+                    Action::MoveToBrowser => Ok((
+                        escalated_unhandled(
+                            BLOCKED,
+                            "A Challenge met on a tier short of the browser moved the request there.",
+                            BLOCKED,
+                        ),
+                        Taught::default(),
+                    )),
+                    Action::Blocked => Err((failed(&error), Taught::default())),
+                });
+            }
+            Found::Checked(judged) => judged,
+        };
+        record_tier(
+            run,
+            leased,
+            lease,
+            choice,
+            how,
+            facts.encoding.clone(),
+            facts.certificate_exception.clone(),
+        )
+        .await;
+        match judged {
+            Some(Judged::Passed) | None => None,
+            Some(Judged::Failed(error)) => {
+                tiers.close(page_id);
+                Some(Err((failed(&error), Taught::default())))
+            }
+            Some(Judged::Escalated) => {
+                tiers.close(page_id);
+                // Its handler never ran: the run escalates at the Page
+                // check, and the caller runs the request in the browser.
+                let message = "The page failed its expected page on a tier short of the browser.";
+                Some(Ok((
+                    escalated_unhandled(PAGE_CHECK_FAILED, message, PAGE_CHECK_CALL),
+                    Taught::default(),
+                )))
+            }
+        }
     }
 
     /// What a run finds of its served page `page_id`, whose `facts` it

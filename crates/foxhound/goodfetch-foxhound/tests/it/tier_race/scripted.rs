@@ -379,7 +379,7 @@ fn crawl(env: &TestEnv, site: Site, seeds: &[Value], settings: &Value) -> Ended 
     let asked = std::mem::take(&mut *scripted.asked.lock().unwrap());
     let left_open = (1..=16)
         .map(|number| format!("document-{number}"))
-        .filter(|page| tiers.response(&PageId(page.clone())).is_some())
+        .filter(|page| tiers.facts(&PageId(page.clone())).is_some())
         .collect();
     Ended {
         fetched: asked.fetched,

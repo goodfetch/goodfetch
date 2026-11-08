@@ -269,7 +269,7 @@ async fn first_to_win<'t>(
             fetched = &mut document, if ended.fetch_lost.is_none() => match fetched {
                 Ok((served, facts, took, true)) => {
                     ended.latency = Some(took);
-                    break Won::BrowserFetch(served.keep(), facts);
+                    break Won::BrowserFetch(served.keep(), Box::new(facts));
                 }
                 Ok((served, _, took, false)) => {
                     ended.latency = Some(took);
@@ -301,7 +301,7 @@ async fn first_to_win<'t>(
 enum Won {
     /// Browser-fetch's page, served on `http`, and what it held of its
     /// document as it was served.
-    BrowserFetch(PageId, PageFacts),
+    BrowserFetch(PageId, Box<PageFacts>),
     /// The navigation's page, in the browser, and its document's
     /// response.
     Navigation(PageId, Option<PageResponse>),

@@ -488,7 +488,7 @@ impl NavigationGate for Gate {
 
 /// A handler page's refusal by a site preference: an unreachable
 /// robots.txt refuses it as robots.txt (RFC 9309 §2.3.1.4).
-fn refusal(refused: site_preferences::Refusal) -> Refusal {
+pub(crate) fn refusal(refused: site_preferences::Refusal) -> Refusal {
     Refusal {
         reason: refused.by.site_preference(),
         message: refused.message,

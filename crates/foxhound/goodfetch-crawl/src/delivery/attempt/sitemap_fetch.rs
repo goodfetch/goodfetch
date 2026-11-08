@@ -6,7 +6,7 @@
 
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::robots_txt::Fetched;
-use goodfetch_fetch_tier::{HttpTier, Request};
+use goodfetch_fetch_tier::{HttpTier, Reading, Request};
 use goodfetch_frontier::sitemap;
 use goodfetch_protocol::foxhound::crawl::RESPONSE_NOT_OK;
 use serde_json::{Map, Value};
@@ -48,7 +48,7 @@ impl On<'_> {
                     Err(refused) => return refused,
                 };
                 if sitemap::is_robots_txt(&url) {
-                    return match read.as_ref().map(|read| read.copy()) {
+                    return match read.as_ref().map(Reading::copy) {
                         Some(Fetched::File(file)) => Answer::SitemapRead(sitemap::Document::Sitemaps(
                             file.sitemaps().to_vec(),
                         )),

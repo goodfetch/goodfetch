@@ -55,7 +55,7 @@ impl HttpTier {
             Stop::Skipped(Skip { message, .. }) | Stop::RobotsTxtUnreachable(message) => {
                 CallError::new(
                     &RESPONSE_NOT_OK,
-                    skip.message,
+                    message,
                     &serde_json::json!({ "url": url.as_str() }),
                 )
             }

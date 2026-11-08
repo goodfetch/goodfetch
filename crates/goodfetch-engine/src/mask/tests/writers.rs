@@ -158,19 +158,14 @@ const WRITERS: &[(&str, usize, &str)] = &[
         "masked: a copy of the run file, whose texts were masked as `Scope::Kept` when written",
     ),
     (
-        "crates/goodfetch-engine/src/config.rs",
-        1,
-        "holds no value: the Operator policy's lock file, opened empty and only locked; the settings files themselves are written through `durable::replace`, holding a person's values and Secret references, never a Secret's value",
-    ),
-    (
         "crates/goodfetch-engine/src/crash_report.rs",
         1,
         "masked: each report is masked as `Scope::Kept`",
     ),
     (
         "crates/goodfetch-engine/src/daemon/files.rs",
-        4,
-        "holds no value: the Daemon's runtime file, token, lock and pick, no Run's value",
+        1,
+        "holds no value: the Daemon's serving and start locks, opened empty and only locked; its runtime file, tokens and service record, written through `durable::replace`, hold no Run's value either",
     ),
     (
         "crates/goodfetch-engine/src/governor/system/linux.rs",
@@ -276,6 +271,11 @@ const WRITERS: &[(&str, usize, &str)] = &[
         "crates/goodfetch-engine/src/secrets.rs",
         1,
         "holds no value: the empty lock file an engine holds while it makes its own key",
+    ),
+    (
+        "crates/goodfetch-engine/src/settings_editor.rs",
+        1,
+        "holds no value: the Operator policy's lock file, opened empty and only locked; the settings files themselves are written through `durable::replace`, holding a person's values and Secret references, never a Secret's value",
     ),
     (
         "crates/goodfetch-engine/src/sqlite_store.rs",

@@ -26,7 +26,7 @@
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
-use goodfetch_engine::dns::ResolverConfiguration;
+use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
 use goodfetch_fetch_tier::{
     Hop, HttpProfile, Reqwest, Reuse, Transport, TransportConfig, TransportFailure, Wreq,
@@ -98,7 +98,7 @@ fn transport(
         stack,
         TransportConfig {
             egress: policy(domains, ranges),
-            resolve: Vec::new(),
+            resolve: HostMapping::default(),
             resolver: ResolverConfiguration::name_servers([fixture]),
             ..crate::config(proving_ground, proxy, &[])
         },
@@ -452,7 +452,7 @@ fn a_mapped_answer_to_a_private_address_is_refused_unless_its_host_or_range_is_l
         stack,
         TransportConfig {
             egress: policy(&every_host(), &ranges),
-            resolve: vec![(MAPPED.to_owned(), vec![target.ip()])],
+            resolve: HostMapping::new([(MAPPED, vec![target.ip()])]),
             ..crate::config(&proving_ground, through, &[])
         },
     );
@@ -502,7 +502,7 @@ mod linux {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
 
     use goodfetch_engine::clock::Clock;
-    use goodfetch_engine::dns::ResolverConfiguration;
+    use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
     use goodfetch_engine::tls::{CertificateExceptions, Trust};
     use goodfetch_fetch_tier::{Hop, Reuse, TransportConfig, TransportFailure};
     use goodfetch_test_support::{DnsNamespace, ProvingGround, TestEnv};
@@ -574,7 +574,7 @@ mod linux {
                 exceptions: CertificateExceptions::default(),
                 client_certificates: None,
                 proxy: None,
-                resolve: Vec::new(),
+                resolve: HostMapping::default(),
                 egress: policy(&every_host(), &[public.to_string()]),
                 clock: Clock::system(),
                 resolver: ResolverConfiguration::system().unwrap(),

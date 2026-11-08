@@ -51,7 +51,7 @@ pub(crate) struct Limits {
 impl Limits {
     /// The wall time now.
     pub(crate) fn now(&self) -> Timestamp {
-        Timestamp::try_from(self.clock.wall()).unwrap_or(Timestamp::UNIX_EPOCH)
+        self.clock.timestamp()
     }
 
     /// The charging of the Run `run_id` under its run epoch `epoch`, its

@@ -80,7 +80,7 @@ use std::task::{Context, Poll};
 use bytes::Bytes;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::{Dns, HostMapping, Resolution, ResolverConfiguration, Route};
-use goodfetch_engine::egress::{self, Policy, Refused};
+use goodfetch_engine::egress::{Gate, Policy, Refused, RequestKind};
 use goodfetch_engine::local_addresses::SessionAddresses;
 use goodfetch_engine::run::secret_error;
 use goodfetch_engine::tls::{
@@ -115,7 +115,7 @@ pub struct TransportConfig {
     /// site, `None` to connect directly.
     pub proxy: Option<Url>,
     /// The `network.resolve` mapping: host names and their addresses.
-    pub resolve: Vec<(String, Vec<IpAddr>)>,
+    pub resolve: HostMapping,
     /// The Session's egress policy.
     pub egress: Policy,
     /// What the resolver's cache keeps time on.
@@ -813,12 +813,7 @@ impl Resolver {
     /// holds.
     fn new(config: &TransportConfig, family: Option<IpFamily>) -> Self {
         let dns = Dns::new(
-            HostMapping::new(
-                config
-                    .resolve
-                    .iter()
-                    .map(|(host, addresses)| (host.as_str(), addresses.clone())),
-            ),
+            config.resolve.clone(),
             config.resolver.clone(),
             config.clock,
         );
@@ -944,11 +939,17 @@ async fn lookup(
         .map(|address| SocketAddr::new(address, 0))
         .collect();
     if let Some(policy) = judged {
-        // The policy reads the host a URL names, so a host listed in
-        // `egress.private_ranges` opens its own connections; the hop's
-        // URL replaces this one in a refusal.
-        egress::judge_addresses(&format!("http://{name}/"), &addresses, &policy)
-            .map_err(ResolveFailure::Egress)?;
+        // The connector holds the name alone: the gate judges it as the
+        // host, so a host listed in `egress.private_ranges` opens its own
+        // connections; the hop's URL replaces this name in a refusal.
+        let named = format!("http://{name}/");
+        Gate::Session {
+            policy: &policy,
+            kind: RequestKind::Fetch,
+        }
+        .judge_host(&name, &named)
+        .and_then(|judged| judged.addresses(&addresses))
+        .map_err(ResolveFailure::Egress)?;
     }
     Ok(addresses)
 }

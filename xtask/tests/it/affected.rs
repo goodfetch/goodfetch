@@ -65,9 +65,7 @@ fn base_and_head_mode_selects_what_the_head_changed() {
 
     assert_eq!(outcome.code, 0);
     insta::assert_snapshot!(outcome.stdout, @r#"
-    products=collie foxhound
     jobs=["pre-merge","sinks","perf"]
-    nextest-filter=rdeps(=goodfetch-engine)
     crates=goodfetch-engine goodfetch-frontier
     vitest-packages=
     pytest-packages=
@@ -88,11 +86,8 @@ fn change_to_an_executable_selects_the_crates_whose_tests_run_it() {
     let outcome = workspace.xtask(&["affected", "--base", "main", "--head", "change"]);
 
     assert_eq!(
-        (value(&outcome, "nextest-filter"), value(&outcome, "crates")),
-        (
-            "rdeps(=goodfetch-conformance) | rdeps(=goodfetch-proving-ground)".to_owned(),
-            "goodfetch-conformance goodfetch-proving-ground".to_owned()
-        )
+        value(&outcome, "crates"),
+        "goodfetch-conformance goodfetch-proving-ground"
     );
 }
 
@@ -167,13 +162,17 @@ fn change_to_an_executable_selects_the_packages_whose_tests_run_it() {
 #[rstest]
 #[case::through_a_dependency(
     "dependencies",
-    "rdeps(=goodfetch-conformance) | rdeps(=goodfetch-engine)",
+    "goodfetch-conformance goodfetch-engine goodfetch-frontier goodfetch-proving-ground",
     "sdks/typescript/foxhound"
 )]
-#[case::not_through_a_dev_dependency("dev-dependencies", "rdeps(=goodfetch-engine)", "")]
+#[case::not_through_a_dev_dependency(
+    "dev-dependencies",
+    "goodfetch-engine goodfetch-frontier goodfetch-proving-ground",
+    ""
+)]
 fn change_to_what_an_executable_is_built_from_selects_the_tests_that_run_it(
     #[case] table: &str,
-    #[case] nextest_filter: &str,
+    #[case] crates: &str,
     #[case] vitest_packages: &str,
 ) {
     let workspace = repository();
@@ -185,11 +184,65 @@ fn change_to_what_an_executable_is_built_from_selects_the_tests_that_run_it(
 
     assert_eq!(
         (
-            value(&outcome, "nextest-filter"),
+            value(&outcome, "crates"),
             value(&outcome, "vitest-packages")
         ),
-        (nextest_filter.to_owned(), vitest_packages.to_owned())
+        (crates.to_owned(), vitest_packages.to_owned())
     );
+}
+
+/// The fixture with a Kennel of its own workspace (ADR 0141), built on the
+/// engine, whose tests run the Proving ground's executable, committed and
+/// tagged `with-kennel`.
+fn with_a_kennel(workspace: &Workspace) {
+    workspace.write(
+        "kennel/Cargo.toml",
+        b"[workspace]\nresolver = \"3\"\nmembers = [\"crates/goodfetch-kennel\"]\n",
+    );
+    workspace.write(
+        "kennel/crates/goodfetch-kennel/Cargo.toml",
+        br#"[package]
+name = "goodfetch-kennel"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+goodfetch-engine = { path = "../../../crates/goodfetch-engine" }
+
+[package.metadata.goodfetch]
+runs = ["goodfetch-proving-ground"]
+"#,
+    );
+    workspace.write(
+        "kennel/crates/goodfetch-kennel/src/lib.rs",
+        b"//! The Kennel.\n",
+    );
+    commit_all(workspace, "Add the Kennel");
+    workspace.git(&["tag", "with-kennel"]);
+}
+
+/// The Kennel's job runs for a change to a root crate its own workspace
+/// builds on or whose executable its tests run, read from its manifests.
+#[rstest]
+#[case::a_crate_it_is_built_on("crates/goodfetch-engine/src/lib.rs", true)]
+#[case::an_executable_its_tests_run("proving-ground/src/main.rs", true)]
+#[case::a_crate_it_neither_builds_on_nor_runs(
+    "crates/foxhound/goodfetch-frontier/src/crawl.rs",
+    false
+)]
+fn the_kennels_job_follows_what_its_workspace_builds_on_and_runs(
+    #[case] path: &str,
+    #[case] selected: bool,
+) {
+    let workspace = repository();
+    with_a_kennel(&workspace);
+    workspace.write(path, b"//! Changed.\n");
+    commit_all(&workspace, "Change a root crate");
+
+    let outcome = workspace.xtask(&["affected", "--base", "with-kennel", "--head", "change"]);
+
+    assert_eq!(value(&outcome, "jobs").contains(r#""kennel""#), selected);
 }
 
 #[test]
@@ -207,8 +260,11 @@ fn base_and_head_mode_ignores_what_the_base_changed_since_the_merge_base() {
     let outcome = workspace.xtask(&["affected", "--base", "main", "--head", "change"]);
 
     assert_eq!(
-        (value(&outcome, "products"), value(&outcome, "jobs")),
-        ("foxhound".to_owned(), r#"["pre-merge","sinks"]"#.to_owned())
+        (value(&outcome, "crates"), value(&outcome, "jobs")),
+        (
+            "goodfetch-sink-s3".to_owned(),
+            r#"["pre-merge","sinks"]"#.to_owned()
+        )
     );
 }
 
@@ -221,9 +277,7 @@ fn local_mode_reads_uncommitted_and_untracked_changes() {
 
     assert_eq!(outcome.code, 0);
     insta::assert_snapshot!(outcome.stdout, @r#"
-    products=collie foxhound
     jobs=["pre-merge","sinks"]
-    nextest-filter=rdeps(=goodfetch-frontier)
     crates=goodfetch-frontier
     vitest-packages=sdks/typescript/collie-client sdks/typescript/foxhound
     pytest-packages=sdks/python/collie-client sdks/python/foxhound

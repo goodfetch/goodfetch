@@ -8,10 +8,14 @@
 //! ground's connection record names, and its DNS queries leave from it
 //! through the engine's resolver, which the DNS fixture's record names; an
 //! interface name binds the socket to its device where the OS allows.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
-use goodfetch_engine::dns::ResolverConfiguration;
+use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
 use goodfetch_fetch_tier::{
     Hop, HttpProfile, LocalSource, Reqwest, Reuse, Transport, TransportConfig, TransportFailure,
@@ -55,7 +59,7 @@ fn bound(
                 .unwrap()
                 .with_private_ranges(&["127.0.0.0/8".to_owned()])
                 .unwrap(),
-            resolve,
+            resolve: HostMapping::new(resolve),
             resolver: ResolverConfiguration::name_servers([fixture]),
             local: Some(local),
             ..crate::config(proving_ground, None, &[])
@@ -136,7 +140,7 @@ fn a_sessions_hop_and_its_dns_queries_leave_from_its_local_address(
 /// IPv4 with `address_family_unavailable`, and opens no connection from
 /// an address the OS chose.
 ///
-/// Covers: story:4-108
+/// Covers: story:4-46, story:4-108, error:address_family_unavailable
 #[rstest]
 fn a_name_answering_only_the_family_a_session_lacks_fails_with_the_family_held(
     #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
@@ -171,13 +175,18 @@ fn a_name_answering_only_the_family_a_session_lacks_fails_with_the_family_held(
     });
     let observations = proving_ground.observations().unwrap();
 
+    let code = failure
+        .as_ref()
+        .err()
+        .map(|failure| failure.error(hop.url.as_str()).code());
     assert_eq!(
-        (failure, sources_of(&observations, "/catalog/2"),),
+        (failure, code, sources_of(&observations, "/catalog/2"),),
         (
             Err(TransportFailure::AddressFamily {
                 name: "catalog.test".to_owned(),
                 held: IpFamily::Ipv6,
             }),
+            Some("address_family_unavailable"),
             Vec::new(),
         )
     );

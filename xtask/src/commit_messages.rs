@@ -8,14 +8,13 @@
 //! by its full hash with a one-line reason.
 #![expect(
     clippy::disallowed_methods,
-    reason = "xtask is synchronous; the blocking-process and blocking-fs bans target async crates (STYLE.md)"
+    reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::process::Command;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
 use crate::check::Finding;
@@ -88,22 +87,18 @@ pub(crate) fn check(root: &Path, base: &str, head: &str, since: &str) -> Result<
         .iter()
         .map(|entry| entry.commit.as_str())
         .collect();
-    let output = Command::new("git")
-        .args(["log", "--no-merges", "--format=%H %s"])
-        .arg(format!("{base}..{head}"))
-        .arg("--not")
-        .arg(since)
-        .arg("--")
-        .current_dir(root)
-        .output()
-        .context("running git log")?;
-    if !output.status.success() {
-        bail!(
-            "git log {base}..{head} --not {since} failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    let log = String::from_utf8(output.stdout).context("reading git log's output")?;
+    let log = crate::git::text(
+        root,
+        &[
+            "log",
+            "--no-merges",
+            "--format=%H %s",
+            &format!("{base}..{head}"),
+            "--not",
+            since,
+            "--",
+        ],
+    )?;
     findings.extend(log
         .lines()
         .filter_map(|line| line.split_once(' '))

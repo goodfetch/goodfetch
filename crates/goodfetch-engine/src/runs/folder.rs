@@ -16,7 +16,6 @@ use goodfetch_protocol::settings::WeakenedSetting;
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::{Map, Value};
 
-use crate::clock::Clock;
 use crate::durable;
 use crate::engine_context::CALLER;
 use crate::mask::{Masks, Scope};
@@ -96,21 +95,6 @@ pub(super) fn parsed<T: serde::de::DeserializeOwned>(text: &str) -> rusqlite::Re
     serde_json::from_value(Value::String(text.to_owned()))
         .or_else(|_| serde_json::from_str(text))
         .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
-}
-
-pub(super) fn point_in_time(clock: &Clock) -> PointInTime {
-    point_in_time_at(clock.wall())
-}
-
-/// The wall time `wall` as a point in time, to the millisecond.
-pub(super) fn point_in_time_at(wall: std::time::SystemTime) -> PointInTime {
-    let wall =
-        jiff::Timestamp::try_from(wall).expect("invariant: the clock reads a time jiff can hold");
-    PointInTime::from_rfc3339(
-        wall.round(jiff::Unit::Millisecond)
-            .unwrap_or(wall)
-            .to_string(),
-    )
 }
 
 /// The inputs as canonical JSON: an object of each input by its name, in

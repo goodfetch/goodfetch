@@ -1,15 +1,9 @@
 //! The paths a change touches, read from git. A rename counts as a deletion
 //! and an addition, so both folders are touched.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "xtask is synchronous; the blocking-process ban targets async crates (STYLE.md)"
-)]
-
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::process::Command;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::Result;
 
 use super::RepoPath;
 
@@ -86,19 +80,10 @@ fn entries(text: &str) -> impl Iterator<Item = String> + '_ {
 /// Runs git with `args` then `operands` in `root`, and returns its output. An
 /// operand is never read as an option.
 fn run(root: &Path, args: &[&str], operands: &[&str]) -> Result<String> {
-    let mut command = Command::new("git");
-    command.args(args);
+    let mut arguments = args.to_vec();
     if !operands.is_empty() {
-        command.arg("--end-of-options").args(operands);
+        arguments.push("--end-of-options");
+        arguments.extend(operands);
     }
-    let output = command.current_dir(root).output().context("running git")?;
-    if !output.status.success() {
-        bail!(
-            "git {} {} failed: {}",
-            args.join(" "),
-            operands.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    String::from_utf8(output.stdout).context("reading git's output")
+    Ok(crate::git::text(root, &arguments)?)
 }

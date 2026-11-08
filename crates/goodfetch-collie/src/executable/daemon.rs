@@ -1003,8 +1003,7 @@ fn describe(status: &DaemonState) -> String {
 
 /// Wall time now on `clock`.
 pub(super) fn now_of(clock: Clock) -> jiff::Timestamp {
-    jiff::Timestamp::try_from(clock.wall())
-        .expect("invariant: the system clock reads a representable time")
+    clock.timestamp()
 }
 
 fn runtime() -> tokio::runtime::Runtime {

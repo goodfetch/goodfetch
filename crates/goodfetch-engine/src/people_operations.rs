@@ -69,8 +69,13 @@ fn driver(context: &CallContext) -> Result<SignInDriver, CallError> {
 }
 
 fn failed(error: &PeopleError) -> CallError {
-    CallError::protocol(
-        ProtocolFailure::InternalError,
-        format!("the Console's sign-ins cannot be read or changed: {error}"),
-    )
+    let message = match error {
+        PeopleError::Unrecorded(source) => {
+            format!("the change was made, but the Audit log cannot record it: {source}")
+        }
+        PeopleError::Store(_) | PeopleError::Key(_) => {
+            format!("the Console's sign-ins cannot be read or changed: {error}")
+        }
+    };
+    CallError::protocol(ProtocolFailure::InternalError, message)
 }

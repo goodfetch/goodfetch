@@ -168,6 +168,22 @@ pub(super) fn audit_entries(env: &TestEnv) -> Vec<Value> {
         .collect()
 }
 
+/// Makes the Audit log one no engine can write: a folder stands where its
+/// store goes.
+pub(super) fn unrecordable(home: &std::path::Path) {
+    let store = Home::new(home.to_path_buf()).audit_log();
+    for path in [
+        store.clone(),
+        store.with_extension("sqlite-wal"),
+        store.with_extension("sqlite-shm"),
+    ] {
+        if path.is_file() {
+            std::fs::remove_file(&path).unwrap();
+        }
+    }
+    std::fs::create_dir_all(&store).unwrap();
+}
+
 /// Each domain whose consent wall a Run met is offered for `consent.domains`
 /// unless that already covers it, a domain in `wall.denied_domains` too: a
 /// denial takes away only the Wall allowance (ADR 0052).
@@ -415,6 +431,42 @@ fn an_answer_no_person_may_give_is_refused_and_writes_nothing(
             audit_entries(&env).len(),
         ),
         (Some(code), true, 0),
+        "{answer}"
+    );
+}
+
+/// An answer the Audit log cannot record is written all the same, since
+/// the person gave it, and answers `internal_error` saying the entry is
+/// missing rather than succeeding unrecorded.
+///
+/// Covers: operation:needs_you.allow_consent_domain
+#[test]
+fn an_answer_the_audit_log_cannot_record_is_written_and_says_so() {
+    let env = TestEnv::new();
+    configure(&env, "");
+    let file = env.home().join("1").join("configuration.toml");
+    let home = env.home().to_path_buf();
+
+    let answer = attached_on(&walled_engine(&env), &env, |mut client| async move {
+        opened(&mut client, "console").await;
+        unrecordable(&home);
+        call(
+            &mut client,
+            2,
+            "needs_you.allow_consent_domain",
+            json!({ "domain": "walled.test" }),
+        )
+        .await
+    });
+
+    assert_eq!(
+        (
+            &answer["error"]["code"],
+            std::fs::read_to_string(&file)
+                .unwrap()
+                .contains("[settings.consent]\ndomains = [\"walled.test\"]"),
+        ),
+        (&json!(-32603), true),
         "{answer}"
     );
 }

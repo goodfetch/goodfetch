@@ -169,8 +169,8 @@ pub struct Upgraded {
 ///
 /// # Errors
 ///
-/// [`UpgradeError`]'s refusals, before any file is written, and `Io` when a
-/// file cannot be copied.
+/// [`UpgradeError`]'s refusals, before any file is written, and `Io` when
+/// Goodfetch home cannot be read or a file cannot be copied.
 pub fn upgrade_files(
     home: &Home,
     version: &ProductVersion,
@@ -186,7 +186,7 @@ pub fn upgrade_files(
             })?;
             Some((line, source.to_owned()))
         }
-        None => newest_older_major(home.root(), current_line),
+        None => newest_older_major(home.root(), current_line)?,
     };
     let Some((line, source)) = source else {
         return Ok(Upgraded {
@@ -255,20 +255,28 @@ pub fn upgrade_files(
     Ok(upgraded)
 }
 
+/// A major's version line and its folder's name.
+type Major = (VersionLine, String);
+
 /// The newest major older than `current` whose folder Goodfetch home at
-/// `root` holds.
-fn newest_older_major(root: &Path, current: VersionLine) -> Option<(VersionLine, String)> {
-    std::fs::read_dir(root)
-        .ok()?
-        .filter_map(Result::ok)
-        .filter(|entry| entry.path().is_dir())
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            VersionLine::parse(&name)
-                .filter(|line| *line < current)
-                .map(|line| (line, name))
-        })
-        .max()
+/// `root` holds; none when there is no Goodfetch home yet.
+fn newest_older_major(root: &Path, current: VersionLine) -> Result<Option<Major>, UpgradeError> {
+    let entries = match std::fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(io_error(root, &error)),
+    };
+    let mut newest = None;
+    for entry in entries {
+        let entry = entry.map_err(|error| io_error(root, &error))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if entry.path().is_dir()
+            && let Some(line) = VersionLine::parse(&name).filter(|line| *line < current)
+        {
+            newest = newest.max(Some((line, name)));
+        }
+    }
+    Ok(newest)
 }
 
 /// Every regular file under `folder` but its Daemon's, in path order.

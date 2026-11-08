@@ -14,7 +14,7 @@ use goodfetch_engine::browser_cache::{
     PinnedArtifact, Pins, content_digest,
 };
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::http_client::Resolve;
+use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
 use goodfetch_protocol::browser_cache::{
     ArtifactId, ArtifactKind, DownloadFailure, DownloadProgress, InstallOutcome, PinnedBy,
@@ -144,7 +144,7 @@ impl StandIn {
     fn fetching(&self) -> Fetching {
         Fetching {
             offline: None,
-            resolve: Resolve::new().with(HOST, vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]),
+            resolve: HostMapping::default().with(HOST, vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]),
             trusted_certificates: vec![self.authority.clone()],
             ..Fetching::new(Clock::system())
         }
@@ -426,6 +426,54 @@ fn a_download_whose_bytes_are_not_the_pinned_ones_is_refused() {
             (HOST.to_owned(), DownloadFailure::DigestMismatch)
         );
         assert!(!entry_folder(&cache, &pinned.id).exists());
+    });
+}
+
+/// A downloaded archive whose bytes are the pinned ones but whose files
+/// cannot be written out, as on a full disk, fails as the cache's own
+/// failure, naming the OS's reason, not as a tampered download.
+///
+/// Covers: story:3-140
+#[test]
+fn an_archive_that_cannot_be_unpacked_is_the_caches_failure_not_a_tampered_download() {
+    let env = TestEnv::new();
+    let pinned_build = build(&env, "a");
+    // `chrome` is a file, then a folder: the OS refuses the second.
+    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default();
+    archive.start_file("chrome", options).unwrap();
+    archive.write_all(b"#!chrome\n").unwrap();
+    archive.start_file("chrome/locale.pak", options).unwrap();
+    archive.write_all(b"\n").unwrap();
+    let archive = archive.finish().unwrap().into_inner();
+    let served = Build {
+        archive_digest: Digest::of(&archive),
+        digest: pinned_build.digest,
+        archive,
+    };
+    goodfetch_test_support::runtime().block_on(async {
+        let stand_in =
+            StandIn::serve(BTreeMap::from([("/chrome-a.zip", served.archive.clone())])).await;
+        let cache = cache(&env);
+        let pinned = pin("a", stand_in.url("/chrome-a.zip"), &served);
+
+        let failed = cache
+            .prepare(
+                &pinned,
+                &pinned_by(),
+                &stand_in.fetching(),
+                now(&env),
+                &mut |_| {},
+            )
+            .await
+            .err()
+            .unwrap();
+
+        assert_eq!(
+            (failed.code(), entry_folder(&cache, &pinned.id).exists()),
+            ("internal_error", false),
+            "{failed:?}"
+        );
     });
 }
 

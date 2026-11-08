@@ -25,6 +25,7 @@ use goodfetch_engine::browser_cache::{
 };
 use goodfetch_engine::children::Children;
 use goodfetch_engine::deadline::Deadline;
+use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::metrics::Counted;
@@ -40,7 +41,7 @@ use goodfetch_protocol::page::{
     BROWSER_HEADLESS, BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails,
 };
 use goodfetch_protocol::security::{SECURITY_BROWSER_SANDBOX, SECURITY_RAW_CDP_EGRESS_PROXY};
-use goodfetch_protocol::settings::{NETWORK_RESOLVE, TIMEOUT_CLOSE};
+use goodfetch_protocol::settings::TIMEOUT_CLOSE;
 use tokio::process::{Child, Command};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -125,7 +126,7 @@ async fn executable(
                     },
                 )
             })?;
-            let now = jiff::Timestamp::try_from(run.clock().wall()).unwrap_or_default();
+            let now = run.clock().timestamp();
             let prepared = cache
                 .prepare(
                     pinned,
@@ -323,9 +324,7 @@ async fn command_line(
     sandbox: bool,
     relay_authority: Option<&str>,
 ) -> (Vec<String>, &'static [(&'static str, &'static str)]) {
-    let resolve = settings
-        .map(|settings| settings.hosts(&NETWORK_RESOLVE))
-        .unwrap_or_default();
+    let resolve = settings.map(HostMapping::of).unwrap_or_default();
     // A policy that is no policy opens no page anyway (`setting_invalid`).
     // Behind the egress relay, which every Session's context takes as its
     // proxy, the relay holds what the script would.

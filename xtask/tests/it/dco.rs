@@ -91,3 +91,27 @@ fn merge_commit_needs_no_sign_off() {
     assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
     assert_eq!(outcome.code, 0);
 }
+
+/// A Git hook runs with `GIT_DIR` naming its own repository: the check
+/// still reads the workspace's commits, where it runs.
+#[test]
+fn commits_are_read_from_the_workspace_whatever_repository_git_dir_names() {
+    let workspace = Workspace::from_fixture("empty");
+    let base = workspace.commit_all();
+    let head = commit(&workspace, &["Add a page", SIGNED]);
+    let other = Workspace::from_fixture("empty");
+    other.commit_all();
+    let git_dir = other.path().join(".git");
+
+    let outcome = workspace.xtask_with_env(
+        &["dco", "--base", &base, "--head", &head],
+        &[("GIT_DIR", git_dir.as_os_str())],
+    );
+
+    assert_eq!(
+        (outcome.code, outcome.findings()),
+        (0, vec![]),
+        "{}",
+        outcome.stderr
+    );
+}

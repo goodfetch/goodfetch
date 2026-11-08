@@ -7,12 +7,9 @@ test suite *packages:
     for package in {{ packages }}; do packages+=(-p "$package"); done
     [[ ${#packages[@]} -eq 0 ]] && packages=(--workspace)
     nextest=() pytest=()
-    while IFS=$'\t' read -r runner argument; do
-      case "$runner" in
-        nextest) nextest+=("$argument") ;;
-        pytest) pytest+=("$argument") ;;
-      esac
-    done <<< "$(cargo run --quiet -p xtask -- quarantine exclude)"
+    exclusions=$(cargo run --quiet -p xtask -- quarantine exclude)
+    mapfile -t nextest < <(jq -r '.nextest[]' <<< "$exclusions")
+    mapfile -t pytest < <(jq -r '.pytest[]' <<< "$exclusions")
     NEXTEST_NO_TESTS=pass cargo insta test "${packages[@]}" --check \
       --test-runner nextest --nextest-profile ci --retries 0 --flaky-result fail
     pnpm exec vitest run --retry=0

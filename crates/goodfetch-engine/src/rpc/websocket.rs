@@ -14,13 +14,11 @@
 //! cannot skip it.
 
 use std::io;
-use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt as _, StreamExt as _};
-use goodfetch_protocol::audit::RefusalReason;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
@@ -29,96 +27,8 @@ use tokio_tungstenite::tungstenite::protocol::{Role, WebSocketConfig};
 use tokio_tungstenite::tungstenite::{Error, Message};
 
 use super::framing::{Frame, MAX_MESSAGE_BYTES};
+use crate::endpoint::{self, Authorities, Hosts, Origins, Refusal};
 use crate::transport::{ConnectionReader, ConnectionWriter};
-
-/// The names a listener is reached at, as `host:port`: a WebSocket
-/// handshake's `Host` must be one of them, and its `Origin` one of them
-/// over `http` (ADR 0017).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Authorities {
-    names: Vec<String>,
-}
-
-impl Authorities {
-    /// The names of a listener at the loopback `address`: the address
-    /// itself and `localhost`, each with its port.
-    pub fn loopback(address: SocketAddr) -> Self {
-        let port = address.port();
-        Self {
-            names: vec![address.to_string(), format!("localhost:{port}")],
-        }
-    }
-
-    /// The rule a request or handshake with `host` and `origin` breaks,
-    /// if any: its `Host` first, then its `Origin`.
-    pub(crate) fn refusal(&self, host: Option<&str>, origin: Option<&str>) -> Option<Refusal> {
-        if !host.is_some_and(|host| self.admits_host(host)) {
-            return Some(Refusal::HostForeign);
-        }
-        match origin {
-            None => Some(Refusal::OriginMissing),
-            Some(origin) if !self.admits_origin(origin) => Some(Refusal::OriginForeign),
-            Some(_) => None,
-        }
-    }
-
-    /// These names and `name`, as `host:port`, or `host` for a default
-    /// port.
-    #[must_use]
-    pub(crate) fn with_name(mut self, name: impl Into<String>) -> Self {
-        self.names.push(name.into());
-        self
-    }
-
-    /// Only `name`, as `host:port`, or `host` for a default port.
-    pub(crate) fn only(name: impl Into<String>) -> Self {
-        Self {
-            names: vec![name.into()],
-        }
-    }
-
-    /// The origins of these names over `http`, as a CSP source list does.
-    pub(crate) fn origins(&self) -> Vec<String> {
-        self.names
-            .iter()
-            .map(|name| format!("http://{name}"))
-            .collect()
-    }
-
-    /// Whether `host`, a request's `Host`, is one of these names.
-    pub(crate) fn admits_host(&self, host: &str) -> bool {
-        self.names
-            .iter()
-            .any(|name| name.eq_ignore_ascii_case(host))
-    }
-
-    /// Whether `origin`, a request's `Origin`, is one of these names over
-    /// `http`.
-    pub(crate) fn admits_origin(&self, origin: &str) -> bool {
-        origin
-            .strip_prefix("http://")
-            .is_some_and(|authority| self.admits_host(authority))
-    }
-}
-
-/// Why a handshake was refused, by its endpoint table's rule.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Refusal {
-    HostForeign,
-    OriginMissing,
-    OriginForeign,
-}
-
-impl Refusal {
-    /// The rule, which the refusal's log record carries.
-    pub(crate) fn reason(self) -> RefusalReason {
-        match self {
-            Self::HostForeign => RefusalReason::HostForeign,
-            Self::OriginMissing => RefusalReason::OriginMissing,
-            Self::OriginForeign => RefusalReason::OriginForeign,
-        }
-    }
-}
 
 /// Why no WebSocket opened.
 #[derive(Debug)]
@@ -300,7 +210,12 @@ fn refusal(request: &Request, authorities: &Authorities) -> Option<Refusal> {
             .get(name)
             .and_then(|value| value.to_str().ok())
     };
-    authorities.refusal(value(header::HOST), value(header::ORIGIN))
+    endpoint::refusal(
+        value(header::HOST),
+        value(header::ORIGIN),
+        Hosts::Named(authorities),
+        Origins::Required(&[authorities]),
+    )
 }
 
 /// The messages a WebSocket's Client sends.

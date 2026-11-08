@@ -15,12 +15,11 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
 
-/// The file holding the register, from the workspace's folder.
-pub(crate) const TESTING: &str = "TESTING.md";
+use crate::markdown::Table;
+use crate::register::document::{COUNTED_WORK, Document, FILE as TESTING, MEASURED, SECTION};
 
-/// The section and header the table is found by.
-pub(crate) const SECTION: &str = "## Quality register";
-const HEADER_START: &str = "| Row |";
+/// The first column of a table of rows.
+const ROW_COLUMN: &str = "Row";
 
 /// The thousandths a limit and a figure are compared in: every figure in the
 /// register has at most three decimals.
@@ -77,10 +76,6 @@ impl fmt::Display for Limit {
     }
 }
 
-/// The heading, inside the Enforced section, of the counted rows promoted
-/// there.
-const COUNTED_WORK: &str = "#### Counted work";
-
 /// The register's counted rows, and each one's limit by its name.
 pub(super) struct Register {
     pub(super) limits: BTreeMap<String, Limit>,
@@ -114,32 +109,18 @@ pub(super) fn read(root: &Path) -> Result<Register> {
 fn parse(text: &str) -> Result<Register> {
     // Found by its heading line, the part `xtask affected` reads it as, so
     // prose quoting the heading is no register.
-    let mut lines = text.lines();
-    if !lines.any(|line| line.trim_end() == SECTION) {
-        bail!("{TESTING} has no \"{SECTION}\" section");
-    }
-    let section = lines
-        .take_while(|line| !line.starts_with("## "))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let document =
+        Document::find(text).with_context(|| format!("{TESTING} has no \"{SECTION}\" section"))?;
     let mut register = Register {
         limits: BTreeMap::new(),
         rows: Vec::new(),
     };
-    let mut heading = "";
-    let mut lines = section.lines().peekable();
-    while let Some(line) = lines.next() {
-        if line.starts_with('#') {
-            heading = line.trim();
+    for (heading, enforced) in [(COUNTED_WORK, true), (MEASURED, false)] {
+        if let Some(table) = document.table(heading)
+            && table.header.first() == Some(&ROW_COLUMN)
+        {
+            read_table(&table, enforced, &mut register)?;
         }
-        if !line.starts_with(HEADER_START) {
-            continue;
-        }
-        let mut table = vec![line];
-        while let Some(line) = lines.next_if(|line| line.starts_with('|')) {
-            table.push(line);
-        }
-        read_table(&table, heading == COUNTED_WORK, &mut register)?;
     }
     if register.limits.is_empty() {
         bail!("{TESTING}'s Quality register has no table of rows");
@@ -147,26 +128,25 @@ fn parse(text: &str) -> Result<Register> {
     Ok(register)
 }
 
-/// Each row of one table of rows, its header first, and its limit, into
-/// `register`; `enforced` when the table is the Enforced section's.
-fn read_table(lines: &[&str], enforced: bool, register: &mut Register) -> Result<()> {
-    let Some((header, rows)) = lines.split_first() else {
-        bail!("{TESTING}'s Quality register has no table of rows");
-    };
-    let header = cells(header);
-    let position = |name: &str| header.iter().position(|cell| *cell == name);
+/// Each row of one table of rows, and its limit, into `register`;
+/// `enforced` when the table is the Enforced section's.
+fn read_table(table: &Table<'_>, enforced: bool, register: &mut Register) -> Result<()> {
     let column = |name: &str| {
-        position(name)
+        table
+            .column(name)
             .with_context(|| format!("the Quality register's table has no column \"{name}\""))
     };
     let (contract, today) = (column("Contract")?, column("Today")?);
-    let benchmark = position("Benchmark");
-    for line in rows.iter().skip(1) {
-        let row = cells(line);
+    let benchmark = table.column("Benchmark");
+    for line in &table.rows {
+        let row = &line.cells;
         let (Some(name), Some(contract), Some(today)) =
             (row.first(), row.get(contract), row.get(today))
         else {
-            bail!("the Quality register's row \"{line}\" is short of columns");
+            bail!(
+                "the Quality register's row \"{}\" is short of columns",
+                line.line
+            );
         };
         let name = name.trim_matches('`');
         let families = benchmark
@@ -232,12 +212,4 @@ fn measured(today: &str) -> Option<Limit> {
         .starts_with(|c: char| c.is_ascii_digit())
         .then(|| Limit::first_number(today))
         .flatten()
-}
-
-fn cells(line: &str) -> Vec<&str> {
-    line.trim()
-        .trim_matches('|')
-        .split('|')
-        .map(str::trim)
-        .collect()
 }

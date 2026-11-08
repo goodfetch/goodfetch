@@ -30,6 +30,12 @@
 # members' tests, that the change since then does not reach, and reruns the
 # rest; see the plan below. `GOODFETCH_GATE_FULL=1` reuses nothing.
 #
+# Each form's steps, their order and each step's `just` command come from
+# `xtask gate steps` (`just _gate-steps`, xtask/src/gate/steps.rs), and the
+# full gate's plan from `xtask gate plan`; the script reads both through
+# ci/output-value.sh, so a missing key fails the gate instead of skipping
+# or rerunning a step.
+#
 # Each step logs when it started and when it ended, with its exit status,
 # so the gate's log says where its time went.
 #
@@ -57,6 +63,10 @@ case "$all" in
     exit 2
     ;;
 esac
+form=${all:-changed}
+
+# shellcheck source=ci/output-value.sh
+source "$(dirname "${BASH_SOURCE[0]}")/output-value.sh"
 
 # On Linux the host runs the tests only Linux decides itself (ci/linux.sh),
 # so it sets up every OS service they use first, as a CI job does, and every
@@ -94,49 +104,48 @@ if [[ $all == all || $all == quick || $all == docs ]]; then
   fi
 fi
 
-# The checks that judge the whole change in seconds, which every form runs
-# first: a red one ends the gate before any build (the test-gate audit's F3).
-# The docs form runs those that read the change's commits and the bar; the
-# advisories and the notices read the lockfiles, which a document never
-# changes.
-of_the_commits=(dco commit-messages floor-guard commit-leaks)
-whole_change=("${of_the_commits[@]}" audit notices)
+# The form's list: its steps' names in order, and each one's kind (`step`,
+# `beside` or `command`) and `just` command. The checks that judge the
+# whole change in seconds come first in every form, so a red one ends the
+# gate before any build and any step beside the host's (the test-gate
+# audit's F3).
+listing=$(just _gate-steps "$form")
+order=$(output_value steps "$listing")
+read -ra steps <<<"$order"
 
 rm -f target/skipped.txt
-if [[ $all == docs ]]; then
+# The docs and quick forms run their steps one after the other on the host,
+# recording nothing.
+if [[ $form == docs || $form == quick ]]; then
   trap 'just _skips-report' EXIT
-  echo "The docs gate: the change is documents alone, so only the checks that read its commits, the bar and documents run; the code lints and every suite do not (xtask affected's gate=docs, ADR 0135)."
-  for step in "${of_the_commits[@]}" lint-documents; do
-    timed "$step" just "$step"
+  if [[ $form == docs ]]; then
+    echo "The docs gate: the change is documents alone, so only the checks that read its commits, the bar and documents run; the code lints and every suite do not (xtask affected's gate=docs, ADR 0135)."
+  else
+    os_services
+    echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build and Miri do not run (xtask affected's gate=quick, ADR 0135)."
+  fi
+  for step in "${steps[@]}"; do
+    arguments=$(output_value "$step.just" "$listing")
+    read -ra command <<<"$arguments"
+    timed "$step" just "${command[@]}"
   done
   exit 0
 fi
-if [[ $all == quick ]]; then
-  trap 'just _skips-report' EXIT
-  os_services
-  echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build and Miri do not run (xtask affected's gate=quick, ADR 0135)."
-  for step in "${whole_change[@]}"; do
-    timed "$step" just "$step"
-  done
-  timed lint just lint
-  timed quick just _suite quick all
-  timed journeys-tasks just journeys-tasks --check
-  exit 0
-fi
-names=()
-pids=()
-# Starts a step beside the host's, its lines marked with its name, in a
-# process group of its own that it leads (job control, `set -m`, for that
-# one command), so stopping the group stops every process the step started:
-# `just` passes a stop on to its recipe's shell alone, and `just perf`'s
-# `xtask perf build` and its `cargo bench` outlived it.
+beside_names=()
+beside_pids=()
+# Starts a step beside the host's, its command after its name, its lines
+# marked with its name, in a process group of its own that it leads (job
+# control, `set -m`, for that one command), so stopping the group stops
+# every process the step started: `just` passes a stop on to its recipe's
+# shell alone, and `just perf`'s `xtask perf build` and its `cargo bench`
+# outlived it.
 beside() {
   [[ -n $ended ]] || ended=$(mktemp -d)
   set -m
-  timed "$1" beside_step "$1" > >(awk -v mark="[$1] " '{ print mark $0; fflush() }') 2>&1 &
+  timed "$1" beside_step "$@" > >(awk -v mark="[$1] " '{ print mark $0; fflush() }') 2>&1 &
   set +m
-  names+=("$1")
-  pids+=("$!")
+  beside_names+=("$1")
+  beside_pids+=("$!")
 }
 # A step beside the host's notes its exit status in `ended` once it has
 # ended, before its end is logged, so a host step that fails first cannot
@@ -144,9 +153,10 @@ beside() {
 ended=""
 # shellcheck disable=SC2329 # called through timed
 beside_step() {
-  local status=0
-  just "$1" || status=$?
-  echo "$status" >"$ended/$1"
+  local name=$1 status=0
+  shift
+  just "$@" || status=$?
+  echo "$status" >"$ended/$name"
   return "$status"
 }
 # At the end, stops the process groups of the steps still running beside
@@ -157,10 +167,10 @@ beside_step() {
 lock=""
 # shellcheck disable=SC2329 # called through the EXIT trap
 on_exit() {
-  if [[ ${#pids[@]} -gt 0 ]]; then
-    kill -TERM -- "${pids[@]/#/-}" 2>/dev/null || true
+  if [[ ${#beside_pids[@]} -gt 0 ]]; then
+    kill -TERM -- "${beside_pids[@]/#/-}" 2>/dev/null || true
     local name
-    for name in "${names[@]}"; do
+    for name in "${beside_names[@]}"; do
       if [[ -f $ended/$name ]]; then record "$name" "$(cat "$ended/$name")" || true; fi
     done
   fi
@@ -213,37 +223,43 @@ os_services
 # the run and head it reuses from, and checks each reused member against the
 # evidence of what it read (`xtask gate`'s `evidence`). Every step's result
 # is recorded once its whole step has ended (`just _gate-record`), for the
-# planned head only. Without a plan line a step runs in full.
+# planned head only, which is `none` on a working tree with uncommitted
+# changes. Over what changed there is no plan, and every step runs in full.
 plan=""
-if [[ $all == all ]]; then
+previous=""
+planned=""
+if [[ $form == all ]]; then
   plan=$(just _gate-plan)
+  previous=$(output_value previous "$plan")
+  planned=$(output_value head "$plan")
 fi
-field() {
-  awk -F'\t' -v step="$1" -v column="$2" '$1 == step { print $column }' <<<"$plan"
-}
+# A step's action in the plan: `run` without one.
 action() {
-  local planned
-  planned=$(field "$1" 2)
-  echo "${planned:-run}"
+  if [[ -z $plan ]]; then
+    echo run
+  else
+    output_value "$1.action" "$plan"
+  fi
 }
-previous=$(field previous 2)
-planned=$(field head 2)
-# A part's members as its runners take them: the tests no member owns
-# (`:unowned`) by their files, for `just test`.
+# A part's members as its runners take them, on one line: the tests no
+# member owns (`:unowned`) by their files, for `just test`.
 members_of() {
-  local member
-  for member in $(field "$1" 3); do
+  local listed unowned member members=""
+  listed=$(output_value "$1.members" "$plan") || return
+  unowned=$(output_value unowned "$plan") || return
+  for member in $listed; do
     if [[ $member == :unowned ]]; then
-      local unowned
-      unowned=$(field unowned 2)
-      [[ $unowned == - ]] || echo "$unowned"
+      [[ $unowned == - ]] || members="$members $unowned"
     else
-      echo "$member"
+      members="$members $member"
     fi
   done
+  echo "$members"
 }
 reused() {
-  echo "Gate step $1: reused ($(field "$1" 4))"
+  local why
+  why=$(output_value "$1.why" "$plan") || return
+  echo "Gate step $1: reused ($why)"
 }
 # A failed Quick suite or stress run is recorded with the files its crates
 # are judged by, crate by crate (`xtask gate record --junit`): its nextest
@@ -251,7 +267,7 @@ reused() {
 # full records green, every other member red; a failure they do not account
 # for records every member red.
 record() {
-  [[ $all == all && -n $planned ]] || return 0
+  [[ $form == all && $planned != none ]] || return 0
   if [[ $2 -eq 0 ]]; then
     just _gate-record "$planned" "$1" pass
     return
@@ -289,91 +305,109 @@ gated() {
   record "$step" "$status"
   return "$status"
 }
-# A step its plan may reuse: runs it unless the plan reuses it.
-whole() {
-  if [[ $(action "$1") == reuse ]]; then reused "$1"; else gated "$@"; fi
+# The Pre-merge suite's tests (`just` with these arguments), then the
+# exercise audit of the tests that ran (ADR 0072): one step, recorded once
+# both have ended. The audit also runs after the suite's 100, nextest's
+# tests red and its doctests green, which stays the step's status when the
+# audit passes: `record` then judges each crate by the run's JUnit file (the
+# test-gate audit's option 4b).
+suite=()
+# shellcheck disable=SC2329 # called through timed
+suite_and_audit() {
+  local status=0
+  just "${suite[@]}" || status=$?
+  [[ $status -eq 0 || $status -eq 100 ]] || return "$status"
+  just features-audit || return
+  return "$status"
 }
-# The whole change's checks before the Console build and before any step
-# beside starts.
-for step in "${whole_change[@]}"; do
-  gated "$step" just "$step"
+pre_merge_suite() {
+  local status=0
+  suite=("$@")
+  timed pre-merge suite_and_audit || status=$?
+  record pre-merge "$status"
+  [[ $status -eq 0 ]] || exit "$status"
+}
+# A part of a step run per member: the Quick and Pre-merge suites rerun
+# every Vitest, Playwright and pytest test, as a full run does, in the
+# head's order (`--shuffled-all`), and nextest over its crates; the stress
+# run takes the new and changed tests of the members the change since the
+# earlier run reaches, and each test that change changed.
+run_part() {
+  local part members=()
+  case $1 in
+    quick | pre-merge)
+      part=$(members_of "$1")
+      read -ra members <<<"$part"
+      if [[ $1 == quick ]]; then
+        gated quick just test quick --shuffled-all "${members[@]}"
+      else
+        pre_merge_suite test pre-merge --shuffled-all "${members[@]}"
+      fi
+      ;;
+    stress)
+      part=$(output_value stress.members "$plan")
+      read -ra members <<<"$part"
+      gated stress just stress "" "$previous" "${members[@]}"
+      ;;
+    *)
+      echo "error: the plan runs a part of $1, which runs no member's tests" >&2
+      exit 1
+      ;;
+  esac
+}
+# A step on the host, as its plan has it: reused, run in part, or run in
+# full with its `just` command.
+run_step() {
+  local step=$1 planned_action
+  shift
+  planned_action=$(action "$step")
+  case $planned_action in
+    reuse) reused "$step" ;;
+    part) run_part "$step" ;;
+    run)
+      if [[ $step == pre-merge ]]; then
+        pre_merge_suite "$@"
+      else
+        gated "$step" just "$@"
+      fi
+      ;;
+    *)
+      echo "error: the plan's action for $step is $planned_action, not run, part or reuse" >&2
+      exit 1
+      ;;
+  esac
+}
+# The form's steps in their order: the whole change's checks, Collie's
+# Console build, which the steps beside, in their containers, find in the
+# workspace they mount (ADR 0057), the steps beside, then the host's others.
+for step in "${steps[@]}"; do
+  arguments=$(output_value "$step.just" "$listing")
+  read -ra command <<<"$arguments"
+  kind=$(output_value "$step.kind" "$listing")
+  case $kind in
+    command) timed "$step" just "${command[@]}" ;;
+    beside)
+      planned_action=$(action "$step")
+      if [[ $planned_action == reuse ]]; then reused "$step"; else beside "$step" "${command[@]}"; fi
+      ;;
+    step) run_step "$step" "${command[@]}" ;;
+    *)
+      echo "error: the kind of $step is $kind, not step, beside or command" >&2
+      exit 1
+      ;;
+  esac
 done
-# Collie's executable embeds its Console build (ADR 0057), which the steps
-# beside, in their containers, find in the workspace they mount.
-timed console-build just console-build
-for step in perf linux visual; do
-  if [[ $(action "$step") == reuse ]]; then reused "$step"; else beside "$step"; fi
-done
-gated lint just lint
-gated feature-combinations just feature-combinations
-gated fuzz-check just fuzz-check
-gated proofs just proofs
-# A part reruns every Vitest, Playwright and pytest test, as a full run
-# does, in the head's order (`--shuffled-all`), and nextest over its crates.
-case $(action quick) in
-  reuse) reused quick ;;
-  part)
-    read -ra members <<<"$(members_of quick | tr '\n' ' ')"
-    gated quick just test quick --shuffled-all "${members[@]}"
-    ;;
-  *) gated quick just _suite quick "$all" ;;
-esac
-# The Pre-merge suite's tests, then the exercise audit of the tests that
-# ran (ADR 0072): one step, recorded once both have ended. The audit also
-# runs after the suite's 100, nextest's tests red and its doctests green,
-# which stays the step's status when the audit passes: `record` then judges
-# each crate by the run's JUnit file (the test-gate audit's option 4b).
-case $(action pre-merge) in
-  reuse) reused pre-merge ;;
-  *)
-    # shellcheck disable=SC2329 # called through timed
-    suite_and_audit() {
-      local status=0
-      just "${suite[@]}" || status=$?
-      [[ $status -eq 0 || $status -eq 100 ]] || return "$status"
-      just features-audit || return
-      return "$status"
-    }
-    if [[ $(action pre-merge) == part ]]; then
-      read -ra members <<<"$(members_of pre-merge | tr '\n' ' ')"
-      suite=(test pre-merge --shuffled-all "${members[@]}")
-    else
-      suite=(_suite pre-merge "$all")
-    fi
-    status=0
-    timed pre-merge suite_and_audit || status=$?
-    record pre-merge "$status"
-    [[ $status -eq 0 ]] || exit "$status"
-    ;;
-esac
-# The stress run of a part: the new and changed tests of the members the
-# change since the earlier run reaches, and each test that change changed.
-case $(action stress) in
-  reuse) reused stress ;;
-  part)
-    read -ra members <<<"$(field stress 3)"
-    gated stress just stress "" "$previous" "${members[@]}"
-    ;;
-  *) gated stress just stress ;;
-esac
-gated journeys-tasks just journeys-tasks --check
-# One invocation, so the listings `journeys-tests` writes serve both.
-gated features-tests just features-tests clients-tests
-whole tlc just _tlc "$all"
-whole kennel just _kennel "$all"
-whole msrv just msrv
-whole miri just miri
 
 status=0
-for i in "${!names[@]}"; do
-  echo "Waiting for ${names[i]}…"
+for i in "${!beside_names[@]}"; do
+  echo "Waiting for ${beside_names[i]}…"
   step=0
-  wait "${pids[i]}" || step=$?
-  record "${names[i]}" "$step"
+  wait "${beside_pids[i]}" || step=$?
+  record "${beside_names[i]}" "$step"
   if [[ $step -ne 0 ]]; then
-    echo "error: just ${names[i]} failed with exit status $step" >&2
+    echo "error: just ${beside_names[i]} failed with exit status $step" >&2
     [[ $status -ne 0 ]] || status=$step
   fi
 done
-pids=()
+beside_pids=()
 exit "$status"

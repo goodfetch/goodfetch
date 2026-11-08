@@ -19,7 +19,7 @@ use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::consent_walls::{audit_entries, configure, opened};
+use super::consent_walls::{audit_entries, configure, opened, unrecordable};
 use super::disk_view::DiskView;
 use super::needs_you::{Seen, listed};
 use super::{attached_on, engine_with};
@@ -179,5 +179,54 @@ fn a_changed_key_is_listed_until_its_person_answers(#[case] method: &str, #[case
                 HOST
             ])],
         )
+    );
+}
+
+/// An answer to a changed key the Audit log cannot record is made all the
+/// same, since the person gave it, and answers `internal_error` saying the
+/// entry is missing rather than succeeding unrecorded.
+///
+/// Covers: story:12-28
+#[rstest]
+/// Covers: operation:certs.accept
+#[case::accepted("certs.accept")]
+/// Covers: operation:certs.forget
+#[case::forgotten("certs.forget")]
+fn an_answer_the_audit_log_cannot_record_is_made_and_says_so(#[case] method: &str) {
+    let env = TestEnv::new();
+    configure(&env, "");
+    let (_, changed) = keys();
+    let method = method.to_owned();
+    let params = if method == "certs.accept" {
+        json!({ "host": HOST, "spki_sha256": changed.to_string() })
+    } else {
+        json!({ "host": HOST })
+    };
+    let home = env.home().to_path_buf();
+
+    let (answer, items) = attached_on(&changing_engine(&env), &env, |mut client| async move {
+        opened(&mut client, "console").await;
+        let mut seen = Seen::default();
+        seen.call(&mut client, 2, "run.start", json!({ "run_id": "pinning" }))
+            .await;
+        seen.call(
+            &mut client,
+            3,
+            "test.certificate_changed",
+            json!({ "run_id": "pinning" }),
+        )
+        .await;
+        seen.until(&mut client, |items| items.len() == 1).await;
+        unrecordable(&home);
+        let answer = seen.call(&mut client, 5, &method, params).await;
+        seen.until(&mut client, std::collections::BTreeMap::is_empty)
+            .await;
+        (answer, seen.items.len())
+    });
+
+    assert_eq!(
+        (&answer["error"]["code"], items),
+        (&json!(-32603), 0),
+        "{answer}"
     );
 }

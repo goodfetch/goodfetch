@@ -33,9 +33,10 @@ fn run(logs: Logs, planted: Option<Row>) -> (u64, u64, Sent) {
     )
 }
 
-/// Each call counts its copy on the way in and its two encodes on the way
-/// out, a Plugin's reply and event included; a plant adds one for each call
-/// that went through a handler.
+/// A call is read without a copy, while each notification's params and each
+/// reply to a handler request are copied once on the way in; each call counts
+/// its two encodes on the way out, a Plugin's reply and event included; a
+/// plant adds one for each call that went through a handler.
 #[test]
 fn the_messages_count_their_copies_and_encodes_a_plant_adds_one_a_call_and_log_off_removes_its_own()
 {
@@ -51,7 +52,9 @@ fn the_messages_count_their_copies_and_encodes_a_plant_adds_one_a_call_and_log_o
     assert!(sent.log_lines > 0, "{sent:?}");
     assert_eq!(sent_off.log_lines, 0, "{sent_off:?}");
 
-    assert!(copies >= u64::try_from(TRAFFIC.incoming()).unwrap());
+    let notifications = 1;
+    let replies = u64::try_from(TRAFFIC.plugin).unwrap();
+    assert_eq!(copies, notifications + replies);
     assert!(encodes >= 2 * u64::try_from(sent.outgoing - sent.log_lines).unwrap());
     assert_eq!(copies_planted - copies, calls);
     assert_eq!(encodes_planted - encodes, calls);

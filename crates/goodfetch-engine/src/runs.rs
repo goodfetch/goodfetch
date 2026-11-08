@@ -99,8 +99,8 @@ pub use self::writer::{Writer, test_writer};
 
 use self::ended::{EndedHere, EndedRuns};
 use self::folder::{
-    Found, RunRow, canonical_inputs, input_differences, masked_tags, point_in_time, read_found,
-    read_report, text, write_end,
+    Found, RunRow, canonical_inputs, input_differences, masked_tags, read_found, read_report, text,
+    write_end,
 };
 use self::lifecycle::{InvalidRunTransition, Next, RunEvent};
 use self::progress::{Progress, Progressing};
@@ -2049,13 +2049,13 @@ impl Run {
 
     /// The wall time now, as a point in time of the Run's (ADR 0102).
     pub fn point_in_time(&self) -> PointInTime {
-        point_in_time(&self.clock)
+        self.clock.point_in_time()
     }
 
     /// The wall time `wait` from now, as a point in time of the Run's, such
     /// as when a domain is next admitted (ADR 0102).
     pub fn point_in_time_after(&self, wait: Duration) -> PointInTime {
-        folder::point_in_time_at(self.clock.wall() + wait)
+        self.clock.point_in_time_after(wait)
     }
 
     /// What the engine's Resource governor read and decided at its last
@@ -2770,8 +2770,7 @@ impl Runs {
                     audit.unchain(run.id().clone());
                 }
                 let run_id = run.id().clone();
-                let now = jiff::Timestamp::try_from(self.limits.clock.wall())
-                    .unwrap_or(jiff::Timestamp::UNIX_EPOCH);
+                let now = self.limits.clock.timestamp();
                 let reported = self
                     .limits
                     .owner
@@ -3106,8 +3105,7 @@ impl Runs {
             // yet is reported as a start's are (ADR 0016).
             Ok(Resumed::New { listed, .. }) => {
                 let switched = switched.beyond(listed);
-                let now = jiff::Timestamp::try_from(self.limits.clock.wall())
-                    .unwrap_or(jiff::Timestamp::UNIX_EPOCH);
+                let now = self.limits.clock.timestamp();
                 let reported_for = run_id.clone();
                 let reported = self
                     .limits
@@ -3418,7 +3416,7 @@ impl Runs {
         } = answered.await.map_err(|_| RunError::Stopped)??;
         let Some(mut changes) = changes else {
             let folder = reader.folder().to_owned();
-            let at = point_in_time(&clock);
+            let at = clock.point_in_time();
             return reader
                 .read(move |connection| {
                     let writer = match test_writer(&folder) {
@@ -3438,7 +3436,7 @@ impl Runs {
             let ready = {
                 let current = changes.borrow_and_update();
                 (current.last || after.is_none_or(|after| current.position() > after))
-                    .then(|| current.value(&run_id, point_in_time(&clock)))
+                    .then(|| current.value(&run_id, clock.point_in_time()))
             };
             if let Some(value) = ready {
                 break value;
@@ -3446,7 +3444,7 @@ impl Runs {
             if changes.changed().await.is_err() {
                 // The registry stopped with the Run live: nothing more
                 // comes from here.
-                let mut value = changes.borrow().value(&run_id, point_in_time(&clock));
+                let mut value = changes.borrow().value(&run_id, clock.point_in_time());
                 value.last = true;
                 break value;
             }
@@ -4754,7 +4752,7 @@ impl Registry {
     }
 
     fn now(&self) -> PointInTime {
-        point_in_time(&self.setup.engine.clock())
+        self.setup.engine.clock().point_in_time()
     }
 
     /// A lowercase ULID from the clock and the entropy (ADR 0059).
@@ -6165,7 +6163,7 @@ impl Taking {
             digest: written.digest,
             run_epoch: written.run_epoch,
             journal_position: written.journal_position,
-            time: point_in_time(&self.clock),
+            time: self.clock.point_in_time(),
         })
     }
 }
@@ -6238,7 +6236,7 @@ async fn exceptions_used(run: &Run, writer: &TaskOwner, clock: Clock) {
         run_id: Some(run.id.clone()),
     };
     let audit = run.runs.engine.audit().clone();
-    let now = jiff::Timestamp::try_from(clock.wall()).unwrap_or(jiff::Timestamp::UNIX_EPOCH);
+    let now = clock.timestamp();
     let recorded = writer
         .blocking(move || {
             audit.record(
@@ -6407,7 +6405,7 @@ impl Closing {
             lifecycle,
             stop_reason,
             started_at,
-            ended_at: point_in_time(&clock),
+            ended_at: clock.point_in_time(),
             policy_version,
             weakened,
             settings: run

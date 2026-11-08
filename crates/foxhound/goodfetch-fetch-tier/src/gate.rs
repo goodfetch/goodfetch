@@ -531,8 +531,10 @@ impl Gate {
         if let Some(wait) = start.and_then(|start| start.duration_since(run.clock().wall()).ok()) {
             run.clock().sleep(wait).await;
         }
-        // Stamped before the request leaves, so two of a key are never closer
-        // here than the delay, whatever their ways to the site take.
+        // Stamped before the request leaves, so their ways to the site take
+        // no part in a gap here. A gap can still fall short of the delay by
+        // how late the earlier request woke, since each start is taken before
+        // its wait: under 1 ms measured, at 1999.16 ms for a 2 s delay.
         tracing::trace!(target: "goodfetch::navigation_gate", domain_key = %key, "a handler's request was admitted");
         Ok(permit)
     }

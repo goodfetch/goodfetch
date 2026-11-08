@@ -19,9 +19,10 @@ use std::fmt::Write as _;
 use std::net::IpAddr;
 use std::sync::Arc;
 
-use goodfetch_protocol::audit::{Actor, ENDPOINT_AUTHENTICATION_FAILED};
+use goodfetch_protocol::audit::{
+    Actor, ENDPOINT_AUTHENTICATION_FAILED, EndpointRefusal, Listener, RefusalReason,
+};
 use jiff::Timestamp;
-use serde_json::json;
 use subtle::ConstantTimeEq as _;
 
 use crate::audit::{AuditLog, Origin};
@@ -92,14 +93,19 @@ impl Refusals {
         }
     }
 
-    /// Logs and records that `listener`, by its endpoint table name,
-    /// refused an attempt for `reason`, such as `token_wrong`.
+    /// Logs and records that `listener` refused an attempt for `reason`,
+    /// such as `token_wrong`.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future may leave the entry recorded.
-    pub async fn refused(&self, listener: &'static str, reason: &'static str) {
-        tracing::warn!(target: REFUSAL_TARGET, listener, reason, "a listener refused an attempt");
+    pub async fn refused(&self, listener: Listener, reason: RefusalReason) {
+        tracing::warn!(
+            target: REFUSAL_TARGET,
+            listener = listener.as_str(),
+            reason = reason.as_str(),
+            "a listener refused an attempt"
+        );
         let audit = self.audit.clone();
         let now = Timestamp::try_from(self.clock.wall()).unwrap_or(Timestamp::UNIX_EPOCH);
         self.owner
@@ -113,7 +119,8 @@ impl Refusals {
                 if let Err(error) = audit.record(
                     &origin,
                     &ENDPOINT_AUTHENTICATION_FAILED,
-                    json!({ "listener": listener, "reason": reason }),
+                    serde_json::to_value(EndpointRefusal { listener, reason })
+                        .expect("invariant: a refusal's details serialize"),
                     now,
                 ) {
                     tracing::error!(%error, "the Audit log did not record a listener's refusal");

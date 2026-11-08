@@ -14,7 +14,7 @@ use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 use anyhow::{Context as _, Result, bail};
-use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -158,16 +158,12 @@ pub(crate) fn crawl(stdin: ChildStdin, stdout: ChildStdout, site: &Site<'_>) -> 
         stdout: BufReader::new(stdout),
     };
     let hello = serde_json::to_value(HelloParams {
-        protocol_version: PROTOCOL_VERSION,
-        surface: Surface::Rust,
-        form: None,
-        token: None,
         needs: Some(Product::Foxhound),
-        product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
-            .context("xtask's version is a Product version")?,
-        log_level: None,
-        client_surface: None,
-        keep_daemon_alive: false,
+        ..HelloParams::new(
+            Surface::Rust,
+            ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+                .context("xtask's version is a Product version")?,
+        )
     })?;
     engine.call("hello", HELLO, &hello)?;
     let concurrency = site.concurrency;

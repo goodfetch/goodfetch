@@ -60,3 +60,4 @@ pub mod storage;
 pub mod tls;
 pub mod usage;
 pub mod versions;
+pub mod wire_name;

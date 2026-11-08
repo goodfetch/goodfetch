@@ -33,15 +33,18 @@ pub enum SecretFailure {
 }
 
 impl SecretFailure {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 5] = [
+        Self::Missing,
+        Self::NotConfigured,
+        Self::ProviderFailed,
+        Self::ResolverFailed,
+        Self::TimedOut,
+    ];
+
     /// Its name as the wire writes it.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Missing => "missing",
-            Self::NotConfigured => "not_configured",
-            Self::ProviderFailed => "provider_failed",
-            Self::ResolverFailed => "resolver_failed",
-            Self::TimedOut => "timed_out",
-        }
+        crate::wire_name::of(&self)
     }
 }
 
@@ -141,6 +144,16 @@ pub enum SecretInputRefusedReason {
     /// The receiving host was reached through an invalid-certificate
     /// exception (ADR 0042), so whoever holds its key may not be the site.
     InvalidCertificateException,
+}
+
+impl SecretInputRefusedReason {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 1] = [Self::InvalidCertificateException];
+
+    /// Its name on the wire.
+    pub fn as_str(self) -> &'static str {
+        crate::wire_name::of(&self)
+    }
 }
 
 /// What `secret_input_refused` details.

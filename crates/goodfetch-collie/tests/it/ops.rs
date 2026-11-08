@@ -236,10 +236,9 @@ fn metrics_answer_the_ops_token_with_the_runtimes_metrics_under_bounded_labels()
         .filter(|(name, labels, _)| {
             declared(name).is_none_or(|metric| {
                 labels.iter().any(|(key, value)| {
-                    !metric
-                        .labels
-                        .iter()
-                        .any(|label| label.name == key && label.values.contains(&value.as_str()))
+                    !metric.labels.iter().any(|label| {
+                        label.name == key && (label.values)().contains(&value.as_str())
+                    })
                 })
             })
         })

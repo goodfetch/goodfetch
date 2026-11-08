@@ -268,13 +268,12 @@ pub enum EgressRule {
 }
 
 impl EgressRule {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 3] = [Self::DomainPolicy, Self::PrivateAddress, Self::Scheme];
+
     /// Its name as the wire writes it.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::DomainPolicy => "domain_policy",
-            Self::PrivateAddress => "private_address",
-            Self::Scheme => "scheme",
-        }
+        crate::wire_name::of(&self)
     }
 }
 

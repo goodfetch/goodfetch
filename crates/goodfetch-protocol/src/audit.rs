@@ -260,6 +260,105 @@ pub const PRIVATE_ADDRESSES_ALLOWED: SharedTypeValue = kind(
     "A run allowed private addresses through `egress.private_ranges`, with the ranges it listed.",
 );
 
+/// A listener of the endpoint table (ADR 0067), by the name an
+/// `endpoint_authentication_failed` entry and its log record give it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Listener {
+    /// An Attached engine's stdio.
+    Stdio,
+    /// A Daemon's socket or named pipe.
+    DaemonSocket,
+    /// A Daemon's exposed address (`daemon.address`).
+    ExposedDaemon,
+    /// An Attached engine's private endpoint.
+    PrivateEndpoint,
+    /// A Daemon's WebSocket listener.
+    DaemonWebsocket,
+    /// The foreground Daemon's ops listener (ADR 0050).
+    OpsListener,
+    /// The Console's listener.
+    Console,
+    /// The Console's content origin.
+    ContentOrigin,
+    /// A Session's egress relay.
+    EgressRelay,
+    /// A Session's upstream proxy relay.
+    ProxyRelay,
+}
+
+impl Listener {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 10] = [
+        Self::Stdio,
+        Self::DaemonSocket,
+        Self::ExposedDaemon,
+        Self::PrivateEndpoint,
+        Self::DaemonWebsocket,
+        Self::OpsListener,
+        Self::Console,
+        Self::ContentOrigin,
+        Self::EgressRelay,
+        Self::ProxyRelay,
+    ];
+
+    /// Its name on the wire.
+    pub fn as_str(self) -> &'static str {
+        crate::wire_name::of(&self)
+    }
+}
+
+/// Why a listener refused an attempt, by its endpoint table's rule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RefusalReason {
+    /// A Connection's first message was no `hello`.
+    HelloNotFirst,
+    /// No token came.
+    TokenMissing,
+    /// The token is not the listener's.
+    TokenWrong,
+    /// The token has expired.
+    TokenExpired,
+    /// The request's `Host` names no address or `localhost`.
+    HostForeign,
+    /// The request carries an `Origin` the listener does not allow.
+    OriginForeign,
+    /// The request carries no `Origin` where one is required.
+    OriginMissing,
+    /// The address tried to sign in more often than allowed.
+    SignInRateExceeded,
+}
+
+impl RefusalReason {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 8] = [
+        Self::HelloNotFirst,
+        Self::TokenMissing,
+        Self::TokenWrong,
+        Self::TokenExpired,
+        Self::HostForeign,
+        Self::OriginForeign,
+        Self::OriginMissing,
+        Self::SignInRateExceeded,
+    ];
+
+    /// Its name on the wire.
+    pub fn as_str(self) -> &'static str {
+        crate::wire_name::of(&self)
+    }
+}
+
+/// The details of an `endpoint_authentication_failed` entry: which
+/// listener refused, and why. They never hold a token.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct EndpointRefusal {
+    /// The listener that refused.
+    pub listener: Listener,
+    /// Why.
+    pub reason: RefusalReason,
+}
+
 /// A listening endpoint refused a request.
 pub const ENDPOINT_AUTHENTICATION_FAILED: SharedTypeValue = kind(
     "endpoint_authentication_failed",

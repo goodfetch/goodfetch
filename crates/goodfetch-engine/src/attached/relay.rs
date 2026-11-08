@@ -6,6 +6,8 @@
 //! and stops when the Client's Connection ends, as an Attached engine's
 //! does (ADR 0078).
 
+use goodfetch_protocol::connection::{HELLO, HelloParams};
+use goodfetch_protocol::jsonrpc::META;
 use serde_json::Value;
 use tokio::io::{
     AsyncBufRead, AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader,
@@ -53,19 +55,33 @@ async fn first_line(reader: &mut (impl AsyncBufRead + Unpin)) -> Option<Vec<u8>>
     (read > 0).then_some(line)
 }
 
-/// `line` with `token` in its `params` when it is a `hello`; as it came
+/// `line` with `token` in its `params` when it is a `hello`, its params
+/// read as `HelloParams` (its `_meta` kept beside them); as it came
 /// otherwise, for the Daemon to refuse.
 fn with_token(line: &[u8], token: &str) -> Vec<u8> {
     let Ok(mut message) = serde_json::from_slice::<Value>(line) else {
         return line.to_vec();
     };
-    if message.get("method").and_then(Value::as_str) != Some("hello") {
+    if message.get("method").and_then(Value::as_str) != Some(HELLO) {
         return line.to_vec();
     }
     let Some(params) = message.get_mut("params").and_then(Value::as_object_mut) else {
         return line.to_vec();
     };
-    params.insert("token".to_owned(), Value::String(token.to_owned()));
+    let meta = params.remove(META);
+    let Ok(mut hello) = serde_json::from_value::<HelloParams>(Value::Object(params.clone())) else {
+        return line.to_vec();
+    };
+    hello.token = Some(token.to_owned());
+    let Value::Object(mut typed) =
+        serde_json::to_value(&hello).expect("invariant: `hello`'s params serialize")
+    else {
+        return line.to_vec();
+    };
+    if let Some(meta) = meta {
+        typed.insert(META.to_owned(), meta);
+    }
+    *params = typed;
     let mut rewritten = serde_json::to_vec(&message).expect("invariant: a JSON value encodes");
     rewritten.push(b'\n');
     rewritten

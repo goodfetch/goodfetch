@@ -326,14 +326,12 @@ pub enum Lifecycle {
 }
 
 impl Lifecycle {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 4] = [Self::Running, Self::Stopped, Self::Finished, Self::Failed];
+
     /// Its name on the wire and in run state.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Running => "running",
-            Self::Stopped => "stopped",
-            Self::Finished => "finished",
-            Self::Failed => "failed",
-        }
+        crate::wire_name::of(&self)
     }
 }
 
@@ -351,13 +349,12 @@ pub enum Verdict {
 }
 
 impl Verdict {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 3] = [Self::Verified, Self::Rejected, Self::NeedsReview];
+
     /// Its name on the wire and in run state.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Verified => "verified",
-            Self::Rejected => "rejected",
-            Self::NeedsReview => "needs_review",
-        }
+        crate::wire_name::of(&self)
     }
 }
 
@@ -375,13 +372,12 @@ pub enum Completeness {
 }
 
 impl Completeness {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 3] = [Self::Complete, Self::Incomplete, Self::Unverified];
+
     /// Its name on the wire and in run state.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Complete => "complete",
-            Self::Incomplete => "incomplete",
-            Self::Unverified => "unverified",
-        }
+        crate::wire_name::of(&self)
     }
 }
 
@@ -495,13 +491,12 @@ pub enum PeriodLength {
 }
 
 impl PeriodLength {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 3] = [Self::Day, Self::Week, Self::Month];
+
     /// Its name on the wire and in the Usage ledger.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Day => "day",
-            Self::Week => "week",
-            Self::Month => "month",
-        }
+        crate::wire_name::of(&self)
     }
 }
 
@@ -555,12 +550,12 @@ pub enum RunKind {
 }
 
 impl RunKind {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 2] = [Self::Collie, Self::Crawl];
+
     /// Its name on the wire and in run state.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Collie => "collie",
-            Self::Crawl => "crawl",
-        }
+        crate::wire_name::of(&self)
     }
 }
 
@@ -1197,13 +1192,12 @@ pub enum Presence {
 }
 
 impl Presence {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 3] = [Self::Present, Self::Missing, Self::Erased];
+
     /// Its name in the Run index.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Present => "present",
-            Self::Missing => "missing",
-            Self::Erased => "erased",
-        }
+        crate::wire_name::of(&self)
     }
 }
 

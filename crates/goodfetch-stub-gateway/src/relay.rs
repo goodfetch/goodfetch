@@ -24,17 +24,20 @@ use std::io;
 use std::sync::Arc;
 
 use futures_util::{SinkExt as _, StreamExt as _};
+use goodfetch_engine::CallError;
 use goodfetch_engine::endpoint::same_token;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::rpc::version_refusal;
 use goodfetch_engine::tasks::TaskOwner;
+use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{
     CANCEL, EngineInstance, HELLO, HelloParams, HelloResult, NOT_IN_PRODUCT, NotInProductDetails,
     PROTOCOL_VERSION_UNSUPPORTED, Surface,
 };
-use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject};
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::routing::{RunStart, Starter, Target, product_for_run};
+use goodfetch_protocol::run::{RUN_LIST, RUN_START};
 use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -45,16 +48,10 @@ use tokio_tungstenite::tungstenite::Message;
 use crate::engines::{Engine, Engines, Line, Relayed, version};
 use crate::index::{RunIndex, setting_keys};
 
-/// The operation the gateway answers from its own index.
-const RUN_LIST: &str = "run.list";
 /// The operations that start a run, each on the engine the routing rule
 /// picks from the operation and the settings it names: `run.start`, and a
 /// crawl's start, which only Foxhound carries.
-const STARTS: [&str; 2] = ["run.start", "crawl.start"];
-/// JSON-RPC's code for a failure inside the gateway.
-const INTERNAL_ERROR: i64 = -32603;
-/// JSON-RPC's code for a Connection that does not open with `hello`.
-const INVALID_REQUEST: i64 = -32600;
+const STARTS: [&str; 2] = [RUN_START.name, "crawl.start"];
 /// How many messages wait for a Client's socket before senders wait.
 const OUTGOING: usize = 256;
 
@@ -137,7 +134,7 @@ impl Gateway {
             };
             let id = request.get("id").cloned();
             match (request["method"].as_str(), id) {
-                (Some(RUN_LIST), Some(id)) => {
+                (Some(method), Some(id)) if method == RUN_LIST.name => {
                     let (gateway, outgoing) = (Arc::clone(&self), outgoing.clone());
                     owner.spawn(async move {
                         let answer = gateway.run_list(request["params"].clone()).await;
@@ -165,7 +162,11 @@ impl Gateway {
                         .await;
                     if let (Err(error), Some(id)) = (forwarded, id) {
                         let _ = outgoing
-                            .send(failure(&id, INTERNAL_ERROR, &error.to_string()))
+                            .send(failure(
+                                &id,
+                                ProtocolFailure::InternalError,
+                                &error.to_string(),
+                            ))
                             .await;
                     }
                 }
@@ -201,7 +202,7 @@ impl Gateway {
             let _ = outgoing
                 .send(failure(
                     &id,
-                    INVALID_REQUEST,
+                    ProtocolFailure::InvalidRequest,
                     "a Connection opens with a `hello` that names the Product it needs",
                 ))
                 .await;
@@ -212,14 +213,14 @@ impl Gateway {
         // closes it (ADR 0024).
         if door == Door::Hello {
             let reason = match hello.token.as_deref() {
-                None => Some("token_missing"),
-                Some(token) if !same_token(token, &self.token) => Some("token_wrong"),
+                None => Some(RefusalReason::TokenMissing),
+                Some(token) if !same_token(token, &self.token) => Some(RefusalReason::TokenWrong),
                 Some(_) => None,
             };
             if let Some(reason) = reason {
                 tracing::warn!(
-                    listener = "console",
-                    reason,
+                    listener = Listener::Console.as_str(),
+                    reason = reason.as_str(),
                     "the gateway refused a Connection"
                 );
                 return None;
@@ -367,7 +368,7 @@ impl Gateway {
         let engines = self.index.lock().await.engines();
         let mut rows = Vec::new();
         for engine in engines {
-            let answered = engine.call(RUN_LIST, params.clone()).await?;
+            let answered = engine.call(RUN_LIST.name, params.clone()).await?;
             if answered.get("error").is_some() {
                 return Ok(answered);
             }
@@ -416,26 +417,11 @@ fn no_foxhound(id: &Value) -> String {
 /// The gateway's own refusal of the request `id` with `code`.
 fn refusal(
     id: &Value,
-    code: &ErrorCodeDefinition,
+    code: &'static ErrorCodeDefinition,
     message: String,
     details: &impl Serialize,
 ) -> String {
-    let details = serde_json::to_value(details)
-        .ok()
-        .and_then(|details| match details {
-            Value::Object(details) => Some(details),
-            _ => None,
-        })
-        .expect("invariant: an Error code's details serialize to an object");
-    let error = ErrorObject {
-        code: code.group.json_rpc_class(),
-        message,
-        data: ErrorData {
-            code: code.name.to_owned(),
-            retryable: code.retryable,
-            details,
-        },
-    };
+    let error = CallError::new(code, message, details).to_error_object();
     json!({"jsonrpc": "2.0", "id": id, "error": error}).to_string()
 }
 
@@ -452,11 +438,12 @@ fn replied(answer: io::Result<Value>, id: &Value) -> String {
             answered["id"] = id.clone();
             answered.to_string()
         }
-        Err(error) => failure(id, INTERNAL_ERROR, &error.to_string()),
+        Err(error) => failure(id, ProtocolFailure::InternalError, &error.to_string()),
     }
 }
 
 /// A JSON-RPC failure the gateway itself answers.
-fn failure(id: &Value, code: i64, message: &str) -> String {
-    json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}).to_string()
+fn failure(id: &Value, failure: ProtocolFailure, message: &str) -> String {
+    json!({"jsonrpc": "2.0", "id": id, "error": {"code": failure.code(), "message": message}})
+        .to_string()
 }

@@ -18,7 +18,8 @@
 //! bindings, from the pinned Chromium's protocol file (spec #577).
 //! It writes the resolved-address classification's table into
 //! `goodfetch-protocol`, from IANA's special-purpose registries committed
-//! beside it with their date (ADR 0067).
+//! beside it with their date (ADR 0067), and the label values of
+//! `goodfetch.counted_work`, from `goodfetch-counted-work`'s rows (ADR 0140).
 //!
 //! `--check` regenerates in memory what `xtask codegen` writes itself and
 //! fails on any difference. It runs neither outside generator: the output of
@@ -35,6 +36,7 @@
 
 mod cdp;
 mod console;
+mod counted_work;
 mod deny;
 mod digest;
 mod emitter;
@@ -337,6 +339,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         names::render(&foxhound_names).into_bytes(),
     );
     files.extend(special_purpose::generate(root)?);
+    files.extend(counted_work::generate(root)?);
     files.extend(executables.into_files());
     let sources = features::Sources {
         root,
@@ -454,6 +457,11 @@ fn json_text(value: &Value) -> Result<Vec<u8>> {
 /// Writes every generated file, removing any other file from the folders
 /// `xtask codegen` owns.
 pub(crate) fn write(cargo: &OsStr, generators: &Generators, root: &Path) -> Result<()> {
+    // The emitted catalog reads the Counted work's label values from their
+    // generated file, so it is written before the catalog is emitted.
+    for (path, contents) in counted_work::generate(root)? {
+        write_file(&root.join(path), &contents)?;
+    }
     let plan = plan(cargo, root, executables::Files::printed(cargo, root)?)?;
     let written = plan.written();
     for folder in Plan::owned_folders() {

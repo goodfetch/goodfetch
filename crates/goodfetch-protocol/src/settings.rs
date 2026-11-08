@@ -48,16 +48,19 @@ pub enum SettingsLayer {
 }
 
 impl SettingsLayer {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 6] = [
+        Self::Default,
+        Self::OperatorPolicy,
+        Self::UserConfiguration,
+        Self::ProjectConfiguration,
+        Self::Recipe,
+        Self::Run,
+    ];
+
     /// Its name as the catalog and messages write it.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Default => "default",
-            Self::OperatorPolicy => "operator_policy",
-            Self::UserConfiguration => "user_configuration",
-            Self::ProjectConfiguration => "project_configuration",
-            Self::Recipe => "recipe",
-            Self::Run => "run",
-        }
+        crate::wire_name::of(&self)
     }
 
     /// Whether it is one of the configuration layers: Operator policy, user
@@ -85,14 +88,12 @@ pub enum RunOrigin {
 }
 
 impl RunOrigin {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 4] = [Self::Argument, Self::Settings, Self::Flag, Self::Form];
+
     /// Its name as the wire and messages write it.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Argument => "argument",
-            Self::Settings => "settings",
-            Self::Flag => "flag",
-            Self::Form => "form",
-        }
+        crate::wire_name::of(&self)
     }
 }
 

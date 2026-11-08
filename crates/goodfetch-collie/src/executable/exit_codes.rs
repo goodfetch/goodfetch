@@ -5,12 +5,14 @@
 //! else its group's, for a Run report how its Run ended, and `130` or `143`
 //! for a command interrupted by `SIGINT` or ended by `SIGTERM`.
 
+use goodfetch_engine::CallError;
 use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::cli;
 use goodfetch_protocol::connection::PROTOCOL_VERSION_UNSUPPORTED;
-use goodfetch_protocol::entries::MODULES;
+use goodfetch_protocol::entries::error_code;
 use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject, ProtocolFailure};
 use goodfetch_protocol::run::{EndingError, Lifecycle, RunReport, Verdict};
+use serde_json::{Map, Value};
 
 /// A command that did what it was asked.
 pub const SUCCESS: u8 = cli::SUCCESS.code;
@@ -35,10 +37,7 @@ pub const DAEMON_REFUSED: u8 = PROTOCOL_VERSION_UNSUPPORTED
 /// The exit code of a command that failed with the Error code `code` of
 /// `group`: the code's own row of the table, or its group's.
 pub fn of_error(code: &str, group: ErrorGroup) -> u8 {
-    MODULES
-        .iter()
-        .flat_map(|entries| entries.error_codes)
-        .find(|definition| definition.name == code)
+    error_code(code)
         .and_then(|definition| definition.exit_code)
         .unwrap_or_else(|| group.exit_code())
 }
@@ -47,11 +46,7 @@ pub fn of_error(code: &str, group: ErrorGroup) -> u8 {
 /// group, such as a Daemon's Console that did not start: the code's own
 /// row, else its declared group's; a code no entry declares, `internal`'s.
 pub fn of_code(code: &str) -> u8 {
-    MODULES
-        .iter()
-        .flat_map(|entries| entries.error_codes)
-        .find(|definition| definition.name == code)
-        .map_or_else(unanswered, |definition| of_error(code, definition.group))
+    error_code(code).map_or_else(unanswered, |definition| of_error(code, definition.group))
 }
 
 /// The exit code of a command that answered `report`: the row of the error
@@ -88,41 +83,47 @@ pub fn group(error: &ErrorObject) -> ErrorGroup {
         .into_iter()
         .find(|group| group.json_rpc_class() == error.code)
         .or_else(|| {
-            [
-                ProtocolFailure::ParseError,
-                ProtocolFailure::InvalidRequest,
-                ProtocolFailure::MessageTooLarge,
-                ProtocolFailure::MessageTooDeep,
-                ProtocolFailure::MethodNotFound,
-                ProtocolFailure::InvalidParams,
-                ProtocolFailure::InternalError,
-            ]
-            .into_iter()
-            .find(|failure| failure.name() == error.data.code)
-            .map(ProtocolFailure::group)
+            ProtocolFailure::ALL
+                .into_iter()
+                .find(|failure| failure.name() == error.data.code)
+                .map(ProtocolFailure::group)
         })
         .unwrap_or(ErrorGroup::Internal)
 }
 
 /// The failure a Run report's ending `error` raises, as a call that ends
-/// the Run fails with it: its Error code's, or `internal_error` for a code
-/// this executable does not know.
+/// the Run fails with it: its Error code's, or `internal_error`'s class for
+/// a code this executable does not know.
 pub fn of_ending(error: &EndingError) -> ErrorObject {
-    let definition = MODULES
-        .iter()
-        .flat_map(|entries| entries.error_codes)
-        .find(|definition| definition.name == error.code);
-    let (code, retryable) = definition.map_or(
-        (ProtocolFailure::InternalError.code(), false),
-        |definition| (definition.group.json_rpc_class(), definition.retryable),
-    );
+    match error_code(&error.code) {
+        Some(definition) => {
+            CallError::new(definition, error.message.clone(), &error.details).to_error_object()
+        }
+        None => unknown(
+            error.code.clone(),
+            ProtocolFailure::InternalError.code(),
+            error.message.clone(),
+            error.details.clone(),
+        ),
+    }
+}
+
+/// The failure of an Error code `code` this executable does not know, as
+/// another engine named it, under the numeric class `class`: never
+/// retryable, since no definition says it is.
+pub fn unknown(
+    code: String,
+    class: i32,
+    message: String,
+    details: Map<String, Value>,
+) -> ErrorObject {
     ErrorObject {
-        code,
-        message: error.message.clone(),
+        code: class,
+        message,
         data: ErrorData {
-            code: error.code.clone(),
-            retryable,
-            details: error.details.clone(),
+            code,
+            retryable: false,
+            details,
         },
     }
 }
@@ -131,16 +132,7 @@ pub fn of_ending(error: &EndingError) -> ErrorObject {
 /// or ended its Connection unanswered, as `message` says: a bug in
 /// Goodfetch, `internal_error`, which exits [`unanswered`]'s row.
 pub fn internal(message: String) -> ErrorObject {
-    let failure = ProtocolFailure::InternalError;
-    ErrorObject {
-        code: failure.code(),
-        message,
-        data: ErrorData {
-            code: failure.name().to_owned(),
-            retryable: false,
-            details: serde_json::Map::new(),
-        },
-    }
+    CallError::protocol(ProtocolFailure::InternalError, message).to_error_object()
 }
 
 #[cfg(test)]

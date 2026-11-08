@@ -11,7 +11,8 @@
 //!
 //! This crate depends on no Goodfetch crate, so a crate beneath the engine
 //! takes it too. The labels of [`Row`] are `goodfetch-protocol`'s metric
-//! declaration's values, which the engine's metric tests compare.
+//! declaration's values, which `xtask codegen` writes from this crate's
+//! table of rows.
 
 mod compiled;
 mod sync;
@@ -34,680 +35,307 @@ use sync::Count;
 )]
 pub type ParsedHtml = dom_query::Document;
 
-/// A row of the Quality register that a counted function counts: one work of
-/// one Shared path.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Row {
+/// Declares [`Row`] from one table, a line per row: its variant, its name in
+/// the Quality register, its Shared path and its work. Every list of rows
+/// (`ALL`, `name`, `path`, `work`) comes from that one line, and `xtask
+/// codegen` reads the table's lines, `Variant => "name", "path", "work";`,
+/// to write `goodfetch.counted_work`'s label values into
+/// `goodfetch-protocol`.
+macro_rules! rows {
+    ($($(#[doc = $doc:literal])* $row:ident => $name:literal, $path:literal, $work:literal;)*) => {
+        /// A row of the Quality register that a counted function counts: one work of
+        /// one Shared path.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        #[non_exhaustive]
+        pub enum Row {
+            $($(#[doc = $doc])* $row,)*
+        }
+
+        impl Row {
+            /// Every row, in the order of [`CountedWork`]'s counts.
+            pub const ALL: [Self; [$(stringify!($row)),*].len()] = [$(Self::$row),*];
+
+            /// Its Shared path by name, the metric's `shared_path` label: a word, as every
+            /// metric label's value is, so `page_analysis` for the register's F1 and
+            /// `run_trace` for its E5.
+            #[must_use]
+            pub const fn path(self) -> &'static str {
+                match self {
+                    $(Self::$row => $path,)*
+                }
+            }
+
+            /// Its work, the metric's `work` label.
+            #[must_use]
+            pub const fn work(self) -> &'static str {
+                match self {
+                    $(Self::$row => $work,)*
+                }
+            }
+
+            /// Its name in what a benchmark prints: the Quality register's row, and
+            /// for a hop's, a sitemap's or a Payload's own count of a row that has
+            /// several outcomes, the row with its outcome (`F3.compilations.hop`).
+            #[must_use]
+            pub const fn name(self) -> &'static str {
+                match self {
+                    $(Self::$row => $name,)*
+                }
+            }
+
+            const fn index(self) -> usize {
+                self as usize
+            }
+        }
+    };
+}
+
+rows! {
     /// `F1.parses`: an HTML parse of a fetched page.
-    PageParses,
+    PageParses => "F1.parses", "page_analysis", "parses";
     /// `F1.selector_compilations`: a selector, glob or regular expression
     /// compiled for a fetched page.
-    PageSelectorCompilations,
+    PageSelectorCompilations => "F1.selector_compilations", "page_analysis", "selector_compilations";
     /// `F1.readability_runs`: a run of the main-content step on a fetched page.
-    PageReadabilityRuns,
+    PageReadabilityRuns => "F1.readability_runs", "page_analysis", "readability_runs";
     /// `F1.file_opens`: a file opened or a folder created for a fetched page.
-    PageFileOpens,
+    PageFileOpens => "F1.file_opens", "page_analysis", "file_opens";
     /// `F1.locale_form_builds`: a Value transform's locale forms built.
-    PageLocaleFormBuilds,
+    PageLocaleFormBuilds => "F1.locale_form_builds", "page_analysis", "locale_form_builds";
     /// `F1.plugin_serializations`: a page serialized for an Extractor Plugin.
-    PagePluginSerializations,
+    PagePluginSerializations => "F1.plugin_serializations", "page_analysis", "plugin_serializations";
     /// `F1.plugin_answer_parses`: a parse of an Extractor Plugin's answer.
-    PagePluginAnswerParses,
+    PagePluginAnswerParses => "F1.plugin_answer_parses", "page_analysis", "plugin_answer_parses";
     /// `F1.tree_copies`: a copy of a fetched page's tree, made for a reader
     /// after a step that consumes it.
-    PageTreeCopies,
+    PageTreeCopies => "F1.tree_copies", "page_analysis", "tree_copies";
     /// `F1.share_readability_runs`: a run of the main-content step on a
     /// fetched page as served, for ADR 0047's exact share.
-    PageShareReadabilityRuns,
+    PageShareReadabilityRuns => "F1.share_readability_runs", "page_analysis", "share_readability_runs";
     /// `F1.block_classifications`: a fetched page's document read by the
     /// Block classification rules.
-    PageBlockClassifications,
+    PageBlockClassifications => "F1.block_classifications", "page_analysis", "block_classifications";
     /// `E1.deep_copies`: a whole copy of what a Client's message carries.
-    MessageDeepCopies,
+    MessageDeepCopies => "E1.deep_copies", "json_rpc_message", "deep_copies";
     /// `E1.encodes`: an encode of what the engine sends, into bytes or into
     /// a `Value` that is encoded again.
-    MessageEncodes,
+    MessageEncodes => "E1.encodes", "json_rpc_message", "encodes";
     /// `F5.messages_no_hook`: a message or its formatting for a stage with no
     /// Hook on it.
-    HookMessagesNoHook,
+    HookMessagesNoHook => "F5.messages_no_hook", "hook_stage", "messages_no_hook";
     /// `F5.calls`: a request out to a Hook called.
-    HookCalls,
+    HookCalls => "F5.calls", "hook_stage", "calls";
     /// `F5.builds`: a Hook chain's build or compilation at a stage.
-    HookBuilds,
+    HookBuilds => "F5.builds", "hook_stage", "builds";
     /// `F6.opens`: a store open or statement preparation for a delivered batch.
-    SinkOpens,
+    SinkOpens => "F6.opens", "sink_delivery", "opens";
     /// `F6.transactions`: a transaction for a delivered batch.
-    SinkTransactions,
+    SinkTransactions => "F6.transactions", "sink_delivery", "transactions";
     /// `F6.writer_reads`: a read through the run file's writer for a delivered
     /// batch.
-    SinkWriterReads,
+    SinkWriterReads => "F6.writer_reads", "sink_delivery", "writer_reads";
     /// `F4.declaration_reads`: a read of the Datasets' declarations to check a Record.
-    RecordDeclarationReads,
+    RecordDeclarationReads => "F4.declaration_reads", "record", "declaration_reads";
     /// `F4.validator_builds`: a validator built to check a Record.
-    RecordValidatorBuilds,
+    RecordValidatorBuilds => "F4.validator_builds", "record", "validator_builds";
     /// `F4.validations`: a validation of a Record against its Dataset's schema.
-    RecordValidations,
+    RecordValidations => "F4.validations", "record", "validations";
     /// `F4.serializations`: a Record's data written as the JSON text it is kept as.
-    RecordSerializations,
+    RecordSerializations => "F4.serializations", "record", "serializations";
     /// `F4.deep_copies`: a deep copy of a Record's data.
-    RecordDeepCopies,
+    RecordDeepCopies => "F4.deep_copies", "record", "deep_copies";
     /// `F4.constant_lookups`: a lookup of a value that stays constant for the Run, for a Record.
-    RecordConstantLookups,
+    RecordConstantLookups => "F4.constant_lookups", "record", "constant_lookups";
     /// `F4.transactions`: a run-file transaction of a Record's own, apart from its attempt's commit.
-    RecordTransactions,
+    RecordTransactions => "F4.transactions", "record", "transactions";
     /// `F3.invariant_reads`: a read of the Scope, Payload rules or Fragments
     /// from the run file, admitting a links batch.
-    BatchInvariantReads,
+    BatchInvariantReads => "F3.invariant_reads", "frontier_admission", "invariant_reads";
     /// `F3.compilations`: a glob compiled to admit a links batch.
-    BatchCompilations,
+    BatchCompilations => "F3.compilations", "frontier_admission", "compilations";
     /// `F3.transactions`: a write of its own a links batch asks the writer for.
-    BatchTransactions,
+    BatchTransactions => "F3.transactions", "frontier_admission", "transactions";
     /// `F3.invariant_reads`, of a redirect hop.
-    HopInvariantReads,
+    HopInvariantReads => "F3.invariant_reads.hop", "frontier_hop", "invariant_reads";
     /// `F3.compilations`, of a redirect hop.
-    HopCompilations,
+    HopCompilations => "F3.compilations.hop", "frontier_hop", "compilations";
     /// `F3.transactions`, of a redirect hop.
-    HopTransactions,
+    HopTransactions => "F3.transactions.hop", "frontier_hop", "transactions";
     /// `F3.invariant_reads`, of a sitemap's read.
-    SitemapInvariantReads,
+    SitemapInvariantReads => "F3.invariant_reads.sitemap", "frontier_sitemap", "invariant_reads";
     /// `F3.compilations`, of a sitemap's read.
-    SitemapCompilations,
+    SitemapCompilations => "F3.compilations.sitemap", "frontier_sitemap", "compilations";
     /// `F3.transactions`, of a sitemap's read.
-    SitemapTransactions,
+    SitemapTransactions => "F3.transactions.sitemap", "frontier_sitemap", "transactions";
     /// `F3.compilations`: a validator built for one URL's Payload.
-    PayloadCompilations,
+    PayloadCompilations => "F3.compilations.payload", "frontier_payload", "compilations";
     /// `F3.payload_serializations`: one URL's Payload serialized.
-    PayloadSerializations,
+    PayloadSerializations => "F3.payload_serializations", "frontier_payload", "serializations";
     /// `F3.validations`: one URL's Payload validated against its Label's schema.
-    PayloadValidations,
+    PayloadValidations => "F3.validations", "frontier_payload", "validations";
     /// `C1.encodes`: a CDP command written into the bytes its pipe carries.
-    CdpEncodes,
+    CdpEncodes => "C1.encodes", "cdp_command", "encodes";
     /// `C1.sends`: a CDP command's bytes written to its pipe.
-    CdpSends,
+    CdpSends => "C1.sends", "cdp_command", "sends";
     /// `C1.file_opens`: a directory created or a file opened for a CDP
     /// command, as the CDP command log's writer does.
-    CdpFileOpens,
+    CdpFileOpens => "C1.file_opens", "cdp_command", "file_opens";
     /// `C1.log_sends_off`: a CDP command's method sent to the CDP command
     /// log's writer. The log has no off yet, so every send counts (X9).
-    CdpLogSendsOff,
+    CdpLogSendsOff => "C1.log_sends_off", "cdp_command", "log_sends_off";
     /// `C3.script_sends`: a send of `check.js`'s source for a guard's check.
-    ActionScriptSends,
+    ActionScriptSends => "C3.script_sends", "action", "script_sends";
     /// `C3.check_commands`: a CDP command a guard's check sent.
-    ActionCheckCommands,
+    ActionCheckCommands => "C3.check_commands", "action", "check_commands";
     /// `C3.commands`, of a click: a CDP command a click's attempt sent.
-    ActionClickCommands,
+    ActionClickCommands => "C3.commands.click", "action", "click_commands";
     /// `C3.commands`, of a fill: a CDP command a fill's attempt sent.
-    ActionFillCommands,
+    ActionFillCommands => "C3.commands.fill", "action", "fill_commands";
     /// `C3.commands`, of a press: a CDP command a key press's attempt sent.
-    ActionPressCommands,
+    ActionPressCommands => "C3.commands.press", "action", "press_commands";
     /// `F2.transactions`: a transaction on a run file: a commit its commit
     /// hook saw, and each job the writer folded into a commit's group, so the
     /// count does not depend on how commits group (ADR 0138's note).
-    RunTransactions,
+    RunTransactions => "F2.transactions", "run_state", "transactions";
     /// `F2.writer_reads`: a read through a run file's writer.
-    WriterReads,
+    WriterReads => "F2.writer_reads", "run_state", "writer_reads";
     /// `F2.configuration_reads`: a read of the machine's settings files.
-    ConfigurationReads,
+    ConfigurationReads => "F2.configuration_reads", "run_state", "configuration_reads";
     /// `F2.prunes`: a prune pass.
-    Prunes,
+    Prunes => "F2.prunes", "run_state", "prunes";
     /// `F2.effect_syncs`: a synced commit of the Effect journal, which no code
     /// does until the journal lands (#1550).
-    EffectSyncs,
+    EffectSyncs => "F2.effect_syncs", "run_state", "effect_syncs";
     /// `E3.statements`: a SQL statement a Usage charge reads its Limits with.
-    ChargeStatements,
+    ChargeStatements => "E3.statements", "usage_charge", "statements";
     /// `E3.slice_transactions`: a transaction committed on the ledger's
     /// connections a charge goes through.
-    ChargeTransactions,
+    ChargeTransactions => "E3.slice_transactions", "usage_charge", "transactions";
     /// `E3.opens`: a connection opened to the ledger for a charge.
-    ChargeOpens,
+    ChargeOpens => "E3.opens", "usage_charge", "opens";
     /// `C4.detection_reads`: a detector's read of a navigation's document,
     /// or the Consent prompt runner's start in it.
-    NavigationDetectionReads,
+    NavigationDetectionReads => "C4.detection_reads", "navigation", "detection_reads";
     /// `C4.compilations`: a glob or a regular expression compiled to judge a
     /// navigation.
-    NavigationCompilations,
+    NavigationCompilations => "C4.compilations", "navigation", "compilations";
     /// `C4.script_compilations`: a script compiled for a navigation.
-    NavigationScriptCompilations,
+    NavigationScriptCompilations => "C4.script_compilations", "navigation", "script_compilations";
     /// `C4.provenance_entries`: a Provenance entry a navigation's judgement
     /// writes.
-    NavigationProvenanceEntries,
+    NavigationProvenanceEntries => "C4.provenance_entries", "navigation", "provenance_entries";
     /// `E7.merge_round_trips`: a round trip to the Merge host for a
     /// Working-copy update.
-    WorkingCopyMergeRoundTrips,
+    WorkingCopyMergeRoundTrips => "E7.merge_round_trips", "working_copy_update", "merge_round_trips";
     /// `E7.document_loads`: a whole document loaded for a Working-copy update.
-    WorkingCopyDocumentLoads,
+    WorkingCopyDocumentLoads => "E7.document_loads", "working_copy_update", "document_loads";
     /// `E7.document_encodes`: a whole document encoded for a Working-copy
     /// update.
-    WorkingCopyDocumentEncodes,
+    WorkingCopyDocumentEncodes => "E7.document_encodes", "working_copy_update", "document_encodes";
     /// `E7.opens`: a store opened for a Working-copy update.
-    WorkingCopyOpens,
+    WorkingCopyOpens => "E7.opens", "working_copy_update", "opens";
     /// `E7.prepares`: a statement prepared for a Working-copy update.
-    WorkingCopyPrepares,
+    WorkingCopyPrepares => "E7.prepares", "working_copy_update", "prepares";
     /// `E7.transactions`: a transaction for a Working-copy update.
-    WorkingCopyTransactions,
+    WorkingCopyTransactions => "E7.transactions", "working_copy_update", "transactions";
     /// `E7.syncs`: a sync for a Working-copy update.
-    WorkingCopySyncs,
+    WorkingCopySyncs => "E7.syncs", "working_copy_update", "syncs";
     /// `E7.encodes`: an encode of a Working-copy update for the Connections
     /// that follow it.
-    WorkingCopyEncodes,
+    WorkingCopyEncodes => "E7.encodes", "working_copy_update", "encodes";
     /// `E2.configuration_reads`: a read of the machine's settings files for
     /// an Audit entry.
-    AuditConfigurationReads,
+    AuditConfigurationReads => "E2.configuration_reads", "audit_entry", "configuration_reads";
     /// `E2.opens`: an open of the Audit log's store, with its schema set-up.
-    AuditOpens,
+    AuditOpens => "E2.opens", "audit_entry", "opens";
     /// `E2.prunes`: a prune pass over the Audit log.
-    AuditPrunes,
+    AuditPrunes => "E2.prunes", "audit_entry", "prunes";
     /// `E2.transactions`: a transaction the Audit log's store committed.
-    AuditTransactions,
+    AuditTransactions => "E2.transactions", "audit_entry", "transactions";
     /// `E2.syncs`: a write of the Audit log's head file; the store's own
     /// syncs are seen by a counting VFS, which no production store has.
-    AuditSyncs,
+    AuditSyncs => "E2.syncs", "audit_entry", "syncs";
     /// `C6.file_opens`: a file opened or a folder created for a Live view
     /// frame.
-    LiveViewFileOpens,
+    LiveViewFileOpens => "C6.file_opens", "live_view_frame", "file_opens";
     /// `C6.compilations`: a selector, glob or regular expression compiled for
     /// a Live view frame.
-    LiveViewCompilations,
+    LiveViewCompilations => "C6.compilations", "live_view_frame", "compilations";
     /// `C6.spawns`: a task spawned for a Live view frame.
-    LiveViewSpawns,
+    LiveViewSpawns => "C6.spawns", "live_view_frame", "spawns";
     /// `C6.acknowledgements`: a Live view frame's acknowledgement command.
-    LiveViewAcknowledgements,
+    LiveViewAcknowledgements => "C6.acknowledgements", "live_view_frame", "acknowledgements";
     /// `C6.seals`: a seal of a fragment of a relayed viewer's frame.
-    LiveViewSeals,
+    LiveViewSeals => "C6.seals", "live_view_frame", "seals";
     /// `E5.file_opens`: a file opened or a folder created for a Run-trace
     /// entry.
-    RunTraceFileOpens,
+    RunTraceFileOpens => "E5.file_opens", "run_trace", "file_opens";
     /// `E5.spawns`: a task spawned for a Run-trace entry.
-    RunTraceSpawns,
+    RunTraceSpawns => "E5.spawns", "run_trace", "spawns";
     /// `E5.formatting_off`: a Run-trace entry formatted though its kind is
     /// switched off.
-    RunTraceFormattingOff,
+    RunTraceFormattingOff => "E5.formatting_off", "run_trace", "formatting_off";
     /// `E6.transactions`: a transaction on a Politeness file, as its commit
     /// hook sees it.
-    PolitenessTransactions,
+    PolitenessTransactions => "E6.transactions", "politeness_permit", "transactions";
     /// `E6.opens`: a Politeness file opened. Its statement preparations are
     /// the benchmark's, read from Callgrind, as no wrapper sees them.
-    PolitenessOpens,
+    PolitenessOpens => "E6.opens", "politeness_permit", "opens";
     /// `E6.script_sends`: a script sent whole to Valkey or Redis, which no
     /// code does until a Politeness store lands.
-    PolitenessScriptSends,
+    PolitenessScriptSends => "E6.script_sends", "politeness_permit", "script_sends";
     /// `E6.robots_parses`: a robots.txt parsed for the copy a user's runs
     /// share.
-    RobotsParses,
+    RobotsParses => "E6.robots_parses", "politeness_permit", "robots_parses";
     /// `E6.robots_reads`: a read of that copy from the Politeness file.
-    RobotsReads,
+    RobotsReads => "E6.robots_reads", "politeness_permit", "robots_reads";
     /// `C2.commands`: a CDP command an engine read in a frame sends.
-    PageReadCommands,
+    PageReadCommands => "C2.commands", "page_read", "commands";
     /// `C2.world_creations`: a `Page.createIsolatedWorld` an engine read
     /// sends past its document's first. The driver keeps no registry of each
     /// frame's document yet, so every read's creation counts (X10).
-    PageReadWorldCreations,
+    PageReadWorldCreations => "C2.world_creations", "page_read", "world_creations";
     /// `C2.document_worlds`: a `Page.createIsolatedWorld` an engine read
     /// sends, held per document and frame read.
-    PageReadDocumentWorlds,
+    PageReadDocumentWorlds => "C2.document_worlds", "page_read", "document_worlds";
     /// `C2.serialization_commands`: a CDP command a page's serialization
     /// for its formats sends (`DOM.getDocument`, `DOM.getOuterHTML`), held
     /// per serialization: its own outcome, as no engine read in a frame
     /// makes it.
-    PageSerializationCommands,
+    PageSerializationCommands => "C2.serialization_commands", "page_read", "serialization_commands";
     /// `E4.configuration_reads`: a settings file read for a governor sample.
-    GovernorConfigurationReads,
+    GovernorConfigurationReads => "E4.configuration_reads", "governor_sample", "configuration_reads";
     /// `E4.meminfo_opens`: `/proc/meminfo` opened for a governor sample.
-    GovernorMeminfoOpens,
+    GovernorMeminfoOpens => "E4.meminfo_opens", "governor_sample", "meminfo_opens";
     /// `E4.static_opens`: `self/cgroup` or `self/mountinfo` opened for a
     /// governor sample, which the engine's start could read once.
-    GovernorStaticOpens,
+    GovernorStaticOpens => "E4.static_opens", "governor_sample", "static_opens";
     /// `E4.cpu_stat_opens`: the cgroup's `cpu.stat` opened for a governor
     /// sample.
-    GovernorCpuStatOpens,
+    GovernorCpuStatOpens => "E4.cpu_stat_opens", "governor_sample", "cpu_stat_opens";
     /// `E4.process_reads`: one process's memory read for a governor sample.
-    GovernorProcessReads,
+    GovernorProcessReads => "E4.process_reads", "governor_sample", "process_reads";
     /// `E4.pool_walks`: a browser's processes walked for their memory as a
     /// page opens in the browser pool.
-    PoolWalks,
+    PoolWalks => "E4.pool_walks", "governor_sample", "pool_walks";
     /// `C5.fetch_messages_no_rule`: a message of CDP's `Fetch` domain, a
     /// command sent or an event read, for a page's requests.
-    InterceptedFetchMessages,
+    InterceptedFetchMessages => "C5.fetch_messages_no_rule", "intercepted_request", "fetch_messages_no_rule";
     /// `C5.spawns`: a task spawned for a refused request.
-    InterceptedSpawns,
+    InterceptedSpawns => "C5.spawns", "intercepted_request", "spawns";
     /// `C5.file_opens`: a file opened or a folder created for a refused
     /// request, as the Run trace's request log does.
-    InterceptedFileOpens,
+    InterceptedFileOpens => "C5.file_opens", "intercepted_request", "file_opens";
     /// `C5.matches`: a paused request matched against the compiled Filter
     /// lists.
-    InterceptedMatches,
+    InterceptedMatches => "C5.matches", "intercepted_request", "matches";
     /// `C5.answers`: a CDP command that answers a paused request.
-    InterceptedAnswers,
+    InterceptedAnswers => "C5.answers", "intercepted_request", "answers";
     /// `C5.compilations`: a glob or regular expression compiled for a paused
     /// request.
-    InterceptedCompilations,
+    InterceptedCompilations => "C5.compilations", "intercepted_request", "compilations";
     /// `C5.entries`: an entry sent to the Run trace's request log.
-    InterceptedEntries,
-}
-
-impl Row {
-    /// Every row, in the order of [`CountedWork`]'s counts.
-    pub const ALL: [Self; 101] = [
-        Self::PageParses,
-        Self::PageSelectorCompilations,
-        Self::PageReadabilityRuns,
-        Self::PageFileOpens,
-        Self::PageLocaleFormBuilds,
-        Self::PagePluginSerializations,
-        Self::PagePluginAnswerParses,
-        Self::PageTreeCopies,
-        Self::PageShareReadabilityRuns,
-        Self::PageBlockClassifications,
-        Self::MessageDeepCopies,
-        Self::MessageEncodes,
-        Self::HookMessagesNoHook,
-        Self::HookCalls,
-        Self::HookBuilds,
-        Self::SinkOpens,
-        Self::SinkTransactions,
-        Self::SinkWriterReads,
-        Self::RecordDeclarationReads,
-        Self::RecordValidatorBuilds,
-        Self::RecordValidations,
-        Self::RecordSerializations,
-        Self::RecordDeepCopies,
-        Self::RecordConstantLookups,
-        Self::RecordTransactions,
-        Self::BatchInvariantReads,
-        Self::BatchCompilations,
-        Self::BatchTransactions,
-        Self::HopInvariantReads,
-        Self::HopCompilations,
-        Self::HopTransactions,
-        Self::SitemapInvariantReads,
-        Self::SitemapCompilations,
-        Self::SitemapTransactions,
-        Self::PayloadCompilations,
-        Self::PayloadSerializations,
-        Self::PayloadValidations,
-        Self::CdpEncodes,
-        Self::CdpSends,
-        Self::CdpFileOpens,
-        Self::CdpLogSendsOff,
-        Self::ActionScriptSends,
-        Self::ActionCheckCommands,
-        Self::ActionClickCommands,
-        Self::ActionFillCommands,
-        Self::ActionPressCommands,
-        Self::RunTransactions,
-        Self::WriterReads,
-        Self::ConfigurationReads,
-        Self::Prunes,
-        Self::EffectSyncs,
-        Self::ChargeStatements,
-        Self::ChargeTransactions,
-        Self::ChargeOpens,
-        Self::NavigationDetectionReads,
-        Self::NavigationCompilations,
-        Self::NavigationScriptCompilations,
-        Self::NavigationProvenanceEntries,
-        Self::WorkingCopyMergeRoundTrips,
-        Self::WorkingCopyDocumentLoads,
-        Self::WorkingCopyDocumentEncodes,
-        Self::WorkingCopyOpens,
-        Self::WorkingCopyPrepares,
-        Self::WorkingCopyTransactions,
-        Self::WorkingCopySyncs,
-        Self::WorkingCopyEncodes,
-        Self::AuditConfigurationReads,
-        Self::AuditOpens,
-        Self::AuditPrunes,
-        Self::AuditTransactions,
-        Self::AuditSyncs,
-        Self::LiveViewFileOpens,
-        Self::LiveViewCompilations,
-        Self::LiveViewSpawns,
-        Self::LiveViewAcknowledgements,
-        Self::LiveViewSeals,
-        Self::RunTraceFileOpens,
-        Self::RunTraceSpawns,
-        Self::RunTraceFormattingOff,
-        Self::PolitenessTransactions,
-        Self::PolitenessOpens,
-        Self::PolitenessScriptSends,
-        Self::RobotsParses,
-        Self::RobotsReads,
-        Self::PageReadCommands,
-        Self::PageReadWorldCreations,
-        Self::PageReadDocumentWorlds,
-        Self::PageSerializationCommands,
-        Self::GovernorConfigurationReads,
-        Self::GovernorMeminfoOpens,
-        Self::GovernorStaticOpens,
-        Self::GovernorCpuStatOpens,
-        Self::GovernorProcessReads,
-        Self::PoolWalks,
-        Self::InterceptedFetchMessages,
-        Self::InterceptedSpawns,
-        Self::InterceptedFileOpens,
-        Self::InterceptedMatches,
-        Self::InterceptedAnswers,
-        Self::InterceptedCompilations,
-        Self::InterceptedEntries,
-    ];
-
-    /// Its Shared path by name, the metric's `shared_path` label: a word, as every
-    /// metric label's value is, so `page_analysis` for the register's F1 and
-    /// `run_trace` for its E5.
-    #[must_use]
-    pub const fn path(self) -> &'static str {
-        match self {
-            Self::PageParses
-            | Self::PageSelectorCompilations
-            | Self::PageReadabilityRuns
-            | Self::PageFileOpens
-            | Self::PageLocaleFormBuilds
-            | Self::PagePluginSerializations
-            | Self::PagePluginAnswerParses
-            | Self::PageTreeCopies
-            | Self::PageShareReadabilityRuns
-            | Self::PageBlockClassifications => "page_analysis",
-            Self::MessageDeepCopies | Self::MessageEncodes => "json_rpc_message",
-            Self::HookMessagesNoHook | Self::HookCalls | Self::HookBuilds => "hook_stage",
-            Self::SinkOpens | Self::SinkTransactions | Self::SinkWriterReads => "sink_delivery",
-            Self::RecordDeclarationReads
-            | Self::RecordValidatorBuilds
-            | Self::RecordValidations
-            | Self::RecordSerializations
-            | Self::RecordDeepCopies
-            | Self::RecordConstantLookups
-            | Self::RecordTransactions => "record",
-            Self::BatchInvariantReads | Self::BatchCompilations | Self::BatchTransactions => {
-                "frontier_admission"
-            }
-            Self::HopInvariantReads | Self::HopCompilations | Self::HopTransactions => {
-                "frontier_hop"
-            }
-            Self::SitemapInvariantReads | Self::SitemapCompilations | Self::SitemapTransactions => {
-                "frontier_sitemap"
-            }
-            Self::PayloadCompilations | Self::PayloadSerializations | Self::PayloadValidations => {
-                "frontier_payload"
-            }
-            Self::CdpEncodes | Self::CdpSends | Self::CdpFileOpens | Self::CdpLogSendsOff => {
-                "cdp_command"
-            }
-            Self::ActionScriptSends
-            | Self::ActionCheckCommands
-            | Self::ActionClickCommands
-            | Self::ActionFillCommands
-            | Self::ActionPressCommands => "action",
-            Self::RunTransactions
-            | Self::WriterReads
-            | Self::ConfigurationReads
-            | Self::Prunes
-            | Self::EffectSyncs => "run_state",
-            Self::ChargeStatements | Self::ChargeTransactions | Self::ChargeOpens => "usage_charge",
-            Self::NavigationDetectionReads
-            | Self::NavigationCompilations
-            | Self::NavigationScriptCompilations
-            | Self::NavigationProvenanceEntries => "navigation",
-            Self::WorkingCopyMergeRoundTrips
-            | Self::WorkingCopyDocumentLoads
-            | Self::WorkingCopyDocumentEncodes
-            | Self::WorkingCopyOpens
-            | Self::WorkingCopyPrepares
-            | Self::WorkingCopyTransactions
-            | Self::WorkingCopySyncs
-            | Self::WorkingCopyEncodes => "working_copy_update",
-            Self::AuditConfigurationReads
-            | Self::AuditOpens
-            | Self::AuditPrunes
-            | Self::AuditTransactions
-            | Self::AuditSyncs => "audit_entry",
-            Self::LiveViewFileOpens
-            | Self::LiveViewCompilations
-            | Self::LiveViewSpawns
-            | Self::LiveViewAcknowledgements
-            | Self::LiveViewSeals => "live_view_frame",
-            Self::RunTraceFileOpens | Self::RunTraceSpawns | Self::RunTraceFormattingOff => {
-                "run_trace"
-            }
-            Self::PolitenessTransactions
-            | Self::PolitenessOpens
-            | Self::PolitenessScriptSends
-            | Self::RobotsParses
-            | Self::RobotsReads => "politeness_permit",
-            Self::PageReadCommands
-            | Self::PageReadWorldCreations
-            | Self::PageReadDocumentWorlds
-            | Self::PageSerializationCommands => "page_read",
-            Self::GovernorConfigurationReads
-            | Self::GovernorMeminfoOpens
-            | Self::GovernorStaticOpens
-            | Self::GovernorCpuStatOpens
-            | Self::GovernorProcessReads
-            | Self::PoolWalks => "governor_sample",
-            Self::InterceptedFetchMessages
-            | Self::InterceptedSpawns
-            | Self::InterceptedFileOpens
-            | Self::InterceptedMatches
-            | Self::InterceptedAnswers
-            | Self::InterceptedCompilations
-            | Self::InterceptedEntries => "intercepted_request",
-        }
-    }
-
-    /// Its work, the metric's `work` label.
-    #[must_use]
-    pub const fn work(self) -> &'static str {
-        match self {
-            Self::PageParses => "parses",
-            Self::PageSelectorCompilations => "selector_compilations",
-            Self::PageReadabilityRuns => "readability_runs",
-            Self::PageFileOpens
-            | Self::CdpFileOpens
-            | Self::LiveViewFileOpens
-            | Self::RunTraceFileOpens
-            | Self::InterceptedFileOpens => "file_opens",
-            Self::PageLocaleFormBuilds => "locale_form_builds",
-            Self::PagePluginSerializations => "plugin_serializations",
-            Self::PagePluginAnswerParses => "plugin_answer_parses",
-            Self::PageTreeCopies => "tree_copies",
-            Self::PageShareReadabilityRuns => "share_readability_runs",
-            Self::PageBlockClassifications => "block_classifications",
-            Self::MessageEncodes | Self::CdpEncodes | Self::WorkingCopyEncodes => "encodes",
-            Self::CdpSends => "sends",
-            Self::CdpLogSendsOff => "log_sends_off",
-            Self::InterceptedFetchMessages => "fetch_messages_no_rule",
-            Self::InterceptedMatches => "matches",
-            Self::InterceptedAnswers => "answers",
-            Self::InterceptedEntries => "entries",
-            Self::ActionCheckCommands => "check_commands",
-            Self::ActionClickCommands => "click_commands",
-            Self::ActionFillCommands => "fill_commands",
-            Self::ActionPressCommands => "press_commands",
-            Self::HookMessagesNoHook => "messages_no_hook",
-            Self::HookCalls => "calls",
-            Self::HookBuilds => "builds",
-            Self::SinkOpens
-            | Self::ChargeOpens
-            | Self::WorkingCopyOpens
-            | Self::AuditOpens
-            | Self::PolitenessOpens => "opens",
-            Self::ChargeStatements => "statements",
-            Self::SinkWriterReads | Self::WriterReads => "writer_reads",
-            Self::ConfigurationReads
-            | Self::AuditConfigurationReads
-            | Self::GovernorConfigurationReads => "configuration_reads",
-            Self::Prunes | Self::AuditPrunes => "prunes",
-            Self::EffectSyncs => "effect_syncs",
-            Self::PolitenessScriptSends | Self::ActionScriptSends => "script_sends",
-            Self::RobotsParses => "robots_parses",
-            Self::RobotsReads => "robots_reads",
-            Self::RecordDeclarationReads => "declaration_reads",
-            Self::RecordValidatorBuilds => "validator_builds",
-            Self::RecordValidations | Self::PayloadValidations => "validations",
-            Self::RecordSerializations | Self::PayloadSerializations => "serializations",
-            Self::MessageDeepCopies | Self::RecordDeepCopies => "deep_copies",
-            Self::RecordConstantLookups => "constant_lookups",
-            Self::SinkTransactions
-            | Self::RecordTransactions
-            | Self::BatchTransactions
-            | Self::HopTransactions
-            | Self::SitemapTransactions
-            | Self::RunTransactions
-            | Self::ChargeTransactions
-            | Self::WorkingCopyTransactions
-            | Self::AuditTransactions
-            | Self::PolitenessTransactions => "transactions",
-            Self::BatchInvariantReads | Self::HopInvariantReads | Self::SitemapInvariantReads => {
-                "invariant_reads"
-            }
-            Self::BatchCompilations
-            | Self::HopCompilations
-            | Self::SitemapCompilations
-            | Self::PayloadCompilations
-            | Self::NavigationCompilations
-            | Self::LiveViewCompilations
-            | Self::InterceptedCompilations => "compilations",
-            Self::NavigationDetectionReads => "detection_reads",
-            Self::NavigationScriptCompilations => "script_compilations",
-            Self::NavigationProvenanceEntries => "provenance_entries",
-            Self::WorkingCopyMergeRoundTrips => "merge_round_trips",
-            Self::WorkingCopyDocumentLoads => "document_loads",
-            Self::WorkingCopyDocumentEncodes => "document_encodes",
-            Self::WorkingCopyPrepares => "prepares",
-            Self::WorkingCopySyncs | Self::AuditSyncs => "syncs",
-            Self::LiveViewSpawns | Self::RunTraceSpawns | Self::InterceptedSpawns => "spawns",
-            Self::LiveViewAcknowledgements => "acknowledgements",
-            Self::LiveViewSeals => "seals",
-            Self::RunTraceFormattingOff => "formatting_off",
-            Self::PageReadCommands => "commands",
-            Self::PageReadWorldCreations => "world_creations",
-            Self::PageReadDocumentWorlds => "document_worlds",
-            Self::PageSerializationCommands => "serialization_commands",
-            Self::GovernorMeminfoOpens => "meminfo_opens",
-            Self::GovernorStaticOpens => "static_opens",
-            Self::GovernorCpuStatOpens => "cpu_stat_opens",
-            Self::GovernorProcessReads => "process_reads",
-            Self::PoolWalks => "pool_walks",
-        }
-    }
-
-    /// Its name in what a benchmark prints: the Quality register's row, and
-    /// for a hop's, a sitemap's or a Payload's own count of a row that has
-    /// several outcomes, the row with its outcome (`F3.compilations.hop`).
-    #[must_use]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one arm a row, each the Quality register's name of it: a list read at a glance"
-    )]
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::PageParses => "F1.parses",
-            Self::PageSelectorCompilations => "F1.selector_compilations",
-            Self::PageReadabilityRuns => "F1.readability_runs",
-            Self::PageFileOpens => "F1.file_opens",
-            Self::PageLocaleFormBuilds => "F1.locale_form_builds",
-            Self::PagePluginSerializations => "F1.plugin_serializations",
-            Self::PagePluginAnswerParses => "F1.plugin_answer_parses",
-            Self::PageTreeCopies => "F1.tree_copies",
-            Self::PageShareReadabilityRuns => "F1.share_readability_runs",
-            Self::PageBlockClassifications => "F1.block_classifications",
-            Self::MessageDeepCopies => "E1.deep_copies",
-            Self::MessageEncodes => "E1.encodes",
-            Self::HookMessagesNoHook => "F5.messages_no_hook",
-            Self::HookCalls => "F5.calls",
-            Self::HookBuilds => "F5.builds",
-            Self::SinkOpens => "F6.opens",
-            Self::SinkTransactions => "F6.transactions",
-            Self::SinkWriterReads => "F6.writer_reads",
-            Self::RecordDeclarationReads => "F4.declaration_reads",
-            Self::RecordValidatorBuilds => "F4.validator_builds",
-            Self::RecordValidations => "F4.validations",
-            Self::RecordSerializations => "F4.serializations",
-            Self::RecordDeepCopies => "F4.deep_copies",
-            Self::RecordConstantLookups => "F4.constant_lookups",
-            Self::RecordTransactions => "F4.transactions",
-            Self::BatchInvariantReads => "F3.invariant_reads",
-            Self::BatchCompilations => "F3.compilations",
-            Self::BatchTransactions => "F3.transactions",
-            Self::HopInvariantReads => "F3.invariant_reads.hop",
-            Self::HopCompilations => "F3.compilations.hop",
-            Self::HopTransactions => "F3.transactions.hop",
-            Self::SitemapInvariantReads => "F3.invariant_reads.sitemap",
-            Self::SitemapCompilations => "F3.compilations.sitemap",
-            Self::SitemapTransactions => "F3.transactions.sitemap",
-            Self::PayloadCompilations => "F3.compilations.payload",
-            Self::PayloadSerializations => "F3.payload_serializations",
-            Self::PayloadValidations => "F3.validations",
-            Self::CdpEncodes => "C1.encodes",
-            Self::CdpSends => "C1.sends",
-            Self::CdpFileOpens => "C1.file_opens",
-            Self::CdpLogSendsOff => "C1.log_sends_off",
-            Self::ActionScriptSends => "C3.script_sends",
-            Self::ActionCheckCommands => "C3.check_commands",
-            Self::ActionClickCommands => "C3.commands.click",
-            Self::ActionFillCommands => "C3.commands.fill",
-            Self::ActionPressCommands => "C3.commands.press",
-            Self::RunTransactions => "F2.transactions",
-            Self::WriterReads => "F2.writer_reads",
-            Self::ConfigurationReads => "F2.configuration_reads",
-            Self::Prunes => "F2.prunes",
-            Self::EffectSyncs => "F2.effect_syncs",
-            Self::ChargeStatements => "E3.statements",
-            Self::ChargeTransactions => "E3.slice_transactions",
-            Self::ChargeOpens => "E3.opens",
-            Self::NavigationDetectionReads => "C4.detection_reads",
-            Self::NavigationCompilations => "C4.compilations",
-            Self::NavigationScriptCompilations => "C4.script_compilations",
-            Self::NavigationProvenanceEntries => "C4.provenance_entries",
-            Self::WorkingCopyMergeRoundTrips => "E7.merge_round_trips",
-            Self::WorkingCopyDocumentLoads => "E7.document_loads",
-            Self::WorkingCopyDocumentEncodes => "E7.document_encodes",
-            Self::WorkingCopyOpens => "E7.opens",
-            Self::WorkingCopyPrepares => "E7.prepares",
-            Self::WorkingCopyTransactions => "E7.transactions",
-            Self::WorkingCopySyncs => "E7.syncs",
-            Self::WorkingCopyEncodes => "E7.encodes",
-            Self::AuditConfigurationReads => "E2.configuration_reads",
-            Self::AuditOpens => "E2.opens",
-            Self::AuditPrunes => "E2.prunes",
-            Self::AuditTransactions => "E2.transactions",
-            Self::AuditSyncs => "E2.syncs",
-            Self::LiveViewFileOpens => "C6.file_opens",
-            Self::LiveViewCompilations => "C6.compilations",
-            Self::LiveViewSpawns => "C6.spawns",
-            Self::LiveViewAcknowledgements => "C6.acknowledgements",
-            Self::LiveViewSeals => "C6.seals",
-            Self::RunTraceFileOpens => "E5.file_opens",
-            Self::RunTraceSpawns => "E5.spawns",
-            Self::RunTraceFormattingOff => "E5.formatting_off",
-            Self::PolitenessTransactions => "E6.transactions",
-            Self::PolitenessOpens => "E6.opens",
-            Self::PolitenessScriptSends => "E6.script_sends",
-            Self::RobotsParses => "E6.robots_parses",
-            Self::RobotsReads => "E6.robots_reads",
-            Self::PageReadCommands => "C2.commands",
-            Self::PageReadWorldCreations => "C2.world_creations",
-            Self::PageReadDocumentWorlds => "C2.document_worlds",
-            Self::PageSerializationCommands => "C2.serialization_commands",
-            Self::GovernorConfigurationReads => "E4.configuration_reads",
-            Self::GovernorMeminfoOpens => "E4.meminfo_opens",
-            Self::GovernorStaticOpens => "E4.static_opens",
-            Self::GovernorCpuStatOpens => "E4.cpu_stat_opens",
-            Self::GovernorProcessReads => "E4.process_reads",
-            Self::PoolWalks => "E4.pool_walks",
-            Self::InterceptedFetchMessages => "C5.fetch_messages_no_rule",
-            Self::InterceptedSpawns => "C5.spawns",
-            Self::InterceptedFileOpens => "C5.file_opens",
-            Self::InterceptedMatches => "C5.matches",
-            Self::InterceptedAnswers => "C5.answers",
-            Self::InterceptedCompilations => "C5.compilations",
-            Self::InterceptedEntries => "C5.entries",
-        }
-    }
-
-    const fn index(self) -> usize {
-        self as usize
-    }
+    InterceptedEntries => "C5.entries", "intercepted_request", "entries";
 }
 
 /// The counts of one engine's Counted work, shared by every clone. A thread

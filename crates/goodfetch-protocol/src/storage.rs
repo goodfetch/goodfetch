@@ -33,13 +33,12 @@ pub enum StorageLevel {
 }
 
 impl StorageLevel {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 3] = [Self::Normal, Self::Low, Self::Critical];
+
     /// Its name on the wire.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Normal => "normal",
-            Self::Low => "low",
-            Self::Critical => "critical",
-        }
+        crate::wire_name::of(&self)
     }
 
     /// Its value in `goodfetch.storage.level`: 0, 1 or 2.
@@ -54,7 +53,9 @@ impl StorageLevel {
 
 /// What a folder the Resource governor samples holds, the `holds` label of
 /// the storage metrics (ADR 0122). Foxhound adds `warc` later.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum SampledFolder {
     /// The run folders: the run files and their Checkpoints.
@@ -68,21 +69,19 @@ pub enum SampledFolder {
 }
 
 impl SampledFolder {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 4] = [Self::RunState, Self::Home, Self::Trace, Self::Temp];
+
     /// Its value of the `holds` label.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::RunState => "run_state",
-            Self::Home => "home",
-            Self::Trace => "trace",
-            Self::Temp => "temp",
-        }
+        crate::wire_name::of(&self)
     }
 }
 
-/// The `holds` label of the storage metrics.
-const HOLDS: MetricLabel = MetricLabel {
+/// The `holds` label of the storage metrics: every [`SampledFolder`].
+pub const HOLDS_LABEL: MetricLabel = MetricLabel {
     name: "holds",
-    values: &["run_state", "home", "trace", "temp"],
+    values: || crate::wire_name::all(&SampledFolder::ALL),
 };
 
 /// `goodfetch.storage.available` (ADR 0122): the space left on each
@@ -92,7 +91,7 @@ pub const AVAILABLE: Metric = Metric {
     description: "The space left to the engine's user, in bytes, on each filesystem the Resource governor samples, at its last sample, labelled by what the filesystem holds; a filesystem holding several of them gives each its series (ADR 0122).",
     instrument: Instrument::Gauge,
     unit: "By",
-    labels: &[HOLDS],
+    labels: &[HOLDS_LABEL],
     stability: Stability::Stable,
     arrived_in: ARRIVED_IN,
 };
@@ -104,7 +103,7 @@ pub const INODES_AVAILABLE: Metric = Metric {
     description: "The inodes left to the engine's user on each filesystem the Resource governor samples that reports them, at its last sample, labelled by what the filesystem holds (ADR 0122).",
     instrument: Instrument::Gauge,
     unit: "{inode}",
-    labels: &[HOLDS],
+    labels: &[HOLDS_LABEL],
     stability: Stability::Stable,
     arrived_in: ARRIVED_IN,
 };
@@ -116,7 +115,7 @@ pub const LEVEL: Metric = Metric {
     description: "The storage level of each filesystem the Resource governor samples, at its last sample: 0 `normal`, 1 `low`, 2 `critical`, labelled by what the filesystem holds. `/readyz` fails while run state's is 2 (ADR 0122).",
     instrument: Instrument::Gauge,
     unit: "{level}",
-    labels: &[HOLDS],
+    labels: &[HOLDS_LABEL],
     stability: Stability::Stable,
     arrived_in: ARRIVED_IN,
 };

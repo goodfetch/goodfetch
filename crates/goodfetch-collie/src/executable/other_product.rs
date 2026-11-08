@@ -20,6 +20,7 @@ use goodfetch_protocol::foxhound_names;
 use serde_json::Value;
 
 use super::exit_codes;
+use super::generated::spelled;
 use super::output::{self, Human};
 
 /// The flag whose value follows it, which is no word of the command.
@@ -130,11 +131,6 @@ fn words(arguments: &[OsString]) -> Vec<String> {
         }
     }
     words
-}
-
-/// The command line's spelling of a catalog word (ADR 0099).
-fn spelled(word: &str) -> String {
-    word.replace('_', "-")
 }
 
 #[cfg(test)]

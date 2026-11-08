@@ -45,9 +45,8 @@
 
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::transport::{self, Connection, ConnectionReader, ConnectionWriter, Network};
-use goodfetch_engine::{Dependencies, Engine, Identity};
-use goodfetch_protocol::catalog::ErrorGroup;
-use goodfetch_protocol::catalog::{Operation, PROTOCOL_VERSION, Product};
+use goodfetch_engine::{CallError, Dependencies, Engine, Identity};
+use goodfetch_protocol::catalog::{Operation, Product};
 use goodfetch_protocol::connection::{
     CANCEL, CONNECTION_LOST, CancelParams, HELLO, HelloParams, NOT_IN_PRODUCT,
     PROTOCOL_VERSION_UNSUPPORTED, Surface,
@@ -57,10 +56,10 @@ use goodfetch_protocol::daemon::{
 };
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::jsonrpc::{
-    ErrorData, ErrorObject, Message, Notification, Request, RequestId, Version,
+    ErrorObject, Message, Notification, Request, RequestId, Version,
 };
 use serde::Serialize;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
 use tokio::sync::mpsc;
 
@@ -562,21 +561,10 @@ pub fn call(
 /// and what to do, `fix`: `daemon_unreachable`, which exits its group's
 /// row, `8`.
 pub fn unreachable(message: String, fix: &str) -> ErrorObject {
-    let details = serde_json::to_value(DaemonUnreachableDetails {
+    let details = DaemonUnreachableDetails {
         fix: fix.to_owned(),
-    });
-    ErrorObject {
-        code: DAEMON_UNREACHABLE.group.json_rpc_class(),
-        message,
-        data: ErrorData {
-            code: DAEMON_UNREACHABLE.name.to_owned(),
-            retryable: DAEMON_UNREACHABLE.retryable,
-            details: match details {
-                Ok(Value::Object(details)) => details,
-                _ => Map::new(),
-            },
-        },
-    }
+    };
+    CallError::new(&DAEMON_UNREACHABLE, message, &details).to_error_object()
 }
 
 /// Calls `call` on an Attached engine in this process, `engine` on
@@ -662,15 +650,9 @@ pub(crate) fn hello(
     token: Option<&DaemonToken>,
 ) -> HelloParams {
     HelloParams {
-        protocol_version: PROTOCOL_VERSION,
-        surface: Surface::Cli,
-        form: None,
         token: token.map(|token| token.expose().to_owned()),
         needs: Some(needs),
-        product_version: identity.product_version.clone(),
-        log_level: None,
-        client_surface: None,
-        keep_daemon_alive: false,
+        ..HelloParams::new(Surface::Cli, identity.product_version.clone())
     }
 }
 
@@ -678,24 +660,17 @@ pub(crate) fn hello(
 /// dropped before `method` was answered: `connection_lost`, which exits
 /// its group's row, `8`.
 pub fn connection_lost(endpoint: &DaemonEndpoint, method: &str) -> ErrorObject {
-    let mut details = Map::new();
-    details.insert(
-        "fix".to_owned(),
-        Value::from(
-            "Check whether the call took effect, then run the command again; `daemon status` shows whether the Daemon still runs.",
-        ),
-    );
-    ErrorObject {
-        code: ErrorGroup::Unavailable.json_rpc_class(),
-        message: format!(
+    let details = json!({
+        "fix": "Check whether the call took effect, then run the command again; `daemon status` shows whether the Daemon still runs.",
+    });
+    CallError::new(
+        &CONNECTION_LOST,
+        format!(
             "The Connection to the Daemon at {endpoint} dropped before it answered `{method}`, so whether the call took effect is unknown."
         ),
-        data: ErrorData {
-            code: CONNECTION_LOST.name.to_owned(),
-            retryable: CONNECTION_LOST.retryable,
-            details,
-        },
-    }
+        &details,
+    )
+    .to_error_object()
 }
 
 /// Opens `connection` with `hello`, then makes the one call, and closes

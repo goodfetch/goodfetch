@@ -54,15 +54,10 @@ impl Call {
 /// keep-alive flag only when `keep_daemon_alive` is on.
 pub(super) fn hello_request(runtime: &DaemonRuntimeFile, keep_daemon_alive: bool) -> Request {
     let hello = HelloParams {
-        protocol_version: PROTOCOL_VERSION,
-        surface: Surface::Kennel,
-        form: None,
         token: Some(runtime.token.expose().to_owned()),
         needs: Some(Product::Collie),
-        product_version: kennel_version(),
-        log_level: None,
-        client_surface: None,
         keep_daemon_alive,
+        ..HelloParams::new(Surface::Kennel, kennel_version())
     };
     request(HELLO_ID, HELLO, &hello)
 }

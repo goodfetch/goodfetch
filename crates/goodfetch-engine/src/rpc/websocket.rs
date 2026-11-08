@@ -20,6 +20,7 @@ use std::task::{Context, Poll};
 
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt as _, StreamExt as _};
+use goodfetch_protocol::audit::RefusalReason;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
@@ -109,12 +110,12 @@ pub(crate) enum Refusal {
 }
 
 impl Refusal {
-    /// The rule's name, which the refusal's log record carries.
-    pub(crate) fn reason(self) -> &'static str {
+    /// The rule, which the refusal's log record carries.
+    pub(crate) fn reason(self) -> RefusalReason {
         match self {
-            Self::HostForeign => "host_foreign",
-            Self::OriginMissing => "origin_missing",
-            Self::OriginForeign => "origin_foreign",
+            Self::HostForeign => RefusalReason::HostForeign,
+            Self::OriginMissing => RefusalReason::OriginMissing,
+            Self::OriginForeign => RefusalReason::OriginForeign,
         }
     }
 }

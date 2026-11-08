@@ -490,14 +490,17 @@ pub enum OracleOutcome {
 }
 
 impl OracleOutcome {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 4] = [
+        Self::Verified,
+        Self::Incomplete,
+        Self::FalseSuccess,
+        Self::Failed,
+    ];
+
     /// The outcome as a document writes it.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Verified => "verified",
-            Self::Incomplete => "incomplete",
-            Self::FalseSuccess => "false_success",
-            Self::Failed => "failed",
-        }
+        crate::wire_name::of(&self)
     }
 }
 
@@ -727,13 +730,12 @@ pub enum Outcome {
 }
 
 impl Outcome {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 3] = [Self::Proved, Self::Unproved, Self::Failed];
+
     /// The outcome as a document writes it.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Proved => "proved",
-            Self::Unproved => "unproved",
-            Self::Failed => "failed",
-        }
+        crate::wire_name::of(&self)
     }
 }
 
@@ -750,13 +752,12 @@ pub enum CaseOutcome {
 }
 
 impl CaseOutcome {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 3] = [Self::Passed, Self::Failed, Self::NotReached];
+
     /// The outcome as a document writes it.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Passed => "passed",
-            Self::Failed => "failed",
-            Self::NotReached => "not_reached",
-        }
+        crate::wire_name::of(&self)
     }
 }
 
@@ -953,12 +954,12 @@ pub enum JourneyOutcome {
 }
 
 impl JourneyOutcome {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 2] = [Self::Proved, Self::Failed];
+
     /// The outcome as a document writes it.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Proved => "proved",
-            Self::Failed => "failed",
-        }
+        crate::wire_name::of(&self)
     }
 }
 

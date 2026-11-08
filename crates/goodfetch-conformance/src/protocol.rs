@@ -23,7 +23,7 @@ mod gateway;
 mod target;
 
 use goodfetch_protocol::case_log::CaseLogEntry;
-use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, HelloParams, HelloResult, ProductVersion, Surface};
 use goodfetch_protocol::daemon::STOP;
 use goodfetch_protocol::result_document::{
@@ -383,16 +383,13 @@ pub(crate) fn hello_as(
     surface: Surface,
 ) -> Result<HelloResult, ProtocolSuiteError> {
     let params = HelloParams {
-        protocol_version: PROTOCOL_VERSION,
-        surface,
-        form: None,
         token: connection.token().map(ToOwned::to_owned),
         needs: Some(product),
-        product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
-            .expect("invariant: the workspace's version is a Product version"),
-        log_level: None,
-        client_surface: None,
-        keep_daemon_alive: false,
+        ..HelloParams::new(
+            surface,
+            ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+                .expect("invariant: the workspace's version is a Product version"),
+        )
     };
     let params = serde_json::to_value(params).expect("invariant: `hello` serializes");
     let unanswered = |why: Gone| ProtocolSuiteError::HelloUnanswered {

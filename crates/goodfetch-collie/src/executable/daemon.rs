@@ -43,7 +43,6 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
-use goodfetch_engine::Identity;
 use goodfetch_engine::browser_cache::{
     self, BROWSERS_PATH_VARIABLE, CacheLocation, HOME_FOLDER, MaxUnusedAge,
 };
@@ -53,6 +52,7 @@ use goodfetch_engine::daemon::{RefusedClient, RefusedExecutable, refusal_fix};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::installed::{InstalledList, Seen, fingerprint, pick, stores_floor};
 use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::{CallError, Identity};
 use goodfetch_protocol::browser_cache::MAX_UNUSED_AGE;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{NOT_IN_PRODUCT, PROTOCOL_VERSION_UNSUPPORTED};
@@ -831,20 +831,16 @@ fn console_exit(console: &ConsoleState, json: bool, human: &Human) -> ExitCode {
 /// The failure of a Daemon's Console that did not start, `failure`, with
 /// its Error code's group.
 fn console_failed(failure: ConsoleFailure) -> ErrorObject {
-    let definition = goodfetch_protocol::entries::error_code(&failure.code);
     let mut details = serde_json::Map::new();
     details.insert("fix".to_owned(), Value::from(failure.fix));
-    ErrorObject {
-        code: definition.map_or(
+    match goodfetch_protocol::entries::error_code(&failure.code) {
+        Some(definition) => CallError::new(definition, failure.message, &details).to_error_object(),
+        None => exit_codes::unknown(
+            failure.code,
             goodfetch_protocol::catalog::ErrorGroup::Unavailable.json_rpc_class(),
-            |definition| definition.group.json_rpc_class(),
-        ),
-        message: failure.message,
-        data: goodfetch_protocol::jsonrpc::ErrorData {
-            code: failure.code,
-            retryable: definition.is_some_and(|definition| definition.retryable),
+            failure.message,
             details,
-        },
+        ),
     }
 }
 

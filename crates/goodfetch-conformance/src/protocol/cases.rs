@@ -769,15 +769,13 @@ fn fabricated_hello(
             major: PROTOCOL_VERSION.major + 1,
             minor: 0,
         },
-        surface: Surface::Rust,
-        form: None,
         token: other.token().map(ToOwned::to_owned),
         needs: Some(hello.product),
-        product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
-            .expect("invariant: the workspace's version is a Product version"),
-        log_level: None,
-        client_surface: None,
-        keep_daemon_alive: false,
+        ..HelloParams::new(
+            Surface::Rust,
+            ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+                .expect("invariant: the workspace's version is a Product version"),
+        )
     };
     let refused = (|| {
         let id = other.request(

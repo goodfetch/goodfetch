@@ -431,7 +431,7 @@ fn metric_entry(product: Product, metric: &Metric) -> Value {
         "labels": metric
             .labels
             .iter()
-            .map(|label| json!({ "name": label.name, "values": label.values }))
+            .map(|label| json!({ "name": label.name, "values": (label.values)() }))
             .collect::<Vec<_>>(),
         "stability": metric.stability.as_str(),
         "arrived_in": metric.arrived_in.to_string(),

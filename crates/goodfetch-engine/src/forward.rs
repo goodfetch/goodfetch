@@ -12,12 +12,11 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
-use goodfetch_protocol::catalog::PROTOCOL_VERSION;
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::{HelloParams, ProductVersion, Surface};
+use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::daemon::DaemonEndpoint;
 use goodfetch_protocol::jsonrpc::{ErrorObject, META, Message, Request, RequestId, Version};
-use goodfetch_protocol::run::{RunAbortParams, RunId, RunOwner, RunReport};
+use goodfetch_protocol::run::{RUN_ABORT, RunAbortParams, RunId, RunOwner, RunReport};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tracing::Instrument as _;
@@ -70,15 +69,9 @@ impl ToOwner {
     /// `token`.
     fn hello(&self, token: String, needs: Product) -> HelloParams {
         HelloParams {
-            protocol_version: PROTOCOL_VERSION,
-            surface: Surface::Rust,
-            form: None,
             token: Some(token),
             needs: Some(needs),
-            product_version: self.version.clone(),
-            log_level: None,
-            client_surface: None,
-            keep_daemon_alive: false,
+            ..HelloParams::new(Surface::Rust, self.version.clone())
         }
     }
 }
@@ -97,7 +90,7 @@ impl Forwarder for ToOwner {
                 forwarded: true,
             };
             let hello = self.hello(token, Product::Collie);
-            let answered = call(&endpoint, &hello, "run.abort", &params, self.clock).await;
+            let answered = call(&endpoint, &hello, RUN_ABORT.name, &params, self.clock).await;
             let report = match answered {
                 Ok(Ok(report)) => serde_json::from_value(report)
                     .map_err(|error| format!("no Run report: {error}")),
@@ -186,7 +179,7 @@ async fn exchange(
         .map_err(|error| format!("no Connection: {error}"))?;
     let (reader, mut writer) = connection.split();
     let mut lines = BufReader::new(reader).lines();
-    send(&mut writer, 0, "hello", hello).await?;
+    send(&mut writer, 0, HELLO, hello).await?;
     tokio::select! {
         answer = reply(&mut lines, 0) => {
             answer?.map_err(|failure| format!("`hello` answered `{}`", failure.data.code))?;

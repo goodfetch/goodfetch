@@ -1,7 +1,7 @@
-//! The `hello` a test's Client says first (ADRs 0030 and 0095), built from
-//! `goodfetch-protocol`'s `HelloParams`, `PROTOCOL_VERSION` and method name,
-//! so no test spells the protocol version or a field's name: a protocol
-//! bump changes them here, at compile time.
+//! The `hello` a test's Client says first (ADRs 0030 and 0095), built on
+//! `goodfetch-protocol`'s `HelloParams::new` and method name, as every
+//! Client's is, so no test spells the protocol version or a field's name: a
+//! protocol bump changes them there, at compile time.
 
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product, ProtocolVersion};
 use goodfetch_protocol::connection::{HELLO, HelloParams, Surface};
@@ -24,15 +24,8 @@ impl Hello {
         Self {
             id: json!(0),
             params: HelloParams {
-                protocol_version: PROTOCOL_VERSION,
-                surface: Surface::SdkPython,
-                form: None,
-                token: None,
                 needs: Some(needs),
-                product_version: product_version(),
-                log_level: None,
-                client_surface: None,
-                keep_daemon_alive: false,
+                ..HelloParams::new(Surface::SdkPython, product_version())
             },
         }
     }

@@ -174,13 +174,12 @@ pub enum LimitSetter {
 }
 
 impl LimitSetter {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 3] = [Self::Person, Self::ManagedPolicy, Self::Client];
+
     /// Its name on the wire and in the Usage ledger.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Person => "person",
-            Self::ManagedPolicy => "managed_policy",
-            Self::Client => "client",
-        }
+        crate::wire_name::of(&self)
     }
 }
 

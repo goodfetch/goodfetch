@@ -95,34 +95,6 @@ fn with_counted_work<const N: usize>(series: [String; N]) -> BTreeSet<String> {
         .collect()
 }
 
-/// `goodfetch.counted_work`'s labels take exactly the values of the rows it
-/// counts (ADR 0140), so a new row declares its path and its work.
-#[test]
-fn the_counted_works_labels_are_the_protocols_own() {
-    use goodfetch_counted_work::Row;
-    use goodfetch_protocol::ops::COUNTED_WORK;
-
-    let declared = |label: &str| -> BTreeSet<&str> {
-        COUNTED_WORK
-            .labels
-            .iter()
-            .find(|declared| declared.name == label)
-            .unwrap()
-            .values
-            .iter()
-            .copied()
-            .collect()
-    };
-
-    assert_eq!(
-        (
-            Row::ALL.map(Row::path).into_iter().collect::<BTreeSet<_>>(),
-            Row::ALL.map(Row::work).into_iter().collect::<BTreeSet<_>>(),
-        ),
-        (declared("shared_path"), declared("work")),
-    );
-}
-
 /// Covers: story:3-102, story:3-104, operation:daemon.health
 #[test]
 fn a_daemon_that_can_take_a_run_is_live_and_ready() {

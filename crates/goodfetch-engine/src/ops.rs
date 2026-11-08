@@ -21,6 +21,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::daemon::{DaemonHealth, Unready};
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
@@ -34,9 +35,6 @@ use crate::engine_context::EngineContext;
 use crate::runs::{Runs, critical_among};
 use crate::tasks::TaskOwner;
 use crate::transport::OpsListener;
-
-/// The ops listener's name in the endpoint table (ADR 0067).
-const LISTENER: &str = "ops_listener";
 
 /// What `/metrics` answers with: Prometheus' text format.
 const PROMETHEUS_TEXT: &str = "text/plain; version=0.0.4; charset=utf-8";
@@ -269,10 +267,14 @@ impl Serving {
             .get(header::HOST)
             .and_then(|host| host.to_str().ok());
         if !names_an_address(host) {
-            return self.refused(StatusCode::FORBIDDEN, "host_foreign").await;
+            return self
+                .refused(StatusCode::FORBIDDEN, RefusalReason::HostForeign)
+                .await;
         }
         if headers.contains_key(header::ORIGIN) {
-            return self.refused(StatusCode::FORBIDDEN, "origin_foreign").await;
+            return self
+                .refused(StatusCode::FORBIDDEN, RefusalReason::OriginForeign)
+                .await;
         }
         if request.method() != Method::GET && request.method() != Method::HEAD {
             let mut answer = empty(StatusCode::METHOD_NOT_ALLOWED);
@@ -292,11 +294,12 @@ impl Serving {
             }
             "/metrics" => match bearer(headers) {
                 None => {
-                    self.refused(StatusCode::UNAUTHORIZED, "token_missing")
+                    self.refused(StatusCode::UNAUTHORIZED, RefusalReason::TokenMissing)
                         .await
                 }
                 Some(given) if !same_token(given, &self.token) => {
-                    self.refused(StatusCode::UNAUTHORIZED, "token_wrong").await
+                    self.refused(StatusCode::UNAUTHORIZED, RefusalReason::TokenWrong)
+                        .await
                 }
                 Some(_) => {
                     let scrape = Arc::clone(&self.scrape);
@@ -344,8 +347,8 @@ fn empty(status: StatusCode) -> Response<Full<Bytes>> {
 
 impl Serving {
     /// The refusal `status` for `reason`, logged and recorded.
-    async fn refused(&self, status: StatusCode, reason: &'static str) -> Response<Full<Bytes>> {
-        self.refusals.refused(LISTENER, reason).await;
+    async fn refused(&self, status: StatusCode, reason: RefusalReason) -> Response<Full<Bytes>> {
+        self.refusals.refused(Listener::OpsListener, reason).await;
         let mut answer = empty(status);
         if status == StatusCode::UNAUTHORIZED {
             answer

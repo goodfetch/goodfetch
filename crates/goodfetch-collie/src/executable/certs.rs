@@ -13,7 +13,7 @@ use std::process::ExitCode;
 
 use super::engine_choice::{Daemons, EngineChoice, EngineFlags};
 use super::exit_codes;
-use super::generated::{Joined, Joining};
+use super::generated::{Joined, Joining, command_words};
 use super::operation::run_operation;
 use super::output::{self, Human};
 use clap::Subcommand;
@@ -290,7 +290,7 @@ fn answered(
 /// Refuses `operation`, a person's answer, with `person_required`: as JSON
 /// under `--json`, else on stderr.
 fn person_required(operation: &Operation, json: bool, human: &Human) -> ExitCode {
-    let command = operation.name.replace('.', " ");
+    let command = command_words(operation.name);
     let message = format!(
         "`{command}` is a person's answer, asked at a terminal: run it in one without `--json`, or answer it in the Console"
     );

@@ -13,8 +13,9 @@ use std::process::{ChildStdin, ChildStdout};
 use std::sync::mpsc::{Receiver, channel};
 
 use anyhow::{Context as _, Result, bail};
-use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface};
+use goodfetch_protocol::events::CREDIT;
 use goodfetch_protocol::foxhound::crawl::CODE_FREE_DATASET;
 use serde_json::{Value, json};
 
@@ -47,16 +48,12 @@ impl Engine {
         });
         let mut engine = Self { stdin, lines };
         let hello = serde_json::to_value(HelloParams {
-            protocol_version: PROTOCOL_VERSION,
-            surface: Surface::Rust,
-            form: None,
-            token: None,
             needs: Some(Product::Foxhound),
-            product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
-                .context("xtask's version is a Product version")?,
-            log_level: None,
-            client_surface: None,
-            keep_daemon_alive: false,
+            ..HelloParams::new(
+                Surface::Rust,
+                ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+                    .context("xtask's version is a Product version")?,
+            )
         })?;
         engine.call("hello", HELLO, &hello)?;
         Ok(engine)
@@ -169,7 +166,7 @@ impl Engine {
         // Credit for every Record at once: a crawl with duplicates after
         // a kill still commits one Record a page.
         self.send(&json!({
-            "jsonrpc": "2.0", "method": "$/credit",
+            "jsonrpc": "2.0", "method": CREDIT,
             "params": { "id": id, "credits": site.pages * 2 },
         }))?;
         loop {

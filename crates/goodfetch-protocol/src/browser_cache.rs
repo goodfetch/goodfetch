@@ -43,16 +43,19 @@ pub enum ArtifactKind {
 }
 
 impl ArtifactKind {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 6] = [
+        Self::Browser,
+        Self::Driver,
+        Self::ExecutableCopy,
+        Self::EngineExecutable,
+        Self::CleanUpRules,
+        Self::MouseMovements,
+    ];
+
     /// Its name on disk and on the wire.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Browser => "browser",
-            Self::Driver => "driver",
-            Self::ExecutableCopy => "executable_copy",
-            Self::EngineExecutable => "engine_executable",
-            Self::CleanUpRules => "clean_up_rules",
-            Self::MouseMovements => "mouse_movements",
-        }
+        crate::wire_name::of(&self)
     }
 }
 

@@ -18,7 +18,9 @@ use std::path::PathBuf;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
-use crate::catalog::{Entries, ErrorCodeDefinition, ErrorGroup, Product, ProtocolVersion};
+use crate::catalog::{
+    Entries, ErrorCodeDefinition, ErrorGroup, PROTOCOL_VERSION, Product, ProtocolVersion,
+};
 use crate::jsonrpc::RequestId;
 use crate::log::LogLevel;
 use crate::settings::SettingLimit;
@@ -85,6 +87,20 @@ pub enum Form {
 }
 
 impl Surface {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 10] = [
+        Self::SdkTypescript,
+        Self::SdkPython,
+        Self::Rust,
+        Self::Cli,
+        Self::Mcp,
+        Self::Console,
+        Self::Kennel,
+        Self::Cloud,
+        Self::BrowserHost,
+        Self::Worker,
+    ];
+
     /// Whether a Client of this surface acts for a model, which sets none of
     /// the settings that send a Secret reference's value to a destination
     /// they name (ADR 0092): the MCP server, and a Script sandbox worker
@@ -158,18 +174,7 @@ impl Surface {
 
     /// Its name on the wire.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::SdkTypescript => "sdk_typescript",
-            Self::SdkPython => "sdk_python",
-            Self::Rust => "rust",
-            Self::Cli => "cli",
-            Self::Mcp => "mcp",
-            Self::Console => "console",
-            Self::Kennel => "kennel",
-            Self::Cloud => "cloud",
-            Self::BrowserHost => "browser_host",
-            Self::Worker => "worker",
-        }
+        crate::wire_name::of(&self)
     }
 }
 
@@ -501,6 +506,26 @@ pub struct HelloParams {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub keep_daemon_alive: bool,
+}
+
+impl HelloParams {
+    /// The `hello` every Client builds on: the protocol version this
+    /// crate speaks, `surface`, its own `product_version`, and every other
+    /// field at its default, no form, token, Product, log level, relayed
+    /// surface or keep-alive, which a caller sets by struct update.
+    pub fn new(surface: Surface, product_version: ProductVersion) -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            surface,
+            form: None,
+            token: None,
+            needs: None,
+            product_version,
+            log_level: None,
+            client_surface: None,
+            keep_daemon_alive: false,
+        }
+    }
 }
 
 /// One engine process, new each time an engine starts (ADR 0031): the

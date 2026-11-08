@@ -40,7 +40,6 @@ use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
 use crate::product::{Identity, Requested};
 
-pub use connection::CONSOLE_LISTENER;
 pub(crate) use connection::{
     Access, ConsoleConnection, ConsoleSide, Dispatch, serve, serve_console,
 };

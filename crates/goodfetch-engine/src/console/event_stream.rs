@@ -122,7 +122,9 @@ impl Site {
         }
         let headers = request.headers();
         if let Some(refusal) = self.foreign(headers) {
-            return self.refused(refusal.reason(), StatusCode::FORBIDDEN).await;
+            return self
+                .refused(refusal.reason().as_str(), StatusCode::FORBIDDEN)
+                .await;
         }
         if let Err(refusal) = self.signed_in(headers).await {
             return self

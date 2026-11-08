@@ -304,7 +304,7 @@ fn call_in(
     member: &str,
     matches: &ArgMatches,
 ) -> Option<Call> {
-    let name = format!("{namespace}.{}", member.replace('-', "_"));
+    let name = format!("{namespace}.{}", canonical(member));
     let operation = commands(product).find(|operation| operation.name == name)?;
     Some(Call::of(
         product,
@@ -492,8 +492,20 @@ fn member(operation: &Operation) -> &'static str {
 }
 
 /// A canonical name in the CLI's form: words joined by `-` (ADR 0099).
-fn spelled(name: &str) -> String {
+pub(crate) fn spelled(name: &str) -> String {
     name.replace('_', "-")
+}
+
+/// The canonical name a word of the command line spells: [`spelled`]
+/// undone, words joined by `_` (ADR 0099).
+fn canonical(word: &str) -> String {
+    word.replace('-', "_")
+}
+
+/// An operation's name, such as `certs.accept`, as the command line's words
+/// that run it: its namespace, then its member, each [`spelled`].
+pub(crate) fn command_words(name: &str) -> String {
+    spelled(&name.replace('.', " "))
 }
 
 /// The commands of the group `group` of Collie's executable.
@@ -516,7 +528,7 @@ fn members_of(
     operations: impl Iterator<Item = &'static Operation>,
     own: &'static [OwnCommand],
 ) -> Command {
-    let namespace = group.get_name().replace('-', "_");
+    let namespace = canonical(group.get_name());
     group.subcommands(
         operations
             .filter(|operation| offer(operation).is_some())
@@ -1024,7 +1036,7 @@ impl Call {
         daemons: &dyn Daemons,
         human: &Human,
     ) -> ExitCode {
-        let words = self.operation.name.replace('.', " ").replace('_', "-");
+        let words = command_words(self.operation.name);
         if let Some(deprecated) = self.operation.deprecated {
             human.warning(&format!("`{words}`: {}", deprecation(deprecated)));
         }

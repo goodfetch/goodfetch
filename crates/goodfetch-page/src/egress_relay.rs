@@ -81,6 +81,7 @@ use goodfetch_engine::settings::{Resolved as ResolvedSettings, RunSettings};
 use goodfetch_engine::tls::{
     CertificateExceptions, CertificateInvalid, Examiner, ExceptionUsed, Trust,
 };
+use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::page::RequestFailed;
 use goodfetch_protocol::security::SECURITY_RAW_CDP_EGRESS_PROXY;
@@ -737,14 +738,16 @@ impl Observe for Record {
         if !given {
             tracing::debug!(
                 target: REFUSAL_TARGET,
-                listener = "egress_relay",
+                listener = Listener::EgressRelay.as_str(),
                 "a connection to a Session's egress relay gave no credentials and was asked for them"
             );
             return;
         }
         let refusals = self.run.refusals();
         self.run.spawn(async move {
-            refusals.refused("egress_relay", "token_wrong").await;
+            refusals
+                .refused(Listener::EgressRelay, RefusalReason::TokenWrong)
+                .await;
         });
     }
 }

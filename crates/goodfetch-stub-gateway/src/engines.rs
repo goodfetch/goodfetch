@@ -26,7 +26,7 @@ use std::time::Duration;
 use goodfetch_engine::children::Children;
 use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_engine::transport;
-use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{
     Form, HELLO, HelloParams, HelloResult, PrivateEndpoint, ProductVersion, Surface,
 };
@@ -79,15 +79,12 @@ pub(crate) fn hello(
     relayed: Option<Relayed>,
 ) -> HelloParams {
     HelloParams {
-        protocol_version: PROTOCOL_VERSION,
-        surface: Surface::Cloud,
         form: relayed.and_then(|relayed| relayed.form),
         token,
         needs: Some(product),
-        product_version: version(),
         log_level: relayed.and_then(|relayed| relayed.log_level),
         client_surface: relayed.map(|relayed| relayed.surface),
-        keep_daemon_alive: false,
+        ..HelloParams::new(Surface::Cloud, version())
     }
 }
 

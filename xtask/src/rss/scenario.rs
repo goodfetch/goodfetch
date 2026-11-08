@@ -16,7 +16,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
-use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::home::{USER_CONFIGURATION_FILE, per_major};
 use goodfetch_protocol::jsonrpc::{Message, Request, RequestId, Version};
@@ -175,16 +175,13 @@ fn hello_with(needs: Product, token: Option<String>) -> Result<Vec<u8>> {
         id: RequestId::Number(0),
         method: HELLO.to_owned(),
         params: Some(serde_json::to_value(HelloParams {
-            protocol_version: PROTOCOL_VERSION,
-            surface: Surface::Rust,
-            form: None,
             token,
             needs: Some(needs),
-            product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
-                .context("xtask's version is a Product version")?,
-            log_level: None,
-            client_surface: None,
-            keep_daemon_alive: false,
+            ..HelloParams::new(
+                Surface::Rust,
+                ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+                    .context("xtask's version is a Product version")?,
+            )
         })?),
     });
     let mut line = serde_json::to_vec(&hello)?;

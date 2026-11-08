@@ -37,6 +37,7 @@ use std::convert::Infallible;
 use std::net::IpAddr;
 use std::sync::Arc;
 
+use goodfetch_protocol::audit::Listener;
 use goodfetch_protocol::console::OFFLINE_CACHE;
 use goodfetch_protocol::run::RunId;
 
@@ -57,7 +58,7 @@ use crate::daemon::ContentOrigin;
 use crate::endpoint::REFUSAL_TARGET;
 use crate::people::{SignInDriver, SignInFailure, SignInRefused, sign_in_id};
 use crate::rpc::event_stream::EventStreamBody;
-use crate::rpc::{Authorities, CONSOLE_LISTENER, ConsoleConnection, ConsoleSocket, Refusal};
+use crate::rpc::{Authorities, ConsoleConnection, ConsoleSocket, Refusal};
 use crate::runs::Runs;
 use crate::settings::{Settings, catalog_default};
 use crate::tasks::TaskOwner;
@@ -558,7 +559,10 @@ impl Site {
             None
         };
         if let Some(refusal) = refusal {
-            return Some(self.refused(refusal.reason(), StatusCode::FORBIDDEN).await);
+            return Some(
+                self.refused(refusal.reason().as_str(), StatusCode::FORBIDDEN)
+                    .await,
+            );
         }
         if let Err(refusal) = self.signed_in(headers).await {
             return Some(
@@ -608,7 +612,9 @@ impl Site {
             return self.refused_method(&["POST"]);
         }
         if let Some(refusal) = self.foreign(request.headers()) {
-            return self.refused(refusal.reason(), StatusCode::FORBIDDEN).await;
+            return self
+                .refused(refusal.reason().as_str(), StatusCode::FORBIDDEN)
+                .await;
         }
         let Ok(body) = Limited::new(request.into_body(), MAX_TOKEN_BYTES)
             .collect()
@@ -708,7 +714,9 @@ impl Site {
             return self.refused_method(&["POST"]);
         }
         if let Some(refusal) = self.foreign(headers) {
-            return self.refused(refusal.reason(), StatusCode::FORBIDDEN).await;
+            return self
+                .refused(refusal.reason().as_str(), StatusCode::FORBIDDEN)
+                .await;
         }
         let Some(cookie) = self.cookie_of(headers) else {
             return self
@@ -764,7 +772,9 @@ impl Site {
     /// A refusal by the endpoint table's rule `reason`, logged and recorded
     /// in the Audit log, answered with `status` and no body.
     async fn refused(&self, reason: &'static str, status: StatusCode) -> Response<Full<Bytes>> {
-        self.sign_ins.refused(CONSOLE_LISTENER, reason).await;
+        self.sign_ins
+            .refused(Listener::Console.as_str(), reason)
+            .await;
         self.refused_plain(reason, status)
     }
 
@@ -775,7 +785,9 @@ impl Site {
             return self.refused_method(&["GET"]);
         }
         if let Some(refusal) = self.foreign(headers) {
-            return self.refused(refusal.reason(), StatusCode::FORBIDDEN).await;
+            return self
+                .refused(refusal.reason().as_str(), StatusCode::FORBIDDEN)
+                .await;
         }
         if let Err(refusal) = self.signed_in(headers).await {
             return self
@@ -913,7 +925,7 @@ fn refused(
     status: StatusCode,
     policy: &HeaderValue,
 ) -> Response<Full<Bytes>> {
-    tracing::warn!(target: REFUSAL_TARGET, listener = CONSOLE_LISTENER, reason, "the Console refused a request");
+    tracing::warn!(target: REFUSAL_TARGET, listener = Listener::Console.as_str(), reason, "the Console refused a request");
     plain(status, policy)
 }
 

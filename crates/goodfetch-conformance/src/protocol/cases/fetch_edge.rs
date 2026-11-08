@@ -14,13 +14,12 @@
 
 use goodfetch_protocol::connection::CANCEL;
 use goodfetch_protocol::events::{CREDIT, EVENTS, EVENTS_SUBSCRIBE};
-use goodfetch_protocol::page::request::MAX_REDIRECTS;
 use goodfetch_protocol::page::{
     PAGE_DOWNLOAD, PAGE_GOTO, PAGE_RELOAD, RESPONSE_TRUNCATED, TOO_MANY_REDIRECTS,
 };
 use serde_json::{Value, json};
 
-use super::navigation::{answered, call, failed_with, open, response, url_on};
+use super::navigation::{answered, call, failed_with, open, open_page, response, url_on};
 use super::{Checks, Site, finish_run};
 use crate::protocol::connection::{Connection, Gone};
 
@@ -79,13 +78,14 @@ impl Case {
     }
 }
 
-/// How many redirects the pinned Chromium follows before it fails a
-/// navigation, as the protocol gives it for `page.request` (ADR 0118).
-const FOLLOWED: u32 = MAX_REDIRECTS;
-
 /// The browser's redirect count (ADR 0118): a navigation's chain holds at
-/// most this many requests, its first included.
-const BROWSER_REDIRECTS: u32 = FOLLOWED + 1;
+/// most this many requests, its first included. A fact of the pinned
+/// Chromium, which this case pins by its own figure.
+const BROWSER_REDIRECTS: u32 = 20;
+
+/// How many redirects the pinned Chromium follows before it fails a
+/// navigation.
+const FOLLOWED: u32 = BROWSER_REDIRECTS - 1;
 
 /// The network error of a body whose listed coding does not decode.
 const DECODING_FAILED: &str = "net::ERR_CONTENT_DECODING_FAILED";
@@ -145,8 +145,8 @@ fn retry_after_on_a_redirect(
     let run_id = "conformance-retry-after-on-a-redirect";
     let redirect = site.named_url("fetch-edge.test", "/retry-after/302/seconds/long");
     let target = site.named_url("fetch-edge.test", "/target");
-    let Some(page) = open(connection, site, run_id, &[], checks)? else {
-        return finish_if(connection, run_id, &[]);
+    let Some(page) = open_page(connection, site, run_id, checks)? else {
+        return finish_run(connection, run_id);
     };
     let answer = call(
         connection,
@@ -193,8 +193,8 @@ fn cut_documents(
         ),
     ]
     .map(|(what, path, declared)| (what, site.named_url("fetch-edge.test", path), declared));
-    let Some(page) = open(connection, site, run_id, &[], checks)? else {
-        return finish_if(connection, run_id, &[]);
+    let Some(page) = open_page(connection, site, run_id, checks)? else {
+        return finish_run(connection, run_id);
     };
     for (what, url, declared) in &cuts {
         let loaded = call(connection, PAGE_GOTO.name, &page, &json!({ "url": url }))?;

@@ -87,6 +87,39 @@ fn each_daemon_command_prints_the_majors_daemon_status() {
     );
 }
 
+/// `daemon restart` fails on settings it could not start on before it stops
+/// anything: a typo in the file leaves the running Daemon serving, which never
+/// needed that file again.
+///
+/// Covers: story:11-214, command:daemon.restart, error:setting_unknown
+#[test]
+fn a_restart_on_unreadable_settings_leaves_the_running_daemon_serving() {
+    let env = TestEnv::new();
+    let readable = "daemon.idle_timeout = 60000\nconsole.address = \"127.0.0.1:0\"\n";
+    env.user_configuration(readable);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let (_, first) = checked(&env, &["daemon", "start", "--json"], "DaemonStatus");
+
+    env.user_configuration("crawl.max_deepth = 3\n");
+    let refused = cli(&env, COLLIE)
+        .args(["daemon", "restart", "--json"])
+        .run()
+        .unwrap();
+    let printed: Value = serde_json::from_str(&refused.stdout).unwrap_or(Value::Null);
+    env.user_configuration(readable);
+    let (_, after) = checked(&env, &["daemon", "status", "--json"], "DaemonStatus");
+
+    assert_eq!(
+        (
+            refused.exit,
+            printed["error"]["code"].clone(),
+            after["pid"] == first["pid"],
+        ),
+        (Some(3), json!("setting_unknown"), true),
+        "{refused}"
+    );
+}
+
 /// `daemon run --json` prints the foreground Daemon's `DaemonStatus` as
 /// its first line once it listens, its logs following as JSON lines.
 ///

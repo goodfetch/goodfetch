@@ -1010,6 +1010,11 @@ pub(super) fn restart(
     json: bool,
     human: &Human,
 ) -> ExitCode {
+    // Before the stop: settings the start cannot use leave the running Daemon
+    // serving, with its Runs, rather than ending it and starting none.
+    if let Err(failure) = machine.settings() {
+        return failure.print(json, human);
+    }
     if let Err(failure) = machine.stop() {
         return failure.print(json, human);
     }

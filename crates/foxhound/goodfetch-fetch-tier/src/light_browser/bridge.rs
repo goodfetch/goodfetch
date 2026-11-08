@@ -26,6 +26,8 @@ use data_encoding::BASE64;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::endpoint::same_token;
 use goodfetch_engine::runs::Run;
+use goodfetch_page::relay_accepting;
+use goodfetch_page::relay_deadlines::{HEAD_DEADLINE, within, within_or_none};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
@@ -39,12 +41,10 @@ const MAX_HEAD: usize = 64 * 1024;
 /// The user name of the bridge's credentials.
 const USER: &str = "goodfetch";
 
-/// The longest the bridge waits for a client's request head once it
-/// accepted the connection: Lightpanda sends its head at once, so a client
-/// that sends none holds no task past it.
-const HEAD_DEADLINE: Duration = Duration::from_secs(10);
-
-/// The longest the bridge waits for each connection it opens to a site.
+/// The longest the bridge waits for each connection it opens to a site. A
+/// relay caps its own by the Run's `timeout.navigation`, for the proxy it
+/// sits before; the bridge sits before no proxy, and that timeout bounds no
+/// call of this tier.
 const CONNECT_DEADLINE: Duration = Duration::from_secs(10);
 
 /// A bridge, listening until dropped.
@@ -111,32 +111,37 @@ struct Accepting {
 }
 
 impl Accepting {
+    /// Accepts until the bridge or the Run ends, an accept failing for a
+    /// while, as with too many open files, waited out as every relay does
+    /// ([`relay_accepting`]).
     async fn accept(self, listener: TcpListener) {
-        loop {
-            let accepted = tokio::select! {
-                () = self.stop.cancelled() => return,
-                accepted = listener.accept() => accepted,
-            };
-            let Ok((client, _)) = accepted else {
-                continue;
-            };
-            let (check, expected, stop, clock) = (
-                self.check.clone(),
-                self.expected.clone(),
-                self.stop.clone(),
-                self.run.clock(),
-            );
-            self.run.spawn(async move {
-                tokio::select! {
-                    () = stop.cancelled() => {}
-                    relayed = relay(client, &check, &expected, &clock) => {
-                        if let Err(error) = relayed {
-                            tracing::debug!(%error, "a light-browser bridge connection ended early");
+        let clock = self.run.clock();
+        let ending = self.run.cancellation().clone();
+        relay_accepting(
+            || listener.accept(),
+            &clock,
+            &self.stop,
+            &ending,
+            |(client, _)| {
+                let (check, expected, stop, clock) = (
+                    self.check.clone(),
+                    self.expected.clone(),
+                    self.stop.clone(),
+                    self.run.clock(),
+                );
+                self.run.spawn(async move {
+                    tokio::select! {
+                        () = stop.cancelled() => {}
+                        relayed = relay(client, &check, &expected, &clock) => {
+                            if let Err(error) = relayed {
+                                tracing::debug!(%error, "a light-browser bridge connection ended early");
+                            }
                         }
                     }
-                }
-            });
-        }
+                });
+            },
+        )
+        .await;
     }
 }
 
@@ -224,9 +229,7 @@ async fn relay(
     expected: &str,
     clock: &Clock,
 ) -> io::Result<()> {
-    let (head, rest) = within(clock, HEAD_DEADLINE, read_head(&mut client))
-        .await
-        .unwrap_or_else(|| Err(io::ErrorKind::TimedOut.into()))?;
+    let (head, rest) = within(clock, HEAD_DEADLINE, read_head(&mut client)).await?;
     let Some(head) = Head::parse(&head) else {
         return answer(&mut client, "400 Bad Request").await;
     };
@@ -270,23 +273,11 @@ async fn relay(
 async fn connect(addresses: &[IpAddr], port: u16, clock: &Clock) -> Option<TcpStream> {
     for address in addresses {
         let connecting = TcpStream::connect(SocketAddr::new(*address, port));
-        if let Some(Ok(stream)) = within(clock, CONNECT_DEADLINE, connecting).await {
+        if let Some(Ok(stream)) = within_or_none(clock, CONNECT_DEADLINE, connecting).await {
             return Some(stream);
         }
     }
     None
-}
-
-/// What `work` gave, unless `deadline` passed on `clock` first.
-///
-/// # Cancel safety
-///
-/// As cancel-safe as `work`, which is dropped at the deadline.
-async fn within<T>(clock: &Clock, deadline: Duration, work: impl Future<Output = T>) -> Option<T> {
-    tokio::select! {
-        done = work => Some(done),
-        () = clock.sleep(deadline) => None,
-    }
 }
 
 /// Answers `status` with no body and closes.

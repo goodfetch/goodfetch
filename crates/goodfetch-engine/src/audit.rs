@@ -55,21 +55,17 @@ use crate::durable;
 use crate::home::Home;
 use crate::settings::SettingsFiles;
 use crate::sqlite_store::{
-    Access, Counting, Durability, File, Folder, FullFsync, OpenError, Opening, Schema, Synchronous,
-    Wait, WalOnClose,
+    Access, Counting, Durability, File, Folder, OpenError, Opening, Schema, Synchronous, Wait,
 };
 
 /// How long an append waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// How its commits reach the disk: each synced, through `F_FULLFSYNC` on
-/// macOS, its WAL left as it is when a connection closes (#2110), and its
-/// tables' commit unsynced (#2117).
+/// How its commits reach the disk: as a synced per-user store's, but for its
+/// tables' commit, unsynced (#2117).
 const DURABILITY: Durability = Durability {
-    synchronous: Synchronous::Full,
     opening: Synchronous::Off,
-    full_fsync: FullFsync::Commits,
-    wal_on_close: WalOnClose::Kept,
+    ..Durability::SYNCED
 };
 
 /// The previous hash of the first entry.

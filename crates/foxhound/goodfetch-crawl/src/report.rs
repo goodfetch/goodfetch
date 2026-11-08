@@ -28,7 +28,7 @@ pub(crate) struct CrawlParts;
 
 impl ReportPart for CrawlParts {
     fn fill(&self, connection: &Connection, report: &mut RunReport) -> rusqlite::Result<()> {
-        if run_row::kind(connection)? != RunKind::Crawl {
+        if !run_row::is_of_kind(connection, RunKind::Crawl)? {
             return Ok(());
         }
         let (requests, records) = ended(connection)?;

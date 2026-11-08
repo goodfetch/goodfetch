@@ -9,7 +9,7 @@
 //! and media of a page the Clean-up rules changed are read from its tree
 //! instead, as the pass would read its serialization (ADR 0138).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
@@ -17,7 +17,9 @@ use dom_query::NodeRef;
 use goodfetch_counted_work::ParsedHtml;
 use goodfetch_protocol::page::{Image, Link, Media, MediaKind, MetaTag};
 use lol_html::html_content::{Element, TextChunk, TextType};
-use lol_html::{AsciiCompatibleEncoding, HandlerResult, HtmlRewriter, Settings, element, text};
+use lol_html::{
+    AsciiCompatibleEncoding, HandlerResult, HtmlRewriter, Settings, doc_text, element, text,
+};
 use url::Url;
 
 use crate::canonical::is_canonical_link;
@@ -41,8 +43,8 @@ pub(crate) struct Head {
     pub(crate) title: Option<String>,
     /// The first `<meta name="description">`'s content.
     pub(crate) description: Option<String>,
-    /// The first `<link rel="canonical">`'s `href` ahead of the `<body>`,
-    /// not resolved.
+    /// The first `<link rel="canonical">`'s `href`, when the head holds that
+    /// link, not resolved.
     pub(crate) canonical: Option<String>,
     /// The root element's `lang`.
     pub(crate) lang: Option<String>,
@@ -81,9 +83,12 @@ struct State {
     title: Title,
     /// Whether the root element was read.
     root_read: bool,
-    /// Whether the `<body>` began: a canonical link after it is the body's,
-    /// never the page's.
-    in_body: bool,
+    /// Whether the first canonical link came: it alone decides, as nothing
+    /// after a body's link goes back in the head.
+    canonical_read: bool,
+    /// Whether the `<link>` about to be read is a `<template>`'s, which a
+    /// parser keeps out of the head.
+    link_in_template: bool,
 }
 
 /// Where the reading of the first `<title>` stands.
@@ -121,7 +126,8 @@ pub(crate) fn references(html: &str, base_url: &str) -> References {
         head: Head::default(),
         title: Title::Ahead,
         root_read: false,
-        in_body: false,
+        canonical_read: false,
+        link_in_template: false,
     }));
     let handler = |read: fn(&Shared, &str, &mut Element<'_, '_>) -> HandlerResult| {
         let state = Rc::clone(&state);
@@ -156,7 +162,6 @@ pub(crate) fn references(html: &str, base_url: &str) -> References {
                 Ok(())
             })
         ))
-        .append_element_content_handler(element!("body", handler(read_body)))
         .append_element_content_handler(element!("title", handler(read_title)))
         .append_element_content_handler(text!("title", title_text))
         .append_element_content_handler(element!(
@@ -166,6 +171,8 @@ pub(crate) fn references(html: &str, base_url: &str) -> References {
                 Ok(())
             })
         ))
+        // Runs ahead of the next, on the same element.
+        .append_element_content_handler(element!("template link[rel][href]", handler(in_template)))
         .append_element_content_handler(element!(
             "link[rel][href]",
             handler(|state, html, element| {
@@ -223,16 +230,6 @@ fn read_root(state: &Shared, html: &str, element: &Element<'_, '_>) {
     }
 }
 
-/// Notes that the `<body>` began.
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "every element handler of the pass answers a `HandlerResult`"
-)]
-fn read_body(state: &Shared, _html: &str, _element: &mut Element<'_, '_>) -> HandlerResult {
-    state.borrow_mut().in_body = true;
-    Ok(())
-}
-
 /// Starts reading the `<title>` `element` is, when it is the first.
 fn read_title(state: &Shared, _html: &str, element: &mut Element<'_, '_>) -> HandlerResult {
     {
@@ -285,14 +282,95 @@ fn read_meta(state: &Shared, html: &str, element: &Element<'_, '_>) {
     }
 }
 
-/// Reads the `<link>` `element` is, when it is the first canonical one
-/// ahead of the `<body>`.
+/// Notes that the `<link>` about to be read is a `<template>`'s.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "every element handler of the pass answers a `HandlerResult`"
+)]
+fn in_template(state: &Shared, _html: &str, _element: &mut Element<'_, '_>) -> HandlerResult {
+    state.borrow_mut().link_in_template = true;
+    Ok(())
+}
+
+/// Reads the `<link>` `element` is, when it is the first canonical one and
+/// the head stands where it is.
 fn read_canonical(state: &Shared, html: &str, element: &Element<'_, '_>) {
-    let canonical = attribute(html, element, "rel").is_some_and(|rel| is_canonical_link(&rel));
     let mut state = state.borrow_mut();
-    if canonical && !state.in_body && state.head.canonical.is_none() {
+    if std::mem::take(&mut state.link_in_template)
+        || state.canonical_read
+        || !attribute(html, element, "rel").is_some_and(|rel| is_canonical_link(&rel))
+    {
+        return;
+    }
+    state.canonical_read = true;
+    if html
+        .get(..element.source_location().bytes().start)
+        .is_some_and(head_stands_past)
+    {
         state.head.canonical = attribute(html, element, "href");
     }
+}
+
+/// The elements a head holds, whether its tag came or closed: the HTML
+/// Standard's parser puts each in the head, or ignores its tag, up to the
+/// body.
+const HEAD_ELEMENTS: [&str; 13] = [
+    "html", "head", "base", "basefont", "bgsound", "link", "meta", "title", "noscript", "noframes",
+    "style", "script", "template",
+];
+
+/// Whether the HTML Standard's parser still holds the head open past
+/// `before`, a document up to one of its tags: the start tag of an element
+/// no head holds ends it, and so does text other than white space, but for
+/// a `<template>`'s, which it keeps to itself. The pass runs once, on what
+/// precedes a page's first canonical link, so the rest of the page's tags
+/// and text are never read for it. A stray `</body>`, `</html>` or `</br>`
+/// also ends the head, which no handler of a tokenizer's sees.
+fn head_stands_past(before: &str) -> bool {
+    let ended = Rc::new(Cell::new(false));
+    let templates = Rc::new(Cell::new(0_usize));
+    let settings = Settings::new()
+        .with_strict(false)
+        .with_adjust_charset_on_meta_tag(false)
+        .with_encoding(AsciiCompatibleEncoding::utf_8())
+        .append_element_content_handler(element!("*", {
+            let (ended, templates) = (Rc::clone(&ended), Rc::clone(&templates));
+            move |element: &mut Element<'_, '_>| {
+                let tag = element.tag_name();
+                if tag == "template" {
+                    templates.set(templates.get() + 1);
+                    let templates = Rc::clone(&templates);
+                    element.on_end_tag(Box::new(move |_| {
+                        templates.set(templates.get() - 1);
+                        Ok(())
+                    }))?;
+                } else if templates.get() == 0 && !HEAD_ELEMENTS.contains(&tag.as_str()) {
+                    ended.set(true);
+                }
+                Ok(())
+            }
+        }))
+        .append_document_content_handler(doc_text!({
+            let (ended, templates) = (Rc::clone(&ended), Rc::clone(&templates));
+            move |chunk| {
+                if templates.get() == 0
+                    && matches!(chunk.text_type(), TextType::Data)
+                    && !chunk
+                        .as_str()
+                        .bytes()
+                        .all(|byte| byte.is_ascii_whitespace())
+                {
+                    ended.set(true);
+                }
+                Ok(())
+            }
+        }));
+    let mut rewriter = HtmlRewriter::new(settings, |_: &[u8]| {});
+    // Neither call fails, as in `references`.
+    let _read = rewriter
+        .write(before.as_bytes())
+        .and_then(|()| rewriter.end());
+    !ended.get()
 }
 
 /// Whether `text` starts with `prefix`, ASCII case aside.

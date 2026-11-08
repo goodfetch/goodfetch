@@ -50,6 +50,11 @@ pub use pages::{contribution, contribution_with};
 pub use proxy::{Answer as ProxyAnswer, Party, party};
 pub use trace::provenance;
 
+/// What every relay of a browser's connections holds to, which Foxhound's
+/// light-browser bridge is one of: its deadlines and its accept loop.
+pub use egress_relay::deadlines as relay_deadlines;
+pub use proxy::accepting as relay_accepting;
+
 /// Captures a browser build's ALPS payload when the build is pinned
 /// (ADR 0042), for `pin-chrome-for-testing alps`.
 pub use egress_relay::capture::capture_application_settings;

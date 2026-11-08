@@ -23,7 +23,7 @@ use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::SettingsLayer;
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{TestEnv, wal_of};
 use jiff::Timestamp;
 use proptest::prelude::*;
 use rusqlite::Connection;
@@ -593,22 +593,13 @@ proptest! {
     }
 }
 
-/// The Audit log's commits sync as every synced per-user store's do: each through
-/// `F_FULLFSYNC` on macOS, and its WAL stays beside it as its last
-/// connection closes (#2110).
+/// The Audit log holds to the synced per-user store's durability: its WAL
+/// stays beside it as a write's connection closes (#2110).
 #[test]
-fn each_commit_syncs_through_fullfsync_on_macos_and_the_wal_stays_as_it_closes() {
+fn the_wal_stays_beside_the_log_once_a_write_closed_its_connection() {
     let env = TestEnv::in_memory();
-    let log = log(&env);
 
-    let connection = log.open().unwrap();
-    let fullfsync: i64 = connection
-        .pragma_query_value(None, "fullfsync", |row| row.get(0))
-        .unwrap();
-    drop(connection);
+    let log = written(&env, 1);
 
-    assert_eq!(fullfsync, i64::from(cfg!(target_os = "macos")));
-    let mut wal = log.path().as_os_str().to_owned();
-    wal.push("-wal");
-    assert!(std::path::Path::new(&wal).exists());
+    assert!(wal_of(log.path()).exists());
 }

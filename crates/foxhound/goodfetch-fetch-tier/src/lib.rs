@@ -90,7 +90,5 @@ pub use transports::{
     AddressCheck, LocalSource, Reqwest, TransportConfig, TransportUnavailable, Wreq,
 };
 pub use untouched::{UntouchedDemand, UntouchedReaders};
-pub use use_signals::{
-    Purpose, TDMREP_FILE, UseSignals, content_signals_refusing, rsl_refusing, tdmrep_file_refusing,
-};
+pub use use_signals::UseSignals;
 pub use xpath::XpathInvalid;

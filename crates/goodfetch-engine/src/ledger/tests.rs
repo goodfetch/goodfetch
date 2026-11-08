@@ -11,7 +11,7 @@ use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, PointInTime, ReachedLimit};
 use goodfetch_protocol::usage::{Limit, LimitStanding};
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{TestEnv, damage_table, wal_of};
 use jiff::Timestamp;
 use rstest::rstest;
 
@@ -587,40 +587,6 @@ fn a_ledger_of_another_major_is_refused_without_being_written_to() {
     );
 }
 
-/// Overwrites the root page of `table` in the SQLite file at `path`, its
-/// WAL first copied into it, with bytes that are no B-tree page: SQLite
-/// reads it as it reads a page that met an I/O error.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the test damages its own ledger's file, as a failing disk would, beneath every counted function"
-)]
-fn damage_table(path: &std::path::Path, table: &str) {
-    use std::io::{Seek as _, SeekFrom, Write as _};
-
-    let connection = rusqlite::Connection::open(path).unwrap();
-    connection
-        .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
-        .unwrap();
-    let page_size: i64 = connection
-        .query_row("PRAGMA page_size", [], |row| row.get(0))
-        .unwrap();
-    let root: i64 = connection
-        .query_row(
-            "SELECT rootpage FROM sqlite_master WHERE name = ?1",
-            [table],
-            |row| row.get(0),
-        )
-        .unwrap();
-    drop(connection);
-    let mut file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
-    file.seek(SeekFrom::Start(
-        u64::try_from((root - 1) * page_size).unwrap(),
-    ))
-    .unwrap();
-    file.write_all(&vec![0xff; usize::try_from(page_size).unwrap()])
-        .unwrap();
-}
-
 /// SQLite reports a read that met an I/O error (EIO) as `SQLITE_CORRUPT`
 /// (its Unix VFS's `SQLITE_IOERR_CORRUPTFS`): a ledger read that meets one
 /// fails as a storage failure, which stops every Run (ADR 0122), as the
@@ -634,7 +600,7 @@ fn a_read_that_meets_a_damaged_disk_fails_as_a_storage_failure() {
     ledger
         .add_limit(&limit(install(), "requests", 10), now())
         .unwrap();
-    damage_table(ledger.path(), "limits");
+    damage_table(ledger.path(), "limits").unwrap();
 
     let read = ledger.limits();
 
@@ -697,22 +663,16 @@ fn engines_opening_a_new_ledger_at_once_each_open_it() {
     assert_eq!(failures, []);
 }
 
-/// The Usage ledger's commits sync as every synced per-user store's do: each through
-/// `F_FULLFSYNC` on macOS, and its WAL stays beside it as its last
-/// connection closes (#2110).
+/// The Usage ledger holds to the synced per-user store's durability: its WAL
+/// stays beside it as a write's connection closes (#2110).
 #[test]
-fn each_commit_syncs_through_fullfsync_on_macos_and_the_wal_stays_as_it_closes() {
+fn the_wal_stays_beside_the_ledger_once_a_write_closed_its_connection() {
     let env = TestEnv::in_memory();
     let ledger = ledger(&env);
 
-    let connection = ledger.open().unwrap();
-    let fullfsync: i64 = connection
-        .pragma_query_value(None, "fullfsync", |row| row.get(0))
+    ledger
+        .add_limit(&limit(install(), "requests", 10), now())
         .unwrap();
-    drop(connection);
 
-    assert_eq!(fullfsync, i64::from(cfg!(target_os = "macos")));
-    let mut wal = ledger.path().as_os_str().to_owned();
-    wal.push("-wal");
-    assert!(std::path::Path::new(&wal).exists());
+    assert!(wal_of(ledger.path()).exists());
 }

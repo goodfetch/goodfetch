@@ -30,6 +30,7 @@ parquet.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 # The XLSX Export, a ZIP of SpreadsheetML written as a stream (ADR 0026).
 zip = { workspace = true, features = ["deflate-flate2"] }

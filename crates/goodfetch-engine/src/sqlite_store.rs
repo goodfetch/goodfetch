@@ -128,6 +128,15 @@ pub(crate) struct Durability {
 }
 
 impl Durability {
+    /// A synced per-user store's: each commit synced, through `F_FULLFSYNC`
+    /// on macOS, and its WAL left as it is when a connection closes (#2110).
+    pub(crate) const SYNCED: Self = Self {
+        synchronous: Synchronous::Full,
+        opening: Synchronous::Full,
+        full_fsync: FullFsync::Commits,
+        wal_on_close: WalOnClose::Kept,
+    };
+
     /// Sets every pragma of this durability on `connection` but its opening
     /// commit's.
     ///
@@ -451,3 +460,6 @@ pub(crate) fn no_checkpoint_on_close(connection: &Connection) -> rusqlite::Resul
         )
         .map(drop)
 }
+
+#[cfg(test)]
+mod tests;

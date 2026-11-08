@@ -10,7 +10,7 @@ use serde_json::Value;
 
 /// How a field whose value is an object is written, `export.csv.nested`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Nested {
+pub(crate) enum Nested {
     /// As its JSON text, in the field's column.
     Json,
     /// Each of its fields in a column of its own, named by its dotted path,
@@ -20,7 +20,7 @@ pub enum Nested {
 
 impl Nested {
     /// The way `choice`, one of `CSV_NESTED_VALUES`, names.
-    pub fn of(choice: &str) -> Option<Self> {
+    pub(crate) fn of(choice: &str) -> Option<Self> {
         match choice {
             "json" => Some(Self::Json),
             "flatten" => Some(Self::Flatten),

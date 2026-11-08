@@ -273,7 +273,8 @@ pub(super) async fn run_hand_over(
     Arc::new(RunHandOver {
         run: run.clone(),
         keys: DomainKeys::of(settings),
-        politeness: shared.filter(|_| paces),
+        politeness: shared.clone().filter(|_| paces),
+        shared_politeness: shared,
         robots: http.map(HttpTier::robots_txt_fetch),
         domain_delay: settings
             .get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY)

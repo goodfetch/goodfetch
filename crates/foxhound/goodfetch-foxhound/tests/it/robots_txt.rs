@@ -822,6 +822,47 @@ fn a_crawl_delay_spaces_two_concurrent_runs_on_one_domain_key() {
     );
 }
 
+/// A crawl that waits out no Crawl-delay itself, under a
+/// `site_preferences.max_crawl_delay` of 0 with nothing else pacing it,
+/// still records the one a robots.txt it respects asks for, for every run
+/// that shares the Politeness file (ADR 0086). Its request is refused all
+/// the same.
+///
+/// Covers: story:6-243, setting:site_preferences.max_crawl_delay, format:politeness-file
+#[test]
+fn a_crawl_that_paces_nothing_records_a_crawl_delay_for_the_runs_that_share_it() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+
+    let crawled = crawl_seeds(
+        &env,
+        &proving_ground,
+        "records-only",
+        &[(CRAWL_DELAY_HOST, "/catalog/1")],
+        &json!({ "site_preferences": { "max_crawl_delay": 0 } }),
+        &|_| Vec::new(),
+    );
+    let file = rusqlite::Connection::open(env.home().join(POLITENESS_FILE)).unwrap();
+    let recorded: Vec<(String, i64)> = file
+        .prepare("SELECT location, delay FROM crawl_delays")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+
+    assert_eq!(
+        (crawled.outcomes, recorded),
+        (
+            vec![ended("/catalog/1", "skipped", Some("crawl_delay"))],
+            vec![(
+                proving_ground.url(CRAWL_DELAY_HOST, "/robots.txt"),
+                i64::try_from(CRAWL_DELAY / 1_000).unwrap()
+            )],
+        )
+    );
+}
+
 /// A host asking for a Crawl-delay above `site_preferences.max_crawl_delay`,
 /// here 3 s, has its crawl requests skipped with `crawl_delay`: none is
 /// sent and no handler runs, so the crawl neither waits the host out nor

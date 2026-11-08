@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use goodfetch_engine::politeness::Politeness;
-use goodfetch_engine::robots_txt::Answer as Fetched;
+use goodfetch_engine::robots_txt;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
@@ -44,7 +44,7 @@ pub(super) async fn share_robots_txt(run: &Run, settings: &Resolved) -> Option<P
 
 /// Fetches `location`, a robots.txt or an AI-use signal file, on `http`
 /// for `run`.
-async fn fetched_on(http: &HttpTier, run: &Run, location: Url) -> Fetched {
+async fn fetched_on(http: &HttpTier, run: &Run, location: Url) -> robots_txt::Answer {
     http.robots_txt(run, &location).await
 }
 
@@ -93,7 +93,7 @@ impl On<'_> {
         } else {
             None
         };
-        if let (Some(reading), Some(politeness)) = (&reading, &of_run.politeness)
+        if let (Some(reading), Some(politeness)) = (&reading, &of_run.shared_politeness)
             && preferences.respects_robots_txt()
             && let Err(error) = goodfetch_frontier::crawl_delay_read(
                 politeness,

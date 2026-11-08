@@ -192,6 +192,10 @@ pub struct RunHandOver {
     /// The Politeness the Run shares, once it opened; none while the Run's
     /// Politeness paces nothing, which consults no store (ADR 0138).
     pub politeness: Option<Politeness>,
+    /// The Politeness the Run shares, once it opened, whatever the Run's
+    /// own pacing: a robots.txt's Crawl-delay is recorded there for every
+    /// run sharing it (ADR 0086).
+    pub shared_politeness: Option<Politeness>,
     /// How robots.txt and the AI-use signal files are fetched when the
     /// copy the Run reads has none.
     pub robots: Option<RobotsTxtFetch>,

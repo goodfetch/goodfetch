@@ -41,8 +41,7 @@ pub use self::sizing::{SliceSizing, slice_size};
 pub use self::standing::{Placement, standing};
 pub use self::temporary::{temporary_filesystem, temporary_in};
 use crate::sqlite_store::{
-    self, Access, Counting, Durability, File, Folder, FullFsync, OpenError, Opening, Schema,
-    Synchronous, Wait, WalOnClose,
+    self, Access, Counting, Durability, File, Folder, OpenError, Opening, Schema, Wait,
 };
 
 /// The target of the `tracing` events that name the slices and reclaim
@@ -52,15 +51,6 @@ pub const TARGET: &str = "goodfetch::ledger";
 
 /// How long a transaction waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// How its commits reach the disk: each synced, through `F_FULLFSYNC` on
-/// macOS, and its WAL left as it is when a connection closes (#2110).
-const DURABILITY: Durability = Durability {
-    synchronous: Synchronous::Full,
-    opening: Synchronous::Full,
-    full_fsync: FullFsync::Commits,
-    wal_on_close: WalOnClose::Kept,
-};
 
 /// The tables of this version. A newer minor only adds tables and columns,
 /// each column with a default, so these statements keep working on its
@@ -345,7 +335,7 @@ impl Ledger {
             folder,
             access,
             wait: Wait::Busy(BUSY_TIMEOUT),
-            durability: DURABILITY,
+            durability: Durability::SYNCED,
             counting: Some(Counting {
                 work: &self.work,
                 opens: Some(CountedRow::ChargeOpens),

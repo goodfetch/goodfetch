@@ -68,7 +68,9 @@ pub struct ExceptionUsed {
     pub kind: ExceptionKind,
     /// The SHA-256 of the public key of the certificate it accepted.
     pub certificate: KeyHash,
-    /// Whether this connection pinned the key.
+    /// Whether the admission this answers pinned the key: a transport's later
+    /// connection through the exception it kept answers the value of the
+    /// admission that kept it.
     pub first_pin: bool,
 }
 

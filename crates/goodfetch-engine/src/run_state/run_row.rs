@@ -11,21 +11,23 @@ use rusqlite::{Connection, OptionalExtension as _};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-/// The Run's kind.
+/// Whether the Run is of the kind `kind`: not, for a kind this engine does
+/// not know, which a newer minor's run file may hold, so a part of its
+/// report or progress that is of one kind goes without a word.
 ///
 /// # Errors
 ///
-/// SQLite's, `QueryReturnedNoRows` for a file that holds no Run, and a
-/// conversion failure for a kind this engine does not know.
-pub fn kind(connection: &Connection) -> rusqlite::Result<RunKind> {
-    parsed(&text(connection, "SELECT kind FROM run")?)
+/// SQLite's, `QueryReturnedNoRows` for a file that holds no Run.
+pub fn is_of_kind(connection: &Connection, kind: RunKind) -> rusqlite::Result<bool> {
+    Ok(text(connection, "SELECT kind FROM run")? == kind.as_str())
 }
 
 /// Where the Run is in its lifecycle, as its last commit left it.
 ///
 /// # Errors
 ///
-/// As [`kind`], for a lifecycle this engine does not know.
+/// SQLite's, `QueryReturnedNoRows` for a file that holds no Run, and a
+/// conversion failure for a lifecycle this engine does not know.
 pub fn lifecycle(connection: &Connection) -> rusqlite::Result<Lifecycle> {
     parsed(&text(connection, "SELECT lifecycle FROM run")?)
 }

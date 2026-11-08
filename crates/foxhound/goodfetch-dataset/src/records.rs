@@ -189,8 +189,9 @@ const PAGE: usize = 256;
 
 /// A cursor over one Dataset's committed Records that a [`Query`] takes,
 /// read a page of at most 256 at a time in number order, each page after
-/// the last Record the one before held: the one paging every reader of a
-/// Dataset's Records goes through.
+/// the last Record the one before held: the paging of `run.records` and of
+/// an Export; `dataset.page` and the rejected Records' read run their own
+/// SQL.
 #[derive(Clone, Debug)]
 pub(crate) struct Pages {
     dataset: String,

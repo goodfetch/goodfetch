@@ -168,6 +168,15 @@ fn content() -> Authorities {
     Authorities::only("content.example")
 }
 
+/// A listener whose `Host` and `Origin` rule a table's row names.
+#[derive(Clone, Copy)]
+enum Listener {
+    Ops,
+    Handshake,
+    Read,
+    Content,
+}
+
 /// Each listener's `Host` and `Origin` rule: the ops listener takes any
 /// address and no `Origin`; a WebSocket handshake or a Console write needs
 /// one of its own origins; a Console read takes its own or none; the
@@ -176,87 +185,94 @@ fn content() -> Authorities {
 ///
 /// Covers: story:4-21
 #[rstest]
-#[case::ops_from_a_pods_address("ops", Some("10.0.0.7:9464"), None, None)]
+#[case::ops_from_a_pods_address(Listener::Ops, Some("10.0.0.7:9464"), None, None)]
 #[case::ops_from_a_rebinding_name(
-    "ops",
+    Listener::Ops,
     Some("attacker.example"),
     None,
     Some(Refusal::HostForeign)
 )]
 #[case::ops_from_a_page(
-    "ops",
+    Listener::Ops,
     Some("127.0.0.1:9464"),
     Some("http://127.0.0.1:9464"),
     Some(Refusal::OriginForeign)
 )]
 #[case::handshake_from_its_own_page(
-    "handshake",
+    Listener::Handshake,
     Some("localhost:4000"),
     Some("http://127.0.0.1:4000"),
     None
 )]
 #[case::handshake_with_no_origin(
-    "handshake",
+    Listener::Handshake,
     Some("127.0.0.1:4000"),
     None,
     Some(Refusal::OriginMissing)
 )]
 #[case::handshake_from_another_page(
-    "handshake",
+    Listener::Handshake,
     Some("127.0.0.1:4000"),
     Some("http://attacker.example"),
     Some(Refusal::OriginForeign)
 )]
 #[case::handshake_naming_an_address_it_is_not_reached_at(
-    "handshake",
+    Listener::Handshake,
     Some("127.0.0.2:4000"),
     Some("http://127.0.0.2:4000"),
     Some(Refusal::HostForeign)
 )]
 #[case::handshake_over_https(
-    "handshake",
+    Listener::Handshake,
     Some("127.0.0.1:4000"),
     Some("https://127.0.0.1:4000"),
     Some(Refusal::OriginForeign)
 )]
-#[case::read_with_no_origin("read", Some("LOCALHOST:4000"), None, None)]
+#[case::read_with_no_origin(Listener::Read, Some("LOCALHOST:4000"), None, None)]
 #[case::read_from_another_page(
-    "read",
+    Listener::Read,
     Some("127.0.0.1:4000"),
     Some("http://attacker.example"),
     Some(Refusal::OriginForeign)
 )]
-#[case::read_with_no_host("read", None, None, Some(Refusal::HostForeign))]
+#[case::read_with_no_host(Listener::Read, None, None, Some(Refusal::HostForeign))]
+#[case::content_from_its_own_page(
+    Listener::Content,
+    Some("content.example"),
+    Some("http://content.example"),
+    None
+)]
+#[case::content_with_no_origin(Listener::Content, Some("content.example"), None, None)]
 #[case::content_framed_by_the_console(
-    "content",
+    Listener::Content,
     Some("content.example"),
     Some("http://localhost:4000"),
     None
 )]
 #[case::content_naming_the_consoles_host(
-    "content",
+    Listener::Content,
     Some("127.0.0.1:4000"),
     None,
     Some(Refusal::HostForeign)
 )]
 #[case::content_from_another_page(
-    "content",
+    Listener::Content,
     Some("content.example"),
     Some("http://attacker.example"),
     Some(Refusal::OriginForeign)
 )]
 fn a_request_passes_only_with_a_host_and_origin_its_listener_admits(
-    #[case] listener: &str,
+    #[case] listener: Listener,
     #[case] host: Option<&str>,
     #[case] origin: Option<&str>,
     #[case] refused: Option<Refusal>,
 ) {
     let (console, content) = (console(), content());
     let (hosts, origins) = match listener {
-        "ops" => (Hosts::Address, Origins::Forbidden),
-        "handshake" => (Hosts::Named(&console), Origins::Required(&[&console])),
-        "read" => (Hosts::Named(&console), Origins::Allowed(&[&console])),
-        _ => (
+        Listener::Ops => (Hosts::Address, Origins::Forbidden),
+        Listener::Handshake => (Hosts::Named(&console), Origins::Required(&[&console])),
+        Listener::Read => (Hosts::Named(&console), Origins::Allowed(&[&console])),
+        Listener::Content => (
             Hosts::Named(&content),
             Origins::Allowed(&[&content, &console]),
         ),

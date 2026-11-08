@@ -13,7 +13,7 @@
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::run::{PointInTime, RunId};
 use goodfetch_protocol::tls::CertificatePin;
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{TestEnv, wal_of};
 use jiff::Timestamp;
 use rstest::rstest;
 use rusqlite::Connection;
@@ -545,22 +545,22 @@ fn the_head_sets_store_opens_and_takes_another_pin() {
     assert_eq!(accepted.pin.spki_sha256, Some(changed.to_string()));
 }
 
-/// The store's commits sync as every synced per-user store's do: each through
-/// `F_FULLFSYNC` on macOS, and its WAL stays beside it as its last
-/// connection closes (#2110).
+/// The store holds to the synced per-user store's durability: its WAL stays
+/// beside it as a write's connection closes (#2110).
 #[test]
-fn each_commit_syncs_through_fullfsync_on_macos_and_the_wal_stays_as_it_closes() {
+fn the_wal_stays_beside_the_store_once_a_write_closed_its_connection() {
     let env = TestEnv::in_memory();
     let store = store(&env);
 
-    let connection = store.open().unwrap();
-    let fullfsync: i64 = connection
-        .pragma_query_value(None, "fullfsync", |row| row.get(0))
+    store
+        .pin(
+            "ada",
+            "intranet.example",
+            &key(1),
+            Some(&run("first")),
+            now(),
+        )
         .unwrap();
-    drop(connection);
 
-    assert_eq!(fullfsync, i64::from(cfg!(target_os = "macos")));
-    let mut wal = store.path().as_os_str().to_owned();
-    wal.push("-wal");
-    assert!(std::path::Path::new(&wal).exists());
+    assert!(wal_of(store.path()).exists());
 }

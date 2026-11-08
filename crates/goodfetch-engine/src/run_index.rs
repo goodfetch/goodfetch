@@ -90,7 +90,8 @@ fn opener(engine: &ProductVersion) -> Opener {
 
 /// Opens the index at `path`, its tables made outside a transaction, as
 /// its lowest-minor marker is checked in each transaction instead (ADR
-/// 0098).
+/// 0098). Only a first open writes: a marker already there takes no write
+/// lock, so a read never waits behind another engine's write.
 fn open(path: &Path, opener: &Opener) -> Result<Connection, RunStateError> {
     let connection = File::new(path, None)
         .open(&Opening {
@@ -106,6 +107,11 @@ fn open(path: &Path, opener: &Opener) -> Result<Connection, RunStateError> {
         connection
             .execute(statement, [])
             .map_err(|error| failed(path, &error))?;
+    }
+    let marked = lowest_minor::read_sqlite(&connection, RUN_INDEX.name)
+        .map_err(|error| failed(path, &error))?;
+    if marked.is_some() {
+        return Ok(connection);
     }
     let created = opener.created();
     connection

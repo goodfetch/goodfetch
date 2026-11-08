@@ -1,11 +1,14 @@
 //! The engine's own operations, `engine.*`, `run.*`, `config.*`, `daemon.*`,
 //! `key_value_store.*` with its table in every run file, `download.save_as`
 //! with the tables of a Run's kept files, `audit.*`, `certs.*`,
-//! `needs_you.*` with the storage entries of "Needs you", and the streaming
-//! calls `events.subscribe` and `page.body`, which every Product's
+//! `needs_you.*` with the storage entries of "Needs you", the streaming
+//! calls `events.subscribe` and `page.body`, and the switchable controls,
+//! the `security.*` keys and `egress.private_ranges`, which every Product's
 //! composition lists first.
 
+use goodfetch_protocol::audit::PRIVATE_ADDRESSES_ALLOWED;
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_protocol::egress::EGRESS_PRIVATE_RANGES;
 use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo, EngineInfoParams};
 use goodfetch_protocol::security::SECURITY_CONTROLS;
 
@@ -49,6 +52,7 @@ pub fn contribution() -> Contribution {
     SECURITY_CONTROLS
         .into_iter()
         .fold(contribution, Contribution::with_control)
+        .with_recorded_listing(&EGRESS_PRIVATE_RANGES, &PRIVATE_ADDRESSES_ALLOWED, "ranges")
 }
 
 async fn engine_info(_: EngineInfoParams, context: CallContext) -> Result<EngineInfo, CallError> {

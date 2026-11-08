@@ -56,6 +56,10 @@ mod client_hello;
 #[path = "../src/egress_relay/cookies.rs"]
 mod cookies;
 #[path = "../src/egress_relay/deadlines.rs"]
+#[expect(
+    unreachable_pub,
+    reason = "the crate's interface is its own library's; a bench target includes the file privately"
+)]
 mod deadlines;
 #[path = "../src/egress_relay/head.rs"]
 mod head;

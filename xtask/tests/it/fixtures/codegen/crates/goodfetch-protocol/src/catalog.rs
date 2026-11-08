@@ -138,6 +138,16 @@ impl Product {
             Self::Foxhound => "Foxhound",
         }
     }
+
+    /// The name of its executable, its crate's (ADR 0090): the binary's
+    /// name, the service name of what it exports and the name of its
+    /// versioned copy in the Browser cache.
+    pub fn executable_name(self) -> &'static str {
+        match self {
+            Self::Collie => "goodfetch-collie",
+            Self::Foxhound => "goodfetch-foxhound",
+        }
+    }
 }
 
 /// What calling an operation does (ADR 0011).

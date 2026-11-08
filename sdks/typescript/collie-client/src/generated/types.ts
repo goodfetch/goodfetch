@@ -1658,6 +1658,12 @@ export interface ConfigExplainParams {
    */
   keys?: string[];
   /**
+   * The path of the project configuration the Client was named, in place
+   * of `project`, when no file is there: it sets nothing, and the answer
+   * lists it as not found.
+   */
+  missing_project?: string | null;
+  /**
    * Where those run values come from: a scope's `settings` option by
    * default, or the CLI's flags when the CLI asks a Daemon.
    */

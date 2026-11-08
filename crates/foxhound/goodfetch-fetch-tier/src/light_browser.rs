@@ -200,10 +200,13 @@ impl LightBrowser {
                         &serde_json::json!({}),
                     )
                 })?;
-                let cache = BrowserCache::new(&CacheLocation::new(
-                    home.root(),
-                    home.browsers_path().map(std::path::Path::to_path_buf),
-                ));
+                let cache = BrowserCache::new(
+                    &CacheLocation::new(
+                        home.root(),
+                        home.browsers_path().map(std::path::Path::to_path_buf),
+                    ),
+                    run.owner().blocking_threads(),
+                );
                 let fetching = run.settings().map_or_else(
                     || Fetching::new(run.clock()),
                     |settings| Fetching::of(settings.resolved(), run.clock()),

@@ -29,6 +29,7 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::daemon::{InstalledService, ServiceManager};
+use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, HOME_VARIABLE};
 use sha2::{Digest as _, Sha256};
 
 use crate::home::Home;
@@ -37,7 +38,67 @@ use crate::transport::{HeldPort, LAUNCHD_CONSOLE_SOCKET, LAUNCHD_SOCKETS, hold_f
 /// The deployment variables a service passes on to the Daemon it starts:
 /// where Goodfetch home and the Browser cache are. Where its logs go is
 /// the `log.*` settings' (ADR 0122), which it reads from its home.
-pub const PASSED_VARIABLES: [&str; 2] = ["GOODFETCH_BROWSERS_PATH", "GOODFETCH_HOME"];
+pub const PASSED_VARIABLES: [&str; 2] = [BROWSERS_PATH_VARIABLE, HOME_VARIABLE];
+
+/// The hidden `daemon launched` command line a Daemon's process starts
+/// with: the arguments after the executable. An installed service's
+/// definition holds them, so a flag spelled differently here and in the
+/// Products' command line stops every installed service at its next start;
+/// this is their one spelling, which the Products' tests parse.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LaunchedCommand<'a> {
+    /// The build of the versioned copy it runs from.
+    copy: &'a str,
+    /// Whether the major's service starts it.
+    service: bool,
+    /// Whether it never stops for having no Client.
+    keep_alive: bool,
+    /// The deployment variables it is passed, each `NAME=VALUE`.
+    environment: Vec<String>,
+}
+
+impl<'a> LaunchedCommand<'a> {
+    /// What a start runs: the versioned copy of build `copy`.
+    #[must_use]
+    pub fn started(copy: &'a str, keep_alive: bool) -> Self {
+        Self {
+            copy,
+            service: false,
+            keep_alive,
+            environment: Vec::new(),
+        }
+    }
+
+    /// What the major's service runs: the versioned copy of build `copy`,
+    /// passed `environment`, each `NAME=VALUE`.
+    #[must_use]
+    pub fn of_service(copy: &'a str, environment: Vec<String>) -> Self {
+        Self {
+            copy,
+            service: true,
+            keep_alive: false,
+            environment,
+        }
+    }
+
+    /// Its arguments, in the order an installed service's definition holds
+    /// them.
+    #[must_use]
+    pub fn arguments(&self) -> Vec<String> {
+        let mut arguments = vec!["daemon".to_owned(), "launched".to_owned()];
+        if self.service {
+            arguments.push("--service".to_owned());
+        }
+        arguments.extend(["--copy".to_owned(), self.copy.to_owned()]);
+        if self.keep_alive {
+            arguments.push("--keep-alive".to_owned());
+        }
+        for variable in &self.environment {
+            arguments.extend(["--environment".to_owned(), variable.clone()]);
+        }
+        arguments
+    }
+}
 
 /// How many hex digits of Goodfetch home's digest a service's name holds.
 const HOME_DIGITS: usize = 8;
@@ -283,14 +344,7 @@ struct Definition<'a> {
 /// The program and arguments the service starts: the versioned copy's
 /// `daemon launched --service`, with the [`PASSED_VARIABLES`] that are set.
 fn arguments(request: &ServiceRequest<'_>) -> Result<Vec<String>, ServiceError> {
-    let mut arguments = vec![
-        unicode(request.executable)?,
-        "daemon".to_owned(),
-        "launched".to_owned(),
-        "--service".to_owned(),
-        "--copy".to_owned(),
-        request.build.to_owned(),
-    ];
+    let mut passed = Vec::new();
     for variable in PASSED_VARIABLES {
         if let Some(value) = request
             .environment
@@ -300,10 +354,11 @@ fn arguments(request: &ServiceRequest<'_>) -> Result<Vec<String>, ServiceError> 
             let value = value
                 .to_str()
                 .ok_or_else(|| ServiceError::NotUnicode(PathBuf::from(value)))?;
-            arguments.push("--environment".to_owned());
-            arguments.push(format!("{variable}={value}"));
+            passed.push(format!("{variable}={value}"));
         }
     }
+    let mut arguments = vec![unicode(request.executable)?];
+    arguments.extend(LaunchedCommand::of_service(request.build, passed).arguments());
     Ok(arguments)
 }
 

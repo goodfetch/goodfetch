@@ -21,6 +21,7 @@ use goodfetch_protocol::settings::{SettingsLayer, WALL_DENIED_DOMAINS, WALL_REFE
 use serde_json::{Map, Value, json};
 
 use super::{Answering, Changes, NeedsYouSource, Primitives, SourceContext, SourceError};
+use crate::host_name::lookup_key;
 use crate::run_index::{self, RefetchStopped};
 use crate::settings::{MachineLayers, Opening, nested, project_settings};
 
@@ -79,16 +80,10 @@ fn domains_of(value: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// `listed` as a registrable domain is compared: in lower case, without
-/// its trailing dot.
-pub(crate) fn normalized(listed: &str) -> String {
-    listed.trim_end_matches('.').to_ascii_lowercase()
-}
-
 /// How `domains` covers `domain`: `Some(false)` when it lists it,
 /// `Some(true)` when only `*` covers it, `None` when it does not.
 pub(crate) fn coverage(domains: &[String], domain: &str) -> Option<bool> {
-    if domains.iter().any(|listed| normalized(listed) == domain) {
+    if domains.iter().any(|listed| lookup_key(listed) == domain) {
         Some(false)
     } else if domains.iter().any(|listed| listed == "*") {
         Some(true)
@@ -144,7 +139,7 @@ impl Primitives for Stops {
                 .filter(|(stop, _)| {
                     !denied
                         .iter()
-                        .any(|listed| normalized(listed) == stop.domain)
+                        .any(|listed| lookup_key(listed) == stop.domain)
                 })
                 .filter_map(|(stop, project)| {
                     let (layer, file, domains) = match (project, &machine) {

@@ -13,6 +13,7 @@ use goodfetch_protocol::settings::CONSENT_DOMAINS;
 use serde_json::{Map, Value, json};
 
 use super::{Answering, Changes, NeedsYouSource, Primitives, SourceContext, SourceError};
+use crate::host_name;
 use crate::run_index::{self, ConsentWallSeen};
 use crate::settings::Opening;
 
@@ -22,16 +23,37 @@ pub fn walls() -> NeedsYouSource {
     NeedsYouSource::new(Walls)
 }
 
-/// Whether `domains`, `consent.domains` as resolved, covers `domain`: it
-/// lists it, or `*`.
-pub(crate) fn covers(domains: &Value, domain: &str) -> bool {
-    domains.as_array().is_some_and(|domains| {
-        domains
+/// `consent.domains` as resolved: each entry keyed as a host is everywhere
+/// (`host_name`), so `Bücher.de.` and `xn--bcher-kva.de` are one domain, or
+/// `*`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConsentDomains(Vec<String>);
+
+impl ConsentDomains {
+    /// The domains `value`, the setting's value, lists.
+    pub fn of(value: &Value) -> Self {
+        Self(
+            value
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(host_name::lookup_key)
+                .collect(),
+        )
+    }
+
+    /// Whether it lists nothing, which approves nothing.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Whether it covers `domain`, a domain's key: it lists it, or `*`.
+    pub fn covers(&self, domain: &str) -> bool {
+        self.0
             .iter()
-            .filter_map(Value::as_str)
-            .map(|listed| listed.trim_end_matches('.').to_ascii_lowercase())
             .any(|listed| listed == "*" || listed == domain)
-    })
+    }
 }
 
 struct Walls;
@@ -60,10 +82,10 @@ impl Primitives for Walls {
                 .open(Opening::default())
                 .await
                 .map_err(SourceError::new)?;
-            let domains = machine.resolved().value(&CONSENT_DOMAINS).clone();
+            let domains = ConsentDomains::of(machine.resolved().value(&CONSENT_DOMAINS));
             Ok(seen
                 .iter()
-                .filter(|wall| !covers(&domains, &wall.domain))
+                .filter(|wall| !domains.covers(&wall.domain))
                 .map(item)
                 .collect())
         })

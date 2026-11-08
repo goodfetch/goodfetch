@@ -92,10 +92,7 @@ impl Reader {
             return;
         };
         let reader = self.clone();
-        let limits = self
-            .run
-            .settings()
-            .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
+        let limits = Limits::of_run(self.run.settings());
         self.run.spawn(async move {
             // Boxed: the fetch holds a browser load's state (clippy's
             // `large_futures`).

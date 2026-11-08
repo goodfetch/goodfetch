@@ -386,7 +386,7 @@ async fn live(run_id: &RunId, context: &CallContext) -> Result<Run, CallError> {
                     path: None,
                 },
             ),
-            other => run_error(other, context.identity()),
+            other => run_error(other, context),
         })
 }
 
@@ -499,7 +499,7 @@ fn unwritten(run: &Run, error: &RunStateError, context: &CallContext) -> CallErr
             folder: run.folder().to_owned(),
             error: error.to_string(),
         },
-        context.identity(),
+        context,
     )
 }
 
@@ -511,7 +511,7 @@ fn unkept(run: &Run, error: &std::io::Error, context: &CallContext) -> CallError
             folder: run.folder().to_owned(),
             error: format!("could not keep the bytes in the Run's folder: {error}"),
         },
-        context.identity(),
+        context,
     )
 }
 
@@ -530,7 +530,7 @@ fn unread(
             folder,
             error: format!("could not read the kept file of the key {key:?}: {error}"),
         },
-        context.identity(),
+        context,
     )
 }
 
@@ -568,7 +568,7 @@ async fn handle_get(
         StagedKey::Deleted => return Ok(KeyValueStoreValue { value: Value::Null }),
         StagedKey::Untouched => {}
     }
-    let failed = |error: RunError| run_error(error, context.identity());
+    let failed = |error: RunError| run_error(error, &context);
     let mut reader = context.runs().reader(params.run_id).await.map_err(failed)?;
     let read = key.clone();
     let stored = reader
@@ -625,7 +625,7 @@ enum Read {
 /// read from the Run's folder: a file forgotten while it was read, its key
 /// replaced or deleted, makes it read the key again.
 async fn read_bytes(run_id: RunId, key: &str, context: &CallContext) -> Result<Read, CallError> {
-    let failed = |error: RunError| run_error(error, context.identity());
+    let failed = |error: RunError| run_error(error, context);
     let mut reader: RunReader = context
         .runs()
         .reader(run_id.clone())
@@ -798,7 +798,7 @@ async fn handle_delete(
             StagedKey::Set(_) | StagedKey::SetBytes { .. } => true,
             StagedKey::Deleted => false,
             StagedKey::Untouched => {
-                let failed = |error: RunError| run_error(error, context.identity());
+                let failed = |error: RunError| run_error(error, &context);
                 let mut reader = context.runs().reader(params.run_id).await.map_err(failed)?;
                 reader
                     .read(move |connection| get(connection, &key))
@@ -826,7 +826,7 @@ async fn handle_keys(
     params: KeyValueStoreKeysParams,
     context: CallContext,
 ) -> Result<KeyValueStoreKeysEnded, CallError> {
-    let failed = |error: RunError| run_error(error, context.identity());
+    let failed = |error: RunError| run_error(error, &context);
     let mut reader = context.runs().reader(params.run_id).await.map_err(failed)?;
     let prefix = params.prefix.unwrap_or_default();
     let stream = context.stream();

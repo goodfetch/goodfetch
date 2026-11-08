@@ -5,12 +5,7 @@
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { EngineNotFoundError, SettingInvalidError } from "@goodfetch/collie-client";
-
-/** The variable naming Collie's executable (ADR 0090). */
-export const ENGINE_PATH_VARIABLE = "GOODFETCH_COLLIE_ENGINE_PATH";
-
-/** The executable's name (ADR 0090). */
-const EXECUTABLE = "goodfetch-collie";
+import { COLLIE_ENGINE_PATH_VARIABLE, COLLIE_EXECUTABLE } from "@goodfetch/collie-client/runtime";
 
 /** Where to start Collie's engine, and what to do when it is not there. */
 export interface EngineLocation {
@@ -25,23 +20,23 @@ export interface EngineLocation {
  * empty.
  */
 export function locateEngine(env: Readonly<Record<string, string>>): EngineLocation {
-  const named = env[ENGINE_PATH_VARIABLE];
+  const named = env[COLLIE_ENGINE_PATH_VARIABLE];
   if (named === "") {
     // An empty value is never taken for unset (ADR 0083).
-    throw new SettingInvalidError(`${ENGINE_PATH_VARIABLE} is set but empty`, {
-      fix: `Set ${ENGINE_PATH_VARIABLE} to Collie's executable, ${EXECUTABLE}, or leave it unset to use the one @goodfetch/collie installed.`,
-      details: { key: ENGINE_PATH_VARIABLE, reason: "an empty value names no executable" },
+    throw new SettingInvalidError(`${COLLIE_ENGINE_PATH_VARIABLE} is set but empty`, {
+      fix: `Set ${COLLIE_ENGINE_PATH_VARIABLE} to Collie's executable, ${COLLIE_EXECUTABLE}, or leave it unset to use the one @goodfetch/collie installed.`,
+      details: { key: COLLIE_ENGINE_PATH_VARIABLE, reason: "an empty value names no executable" },
     });
   }
   if (named !== undefined) {
     return {
       path: named,
-      notFoundFix: `${ENGINE_PATH_VARIABLE} names ${named}, which is no executable file: point it at Collie's executable, ${EXECUTABLE}, or leave it unset to use the one @goodfetch/collie installed.`,
+      notFoundFix: `${COLLIE_ENGINE_PATH_VARIABLE} names ${named}, which is no executable file: point it at Collie's executable, ${COLLIE_EXECUTABLE}, or leave it unset to use the one @goodfetch/collie installed.`,
     };
   }
   const platformPackage = `@goodfetch/collie-${process.platform}-${process.arch}`;
-  const executable = process.platform === "win32" ? `${EXECUTABLE}.exe` : EXECUTABLE;
-  const fix = `Install @goodfetch/collie with its optional dependencies, which hold its engine in ${platformPackage}, or set ${ENGINE_PATH_VARIABLE} to Collie's executable.`;
+  const executable = process.platform === "win32" ? `${COLLIE_EXECUTABLE}.exe` : COLLIE_EXECUTABLE;
+  const fix = `Install @goodfetch/collie with its optional dependencies, which hold its engine in ${platformPackage}, or set ${COLLIE_ENGINE_PATH_VARIABLE} to Collie's executable.`;
   let manifest: string;
   try {
     manifest = createRequire(import.meta.url).resolve(`${platformPackage}/package.json`);

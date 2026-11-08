@@ -60,9 +60,7 @@ impl On<'_> {
                         }
                     };
                 }
-                let limits = run
-                    .settings()
-                    .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
+                let limits = Limits::of_run(run.settings());
                 match http.sitemap(&url, hand_over).await {
                     Ok(body) => match sitemap::read_file(url.as_str(), &body, limits) {
                         Ok(document) => Answer::SitemapRead(document),

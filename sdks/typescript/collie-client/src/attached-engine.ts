@@ -9,12 +9,9 @@ import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { Readable, Writable } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
-import { EngineNotFoundError } from "./generated/index.ts";
+import { ATTACHED_ENGINE_COMMAND, EngineNotFoundError } from "./generated/index.ts";
 import type { Logger } from "./logger.ts";
 import type { Transport } from "./rpc.ts";
-
-/** The executable's hidden command that serves one Connection over stdio. */
-const ATTACHED_ENGINE_COMMAND = "attached-engine";
 
 /** How much of the engine's stderr its exit keeps (ADR 0078). */
 const STDERR_TAIL_BYTES = 64 * 1024;

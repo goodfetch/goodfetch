@@ -112,16 +112,26 @@ pub(super) fn explain(
 /// flags.
 fn params(request: &Explain, folder: &Path) -> Result<ConfigExplainParams, SettingsError> {
     let project_path = request.project.clone().or_else(|| find_project(folder));
-    let project = match project_path {
-        Some(path) => Some(ProjectSettings {
-            settings: project_settings(&path)?.unwrap_or_default(),
-            path: path.display().to_string(),
-        }),
-        None => None,
+    let (project, missing_project) = match project_path {
+        Some(path) => {
+            let shown = path.display().to_string();
+            match project_settings(&path)? {
+                Some(settings) => (
+                    Some(ProjectSettings {
+                        settings,
+                        path: shown,
+                    }),
+                    None,
+                ),
+                None => (None, Some(shown)),
+            }
+        }
+        None => (None, None),
     };
     Ok(ConfigExplainParams {
         keys: request.keys.clone(),
         project,
+        missing_project,
         settings: request.settings.clone(),
         origin: Some(RunOrigin::Flag),
     })

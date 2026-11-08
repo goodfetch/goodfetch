@@ -29,7 +29,8 @@ use serde_json::{Value, json};
 use super::{Refused, consent_domain, unrecorded};
 use crate::call_error::CallError;
 use crate::composition::CallContext;
-use crate::needs_you::refetch::{coverage, machine_listing, normalized};
+use crate::host_name::lookup_key;
+use crate::needs_you::refetch::{coverage, machine_listing};
 use crate::run::settings_error;
 use crate::settings::SettingsError;
 use crate::settings_editor::{Change, Draft, SettingsEditor};
@@ -137,7 +138,7 @@ fn remove(
         Some(false) => listing
             .domains
             .iter()
-            .filter(|listed| normalized(listed) != domain)
+            .filter(|listed| lookup_key(listed) != domain)
             .cloned()
             .collect(),
         Some(true) => {
@@ -230,7 +231,7 @@ fn deny(
                 .collect()
         })
         .unwrap_or_default();
-    if domains.iter().any(|listed| normalized(listed) == domain) {
+    if domains.iter().any(|listed| lookup_key(listed) == domain) {
         return Ok(Change::Kept(WallDomainDenied {
             domain,
             added: false,

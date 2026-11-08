@@ -918,6 +918,14 @@
           },
           "type": "array"
         },
+        "missing_project": {
+          "arrived_in": "0.1",
+          "description": "The path of the project configuration the Client was named, in place\nof `project`, when no file is there: it sets nothing, and the answer\nlists it as not found.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "origin": {
           "anyOf": [
             {

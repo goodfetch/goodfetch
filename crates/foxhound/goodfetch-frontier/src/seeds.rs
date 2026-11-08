@@ -43,7 +43,7 @@ pub(crate) fn handler() -> Handler {
 }
 
 async fn seeds(params: RunSeedsParams, context: CallContext) -> Result<RunSeeds, CallError> {
-    let failed = |error: RunError| run_error(error, context.identity());
+    let failed = |error: RunError| run_error(error, &context);
     let mut reader = context.runs().reader(params.run_id).await.map_err(failed)?;
     let seeds = reader.read(read).await.map_err(failed)?;
     Ok(RunSeeds { seeds })

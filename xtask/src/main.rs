@@ -47,6 +47,7 @@ mod kennel;
 mod lazyfs;
 mod license_allowlist;
 mod markdown;
+mod mask_writers;
 mod metadata;
 mod mocking_lockfile;
 mod modules;
@@ -243,6 +244,9 @@ enum Command {
         #[command(subcommand)]
         command: lazyfs::Command,
     },
+    /// Fails on a writer in a Product's crates that the Mask's list of writers
+    /// does not hold as it is found (spec #564).
+    MaskWriters,
     /// Fails when `uv.lock` holds a mocking library such as pytest-mock (ADR 0062).
     MockingLockfile,
     /// Fails on an import between top-level modules that a crate's
@@ -532,6 +536,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::JunitSummary(arguments) => junit_summary::run(&arguments, environment),
         Command::KennelManifest => Ok(check::report(&kennel::check(root)?)),
         Command::Lazyfs { command } => lazyfs::run(&command, environment),
+        Command::MaskWriters => Ok(check::report(&mask_writers::check(root)?)),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules { workspace } => {
             let workspace =

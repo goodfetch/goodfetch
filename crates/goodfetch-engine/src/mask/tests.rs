@@ -11,8 +11,6 @@ use serde_json::json;
 
 use super::{Mask, Masks, Reach, Redaction, Scope};
 
-mod writers;
-
 /// A value of fourteen characters that JSON escaping, URL encoding and
 /// both base64 alphabets each change.
 const VALUE: &str = "pa ss\"w/rd>?9~";

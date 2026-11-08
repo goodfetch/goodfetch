@@ -151,6 +151,7 @@ lint:
     step --after xtask xtask-telemetry 'cargo run --quiet --bin xtask -- telemetry'
     step --after xtask xtask-no-retry 'cargo run --quiet --bin xtask -- no-retry'
     step --after xtask xtask-received-requests 'cargo run --quiet --bin xtask -- received-requests'
+    step --after xtask xtask-mask-writers 'cargo run --quiet --bin xtask -- mask-writers'
     step --after xtask xtask-quarantine 'GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" cargo run --quiet --bin xtask -- quarantine check --cargo-profile {{ test_profile }}'
     step --after xtask xtask-axe-exceptions 'GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" cargo run --quiet --bin xtask -- axe-exceptions check'
     step --after xtask xtask-modules 'cargo run --quiet --bin xtask -- modules'
@@ -1540,9 +1541,15 @@ hooks:
 # the backstop's last green run (ci/merge-cap.sh) unless the owner passes
 # `--past-cap`: `just merge <number> --past-cap`. It refuses to start a gate
 # under GOODFETCH_GATE_MIN_FREE_GB (30) free on the file system of the gate's
-# `target/`, keeps a failing gate's log and test results in the common Git
+# `target/` or, on Linux, a full gate unless GOODFETCH_LAZYFS names the LazyFS
+# build `just stress` needs, keeps a failing gate's log and test results in the common Git
 # folder's `goodfetch-gate-failures/` for 30 days, and sweeps the gate's
-# `target/` after the gate, still holding its lock.
+# `target/` after the gate, still holding its lock. The gate outlives the
+# shell that starts it: it runs in a session of its own, with its output in
+# the common Git folder's `goodfetch-gate-logs/`, and this command follows
+# that log and ends with the gate's status. Stopping this command leaves the
+# gate running; SIGTERM to the process it names stops the gate and releases
+# its lock.
 merge number *override:
     ci/merge-pr.sh {{ number }} {{ override }}
 
@@ -1686,8 +1693,9 @@ gate-backstop ref="origin/main":
 # (TESTING.md, After merge; ci/test-health.crontab), on `main`'s head in the
 # backstop's gate worktree: `constrained`, the constrained test-health run,
 # and `mutants`, the advisory mutation run over the last day's Rust changes
-# (ci/test-health/scheduled.sh). Logs and results go to ~/test-health/
-# (GOODFETCH_TEST_HEALTH_LOG). Run from the main checkout.
+# (ci/test-health/scheduled.sh). Either skips while `just merge`'s gate runs.
+# Logs and results go to ~/test-health/ (GOODFETCH_TEST_HEALTH_LOG). Run from
+# the main checkout.
 test-health run ref="origin/main":
     ci/test-health/scheduled.sh {{ run }} {{ ref }}
 

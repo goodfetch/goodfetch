@@ -248,10 +248,13 @@ set -m
     # table: no figure past its threshold fails (ADR 0134, as amended on
     # 2026-10-22). So a read that fails, GitHub's API being down, is said and
     # leaves the verdict to the gate's steps.
-    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}" cargo run --quiet --bin xtask -- \
-      perf pull-request --number "$number" --save target/perf-pull-request.json ||
+    if GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}" cargo run --quiet --bin xtask -- \
+      perf pull-request --number "$number" --save target/perf-pull-request.json; then
+      export GOODFETCH_PERF_PULL_REQUEST="$worktree/target/perf-pull-request.json"
+    else
       echo "warning: the pull request's acceptance could not be read; the gate's steps decide" >&2
-    GOODFETCH_PERF_PULL_REQUEST="$worktree/target/perf-pull-request.json" just pre-merge all
+    fi
+    just pre-merge all
   fi
 ) &
 steps=$!

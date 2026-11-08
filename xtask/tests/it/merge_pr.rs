@@ -93,6 +93,9 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
             "just",
             format!(
                 "#!/bin/sh\necho \"just $*\" >>\"{calls}\"\n\
+                 if [ -n \"$GOODFETCH_PERF_PULL_REQUEST\" ]; then\n\
+                   echo \"acceptance $GOODFETCH_PERF_PULL_REQUEST\" >>\"{calls}\"\n\
+                 fi\n\
                  if [ \"$1\" = pre-merge ]; then\n\
                    if [ -f \"{base_listings}\" ]; then\n\
                      tip=$(git rev-parse origin/main)\n\
@@ -644,6 +647,37 @@ fn a_full_gate_runs_its_steps_when_the_pull_requests_acceptance_cannot_be_read()
     assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
     call(&run, "just pre-merge all");
     call(&run, "gh pr merge");
+    // `just perf` would fail on a file that was never written, after every
+    // other host step: the gate gets no such file to read.
+    assert!(
+        !run.calls.iter().any(|call| call.starts_with("acceptance ")),
+        "{:?}",
+        run.calls
+    );
+}
+
+/// A read that worked hands `just perf` the file it wrote.
+#[test]
+fn a_full_gate_hands_its_steps_the_pull_requests_acceptance() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let lazyfs = full_gate_with_lazyfs(&stand_in);
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[
+            ("GOODFETCH_GATE_MIN_FREE_GB", "0"),
+            ("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()),
+        ],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    assert!(
+        run.calls[call(&run, "acceptance ")].ends_with("/target/perf-pull-request.json"),
+        "{:?}",
+        run.calls
+    );
 }
 
 /// The plan only names the earlier run the merge's message credits, and a

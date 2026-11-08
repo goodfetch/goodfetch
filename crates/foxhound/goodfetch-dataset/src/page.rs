@@ -24,7 +24,7 @@ use rusqlite::types::Value as Sql;
 use serde_json::Value;
 
 use crate::open::open_dataset;
-use crate::records::{RECORD_COLUMNS, dataset_record, last_number};
+use crate::records::{RECORD_COLUMNS, dataset_record, last_number, wall_condition};
 
 /// The handler of `dataset.page`.
 pub(crate) fn handler() -> Handler {
@@ -130,15 +130,13 @@ fn read_page(connection: &Connection, paging: Paging<'_>) -> rusqlite::Result<Ve
     let mut bound = vec![Sql::Text(paging.dataset.to_owned()), number(paging.through)];
     let mut sql =
         format!("SELECT {RECORD_COLUMNS} FROM records WHERE dataset = ?1 AND number <= ?2");
-    match paging.filter.wall {
-        Some(WallFilter::With) => {
-            sql.push_str(" AND json_extract(provenance, '$.wall') IS NOT NULL");
-        }
-        Some(WallFilter::Without) => {
-            sql.push_str(" AND json_extract(provenance, '$.wall') IS NULL");
-        }
-        None => {}
-    }
+    bound.push(match paging.filter.wall {
+        Some(WallFilter::With) => Sql::Integer(1),
+        Some(WallFilter::Without) => Sql::Integer(0),
+        None => Sql::Null,
+    });
+    write!(sql, " AND {}", wall_condition(bound.len()))
+        .expect("invariant: a String takes any text");
     for condition in &paging.filter.fields {
         bound.push(path(&condition.field));
         let field = bound.len();

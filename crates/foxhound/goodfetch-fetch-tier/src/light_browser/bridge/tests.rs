@@ -220,11 +220,7 @@ async fn a_request_with_the_token_to_an_allowed_host_reaches_the_site() {
 /// clock, as the egress relay does (deep review finding 577-8).
 #[tokio::test(start_paused = true)]
 async fn a_client_that_sends_no_request_head_is_given_up_at_the_head_deadline() {
-    let bridge = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-    let _lightpanda = TcpStream::connect(bridge.local_addr().unwrap())
-        .await
-        .unwrap();
-    let (accepted, _) = bridge.accept().await.unwrap();
+    let (_lightpanda, accepted) = tokio::io::duplex(64);
     let check = check();
 
     let ended = tokio::time::timeout(

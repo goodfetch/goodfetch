@@ -26,7 +26,7 @@ use data_encoding::BASE64;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::endpoint::same_token;
 use goodfetch_engine::runs::Run;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 use url::Url;
@@ -219,7 +219,7 @@ impl Head {
 /// Reads one request from `client`, within [`HEAD_DEADLINE`] on `clock`,
 /// and relays it.
 async fn relay(
-    mut client: TcpStream,
+    mut client: impl AsyncRead + AsyncWrite + Unpin,
     check: &AddressCheck,
     expected: &str,
     clock: &Clock,
@@ -290,7 +290,7 @@ async fn within<T>(clock: &Clock, deadline: Duration, work: impl Future<Output =
 }
 
 /// Answers `status` with no body and closes.
-async fn answer(client: &mut TcpStream, status: &str) -> io::Result<()> {
+async fn answer(client: &mut (impl AsyncWrite + Unpin), status: &str) -> io::Result<()> {
     client
         .write_all(
             format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
@@ -301,7 +301,7 @@ async fn answer(client: &mut TcpStream, status: &str) -> io::Result<()> {
 
 /// The request head `client` sent, up to its blank line, and what it sent
 /// after it.
-async fn read_head(client: &mut TcpStream) -> io::Result<(Vec<u8>, Vec<u8>)> {
+async fn read_head(client: &mut (impl AsyncRead + Unpin)) -> io::Result<(Vec<u8>, Vec<u8>)> {
     let mut read = Vec::new();
     let mut buffer = [0; 4096];
     loop {

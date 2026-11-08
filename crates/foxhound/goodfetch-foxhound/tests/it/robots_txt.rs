@@ -21,14 +21,17 @@
 
 use std::time::{Duration, Instant};
 
+use goodfetch_protocol::home::POLITENESS_FILE;
 use goodfetch_test_client::Attached;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::ObservedRequest;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::attached;
 use crate::attached_with;
+use crate::backoff_classes::held_for;
 use crate::frontier::crawl_with;
 
 /// The Proving ground's seed.
@@ -435,6 +438,52 @@ fn a_request_whose_redirect_hops_robots_txt_keeps_failing_ends_skipped_after_its
     );
 }
 
+/// A robots.txt that answers `503`, with no earlier copy, backs off the
+/// domain whose file it is when that is the request's own: a redirect hop's
+/// says nothing of the healthy domain that redirected there, which the
+/// crawl may go on asking.
+///
+/// Covers: story:6-242, setting:politeness.backoff.initial, format:politeness-file
+#[rstest]
+#[case::its_own(UNREACHABLE_HOST, "/catalog/1", "access-policy.test", true)]
+#[case::a_redirect_hops(EDGE_HOST, REDIRECT_TO_UNREACHABLE, EDGE_HOST, false)]
+fn only_a_requests_own_unreachable_robots_txt_backs_its_domain_off(
+    #[case] host: &str,
+    #[case] path: &str,
+    #[case] domain_key: &str,
+    #[case] backs_off: bool,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let ip = proving_ground.address().ip().to_string();
+
+    let crawled = crawl_seeds(
+        &env,
+        &proving_ground,
+        "unreachable-domain",
+        &[(host, path)],
+        &json!({
+            "crawl": { "retry": { "max": 0 }, "scope": { "strategy": "all" } },
+            "politeness": { "backoff": { "initial": 3_600_000, "max": 3_600_000 } },
+            "network": { "resolve": { EDGE_HOST: [&ip], UNREACHABLE_HOST: [&ip] } },
+            "egress": { "private_ranges": [EDGE_HOST, UNREACHABLE_HOST] },
+        }),
+        &|_| Vec::new(),
+    );
+
+    assert_eq!(
+        (
+            crawled.outcomes,
+            held_for(
+                &env.home().join(POLITENESS_FILE),
+                domain_key,
+                Duration::from_mins(30)
+            ),
+        ),
+        (vec![ended(path, "skipped", Some("robots_txt"))], backs_off)
+    );
+}
+
 /// A request robots.txt disallows is refused as soon as its robots.txt is
 /// read, before any wait for its domain's delay after that robots.txt: it
 /// takes no start of its domain, so a request it never sent holds back no
@@ -454,7 +503,7 @@ fn a_request_robots_txt_disallows_takes_no_start_of_its_domain() {
         &json!({ "politeness": { "domain": { "delay": 2_000 } } }),
         &|_| Vec::new(),
     );
-    let file = rusqlite::Connection::open(env.home().join("politeness.sqlite")).unwrap();
+    let file = rusqlite::Connection::open(env.home().join(POLITENESS_FILE)).unwrap();
     let (last_start, fetched_at): (i64, i64) = file
         .query_row(
             "SELECT (SELECT MAX(last_start) FROM domain_limits), (SELECT MAX(fetched_at) FROM robots_txt)",

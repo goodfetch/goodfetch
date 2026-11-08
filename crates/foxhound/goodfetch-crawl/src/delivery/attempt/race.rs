@@ -24,7 +24,7 @@ use tokio::sync::oneshot;
 
 use super::{
     Answer, BLOCKED, BROWSER, Found, On, PAGE_CHECK_FAILED, RACED, Served, Taught, Tiering, failed,
-    learn, reached_through_trap, read_by_browser, record_tier, refused_type,
+    judged, learn, reached_through_trap, read_by_browser, record_tier, refused_type,
 };
 use crate::lease::WorkItemLease;
 use crate::tier_race::Raced;
@@ -94,7 +94,10 @@ impl On<'_> {
                     self.on_block(cause, &RACED);
                     false
                 }
-                Found::Checked(judged) => matches!(judged, Some(Judged::Passed) | None),
+                Found::Readable => matches!(
+                    judged(run, tiering, served.page_id()).await,
+                    Some(Judged::Passed) | None
+                ),
             };
             Ok::<_, Answer>((served, facts, latency, passed && raced.agrees))
         });

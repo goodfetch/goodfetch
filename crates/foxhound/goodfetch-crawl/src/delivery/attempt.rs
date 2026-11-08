@@ -46,7 +46,9 @@
 //! any wait for its domain's delay; one whose robots.txt, or a redirect
 //! hop's, cannot be read, with no earlier copy, is not sent either, the
 //! failed fetch counting as one of its attempts and backing its domain
-//! off, and it ends `skipped` with `robots_txt` once its retries ran out.
+//! off, unless it is a hop's on another domain key, which says nothing of
+//! the request's own; and it ends `skipped` with `robots_txt` once its
+//! retries ran out.
 //! While it is off, robots.txt is read only while
 //! `site_preferences.mark_robots_txt_ignored` marks the Records taken
 //! against it or the AI-use signals are honoured; otherwise it is neither
@@ -155,6 +157,9 @@ pub(super) enum Answer {
     /// earlier copy to apply, for the reason given: the request was not
     /// sent, and the failed fetch counts as one of its attempts (ADR 0086).
     RobotsTxtUnreachable(String),
+    /// The same of a redirect hop on another domain key than the request's:
+    /// counted alike, but it says nothing of the request's own domain.
+    HopsRobotsTxtUnreachable(String),
     /// A sitemap's fetch read what its sitemap lists (ADR 0093): no
     /// handler ran.
     SitemapRead(sitemap::Document),
@@ -503,7 +508,8 @@ pub(super) async fn attempt(
 /// What a run on a document tier finds of its served page before the
 /// Frontier learns from it or its handler runs, in the one order every
 /// run checks it: a document only a guess could read first (ADR 0119), then
-/// a Challenge the Block classification finds, then the Page check.
+/// a Challenge the Block classification finds; each caller then runs the
+/// Page check on a page that is neither ([`judged`]).
 enum Found {
     /// The document declares no encoding and is not UTF-8: the call that
     /// escalates it to the browser, which reads it, under `auto`.
@@ -513,9 +519,8 @@ enum Found {
     /// `blocked` (`escalation`). Other Block causes still reach the handler
     /// until the proxy-tier escalation ends them (#1137).
     Challenge(BlockCause, CallError),
-    /// The Page check's verdict, its Label's else the Run's (ADR 0093);
-    /// `None` with no check to judge by.
-    Checked(Option<Judged>),
+    /// Neither: the Page check comes next.
+    Readable,
 }
 
 /// A page a tier served for an attempt, held until it is handed out
@@ -972,7 +977,7 @@ impl On<'_> {
     ) -> Option<Result<(HttpRun, Taught), (Answer, Taught)>> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let tiers = &tiering.tiers;
-        let judged = match self.found(tiering, page_id, facts).await {
+        match self.found(tiering, page_id, facts).await {
             Found::Unreadable(call) => {
                 tiers.close(page_id);
                 record_tier(run, leased, lease, choice, how, None, None).await;
@@ -997,8 +1002,8 @@ impl On<'_> {
                     Action::Blocked => Err((failed(&error), Taught::default())),
                 });
             }
-            Found::Checked(judged) => judged,
-        };
+            Found::Readable => {}
+        }
         record_tier(
             run,
             leased,
@@ -1009,7 +1014,7 @@ impl On<'_> {
             facts.certificate_exception.clone(),
         )
         .await;
-        match judged {
+        match judged(run, tiering, page_id).await {
             Some(Judged::Passed) | None => None,
             Some(Judged::Failed(error)) => {
                 tiers.close(page_id);
@@ -1044,7 +1049,7 @@ impl On<'_> {
         {
             return Found::Challenge(block.cause, error);
         }
-        Found::Checked(judged(self.run, tiering, page_id).await)
+        Found::Readable
     }
 
     /// The document of the attempt's request fetched on `http` under the
@@ -1107,9 +1112,14 @@ impl On<'_> {
                 served
                     .map_err(|stop| match stop {
                         Stop::Failed(error) => failed(&error),
-                        Stop::RobotsTxtUnreachable(message) => {
-                            Answer::RobotsTxtUnreachable(message)
-                        }
+                        Stop::RobotsTxtUnreachable {
+                            message,
+                            on_own_domain: true,
+                        } => Answer::RobotsTxtUnreachable(message),
+                        Stop::RobotsTxtUnreachable {
+                            message,
+                            on_own_domain: false,
+                        } => Answer::HopsRobotsTxtUnreachable(message),
                         Stop::Skipped(skip) => {
                             tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, reason = ?skip.reason, message = skip.message, "a redirect hop ended its request skipped");
                             Answer::Refused(skip.reason)
@@ -1583,6 +1593,7 @@ pub(super) fn effect(answer: &Answer) -> Effect {
         })
         | Answer::Refused(_)
         | Answer::RobotsTxtUnreachable(_)
+        | Answer::HopsRobotsTxtUnreachable(_)
         | Answer::SitemapRead(_)
         | Answer::LeaseEnded
         | Answer::ClientGone => Effect::Neutral,

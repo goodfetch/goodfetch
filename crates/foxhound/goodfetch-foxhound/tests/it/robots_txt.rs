@@ -393,9 +393,10 @@ const REDIRECT_TO_UNREACHABLE: &str = "/redirect/unreachable-robots";
 /// earlier copy, is never sent, and its crawl request is retried as one
 /// whose own robots.txt failed: each failed robots.txt fetch counts as one
 /// of its attempts, and once its retries ran out it ends `skipped` with
-/// `robots_txt`.
+/// `robots_txt`. The crawl's scope takes every host, so the hop leaves the
+/// seed's domain.
 ///
-/// Covers: story:6-242, setting:crawl.retry.max
+/// Covers: story:6-242, setting:crawl.retry.max, setting:crawl.scope.strategy
 #[test]
 fn a_request_whose_redirect_hops_robots_txt_keeps_failing_ends_skipped_after_its_retries() {
     let env = TestEnv::new();
@@ -408,7 +409,7 @@ fn a_request_whose_redirect_hops_robots_txt_keeps_failing_ends_skipped_after_its
         "unreachable-hop",
         &[(EDGE_HOST, REDIRECT_TO_UNREACHABLE)],
         &json!({
-            "crawl": { "retry": { "max": 1 } },
+            "crawl": { "retry": { "max": 1 }, "scope": { "strategy": "all" } },
             "politeness": { "backoff": { "initial": 100, "max": 200 } },
             "network": { "resolve": { EDGE_HOST: [&ip], UNREACHABLE_HOST: [&ip] } },
             "egress": { "private_ranges": [EDGE_HOST, UNREACHABLE_HOST] },

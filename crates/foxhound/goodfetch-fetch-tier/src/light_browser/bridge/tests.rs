@@ -22,7 +22,6 @@ use std::fmt::Write as _;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 
-use data_encoding::BASE64;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
@@ -30,11 +29,15 @@ use goodfetch_engine::tls::{CertificateExceptions, Trust};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
 
-use super::relay;
+use super::{authorization, relay};
 use crate::transports::{AddressCheck, Reqwest, TransportConfig};
 
 /// The bridge's token in these tests.
 const TOKEN: &str = "a-token-of-the-test";
+
+/// The `Proxy-Authorization` value of `goodfetch:a-token-of-the-test`,
+/// encoded apart from the code under test.
+const AUTHORIZATION: &str = "Basic Z29vZGZldGNoOmEtdG9rZW4tb2YtdGhlLXRlc3Q=";
 
 /// The host the Run's egress policy lets reach the loopback site.
 const ALLOWED: &str = "allowed.test";
@@ -42,14 +45,6 @@ const ALLOWED: &str = "allowed.test";
 /// A host resolving to the same site that the policy refuses: loopback is
 /// a private address it does not list.
 const REFUSED: &str = "refused.test";
-
-/// The `Proxy-Authorization` value the bridge expects.
-fn expected() -> String {
-    format!(
-        "Basic {}",
-        BASE64.encode(format!("goodfetch:{TOKEN}").as_bytes())
-    )
-}
 
 /// The address check of the HTTP tier of a Run whose policy allows every
 /// domain, mapping both hosts to loopback and listing only [`ALLOWED`] in
@@ -84,9 +79,8 @@ async fn relayed(site: &TcpListener, request: String) -> (String, bool) {
     let (accepted, _) = bridge.accept().await.unwrap();
     lightpanda.write_all(request.as_bytes()).await.unwrap();
     let check = check();
-    let expected = expected();
     let clock = Clock::system();
-    let (relayed, answer) = tokio::join!(relay(accepted, &check, &expected, &clock), async {
+    let (relayed, answer) = tokio::join!(relay(accepted, &check, AUTHORIZATION, &clock), async {
         let mut answer = Vec::new();
         lightpanda.read_to_end(&mut answer).await.unwrap();
         answer
@@ -112,6 +106,13 @@ fn request(method: &str, target: &str, authorization: Option<&str>) -> String {
 /// The status line of `answer`.
 fn status(answer: &str) -> &str {
     answer.lines().next().unwrap_or_default()
+}
+
+/// What a client given the bridge's proxy URL sends is the value the bridge
+/// lets through.
+#[test]
+fn the_bridge_expects_the_basic_credentials_of_its_proxy_url() {
+    assert_eq!(authorization(TOKEN), AUTHORIZATION);
 }
 
 #[rstest::rstest]
@@ -150,7 +151,7 @@ async fn a_request_the_egress_policy_refuses_is_answered_403_and_relays_nothing(
     let port = site.local_addr().unwrap().port();
     let target = target.replace("{port}", &port.to_string());
 
-    let (answer, reached) = relayed(&site, request(method, &target, Some(&expected()))).await;
+    let (answer, reached) = relayed(&site, request(method, &target, Some(AUTHORIZATION))).await;
 
     assert_eq!(
         (status(&answer), reached),
@@ -172,15 +173,15 @@ async fn a_request_with_the_token_to_an_allowed_host_reaches_the_site() {
     let sent = request(
         "GET",
         &format!("http://{ALLOWED}:{port}/page?x=1"),
-        Some(&expected()),
+        Some(AUTHORIZATION),
     );
     lightpanda.write_all(sent.as_bytes()).await.unwrap();
     lightpanda.shutdown().await.unwrap();
-    let (check, expected) = (check(), expected());
+    let check = check();
 
     let clock = Clock::system();
     let (relayed, received, answer) = tokio::join!(
-        relay(accepted, &check, &expected, &clock),
+        relay(accepted, &check, AUTHORIZATION, &clock),
         async {
             let (mut connection, _) = site.accept().await.unwrap();
             let mut received = vec![0; 4096];
@@ -224,11 +225,11 @@ async fn a_client_that_sends_no_request_head_is_given_up_at_the_head_deadline() 
         .await
         .unwrap();
     let (accepted, _) = bridge.accept().await.unwrap();
-    let (check, expected) = (check(), expected());
+    let check = check();
 
     let ended = tokio::time::timeout(
         Duration::from_secs(60),
-        relay(accepted, &check, &expected, &Clock::system()),
+        relay(accepted, &check, AUTHORIZATION, &Clock::system()),
     )
     .await;
 

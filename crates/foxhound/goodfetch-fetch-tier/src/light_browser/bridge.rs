@@ -75,10 +75,7 @@ impl Bridge {
         let accepting = Accepting {
             run: run.clone(),
             check,
-            expected: format!(
-                "Basic {}",
-                BASE64.encode(format!("{USER}:{token}").as_bytes())
-            ),
+            expected: authorization(&token),
             stop: stop.clone(),
         };
         run.spawn(accepting.accept(listener));
@@ -93,6 +90,15 @@ impl Bridge {
     pub(crate) fn proxy_url(&self) -> String {
         format!("http://{USER}:{}@{}", self.token, self.address)
     }
+}
+
+/// The `Proxy-Authorization` value of a proxy URL whose password is `token`
+/// (RFC 7617's Basic scheme), as a client with those credentials sends it.
+fn authorization(token: &str) -> String {
+    format!(
+        "Basic {}",
+        BASE64.encode(format!("{USER}:{token}").as_bytes())
+    )
 }
 
 /// The bridge's accept loop and what each connection needs.

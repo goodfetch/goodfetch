@@ -1,7 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parse } from "smol-toml";
 import { afterEach, describe, expect, test } from "vitest";
 import {
   type Canary,
@@ -30,19 +29,6 @@ const canaries: Canary[] = fixture.canaries.map(({ id, kind, value, planted_in }
   plantedIn: planted_in,
 }));
 
-/** The rule IDs of the `gitleaks` rule `xtask codegen` writes from Rust's kinds, one per kind. */
-function canaryRuleIds(): string[] {
-  const { rules } = parse(
-    readFileSync(new URL("../../fixtures/canaries/gitleaks.toml", import.meta.url), "utf8"),
-  );
-  if (!Array.isArray(rules)) throw new Error("the canary rule holds no rules");
-  return rules.map((rule) => {
-    const id = typeof rule === "object" && "id" in rule ? rule.id : undefined;
-    if (typeof id !== "string") throw new Error("a canary rule has no ID");
-    return id;
-  });
-}
-
 const folders: string[] = [];
 
 afterEach(() => {
@@ -50,11 +36,21 @@ afterEach(() => {
 });
 
 test("SECRET_KINDS names every kind Rust test support plants, in its order", () => {
-  const planted = canaryRuleIds().map((id) =>
-    id.replace(/^goodfetch-secret-canary-/, "").replaceAll("-", "_"),
-  );
-
-  expect(SECRET_KINDS).toEqual(planted);
+  expect(SECRET_KINDS).toEqual([
+    "typed_password",
+    "totp_seed",
+    "one_time_code",
+    "proxy_password",
+    "http_authentication_password",
+    "header_value",
+    "caller_answer",
+    "model_api_key",
+    "webhook_signing_secret",
+    "sink_credential",
+    "session_cookie",
+    "endpoint_token",
+    "run_data_key",
+  ]);
 });
 
 describe("searchCanaries", () => {

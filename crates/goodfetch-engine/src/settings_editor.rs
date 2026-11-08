@@ -150,6 +150,7 @@ impl SettingsEditor {
                 kind,
                 details,
             } => {
+                draft.drafted(layer)?.changed = true;
                 draft.write()?;
                 self.record(layer, kind, details)?;
                 Ok(answer)

@@ -374,6 +374,53 @@ fn a_policy_write_from_an_sdk_is_refused() {
     );
 }
 
+/// A write with no changes against a policy that is not there still writes
+/// the file its answer's digest names, so the next write against that digest
+/// is not stale.
+///
+/// Covers: operation:config.policy_write
+#[test]
+fn a_policy_write_with_no_changes_writes_the_file_its_digest_names() {
+    let env = TestEnv::new();
+
+    let [emptied, next] = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            opened(&mut client, "console", "collie").await;
+            let read = call(&mut client, 1, "config.policy_read", json!({})).await;
+            let emptied = call(
+                &mut client,
+                2,
+                "config.policy_write",
+                json!({ "digest": read["result"]["digest"], "changes": [] }),
+            )
+            .await;
+            let next = call(
+                &mut client,
+                3,
+                "config.policy_write",
+                json!({
+                    "digest": emptied["result"]["digest"],
+                    "changes": [{ "table": "cap", "key": "timeout.run", "value": 600_000 }],
+                }),
+            )
+            .await;
+            [emptied, next]
+        },
+    );
+
+    assert_eq!(
+        (
+            emptied["error"].clone(),
+            next["error"].clone(),
+            file(&env, "operator-policy.toml").exists()
+        ),
+        (Value::Null, Value::Null, true),
+        "{emptied} {next}"
+    );
+}
+
 /// A user-level value the Audit log cannot record is written all the same,
 /// and the write answers `internal_error` saying the entry is missing
 /// rather than succeeding unrecorded.

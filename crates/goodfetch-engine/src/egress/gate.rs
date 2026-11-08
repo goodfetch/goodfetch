@@ -51,13 +51,17 @@ pub struct Judged<'named, 'policy> {
 }
 
 /// Why a connection is not made.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Stopped<E> {
     /// Its URL or host was refused before any lookup.
+    #[error("{0}")]
     Refused(Refused),
     /// Its host has no address: the resolver's failure.
+    #[error("no address: {0}")]
     Unresolved(E),
     /// An address its host resolved to was refused before any connection.
+    #[error("{0}")]
     AddressRefused(Refused),
 }
 

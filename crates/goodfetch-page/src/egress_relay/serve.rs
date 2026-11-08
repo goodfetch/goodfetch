@@ -257,16 +257,6 @@ where
             )
             .await;
         }
-        Err(Stopped::Unresolved(())) => {
-            return unreached(
-                &mut browser,
-                &head,
-                observe,
-                Unreached::NameNotResolved,
-                "dns_error",
-            )
-            .await;
-        }
         Err(Stopped::AddressRefused(refused)) => {
             return refuse(
                 &mut browser,
@@ -274,6 +264,18 @@ where
                 &refused,
                 observe,
                 "destination_ip_prohibited",
+            )
+            .await;
+        }
+        // Nothing else stops it with a refusal to name: its name has no
+        // address it may reach.
+        Err(_) => {
+            return unreached(
+                &mut browser,
+                &head,
+                observe,
+                Unreached::NameNotResolved,
+                "dns_error",
             )
             .await;
         }

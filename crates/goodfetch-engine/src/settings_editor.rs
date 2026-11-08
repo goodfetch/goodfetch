@@ -32,29 +32,21 @@ use crate::settings::{
 
 /// The lock file beside the Operator policy, which each edit of the
 /// machine's settings files holds from its first read to its rename.
-const LOCK_FILE: &str = "operator-policy.lock";
+pub(crate) const LOCK_FILE: &str = "operator-policy.lock";
 
 /// Why an edit failed: each but `Unrecorded` wrote nothing.
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum Refused {
     /// A setting's refusal, such as an unknown key or an Operator policy's
     /// lock.
-    Settings(SettingsError),
+    #[error(transparent)]
+    Settings(#[from] SettingsError),
     /// A file could not be read or written.
-    File(io::Error),
+    #[error("the settings file cannot be read or written: {0}")]
+    File(#[from] io::Error),
     /// The change was written, but the Audit log could not record it.
-    Unrecorded(AuditError),
-}
-
-impl From<SettingsError> for Refused {
-    fn from(error: SettingsError) -> Self {
-        Self::Settings(error)
-    }
-}
-
-impl From<io::Error> for Refused {
-    fn from(error: io::Error) -> Self {
-        Self::File(error)
-    }
+    #[error("the change was written, but the Audit log cannot record it: {0}")]
+    Unrecorded(#[source] AuditError),
 }
 
 /// What an edit made of the files it read.

@@ -1,4 +1,5 @@
-//! The Cargo that `xtask` starts to build or run the workspace's targets.
+//! The Cargo that `xtask` starts to build or run the workspace's targets,
+//! and the JSON messages its builds answer with.
 //! `cargo run` gives `xtask` its package's variables (`CARGO_MANIFEST_DIR`,
 //! `CARGO_PKG_NAME`, …), and a Cargo that inherits them sees each build
 //! script that names one in `rerun-if-env-changed`, as `ring`'s does, as
@@ -51,4 +52,36 @@ pub(crate) fn command(cargo: &OsStr) -> Command {
         command.env_remove(name);
     }
     command
+}
+
+/// One message of a Cargo build's JSON output (`--message-format json…`),
+/// the fields `xtask` reads.
+#[derive(serde::Deserialize)]
+pub(crate) struct Message {
+    pub(crate) reason: String,
+    pub(crate) target: Option<MessageTarget>,
+    /// The executable a `compiler-artifact` message's target built.
+    pub(crate) executable: Option<std::path::PathBuf>,
+}
+
+/// The target a [`Message`] is about.
+#[derive(serde::Deserialize)]
+pub(crate) struct MessageTarget {
+    pub(crate) name: String,
+    pub(crate) kind: Vec<String>,
+}
+
+/// Each message of a Cargo build's JSON output, one a line. A line that is
+/// no such message fails, so a change of Cargo's format reads as an error,
+/// never as a build that made nothing.
+pub(crate) fn messages(stdout: &[u8]) -> anyhow::Result<Vec<Message>> {
+    use anyhow::Context as _;
+
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .map(|line| {
+            serde_json::from_str(line)
+                .with_context(|| format!("reading cargo's JSON message: {line}"))
+        })
+        .collect()
 }

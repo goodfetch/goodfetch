@@ -631,6 +631,8 @@ fn runtime_file(socket: &std::path::Path) -> serde_json::Value {
     serde_json::json!({
         "endpoint": { "unix": socket },
         "token": "t",
+        "version": "0.0.0",
+        "pid": 1,
         "console": { "serving": "http://127.0.0.1:1/" },
     })
 }

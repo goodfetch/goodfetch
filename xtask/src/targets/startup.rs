@@ -9,15 +9,15 @@
 )]
 
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use anyhow::{Context as _, Result, bail};
 use goodfetch_protocol::catalog::Product;
-use serde::Deserialize;
 
 use crate::output;
 use crate::rss::scenario::{as_shipped, hello_line};
+use crate::test_tools::{Tool, ToolManifest};
 
 use super::measured::startup_file;
 
@@ -26,26 +26,14 @@ pub(crate) const WARMUP: u32 = 10;
 /// hyperfine's timed runs of each Product.
 pub(crate) const RUNS: u32 = 100;
 
-/// The entries of the test tool manifest startup runs.
-#[derive(Deserialize)]
-struct Tools {
-    collie: Option<PathBuf>,
-    foxhound: Option<PathBuf>,
-}
-
 /// Times each Product's Attached engine and writes hyperfine's export of
 /// each into `out`; the engine runs without `goodfetch_variables`, this
 /// process's Goodfetch variables.
 pub(crate) fn measure(tools: &Path, out: &Path, goodfetch_variables: &[OsString]) -> Result<()> {
-    let text = std::fs::read(tools).with_context(|| format!("reading {}", tools.display()))?;
-    let tools: Tools =
-        serde_json::from_slice(&text).with_context(|| format!("parsing {}", tools.display()))?;
+    let tools = ToolManifest::read(tools)?;
     std::fs::create_dir_all(out).with_context(|| format!("creating {}", out.display()))?;
-    for (product, executable) in [
-        (Product::Collie, tools.collie),
-        (Product::Foxhound, tools.foxhound),
-    ] {
-        let Some(executable) = executable else {
+    for product in [Product::Collie, Product::Foxhound] {
+        let Some(executable) = tools.get(Tool::of_product(product)) else {
             bail!(
                 "the test tool manifest names no executable of {}",
                 product.name()
@@ -72,7 +60,7 @@ pub(crate) fn measure(tools: &Path, out: &Path, goodfetch_variables: &[OsString]
             .arg(out.join(startup_file(product)))
             .arg("--command-name")
             .arg(format!("{} attached engine to hello", product.as_str()))
-            .arg(format!("{} attached-engine", quoted(&executable)))
+            .arg(format!("{} attached-engine", quoted(executable)))
             .stdin(Stdio::null())
             .stderr(Stdio::inherit())
             .status();

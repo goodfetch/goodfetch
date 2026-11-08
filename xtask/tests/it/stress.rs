@@ -773,6 +773,39 @@ fn a_red_stress_run_stops_at_the_end_of_its_first_red_iteration() {
     );
 }
 
+/// How many times a run built the test tool manifest.
+#[cfg(unix)]
+fn test_tools_builds(ran: &Ran) -> usize {
+    ran.calls
+        .iter()
+        .filter(|call| call.contains(" -- test-tools "))
+        .count()
+}
+
+/// A stress run builds the test tool manifest once, for its listings and
+/// every count's runs alike.
+#[cfg(unix)]
+#[test]
+fn a_stress_run_builds_the_test_tools_once() {
+    let recipes = recipes("20\tnextest\tsample counted::red_on_its_second_run\n");
+
+    let ran = recipes.just(&["stress", "HEAD"]);
+
+    assert_eq!(test_tools_builds(&ran), 1, "{:?}", ran.calls);
+}
+
+/// `just repeat` builds the test tool manifest once before its runs.
+#[cfg(unix)]
+#[test]
+fn a_repeat_run_builds_the_test_tools_once() {
+    let recipes = recipes("");
+
+    let ran = recipes.just(&["repeat", "1", "--test", "nextest=sample tests::steady"]);
+
+    assert_eq!(ran.code, Some(0), "{}", ran.output);
+    assert_eq!(test_tools_builds(&ran), 1, "{:?}", ran.calls);
+}
+
 /// A green stress run still runs each selected test its 20 times.
 #[cfg(unix)]
 #[test]

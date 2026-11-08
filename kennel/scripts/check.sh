@@ -40,19 +40,12 @@ skip() {
   echo "skipped: kennel/scripts/check.sh ($1)" >&2
 }
 
-# Collie's executable embeds its Console build, made first (ADR 0057), and
-# needs its `executable` feature (ADR 0094), as `xtask test-tools` builds it.
-cargo run --quiet --locked --bin xtask -- console build
 cargo run --quiet --locked --bin xtask -- modules --workspace kennel
-built=$(cargo build --quiet --locked --profile "$profile" -p goodfetch-test-support \
-  --bin goodfetch-scripted-engine -p goodfetch-collie --bin goodfetch-collie \
-  --features executable --message-format json)
-executable() {
-  jq -r --arg name "$1" 'select(.reason == "compiler-artifact" and .target.name == $name) | .executable' <<<"$built"
-}
-mkdir -p target
-jq -n --arg engine "$(executable goodfetch-scripted-engine)" --arg collie "$(executable goodfetch-collie)" \
-  '{scripted_engine: $engine, collie: $collie}' >target/kennel-test-tools.json
+# The two executables and their manifest, as every test's: Collie's embeds
+# its Console build, made first (ADR 0057), and needs its `executable`
+# feature (ADR 0094).
+cargo run --quiet --locked --bin xtask -- test-tools build --cargo-profile "$profile" \
+  --tool scripted_engine --tool collie --out "$root/target/kennel-test-tools.json"
 export GOODFETCH_TEST_TOOLS="$root/target/kennel-test-tools.json"
 
 # From its own folder, so rustup takes the Kennel's own toolchain pin.

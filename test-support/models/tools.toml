@@ -42,7 +42,6 @@
 #    its pinned digest:
 #      cp "$new"/*.jar target/tla-tools/
 #      just tlc --all && just tlc --all --config large && just tlc-self-test
-#      just tlc run-fencing --config zombie --expect invariant-violated
 # 4. Run the trace-validation probe; the first exits 0, the second 12:
 #      cd test-support/models/trace-probe
 #      tools=../../../target/tla-tools/tla2tools.jar:../../../target/tla-tools/CommunityModules-deps.jar

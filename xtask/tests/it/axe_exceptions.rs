@@ -16,7 +16,29 @@ const OPEN_ISSUE: &str = r#"{ "number": 1701, "state": "open", "labels": [] }"#;
 const ENTRY: &str = "[[exception]]\nrule = \"color-contrast\"\nselector = \"#brand\"\npages = [\"/runs/:run_id\"]\nreason = \"axe reads the gradient behind the text as its colour\"\nissue = 1701\n";
 
 fn check(workspace: &Workspace, github: &GitHub) -> Outcome {
-    workspace.xtask(&["axe-exceptions", "check", "--api-url", github.url()])
+    workspace.xtask_with_env(
+        &["axe-exceptions", "check", "--api-url", github.url()],
+        &[("GITHUB_TOKEN", "a-read-token".as_ref())],
+    )
+}
+
+/// Without a token, a private repository answers 404 for every issue: the
+/// check names the missing token instead of each entry's issue.
+#[test]
+fn an_entry_read_without_a_github_token_fails_naming_the_token() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write("console/axe-exceptions.toml", ENTRY.as_bytes());
+    let github = GitHub::serving(&[]);
+
+    let outcome = workspace.xtask(&["axe-exceptions", "check", "--api-url", github.url()]);
+
+    assert_ne!(outcome.code, 0);
+    assert_eq!(outcome.findings(), vec![]);
+    assert!(
+        outcome.stderr.contains("no GitHub token"),
+        "{}",
+        outcome.stderr
+    );
 }
 
 #[test]

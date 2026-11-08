@@ -11,11 +11,15 @@ set -euo pipefail
 
 marker="$1"
 folder="${GOODFETCH_TEST_RESULT_DOCUMENTS:?names the result documents folder}"
-reader=$(jq -r '.conformance' "${GOODFETCH_TEST_TOOLS:?names the test tool manifest}")
+manifest="${GOODFETCH_TEST_TOOLS:?names the test tool manifest}"
 [[ -d "$folder" ]] || exit 0
 status=0
+reader=""
 while IFS= read -r -d '' document; do
   if [[ "$(jq -r '.kind' "$document")" == conformance ]]; then
+    # The harness, read from the manifest once a document needs it.
+    [[ -n "$reader" ]] ||
+      reader=$(cargo run --quiet --bin xtask -- test-tools path conformance --manifest "$manifest")
     if "$reader" read "$document"; then
       echo "Conformance document read: $document"
     else

@@ -355,8 +355,12 @@ enum Command {
     Telemetry,
     /// Builds the commit's executables that tests run with the tests' own
     /// Cargo profile and writes the test tool manifest of their paths, which
-    /// `just test` puts in `GOODFETCH_TEST_TOOLS` (ADRs 0062 and 0094).
-    TestTools(test_tools::Arguments),
+    /// `just test` puts in `GOODFETCH_TEST_TOOLS` (ADRs 0062 and 0094), and
+    /// reads a tool's path in one.
+    TestTools {
+        #[command(subcommand)]
+        command: test_tools::Command,
+    },
     /// The TLA+ models' model checking with TLC, on the pinned pair of TLA+
     /// tools (ADR 0060).
     Tlc {
@@ -555,7 +559,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::SweepTarget(arguments) => sweep_target::run(&arguments, environment),
         Command::Targets { command } => targets::run(command, environment),
         Command::Telemetry => Ok(check::report(&telemetry::check(root)?)),
-        Command::TestTools(arguments) => test_tools::run(&arguments, environment),
+        Command::TestTools { command } => test_tools::run(command, environment),
         Command::Tlc { command } => tlc::run(command, environment),
         Command::Watchlist(arguments) => watchlist::run(&arguments, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),

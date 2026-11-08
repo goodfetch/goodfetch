@@ -31,6 +31,7 @@ mod containment;
 #[cfg(unix)]
 mod counts;
 mod dco;
+mod deny_products;
 mod dependency_direction;
 mod diagnostic;
 mod egress;

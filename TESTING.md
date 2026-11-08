@@ -1396,14 +1396,14 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `C5.answers` | CDP answers per paused request (a recorded response: at most 2) | 1 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C5.compilations` | compilations per paused request | 0 | 0 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C5.entries` | entries sent to the Run-trace writer per refused request | 1 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
-| `E1.deep_copies` | deep copies per incoming message | 0 | 1.019 | B3 | must not grow | `just counts` | implementer done, merge gate |
+| `E1.deep_copies` | deep copies per incoming message | 0 | 0.208 | B3 | must not grow | `just counts` | implementer done, merge gate |
 | `E1.encodes` | encodes per answer or event | 1 | 2.146 | B3 | must not grow | `just counts` | implementer done, merge gate |
-| `E1.instructions` | instructions per dispatched message, small params | 1.10 × the figure after #1577 (ADR 0134) | 32350.07 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
-| `E1.instructions_large` | instructions per dispatched message, large params and a Plugin's messages | 1.10 × the figure after #1577 (ADR 0134) | 1780227.77 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
-| `E1.allocations` | allocations per dispatched message, small params | 1.10 × the figure after #1577 (ADR 0134) | 46.78 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
-| `E1.allocations_large` | allocations per dispatched message, large params and a Plugin's messages | 1.10 × the figure after #1577 (ADR 0134) | 46.75 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
-| `E1.bytes_allocated` | bytes allocated per dispatched message, small params | 1.10 × the figure after #1577 (ADR 0134) | 5410.81 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
-| `E1.bytes_allocated_large` | bytes allocated per dispatched message, large params and a Plugin's messages | 1.10 × the figure after #1577 (ADR 0134) | 617845.09 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
+| `E1.instructions` | instructions per dispatched message, small params | 1.10 × the figure after #1577 (ADR 0134) | 29821.9 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
+| `E1.instructions_large` | instructions per dispatched message, large params and a Plugin's messages | 1.10 × the figure after #1577 (ADR 0134) | 1745152.31 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
+| `E1.allocations` | allocations per dispatched message, small params | 1.10 × the figure after #1577 (ADR 0134) | 32.78 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
+| `E1.allocations_large` | allocations per dispatched message, large params and a Plugin's messages | 1.10 × the figure after #1577 (ADR 0134) | 38 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
+| `E1.bytes_allocated` | bytes allocated per dispatched message, small params | 1.10 × the figure after #1577 (ADR 0134) | 4076.81 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
+| `E1.bytes_allocated_large` | bytes allocated per dispatched message, large params and a Plugin's messages | 1.10 × the figure after #1577 (ADR 0134) | 584087.59 | B3 | must not grow (0.5 %) | `just counts --valgrind` | merge gate |
 | `E2.configuration_reads` | configuration reads per Audit entry | 0 | 1 | B3 | must not grow | `just counts` | implementer done, merge gate |
 | `E2.opens` | store opens and schema set-ups per Audit entry | 0 | 1.95 | B3 | must not grow | `just counts` | implementer done, merge gate |
 | `E2.prepares` | statement preparations per Audit entry | 0 | 38.75 | B3 | must not grow | `just counts` | implementer done, merge gate |

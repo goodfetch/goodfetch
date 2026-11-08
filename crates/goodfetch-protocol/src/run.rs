@@ -940,7 +940,7 @@ pub const RUN_IN_USE: ErrorCodeDefinition = ErrorCodeDefinition {
 /// 0031 and 0037).
 pub const RUN_BUSY: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "run_busy",
-    description: "Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.",
+    description: "Another engine holds the Run's writer lock, and the owner the Run index names did not say it took the action: it did not answer, and may still be taking it, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.",
     group: ErrorGroup::Refused,
     retryable: true,
     exit_code: None,

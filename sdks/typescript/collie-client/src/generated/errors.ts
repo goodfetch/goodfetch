@@ -627,7 +627,7 @@ export class RouteAlreadyHandledError extends ProgramError {
 }
 
 /**
- * Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.
+ * Another engine holds the Run's writer lock, and the owner the Run index names did not say it took the action: it did not answer, and may still be taking it, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later.
  */
 export class RunBusyError extends RefusedError {
   constructor(message: string, fields: ErrorFields = {}) {

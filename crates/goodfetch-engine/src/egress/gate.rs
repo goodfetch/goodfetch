@@ -144,8 +144,8 @@ impl<'policy> Gate<'policy> {
         })
     }
 
-    /// Judges `url`, resolves its host with `resolve`, given the host
-    /// (an IPv6 address without brackets) and the URL's port, and judges
+    /// Judges `url`, resolves its host with `resolve`, given its
+    /// [`Judged::lookup_name`] and the URL's port, and judges
     /// every address it answered: the whole check of a connection to
     /// `url`, in one call.
     ///

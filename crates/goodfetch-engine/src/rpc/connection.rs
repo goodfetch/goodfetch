@@ -703,41 +703,47 @@ impl Session<'_> {
             Frame::Line(line) => decode(&line, &self.dispatch.work),
         };
         let message = Message::of(incoming);
-        match self.transition(message.event()) {
-            Ok(
-                ConnectionEffect::Handshake
-                | ConnectionEffect::Serve
-                | ConnectionEffect::Answer
-                | ConnectionEffect::CancelCalls
-                | ConnectionEffect::Nothing,
-            ) => self.serve(message).await,
-            Ok(ConnectionEffect::Refuse) => self.refuse(message).await,
-            Err(refused) => self.refuse_transition(refused, message).await,
-        }
-    }
-
-    /// Serves a message the Connection's state lets through: checks its
-    /// `hello`, calls a request's handler, routes a reply, acts on a
-    /// notification, or answers a line it cannot read.
-    async fn serve(&mut self, message: Message) -> Flow {
-        match message {
-            Message::Hello(request) => self.open(request).await,
-            Message::Request(request) => self.request(request).await,
-            Message::Notification(notification) => {
+        let effect = match self.transition(message.event()) {
+            Ok(effect) => effect,
+            Err(refused) => return self.refuse_transition(refused, message).await,
+        };
+        match (effect, message) {
+            (ConnectionEffect::Handshake, Message::Hello(request)) => self.open(request).await,
+            (ConnectionEffect::Serve, Message::Request(request)) => self.request(request).await,
+            (ConnectionEffect::Serve, Message::Notification(notification)) => {
                 self.notification(&notification);
                 Flow::Continue
             }
-            Message::Reply { id, answer } => {
+            (ConnectionEffect::Serve, Message::Reply { id, answer }) => {
                 self.reply(&id, answer);
                 Flow::Continue
             }
-            Message::Unreadable(error) => {
+            (ConnectionEffect::Answer, Message::Unreadable(error)) => {
                 let failure = CallError::protocol(error.failure, error.detail);
                 if self.send(failure_line(error.id, &failure)).await {
                     Flow::Continue
                 } else {
                     Flow::Close
                 }
+            }
+            (ConnectionEffect::Refuse, message) => self.refuse(message).await,
+            (ConnectionEffect::CancelCalls, _) => {
+                self.cancel_in_flight();
+                Flow::Continue
+            }
+            (ConnectionEffect::Nothing, _) => Flow::Continue,
+            (
+                effect @ (ConnectionEffect::Handshake
+                | ConnectionEffect::Serve
+                | ConnectionEffect::Answer),
+                message,
+            ) => {
+                tracing::error!(
+                    ?effect,
+                    event = ?message.event(),
+                    "the Connection's table gave a message an effect that is not its own; the Connection closes"
+                );
+                Flow::Close
             }
         }
     }

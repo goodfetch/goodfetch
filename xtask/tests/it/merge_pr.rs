@@ -29,8 +29,8 @@ const STARTED: &str = "1800000000";
 /// and for `date`, which gives [`STARTED`] for `-u +%s` and leaves every
 /// other format to the system's `date`.
 /// `gh pr view` shows an open pull request at the head of `change`; `cargo
-/// run … affected` prints `gate=quick`, or the gate `gate` names, its sweep
-/// notes `sweeping` and waits while `sweep-hold` exists, and its `perf
+/// run … affected` prints `selection`'s content, else `gate=quick` or the
+/// gate `gate` names, its sweep notes `sweeping` and waits while `sweep-hold` exists, and its `perf
 /// pull-request` fails while `acceptance-unread` exists; `just pre-merge`
 /// writes the plan a full gate reads, unless `no-plan` exists, and a JUnit file,
 /// notes the signals it ignores in `signals` where the system lists them,
@@ -54,7 +54,7 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
             format!(
                 "#!/bin/sh\necho \"cargo $* in $PWD\" >>\"{calls}\"\n\
                  case \" $* \" in\n\
-                   *\" affected \"*) if [ -f \"{gate}\" ]; then echo gate=$(cat \"{gate}\"); else echo gate=quick; fi ;;\n\
+                   *\" affected \"*) if [ -f \"{selection}\" ]; then cat \"{selection}\"; elif [ -f \"{gate}\" ]; then echo gate=$(cat \"{gate}\"); else echo gate=quick; fi ;;\n\
                    *\" sweep-target \"*)\n\
                      : >\"{sweeping}\"\n\
                      while [ -f \"{sweep_hold}\" ]; do sleep 0.02; done\n\
@@ -62,6 +62,7 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
                    *\" perf pull-request \"*) if [ -f \"{acceptance_unread}\" ]; then exit 1; fi ;;\n\
                  esac\n",
                 calls = calls.display(),
+                selection = folder.join("selection").display(),
                 gate = folder.join("gate").display(),
                 acceptance_unread = folder.join("acceptance-unread").display(),
                 sweeping = folder.join("sweeping").display(),
@@ -516,6 +517,58 @@ fn a_full_gate_without_a_lazyfs_build_fails_before_any_step(#[case] lazyfs: Opti
     assert!(run.stdout.contains("GOODFETCH_LAZYFS"), "{}", run.stdout);
     assert!(
         !run.calls.iter().any(|call| call.starts_with("just ")),
+        "{:?}",
+        run.calls
+    );
+    assert!(!gate_lock(&workspace).exists());
+}
+
+/// `xtask affected`'s selection decides which gate runs, so a selection the
+/// script cannot read fails before any step: taking it for some gate would
+/// merge on a gate nobody chose.
+#[rstest]
+#[case::no_gate("crates=a\n")]
+#[case::its_gate_twice("gate=full\ngate=quick\n")]
+fn a_selection_without_its_gate_or_with_it_twice_merges_nothing(#[case] selection: &str) {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("selection"), selection).unwrap();
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert!(run.stdout.contains("`gate=`"), "{}", run.stdout);
+    assert!(
+        !run.calls
+            .iter()
+            .any(|call| call.starts_with("just ") || call.starts_with("gh pr merge")),
+        "{:?}",
+        run.calls
+    );
+    assert!(!gate_lock(&workspace).exists());
+}
+
+#[test]
+fn a_gate_the_script_does_not_know_merges_nothing() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("gate"), "later").unwrap();
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert!(
+        !run.calls
+            .iter()
+            .any(|call| call.starts_with("just ") || call.starts_with("gh pr merge")),
         "{:?}",
         run.calls
     );

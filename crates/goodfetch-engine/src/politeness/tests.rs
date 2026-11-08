@@ -15,7 +15,7 @@ use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::home::POLITENESS_FILE;
-use goodfetch_test_support::{CrashVfs, IoFault, TestEnv};
+use goodfetch_test_support::{CrashVfs, IoFault, TestEnv, damage_table};
 use rusqlite::{Connection, OpenFlags};
 use tokio::sync::broadcast;
 
@@ -598,38 +598,6 @@ fn the_file_records_its_format_and_refuses_another_major() {
             })
         )
     );
-}
-
-/// Overwrites the pages of the table `table` and its indexes in the SQLite
-/// file at `path`, its WAL first copied into it, with bytes that are no
-/// B-tree page: SQLite reads them as it reads a page that met an I/O error.
-fn damage_table(path: &Path, table: &str) {
-    use std::io::{Seek as _, SeekFrom, Write as _};
-
-    let connection = Connection::open(path).unwrap();
-    connection
-        .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
-        .unwrap();
-    let page_size: i64 = connection
-        .query_row("PRAGMA page_size", [], |row| row.get(0))
-        .unwrap();
-    let roots: Vec<i64> = connection
-        .prepare("SELECT rootpage FROM sqlite_master WHERE tbl_name = ?1 AND rootpage > 0")
-        .unwrap()
-        .query_map([table], |row| row.get(0))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap();
-    drop(connection);
-    let mut file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
-    for root in roots {
-        file.seek(SeekFrom::Start(
-            u64::try_from((root - 1) * page_size).unwrap(),
-        ))
-        .unwrap();
-        file.write_all(&vec![0xff; usize::try_from(page_size).unwrap()])
-            .unwrap();
-    }
 }
 
 /// SQLite reports a read that met an I/O error (EIO) as `SQLITE_CORRUPT`

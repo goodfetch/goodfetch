@@ -13,7 +13,7 @@ use goodfetch_protocol::formats::{Compatibility, Format, RUN_INDEX};
 use goodfetch_protocol::run::{
     Lifecycle, PointInTime, Presence, RunId, RunIndexRow, RunKind, Tags,
 };
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{TestEnv, wal_of};
 use rusqlite::Connection;
 
 use super::{rows_as, write_as};
@@ -238,22 +238,14 @@ fn engines_that_open_a_new_index_at_once_each_open_it() {
     assert_eq!(refused, Vec::<String>::new());
 }
 
-/// The index's commits sync as every synced per-user store's do: each through
-/// `F_FULLFSYNC` on macOS, and its WAL stays beside it as its last
-/// connection closes (#2110).
+/// The index holds to the synced per-user store's durability: its WAL stays
+/// beside it as a write's connection closes (#2110).
 #[test]
-fn each_commit_syncs_through_fullfsync_on_macos_and_the_wal_stays_as_it_closes() {
+fn the_wal_stays_beside_the_index_once_a_write_closed_its_connection() {
     let env = TestEnv::in_memory();
     let path = env.folder().join("run-index.sqlite");
 
-    let connection = super::open(&path, &older()).unwrap();
-    let fullfsync: i64 = connection
-        .pragma_query_value(None, "fullfsync", |row| row.get(0))
-        .unwrap();
-    drop(connection);
+    write_as(&path, &older(), &row("first")).unwrap();
 
-    assert_eq!(fullfsync, i64::from(cfg!(target_os = "macos")));
-    let mut wal = path.as_os_str().to_owned();
-    wal.push("-wal");
-    assert!(std::path::Path::new(&wal).exists());
+    assert!(wal_of(&path).exists());
 }

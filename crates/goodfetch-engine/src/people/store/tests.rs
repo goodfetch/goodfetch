@@ -1,25 +1,26 @@
-//! The accounts store's file, through its own opening.
+//! The accounts store's file, through its interface.
 
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{TestEnv, wal_of};
 
-use super::AccountsStore;
+use super::{AccountsStore, SignInRow};
 
-/// The store's commits sync as every synced per-user store's do: each through
-/// `F_FULLFSYNC` on macOS, and its WAL stays beside it as its last
-/// connection closes (#2110).
+/// The store holds to the synced per-user store's durability: its WAL stays
+/// beside it as a write's connection closes (#2110).
 #[test]
-fn each_commit_syncs_through_fullfsync_on_macos_and_the_wal_stays_as_it_closes() {
+fn the_wal_stays_beside_the_store_once_a_write_closed_its_connection() {
     let env = TestEnv::in_memory();
     let store = AccountsStore::at(env.home().join("accounts-store.sqlite"));
 
-    let connection = store.open().unwrap();
-    let fullfsync: i64 = connection
-        .pragma_query_value(None, "fullfsync", |row| row.get(0))
+    store
+        .insert(&SignInRow {
+            id: "a-sign-in".to_owned(),
+            verifier: "a-verifier".to_owned(),
+            person: "ada".to_owned(),
+            created: "2026-01-05T09:00:00Z".to_owned(),
+            last_used: "2026-01-05T09:00:00Z".to_owned(),
+            wrapping_key: "a-wrapping-key".to_owned(),
+        })
         .unwrap();
-    drop(connection);
 
-    assert_eq!(fullfsync, i64::from(cfg!(target_os = "macos")));
-    let mut wal = store.path().as_os_str().to_owned();
-    wal.push("-wal");
-    assert!(std::path::Path::new(&wal).exists());
+    assert!(wal_of(store.path()).exists());
 }

@@ -10,7 +10,8 @@
 # passes. First the merge cap (ci/merge-cap.sh) refuses once 10 merges have
 # landed on `main` since the backstop's last green run, unless the owner
 # passes `--past-cap`. It refuses to start a gate while the file system of
-# the gate's `target/` has less free space than a gate's builds take (#1822);
+# the gate's `target/` has less free space than a gate's builds take (#1822)
+# or, on Linux, a full gate whose stress run could not run a LazyFS power cut;
 # keeps a failing gate's log and test results where no cleanup reaches them
 # (#2087); and, still holding the gate's lock, removes the build units no
 # gate read since the day before this one started (`xtask sweep-target`).
@@ -193,6 +194,14 @@ case $gate in
   full)
     gate=all
     ran="\`just pre-merge all\`, which starts with \`just quick all\`'s lint and Quick suite,"
+    # `just stress`, after the whole Pre-merge suite, refuses a selected
+    # `lazyfs::` test without a LazyFS build (xtask's `repeat`). Which tests it
+    # selects takes a build to find, so every full gate on Linux, the one system
+    # LazyFS runs on, asks for one before any step.
+    if [[ "$(uname -s)" == Linux && ! (-f ${GOODFETCH_LAZYFS:-} && -x ${GOODFETCH_LAZYFS:-}) ]]; then
+      echo "error: a full gate's \`just stress\` needs GOODFETCH_LAZYFS to name an executable LazyFS build, and it is ${GOODFETCH_LAZYFS:-not set}; build one with \`just lazyfs-build\` and name the executable that \`cargo run --bin xtask -- lazyfs build\` prints, or a copy of it, since a gate clears its worktree's target/lazyfs/" >&2
+      exit 1
+    fi
     ;;
   *)
     echo "error: \`xtask affected\` gave the gate $gate, which is quick, docs or full" >&2

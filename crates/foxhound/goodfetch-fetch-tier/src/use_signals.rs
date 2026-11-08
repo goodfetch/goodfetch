@@ -32,7 +32,7 @@ use tokio::sync::{Mutex, OnceCell};
 use url::Url;
 
 /// The path of `TDMRep`'s well-known file on an origin.
-pub const TDMREP_FILE: &str = "/.well-known/tdmrep.json";
+pub(crate) const TDMREP_FILE: &str = "/.well-known/tdmrep.json";
 
 /// The media type of an RSL license.
 const RSL_TYPE: &str = "application/rsl+xml";
@@ -42,7 +42,7 @@ const _: () = assert!(PURPOSE_VALUES.len() == Purpose::ALL.len());
 
 /// What a run declares its results are for (`site_preferences.purpose`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Purpose {
+pub(crate) enum Purpose {
     /// The default, which no signal is judged against.
     Search,
     /// Input to an AI model.
@@ -60,7 +60,7 @@ impl Purpose {
 
     /// The Purpose `site_preferences.purpose` names, as its choices spell
     /// them.
-    pub fn named(name: &str) -> Option<Self> {
+    pub(crate) fn named(name: &str) -> Option<Self> {
         let at = PURPOSE_VALUES.iter().position(|value| *value == name)?;
         Self::ALL.get(at).copied()
     }
@@ -220,7 +220,7 @@ impl UseSignals {
     }
 
     /// The signal that refuses `purpose`, named, if any.
-    pub fn refusing(&self, purpose: Purpose) -> Option<&'static str> {
+    pub(crate) fn refusing(&self, purpose: Purpose) -> Option<&'static str> {
         if purpose == Purpose::Search {
             return None;
         }
@@ -312,7 +312,7 @@ fn rsl_link(value: &str) -> Option<&str> {
 /// The Content Signal, of `signals` (the `Content-Signal` lines of the
 /// robots.txt groups that apply, in file order), that refuses `purpose`,
 /// named, if any: the last line naming its signal decides.
-pub fn content_signals_refusing(
+pub(crate) fn content_signals_refusing(
     signals: &[(String, bool)],
     purpose: Purpose,
 ) -> Option<&'static str> {
@@ -340,7 +340,11 @@ struct TdmRepRule {
 /// rule's pattern does ([`robots_txt::matches`]): from the path's start,
 /// `*` any characters, a final `$` its end, case-sensitive, in one pass
 /// whatever the site wrote.
-pub fn tdmrep_file_refusing(file: &[u8], url: &Url, purpose: Purpose) -> Option<&'static str> {
+pub(crate) fn tdmrep_file_refusing(
+    file: &[u8],
+    url: &Url,
+    purpose: Purpose,
+) -> Option<&'static str> {
     if purpose == Purpose::Search {
         return None;
     }
@@ -356,7 +360,7 @@ pub fn tdmrep_file_refusing(file: &[u8], url: &Url, purpose: Purpose) -> Option<
 /// a license and none permits the Purpose's usage. A license refuses a
 /// usage it prohibits, or one its `<permits type="usage">` leaves out; a
 /// prohibition wins. A file that does not read refuses nothing.
-pub fn rsl_refusing(file: &[u8], purpose: Purpose) -> Option<&'static str> {
+pub(crate) fn rsl_refusing(file: &[u8], purpose: Purpose) -> Option<&'static str> {
     if purpose == Purpose::Search {
         return None;
     }

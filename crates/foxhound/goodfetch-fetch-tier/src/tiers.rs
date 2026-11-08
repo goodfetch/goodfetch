@@ -293,7 +293,7 @@ impl ServedPage {
 /// [`FetchTiers::close`] as it closes): a run classifies its page and
 /// records its tier from it, so no read can come after the page closed
 /// and silently find nothing.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct PageFacts {
     /// The response of its crawl request's own document, whose body
     /// `response.body` reads under its `request_id`.

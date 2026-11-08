@@ -6,8 +6,8 @@
 //! the domain to the Operator policy's `wall.denied_domains` with its
 //! reason. Each writes one file in one call, an edit of the settings
 //! editor (`settings_editor`), every other byte kept, once the resolver
-//! accepts the file so changed, refuses a managed Operator
-//! policy with `setting_locked`, and records the answer in the Audit log.
+//! accepts the file so changed, refuses a managed Operator policy with
+//! `setting_locked`, and records the answer in the Audit log.
 //! A domain only project configuration lists is changed in its file: the
 //! engine never writes a project's file. On a Daemon with accounts both
 //! need the operator role, and denial step-up (the accounts and step-up

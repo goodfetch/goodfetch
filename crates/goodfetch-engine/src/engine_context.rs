@@ -2,10 +2,10 @@
 //! (ADR 0059): the Goodfetch home, the clock, the engine's settings, the
 //! user's Audit log, known-certificates store and Usage ledger, where their
 //! blocking work runs, the engine's "Needs you", its sandbox probe and the
-//! person a single-user install acts for. The
-//! engine builds it beside its Run registry and hands it down: to the
-//! registry, to each Connection's calls and to its listeners, so no module
-//! reaches these values through the Runs.
+//! person a single-user install acts for. The engine builds it beside its
+//! Run registry and hands it down: to the registry, to each Connection's
+//! calls and to its listeners, so no module reaches these values through the
+//! Runs.
 
 use std::sync::Arc;
 
@@ -56,9 +56,8 @@ impl EngineContext {
     /// The engine at `home` on `clock` under `settings`, recording in
     /// `audit`, its blocking work under `owner`, with `needs_you` and
     /// `sandbox_probe`, acting for `person`; its known-certificates store
-    /// and Usage ledger are
-    /// `home`'s, opened through the SQLite VFS named `vfs` (none in
-    /// production, ADR 0060).
+    /// and Usage ledger are `home`'s, opened through the SQLite VFS named
+    /// `vfs` (none in production, ADR 0060).
     #[expect(
         clippy::too_many_arguments,
         reason = "each is one of the engine's own values, built once at its start and held together here"

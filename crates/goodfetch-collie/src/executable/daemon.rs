@@ -374,11 +374,15 @@ impl Machine<'_> {
 
     /// The running Daemon, the installed service's socket, which starts
     /// one at its first connection, or one this starts: the pick, under
-    /// the start lock. `true` when no Daemon ran before.
+    /// the start lock. `true` when no Daemon ran before. A Daemon starts
+    /// only on machine settings it can read, so where none runs it fails
+    /// first with their Error code when they cannot be: the service's
+    /// Daemon would stop at its first lines, its reason only in its log.
     fn running_or_started(&self, keep_alive: bool) -> Result<(Reach, bool), Failure> {
         if let Some(found) = self.running()? {
             return Ok((found, false));
         }
+        self.settings()?;
         if let Some(service) = self.activated_service()? {
             return Ok((service, true));
         }

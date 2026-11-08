@@ -375,6 +375,43 @@ fn after_a_rotation_only_the_new_token_opens_a_connection() {
     );
 }
 
+/// The installed service starts no Daemon on machine settings it cannot
+/// read: a command that would start it through its socket fails first,
+/// with their Error code's row and what it says of the fault, and
+/// connects to nothing.
+///
+/// Covers: story:3-21, command:daemon.start, error:setting_unknown
+#[cfg(unix)]
+#[test]
+fn a_command_that_would_start_the_installed_service_fails_on_unreadable_settings() {
+    let env = TestEnv::new();
+    let _removes = RemovesTheService(&env);
+    json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
+    env.user_configuration("crawl.max_deepth = 3\n");
+
+    let output = in_session(&env, COLLIE)
+        .args(["daemon", "start", "--json"])
+        .run()
+        .unwrap();
+    let printed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (
+            output.exit,
+            printed["error"]["code"].clone(),
+            printed["error"]["closest"].clone(),
+            RuntimeFile::path(env.home(), VERSION).exists(),
+        ),
+        (
+            Some(3),
+            json!("setting_unknown"),
+            json!("crawl.max_depth"),
+            false
+        ),
+        "{output}"
+    );
+}
+
 /// On Windows the logon task starts the Daemon at logon, and the
 /// installed service keeps it running past its idle timeout.
 ///

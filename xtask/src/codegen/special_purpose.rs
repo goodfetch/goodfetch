@@ -15,6 +15,9 @@ use serde::Deserialize;
 /// Where the registries are committed, relative to the root.
 const FOLDER: &str = "crates/goodfetch-engine/iana";
 
+/// The folder `xtask codegen` writes the table in, relative to the root.
+pub(super) const OUTPUT_FOLDER: &str = "crates/goodfetch-engine/generated";
+
 /// The table, relative to the root.
 const TABLE: &str = "crates/goodfetch-engine/generated/special_purpose.rs";
 

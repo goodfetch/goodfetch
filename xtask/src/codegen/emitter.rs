@@ -25,7 +25,7 @@ const BUILT_FROM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
 
 pub(super) fn emit(cargo: &OsStr, root: &Path) -> Result<Emitted> {
     if built_from(root) {
-        return linked();
+        return linked(root);
     }
     run_example(cargo, root)
 }
@@ -37,10 +37,13 @@ pub(super) fn built_from(root: &Path) -> bool {
     canonical(root).is_some() && canonical(root) == canonical(Path::new(BUILT_FROM))
 }
 
-/// The files as the `emit` example writes them: pretty JSON with a final
-/// newline.
-fn linked() -> Result<Emitted> {
-    let emitted = super::emit::emit();
+/// The files as an `emit` example writes them: pretty JSON with a final
+/// newline. The linked crate holds the Counted work's label values of the
+/// build this `xtask` came from, so the catalog takes them from `root`'s rows:
+/// one `xtask codegen` settles a new row.
+fn linked(root: &Path) -> Result<Emitted> {
+    let mut emitted = super::emit::emit();
+    super::counted_work::settle_labels(&mut emitted.catalog, root)?;
     let text = |value: &serde_json::Value| -> Result<Vec<u8>> {
         let mut text = serde_json::to_string_pretty(value)?;
         text.push('\n');

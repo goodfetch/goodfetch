@@ -295,6 +295,7 @@ impl Plan {
     fn owned_folders() -> impl Iterator<Item = &'static str> {
         [
             PROTOCOL_GENERATED,
+            special_purpose::OUTPUT_FOLDER,
             executables::COLLIE_FOLDER,
             cdp::FOLDER,
             test_support::FOLDER,
@@ -474,11 +475,6 @@ fn json_text(value: &Value) -> Result<Vec<u8>> {
 /// Writes every generated file, removing any other file from the folders
 /// `xtask codegen` owns.
 pub(crate) fn write(cargo: &OsStr, generators: &Generators, root: &Path) -> Result<()> {
-    // The emitted catalog reads the Counted work's label values from their
-    // generated file, so it is written before the catalog is emitted.
-    for (path, contents) in counted_work::generate(root)? {
-        write_file(&root.join(path), &contents)?;
-    }
     let plan = plan(cargo, root, executables::Files::printed(cargo, root)?)?;
     let written = plan.written();
     for folder in Plan::owned_folders() {

@@ -502,9 +502,30 @@ fn check_fails_when_a_fact_changes_at_its_source_and_was_not_regenerated(
     assert_eq!(outcome.code, 1);
 }
 
+/// A file `xtask codegen` no longer writes, in the folder that holds the
+/// special-purpose table, is drift: `--check` names it and a run removes it,
+/// as in every folder it owns.
+///
 /// Covers: story:1-57
 #[test]
-fn codegen_writes_each_fact_its_source_gives() {
+fn a_stray_file_beside_the_special_purpose_table_is_flagged_and_removed() {
+    let workspace = Workspace::from_fixture("codegen");
+    let stray = "crates/goodfetch-engine/generated/stray.rs";
+    workspace.write(stray, b"// nothing writes this\n");
+
+    let checked = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(checked.findings(), vec![finding("unexpected", stray)]);
+    assert_eq!(checked.code, 1);
+
+    codegen(&workspace);
+
+    assert!(workspace.read(stray).is_none());
+}
+
+/// Covers: story:1-57
+#[test]
+fn codegen_writes_a_fact_its_source_gives_to_each_of_its_files() {
     let workspace = Workspace::from_fixture("codegen");
     workspace.edit(
         "crates/goodfetch-collie/src/pins.json",

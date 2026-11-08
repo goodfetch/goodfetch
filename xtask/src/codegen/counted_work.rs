@@ -12,6 +12,11 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
+use goodfetch_protocol::ops::{COUNTED_WORK, COUNTED_WORK_PATH_LABEL, COUNTED_WORK_WORK_LABEL};
+use serde_json::{Value, json};
+
+#[cfg(test)]
+mod tests;
 
 /// The constants' file, relative to the root.
 const TABLE: &str = "crates/goodfetch-protocol/generated/counted_work.rs";
@@ -37,6 +42,47 @@ pub(super) fn generate(root: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
         TABLE.to_owned(),
         render(&paths, &works).into_bytes(),
     )]))
+}
+
+/// Gives `catalog`'s `goodfetch.counted_work` the label values `root`'s rows
+/// name, in place of those of the `goodfetch-protocol` that emitted it, which
+/// was compiled with the table as it stood; none in a tree that holds no
+/// Counted work.
+///
+/// # Errors
+///
+/// When the rows cannot be read, or the catalog has no such metric or label.
+pub(super) fn settle_labels(catalog: &mut Value, root: &Path) -> Result<()> {
+    let path = root.join(ROWS);
+    if !path.exists() {
+        return Ok(());
+    }
+    let source =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let (paths, works) = labels(&source).with_context(|| format!("reading the rows of {ROWS}"))?;
+    let metric = catalog["metrics"]
+        .as_array_mut()
+        .and_then(|metrics| {
+            metrics
+                .iter_mut()
+                .find(|metric| metric["name"] == json!(COUNTED_WORK.name))
+        })
+        .with_context(|| format!("the emitted catalog has no metric {}", COUNTED_WORK.name))?;
+    for (label, values) in [
+        (COUNTED_WORK_PATH_LABEL.name, &paths),
+        (COUNTED_WORK_WORK_LABEL.name, &works),
+    ] {
+        let found = metric["labels"]
+            .as_array_mut()
+            .and_then(|labels| {
+                labels
+                    .iter_mut()
+                    .find(|found| found["name"] == json!(label))
+            })
+            .with_context(|| format!("{} has no label {label}", COUNTED_WORK.name))?;
+        found["values"] = json!(values);
+    }
+    Ok(())
 }
 
 /// Every Shared path and every work the table's rows name, each once.

@@ -85,11 +85,14 @@ async fn relayed(site: &TcpListener, request: String) -> (String, bool) {
     lightpanda.write_all(request.as_bytes()).await.unwrap();
     let check = check();
     let expected = expected();
-    let (relayed, answer) = tokio::join!(relay(accepted, &check, &expected), async {
-        let mut answer = Vec::new();
-        lightpanda.read_to_end(&mut answer).await.unwrap();
-        answer
-    });
+    let (relayed, answer) = tokio::join!(
+        relay(accepted, &check, &expected, &Clock::system()),
+        async {
+            let mut answer = Vec::new();
+            lightpanda.read_to_end(&mut answer).await.unwrap();
+            answer
+        }
+    );
     relayed.unwrap();
     let reached = tokio::time::timeout(Duration::from_millis(200), site.accept())
         .await
@@ -178,7 +181,7 @@ async fn a_request_with_the_token_to_an_allowed_host_reaches_the_site() {
     let (check, expected) = (check(), expected());
 
     let (relayed, received, answer) = tokio::join!(
-        relay(accepted, &check, &expected),
+        relay(accepted, &check, &expected, &Clock::system()),
         async {
             let (mut connection, _) = site.accept().await.unwrap();
             let mut received = vec![0; 4096];
@@ -224,8 +227,11 @@ async fn a_client_that_sends_no_request_head_is_given_up_at_the_head_deadline() 
     let (accepted, _) = bridge.accept().await.unwrap();
     let (check, expected) = (check(), expected());
 
-    let ended =
-        tokio::time::timeout(Duration::from_secs(60), relay(accepted, &check, &expected)).await;
+    let ended = tokio::time::timeout(
+        Duration::from_secs(60),
+        relay(accepted, &check, &expected, &Clock::system()),
+    )
+    .await;
 
     assert!(
         matches!(&ended, Ok(Err(error)) if error.kind() == std::io::ErrorKind::TimedOut),

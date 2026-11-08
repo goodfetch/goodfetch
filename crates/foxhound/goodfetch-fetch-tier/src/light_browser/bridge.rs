@@ -7,8 +7,11 @@
 //! tier would not. It tunnels `CONNECT` and forwards absolute-form HTTP
 //! requests, one per connection, leaving the bytes unchanged but for the
 //! request line and the proxy's own headers. A connection without the
-//! bridge's credentials gets a `407` and no relayed byte; a refused or
-//! unresolved host a `403` or `502`.
+//! bridge's credentials, compared in constant time, gets a `407` and no
+//! relayed byte; a refused or unresolved host a `403` or `502`. A client
+//! that sends no request head within [`HEAD_DEADLINE`] is given up, and
+//! each connection the bridge opens waits at most [`CONNECT_DEADLINE`], both
+//! on the Run's clock, as the egress relay's (deep review finding 577-8).
 #![expect(
     clippy::disallowed_types,
     reason = "the light-browser bridge opens its own loopback listener and its connections out, in this module only (ADR 0060)"
@@ -17,8 +20,11 @@
 use std::fmt::Write as _;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::time::Duration;
 
 use data_encoding::BASE64;
+use goodfetch_engine::clock::Clock;
+use goodfetch_engine::endpoint::same_token;
 use goodfetch_engine::runs::Run;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
@@ -32,6 +38,14 @@ const MAX_HEAD: usize = 64 * 1024;
 
 /// The user name of the bridge's credentials.
 const USER: &str = "goodfetch";
+
+/// The longest the bridge waits for a client's request head once it
+/// accepted the connection: Lightpanda sends its head at once, so a client
+/// that sends none holds no task past it.
+const HEAD_DEADLINE: Duration = Duration::from_secs(10);
+
+/// The longest the bridge waits for each connection it opens to a site.
+const CONNECT_DEADLINE: Duration = Duration::from_secs(10);
 
 /// A bridge, listening until dropped.
 pub(crate) struct Bridge {
@@ -100,12 +114,16 @@ impl Accepting {
             let Ok((client, _)) = accepted else {
                 continue;
             };
-            let (check, expected, stop) =
-                (self.check.clone(), self.expected.clone(), self.stop.clone());
+            let (check, expected, stop, clock) = (
+                self.check.clone(),
+                self.expected.clone(),
+                self.stop.clone(),
+                self.run.clock(),
+            );
             self.run.spawn(async move {
                 tokio::select! {
                     () = stop.cancelled() => {}
-                    relayed = relay(client, &check, &expected) => {
+                    relayed = relay(client, &check, &expected, &clock) => {
                         if let Err(error) = relayed {
                             tracing::debug!(%error, "a light-browser bridge connection ended early");
                         }
@@ -192,13 +210,24 @@ impl Head {
     }
 }
 
-/// Reads one request from `client` and relays it.
-async fn relay(mut client: TcpStream, check: &AddressCheck, expected: &str) -> io::Result<()> {
-    let (head, rest) = read_head(&mut client).await?;
+/// Reads one request from `client`, within [`HEAD_DEADLINE`] on `clock`,
+/// and relays it.
+async fn relay(
+    mut client: TcpStream,
+    check: &AddressCheck,
+    expected: &str,
+    clock: &Clock,
+) -> io::Result<()> {
+    let (head, rest) = within(clock, HEAD_DEADLINE, read_head(&mut client))
+        .await
+        .unwrap_or_else(|| Err(io::ErrorKind::TimedOut.into()))?;
     let Some(head) = Head::parse(&head) else {
         return answer(&mut client, "400 Bad Request").await;
     };
-    if head.header("proxy-authorization") != Some(expected) {
+    let authorized = head
+        .header("proxy-authorization")
+        .is_some_and(|given| same_token(given, expected));
+    if !authorized {
         return client
             .write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"goodfetch\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
             .await;
@@ -215,7 +244,7 @@ async fn relay(mut client: TcpStream, check: &AddressCheck, expected: &str) -> i
         Err(None) => return answer(&mut client, "502 Bad Gateway").await,
     };
     let port = url.port_or_known_default().unwrap_or(80);
-    let Some(mut upstream) = connect(&addresses, port).await else {
+    let Some(mut upstream) = connect(&addresses, port, clock).await else {
         return answer(&mut client, "502 Bad Gateway").await;
     };
     if head.method == "CONNECT" {
@@ -230,14 +259,28 @@ async fn relay(mut client: TcpStream, check: &AddressCheck, expected: &str) -> i
     Ok(())
 }
 
-/// The first of `addresses` that accepts a connection on `port`.
-async fn connect(addresses: &[IpAddr], port: u16) -> Option<TcpStream> {
+/// The first of `addresses` that accepts a connection on `port` within
+/// [`CONNECT_DEADLINE`] on `clock`.
+async fn connect(addresses: &[IpAddr], port: u16, clock: &Clock) -> Option<TcpStream> {
     for address in addresses {
-        if let Ok(stream) = TcpStream::connect(SocketAddr::new(*address, port)).await {
+        let connecting = TcpStream::connect(SocketAddr::new(*address, port));
+        if let Some(Ok(stream)) = within(clock, CONNECT_DEADLINE, connecting).await {
             return Some(stream);
         }
     }
     None
+}
+
+/// What `work` gave, unless `deadline` passed on `clock` first.
+///
+/// # Cancel safety
+///
+/// As cancel-safe as `work`, which is dropped at the deadline.
+async fn within<T>(clock: &Clock, deadline: Duration, work: impl Future<Output = T>) -> Option<T> {
+    tokio::select! {
+        done = work => Some(done),
+        () = clock.sleep(deadline) => None,
+    }
 }
 
 /// Answers `status` with no body and closes.

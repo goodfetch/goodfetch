@@ -48,11 +48,7 @@ result() {
   said=yes
 }
 # `set -e` ends the run on a setup that fails: its line still says so.
-on_exit() {
-  [[ -n $said ]] || result fail
-  [[ -z $locked ]] || rm -rf "$lock"
-}
-trap on_exit EXIT
+trap '[[ -n $said ]] || result fail; [[ -z $locked ]] || rm -rf "$lock"' EXIT
 
 git fetch --quiet origin
 commit=$(git rev-parse --verify "$ref^{commit}")

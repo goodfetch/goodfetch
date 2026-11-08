@@ -93,6 +93,16 @@ enum Language {
     Python,
 }
 
+impl Language {
+    /// The outside generator that writes its layer's types.
+    fn generator(self) -> Generator {
+        match self {
+            Self::TypeScript => Generator::Json2ts,
+            Self::Python => Generator::DatamodelCodegen,
+        }
+    }
+}
+
 /// One SDK package's generated layer (ADR 0095): each language's Collie
 /// client package holds Collie's entries, Foxhound's package its own.
 struct Package {
@@ -399,16 +409,10 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         files.insert(path, text.into_bytes());
     }
 
-    let product_version = product_version(root)?;
+    let version = product_version(root)?;
     let mut externals = Vec::new();
     for package in &PACKAGES {
-        let layer = Layer::new(
-            &bundle,
-            &collie,
-            &foxhound,
-            package.product,
-            &product_version,
-        )?;
+        let layer = Layer::new(&bundle, &collie, &foxhound, package.product, &version)?;
         let generated = match package.language {
             Language::TypeScript => typescript::generate(&layer),
             Language::Python => python::generate(&layer),
@@ -418,10 +422,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         }
         externals.push(External {
             output: format!("{}/{}", package.folder, generated.types.output),
-            generator: match package.language {
-                Language::TypeScript => Generator::Json2ts,
-                Language::Python => Generator::DatamodelCodegen,
-            },
+            generator: package.language.generator(),
             input_name: layer::input_name(package.product),
             input: json_text(&generated.types.input)?,
             prefix: generated.types.prefix,

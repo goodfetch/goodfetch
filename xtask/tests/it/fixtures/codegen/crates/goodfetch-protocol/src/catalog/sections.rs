@@ -102,7 +102,7 @@ impl Sections {
 
     /// The catalog file, with ADR 0069's exit-code table's `exit_codes`
     /// rows.
-    pub fn into_catalog(self, exit_codes: Vec<Value>) -> Value {
+    pub fn into_catalog(self, exit_codes: &[Value]) -> Value {
         json!({
             "protocol_version": PROTOCOL_VERSION.to_string(),
             "operations": sorted(self.operations),

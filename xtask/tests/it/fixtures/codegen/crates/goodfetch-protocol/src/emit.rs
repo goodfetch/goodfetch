@@ -58,6 +58,6 @@ pub fn emit() -> Emitted {
             },
             "$defs": definitions,
         }),
-        catalog: sections.into_catalog(Vec::new()),
+        catalog: sections.into_catalog(&[]),
     }
 }

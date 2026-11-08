@@ -13,7 +13,7 @@ fn catalog() -> Value {
     for entries in MODULES {
         sections.add(entries, &mut generator);
     }
-    sections.into_catalog(Vec::new())
+    sections.into_catalog(&[])
 }
 
 /// The catalog's entry of the Block cause `name`, if it lists one.

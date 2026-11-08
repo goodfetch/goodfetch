@@ -141,6 +141,7 @@ pub(super) fn emit() -> Emitted {
     {
         add_meta(&mut definitions, params);
     }
+    let exit_codes: Vec<Value> = exit_code_table().iter().map(exit_code_entry).collect();
     Emitted {
         bundle: json!({
             "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -162,7 +163,7 @@ pub(super) fn emit() -> Emitted {
             },
             "$defs": definitions,
         }),
-        catalog: sections.into_catalog(exit_code_table().iter().map(exit_code_entry).collect()),
+        catalog: sections.into_catalog(&exit_codes),
     }
 }
 

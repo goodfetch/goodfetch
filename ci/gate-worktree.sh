@@ -15,14 +15,22 @@ root=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)
 worktree="$root/.claude/worktrees/${gate_worktree_name:-merge-gate}"
 lock="$worktree.lock"
 
+# Prints the process that holds the lock folder `$1`, when it still runs; a
+# lock whose holder ended holds nothing, and prints nothing.
+gate_worktree_holder() {
+  local holder
+  holder=$(cat "$1/pid" 2>/dev/null || true)
+  if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then echo "$holder"; fi
+}
+
 # Takes the worktree's lock for this process, or fails while another run's
 # process holds it. The caller releases it (`rm -rf "$lock"`).
 gate_worktree_lock() {
   local holder
   mkdir -p "${lock%/*}"
   until mkdir "$lock" 2>/dev/null; do
-    holder=$(cat "$lock/pid" 2>/dev/null || true)
-    if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then
+    holder=$(gate_worktree_holder "$lock")
+    if [[ -n "$holder" ]]; then
       echo "error: another gate (process $holder) is running in $worktree; run the command again when it ends" >&2
       exit 1
     elif [[ -d $lock ]]; then

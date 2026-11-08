@@ -135,7 +135,8 @@ impl DaemonClient {
     ///
     /// When nothing comes within the deadline the Connection was made
     /// with: a read past the socket's timeout fails with `WouldBlock` on
-    /// Unix and `TimedOut` on Windows.
+    /// Unix and `TimedOut` on Windows. When what comes cannot be read, such
+    /// as bytes that are no text.
     #[expect(
         clippy::should_implement_trait,
         reason = "each read waits up to the deadline and panics past it, which an Iterator's `next` would hide"
@@ -146,7 +147,19 @@ impl DaemonClient {
             Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
                 panic!("the engine sent nothing for {:?}", self.deadline)
             }
-            Err(_) => 0,
+            // An engine that closes with a message unread resets the
+            // Connection rather than ending it.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    ErrorKind::ConnectionReset
+                        | ErrorKind::ConnectionAborted
+                        | ErrorKind::BrokenPipe
+                ) =>
+            {
+                0
+            }
+            Err(error) => panic!("the engine's answer cannot be read: {error}"),
             Ok(read) => read,
         };
         (read > 0)
@@ -199,3 +212,6 @@ impl DaemonClient {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

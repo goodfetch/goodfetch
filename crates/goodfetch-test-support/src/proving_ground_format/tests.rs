@@ -63,24 +63,6 @@ fn the_observations_keep_the_rest_of_the_record_by_name() {
 }
 
 #[test]
-fn an_older_tags_serve_line_without_a_udp_fixture_reads_with_none() {
-    let line = json!({
-        "address": "127.0.0.1:4000", "version": "0.0.0+old", "seed": 7, "hosts": ["a.test"],
-        "certificate_authority": "PEM", "network": { "profile": "none", "shaped": null },
-        "proxies": { "down": "127.0.0.1:1" },
-        "proxy_credentials": { "username": "u", "password": "p" },
-        "dns": "127.0.0.1:2", "target": "127.0.0.1:3",
-    });
-
-    let read: ServeLine = serde_json::from_value(line).unwrap();
-
-    assert_eq!(
-        (read.address.port(), read.fixtures.udp.as_str()),
-        (4000, "")
-    );
-}
-
-#[test]
 fn observations_without_a_list_of_requests_are_refused() {
     let read = ReceivedRequests::read(&json!({ "connections": [] }));
 

@@ -69,8 +69,7 @@
       "type": "string"
     },
     "udp": {
-      "default": "",
-      "description": "The UDP fixture's address, whose every datagram the connection\nrecord lists; empty in an older tag's line, which has none.",
+      "description": "The UDP fixture's address, whose every datagram the connection\nrecord lists.",
       "type": "string"
     },
     "version": {
@@ -88,6 +87,7 @@
     "proxy_credentials",
     "dns",
     "target",
+    "udp",
     "network"
   ],
   "title": "ServeLine",

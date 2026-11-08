@@ -86,8 +86,7 @@ pub struct FixtureAddresses {
     /// The watched target's address, which answers `200 reached`.
     pub target: String,
     /// The UDP fixture's address, whose every datagram the connection
-    /// record lists; empty in an older tag's line, which has none.
-    #[serde(default)]
+    /// record lists.
     pub udp: String,
 }
 

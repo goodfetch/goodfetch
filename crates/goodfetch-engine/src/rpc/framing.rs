@@ -177,13 +177,12 @@ pub fn decode(line: &[u8], work: &CountedWork) -> Result<Incoming, DecodeError> 
             error.to_string(),
         )
     };
-    work.count(Row::MessageDeepCopies);
     if has_id {
-        serde_json::from_value(value.clone())
+        serde_json::from_value(value)
             .map(Incoming::Request)
             .map_err(invalid)
     } else {
-        serde_json::from_value(value.clone())
+        serde_json::from_value(value)
             .map(Incoming::Notification)
             .map_err(invalid)
     }

@@ -19,7 +19,7 @@ mod light_browser;
 mod transport_failures;
 
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::dns::ResolverConfiguration;
+use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::tls::{CertificateExceptions, Trust, read_certificates};
 use goodfetch_fetch_tier::{HttpProfile, Reqwest, Transport, TransportConfig, Wreq};
@@ -85,7 +85,7 @@ fn config(proving_ground: &ProvingGround, proxy: Option<Url>, trusted: &[&str]) 
             .unwrap()
             .with_private_ranges(&hosts)
             .unwrap(),
-        resolve,
+        resolve: HostMapping::new(resolve),
         clock: Clock::system(),
         resolver: ResolverConfiguration::system().unwrap(),
         local: None,

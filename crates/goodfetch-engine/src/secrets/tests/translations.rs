@@ -41,7 +41,6 @@ fn meaning(failure: &ProviderFailure) -> Meaning {
         ProviderFailure::NotConfigured(_) => Meaning::NotConfigured,
         ProviderFailure::Refused { .. } => Meaning::Refused,
         ProviderFailure::Unrecognized(_) => Meaning::Unrecognized,
-        ProviderFailure::ResolverFailed => panic!("no provider here answers for the caller"),
         ProviderFailure::Busy { .. } => panic!("no OS provider here answers that it is busy"),
     }
 }

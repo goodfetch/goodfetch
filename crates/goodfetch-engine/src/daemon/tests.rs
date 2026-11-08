@@ -1,12 +1,9 @@
 //! The `fix` a refused Client adds to a Daemon's refusal (spec #213's Seam
 //! 4, ADR 0098), and the Daemon's files: what names a running Daemon, and
 //! its runtime file's mode.
-#![cfg_attr(
-    unix,
-    expect(
-        clippy::disallowed_methods,
-        reason = "the tests read the Daemon's files themselves"
-    )
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the tests read and write the Daemon's files themselves"
 )]
 
 use std::path::Path;
@@ -99,6 +96,75 @@ fn a_runtime_file_names_a_running_daemon_only_while_its_serving_lock_is_held() {
     drop(held);
 
     assert_eq!((dead, running), (None, Some(runtime_file(7))));
+}
+
+/// A runtime file that does not parse beside a held serving lock is a
+/// Daemon this Client cannot read, never "no Daemon", so no second Daemon
+/// starts beside it; without the lock, no Daemon runs whatever the file
+/// holds, and the next Daemon replaces it.
+///
+/// Covers: story:3-11
+#[test]
+fn a_runtime_file_that_does_not_parse_is_an_unreadable_daemon_while_its_lock_is_held() {
+    let env = TestEnv::new();
+    let files = DaemonFiles::of(
+        &Home::new(env.home().to_owned()),
+        &ProductVersion::parse("1.5.0").unwrap(),
+    );
+    files.publish(&runtime_file(7)).unwrap();
+    std::fs::write(files.runtime_file(), b"{\"endpoint\":").unwrap();
+
+    let dead = files.running().unwrap();
+    let held = files.serving_lock().unwrap();
+    let running = files.running().map_err(|error| error.kind());
+    drop(held);
+
+    assert_eq!(
+        (dead, running),
+        (None, Err(std::io::ErrorKind::InvalidData))
+    );
+}
+
+/// A Daemon that stops leaves alone a runtime file it cannot read, which
+/// is not the one it wrote.
+///
+/// Covers: story:3-138
+#[test]
+fn a_daemon_leaves_a_runtime_file_that_does_not_parse_when_it_unpublishes() {
+    let env = TestEnv::new();
+    let files = DaemonFiles::of(
+        &Home::new(env.home().to_owned()),
+        &ProductVersion::parse("1.5.0").unwrap(),
+    );
+    files.publish(&runtime_file(7)).unwrap();
+    std::fs::write(files.runtime_file(), b"not json").unwrap();
+
+    let unpublished = files.unpublish(7).map_err(|error| error.kind());
+
+    assert_eq!(
+        (unpublished, std::fs::read(files.runtime_file()).unwrap()),
+        (Ok(()), b"not json".to_vec())
+    );
+}
+
+/// A service record that does not parse is a record this Client cannot
+/// read, never "no service": `daemon uninstall` would otherwise leave the
+/// service registered and report none.
+///
+/// Covers: story:3-21
+#[test]
+fn a_service_record_that_does_not_parse_is_unreadable_not_absent() {
+    let env = TestEnv::new();
+    let files = DaemonFiles::of(
+        &Home::new(env.home().to_owned()),
+        &ProductVersion::parse("1.5.0").unwrap(),
+    );
+    std::fs::create_dir_all(env.home().join("1")).unwrap();
+    std::fs::write(env.home().join("1").join("daemon-service.json"), b"[").unwrap();
+
+    let found = files.service().map_err(|error| error.kind());
+
+    assert_eq!(found, Err(std::io::ErrorKind::InvalidData));
 }
 
 /// Covers: story:3-11, story:3-22

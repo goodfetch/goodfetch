@@ -1,0 +1,21 @@
+# The root workspace's manifest, as `xtask kennel-manifest` reads it.
+[workspace]
+resolver = "3"
+members = []
+
+[workspace.package]
+version = "0.0.0"
+rust-version = "1.97"
+
+[workspace.dependencies]
+goodfetch-protocol = { path = "crates/goodfetch-protocol" }
+jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }
+tokio = { version = "1.53.3", default-features = false }
+toml = "1.1.8"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"

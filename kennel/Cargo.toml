@@ -14,8 +14,11 @@
 #
 # Clippy reads the root `clippy.toml`, the nearest in a parent folder of
 # each crate's manifest, so the Products' disallowed methods and types hold
-# here too. Cargo does not pass `[workspace.lints]` to a nested workspace:
-# the root's tables are copied below, and change with them.
+# here too. Cargo passes no `[workspace.lints]`, `[workspace.package]` or
+# `[workspace.dependencies]` to a nested workspace: the root's lints, its
+# `rust-version` and the versions of the dependencies both declare are
+# copied below, and `xtask kennel-manifest` (`just lint`) fails when one
+# drifts from the root's.
 [workspace]
 resolver = "3"
 members = ["crates/goodfetch-kennel", "crates/goodfetch-kennel-app"]
@@ -24,7 +27,9 @@ members = ["crates/goodfetch-kennel", "crates/goodfetch-kennel-app"]
 # The Kennel's own version (ADR 0141), not the Products'.
 version = "0.0.0"
 edition = "2024"
-rust-version = "1.95"
+# The root's MSRV (ADR 0030): the Kennel builds goodfetch-protocol, which
+# takes it.
+rust-version = "1.97"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/goodfetch/goodfetch"
 publish = false

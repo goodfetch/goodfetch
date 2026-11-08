@@ -2,11 +2,11 @@
 //! (TESTING.md, Storage, network and OS services): a host without them skips
 //! this module.
 //!
-//! A Session bound to a local address (ADR 0044), through the engine's own
-//! HTTP client against the Proving ground: its fetch reaches the site from
-//! that address, and its DNS queries leave from it through the engine's own
-//! resolver, on every OS. The Proving ground's connection record and its
-//! DNS fixture's record of queries name each source.
+//! A Session bound to a local address (ADR 0044), against the Proving
+//! ground: its binding's lookup and connection leave from that address, and
+//! its DNS queries leave from it through the engine's own resolver, on every
+//! OS. The Proving ground's connection record and its DNS fixture's record
+//! of queries name each source.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
@@ -14,11 +14,8 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::{
     AnsweredBy, Dns, HostMapping, Resolution, ResolverConfiguration, Route,
 };
-use goodfetch_engine::egress::Policy;
-use goodfetch_engine::happy_eyeballs::Delays;
-use goodfetch_engine::http_client::{LocalBinding, PageTraffic, Resolve, Waiter};
+use goodfetch_engine::http_client::LocalBinding;
 use goodfetch_engine::local_addresses::SessionAddresses;
-use goodfetch_engine::tls::{CertificateExceptions, ClientCertificates, Trust};
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::Value;
 
@@ -55,64 +52,6 @@ fn target_sources(observations: &Value) -> Vec<IpAddr> {
         .collect()
 }
 
-/// It runs on the real-time runtime: under the paused clock, a busy host's
-/// slow DNS fixture let auto-advance pass the resolver's query timeout.
-/// Covers: story:4-44, setting:egress.local_addresses
-#[tokio::test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a real name server's socket stays off the paused clock, so the test runs on the real-time runtime `tokio::test` builds (TESTING.md, Time)"
-)]
-async fn a_fetch_through_a_session_bound_to_a_loopback_alias_leaves_from_it_and_so_does_its_dns_query()
- {
-    let env = TestEnv::new();
-    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let target: SocketAddr = proving_ground
-        .description()
-        .fixtures
-        .target
-        .parse()
-        .unwrap();
-    let addresses = SessionAddresses {
-        ipv4: Some(BOUND),
-        ipv6: None,
-    };
-    let traffic = PageTraffic {
-        egress: Policy::new(&["*"], &[] as &[&str])
-            .unwrap()
-            .with_private_ranges(&["127.0.0.0/8".to_owned()])
-            .unwrap(),
-        resolve: Resolve::new(),
-        local: Some(LocalBinding::new(addresses, &dns(&proving_ground))),
-        proxy: None,
-        trust: Trust::default_roots(),
-        exceptions: CertificateExceptions::default(),
-        client_certificates: ClientCertificates::default(),
-        cookies: Vec::new(),
-        clock: Clock::system(),
-        delays: Delays::default(),
-    };
-    let url = format!("http://1.catalog.test:{}/", target.port());
-
-    let status = traffic
-        .get(&url, Waiter::Call)
-        .await
-        .map(|response| response.status());
-    let observations = proving_ground.observations().unwrap();
-
-    assert_eq!(
-        (
-            status.ok(),
-            target_sources(&observations),
-            ProvingGround::dns_query_sources(&observations, "1.catalog.test")
-                .into_iter()
-                .all(|source| source == IpAddr::V4(BOUND)),
-            ProvingGround::dns_query_sources(&observations, "1.catalog.test").is_empty(),
-        ),
-        (Some(200), vec![IpAddr::V4(BOUND)], true, false)
-    );
-}
-
 /// A Session's binding as the egress relay takes it for a browser Session
 /// (ADR 0044): its lookup's queries leave from the Session's address
 /// through the engine's resolver, and its connection to an answer leaves
@@ -142,7 +81,7 @@ async fn a_bindings_lookup_and_connection_leave_from_the_sessions_address() {
     );
 
     let found = binding
-        .lookup("3.catalog.test", target.port(), &Resolve::new())
+        .lookup("3.catalog.test", target.port(), &HostMapping::default())
         .await
         .unwrap();
     let connected = binding.connect(found[0]).await.map(|_| ());

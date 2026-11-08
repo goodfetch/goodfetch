@@ -12,7 +12,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use goodfetch_clean_up_rules::rules::{FilterLists, ListTexts};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
-use goodfetch_engine::pinned_download::Fetching;
+use goodfetch_engine::rule_sources::Sourcing;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::clean_up_rules::{
     CleanUpRulesManifest, MANIFEST_FILE, RulesLists, RulesSource,
@@ -87,7 +87,7 @@ fn sources(env: &TestEnv, clock: Clock, origin: &str) -> Sources {
         .map(|list| (list.to_owned(), format!("https://{origin}/{list}.txt")))
         .collect();
     Sources {
-        fetching: Fetching::new(clock),
+        sourcing: Sourcing::new(clock),
         kept: Kept::in_home(&home, TaskOwner::root(BlockingPolicy::Inline)),
         state: env.folder().join("clean-up-rules.json"),
         channel: String::new(),

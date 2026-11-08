@@ -10,7 +10,7 @@ use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::dns::ResolverConfiguration;
+use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::tls::{CertificateExceptions, Trust};
 
@@ -24,7 +24,7 @@ fn config() -> TransportConfig {
         exceptions: CertificateExceptions::default(),
         client_certificates: None,
         proxy: None,
-        resolve: Vec::new(),
+        resolve: HostMapping::default(),
         egress: Policy::new(&["*"], &[] as &[&str]).unwrap(),
         clock: Clock::system(),
         resolver: ResolverConfiguration::name_servers([]),

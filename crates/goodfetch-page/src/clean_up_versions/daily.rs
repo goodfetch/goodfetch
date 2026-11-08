@@ -134,9 +134,9 @@ async fn get(
             headers.push(("authorization", format!("Bearer {token}")));
         }
         async move {
-            rule_sources::get(url, &headers, &sources.fetching, limit)
+            rule_sources::get(url, &headers, &sources.sourcing, limit)
                 .await
-                .map_err(|failure| Unobtained::of(failure, &sources.fetching))
+                .map_err(|failure| Unobtained::of(failure, &sources.sourcing.fetching))
         }
     };
     let fetched = send(token.as_ref()).await?;
@@ -175,7 +175,7 @@ async fn anonymous_token(sources: &Sources, challenge: &str) -> Option<String> {
         }
     }
     let url = url::Url::parse_with_params(realm?, &query).ok()?;
-    let answer = rule_sources::get(url.as_str(), &[], &sources.fetching, SMALL_LIMIT)
+    let answer = rule_sources::get(url.as_str(), &[], &sources.sourcing, SMALL_LIMIT)
         .await
         .ok()?;
     let token: Value = serde_json::from_slice(&answer.body).ok()?;

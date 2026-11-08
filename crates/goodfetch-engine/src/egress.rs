@@ -14,8 +14,9 @@
 //! `0x7f000001` and `127.0.0.1` are one address, and `bücher.test` and
 //! `xn--bcher-kva.test` one name.
 //!
-//! The resolved-address check is [`judge_addresses`], on the addresses a
-//! connection may try once a request is allowed: every answer must be one
+//! The resolved-address check judges the addresses a connection may try
+//! once a request is allowed, through the [`Gate`], which runs the URL's
+//! check, the lookup and this one in that order: every answer must be one
 //! a page may reach ([`classify`]), or lie in a range the Session lists
 //! (`egress.private_ranges`), or be an answer of a host it lists by name,
 //! a cloud-metadata address only when listed by its exact address. With
@@ -25,8 +26,7 @@
 //! since the URL parser reads no host from it.
 //!
 //! Operator-configured endpoints are the second egress class (ADR 0017),
-//! judged by [`judge_endpoint`] and [`judge_endpoint_addresses`] under an
-//! [`EndpointPolicy`]: no run's domain policy applies, and an endpoint
+//! judged through [`Gate::Endpoint`] under an [`EndpointPolicy`]: no run's domain policy applies, and an endpoint
 //! reaches private addresses, so a model on localhost works, unless
 //! `egress.no_private_endpoints`, set in the Operator policy alone, holds
 //! it to globally reachable ones.
@@ -47,16 +47,19 @@ use serde_json::{Map, Value};
 use url::{Host, Url};
 
 use crate::call_error::CallError;
-use crate::settings::{HostEntry, Resolved, without_root};
+use crate::host_name::{self, without_root};
+use crate::settings::{HostEntry, Resolved};
 
 mod address;
 mod cdp_url;
+mod gate;
 mod proxy_script;
 
 pub use address::{AddressClass, classify, classify_socket};
 pub use cdp_url::{
     BrowserLocation, CdpUrlOrigin, CdpUrlRefused, cdp_url_address, judge_cdp_url, judge_unresolved,
 };
+pub use gate::{Gate, Judged, Passed, Stopped};
 
 #[cfg(test)]
 mod tests;
@@ -70,7 +73,7 @@ mod address_classification {
 }
 
 /// A Session's egress policy: its domain policy, which [`judge`] applies,
-/// and the private addresses [`judge_addresses`] lets it reach.
+/// and the private addresses its [`Gate`] lets it reach.
 #[derive(Clone, Debug)]
 pub struct Policy {
     allowed: Entries,
@@ -189,16 +192,7 @@ impl Entries {
         }
         match host {
             Host::Domain(domain) => {
-                let mut name = without_root(domain);
-                loop {
-                    if self.domains.contains(name) {
-                        return true;
-                    }
-                    match name.split_once('.') {
-                        Some((_, parent)) => name = parent,
-                        None => return false,
-                    }
-                }
+                host_name::covering(without_root(domain)).any(|name| self.domains.contains(name))
             }
             Host::Ipv4(address) => self.addresses.contains(&IpAddr::V4(*address)),
             Host::Ipv6(address) => self.addresses.contains(&IpAddr::V6(*address)),
@@ -433,25 +427,49 @@ impl Policy {
     }
 
     /// Whether an entry lets a page reach `address`, whose class is
-    /// `class`, on a connection for `url`.
-    fn lists(&self, url: &str, address: IpAddr, class: AddressClass) -> bool {
+    /// `class`, on a connection to `name`, the host's name as
+    /// [`host_name::key`] leaves it, when it has one.
+    fn lists(&self, name: Option<&str>, address: IpAddr, class: AddressClass) -> bool {
         let in_a_block = self.private_ranges.iter().any(|range| {
             range.contains(address) && (class != AddressClass::Metadata || range.is_one(address))
         });
-        in_a_block || (class != AddressClass::Metadata && self.lists_host_of(url))
+        in_a_block
+            || (class != AddressClass::Metadata
+                && name.is_some_and(|name| self.private_hosts.contains(name)))
     }
 
-    /// Whether `url`'s host is one `egress.private_ranges` names.
-    fn lists_host_of(&self, url: &str) -> bool {
-        if self.private_hosts.is_empty() {
-            return false;
+    /// Judges `key`, a host as [`host_name::key`] leaves it, a name when
+    /// `name`, under the domain policy.
+    ///
+    /// # Errors
+    ///
+    /// The setting that would allow it.
+    fn judge_host(&self, key: &str, name: bool) -> Result<(), Option<&'static str>> {
+        let host = if name {
+            Host::Domain(key)
+        } else {
+            match key.parse::<IpAddr>() {
+                Ok(IpAddr::V4(address)) => Host::Ipv4(address),
+                Ok(IpAddr::V6(address)) => Host::Ipv6(address),
+                Err(_) => return Err(None),
+            }
+        };
+        if self.blocked.matches(&host) {
+            return Err(Some(EGRESS_BLOCKED_DOMAINS.name));
         }
-        match Url::parse(url).ok().as_ref().and_then(Url::host) {
-            Some(Host::Domain(domain)) => self
-                .private_hosts
-                .contains(without_root(&domain.to_ascii_lowercase())),
-            _ => false,
+        if !self.allowed.matches(&host) {
+            return Err(Some(EGRESS_ALLOWED_DOMAINS.name));
         }
+        Ok(())
+    }
+}
+
+/// The name of `url`'s host as [`host_name::key`] leaves it, when its host
+/// is a name.
+fn name_of(url: &str) -> Option<String> {
+    match Url::parse(url).ok()?.host()? {
+        Host::Domain(domain) => Some(without_root(domain).to_owned()),
+        Host::Ipv4(_) | Host::Ipv6(_) => None,
     }
 }
 
@@ -483,42 +501,35 @@ impl Block {
 /// The setting that lists the private ranges a page may reach.
 pub const PRIVATE_RANGES: &str = EGRESS_PRIVATE_RANGES.name;
 
-/// Judges the addresses a connection for `url` may try, every answer its
-/// host has, before it tries any (ADR 0017): one a page may not reach
-/// refuses the connection, so a name with a public and a private answer is
-/// reached through neither (ADR 0067). A connection judged here tries only
-/// these addresses, so an answer that changes after the judgment
-/// (rebinding) reaches nothing.
-///
-/// # Errors
-///
-/// [`Refused`] with [`EgressRule::PrivateAddress`] and the first address a
-/// page may not reach, naming `egress.private_ranges` unless no range could
-/// allow it (an address with a zone ID). None while the Session's
-/// `security.resolved_ip_check` is off.
-pub fn judge_addresses(
-    url: &str,
-    addresses: &[SocketAddr],
-    session: &Policy,
-) -> Result<(), Refused> {
+/// Judges the addresses a connection for `url` may try, as the [`Gate`]
+/// of a Session's request does once it judged `url`: the fuzz target's and
+/// the tests' way to the resolved-address check.
+fn judge_addresses(url: &str, addresses: &[SocketAddr], session: &Policy) -> Result<(), Refused> {
     if !session.resolved_ip_check {
         return Ok(());
     }
-    judge_reachable(url, addresses, session)
+    judge_reachable(url, name_of(url).as_deref(), addresses, session)
 }
 
-/// [`judge_addresses`] whatever the switch says, for the rules that are
-/// not the run's resolved-address check, such as ADR 0056's for a
-/// `cdp_url`.
-fn judge_reachable(url: &str, addresses: &[SocketAddr], session: &Policy) -> Result<(), Refused> {
+/// Judges `addresses`, every answer of the host named `name` (none for an
+/// address), whatever `security.resolved_ip_check` says, for the
+/// resolved-address check and the rules that are not it, such as ADR
+/// 0056's for a `cdp_url`: one a page may not reach refuses the
+/// connection, naming `named`.
+fn judge_reachable(
+    named: &str,
+    name: Option<&str>,
+    addresses: &[SocketAddr],
+    session: &Policy,
+) -> Result<(), Refused> {
     for address in addresses {
         let class = classify_socket(*address);
-        let listed = class != AddressClass::ZoneId && session.lists(url, address.ip(), class);
+        let listed = class != AddressClass::ZoneId && session.lists(name, address.ip(), class);
         if class.is_global() || listed {
             continue;
         }
         return Err(Refused {
-            url: url.to_owned(),
+            url: named.to_owned(),
             rule: EgressRule::PrivateAddress,
             address: Some(address.ip()),
             setting: (class != AddressClass::ZoneId).then_some(PRIVATE_RANGES),
@@ -562,7 +573,7 @@ impl EndpointPolicy {
 /// Judges the URL of an Operator-configured endpoint before any lookup:
 /// its scheme alone, one of HTTP's, since no run's domain policy applies
 /// to it; [`judge_endpoint_addresses`] then judges where it resolves.
-pub fn judge_endpoint(url: &str) -> Judgment {
+fn judge_endpoint(url: &str) -> Judgment {
     let refused = |rule| {
         Judgment::Refused(Refused {
             url: url.to_owned(),
@@ -579,14 +590,14 @@ pub fn judge_endpoint(url: &str) -> Judgment {
 }
 
 /// Judges the addresses a connection to the Operator-configured endpoint
-/// at `url` may try, before it tries any.
+/// named `url` may try, before it tries any.
 ///
 /// # Errors
 ///
 /// [`Refused`] with [`EgressRule::PrivateAddress`], the first address that
 /// is not globally reachable and `egress.no_private_endpoints`, when it
 /// is on.
-pub fn judge_endpoint_addresses(
+fn judge_endpoint_addresses(
     url: &str,
     addresses: &[SocketAddr],
     policy: EndpointPolicy,

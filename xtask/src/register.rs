@@ -13,7 +13,7 @@
 mod commands;
 mod contract;
 mod coverage;
-mod document;
+pub(crate) mod document;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -43,8 +43,6 @@ pub(crate) enum Command {
     Coverage(coverage::Arguments),
 }
 
-/// The file holding the register, from the workspace's folder.
-const TESTING: &str = "TESTING.md";
 /// The folder holding ADR 0140, whose file name starts with `ADR_PREFIX`.
 const ADR_FOLDER: &str = "docs/adr";
 const ADR_PREFIX: &str = "0140-";
@@ -72,12 +70,12 @@ pub(crate) fn run(
 
 fn findings(root: &Path, today: Date, xtask: &clap::Command) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
-    let register = Register::read(&read(&root.join(TESTING))?);
+    let register = Register::read(&read(&root.join(document::FILE))?);
     let inventory = contract::read(&read(&adr_file(root)?)?);
     if register.is_none() {
         findings.push(Finding::new(
             UNREADABLE,
-            TESTING,
+            document::FILE,
             "the Quality register's Enforced, Measured or Exceptions table is missing or empty",
         ));
     }

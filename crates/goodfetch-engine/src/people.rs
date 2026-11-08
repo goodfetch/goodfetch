@@ -26,7 +26,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_protocol::audit::{Actor, ENDPOINT_AUTHENTICATION_FAILED};
+use goodfetch_protocol::audit::{Actor, ENDPOINT_AUTHENTICATION_FAILED, Listener};
 use goodfetch_protocol::catalog::SharedTypeValue;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::people::{
@@ -41,7 +41,7 @@ use sha2::Sha256;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
 
-use crate::audit::{AuditLog, Origin};
+use crate::audit::{AuditError, AuditLog, Origin};
 use crate::clock::Clock;
 use crate::endpoint::same_token;
 use crate::tasks::TaskOwner;
@@ -154,7 +154,7 @@ pub enum SignInFailure {
     Refused(SignInRefused),
     /// The OS generator gave no cookie.
     Generator(getrandom::Error),
-    /// The accounts store or the Console key failed.
+    /// The accounts store, the Console key or the Audit log failed.
     People(PeopleError),
 }
 
@@ -206,6 +206,10 @@ pub enum PeopleError {
     /// The Console key failed.
     #[error(transparent)]
     Key(#[from] KeyError),
+    /// The Audit log could not record the change: a sign-in is then not
+    /// made, and an ending, which no failure may keep alive, is.
+    #[error("the Audit log cannot record the change: {0}")]
+    Unrecorded(#[source] AuditError),
 }
 
 /// What a sign-in driver is made of.
@@ -292,8 +296,9 @@ impl SignInDriver {
     /// # Errors
     ///
     /// When `from` tried too often in the last minute, `token` is missing
-    /// or none the link carries, the OS generator gives no cookie, or the
-    /// accounts store or the Console key fails.
+    /// or none the link carries, the OS generator gives no cookie, the
+    /// accounts store or the Console key fails, or the Audit log cannot
+    /// record the sign-in, which is then not made.
     ///
     /// # Cancel safety
     ///
@@ -325,12 +330,18 @@ impl SignInDriver {
                 last_used: now,
                 wrapping_key,
             })?;
-            inner.record(
+            let recorded = inner.record(
                 Some(Surface::Console),
                 &SIGNED_IN,
                 json!({ "sign_in": id, "with": "single_user_link" }),
             );
-            Ok::<_, PeopleError>(())
+            if recorded.is_err()
+                && let Err(error) = inner.store.remove(&id)
+            {
+                // Its cookie is never sent, so it signs nobody in either way.
+                tracing::error!(%error, "the accounts store kept a sign-in the Audit log could not record");
+            }
+            recorded
         })
         .await
         .map_err(SignInFailure::People)?;
@@ -440,12 +451,16 @@ impl SignInDriver {
                 tracing::error!(%error, "the accounts store did not end a sign-in");
                 false
             });
-            if removed {
-                inner.record(
+            // The sign-in has ended, and the Console's sign-out answer has
+            // no failure to show, so a missing entry is logged.
+            if removed
+                && let Err(error) = inner.record(
                     Some(Surface::Console),
                     &SIGN_IN_REVOKED,
                     json!({ "sign_in": row.id, "by": "sign_out" }),
-                );
+                )
+            {
+                tracing::error!(%error, "the Audit log did not record a sign-out");
             }
             removed
         })
@@ -486,7 +501,8 @@ impl SignInDriver {
     ///
     /// # Errors
     ///
-    /// When the accounts store fails.
+    /// When the accounts store fails, or `Unrecorded` when the Audit log
+    /// cannot record an ending, which is made all the same.
     ///
     /// # Cancel safety
     ///
@@ -501,7 +517,7 @@ impl SignInDriver {
                     surface,
                     &SIGN_IN_REVOKED,
                     json!({ "sign_in": id, "by": "sign_in.revoke" }),
-                );
+                )?;
             }
             Ok(revoked)
         })
@@ -515,7 +531,8 @@ impl SignInDriver {
     /// # Errors
     ///
     /// When the OS generator gives no key, or the key or the accounts store
-    /// cannot be written.
+    /// cannot be written; `Unrecorded` when the Audit log cannot record the
+    /// rotation, which is made all the same.
     ///
     /// # Cancel safety
     ///
@@ -529,7 +546,7 @@ impl SignInDriver {
                 surface,
                 &CONSOLE_KEY_ROTATED,
                 json!({ "signed_out": signed_out }),
-            );
+            )?;
             Ok(signed_out)
         })
         .await
@@ -541,7 +558,8 @@ impl SignInDriver {
     /// # Cancel safety
     ///
     /// Dropping the future may leave the entry recorded.
-    pub async fn refused(&self, listener: &'static str, reason: &'static str) {
+    pub async fn refused(&self, listener: Listener, reason: &'static str) {
+        let listener = listener.as_str();
         let inner = Arc::clone(&self.inner);
         self.blocking(move || {
             let origin = Origin {
@@ -576,7 +594,7 @@ impl SignInDriver {
 impl Inner {
     /// Wall time now.
     fn now(&self) -> Timestamp {
-        Timestamp::try_from(self.clock.wall()).unwrap_or(Timestamp::UNIX_EPOCH)
+        self.clock.timestamp()
     }
 
     /// Counts an attempt to sign in from `from`: whether the address may
@@ -648,8 +666,13 @@ impl Inner {
     }
 
     /// Appends an entry of `kind` to the Audit log, by the person through
-    /// `surface`.
-    fn record(&self, surface: Option<Surface>, kind: &SharedTypeValue, details: Value) {
+    /// `surface`; the caller decides what its failure means for its change.
+    fn record(
+        &self,
+        surface: Option<Surface>,
+        kind: &SharedTypeValue,
+        details: Value,
+    ) -> Result<(), PeopleError> {
         let origin = Origin {
             actor: Actor::Person {
                 name: self.person.clone(),
@@ -658,9 +681,10 @@ impl Inner {
             layer: None,
             run_id: None,
         };
-        if let Err(error) = self.audit.record(&origin, kind, details, self.now()) {
-            tracing::error!(%error, kind = kind.name, "the Audit log did not record a sign-in's change");
-        }
+        self.audit
+            .record(&origin, kind, details, self.now())
+            .map(drop)
+            .map_err(PeopleError::Unrecorded)
     }
 }
 

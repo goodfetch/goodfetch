@@ -49,10 +49,11 @@ use goodfetch_engine::browser_cache::{
 use goodfetch_engine::dns::{Dns, HostMapping, ResolverConfiguration};
 use goodfetch_engine::governor::{BrowserUse, GovernedBrowser, PageHold, footprint_of};
 use goodfetch_engine::home::Home;
+use goodfetch_engine::host_name;
 use goodfetch_engine::local_addresses::{self, Rotation, Unavailable};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
-use goodfetch_engine::tls::{CertificateExceptions, PinBook, Trust, trusted_cas};
+use goodfetch_engine::tls::{CertificateExceptions, PinBook, Trust};
 use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_TRUSTED_CAS};
 use tokio::sync::{OnceCell, mpsc, oneshot};
 
@@ -372,12 +373,10 @@ impl Pool {
         let trust = shared
             .trust
             .get_or_init(|| async {
-                let setting = shared
-                    .run
-                    .settings()
-                    .map(|settings| settings.resolved().value(&TLS_TRUSTED_CAS).clone())
-                    .unwrap_or_default();
-                trusted_cas(&setting, shared.run.owner()).await
+                match shared.run.settings() {
+                    Some(settings) => Trust::of(settings.resolved(), shared.run.owner()).await,
+                    None => Trust::default_roots(),
+                }
             })
             .await
             .clone();
@@ -1248,7 +1247,9 @@ fn authority_of(run: &Run, exceptions: &CertificateExceptions) -> Option<Arc<Aut
         .map(|settings| settings.resolved().value(&TLS_TRUSTED_CAS))
         .and_then(serde_json::Value::as_object);
     for domain in trusted.into_iter().flat_map(serde_json::Map::keys) {
-        let domain = domain.trim_end_matches('.').to_ascii_lowercase();
+        let Some(domain) = host_name::key(domain) else {
+            continue;
+        };
         if !domains.contains(&domain) {
             domains.push(domain);
         }

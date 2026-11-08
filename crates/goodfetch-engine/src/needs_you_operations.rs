@@ -4,7 +4,8 @@
 //! "Needs you" driver. `needs_you.allow_consent_domain` is a person's
 //! answer to a `consent_wall` item (ADRs 0048 and 0052): it adds the
 //! domain, or `*`, to `consent.domains` in user configuration in one call,
-//! every other byte of the file kept, after the resolver confirmed that no
+//! an edit of the settings editor (`settings_editor`), every other byte of
+//! the file kept, after the resolver confirmed that no
 //! Operator policy locks the key, and records the answer in the Audit log
 //! with the warning the person was shown; the item then leaves the list at
 //! the source's next read. The catalog marks it person only, so the RPC
@@ -15,10 +16,6 @@
 use std::io;
 use std::sync::Arc;
 
-use goodfetch_protocol::audit::Actor;
-use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::formats::USER_CONFIGURATION;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::needs_you::{
     CONSENT_DOMAIN_ALLOWED, ConsentDomainAllowed, NEEDS_YOU_ALLOW_CONSENT_DOMAIN,
@@ -29,15 +26,13 @@ use goodfetch_protocol::needs_you::{
 use goodfetch_protocol::settings::{CONSENT_DOMAINS, SettingsLayer};
 use serde_json::{Value, json};
 
-use crate::audit::{AuditLog, Origin};
+use crate::audit::AuditError;
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
-use crate::durable;
 use crate::needs_you::NeedsYouError;
 use crate::run::settings_error;
-use crate::settings::{
-    HostDefaults, Layers, MachineLayers, SettingsError, resolve, set, user_configuration,
-};
+use crate::settings::SettingsError;
+use crate::settings_editor::{self, Change, SettingsEditor};
 
 mod refetch;
 
@@ -112,15 +107,7 @@ fn consent_domain(domain: &str) -> Result<String, CallError> {
     Ok(host)
 }
 
-/// What one answer changed.
-enum Written {
-    /// User configuration listed the domain already.
-    Listed,
-    /// The domain was added.
-    Added,
-}
-
-/// Why an answer wrote nothing.
+/// Why an answer failed: each but `Unrecorded` wrote nothing.
 enum Refused {
     /// A setting's refusal, such as an Operator policy's lock.
     Settings(SettingsError),
@@ -128,20 +115,27 @@ enum Refused {
     File(io::Error),
     /// The answer does not fit what the file lists, which this says.
     Params(String),
+    /// The answer was written, but the Audit log could not record it.
+    Unrecorded(AuditError),
 }
 
-/// One answer's inputs, as its blocking write takes them.
-struct Answer {
-    domain: String,
-    warning: String,
-    path: std::path::PathBuf,
-    machine: MachineLayers,
-    host: HostDefaults,
-    product: Product,
-    version: ProductVersion,
-    audit: AuditLog,
-    origin: Origin,
-    now: jiff::Timestamp,
+/// The call error of an answer written that the Audit log could not
+/// record.
+fn unrecorded(error: &AuditError) -> CallError {
+    CallError::protocol(
+        ProtocolFailure::InternalError,
+        format!("the answer was written, but the Audit log cannot record it: {error}"),
+    )
+}
+
+impl From<settings_editor::Refused> for Refused {
+    fn from(refused: settings_editor::Refused) -> Self {
+        match refused {
+            settings_editor::Refused::Settings(error) => Self::Settings(error),
+            settings_editor::Refused::File(error) => Self::File(error),
+            settings_editor::Refused::Unrecorded(error) => Self::Unrecorded(error),
+        }
+    }
 }
 
 async fn allow_consent_domain(
@@ -149,40 +143,20 @@ async fn allow_consent_domain(
     context: CallContext,
 ) -> Result<ConsentDomainAllowed, CallError> {
     let domain = consent_domain(&params.domain)?;
-    let engine = context.engine();
-    let settings = engine.settings().clone();
-    let machine = settings
-        .machine()
-        .await
-        .map_err(|error| settings_error(&error, &context))?;
     let warning = consent_domain_warning(&domain);
-    let answer = Answer {
-        domain: domain.clone(),
-        warning: warning.clone(),
-        path: settings.files().user_configuration().to_owned(),
-        machine,
-        host: settings.host_defaults().await,
-        product: settings.product(),
-        version: context.identity().product_version.clone(),
-        audit: engine.audit().clone(),
-        origin: Origin {
-            actor: Actor::Person {
-                name: context.person(),
-            },
-            surface: Some(context.surface()),
-            layer: Some(SettingsLayer::UserConfiguration),
-            run_id: None,
-        },
-        now: engine.now(),
-    };
+    let editor = SettingsEditor::resolving(&context).await;
+    let (answered, shown) = (domain.clone(), warning.clone());
+    let engine = context.engine();
     let added = match Arc::clone(engine.owner())
-        .blocking(move || write(answer))
+        .blocking(move || allow(&editor, &answered, &shown))
         .await
     {
-        Ok(Written::Added) => true,
-        Ok(Written::Listed) => false,
+        Ok(added) => added,
         Err(Refused::Settings(error)) => {
-            return Err(settings_error(&settings.files().named_in(error), &context));
+            return Err(settings_error(
+                &engine.settings().files().named_in(error),
+                &context,
+            ));
         }
         Err(Refused::Params(message)) => {
             return Err(CallError::protocol(ProtocolFailure::InvalidParams, message));
@@ -193,6 +167,7 @@ async fn allow_consent_domain(
                 format!("user configuration cannot be written: {error}"),
             ));
         }
+        Err(Refused::Unrecorded(error)) => return Err(unrecorded(&error)),
     };
     Ok(ConsentDomainAllowed {
         domain,
@@ -202,79 +177,35 @@ async fn allow_consent_domain(
     })
 }
 
-/// Adds `answer`'s domain to user configuration's `consent.domains`, unless
-/// it lists it already, once the resolver accepts the file so changed
-/// under the Operator policy, and records it in the Audit log. Blocking.
-fn write(answer: Answer) -> Result<Written, Refused> {
-    let Answer {
-        domain,
-        warning,
-        path,
-        machine,
-        host,
-        product,
-        version,
-        audit,
-        origin,
-        now,
-    } = answer;
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "the answer's file work runs under the engine's blocking policy"
-    )]
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            format!("version = \"{}\"\n", USER_CONFIGURATION.version)
+/// Adds `domain` to user configuration's `consent.domains`, unless it lists
+/// it already, once the resolver accepts the file so changed under the
+/// Operator policy, and records it in the Audit log with `warning`; answers
+/// whether it was added. Blocking.
+fn allow(editor: &SettingsEditor, domain: &str, warning: &str) -> Result<bool, Refused> {
+    editor.edit(|draft| {
+        let layer = SettingsLayer::UserConfiguration;
+        draft.machine()?;
+        let mut domains: Vec<Value> = draft
+            .user_configuration()?
+            .get(CONSENT_DOMAINS.name)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if domains.iter().any(|listed| listed.as_str() == Some(domain)) {
+            return Ok(Change::Kept(false));
         }
-        Err(error) => return Err(Refused::File(error)),
-    };
-    let layer = SettingsLayer::UserConfiguration;
-    let current = user_configuration(layer, &text, product, &version).map_err(Refused::Settings)?;
-    let mut domains: Vec<Value> = current
-        .get(CONSENT_DOMAINS.name)
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if domains
-        .iter()
-        .any(|listed| listed.as_str() == Some(&domain))
-    {
-        return Ok(Written::Listed);
-    }
-    domains.push(json!(domain));
-    let rewritten = set(
-        &text,
-        "settings",
-        CONSENT_DOMAINS.name,
-        &Value::Array(domains),
-        &USER_CONFIGURATION,
-        &version,
-        CONSENT_DOMAINS.arrived_in,
-    )
-    .map_err(Refused::Settings)?;
-    let layers = Layers {
-        host,
-        operator_policy: machine.operator_policy,
-        user_configuration: user_configuration(layer, &rewritten, product, &version)
-            .map_err(Refused::Settings)?,
-        ..Layers::default()
-    };
-    resolve(&layers, product, product).map_err(Refused::Settings)?;
-    replace(&path, &rewritten).map_err(Refused::File)?;
-    let details = json!({ "domain": domain, "warning": warning });
-    if let Err(error) = audit.record(&origin, &CONSENT_DOMAIN_ALLOWED, details, now) {
-        tracing::warn!(%error, "the Audit log cannot record an allowed consent domain");
-    }
-    Ok(Written::Added)
-}
-
-/// Replaces the file at `path` with `text`, through a file renamed over
-/// it, so no reader sees half of one, and an answer acknowledged survives a
-/// power cut (ADR 0002). Blocking.
-fn replace(path: &std::path::Path, text: &str) -> io::Result<()> {
-    if let Some(folder) = path.parent() {
-        durable::create_folder(folder)?;
-    }
-    durable::replace(path, text.as_bytes())
+        domains.push(json!(domain));
+        draft.set(
+            layer,
+            "settings",
+            CONSENT_DOMAINS.name,
+            &Value::Array(domains),
+        )?;
+        Ok(Change::Made {
+            answer: true,
+            layer,
+            kind: &CONSENT_DOMAIN_ALLOWED,
+            details: json!({ "domain": domain, "warning": warning }),
+        })
+    })
 }

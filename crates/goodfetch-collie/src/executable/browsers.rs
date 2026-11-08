@@ -19,9 +19,7 @@ use goodfetch_engine::browser_cache::{
     Platform, kept_artifacts,
 };
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::home::Home;
-use goodfetch_engine::http_client::Resolve;
 use goodfetch_engine::installed::{InstalledList, Seen, kept_inputs};
 use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::run::local_settings_error;
@@ -32,8 +30,6 @@ use goodfetch_protocol::browser_cache::{
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::egress::EGRESS_OFFLINE;
-use goodfetch_protocol::settings::NETWORK_RESOLVE;
 
 use super::output::{self, Human};
 
@@ -68,27 +64,6 @@ pub(super) fn machine_settings(
     SettingsFiles::of(home, version).machine_settings(product)
 }
 
-/// What downloads may do under `settings`: `egress.offline` and the layer
-/// that set it, `network.resolve`'s mapping and the Happy Eyeballs delays.
-fn fetching(settings: &Resolved, clock: Clock) -> Fetching {
-    let offline = settings
-        .effective(&EGRESS_OFFLINE)
-        .filter(|offline| offline.value == serde_json::Value::Bool(true))
-        .map(|offline| offline.layer);
-    let mapping = settings
-        .hosts(&NETWORK_RESOLVE)
-        .into_iter()
-        .fold(Resolve::new(), |mapping, (host, addresses)| {
-            mapping.with(host, addresses)
-        });
-    Fetching {
-        offline,
-        resolve: mapping,
-        delays: Delays::of(settings),
-        ..Fetching::new(clock)
-    }
-}
-
 /// `browser_cache.max_unused_age` under `settings`.
 fn max_unused_age(settings: &Resolved) -> MaxUnusedAge {
     MaxUnusedAge::new(settings.get(&MAX_UNUSED_AGE))
@@ -108,8 +83,7 @@ fn refused(error: &SettingsError, identity: &Identity, json: bool, human: &Human
 
 /// The time the command runs at, on the engine's Clock.
 fn now(clock: Clock) -> jiff::Timestamp {
-    jiff::Timestamp::try_from(clock.wall())
-        .expect("invariant: the system clock reads a representable time")
+    clock.timestamp()
 }
 
 fn runtime() -> tokio::runtime::Runtime {
@@ -182,7 +156,7 @@ pub(super) fn install(
         artifacts: crate::pinned_artifacts(),
     };
     let now = now(clock);
-    let fetching = fetching(&settings, clock);
+    let fetching = Fetching::of(&settings, clock);
     let max_unused_age = max_unused_age(&settings);
     let installed = runtime().block_on(async {
         let outcomes = cache

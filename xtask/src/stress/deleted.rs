@@ -22,7 +22,7 @@ use anyhow::Result;
 
 use crate::check::Finding;
 use crate::floor_guard::Trailers;
-use crate::quarantine::{Runner, TestId};
+use crate::runners::{Runner, TestId};
 
 /// What the trailers make of the deleted tests.
 pub(super) struct Judged {

@@ -19,8 +19,6 @@ use tokio::sync::watch;
 use crate::clock::Clock;
 use crate::events::Events;
 
-use super::folder::point_in_time;
-
 /// What an area adds to a Run's progress from its committed state (ADR
 /// 0102), such as a crawl's request counts: given through its composition
 /// value, it reads the Run's state on `connection`, a read-only connection
@@ -211,7 +209,7 @@ pub(super) async fn publish(
     while changes.changed().await.is_ok() {
         let value = changes
             .borrow_and_update()
-            .value(&run_id, point_in_time(&clock));
+            .value(&run_id, clock.point_in_time());
         events
             .publish(&RUN_PROGRESS, Some(run_id.as_str()), &value)
             .await;

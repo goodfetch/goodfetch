@@ -27,9 +27,36 @@ use hyper::body::Bytes;
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use crate::egress::{at_port, table_rule, target_connections};
-
 const SEED: u64 = 627;
+
+/// How many connections reached the watched target.
+fn target_connections(observations: &Value) -> usize {
+    observations["connections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|connection| connection["listener"] == "target")
+        .count()
+}
+
+/// `url` with `port` written after its host, keeping the host's spelling,
+/// so each case reaches the watched target, which serves any path.
+fn at_port(url: &str, port: u16) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_owned();
+    };
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    format!("{scheme}://{}:{port}{}", &rest[..end], &rest[end..])
+}
+
+/// The table's form of the rule a refusal names.
+fn table_rule(rule: EgressRule) -> goodfetch_test_support::EgressRule {
+    match rule {
+        EgressRule::DomainPolicy => goodfetch_test_support::EgressRule::DomainPolicy,
+        EgressRule::PrivateAddress => goodfetch_test_support::EgressRule::PrivateAddress,
+        EgressRule::Scheme => goodfetch_test_support::EgressRule::Scheme,
+    }
+}
 
 /// The Proving ground's watched target, which answers any plain HTTP
 /// request and whose every connection the record lists.

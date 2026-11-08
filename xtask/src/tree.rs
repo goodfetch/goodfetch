@@ -1,6 +1,10 @@
-//! The repository's own files, walked from a folder: never version control,
-//! hidden folders, build outputs, installed packages, fixtures (samples the
-//! checks run on purpose) or the frozen `rnd/` archive (ADR 0032).
+//! The repository's own files, and which folders a walk of the repository
+//! never enters: version control, build outputs, installed packages and
+//! caches wherever they are, and the frozen `rnd/` archive (ADR 0032) and
+//! agents' `.claude/` folder at the root. Every check that walks the
+//! repository skips them through [`never_entered`] or [`generated`], and
+//! decides alone whether it enters hidden folders, fixtures (samples the
+//! checks run on purpose) and the proofs. [`files`] enters none of those.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -10,14 +14,46 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 
-/// Folders never entered, wherever they are.
-const SKIPPED: [&str; 5] = ["target", "node_modules", "fixtures", "dist", "__pycache__"];
+/// Folders no walk enters, wherever they are: version control, build
+/// outputs, installed packages and caches.
+const GENERATED: [&str; 7] = [
+    ".git",
+    "target",
+    "node_modules",
+    ".venv",
+    "__pycache__",
+    "dist",
+    "console-build",
+];
 
-/// The folders of samples the checks run on purpose, one of [`SKIPPED`].
-const FIXTURES: &str = "fixtures";
+/// Folders under the root no walk enters: the frozen R&D archive (ADR
+/// 0032), and agents' worktrees and notes.
+const FROM_ROOT: [&str; 2] = ["rnd", ".claude"];
 
-/// The frozen R&D archive at the root (ADR 0032).
-const FROZEN: &str = "rnd";
+/// The name of the folders of samples the checks run on purpose.
+pub(crate) const FIXTURES: &str = "fixtures";
+
+/// The static checks' proofs (`just proofs`), from the root: every file in
+/// it is a fixture.
+pub(crate) const PROOFS: &str = "ci/proofs";
+
+/// Whether no walk enters a folder named `name`, wherever it lies: for a
+/// walk of a folder whose path from the root it does not follow.
+pub(crate) fn generated(name: &str) -> bool {
+    GENERATED.contains(&name)
+}
+
+/// Whether no walk of the repository enters the folder at `relative`, its
+/// `/`-separated path from the root.
+pub(crate) fn never_entered(relative: &str) -> bool {
+    let name = relative.rsplit('/').next().unwrap_or(relative);
+    generated(name) || FROM_ROOT.contains(&relative)
+}
+
+/// Whether a folder named `name` is hidden: a dot-folder.
+pub(crate) fn hidden(name: &str) -> bool {
+    name.starts_with('.')
+}
 
 /// Every file under `folder` (relative to `root`), as sorted `/`-separated
 /// paths relative to `root`; nothing when `folder` does not exist.
@@ -65,16 +101,14 @@ fn walk(
             .file_type()
             .with_context(|| format!("reading {}", path.display()))?;
         if kind.is_dir() {
-            let frozen = folder == root && name == FROZEN;
             let relative = path
                 .strip_prefix(root)
                 .unwrap_or(&path)
                 .to_string_lossy()
                 .replace('\\', "/");
-            let entered_fixtures = name == FIXTURES
-                && fixtures.is_some_and(|except| !except.contains(&relative.as_str()));
-            let skipped = SKIPPED.contains(&name.as_ref()) && !entered_fixtures;
-            if !(name.starts_with('.') || skipped || frozen) {
+            let skipped_fixtures = name == FIXTURES
+                && fixtures.is_none_or(|except| except.contains(&relative.as_str()));
+            if !(hidden(&name) || never_entered(&relative) || skipped_fixtures) {
                 walk(root, &path, fixtures, files)?;
             }
         } else if kind.is_file() {

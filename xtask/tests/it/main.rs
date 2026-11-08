@@ -55,6 +55,7 @@ mod journey_variants;
 mod journeys;
 mod journeys_report;
 mod junit_summary;
+mod kennel_manifest;
 mod lazyfs_build;
 mod merge_cap;
 mod merge_pr;

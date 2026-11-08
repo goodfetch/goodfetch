@@ -216,6 +216,42 @@ fn a_tampered_build_is_refused_and_removed() {
     assert!(!folder.exists());
 }
 
+/// A build whose files cannot be read now, as under a permission change
+/// or a process out of file handles, is the cache's failure: it is kept,
+/// not taken for a tampered build and removed.
+///
+/// Covers: row:SDK-08
+#[cfg(unix)]
+#[test]
+fn a_build_that_cannot_be_read_is_kept_not_removed_as_tampered() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let env = TestEnv::new();
+    let cache = cache_in(&env);
+    let id = browser("141.0.7390.54-linux64");
+    let folder = lay_out(&cache, &id, now(&env));
+    let resources = folder.join("files/resources");
+    fs::set_permissions(&resources, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let found = goodfetch_test_support::runtime().block_on(cache.prepare(
+        &pin(id),
+        &pinned_by(),
+        &offline(),
+        now(&env),
+        &mut no_progress(),
+    ));
+    if resources.exists() {
+        fs::set_permissions(&resources, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    assert_eq!(
+        (
+            found.err().map(|error| error.code()),
+            folder.join("files/chrome").exists()
+        ),
+        (Some("internal_error"), true)
+    );
+}
+
 /// Covers: error:artifact_unavailable_offline
 #[test]
 fn a_missing_build_under_offline_names_the_build_its_pin_and_the_setting() {

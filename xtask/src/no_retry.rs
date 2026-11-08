@@ -20,22 +20,7 @@ use anyhow::{Context as _, Result};
 
 use self::commands::Reading;
 use crate::check::Finding;
-
-/// Folders the walk never enters, wherever they are: version control, build
-/// outputs, installed packages, and fixtures, which are data that other
-/// checks' tests break on purpose.
-const SKIPPED: [&str; 6] = [
-    ".git",
-    "target",
-    "node_modules",
-    ".venv",
-    "__pycache__",
-    "fixtures",
-];
-
-/// Folders under the root the walk never enters: the frozen R&D archive
-/// (ADR 0032), agents' worktrees, and the proofs' broken fixtures.
-const SKIPPED_FROM_ROOT: [&str; 3] = ["rnd", ".claude", "ci/proofs"];
+use crate::tree;
 
 /// One file of the workspace, read.
 pub(crate) struct File {
@@ -180,11 +165,15 @@ fn walk(root: &Path, folder: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
                 .file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or_default();
-            let relative = path.strip_prefix(root).unwrap_or(&path);
-            let from_root = SKIPPED_FROM_ROOT
-                .iter()
-                .any(|skipped| relative == Path::new(skipped));
-            if !SKIPPED.contains(&name) && !from_root {
+            let relative = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            // Fixtures are data other checks' tests break on purpose, the
+            // proofs' among them.
+            let fixtures = name == tree::FIXTURES || relative == tree::PROOFS;
+            if !(tree::never_entered(&relative) || fixtures) {
                 walk(root, &path, files)?;
             }
         } else if metadata.is_file() {

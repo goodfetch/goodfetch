@@ -7,7 +7,10 @@
 //! request's addresses judged again before it connects. Its certificate
 //! chains to Mozilla's roots or to the authorities `tls.trusted_cas` lists
 //! for its own domain, and no exception of `tls.accept_invalid_certs` lets
-//! an invalid one through.
+//! an invalid one through. A busy answer's `Retry-After` is read as every
+//! `Retry-After` the engine meets is ([`retry_after`], ADR 0118).
+
+use std::time::Duration;
 
 use goodfetch_protocol::egress::ConfiguredKind;
 use hyper::body::Bytes;
@@ -16,8 +19,12 @@ use hyper::{Request, Response};
 use crate::clock::Clock;
 use crate::egress::Refused;
 use crate::http_client::{EndpointSettings, WholeFailure};
+use crate::retry_after::{self, RetryAfter};
 use crate::settings::Resolved;
 use crate::tls::CertificateInvalid;
+
+#[cfg(test)]
+mod tests;
 
 /// The most bytes of an endpoint's answer a request reads: one secret's
 /// fields and metadata.
@@ -28,6 +35,7 @@ pub const ANSWER_LIMIT: usize = 1024 * 1024;
 #[derive(Clone, Debug)]
 pub struct SecretProviderEndpoint {
     endpoint: EndpointSettings,
+    clock: Clock,
 }
 
 /// Why a request to a Secret provider's endpoint got no whole answer.
@@ -56,6 +64,7 @@ impl SecretProviderEndpoint {
     pub fn of(settings: &Resolved, clock: Clock) -> Self {
         Self {
             endpoint: EndpointSettings::of(settings, clock),
+            clock,
         }
     }
 
@@ -83,5 +92,25 @@ impl SecretProviderEndpoint {
                 WholeFailure::Network => EndpointFailure::Network,
                 WholeFailure::TooLong => EndpointFailure::TooLong,
             })
+    }
+
+    /// The wait the `Retry-After` of `answer`, an answer the endpoint just
+    /// gave, asks for: a number of seconds, or an HTTP date measured
+    /// against the answer's own `Date` when it has one that parses, else
+    /// against the engine's clock; none when it has none or it is neither
+    /// form, and the driver's backoff waits instead.
+    pub fn retry_after(&self, answer: &Response<Bytes>) -> Option<Duration> {
+        let header = |name: &str| {
+            answer
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+        };
+        let received = self.clock.wall();
+        match retry_after::read(header("retry-after")?, header("date"), received) {
+            RetryAfter::Until(until) => Some(until.duration_since(received).unwrap_or_default()),
+            RetryAfter::NoWait => Some(Duration::ZERO),
+            RetryAfter::Unparsable => None,
+        }
     }
 }

@@ -9,7 +9,8 @@ use std::net::IpAddr;
 use goodfetch_protocol::catalog::HostList;
 use goodfetch_protocol::egress::EVERY_HOST;
 use serde_json::Value;
-use url::Host;
+
+use crate::host_name;
 
 /// One entry of a list of hosts, as the URL parser reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -31,19 +32,10 @@ impl HostEntry {
         if entry == EVERY_HOST {
             return Some(Self::Every);
         }
-        let host = if entry.contains(':') && !entry.starts_with('[') {
-            Host::parse(&format!("[{entry}]")).ok()?
-        } else {
-            Host::parse(entry).ok()?
-        };
-        match host {
-            Host::Domain(domain) => {
-                let domain = without_root(&domain);
-                (!domain.is_empty() && !domain.contains('*'))
-                    .then(|| Self::Domain(domain.to_owned()))
-            }
-            Host::Ipv4(address) => Some(Self::Address(IpAddr::V4(address))),
-            Host::Ipv6(address) => Some(Self::Address(IpAddr::V6(address))),
+        let key = host_name::key(entry)?;
+        match key.parse::<IpAddr>() {
+            Ok(address) => Some(Self::Address(address)),
+            Err(_) => (!key.contains('*')).then_some(Self::Domain(key)),
         }
     }
 
@@ -61,12 +53,6 @@ impl HostEntry {
             _ => false,
         }
     }
-}
-
-/// A name without the one trailing dot that makes it fully qualified: the
-/// same host either way.
-pub fn without_root(name: &str) -> &str {
-    name.strip_suffix('.').unwrap_or(name)
 }
 
 /// Whether `higher`, a list of hosts a Recipe or a Client acting for a

@@ -78,7 +78,7 @@ struct Run {
 /// own head, with the stand-ins first on `PATH`.
 fn perf(workspace: &Workspace, stand_ins: &Path) -> Run {
     let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    for script in ["ci/perf.sh", "ci/container.sh"] {
+    for script in ["ci/perf.sh", "ci/container.sh", "ci/output-value.sh"] {
         workspace.write(script, &std::fs::read(repository.join(script)).unwrap());
         std::fs::set_permissions(
             workspace.path().join(script),

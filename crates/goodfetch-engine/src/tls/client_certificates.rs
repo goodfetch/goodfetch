@@ -11,8 +11,6 @@
 //! through an invalid-certificate exception gets no client certificate, as
 //! it gets no Secret.
 
-use std::cell::Cell;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_protocol::run::RunId;
@@ -27,8 +25,9 @@ use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::Value;
 use tokio::sync::OnceCell;
 
-use super::{covered, domain_key, read_certificates, read_private_key};
+use super::{read_certificates, read_private_key};
 use crate::call_error::CallError;
+use crate::host_name::ListedDomains;
 use crate::secrets::{Purpose, RunSecrets, SecretError};
 
 /// The client certificates `tls.client_certificates` lists for a Run's
@@ -38,7 +37,7 @@ use crate::secrets::{Purpose, RunSecrets, SecretError};
 pub struct ClientCertificates {
     /// Each listed domain's certificate, by the domain as the URL parser
     /// leaves a host. Clones share what each loaded.
-    listed: Arc<BTreeMap<String, Listed>>,
+    listed: Arc<ListedDomains<Listed>>,
     /// The Run's Secrets, which resolve each key; none when nothing is
     /// listed.
     secrets: Option<RunSecrets>,
@@ -144,23 +143,23 @@ impl ClientCertificates {
         layer: Option<SettingsLayer>,
         run_id: Option<RunId>,
     ) -> Result<Self, ClientCertificateFailure> {
-        let mut listed = BTreeMap::new();
+        let mut listed = ListedDomains::new();
         for (domain, value) in setting.as_object().into_iter().flatten() {
             let unusable = |reason: String| ClientCertificateFailure::Unusable {
                 domain: domain.clone(),
                 layer,
                 reason,
             };
-            let key = domain_key(domain)
-                .ok_or_else(|| unusable("it names no host or domain".to_owned()))?;
             let entry = ClientCertificateConfiguration::read(value).map_err(unusable)?;
-            listed.insert(
-                key,
-                Listed {
-                    entry,
-                    loaded: OnceCell::new(),
-                },
-            );
+            listed
+                .insert(
+                    domain,
+                    Listed {
+                        entry,
+                        loaded: OnceCell::new(),
+                    },
+                )
+                .map_err(|_| unusable("it names no host or domain".to_owned()))?;
         }
         Ok(Self {
             listed: Arc::new(listed),
@@ -172,16 +171,7 @@ impl ClientCertificates {
 
     /// The most specific listed domain of `host`, with its certificate.
     fn entry_of(&self, host: &str) -> Option<(&str, &Listed)> {
-        let found = Cell::new(None);
-        covered(host, |domain| {
-            found.set(
-                self.listed
-                    .get_key_value(domain)
-                    .map(|(domain, entry)| (domain.as_str(), entry)),
-            );
-            found.get().is_some()
-        });
-        found.get()
+        self.listed.most_specific(host)
     }
 
     /// The listed domain whose certificate `host` presents, its most

@@ -31,9 +31,6 @@
 mod register;
 mod strace;
 
-/// The file whose Quality register holds the counted rows' limits.
-pub(crate) use register::{SECTION as REGISTER_SECTION, TESTING as REGISTER_FILE};
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
@@ -46,6 +43,7 @@ use crate::console;
 use crate::environment::Environment;
 use crate::output;
 use crate::perf::{self, Figure, Measured};
+use crate::products;
 
 use register::Limit;
 
@@ -84,7 +82,7 @@ struct ValgrindBenchmark {
 
 const B1: Family = Family {
     name: "B1",
-    package: "goodfetch-foxhound",
+    package: products::FOXHOUND.package,
     target: "counts",
     embeds_console: true,
     valgrind: None,
@@ -1273,7 +1271,7 @@ fn run_valgrind_target(
     // where a relative path would make a `target/` of the package's own.
     let gungraun_home =
         std::path::absolute(out.join("gungraun")).context("resolving gungraun's folder")?;
-    let mut command = Command::new(&environment.cargo);
+    let mut command = crate::child_cargo::command(&environment.cargo);
     command
         .args(["bench", "--locked", "--package", family.package])
         .args(["--bench", target, "--"])
@@ -1373,7 +1371,7 @@ fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
     {
         console::build(&environment.root)?;
     }
-    let output = Command::new(&environment.cargo)
+    let output = crate::child_cargo::command(&environment.cargo)
         .args(["build", "--message-format", "json-render-diagnostics"])
         .args(["-p", family.package, "--example", family.target])
         .current_dir(&environment.root)

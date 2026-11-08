@@ -33,7 +33,7 @@ use bytes::{Bytes, BytesMut};
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
-use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
+use goodfetch_engine::egress::{Gate, Policy, Refused, RequestKind};
 use goodfetch_engine::happy_eyeballs::FamilyUnavailable;
 use goodfetch_engine::response_limits::{BodyFailure, ContentCoding, Decoding, Limits};
 use goodfetch_engine::settings::Resolved;
@@ -889,18 +889,16 @@ fn truncated(url: &str, received: usize, expected: Option<u64>) -> CallError {
 /// [`Refused`] by the domain policy, or by the address check for an address
 /// a page may not reach.
 pub(crate) fn judged(url: &Url, egress: &Policy) -> Result<(), Refused> {
-    let request = egress::Request {
-        url: url.as_str(),
+    let judged = Gate::Session {
+        policy: egress,
         kind: RequestKind::Fetch,
-    };
-    if let Judgment::Refused(refused) = egress::judge(&request, egress) {
-        return Err(refused);
     }
+    .judge(url.as_str())?;
     let address = match url.host() {
         Some(Host::Ipv4(address)) => IpAddr::V4(address),
         Some(Host::Ipv6(address)) => IpAddr::V6(address),
         _ => return Ok(()),
     };
     let port = url.port_or_known_default().unwrap_or_default();
-    egress::judge_addresses(url.as_str(), &[SocketAddr::new(address, port)], egress)
+    judged.addresses(&[SocketAddr::new(address, port)])
 }

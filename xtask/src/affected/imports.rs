@@ -13,17 +13,7 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 
-use crate::package_dependencies;
-
-/// Folders never read: installed packages, build outputs and caches.
-const SKIPPED: [&str; 6] = [
-    "node_modules",
-    "dist",
-    "target",
-    ".venv",
-    "__pycache__",
-    "console-build",
-];
+use crate::{package_dependencies, tree};
 
 /// The files under `folder` whose extension is one of `extensions`.
 pub(super) fn files(folder: &Path, extensions: &[&str]) -> Result<Vec<std::path::PathBuf>> {
@@ -45,7 +35,7 @@ fn walk(folder: &Path, extensions: &[&str], found: &mut Vec<std::path::PathBuf>)
         let name = name.to_string_lossy();
         let kind = entry.file_type()?;
         if kind.is_dir() {
-            if !name.starts_with('.') && !SKIPPED.contains(&name.as_ref()) {
+            if !(tree::hidden(&name) || tree::generated(&name)) {
                 walk(&entry.path(), extensions, found)?;
             }
         } else if kind.is_file()

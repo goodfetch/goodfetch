@@ -208,8 +208,7 @@ impl LightBrowser {
                     || Fetching::new(run.clock()),
                     |settings| Fetching::of(settings.resolved(), run.clock()),
                 );
-                let now = jiff::Timestamp::try_from(run.clock().wall())
-                    .expect("invariant: the clock reads a time jiff can hold");
+                let now = run.clock().timestamp();
                 prepare(&cache, &pin, pinned_by, &fetching, now)
                     .await
                     .map(Arc::new)

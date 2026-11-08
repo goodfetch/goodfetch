@@ -57,7 +57,7 @@ use tracing::Instrument as _;
 use super::event_stream::{EventStream, PostedReader, StreamedWriter};
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
 use super::websocket::{
-    self, Authorities, ConsoleSocket, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
+    self, ConsoleSocket, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
 };
 use super::{
     failure_line, handshake, line, not_in_product, notification_line, notification_value_line,
@@ -70,7 +70,7 @@ use crate::composition::{
     CallContext, CallInput, CallNotifier, CallStream, ConnectionContext, DaemonSide, Driver,
     Handler, InputSender,
 };
-use crate::endpoint::{REFUSAL_TARGET, same_token};
+use crate::endpoint::{Authorities, REFUSAL_TARGET, same_token};
 use crate::engine_context::EngineContext;
 use crate::events::{Credits, Events};
 use crate::log::{ConnectionLog, LogEvents};
@@ -251,8 +251,8 @@ enum Writing {
 }
 
 /// How `connection`, reached through `access`, carries its messages, and
-/// its listener; `None` when an Exposed Daemon's WebSocket handshake was
-/// refused or failed, which closes it.
+/// its listener; `None` when an Exposed Daemon's WebSocket handshake
+/// was refused or failed, which closes it.
 async fn carriage(
     connection: Connection,
     access: &Access,
@@ -1207,7 +1207,7 @@ impl Session<'_> {
         let listener = self.listener;
         if let Access::Console(ConsoleSide { sign_ins, .. }) = &self.access {
             tracing::warn!(target: REFUSAL_TARGET, listener = listener.as_str(), reason = reason.as_str(), "a Connection that did not open with `hello` was closed");
-            sign_ins.refused(listener.as_str(), reason.as_str()).await;
+            sign_ins.refused(listener, reason.as_str()).await;
         } else {
             self.connection
                 .engine

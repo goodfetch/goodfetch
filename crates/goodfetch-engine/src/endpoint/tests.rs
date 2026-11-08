@@ -1,6 +1,8 @@
-//! The endpoint rule's tokens and `Host` check at its interface: a token is
-//! 256 bits of the OS generator, only the same token is the same, and the
-//! comparison takes as long whatever prefix a guess shares with the token.
+//! The endpoint rule's tokens and `Host` and `Origin` checks at its
+//! interface: a token is 256 bits of the OS generator, only the same token
+//! is the same, the comparison takes as long whatever prefix a guess
+//! shares with the token, and a request's `Host` and `Origin` pass only
+//! where the listener admits them.
 
 use std::hint::black_box;
 
@@ -8,7 +10,11 @@ use chacha20::ChaCha20Rng;
 use chacha20::rand_core::{Rng as _, SeedableRng as _};
 use rstest::rstest;
 
-use super::{names_an_address, new_token, same_token};
+use std::net::SocketAddr;
+
+use super::{
+    Authorities, Hosts, Origins, Refusal, names_an_address, new_token, refusal, same_token,
+};
 
 /// A token is 64 lowercase hex digits, 256 bits, and no two are alike.
 ///
@@ -151,4 +157,110 @@ fn a_guess_takes_as_long_to_refuse_whatever_prefix_it_shares_with_the_token() {
 #[case::none(None, false)]
 fn a_host_naming_an_address_passes(#[case] host: Option<&str>, #[case] passes: bool) {
     assert_eq!(names_an_address(host), passes);
+}
+
+/// The Console's names, and a content origin's beside them.
+fn console() -> Authorities {
+    Authorities::loopback(SocketAddr::from(([127, 0, 0, 1], 4000)))
+}
+
+fn content() -> Authorities {
+    Authorities::only("content.example")
+}
+
+/// Each listener's `Host` and `Origin` rule: the ops listener takes any
+/// address and no `Origin`; a WebSocket handshake or a Console write needs
+/// one of its own origins; a Console read takes its own or none; the
+/// content origin takes its own, the Console's or none. The `Host` is
+/// judged first.
+///
+/// Covers: story:4-21
+#[rstest]
+#[case::ops_from_a_pods_address("ops", Some("10.0.0.7:9464"), None, None)]
+#[case::ops_from_a_rebinding_name(
+    "ops",
+    Some("attacker.example"),
+    None,
+    Some(Refusal::HostForeign)
+)]
+#[case::ops_from_a_page(
+    "ops",
+    Some("127.0.0.1:9464"),
+    Some("http://127.0.0.1:9464"),
+    Some(Refusal::OriginForeign)
+)]
+#[case::handshake_from_its_own_page(
+    "handshake",
+    Some("localhost:4000"),
+    Some("http://127.0.0.1:4000"),
+    None
+)]
+#[case::handshake_with_no_origin(
+    "handshake",
+    Some("127.0.0.1:4000"),
+    None,
+    Some(Refusal::OriginMissing)
+)]
+#[case::handshake_from_another_page(
+    "handshake",
+    Some("127.0.0.1:4000"),
+    Some("http://attacker.example"),
+    Some(Refusal::OriginForeign)
+)]
+#[case::handshake_naming_an_address_it_is_not_reached_at(
+    "handshake",
+    Some("127.0.0.2:4000"),
+    Some("http://127.0.0.2:4000"),
+    Some(Refusal::HostForeign)
+)]
+#[case::handshake_over_https(
+    "handshake",
+    Some("127.0.0.1:4000"),
+    Some("https://127.0.0.1:4000"),
+    Some(Refusal::OriginForeign)
+)]
+#[case::read_with_no_origin("read", Some("LOCALHOST:4000"), None, None)]
+#[case::read_from_another_page(
+    "read",
+    Some("127.0.0.1:4000"),
+    Some("http://attacker.example"),
+    Some(Refusal::OriginForeign)
+)]
+#[case::read_with_no_host("read", None, None, Some(Refusal::HostForeign))]
+#[case::content_framed_by_the_console(
+    "content",
+    Some("content.example"),
+    Some("http://localhost:4000"),
+    None
+)]
+#[case::content_naming_the_consoles_host(
+    "content",
+    Some("127.0.0.1:4000"),
+    None,
+    Some(Refusal::HostForeign)
+)]
+#[case::content_from_another_page(
+    "content",
+    Some("content.example"),
+    Some("http://attacker.example"),
+    Some(Refusal::OriginForeign)
+)]
+fn a_request_passes_only_with_a_host_and_origin_its_listener_admits(
+    #[case] listener: &str,
+    #[case] host: Option<&str>,
+    #[case] origin: Option<&str>,
+    #[case] refused: Option<Refusal>,
+) {
+    let (console, content) = (console(), content());
+    let (hosts, origins) = match listener {
+        "ops" => (Hosts::Address, Origins::Forbidden),
+        "handshake" => (Hosts::Named(&console), Origins::Required(&[&console])),
+        "read" => (Hosts::Named(&console), Origins::Allowed(&[&console])),
+        _ => (
+            Hosts::Named(&content),
+            Origins::Allowed(&[&content, &console]),
+        ),
+    };
+
+    assert_eq!(refusal(host, origin, hosts, origins), refused);
 }

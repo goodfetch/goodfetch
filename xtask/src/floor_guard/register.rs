@@ -10,14 +10,12 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use regex::Regex;
 
 use crate::check::Finding;
+use crate::markdown::Table;
+use crate::register::document::{COUNTED_WORK, Document, ENFORCED, EXCEPTIONS, MEASURED};
 
-const HEADING: &str = "## Quality register";
 /// The sections whose every line is a rule of the Floor's, compared as text.
 const TEXT_SECTIONS: [&str; 3] = ["Floor", "Recorded changes", "Rules"];
 const GATE_FILES_BULLET: &str = "- **No edit to the gate's own files**";
-/// The heading, inside the Enforced section, of the counted rows promoted
-/// there.
-const COUNTED_WORK: &str = "#### Counted work";
 
 /// A table's rows by their first cell, each row's cells by its column's name.
 type Rows = BTreeMap<String, BTreeMap<String, String>>;
@@ -34,86 +32,65 @@ pub(super) struct Register {
     gate_files: Vec<String>,
 }
 
-/// The lines under each `### ` heading of the register.
-fn sections(register: &str) -> BTreeMap<&str, Vec<&str>> {
-    let mut sections: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-    let mut current = None;
-    for line in register.lines() {
-        if let Some(heading) = line.strip_prefix("### ") {
-            current = Some(heading.trim());
-            sections.entry(heading.trim()).or_default();
-        } else if let Some(heading) = current
-            && let Some(lines) = sections.get_mut(heading)
-        {
-            lines.push(line);
-        }
+/// The first table of the section under `heading`, which must hold `columns`.
+fn table(document: &Document<'_>, heading: &str, columns: &[&str]) -> Result<Rows> {
+    if document.section(heading).is_none() {
+        bail!("the register has no `{heading}` section");
     }
-    sections
+    let table = document
+        .table(heading)
+        .ok_or_else(|| anyhow!("`{heading}` holds no table"))?;
+    rows(&table, heading, columns)
 }
 
-fn cells(row: &str) -> Vec<String> {
-    row.trim()
-        .trim_matches('|')
-        .split('|')
-        .map(|cell| cell.trim().to_owned())
-        .collect()
-}
-
-/// The section's first table, which must hold `columns`. A row's name loses the
-/// backticks a Quality-change trailer would not write.
-fn table(sections: &BTreeMap<&str, Vec<&str>>, section: &str, columns: &[&str]) -> Result<Rows> {
-    let lines = sections
-        .get(section)
-        .ok_or_else(|| anyhow!("the register has no `### {section}` section"))?;
-    first_table(lines, section, columns)
-}
-
-/// The table under the `heading` line inside `section`, which must hold
-/// `columns`; none when the section has no such heading.
+/// The table under the `heading` line inside the section under `section`,
+/// which must hold `columns`; none when the register has no such heading.
 fn subtable(
-    sections: &BTreeMap<&str, Vec<&str>>,
+    document: &Document<'_>,
     section: &str,
     heading: &str,
     columns: &[&str],
 ) -> Result<Rows> {
-    let Some(lines) = sections.get(section) else {
+    if document.section(heading).is_none() {
         return Ok(Rows::new());
-    };
-    let Some(start) = lines.iter().position(|line| line.trim() == heading) else {
-        return Ok(Rows::new());
-    };
-    first_table(&lines[start + 1..], section, columns)
+    }
+    let table = document
+        .table(heading)
+        .ok_or_else(|| anyhow!("`{section}` holds no table"))?;
+    rows(&table, section, columns)
 }
 
-/// The first table of `lines`, of the section `section`.
-fn first_table(lines: &[&str], section: &str, columns: &[&str]) -> Result<Rows> {
-    let mut rows = lines
-        .iter()
-        .skip_while(|line| !line.trim_start().starts_with('|'))
-        .take_while(|line| line.trim_start().starts_with('|'));
-    let header = cells(
-        rows.next()
-            .ok_or_else(|| anyhow!("`### {section}` holds no table"))?,
-    );
+/// The rows of `table`, of the section under `section`, which must hold
+/// `columns`. A row's name loses the backticks a Quality-change trailer
+/// would not write.
+fn rows(table: &Table<'_>, section: &str, columns: &[&str]) -> Result<Rows> {
     for column in columns {
-        if !header.iter().any(|name| name == column) {
-            bail!("`### {section}`'s table has no `{column}` column");
+        if table.column(column).is_none() {
+            bail!("`{section}`'s table has no `{column}` column");
         }
     }
-    let mut table = Rows::new();
-    for row in rows.skip(1) {
-        let cells = cells(row);
-        if cells.len() != header.len() {
+    let mut rows = Rows::new();
+    for row in &table.rows {
+        if row.cells.len() != table.header.len() {
             bail!(
-                "a row of `### {section}` has {} cells where its table has {}: {row}",
-                cells.len(),
-                header.len()
+                "a row of `{section}` has {} cells where its table has {}: {}",
+                row.cells.len(),
+                table.header.len(),
+                row.line
             );
         }
-        let name = cells[0].trim_matches('`').to_owned();
-        table.insert(name, header.iter().cloned().zip(cells).collect());
+        let name = row.cells[0].trim_matches('`').to_owned();
+        rows.insert(
+            name,
+            table
+                .header
+                .iter()
+                .zip(&row.cells)
+                .map(|(column, cell)| ((*column).to_owned(), (*cell).to_owned()))
+                .collect(),
+        );
     }
-    Ok(table)
+    Ok(rows)
 }
 
 /// The paths the Floor's bullet on the gate's own files names, each a file or,
@@ -135,49 +112,40 @@ fn gate_files(floor: &[&str]) -> Vec<String> {
 
 /// Reads a `TESTING.md`; `None` when it holds no register.
 pub(super) fn read(testing: &str) -> Result<Option<Register>> {
-    let mut lines = testing.lines();
-    if !lines.any(|line| line.trim_end() == HEADING) {
+    let Some(document) = Document::find(testing) else {
         return Ok(None);
-    }
-    let register = lines
-        .take_while(|line| !line.starts_with("## "))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let sections = sections(&register);
+    };
     let mut text = BTreeMap::new();
+    let mut gate_files = Vec::new();
     for section in TEXT_SECTIONS {
-        let lines = sections
-            .get(section)
+        let lines = document
+            .section(&format!("### {section}"))
             .ok_or_else(|| anyhow!("the register has no `### {section}` section"))?;
         let mut counted: BTreeMap<String, usize> = BTreeMap::new();
         for line in lines.iter().filter(|line| !line.trim().is_empty()) {
             *counted.entry((*line).to_owned()).or_default() += 1;
         }
         text.insert(section, counted);
+        if section == "Floor" {
+            gate_files = self::gate_files(&lines);
+        }
     }
     Ok(Some(Register {
         text,
-        enforced: table(&sections, "Enforced", &["Rule", "Checked by", "Runs at"])
+        enforced: table(&document, ENFORCED, &["Rule", "Checked by", "Runs at"])
             .context("reading the Enforced table")?,
         counted: subtable(
-            &sections,
-            "Enforced",
+            &document,
+            ENFORCED,
             COUNTED_WORK,
             &["Contract", "Today", "Direction"],
         )
         .context("reading the Enforced section's counted work")?,
-        measured: table(
-            &sections,
-            "Measured, not yet enforced",
-            &["Contract", "Today", "Direction"],
-        )
-        .context("reading the Measured table")?,
-        exceptions: table(&sections, "Exceptions", &["ID", "Rule", "Expires"])
+        measured: table(&document, MEASURED, &["Contract", "Today", "Direction"])
+            .context("reading the Measured table")?,
+        exceptions: table(&document, EXCEPTIONS, &["ID", "Rule", "Expires"])
             .context("reading the Exceptions table")?,
-        gate_files: sections
-            .get("Floor")
-            .map(|floor| gate_files(floor))
-            .unwrap_or_default(),
+        gate_files,
     }))
 }
 

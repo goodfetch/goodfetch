@@ -58,9 +58,11 @@ GOODFETCH_GATE_FULL=1 just pre-merge all || gate=fail
 echo "== the full run on $commit: $gate"
 
 misses=0 suspects=0 unchecked=0
+# A JSON array of the results found, each with its kind, unit, step,
+# member, run and origin (`xtask gate compare`).
 compared=$(just _gate-compare "$commit" "$merged_runs") || {
   echo "error: the full run on $commit could not be compared" >&2
-  compared=""
+  compared="[]"
   gate=fail
 }
 note() {
@@ -69,21 +71,21 @@ note() {
 }
 # The suspect crates of each step run per member, by step.
 suspect_crates() {
-  awk -F'\t' -v step="$1" '$1 == "suspect" { split($2, unit, ":"); if (unit[1] == step) print unit[2] }' <<<"$compared" |
+  jq -r --arg step "$1" '.[] | select(.kind == "suspect" and .step == $step) | .member' <<<"$compared" |
     sort -u
 }
-while IFS=$'\t' read -r kind unit run origin; do
-  case $kind in
-    miss)
-      misses=$((misses + 1))
-      note "miss $unit: the run on $run reused it from $origin; the full run found it red"
-      ;;
-    unchecked)
-      unchecked=$((unchecked + 1))
-      note "unchecked $unit: the run on $run reused it from $origin; the full run stopped before it"
-      ;;
-  esac
-done <<<"$compared"
+missed=$(jq -r '.[] | select(.kind == "miss") | "miss \(.unit): the run on \(.run) reused it from \(.origin); the full run found it red"' <<<"$compared")
+while IFS= read -r line; do
+  [[ -n $line ]] || continue
+  misses=$((misses + 1))
+  note "$line"
+done <<<"$missed"
+unreached=$(jq -r '.[] | select(.kind == "unchecked") | "unchecked \(.unit): the run on \(.run) reused it from \(.origin); the full run stopped before it"' <<<"$compared")
+while IFS= read -r line; do
+  [[ -n $line ]] || continue
+  unchecked=$((unchecked + 1))
+  note "$line"
+done <<<"$unreached"
 # A suspect crate's tests rerun alone, in the step's suite, with the OS
 # services set up as `just pre-merge` sets them up, so a missing one fails
 # instead of skipping its tests: red confirms the miss. The stress run's

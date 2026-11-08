@@ -30,16 +30,13 @@ static ALLOCATOR: goodfetch_engine::heap::Counting<std::alloc::System> =
 )]
 #[expect(dead_code, reason = "what only the counts cell reads of the scenario")]
 mod audit_scenario;
-mod certificates;
 mod charge_counts;
 mod children;
-mod client_certificates;
 mod counted_audit;
 mod counted_governor;
 mod counted_messages;
 mod dns;
 mod downloads;
-mod egress;
 mod extra_loopback;
 mod governor;
 // B3's governor scenario, which `counted_governor` checks.
@@ -51,7 +48,6 @@ mod held_clock;
 #[cfg(target_os = "linux")]
 mod lazyfs;
 // B3's message scenario, which `counted_messages` checks.
-mod local_addresses;
 #[path = "../../benches/messages.rs"]
 #[expect(
     clippy::disallowed_methods,
@@ -65,8 +61,4 @@ mod message_scenario;
 mod name_server;
 mod nothing_leaves;
 mod operator_endpoints;
-mod resolved_address;
 mod resolver_cache;
-mod response_limits;
-mod trust_on_first_use;
-mod upstream_proxy;

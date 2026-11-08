@@ -321,6 +321,7 @@ pub fn run_protocol_suite(
             let mut checks = Checks::default();
             let ran = case.run(&mut connection, target, &hello, &reached, &mut checks);
             checks.checks.extend(reached.take_unread());
+            checks.checks.extend(connection.take_unanswered());
             if let Err(why) = ran {
                 checks.checks.push(CaseCheck {
                     name: format!("the target answers the case's calls ({why})"),

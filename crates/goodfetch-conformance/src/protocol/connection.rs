@@ -13,6 +13,7 @@ use goodfetch_protocol::jsonrpc::{
     ErrorData, ErrorObject, ErrorResponse, Notification, Request, RequestId, Response, Version,
 };
 use goodfetch_protocol::page::{PAGE_GOTO, PageOpened};
+use goodfetch_protocol::result_document::CaseCheck;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
@@ -93,6 +94,8 @@ pub(crate) struct Connection {
     exchanged: Vec<Value>,
     /// Whether its `hello` named a surface that acts for a model.
     for_model: bool,
+    /// The IDs a reply could not carry back since the suite last took them.
+    unanswered: Vec<Value>,
 }
 
 impl Connection {
@@ -102,6 +105,7 @@ impl Connection {
             next_id: 1,
             exchanged: Vec::new(),
             for_model: false,
+            unanswered: Vec::new(),
         }
     }
 
@@ -263,9 +267,13 @@ impl Connection {
         matches!(self.started.next_line(DEADLINE), Next::Closed)
     }
 
-    /// Answers the engine's request `id` with `result`.
+    /// Answers the engine's request `id` with `result`. A message with no ID
+    /// to answer takes no reply and fails the case ([`Self::take_unanswered`]),
+    /// which goes on over a Connection that is still fine.
     pub(crate) fn reply(&mut self, id: &Value, result: &Value) -> Result<(), Gone> {
-        let id = Self::id_of(id)?;
+        let Some(id) = self.id_of(id) else {
+            return Ok(());
+        };
         self.send(&Response {
             jsonrpc: Version,
             id,
@@ -290,7 +298,8 @@ impl Connection {
     }
 
     /// Answers the engine's request `id` with a failure of `data`'s Error
-    /// code in `group`, as a handler that raised an engine error does.
+    /// code in `group`, as a handler that raised an engine error does; a
+    /// message with no ID to answer is taken as [`Self::reply`] takes it.
     pub(crate) fn fail_with(
         &mut self,
         id: &Value,
@@ -298,7 +307,9 @@ impl Connection {
         data: ErrorData,
         message: &str,
     ) -> Result<(), Gone> {
-        let id = Self::id_of(id)?;
+        let Some(id) = self.id_of(id) else {
+            return Ok(());
+        };
         self.send(&ErrorResponse {
             jsonrpc: Version,
             id: Some(id),
@@ -310,10 +321,26 @@ impl Connection {
         })
     }
 
-    /// The ID of an engine's request, which a reply carries back.
-    fn id_of(id: &Value) -> Result<RequestId, Gone> {
-        serde_json::from_value(id.clone())
-            .map_err(|_| Gone::Failed(format!("the engine's request has no ID to answer: {id}")))
+    /// The ID of an engine's request, which a reply carries back; none, noted
+    /// for the case's result, for a message that has no such ID.
+    fn id_of(&mut self, id: &Value) -> Option<RequestId> {
+        let read = serde_json::from_value(id.clone()).ok();
+        if read.is_none() {
+            self.unanswered.push(id.clone());
+        }
+        read
+    }
+
+    /// A failed check for each message the case just run had to answer and
+    /// could not, for want of an ID.
+    pub(crate) fn take_unanswered(&mut self) -> Vec<CaseCheck> {
+        std::mem::take(&mut self.unanswered)
+            .into_iter()
+            .map(|id| CaseCheck {
+                name: format!("the message the case answers carries a request's ID, not {id}"),
+                passed: false,
+            })
+            .collect()
     }
 
     /// Opens a further Connection to the same target, before any `hello`,

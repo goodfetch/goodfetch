@@ -506,15 +506,17 @@ fn owners(
             super::consent::walls::configure(major, Some(&site.configured_hosts())),
         )
     });
-    let met = if opened.is_ok() {
+    // A configuration it could not write is one it left as it found it: the
+    // Agent's Run would go on the wrong one, and there is nothing to put back.
+    let met = if opened.is_ok() && before.is_some() {
         meets_blocks(&mut agent, target, site, "agent", checks)
     } else {
         Ok(())
     };
-    if let Some(major) = &major {
+    if let (Some(major), Some(before)) = (&major, &before) {
         checks.needs(
             "user configuration is put back",
-            super::consent::walls::configure(major, before.flatten().as_deref()),
+            super::consent::walls::configure(major, before.as_deref()),
         );
     }
     connection.keep(agent.take_exchanged());

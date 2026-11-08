@@ -172,13 +172,7 @@ pub(crate) fn references(html: &str, base_url: &str) -> References {
             })
         ))
         // Runs ahead of the next, on the same element.
-        .append_element_content_handler(element!(
-            "template link[rel][href]",
-            handler(|state, _, _| {
-                state.borrow_mut().link_in_template = true;
-                Ok(())
-            })
-        ))
+        .append_element_content_handler(element!("template link[rel][href]", handler(in_template)))
         .append_element_content_handler(element!(
             "link[rel][href]",
             handler(|state, html, element| {
@@ -286,6 +280,16 @@ fn read_meta(state: &Shared, html: &str, element: &Element<'_, '_>) {
         }
         head.meta.entry(name).or_insert(content);
     }
+}
+
+/// Notes that the `<link>` about to be read is a `<template>`'s.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "every element handler of the pass answers a `HandlerResult`"
+)]
+fn in_template(state: &Shared, _html: &str, _element: &mut Element<'_, '_>) -> HandlerResult {
+    state.borrow_mut().link_in_template = true;
+    Ok(())
 }
 
 /// Reads the `<link>` `element` is, when it is the first canonical one and

@@ -1,9 +1,10 @@
 //! A page's canonical link (ADR 0120): the one rule its readers share, the
 //! formats' `metadata.canonical` and the fetch tier's evidence for the
-//! Frontier alike, so the two never name different URLs for one page. A
-//! page's canonical is the first `<link>` in its head whose `rel` holds
-//! `canonical` and that has an `href`, resolved against its base URL as
-//! the URL Standard parses a link: never one in its body.
+//! Frontier alike, so the two name one URL for one page, a head ended by a
+//! stray end tag aside (`references::head_stands_past`). A page's canonical
+//! is the first `<link>` in its head whose `rel` holds `canonical` and that
+//! has an `href`, resolved against its base URL as the URL Standard parses
+//! a link: never one in its body, `<body>` tag or none.
 
 use url::Url;
 

@@ -28,8 +28,11 @@ pub(crate) fn canonical(
     in_head(&document, &link, base).or_else(|| in_headers(headers, url))
 }
 
-/// What names a document's head links, among them its canonical.
-pub(crate) const LINK: &str = "head link[rel][href]";
+/// What names a document's head links, among them its canonical: the
+/// head's own, as `metadata.canonical` reads them, where the parser's tree
+/// also holds a `<noscript>`'s, which a browser running scripts reads as
+/// text.
+pub(crate) const LINK: &str = "head > link[rel][href]";
 
 /// The URL the first `<link rel="canonical">` with an `href` in
 /// `document`'s head names, resolved against `base`, `link` being

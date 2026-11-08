@@ -3,11 +3,10 @@
 //! in one read transaction, a page of rows by key at a time, only the
 //! columns the query reads (projection pushdown), on as many of DuckDB's
 //! threads as it gives the scan. The columns are those
-//! `goodfetch-protocol` declares for the table, so no other field of the
-//! run file, and no secret one, is ever a column. A Run ID the query did
-//! not select is refused at bind, and the refusal kept for the caller.
-//! Where each run table is in the run file, its table, key and columns,
-//! is `goodfetch-dataset`'s, which creates those tables.
+//! `goodfetch-dataset`, which creates the tables, declares for each, with
+//! where each is in the run file, so no other field of the run file, and no
+//! secret one, is ever a column. A Run ID the query did not select is
+//! refused at bind, and the refusal kept for the caller.
 #![expect(
     unsafe_code,
     reason = "DuckDB's table functions hand their extra info as a raw pointer and their BIGINT columns as raw storage (STYLE.md, `unsafe`)"

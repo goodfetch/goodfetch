@@ -72,6 +72,56 @@ fn only_the_run_id_reads_no_column_of_the_run_file() {
     );
 }
 
+/// Which column of the run file each column of a run table reads, written
+/// out here: the SQL tab answers each name with what its source holds, and
+/// `request_id` and `value` read columns named otherwise.
+#[test]
+fn each_run_tables_column_reads_its_own_column_of_the_run_file() {
+    let read: Vec<Vec<(&str, Option<&str>)>> = RUN_FILE_TABLES
+        .iter()
+        .map(|table| {
+            table
+                .run_table
+                .columns
+                .iter()
+                .enumerate()
+                .map(|(index, column)| (column.name, table.column(index)))
+                .collect()
+        })
+        .collect();
+
+    assert_eq!(
+        read,
+        [
+            vec![
+                ("run", None),
+                ("dataset", Some("dataset")),
+                ("number", Some("number")),
+                ("value", Some("data")),
+                ("request_id", Some("work_item")),
+                ("url", Some("url")),
+                ("committed_at", Some("committed_at")),
+                ("provenance", Some("provenance")),
+            ],
+            vec![
+                ("run", None),
+                ("dataset", Some("dataset")),
+                ("number", Some("number")),
+                ("data", Some("data")),
+                ("request_id", Some("work_item")),
+                ("rejection", Some("rejection")),
+            ],
+            vec![
+                ("run", None),
+                ("name", Some("name")),
+                ("position", Some("position")),
+                ("schema", Some("schema")),
+                ("key", Some("key")),
+            ],
+        ]
+    );
+}
+
 #[test]
 fn a_run_file_no_crawl_wrote_holds_no_datasets_table() {
     let empty = Connection::open_in_memory().unwrap();

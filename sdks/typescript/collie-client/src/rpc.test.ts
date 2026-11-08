@@ -102,15 +102,14 @@ describe("a Channel", () => {
 
     channel.cancelAll(new CallCancelledError("the call's Connection was closed"));
     const error = await call;
-    await settled();
 
-    expect({ error, written: engine.written }).toEqual({
-      error: expect.objectContaining({ code: "call_cancelled" }),
-      written: [
+    expect(error).toEqual(expect.objectContaining({ code: "call_cancelled" }));
+    await expect
+      .poll(() => engine.written)
+      .toEqual([
         { jsonrpc: "2.0", id: 0, method: "run.abort", params: { run_id: "nightly" } },
         { jsonrpc: "2.0", method: "$/cancel", params: { id: 0 } },
-      ],
-    });
+      ]);
   });
 
   test("fails a call in flight with its owner's error once the engine's side ends", async () => {

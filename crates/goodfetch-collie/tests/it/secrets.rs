@@ -311,25 +311,23 @@ fn encrypted(value: &str, identity: &age::x25519::Identity) -> Vec<u8> {
     encrypted
 }
 
-/// How long the encrypted local file of the waiting Run's proxy holds back
-/// its value: far longer than another Run's navigation takes.
-#[cfg(unix)]
-const HELD_SECRET: std::time::Duration = std::time::Duration::from_secs(15);
-
 /// A Session opening on a proxy whose password's Secret has not resolved
 /// yet holds up no other Run's calls: while one Run's first `run.new_page`
 /// waits on the encrypted local file of its `proxy.password`, a named pipe
-/// that gives its value only later, another Run's page goes on.
+/// that gives its value only once the other Run's navigation answered,
+/// another Run's page goes on. A navigation held up by the wait never
+/// answers, and fails past the engine's message deadline.
 /// Covers: operation:run.new_page, operation:page.goto, setting:proxy.password
 #[cfg(unix)]
 #[test]
 #[expect(
     clippy::disallowed_types,
-    reason = "the test's own writer thread tells it when the Secret was released, outside any async worker"
+    reason = "the test's own writer thread hands the Secret over when the test says, outside any async worker"
 )]
 fn a_session_waiting_on_its_proxy_secret_holds_up_no_other_runs_page() {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::io::Write as _;
+    use std::sync::mpsc;
+    use std::time::Duration;
 
     let env = TestEnv::new();
     let proving_ground = goodfetch_test_support::ProvingGround::start(&env, 697).unwrap();
@@ -343,16 +341,17 @@ fn a_session_waiting_on_its_proxy_secret_holds_up_no_other_runs_page() {
         .arg(&pipe)
         .status()
         .unwrap();
-    let released = Arc::new(AtomicBool::new(false));
     let value = encrypted("proxy-password", &identity);
-    let writer = {
-        let released = Arc::clone(&released);
-        std::thread::spawn(move || {
-            std::thread::sleep(HELD_SECRET);
-            released.store(true, Ordering::SeqCst);
-            std::fs::write(pipe, value).unwrap();
-        })
-    };
+    let (read_begun, reader_waits) = mpsc::channel();
+    let (release, released) = mpsc::channel();
+    let writer = std::thread::spawn(move || {
+        // A pipe opens for writing only once its reader opened it: the
+        // waiting Run's Session, reading its Secret.
+        let mut secret = std::fs::OpenOptions::new().write(true).open(pipe).unwrap();
+        read_begun.send(()).unwrap();
+        released.recv().unwrap();
+        secret.write_all(&value).unwrap();
+    });
     let started = engine.ask(
         3,
         "run.start",
@@ -363,7 +362,9 @@ fn a_session_waiting_on_its_proxy_secret_holds_up_no_other_runs_page() {
         } } }),
     );
     engine.send(&json!({ "jsonrpc": "2.0", "id": 4, "method": "run.new_page", "params": { "run_id": "waiting" } }));
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    reader_waits
+        .recv_timeout(Duration::from_secs(60))
+        .expect("the waiting Run's Session reads its Secret");
     engine.send(
         &json!({ "jsonrpc": "2.0", "id": 5, "method": "page.goto", "params": {
         "page_id": page.page_id,
@@ -376,7 +377,7 @@ fn a_session_waiting_on_its_proxy_secret_holds_up_no_other_runs_page() {
             break message;
         }
     };
-    let held_up = released.load(Ordering::SeqCst);
+    release.send(()).unwrap();
     writer.join().unwrap();
     let _ = engine.finish();
 
@@ -385,9 +386,8 @@ fn a_session_waiting_on_its_proxy_secret_holds_up_no_other_runs_page() {
             made.success(),
             started.get("result").is_some(),
             &went["result"]["response"]["status"],
-            held_up,
         ),
-        (true, true, &json!(200), false),
+        (true, true, &json!(200)),
         "{went}"
     );
 }

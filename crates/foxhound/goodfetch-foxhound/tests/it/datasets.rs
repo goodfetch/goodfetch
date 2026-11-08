@@ -689,7 +689,12 @@ fn a_crawl_resumed_after_its_schema_changed_checks_new_records_against_it_and_ea
             }
         }
     }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     while hashed(&env, "evolved").is_empty() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the first seed's Record is committed"
+        );
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     let began = books_hash(&env, "evolved");

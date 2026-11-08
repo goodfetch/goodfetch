@@ -210,32 +210,50 @@ fn on_a_full_filesystem_the_daemon_keeps_serving_and_then_says_how_many_lines_it
     let served: Vec<Value> = (2..=21)
         .map(|id| client.call(id, "engine.info", &json!({}))["result"]["product"].clone())
         .collect();
-    // The log writer's thread takes the lines the full disk refused.
+    // Nothing outside the log writer's thread says when it took the lines the
+    // full disk refused: what it counted shows only on a line written later.
     std::thread::sleep(Duration::from_millis(500));
     free_filesystem(&filler);
     client.call(22, "engine.info", &json!({}));
-    std::thread::sleep(Duration::from_millis(500));
-    let written =
-        std::fs::read_to_string(inside_mount(pid, &logs.join("daemon-0.0.jsonl"))).unwrap();
+    // Each `engine.info` request logs two lines at `trace`: the dispatch's
+    // "request answered" and its span's "close".
+    let every_request_told = |lines: &[Value]| {
+        let told = lines
+            .iter()
+            .filter(|line| {
+                line["fields"]["method"] == "engine.info"
+                    || line["span"]["rpc.method"] == "engine.info"
+            })
+            .count();
+        let dropped = lines
+            .iter()
+            .filter_map(|line| line["fields"]["dropped"].as_u64())
+            .sum::<u64>();
+        u64::try_from(told).unwrap() + dropped >= 2 * 22
+    };
+    let parsed = |written: &str| -> Vec<Value> {
+        written
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .collect()
+    };
+    let log = inside_mount(pid, &logs.join("daemon-0.0.jsonl"));
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let written = loop {
+        let written = std::fs::read_to_string(&log).unwrap();
+        if every_request_told(&parsed(&written)) || std::time::Instant::now() >= deadline {
+            break written;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
     drop(client);
     let exited = daemon.terminate();
 
-    let lines: Vec<Value> = written
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .collect();
+    let lines = parsed(&written);
     let dropped: Vec<u64> = lines
         .iter()
         .filter_map(|line| line["fields"]["dropped"].as_u64())
         .collect();
-    // Each `engine.info` request logs two lines at `trace`: the dispatch's
-    // "request answered" and its span's "close".
-    let request_lines = lines
-        .iter()
-        .filter(|line| {
-            line["fields"]["method"] == "engine.info" || line["span"]["rpc.method"] == "engine.info"
-        })
-        .count();
     let last_count = lines
         .iter()
         .rposition(|line| line["fields"]["dropped"].is_u64());
@@ -246,7 +264,7 @@ fn on_a_full_filesystem_the_daemon_keeps_serving_and_then_says_how_many_lines_it
         (
             served.iter().all(|product| product == "collie"),
             !dropped.is_empty() && dropped.iter().all(|count| *count > 0),
-            u64::try_from(request_lines).unwrap() + dropped.iter().sum::<u64>() >= 2 * 22,
+            every_request_told(&lines),
             matches!((last_count, after_space_returned), (Some(count), Some(line)) if count < line),
             exited
         ),

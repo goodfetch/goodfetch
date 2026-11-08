@@ -166,7 +166,7 @@ impl<'policy> Gate<'policy> {
                 setting: None,
             })
         })?;
-        let addresses = resolve(judged.host(), port)
+        let addresses = resolve(judged.lookup_name(), port)
             .await
             .map_err(Stopped::Unresolved)?;
         judged
@@ -191,6 +191,16 @@ impl Judged<'_, '_> {
     /// without its trailing dot, or an address without brackets.
     pub fn host(&self) -> &str {
         &self.host
+    }
+
+    /// What a lookup of the host asks the resolver for: [`Self::host`], but
+    /// for a name a URL wrote fully qualified, which keeps its trailing dot,
+    /// so no search list applies to a name written to avoid one.
+    pub fn lookup_name(&self) -> &str {
+        match self.url.as_ref().and_then(Url::host) {
+            Some(Host::Domain(name)) => name,
+            _ => &self.host,
+        }
     }
 
     /// The judged URL's port, its scheme's default when it names none.

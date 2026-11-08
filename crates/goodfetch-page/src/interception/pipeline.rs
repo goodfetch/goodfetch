@@ -1048,7 +1048,7 @@ impl PageContext {
         let Some(port) = judged.port().filter(|_| !judged.host().is_empty()) else {
             return Ok(());
         };
-        match http_client::lookup(judged.host(), port, lookups.resolve()).await {
+        match http_client::lookup(judged.lookup_name(), port, lookups.resolve()).await {
             Ok(addresses) => judged.addresses(&addresses),
             Err(failure) => {
                 let location = lookups.location().await;

@@ -1,6 +1,7 @@
 use rstest::rstest;
+use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::{CLIENT_CONNECTED, RUN_ACTIVE, RUN_ENDED};
 use crate::catalog::Metric;
@@ -84,4 +85,48 @@ fn every_value_is_a<T: DeserializeOwned>(values: &[&str]) -> bool {
 #[case::storage_level_holds(every_value_is_a::<SampledFolder>(values_of(&LEVEL, "holds")))]
 fn a_runtime_metrics_label_values_are_the_protocols_own(#[case] own: bool) {
     assert!(own);
+}
+
+/// Every value `T` takes on the wire, as its JSON Schema lists them: the
+/// variants its serde attributes name, read apart from any hand-kept list.
+fn every_value_of<T: JsonSchema>() -> Vec<String> {
+    let schema = schemars::schema_for!(T);
+    let schema = schema.as_value();
+    let listed = schema["enum"].as_array().into_iter().flatten();
+    let one_of = schema["oneOf"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|variant| &variant["const"]);
+    let mut values: Vec<String> = listed
+        .chain(one_of)
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect();
+    values.sort();
+    values
+}
+
+fn sorted(values: &[&str]) -> Vec<String> {
+    let mut values: Vec<String> = values.iter().map(|value| (*value).to_owned()).collect();
+    values.sort();
+    values
+}
+
+/// A runtime metric's label that labels a protocol enum takes every value
+/// of it, so a value the engine records is always a declared one.
+#[rstest]
+#[case::surface(sorted(values_of(&CLIENT_CONNECTED, "surface")), every_value_of::<Surface>())]
+#[case::active_run_kind(sorted(values_of(&RUN_ACTIVE, "run_kind")), every_value_of::<RunKind>())]
+#[case::ended_run_kind(sorted(values_of(&RUN_ENDED, "run_kind")), every_value_of::<RunKind>())]
+#[case::verdict(sorted(values_of(&RUN_ENDED, "verdict")), every_value_of::<Verdict>())]
+#[case::completeness(
+    sorted(values_of(&RUN_ENDED, "completeness")),
+    every_value_of::<Completeness>()
+)]
+fn a_runtime_metrics_enum_label_takes_every_value_of_its_enum(
+    #[case] declared: Vec<String>,
+    #[case] every_value: Vec<String>,
+) {
+    assert_eq!(declared, every_value);
 }

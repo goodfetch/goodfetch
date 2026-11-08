@@ -178,7 +178,7 @@ pub use proving_ground_format::{
     ProxyCredentials, ROUTES, ReceivedRequests, RequestTiming, Routes, ServeLine, ToolStatus,
 };
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
-pub use resident::{peak_resident_bytes, peak_resident_bytes_of, private_resident_bytes_of};
+pub use resident::{peak_resident_bytes, private_resident_bytes_of};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
 pub use runtime_file::{

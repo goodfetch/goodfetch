@@ -130,9 +130,11 @@ lint:
     step --after xtask --after compare-crawlee-install --after compare-scrapy-install xtask-notices 'cargo run --quiet --bin xtask -- notices --side xtask/compare-crawlee --side xtask/compare-scrapy'
     # The Kennel's workspace (ADR 0141), read without a build: its lock's
     # licenses against the root allowlist, its bans and sources with its own
-    # deny.toml.
+    # deny.toml, and its manifest's lints, `rust-version` and shared
+    # dependency versions against the root's.
     step cargo-deny-kennel-licenses 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     step cargo-deny-kennel 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources'
+    step --after xtask xtask-kennel-manifest 'cargo run --quiet --bin xtask -- kennel-manifest'
     step cargo-shear 'ci/tool.sh cargo-shear cargo shear'
     # The workspace-hack is current and every member takes it (ADR 0094).
     step workspace-hack 'ci/tool.sh cargo-hakari ci/workspace-hack.sh check'

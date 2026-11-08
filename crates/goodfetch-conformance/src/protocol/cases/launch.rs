@@ -9,9 +9,9 @@ use std::time::Duration;
 use goodfetch_protocol::page::PAGE_GOTO;
 use serde_json::{Value, json};
 
-use super::{Checks, Site, finish_run, new_page, start_run};
+use super::{Checks, Site, finish_run, new_page, poll, start_run};
 use crate::protocol::connection::{Connection, Gone};
-use crate::proving_ground::ReceivedRequests;
+use crate::proving_ground::{ProvingGroundError, ReceivedRequests};
 
 /// What the identity page reports, beside that it ran.
 const IDENTITY_CHECKS: [&str; 11] = [
@@ -32,10 +32,10 @@ const IDENTITY_CHECKS: [&str; 11] = [
 /// HTTP, where every client hint exists.
 pub(super) const IDENTITY_HOST: &str = "access.localhost";
 
-/// How often, and how many times, the harness reads the observations while
-/// it waits for a page's script to report: 20 s in all.
+/// How long, and how often, the harness reads the observations while it
+/// waits for a page's script to report.
+const REPORT_WAIT: Duration = Duration::from_secs(20);
 const POLL: Duration = Duration::from_millis(100);
-const POLLS: u32 = 200;
 
 /// The fewest times a second the timer of a page behind another must fire:
 /// twice the one wake-up a second a throttled page gets, so a loaded host,
@@ -43,26 +43,26 @@ const POLLS: u32 = 200;
 const UNTHROTTLED_RATE: f64 = 2.0;
 
 /// The reports of the page at `path`, as `(check, observed)`, once `done`
-/// holds of them or the polls run out; `None` when the observations cannot
-/// be read.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the harness polls the Proving ground on its own thread, never an async worker"
-)]
+/// holds of them or the wait ends.
+///
+/// # Errors
+///
+/// When the Proving ground's observations cannot be read.
 pub(super) fn reports_once(
     site: &Site,
     path: &str,
     done: impl Fn(&[(String, String)]) -> bool,
-) -> Option<Vec<(String, String)>> {
-    let mut seen = Vec::new();
-    for _ in 0..POLLS {
-        seen = reports(&site.proving_ground.observations().ok()?, path);
-        if done(&seen) {
-            break;
-        }
-        std::thread::sleep(POLL);
-    }
-    Some(seen)
+) -> Result<Vec<(String, String)>, ProvingGroundError> {
+    poll::try_until(
+        REPORT_WAIT,
+        POLL,
+        || {
+            site.proving_ground
+                .observations()
+                .map(|observations| reports(&observations, path))
+        },
+        |seen| done(seen),
+    )
 }
 
 pub(super) fn reports(observations: &Value, path: &str) -> Vec<(String, String)> {
@@ -81,21 +81,13 @@ pub(super) fn reports(observations: &Value, path: &str) -> Vec<(String, String)>
 }
 
 /// The values of the header `name` on every request to `host`.
-fn header_values(observations: &Value, host: &str, name: &str) -> Vec<String> {
-    ReceivedRequests::of(observations)
+fn header_values(requests: &ReceivedRequests, host: &str, name: &str) -> Vec<String> {
+    requests
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|seen| seen.split(':').next() == Some(host))
-        })
-        .flat_map(|request| request["headers"].as_array().cloned().unwrap_or_default())
-        .filter(|header| {
-            header[0]
-                .as_str()
-                .is_some_and(|seen| seen.eq_ignore_ascii_case(name))
-        })
-        .filter_map(|header| header[1].as_str().map(str::to_owned))
+        .filter(|request| request.host.split(':').next() == Some(host))
+        .flat_map(|request| &request.headers)
+        .filter(|(seen, _)| seen.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.clone())
         .collect()
 }
 
@@ -110,11 +102,10 @@ fn open_at(
     let Some(page) = new_page(connection, run_id, checks)? else {
         return Ok(false);
     };
-    let id = connection.request(
+    let answer = connection.call(
         PAGE_GOTO.name,
         &json!({ "page_id": page.page_id, "url": url }),
     )?;
-    let answer = connection.browser_answer(id)?.message;
     Ok(answer["result"]["response"]["status"] == json!(200))
 }
 
@@ -138,12 +129,14 @@ pub(super) fn headless_identity(
             .all(|check| seen.iter().any(|(reported, _)| reported == check))
     });
     finish_run(connection, run_id)?;
-    let observations = site.proving_ground.observations().ok();
-    checks.check(
-        "the Proving ground's observations can be read",
-        reported.is_some() && observations.is_some(),
-    );
-    let (Some(reported), Some(observations)) = (reported, observations) else {
+    let read = reported.and_then(|reported| {
+        site.proving_ground
+            .received_requests()
+            .map(|requests| (reported, requests))
+    });
+    let Some((reported, requests)) =
+        checks.read("the Proving ground's observations can be read", read)
+    else {
         return Ok(());
     };
     let read = |check: &str| {
@@ -156,7 +149,7 @@ pub(super) fn headless_identity(
         "the page's script reads its identity",
         IDENTITY_CHECKS.iter().all(|check| read(check).is_some()),
     );
-    let user_agents = header_values(&observations, IDENTITY_HOST, "user-agent");
+    let user_agents = header_values(&requests, IDENTITY_HOST, "user-agent");
     let page_user_agent = read("user_agent").unwrap_or_default();
     checks.check(
         "every request and the page's script show one user agent",
@@ -172,7 +165,7 @@ pub(super) fn headless_identity(
         "sec-ch-ua-full-version-list",
         "sec-ch-ua-platform-version",
     ] {
-        let values = header_values(&observations, IDENTITY_HOST, hint);
+        let values = header_values(&requests, IDENTITY_HOST, hint);
         checks.check(
             format!("the site receives `{hint}`"),
             values.iter().any(|value| !value.is_empty()),
@@ -235,11 +228,15 @@ pub(super) fn background_timer(
     );
     let ticks =
         |seen: &[(String, String)]| seen.iter().filter(|(check, _)| check == "ticks").count();
-    let before = reports_once(site, "/timer", |_| true).map_or(0, |seen| ticks(&seen));
-    let reported = reports_once(site, "/timer", |seen| ticks(seen) >= before + 4);
+    let reported = reports_once(site, "/timer", |_| true).and_then(|seen| {
+        let before = ticks(&seen);
+        reports_once(site, "/timer", |seen| ticks(seen) >= before + 4)
+            .map(|reported| (before, reported))
+    });
     finish_run(connection, run_id)?;
-    let Some(reported) = reported else {
-        checks.check("the Proving ground's observations can be read", false);
+    let Some((before, reported)) =
+        checks.needs("the Proving ground's observations can be read", reported)
+    else {
         return Ok(());
     };
     let (rate, spanned) = rate_from(&reported, before);

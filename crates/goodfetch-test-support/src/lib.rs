@@ -174,11 +174,10 @@ pub use proving_ground::{
     ProvingGroundError, ProvingGroundFixtures,
 };
 pub use proving_ground_format::{
-    FixtureAddresses, Observations, ObservedRequest, OracleSubmission, ProxyCredentials, ROUTES,
-    RequestTiming, Routes, ServeLine, ToolStatus,
+    FixtureAddresses, OWN_TARGETS, Observations, ObservedRequest, OracleSubmission,
+    ProxyCredentials, ROUTES, ReceivedRequests, RequestTiming, Routes, ServeLine, ToolStatus,
 };
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
-pub use received_requests::{OWN_TARGETS, ReceivedRequests};
 pub use resident::{peak_resident_bytes, peak_resident_bytes_of, private_resident_bytes_of};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};

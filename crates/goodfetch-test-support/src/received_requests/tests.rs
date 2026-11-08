@@ -1,6 +1,7 @@
 use serde_json::{Value, json};
 
 use super::*;
+use crate::ObservedRequest;
 
 /// What a Proving ground's observations hold after a browser loaded one
 /// page and then another of `catalog.test`: the engine read the origin's

@@ -27,7 +27,7 @@ use goodfetch_protocol::page::proxy::PROXY_UNAVAILABLE;
 use goodfetch_protocol::page::{BLOCKED, PAGE_GOTO, PageOpened};
 use serde_json::{Value, json};
 
-use super::blocks::politeness_names;
+use super::blocks::politeness_names_nothing;
 use super::proxies::server;
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
@@ -115,7 +115,6 @@ fn run_with_pages(
 fn quiet(site: &Site, mark: &str, status: Option<u16>) -> String {
     let query = status.map_or_else(String::new, |status| format!("&status={status}"));
     site.named_url("scope.test", &format!("/quiet?mark={mark}{query}"))
-        .unwrap_or_default()
 }
 
 /// Sends a `page.goto` for each page and URL at once, then answers each
@@ -145,7 +144,11 @@ fn meeting(
         held,
     );
     let release = || {
-        let _ = site.proving_ground.set_limited_proxy_hold(false);
+        if let Err(why) = site.proving_ground.set_limited_proxy_hold(false) {
+            site.unread(format!(
+                "the Proving ground releases the limited proxy's hold ({why})"
+            ));
+        }
     };
     let answers = answers_of(connection, gotos, release);
     let released = site.proving_ground.set_limited_proxy_hold(false).is_ok();
@@ -205,9 +208,7 @@ fn tally(answers: &[Value], code: &str) -> (usize, usize) {
 /// with a mark starting `prefix`, in arrival order: each one's outcome and
 /// the microsecond it arrived at.
 fn relays(site: &Site, prefix: &str) -> Vec<(String, u64)> {
-    site.proving_ground
-        .observations()
-        .ok()
+    site.observations()
         .and_then(|observations| observations["relays"].as_array().cloned())
         .unwrap_or_default()
         .into_iter()
@@ -230,7 +231,14 @@ fn relays(site: &Site, prefix: &str) -> Vec<(String, u64)> {
 /// the latest connection it accepted, after a fresh client opened one.
 fn now(site: &Site) -> Option<u64> {
     let fresh = ProvingGround::local(site.proving_ground.address());
-    let observations = fresh.observations().ok()?;
+    let observations = fresh
+        .observations()
+        .map_err(|why| {
+            site.unread(format!(
+                "the Proving ground's observations can be read ({why})"
+            ));
+        })
+        .ok()?;
     observations["connections"]
         .as_array()?
         .iter()
@@ -513,9 +521,11 @@ fn sites_refusal(
         );
     }
     finish_run(connection, "conformance-proxy-site")?;
-    checks.check(
+    politeness_names_nothing(
+        target,
+        "scope.test",
         "a site's 429 through the proxy writes no domain limit: the Politeness file names no `scope.test` key",
-        !politeness_names(target, "scope.test"),
+        checks,
     );
     Ok(())
 }

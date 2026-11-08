@@ -15,8 +15,9 @@
 //! `consent.domains` (ticket #859).
 
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::home::{RUN_TRACE_PROVENANCE, RUNS, USER_CONFIGURATION_FILE};
 use goodfetch_protocol::needs_you::{CONSENT_WALL, NEEDS_YOU_ALLOW_CONSENT_DOMAIN, NEEDS_YOU_LIST};
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
@@ -26,9 +27,9 @@ use goodfetch_protocol::settings::{CAPABILITY_UNAVAILABLE, SETTING_LOCKED};
 use serde_json::{Value, json};
 
 use super::super::navigation::call;
-use super::super::{Checks, Site, start_run};
+use super::super::{Checks, Site, poll, start_run, user_configuration};
 use super::{ANSWER_WAIT, HOST, arrives, count, finish, open, refused, trace, visit};
-use crate::protocol::connection::{Connection, Gone};
+use crate::protocol::connection::{Connection, Gone, code_of};
 
 /// How long a case waits for the runner's verdict on a page.
 const VERDICT_WAIT: Duration = Duration::from_secs(20);
@@ -47,29 +48,25 @@ fn consent_entries(home: Option<&str>, run_id: &str, page: &PageOpened) -> Vec<V
 
 /// Waits until Provenance records the answer `answer` on the document at
 /// `path` of the Run `run_id`'s page `page`; the entry, if it came.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the synchronous harness polls the Run trace on its own thread, outside any async worker"
-)]
 pub(super) fn recorded(
     home: Option<&str>,
     run_id: &str,
     page: &PageOpened,
     (path, answer): (&str, &str),
 ) -> Option<Value> {
-    let started = Instant::now();
-    loop {
-        let found = consent_entries(home, run_id, page)
-            .into_iter()
-            .find(|line| {
-                line["answer"] == json!(answer)
-                    && line["url"].as_str().is_some_and(|url| url.ends_with(path))
-            });
-        if found.is_some() || started.elapsed() > VERDICT_WAIT {
-            return found;
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
+    poll::until(
+        VERDICT_WAIT,
+        Duration::from_millis(200),
+        || {
+            consent_entries(home, run_id, page)
+                .into_iter()
+                .find(|line| {
+                    line["answer"] == json!(answer)
+                        && line["url"].as_str().is_some_and(|url| url.ends_with(path))
+                })
+        },
+        Option::is_some,
+    )
 }
 
 /// `page.evaluate` of a function that reads the page's title.
@@ -94,15 +91,10 @@ fn blocked(answer: &Value) -> Option<BlockedDetails> {
 /// document at a URL ending with `path`, answered 200.
 fn walled(answer: &Value, path: &str) -> bool {
     blocked(answer).is_some_and(|details| {
-        details.cause.as_str() == "consent_required"
+        details.cause == BlockCause::ConsentRequired
             && details.url.ends_with(path)
             && details.status == Some(200)
     })
-}
-
-/// The Error code `answer` raised.
-fn code_of(answer: &Value) -> &Value {
-    &answer["error"]["data"]["code"]
 }
 
 /// Visits the wall at `path` on `page` and checks that the runner's verdict
@@ -116,7 +108,7 @@ fn blocked_at(
     (path, vendor): (&str, &str),
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let url = site.named_url(HOST, path).unwrap_or_default();
+    let url = site.named_url(HOST, path);
     let went = call(
         connection,
         PAGE_GOTO.name,
@@ -128,7 +120,7 @@ fn blocked_at(
         format!("Provenance records the prompt at {path} as a wall, `consent_required`"),
         entry
             .as_ref()
-            .is_some_and(|entry| entry["cause"] == json!("consent_required")),
+            .is_some_and(|entry| entry["cause"] == BlockCause::ConsentRequired.as_str()),
     );
     let raised = if walled(&went, path) {
         true
@@ -200,7 +192,7 @@ pub(super) fn walls_at_once(
         return finish(connection, run_id);
     };
     for path in ["/wall", "/hidden-wall"] {
-        let url = site.named_url(HOST, path).unwrap_or_default();
+        let url = site.named_url(HOST, path);
         let went = call(
             connection,
             PAGE_GOTO.name,
@@ -252,20 +244,32 @@ pub(crate) fn major_of(home: &str, run_id: &str) -> Option<PathBuf> {
         .find(|major| major.join(RUNS).join(run_id).is_dir())
 }
 
-/// Writes `text` as user configuration in `major`, answering what was
-/// there before.
+/// Writes `text` as user configuration in `major`, or removes it when
+/// `text` is none, answering what was there before.
+///
+/// # Errors
+///
+/// When the file cannot be read, written or removed.
 #[expect(
     clippy::disallowed_methods,
     reason = "the harness is synchronous and runs no async worker"
 )]
-pub(crate) fn configure(major: &std::path::Path, text: Option<&str>) -> Option<String> {
+pub(crate) fn configure(
+    major: &std::path::Path,
+    text: Option<&str>,
+) -> std::io::Result<Option<String>> {
     let file = major.join(USER_CONFIGURATION_FILE);
-    let before = std::fs::read_to_string(&file).ok();
+    let before = match std::fs::read_to_string(&file) {
+        Ok(before) => Some(before),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error),
+    };
     match text {
-        Some(text) => drop(std::fs::write(&file, text)),
-        None => drop(std::fs::remove_file(&file)),
+        Some(text) => std::fs::write(&file, text)?,
+        None if before.is_some() => std::fs::remove_file(&file)?,
+        None => {}
     }
-    before
+    Ok(before)
 }
 
 /// With `consent.domains` listing `consent.test` in user configuration, the
@@ -286,13 +290,23 @@ pub(super) fn accepted(
         checks.check("the engine's per-major folder is found", false);
         return Ok(());
     };
-    let before = configure(
-        &major,
-        Some("version = \"0.1\"\n\n[settings.consent]\ndomains = [\"consent.test\"]\n"),
-    );
+    let Some(before) = checks.needs(
+        "user configuration lists `consent.test` in `consent.domains`",
+        configure(
+            &major,
+            Some(&user_configuration(
+                "[settings.consent]\ndomains = [\"consent.test\"]\n",
+            )),
+        ),
+    ) else {
+        return Ok(());
+    };
     let run_id = "conformance-consent-accepted";
     let outcome = accepted_on(connection, home, site, run_id, checks);
-    configure(&major, before.as_deref());
+    checks.needs(
+        "user configuration is put back",
+        configure(&major, before.as_deref()),
+    );
     outcome
 }
 
@@ -347,33 +361,31 @@ const OFFER_WAIT: Duration = Duration::from_secs(20);
 /// The `consent_wall` item of `domain` in "Needs you" once it names the
 /// Run `run_id` as the last to meet the wall, or as it is listed when the
 /// wait ends: an earlier case's Run may have met the same wall.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the synchronous harness polls the engine on its own thread, outside any async worker"
-)]
 fn listed_wall(
     connection: &mut Connection,
     domain: &str,
     run_id: &str,
 ) -> Result<Option<Value>, Gone> {
-    let started = Instant::now();
-    loop {
-        let id = connection.request(NEEDS_YOU_LIST.name, &json!({ "kinds": [CONSENT_WALL] }))?;
-        let answer = connection.answer(id)?.message;
-        let found = answer["result"]["items"].as_array().and_then(|items| {
-            items
-                .iter()
-                .find(|item| item["details"]["domain"] == json!(domain))
-                .cloned()
-        });
-        let named = found
-            .as_ref()
-            .is_some_and(|item| item["run"] == json!(run_id));
-        if named || started.elapsed() > OFFER_WAIT {
-            return Ok(found);
-        }
-        std::thread::sleep(Duration::from_millis(250));
-    }
+    poll::try_until(
+        OFFER_WAIT,
+        Duration::from_millis(250),
+        || {
+            let id =
+                connection.request(NEEDS_YOU_LIST.name, &json!({ "kinds": [CONSENT_WALL] }))?;
+            let answer = connection.answer(id)?.message;
+            Ok(answer["result"]["items"].as_array().and_then(|items| {
+                items
+                    .iter()
+                    .find(|item| item["details"]["domain"] == json!(domain))
+                    .cloned()
+            }))
+        },
+        |found| {
+            found
+                .as_ref()
+                .is_some_and(|item| item["run"] == json!(run_id))
+        },
+    )
 }
 
 /// A consent wall a Run left, raised as `blocked`, has "Needs you" list its
@@ -388,7 +400,7 @@ pub(super) fn offered(
     let Some(page) = open(connection, site, run_id, &json!({}), checks)? else {
         return finish(connection, run_id);
     };
-    let url = site.named_url(HOST, "/wall").unwrap_or_default();
+    let url = site.named_url(HOST, "/wall");
     let went = call(
         connection,
         PAGE_GOTO.name,
@@ -446,8 +458,7 @@ pub(super) fn settings(
         &json!({ "consent": { "on_wall": "ask" } }),
         checks,
     )?;
-    let id = connection.request(RUN_NEW_PAGE.name, &json!({ "run_id": run_id }))?;
-    let asked = connection.browser_answer(id)?.message;
+    let asked = connection.call(RUN_NEW_PAGE.name, &json!({ "run_id": run_id }))?;
     checks.check(
         "`consent.on_wall: ask` opens no page, `capability_unavailable`, until the Human pause takes a person's answer",
         code_of(&asked) == &json!(CAPABILITY_UNAVAILABLE.name),

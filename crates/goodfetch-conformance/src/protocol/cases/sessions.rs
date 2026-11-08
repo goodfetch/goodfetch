@@ -11,11 +11,12 @@ use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE};
 use goodfetch_protocol::page::{PAGE_GOTO, PageOpened, RUN_NEW_PAGE, SessionId};
 use goodfetch_protocol::run::{RUN_ENDED, RUN_START};
+use goodfetch_protocol::settings::SESSION_SOURCE;
 use goodfetch_protocol::settings::{CAPABILITY_UNAVAILABLE, SETTING_NOT_APPLICABLE};
 use serde_json::{Value, json};
 
 use super::{Checks, Site, finish_run, start_run};
-use crate::protocol::connection::{Connection, Gone};
+use crate::protocol::connection::{Connection, Gone, code_of};
 use crate::protocol::target::EngineTarget;
 
 /// One Session case of the page suite.
@@ -79,18 +80,6 @@ impl Case {
     }
 }
 
-/// Calls `method` with `params` and answers the engine's whole answer,
-/// waiting as long as a browser's launch may take.
-fn call(connection: &mut Connection, method: &str, params: &Value) -> Result<Value, Gone> {
-    let id = connection.request(method, params)?;
-    Ok(connection.browser_answer(id)?.message)
-}
-
-/// The Error code a failure answer names.
-fn code_of(answer: &Value) -> &Value {
-    &answer["error"]["data"]["code"]
-}
-
 /// The Session a `run.new_session` answer names.
 fn session_of(answer: &Value) -> Option<SessionId> {
     serde_json::from_value(answer["result"]["session_id"].clone()).ok()
@@ -107,11 +96,7 @@ fn session_and_page(
     run_id: &str,
     checks: &mut Checks,
 ) -> Result<Option<(SessionId, PageOpened)>, Gone> {
-    let opened = call(
-        connection,
-        RUN_NEW_SESSION.name,
-        &json!({ "run_id": run_id }),
-    )?;
+    let opened = connection.call(RUN_NEW_SESSION.name, &json!({ "run_id": run_id }))?;
     let Some(session) = session_of(&opened) else {
         checks.check(
             format!("`{}` answers the Session it opened", RUN_NEW_SESSION.name),
@@ -119,11 +104,7 @@ fn session_and_page(
         );
         return Ok(None);
     };
-    let paged = call(
-        connection,
-        SESSION_NEW_PAGE.name,
-        &json!({ "session_id": session }),
-    )?;
+    let paged = connection.call(SESSION_NEW_PAGE.name, &json!({ "session_id": session }))?;
     let page = page_of(&paged);
     checks.check(
         format!("`{}` answers a page of the Session", SESSION_NEW_PAGE.name),
@@ -139,11 +120,8 @@ fn store(
     page: &PageOpened,
     mark: &str,
 ) -> Result<Value, Gone> {
-    let url = site
-        .named_url("scope.test", &format!("/storage?mark={mark}"))
-        .unwrap_or_default();
-    let answer = call(
-        connection,
+    let url = site.named_url("scope.test", &format!("/storage?mark={mark}"));
+    let answer = connection.call(
         PAGE_GOTO.name,
         &json!({ "page_id": page.page_id, "url": url }),
     )?;
@@ -154,17 +132,10 @@ fn store(
 /// whose target starts with `prefix`, in arrival order: its target and
 /// the cookies it sent.
 fn storage_requests(site: &Site, prefix: &str) -> Vec<(Value, Value)> {
-    site.proving_ground
-        .received_requests()
-        .unwrap_or_default()
+    site.received_requests()
         .of_the_case()
-        .filter(|request| {
-            request["host"] == json!("scope.test")
-                && request["target"]
-                    .as_str()
-                    .is_some_and(|target| target.starts_with(prefix))
-        })
-        .map(|request| (request["target"].clone(), request["cookies"].clone()))
+        .filter(|request| request.host == "scope.test" && request.target.starts_with(prefix))
+        .map(|request| (json!(request.target), json!(request.cookies)))
         .collect()
 }
 
@@ -222,31 +193,18 @@ fn closed(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
     let run_id = "conformance-sessions-closed";
     start_run(connection, site, run_id, &json!({}), checks)?;
     if let Some((session, page)) = session_and_page(connection, run_id, checks)? {
-        let first = call(
-            connection,
-            SESSION_CLOSE.name,
-            &json!({ "session_id": session }),
-        )?;
-        let second = call(
-            connection,
-            SESSION_CLOSE.name,
-            &json!({ "session_id": session }),
-        )?;
+        let first = connection.call(SESSION_CLOSE.name, &json!({ "session_id": session }))?;
+        let second = connection.call(SESSION_CLOSE.name, &json!({ "session_id": session }))?;
         checks.check(
             "closing the Session, then closing it again, both answer",
             first["result"] == json!({}) && second["result"] == json!({}),
         );
-        let url = site.named_url("scope.test", "/about").unwrap_or_default();
-        let navigated = call(
-            connection,
+        let url = site.named_url("scope.test", "/about");
+        let navigated = connection.call(
             PAGE_GOTO.name,
             &json!({ "page_id": page.page_id, "url": url }),
         )?;
-        let opened = call(
-            connection,
-            SESSION_NEW_PAGE.name,
-            &json!({ "session_id": session }),
-        )?;
+        let opened = connection.call(SESSION_NEW_PAGE.name, &json!({ "session_id": session }))?;
         checks.check(
             format!(
                 "a page of the closed Session and the Session itself raise `{}`",
@@ -255,14 +213,14 @@ fn closed(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
             code_of(&navigated) == &json!(CLOSED.name) && code_of(&opened) == &json!(CLOSED.name),
         );
     }
-    let default = call(connection, RUN_NEW_PAGE.name, &json!({ "run_id": run_id }))?;
+    let default = connection.call(RUN_NEW_PAGE.name, &json!({ "run_id": run_id }))?;
     if let Some(default) = page_of(&default) {
-        let _ = call(
-            connection,
+        let closed = connection.call(
             SESSION_CLOSE.name,
             &json!({ "session_id": default.session_id }),
         )?;
-        let again = call(connection, RUN_NEW_PAGE.name, &json!({ "run_id": run_id }))?;
+        checks.answered(SESSION_CLOSE.name, &closed);
+        let again = connection.call(RUN_NEW_PAGE.name, &json!({ "run_id": run_id }))?;
         checks.check(
             format!(
                 "`{}` raises `{}` once the default Session is closed",
@@ -289,8 +247,7 @@ fn source(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
         &json!({ "session": { "source": saved } }),
         checks,
     )?;
-    let in_settings = call(
-        connection,
+    let in_settings = connection.call(
         RUN_NEW_SESSION.name,
         &json!({ "run_id": run_id, "settings": { "session": { "source": saved } } }),
     )?;
@@ -300,14 +257,10 @@ fn source(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
             SETTING_NOT_APPLICABLE.name
         ),
         code_of(&in_settings) == &json!(SETTING_NOT_APPLICABLE.name)
-            && in_settings["error"]["data"]["key"] == json!("session.source"),
+            && in_settings["error"]["data"]["key"] == SESSION_SOURCE.name,
     );
-    let inherited = call(
-        connection,
-        RUN_NEW_SESSION.name,
-        &json!({ "run_id": run_id }),
-    )?;
-    let default = call(connection, RUN_NEW_PAGE.name, &json!({ "run_id": run_id }))?;
+    let inherited = connection.call(RUN_NEW_SESSION.name, &json!({ "run_id": run_id }))?;
+    let default = connection.call(RUN_NEW_PAGE.name, &json!({ "run_id": run_id }))?;
     checks.check(
         format!(
             "a Session and the default Session open from the Run's `session.source`, `{}` here naming its kind",
@@ -319,8 +272,7 @@ fn source(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
                 && answer["error"]["data"]["layer"] == json!("run")
         }),
     );
-    let fresh = call(
-        connection,
+    let fresh = connection.call(
         RUN_NEW_SESSION.name,
         &json!({ "run_id": run_id, "source": null }),
     )?;
@@ -335,15 +287,11 @@ fn source(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
 /// `run_ended`.
 fn ended(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-sessions-ended";
-    let started = call(connection, RUN_START.name, &json!({ "run_id": run_id }))?;
+    let started = connection.call(RUN_START.name, &json!({ "run_id": run_id }))?;
     checks.check("the Run starts", started.get("result").is_some());
     finish_run(connection, run_id)?;
-    let session = call(
-        connection,
-        RUN_NEW_SESSION.name,
-        &json!({ "run_id": run_id }),
-    )?;
-    let page = call(connection, RUN_NEW_PAGE.name, &json!({ "run_id": run_id }))?;
+    let session = connection.call(RUN_NEW_SESSION.name, &json!({ "run_id": run_id }))?;
+    let page = connection.call(RUN_NEW_PAGE.name, &json!({ "run_id": run_id }))?;
     checks.check(
         format!(
             "`{}` and `{}` on the finished Run raise `{}`",
@@ -363,26 +311,14 @@ fn closed_with_its_run(
 ) -> Result<(), Gone> {
     let run_id = "conformance-sessions-closed-with-its-run";
     start_run(connection, site, run_id, &json!({}), checks)?;
-    let opened = call(
-        connection,
-        RUN_NEW_SESSION.name,
-        &json!({ "run_id": run_id }),
-    )?;
+    let opened = connection.call(RUN_NEW_SESSION.name, &json!({ "run_id": run_id }))?;
     let Some(session) = session_of(&opened) else {
         checks.check(format!("`{}` opens a Session", RUN_NEW_SESSION.name), false);
         return finish_run(connection, run_id);
     };
     finish_run(connection, run_id)?;
-    let closed = call(
-        connection,
-        SESSION_CLOSE.name,
-        &json!({ "session_id": session }),
-    )?;
-    let again = call(
-        connection,
-        SESSION_CLOSE.name,
-        &json!({ "session_id": session }),
-    )?;
+    let closed = connection.call(SESSION_CLOSE.name, &json!({ "session_id": session }))?;
+    let again = connection.call(SESSION_CLOSE.name, &json!({ "session_id": session }))?;
     checks.check(
         format!(
             "`{}` of a Session whose Run finished answers, and again",

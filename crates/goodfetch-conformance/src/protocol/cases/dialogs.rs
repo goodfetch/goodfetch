@@ -22,6 +22,7 @@ use super::exchange::Exchange;
 use super::launch::{reports, reports_once};
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
+use crate::proving_ground::ProvingGroundError;
 
 /// The dialogs page's path on the access family.
 const DIALOGS: &str = "/dialogs";
@@ -65,33 +66,33 @@ impl Case {
 }
 
 /// The dialogs page's reports of its buttons so far, `(button, observed)`
-/// in order, every page's together; none when the observations cannot be
-/// read.
-fn button_reports(site: &Site) -> Option<Vec<(String, String)>> {
-    let observations = site.proving_ground.observations().ok()?;
-    Some(
-        reports(&observations, DIALOGS)
-            .into_iter()
-            .filter(|(check, _)| BUTTONS.contains(&check.as_str()))
-            .collect(),
-    )
+/// in order, every page's together.
+fn button_reports(site: &Site) -> Result<Vec<(String, String)>, ProvingGroundError> {
+    let observations = site.proving_ground.observations()?;
+    Ok(reports(&observations, DIALOGS)
+        .into_iter()
+        .filter(|(check, _)| BUTTONS.contains(&check.as_str()))
+        .collect())
 }
 
 /// The `count` reports of the dialogs page's buttons after the first
-/// `before`, once they arrived.
-fn reports_after(site: &Site, before: usize, count: usize) -> Option<Vec<(String, String)>> {
+/// `before`, once they arrived or the wait ended.
+fn reports_after(
+    site: &Site,
+    before: usize,
+    count: usize,
+) -> Result<Vec<(String, String)>, ProvingGroundError> {
     let seen = reports_once(site, DIALOGS, |seen| {
         seen.iter()
             .filter(|(check, _)| BUTTONS.contains(&check.as_str()))
             .count()
             >= before + count
     })?;
-    Some(
-        seen.into_iter()
-            .filter(|(check, _)| BUTTONS.contains(&check.as_str()))
-            .skip(before)
-            .collect(),
-    )
+    Ok(seen
+        .into_iter()
+        .filter(|(check, _)| BUTTONS.contains(&check.as_str()))
+        .skip(before)
+        .collect())
 }
 
 /// The dialogs page's reports in the order of the clicks that made them.
@@ -105,26 +106,51 @@ struct Reported<'site> {
     /// page's together.
     seen: usize,
     reports: Vec<(String, String)>,
+    /// Why the harness could not read the observations, the first time it
+    /// could not.
+    unread: Option<ProvingGroundError>,
 }
 
 impl<'site> Reported<'site> {
     /// Reports from now on.
     fn from_now(site: &'site Site) -> Self {
+        let (seen, unread) = match button_reports(site) {
+            Ok(seen) => (seen.len(), None),
+            Err(why) => (0, Some(why)),
+        };
         Self {
             site,
-            seen: button_reports(site).map_or(0, |seen| seen.len()),
+            seen,
             reports: Vec::new(),
+            unread,
         }
     }
 
     /// Waits for the report of the click just made, and keeps it.
     fn wait(&mut self) {
-        if let Some(report) =
-            reports_after(self.site, self.seen, 1).and_then(|after| after.into_iter().next())
-        {
-            self.seen += 1;
-            self.reports.push(report);
+        match reports_after(self.site, self.seen, 1) {
+            Ok(after) => {
+                if let Some(report) = after.into_iter().next() {
+                    self.seen += 1;
+                    self.reports.push(report);
+                }
+            }
+            Err(why) => {
+                self.unread.get_or_insert(why);
+            }
         }
+    }
+
+    /// The reports kept, checked to have been read: a failed check naming
+    /// why when the harness could not read the observations.
+    fn kept(&mut self, checks: &mut Checks) -> &[(String, String)] {
+        if let Some(why) = self.unread.take() {
+            checks.check(
+                format!("the Proving ground's observations can be read ({why})"),
+                false,
+            );
+        }
+        &self.reports
     }
 }
 
@@ -156,11 +182,10 @@ fn on_the_dialogs_page(
         return Ok(None);
     };
     let page_id = json!(page.page_id);
-    let id = connection.request(
+    let went = connection.call(
         PAGE_GOTO.name,
         &json!({ "page_id": page_id, "url": format!("{origin}{DIALOGS}") }),
     )?;
-    let went = connection.browser_answer(id)?.message;
     checks.check(
         "the dialogs page loads",
         went["result"]["response"]["status"] == json!(200),
@@ -185,9 +210,10 @@ fn defaults(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Re
         "each click that opens a dialog answers",
         clicked.iter().all(|answer| answer.get("result").is_some()),
     );
+    let reports = handlers.reported.kept(checks).to_vec();
     checks.check(
         "the page reports an alert closed, a confirm and a prompt dismissed, and its guard armed",
-        handlers.reported.reports
+        reports
             == pairs(&[
                 ("alert", "closed"),
                 ("confirm", "false"),
@@ -456,9 +482,10 @@ fn handlers(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Re
         "its subscription ends with `page_handler_failed`, and it is asked no more",
         ended["error"]["data"]["code"] == json!(PAGE_HANDLER_FAILED.name) && at_last.is_empty(),
     );
+    let reports = handlers.reported.kept(checks).to_vec();
     checks.check(
         "the page saw the earlier handler's accept, the later one's prompt text and each default",
-        handlers.reported.reports
+        reports
             == pairs(&[
                 ("confirm", "true"),
                 ("prompt", "\"Ada\""),

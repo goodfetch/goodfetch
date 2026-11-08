@@ -6,7 +6,7 @@
 //! a time budget, only by what comes first.
 
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
-use goodfetch_protocol::connection::{HELLO, HelloResult, ProductVersion, Surface};
+use goodfetch_protocol::connection::{HELLO, HelloParams, HelloResult, Surface};
 use goodfetch_protocol::engine::ENGINE_INFO;
 use goodfetch_protocol::formats::HelloFrom;
 use goodfetch_protocol::refusals::RefusalCase;
@@ -56,6 +56,13 @@ pub enum FabricatedHelloError {
         /// Why.
         reason: String,
     },
+    /// The Daemon accepted the `hello` but did not take the harness's
+    /// `daemon.stop`.
+    #[error("the Daemon accepted the `hello` but did not take the harness's stop: {reason}")]
+    NotStopped {
+        /// Why.
+        reason: String,
+    },
     /// The engine's first message is no reply to the `hello`.
     #[error("the engine's first message is no reply to the `hello`: {message}")]
     NotTheReply {
@@ -90,26 +97,16 @@ pub fn send_fabricated_hello(
         }
     };
     let mut connection = Connection::new(target::Started::start(target)?);
-    let mut params = json!({
-        "protocol_version": case.found,
-        "surface": surface,
-        "product_version": ProductVersion::parse(env!("CARGO_PKG_VERSION"))
-            .expect("invariant: the workspace's version is a Product version"),
-    });
-    if let Some(needs) = hello.needs {
-        params["needs"] = json!(needs);
-    }
-    if let Some(token) = connection.token() {
-        params["token"] = json!(token);
-    }
-    let unanswered = |why: Gone| FabricatedHelloError::Unanswered {
-        reason: why.to_string(),
+    let params = HelloParams {
+        protocol_version: case.found,
+        needs: hello.needs,
+        ..connection.hello_params(surface)
     };
-    let id = connection.request(HELLO, &params).map_err(unanswered)?;
-    connection
-        .request(ENGINE_INFO.name, &json!({}))
-        .map_err(unanswered)?;
-    let first = connection.next_within(START_DEADLINE).map_err(unanswered)?;
+    let (id, first) = with_a_call_behind(&mut connection, &params).map_err(|why| {
+        FabricatedHelloError::Unanswered {
+            reason: why.to_string(),
+        }
+    })?;
     let outcome = match reading(&first, id) {
         Some(FabricatedHelloOutcome::Refused { error_code, .. }) => {
             FabricatedHelloOutcome::Refused {
@@ -118,8 +115,10 @@ pub fn send_fabricated_hello(
             }
         }
         Some(accepted) => {
-            stop(&mut connection, target.mode);
-            accepted
+            let stopped = stop(&mut connection, target.mode);
+            connection.close();
+            stopped.map_err(|reason| FabricatedHelloError::NotStopped { reason })?;
+            return Ok(accepted);
         }
         None => {
             connection.close();
@@ -128,6 +127,19 @@ pub fn send_fabricated_hello(
     };
     connection.close();
     Ok(outcome)
+}
+
+/// Sends `params` as the Connection's `hello` with a call right behind it,
+/// and reads the first message the engine writes: the `hello`'s ID and that
+/// message.
+pub(super) fn with_a_call_behind(
+    connection: &mut Connection,
+    params: &HelloParams,
+) -> Result<(i64, Value), Gone> {
+    let params = serde_json::to_value(params).expect("invariant: `hello` serializes");
+    let id = connection.request(HELLO, &params)?;
+    connection.request(ENGINE_INFO.name, &json!({}))?;
+    Ok((id, connection.next_within(START_DEADLINE)?))
 }
 
 /// What `message` says of the `hello` sent as `id`, if it replies to it.

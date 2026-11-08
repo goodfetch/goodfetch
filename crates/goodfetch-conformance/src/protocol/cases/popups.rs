@@ -9,16 +9,19 @@
 
 use std::time::Duration;
 
-use goodfetch_protocol::connection::CANCEL;
+use goodfetch_protocol::connection::{CANCEL, CLOSED};
 use goodfetch_protocol::events::{CREDIT, EVENTS_SUBSCRIBE};
+use goodfetch_protocol::page::events as page_events;
 use goodfetch_protocol::page::events::PAGE_ON;
-use goodfetch_protocol::page::session_pages::{PAGE_CLOSE, SESSION_ON, SESSION_PAGES};
+use goodfetch_protocol::page::session_pages::{
+    PAGE_CLOSE, PAGE_POPUP, SESSION_ON, SESSION_PAGE, SESSION_PAGES,
+};
 use goodfetch_protocol::page::{LOCATOR_CLICK, PAGE_GOTO};
 use serde_json::{Value, json};
 
 use super::exchange::Exchange;
 use super::{Checks, Site, finish_run, new_page, start_run};
-use crate::protocol::connection::{Connection, Gone};
+use crate::protocol::connection::{Connection, Gone, code_of};
 
 /// How long a listener armed late is watched for a popup it must not get.
 const QUIET: Duration = Duration::from_secs(2);
@@ -81,7 +84,9 @@ fn armed_before(connection: &mut Connection, site: &Site, checks: &mut Checks) -
         went["result"]["response"]["status"] == json!(200),
     );
     let listening = exchange.listen(PAGE_ON.name, &json!({ "page_id": page, "event": "popup" }))?;
-    let session_listening = exchange.connection.request(
+    // This listener, and the two below, end with the Run: the case claims
+    // nothing of their ends.
+    exchange.connection.request(
         SESSION_ON.name,
         &json!({ "session_id": session, "event": "page" }),
     )?;
@@ -89,9 +94,9 @@ fn armed_before(connection: &mut Connection, site: &Site, checks: &mut Checks) -
         LOCATOR_CLICK.name,
         &json!({ "locator": { "page_id": page, "selector": "#open" } }),
     )?;
-    let popup = exchange.until("page.popup", |data| data["page_id"] == page)?;
+    let popup = exchange.until(PAGE_POPUP.name, |data| data["page_id"] == page)?;
     let popup_page = popup["popup"]["page_id"].clone();
-    let announced = exchange.until("session.page", |data| data["page_id"] == popup_page)?;
+    let announced = exchange.until(SESSION_PAGE.name, |data| data["page_id"] == popup_page)?;
     checks.check(
         "the click answers, and the listener armed before it gets the popup",
         clicked.get("result").is_some() && popup_page.is_string(),
@@ -106,12 +111,12 @@ fn armed_before(connection: &mut Connection, site: &Site, checks: &mut Checks) -
         .connection
         .notify(CANCEL, &json!({ "id": listening }))?;
     exchange.answer(listening)?;
-    let popups_before = exchange.count("page.popup");
-    let late = exchange.listen(PAGE_ON.name, &json!({ "page_id": page, "event": "popup" }))?;
+    let popups_before = exchange.count(PAGE_POPUP.name);
+    exchange.listen(PAGE_ON.name, &json!({ "page_id": page, "event": "popup" }))?;
     exchange.idle(QUIET)?;
     checks.check(
         "a listener armed after the popup opened gets no popup",
-        exchange.count("page.popup") == popups_before,
+        exchange.count(PAGE_POPUP.name) == popups_before,
     );
     let listed = exchange.call(SESSION_PAGES.name, &json!({ "session_id": session }))?;
     checks.check(
@@ -119,14 +124,13 @@ fn armed_before(connection: &mut Connection, site: &Site, checks: &mut Checks) -
         listed["result"]["pages"] == json!([page, popup_page]),
     );
 
-    let close_listening = drive_and_close(
+    drive_and_close(
         &mut exchange,
         [&page, &popup_page, &session],
         &origin,
         &catalog,
         checks,
     )?;
-    let _ = (late, session_listening, close_listening);
     exchange
         .connection
         .notify(CANCEL, &json!({ "id": subscription }))?;
@@ -141,7 +145,7 @@ fn drive_and_close(
     origin: &str,
     catalog: &str,
     checks: &mut Checks,
-) -> Result<i64, Gone> {
+) -> Result<(), Gone> {
     let popup_went = exchange.call(
         PAGE_GOTO.name,
         &json!({ "page_id": popup_page, "url": catalog }),
@@ -150,12 +154,14 @@ fn drive_and_close(
         "the popup navigates as any page",
         popup_went["result"]["response"]["status"] == json!(200),
     );
-    let close_listening = exchange.listen(
+    exchange.listen(
         PAGE_ON.name,
         &json!({ "page_id": popup_page, "event": "close" }),
     )?;
     let closed = exchange.call(PAGE_CLOSE.name, &json!({ "page_id": popup_page }))?;
-    exchange.until("page.close", |data| data["page_id"] == *popup_page)?;
+    exchange.until(page_events::PAGE_CLOSE.name, |data| {
+        data["page_id"] == *popup_page
+    })?;
     let closed_again = exchange.call(PAGE_CLOSE.name, &json!({ "page_id": popup_page }))?;
     let after = exchange.call(SESSION_PAGES.name, &json!({ "session_id": session }))?;
     let later = exchange.call(
@@ -168,8 +174,7 @@ fn drive_and_close(
     );
     checks.check(
         "the closed popup leaves `session.pages`, and a later call on it raises `closed`",
-        after["result"]["pages"] == json!([page])
-            && later["error"]["data"]["code"] == json!("closed"),
+        after["result"]["pages"] == json!([page]) && code_of(&later) == CLOSED.name,
     );
-    Ok(close_listening)
+    Ok(())
 }

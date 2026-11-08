@@ -2365,6 +2365,7 @@ dependencies = [
  "rstest",
  "rusqlite",
  "rustls",
+ "schemars",
  "secrecy",
  "serde",
  "serde_json",

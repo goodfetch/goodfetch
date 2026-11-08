@@ -276,9 +276,7 @@ fn network_idle(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -
             );
         }
     }
-    let framing = site
-        .named_url(clean_up::HOST, "/cross-site")
-        .unwrap_or_default();
+    let framing = site.named_url(clean_up::HOST, "/cross-site");
     exchange.go(&page, &framing, false, checks)?;
     let idle = exchange.call(
         PAGE_WAIT_FOR_LOAD_STATE.name,

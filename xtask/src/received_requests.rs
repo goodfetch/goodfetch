@@ -1,7 +1,8 @@
 //! The received-requests check (ADRs 0064 and 0086): a test reads the
 //! requests the Proving ground's page hosts received only through
-//! `ReceivedRequests` (`goodfetch-test-support`'s, or the conformance
-//! harness's on its `ProvingGround`), whose `of_the_case` leaves out the
+//! `ReceivedRequests`, the Proving ground's own reader in its interface
+//! (`proving-ground/src/interface.rs`), which test support and the
+//! conformance harness compile, whose `of_the_case` leaves out the
 //! robots.txt the engine reads of each document's origin and the icon
 //! Chromium asks for, both sent whenever they like, and whose `every` keeps
 //! them for a claim about all a site saw. A count over the raw list raced
@@ -24,12 +25,6 @@ use anyhow::{Context as _, Result};
 use crate::check::Finding;
 use crate::tree;
 
-/// The files that hold the helpers, the one place the list is read.
-const HELPERS: [&str; 2] = [
-    "crates/goodfetch-test-support/src/received_requests.rs",
-    "crates/goodfetch-conformance/src/proving_ground.rs",
-];
-
 /// The word a file that reads the Proving ground's record names.
 const OBSERVATIONS: &str = "observations";
 
@@ -42,7 +37,7 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
         let rust = Path::new(&path)
             .extension()
             .is_some_and(|extension| extension == "rs");
-        if !rust || HELPERS.contains(&path.as_str()) {
+        if !rust {
             continue;
         }
         let text =

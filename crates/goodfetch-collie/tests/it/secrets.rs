@@ -320,10 +320,6 @@ fn encrypted(value: &str, identity: &age::x25519::Identity) -> Vec<u8> {
 /// Covers: operation:run.new_page, operation:page.goto, setting:proxy.password
 #[cfg(unix)]
 #[test]
-#[expect(
-    clippy::disallowed_types,
-    reason = "the test's own writer thread hands the Secret over when the test says, outside any async worker"
-)]
 fn a_session_waiting_on_its_proxy_secret_holds_up_no_other_runs_page() {
     use std::io::Write as _;
     use std::sync::mpsc;

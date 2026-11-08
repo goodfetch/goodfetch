@@ -173,11 +173,6 @@ const WRITERS: &[(&str, usize, &str)] = &[
         "holds no value: it writes nothing, its one `OpenOptions` opening the `/proc` files a governor sample counts for reading only",
     ),
     (
-        "crates/goodfetch-engine/src/installed.rs",
-        1,
-        "holds no value: installed browser builds",
-    ),
-    (
         "crates/goodfetch-engine/src/key_value_store.rs",
         1,
         "holds no value: the program's own values, which it set from masked reads",

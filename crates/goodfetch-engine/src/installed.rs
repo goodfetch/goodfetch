@@ -15,7 +15,7 @@
 )]
 
 use std::fs::{self, File};
-use std::io::{self, Write as _};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
@@ -149,13 +149,7 @@ impl InstalledList {
         );
         let text = serde_json::to_vec_pretty(&Value::Object(document))
             .expect("invariant: the list serializes");
-        let partial = self.path.with_extension("json.partial");
-        let mut file = File::create(&partial)?;
-        file.write_all(&text)?;
-        file.sync_all()?;
-        drop(file);
-        fs::rename(&partial, &self.path)?;
-        durable::sync_folder(self.path.parent().unwrap_or(Path::new(".")));
+        durable::replace(&self.path, &text)?;
         drop(lock);
         Ok(())
     }

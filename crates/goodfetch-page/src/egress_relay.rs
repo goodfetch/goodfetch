@@ -585,14 +585,9 @@ impl EgressRelay {
         error: &NetError,
         mark: Option<u64>,
     ) -> Option<NetError> {
-        // An error the browser does not name is reported as its generic
-        // one, which the relay's answer can be.
         let relayed = matches!(
             error,
-            NetError::TunnelRefused
-                | NetError::EmptyResponse
-                | NetError::Failed
-                | NetError::Unrecognized(_)
+            NetError::TunnelRefused | NetError::EmptyResponse | NetError::Failed
         );
         if !relayed {
             return None;

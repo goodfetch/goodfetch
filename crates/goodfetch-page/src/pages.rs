@@ -312,8 +312,7 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                         .get(&params.page_id)
                         .map(|events| events.listen(params.event));
                     async move {
-                        let (armed, runtime) = listened?;
-                        armed.serve(context.stream(), runtime).await?;
+                        listened?.serve(context.stream()).await?;
                         Ok::<PageOnEnded, CallError>(PageOnEnded {})
                     }
                 },
@@ -1363,9 +1362,12 @@ impl Pages {
     /// The open page `page_id` once no init script of its is on its way in
     /// or out, so that a call sent after `page.add_init_script`, a gesture
     /// or a navigation, meets the script registered, and one sent after its
-    /// call was cancelled meets it removed; as [`Self::opened`] says.
+    /// call was cancelled meets it removed, and once `Runtime` a `page.on` sent
+    /// before the call asked for is on, so that what the call makes the page
+    /// log is read live (ADR 0019); as [`Self::opened`] says.
     async fn open(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
         self.init_scripts.settled(page_id).await;
+        self.events.armed(page_id).await;
         self.opened(page_id).await
     }
 

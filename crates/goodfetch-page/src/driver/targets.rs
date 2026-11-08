@@ -35,6 +35,18 @@ impl PageDriver {
         self.browser.try_send(Some(session), params).await
     }
 
+    /// Sends `params` on `session`, within the limit of a command of the
+    /// page's opening, raising what such a command raises.
+    pub(crate) async fn opening_command_on<C: Command>(
+        &self,
+        session: &TargetSession,
+        params: &C,
+    ) -> Result<C::Returns, CallError> {
+        self.browser
+            .send(Some(session), params, &self.browser.opening())
+            .await
+    }
+
     /// Calls `function`, a JavaScript function's source, with `argument` in
     /// the world whose context is `context` on `session`, and answers its
     /// value, never through `Runtime.enable`.

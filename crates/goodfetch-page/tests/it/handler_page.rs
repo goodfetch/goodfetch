@@ -278,15 +278,17 @@ impl Program {
     }
 
     /// The method of each CDP command the Run trace's command log holds so
-    /// far, in order.
+    /// far, in order. The log is there from the Run's browser on, so a log
+    /// that is not fails the read: an absence a test counts would otherwise
+    /// hold whatever the engine did.
     #[expect(
         clippy::disallowed_methods,
         reason = "a small Run trace file read between calls, which only the engine's own actor appends to"
     )]
     pub(crate) fn cdp_commands(&self) -> Vec<String> {
         let file = HomeLayout::of(&self.home).run_trace(RUN, RUN_TRACE_CDP_COMMANDS);
-        std::fs::read_to_string(file)
-            .unwrap_or_default()
+        std::fs::read_to_string(&file)
+            .unwrap_or_else(|error| panic!("the command log {} is read: {error}", file.display()))
             .lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
             .filter_map(|line| line["method"].as_str().map(str::to_owned))

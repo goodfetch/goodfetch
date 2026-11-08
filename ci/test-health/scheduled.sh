@@ -5,8 +5,8 @@
 # ci/test-health.crontab), on `main`'s head by default. Both run in the
 # backstop's gate worktree (ci/gate-worktree.sh's `gate-backstop`), taking
 # its lock, so they never run beside the backstop or each other and reuse
-# its build; neither holds `just merge`'s worktree, and neither starts while
-# `just merge`'s gate runs.
+# its build; neither holds `just merge`'s worktree, neither starts while
+# `just merge`'s gate runs, and a gate started during a run waits for it.
 #   constrained  the constrained test-health run (ADR 0064): the Pre-merge
 #                suite on half the host's CPU and memory, with a fresh order
 #                seed and Vitest's `detectAsyncLeaks` (ci/test-health/
@@ -56,15 +56,6 @@ commit=$(git rev-parse --verify "$ref^{commit}")
 gate_worktree_name="gate-backstop"
 # shellcheck source=ci/gate-worktree.sh
 source "$(dirname "$0")/../gate-worktree.sh"
-# A run beside `just merge`'s gate takes its cores: on 2026-11-08 the daily
-# mutation run's load failed a gate on a leak timeout. A lock whose holder
-# ended holds nothing, and is the next gate's to clear.
-holder=$(gate_worktree_holder "$root/.claude/worktrees/merge-gate.lock")
-if [[ -n $holder ]]; then
-  echo "== skipped: the merge gate, process $holder, is running"
-  result "skipped (the merge gate is running)"
-  exit 1
-fi
 # The backstop's floor (ci/gate-backstop.sh): the host keeps 60 GB free, and
 # the worktree's first build takes about 25 GB, a later one 5 GB
 # (GOODFETCH_TEST_HEALTH_MIN_FREE_GB sets the floor itself).
@@ -84,6 +75,19 @@ if [[ -n $holder ]]; then
 fi
 gate_worktree_lock
 locked=yes
+# A run beside `just merge`'s gate takes its cores: on 2026-11-08 the daily
+# mutation run's load failed a gate on a leak timeout. So the lock says it is a
+# test-health run's before the gate's lock is read, and a gate reads the two the
+# other way round: of a run and a gate starting together, at least one sees the
+# other. The gate waits for a run it sees (ci/merge-pr.sh); a run that sees a gate
+# skips. A lock whose holder ended holds nothing, and is the next gate's to clear.
+: >"$lock/test-health"
+holder=$(gate_worktree_holder "$root/.claude/worktrees/merge-gate.lock")
+if [[ -n $holder ]]; then
+  echo "== skipped: the merge gate, process $holder, is running"
+  result "skipped (the merge gate is running)"
+  exit 1
+fi
 gate_worktree_checkout "$commit"
 cd "$worktree"
 just fetch

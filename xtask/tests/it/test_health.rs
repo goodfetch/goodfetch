@@ -1,7 +1,7 @@
 //! The test-health runs the gate host's cron starts (`just test-health`,
 //! `ci/test-health/scheduled.sh`; TESTING.md's After merge): a run does not start
-//! while `just merge`'s gate runs, and says so in its results line. A gate started
-//! during a run still shares the host's cores with it, under the run's `nice`.
+//! while `just merge`'s gate runs, and says so in its results line. It marks the
+//! lock it holds for a gate started during it to wait on, which `merge_pr` tests.
 //! `just` is a stand-in that records each call. The
 //! local gate is repository tooling, so the module declares no Feature.
 #![cfg(unix)]
@@ -17,6 +17,13 @@ use crate::workspace::Workspace;
 
 /// A process ID above every system's limit, so no process has it.
 const NO_PROCESS: &str = "2147483646";
+
+/// The lock a run takes, which holds its mark while it runs.
+fn backstop_lock(workspace: &Workspace) -> PathBuf {
+    workspace
+        .path()
+        .join(".claude/worktrees/gate-backstop.lock")
+}
 
 fn write_executable(path: &Path, contents: &str) {
     std::fs::write(path, contents).unwrap();
@@ -39,10 +46,13 @@ fn stand_in_just(workspace: &Workspace) -> PathBuf {
             "#!/bin/sh\necho \"$*\" >>\"{calls}\"\n\
              echo \"$1|${{XDG_RUNTIME_DIR:-}}|${{GOODFETCH_OS_SERVICES:-}}\" >>\"{variables}\"\n\
              env >\"{folder}/environment-$1\"\n\
+             if [ -f \"{mark}\" ]; then cat \"{pid}\" >\"{folder}/marked-by\"; fi\n\
              if [ -f \"{folder}/failing-$1\" ]; then exit 3; fi\n",
             calls = folder.join("calls").display(),
             variables = folder.join("variables").display(),
             folder = folder.display(),
+            mark = backstop_lock(workspace).join("test-health").display(),
+            pid = backstop_lock(workspace).join("pid").display(),
         ),
     );
     write_executable(
@@ -175,6 +185,21 @@ fn a_run_skips_while_the_merge_gate_has_a_live_owner(#[case] run: &str) {
         outcome.results
     );
     assert!(outcome.calls.is_empty(), "{:?}", outcome.calls);
+    assert!(!backstop_lock(&workspace).exists());
+}
+
+/// A gate started during a run waits for what the lock marks, and a run that
+/// ended leaves nothing to wait for.
+#[test]
+fn a_run_marks_its_lock_as_a_test_health_runs_while_it_runs() {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+
+    let outcome = scheduled(&workspace, &stand_in, "mutants");
+
+    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
+    assert!(stand_in.join("marked-by").is_file(), "{}", outcome.log);
+    assert!(!backstop_lock(&workspace).exists());
 }
 
 /// A reader of the results sees every day's run: one that ends before its

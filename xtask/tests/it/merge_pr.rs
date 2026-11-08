@@ -2,9 +2,10 @@
 //! Commands) around its gate: it refuses to start one while the file system
 //! of the gate's `target/` is short of space (#1822), keeps a failing gate's
 //! log and test results in the repository's common folder (#2087), and
-//! sweeps the gate's `target/` after each gate, still holding its lock; and
-//! the gate outlives the shell that started it, whose output it no longer
-//! needs. `gh`, `cargo` and `just` are stand-ins that record each call, and
+//! sweeps the gate's `target/` after each gate, still holding its lock; a
+//! gate waits for a running test-health run; it files the merge's stress
+//! listings; and the gate outlives the shell that started it, whose output it
+//! no longer needs. `gh`, `cargo` and `just` are stand-ins that record each call, and
 //! `date` one that gives the gate's start as [`STARTED`]. The local gate is
 //! repository tooling, so the module declares no Feature.
 #![cfg(unix)]
@@ -26,14 +27,21 @@ const NUMBER: &str = "7";
 /// The Unix time the `date` stand-in gives for `date -u +%s`.
 const STARTED: &str = "1800000000";
 
+/// A process ID above every system's limit, so no process has it.
+const NO_PROCESS: &str = "2147483646";
+
 /// Stand-ins for `gh`, `cargo` and `just` that append each call to `calls`,
 /// and for `date`, which gives [`STARTED`] for `-u +%s` and leaves every
 /// other format to the system's `date`.
-/// `gh pr view` shows an open pull request at the head of `change`; `cargo
-/// run … affected` prints `selection`'s content, else `gate=quick` or the
-/// gate `gate` names, its sweep notes `sweeping` and waits while `sweep-hold` exists, and its `perf
-/// pull-request` fails while `acceptance-unread` exists; `just pre-merge`
-/// writes the plan a full gate reads, unless `no-plan` exists, and a JUnit file,
+/// `gh pr view` shows an open pull request at the head of `change`, and `gh pr
+/// merge` makes `main` a merge with the tree of the revision `merges-as` names,
+/// when it exists; `cargo run … affected` prints `selection`'s content, else
+/// `gate=quick` or the gate `gate` names, its sweep notes `sweeping` and waits
+/// while `sweep-hold` exists, its `perf pull-request` fails while
+/// `acceptance-unread` exists, and its `stress listings` writes the head's
+/// listing unless `listing-fails` exists; `just pre-merge` writes the listing of
+/// the base's tip while `base-listings` exists, the plan a full gate reads,
+/// unless `no-plan` exists, and a JUnit file,
 /// notes the signals it ignores in `signals` where the system lists them,
 /// notes its process in `reached`, waits while `hold` exists, writes a line
 /// and, while `failing` exists, fails with status 3.
@@ -46,8 +54,13 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
             "gh",
             format!(
                 "#!/bin/sh\necho \"gh $*\" >>\"{calls}\"\n\
-                 if [ \"$1 $2\" = \"pr view\" ]; then printf 'OPEN\\tfalse\\t{head}\\tmain\\tA change\\n'; fi\n",
+                 if [ \"$1 $2\" = \"pr view\" ]; then printf 'OPEN\\tfalse\\t{head}\\tmain\\tA change\\n'; fi\n\
+                 if [ \"$1 $2\" = \"pr merge\" ] && [ -f \"{merges_as}\" ]; then\n\
+                   merged=$(git -c user.name=GitHub -c user.email=noreply@example.test commit-tree \"$(cat \"{merges_as}\")^{{tree}}\" -p refs/heads/main -p {head} -m merged)\n\
+                   git update-ref refs/heads/main \"$merged\"\n\
+                 fi\n",
                 calls = calls.display(),
+                merges_as = folder.join("merges-as").display(),
             ),
         ),
         (
@@ -61,8 +74,14 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
                      while [ -f \"{sweep_hold}\" ]; do sleep 0.02; done\n\
                      ;;\n\
                    *\" perf pull-request \"*) if [ -f \"{acceptance_unread}\" ]; then exit 1; fi ;;\n\
+                   *\" stress listings \"*)\n\
+                     if [ -f \"{listing_fails}\" ]; then exit 1; fi\n\
+                     while [ $# -gt 0 ]; do if [ \"$1\" = --out ]; then out=$2; fi; shift; done\n\
+                     mkdir -p \"$out/{head}\" && : >\"$out/{head}/listed\"\n\
+                     ;;\n\
                  esac\n",
                 calls = calls.display(),
+                listing_fails = folder.join("listing-fails").display(),
                 selection = folder.join("selection").display(),
                 gate = folder.join("gate").display(),
                 acceptance_unread = folder.join("acceptance-unread").display(),
@@ -75,6 +94,10 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
             format!(
                 "#!/bin/sh\necho \"just $*\" >>\"{calls}\"\n\
                  if [ \"$1\" = pre-merge ]; then\n\
+                   if [ -f \"{base_listings}\" ]; then\n\
+                     tip=$(git rev-parse origin/main)\n\
+                     mkdir -p \"target/stress-listings/$tip\" && : >\"target/stress-listings/$tip/listed\"\n\
+                   fi\n\
                    mkdir -p target/gate-runs\n\
                    if [ ! -f \"{no_plan}\" ]; then echo previous=none >target/gate-runs/{head}.plan; fi\n\
                    mkdir -p target/nextest/quick && echo '<testsuites/>' >target/nextest/quick/junit.xml\n\
@@ -85,6 +108,7 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
                    if [ -f \"{failing}\" ]; then echo 'a test failed'; exit 3; fi\n\
                  fi\n",
                 calls = calls.display(),
+                base_listings = folder.join("base-listings").display(),
                 no_plan = folder.join("no-plan").display(),
                 signals = folder.join("signals").display(),
                 reached = folder.join("reached").display(),
@@ -642,6 +666,209 @@ fn a_green_full_gate_merges_without_a_plan_to_read() {
 
     assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
     call(&run, "gh pr merge");
+}
+
+/// Runs a full gate on `head` to its end, its merge a commit with `merged_as`'s
+/// tree, and answers what the merge left in `main`.
+fn full_gate_merging_as(workspace: &Workspace, stand_in: &Path, merged_as: &str) -> (Run, String) {
+    let lazyfs = full_gate_with_lazyfs(stand_in);
+    std::fs::write(stand_in.join("merges-as"), merged_as).unwrap();
+    let run = merge(
+        workspace,
+        stand_in,
+        &[
+            ("GOODFETCH_GATE_MIN_FREE_GB", "0"),
+            ("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()),
+        ],
+    );
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    let merged = workspace.git(&["rev-parse", "refs/heads/main"]);
+    (run, merged.trim().to_owned())
+}
+
+fn listings(workspace: &Workspace) -> PathBuf {
+    gate_worktree(workspace).join("target/stress-listings")
+}
+
+/// The next stress run calls a test new when its base's listing lacks it, so
+/// the listing of the merge's tree is filed under the merge, the base the next
+/// gate reads.
+#[test]
+fn a_full_gate_files_its_listings_under_the_merge_it_made() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+
+    let (run, merged) = full_gate_merging_as(&workspace, &stand_in, &head);
+
+    assert_ne!(merged, head);
+    assert!(
+        listings(&workspace).join(&merged).join("listed").is_file(),
+        "{}",
+        run.stdout
+    );
+    assert!(!listings(&workspace).join(&head).exists());
+}
+
+/// A base that moved during the gate gives the merge a tree the listing never
+/// saw: filed under it, a test only the moved base holds would read as old, and
+/// no stress run would repeat it.
+#[test]
+fn a_merge_with_another_tree_than_the_head_gets_no_listings() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+
+    let (run, _) = full_gate_merging_as(&workspace, &stand_in, "refs/heads/main");
+
+    assert!(!listings(&workspace).exists());
+    assert!(
+        !run.calls
+            .iter()
+            .any(|call| call.contains("stress listings")),
+        "{:?}",
+        run.calls
+    );
+    assert!(
+        run.stdout
+            .contains("the next stress run lists its base from a checkout"),
+        "{}",
+        run.stdout
+    );
+}
+
+#[test]
+fn a_listing_that_fails_after_the_merge_leaves_none_and_only_warns() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("listing-fails"), "").unwrap();
+
+    let (run, _) = full_gate_merging_as(&workspace, &stand_in, &head);
+
+    assert!(!listings(&workspace).exists());
+    assert!(
+        run.stdout
+            .contains("the next stress run lists its base from a checkout"),
+        "{}",
+        run.stdout
+    );
+}
+
+/// No test reads a quick gate's change, so the listing of its base is the
+/// merge's too. A gate that holds none says so and files nothing.
+#[rstest]
+#[case::with_its_bases(true)]
+#[case::without_them(false)]
+fn a_quick_gate_hands_its_bases_listings_to_the_merge(#[case] saved: bool) {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("merges-as"), &head).unwrap();
+    if saved {
+        std::fs::write(stand_in.join("base-listings"), "").unwrap();
+    }
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    let merged = workspace.git(&["rev-parse", "refs/heads/main"]);
+    assert_eq!(
+        listings(&workspace)
+            .join(merged.trim())
+            .join("listed")
+            .is_file(),
+        saved,
+        "{}{}",
+        run.stdout,
+        run.stderr
+    );
+    assert_eq!(
+        run.stdout
+            .contains("the next stress run lists its base from a checkout"),
+        !saved,
+        "{}",
+        run.stdout
+    );
+}
+
+/// Starts `merge_command`, its output in the file it answers with.
+fn merge_writing_to_a_file(workspace: &Workspace, stand_in: &Path) -> (Child, PathBuf) {
+    let output = stand_in.join("caller-output");
+    let caller = merge_command(workspace, stand_in, &[("GOODFETCH_GATE_MIN_FREE_GB", "0")])
+        .stdin(Stdio::null())
+        .stdout(std::fs::File::create(&output).unwrap())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    (caller, output)
+}
+
+/// Leaves the backstop's worktree held by process `holder`, a test-health run's
+/// mark beside it when `by_test_health`, the backstop's own run otherwise.
+fn hold_the_backstops_worktree(workspace: &Workspace, holder: &str, by_test_health: bool) {
+    workspace.write(
+        ".claude/worktrees/gate-backstop.lock/pid",
+        holder.as_bytes(),
+    );
+    if by_test_health {
+        workspace.write(".claude/worktrees/gate-backstop.lock/test-health", b"");
+    }
+}
+
+/// A test-health run takes the host's cores for hours, and on 2026-11-08 a
+/// gate beside one failed on the load. The gate says it waits, starts no step
+/// until the run ends, then runs as usual.
+#[test]
+fn a_gate_waits_for_a_running_test_health_run_and_says_so() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let mut test_health = Command::new("sleep")
+        .arg("600")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    hold_the_backstops_worktree(&workspace, &test_health.id().to_string(), true);
+    let (mut caller, output) = merge_writing_to_a_file(&workspace, &stand_in);
+    let waiting = format!(
+        "Waiting for the test-health run, process {}",
+        test_health.id()
+    );
+
+    until("the gate's word that it waits", || {
+        std::fs::read_to_string(&output).is_ok_and(|text| text.contains(&waiting))
+    });
+
+    let before_the_end = calls(&stand_in);
+    test_health.kill().unwrap();
+    test_health.wait().unwrap();
+    until_the_gate_merged(&workspace, &stand_in);
+    assert!(
+        !before_the_end.iter().any(|call| call.starts_with("just ")),
+        "{before_the_end:?}"
+    );
+    assert!(caller.wait().unwrap().success());
+}
+
+/// A run that died left its lock and mark behind, and the backstop's own run
+/// is no test-health run: neither holds a gate up, or says it does.
+#[rstest]
+#[case::a_run_that_died(NO_PROCESS, true)]
+#[case::the_backstops_own_run("live", false)]
+fn a_gate_waits_for_nothing_else(#[case] holder: &str, #[case] by_test_health: bool) {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let live = std::process::id().to_string();
+    let holder = if holder == "live" { &live } else { holder };
+    hold_the_backstops_worktree(&workspace, holder, by_test_health);
+
+    let (mut caller, output) = merge_writing_to_a_file(&workspace, &stand_in);
+
+    until_the_gate_merged(&workspace, &stand_in);
+    assert!(caller.wait().unwrap().success());
+    let said = std::fs::read_to_string(&output).unwrap();
+    assert!(!said.contains("Waiting for"), "{said}");
 }
 
 /// No step of a quick or docs gate needs LazyFS, so neither asks for it.

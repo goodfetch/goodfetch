@@ -153,6 +153,19 @@ source "$(dirname "$0")/output-value.sh"
 gate_worktree_lock
 locked=1
 
+# A test-health run shares the host's cores with whatever runs beside it, and
+# on 2026-11-08 its load failed a gate on a leak timeout. The gate waits, holding
+# its lock so no later run starts, until the run ends: within its minutes, or at
+# once if it died. A run sees this lock once it has marked its own, and skips.
+waiting_for=""
+while holder=$(test_health_holder) && [[ -n $holder ]]; do
+  if [[ $holder != "$waiting_for" ]]; then
+    echo "Waiting for the test-health run, process $holder, to end before the gate starts"
+    waiting_for=$holder
+  fi
+  sleep 1
+done
+
 # A failing gate's log and test results are kept in the repository's common
 # folder, which no checkout's clean, no worktree removal and no sweep of the
 # temporary folder reaches, for 30 days: a flaky-candidate issue links them.

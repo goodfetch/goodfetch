@@ -23,6 +23,14 @@ gate_worktree_holder() {
   if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then echo "$holder"; fi
 }
 
+# Prints the test-health run that holds the backstop's worktree, when it still
+# runs: ci/test-health/scheduled.sh marks the lock it takes, which the
+# backstop's own run does not, and a run that died holds nothing.
+test_health_holder() {
+  local backstop="$root/.claude/worktrees/gate-backstop.lock"
+  if [[ -f $backstop/test-health ]]; then gate_worktree_holder "$backstop"; fi
+}
+
 # Takes the worktree's lock for this process, or fails while another run's
 # process holds it. The caller releases it (`rm -rf "$lock"`).
 gate_worktree_lock() {

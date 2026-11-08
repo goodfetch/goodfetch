@@ -1805,10 +1805,14 @@ async fn queue_outcome(
             message: Some(skip.message),
         },
         Answer::Refused(reason) => refused(reason),
-        Answer::RobotsTxtUnreachable(message) if policy.may_retry(leased.tries) => {
+        Answer::RobotsTxtUnreachable(message) | Answer::HopsRobotsTxtUnreachable(message)
+            if policy.may_retry(leased.tries) =>
+        {
             Unsuccessful::Retried(Failure::new(SITE_PREFERENCES_REFUSED.name, &message))
         }
-        Answer::RobotsTxtUnreachable(_) => refused(SkipReason::RobotsTxt),
+        Answer::RobotsTxtUnreachable(_) | Answer::HopsRobotsTxtUnreachable(_) => {
+            refused(SkipReason::RobotsTxt)
+        }
         Answer::SitemapRead(document) => {
             let work = run.metrics().counted_work().clone();
             work.count(Row::SitemapTransactions);

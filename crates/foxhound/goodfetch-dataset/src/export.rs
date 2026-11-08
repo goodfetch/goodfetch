@@ -2,9 +2,9 @@
 //! the number of the Dataset's last committed Record when the call is
 //! made, then streams the Records up to it, in number order, a page at a
 //! time on the Run reader's read-only connection, through the Export's
-//! pipeline into the engine's keeping of an Export, which writes them whole into the
-//! Run's folder or not at all; so it serves a live Run and one that ended,
-//! and Records committed meanwhile are not in it. A table format reads the
+//! pipeline into the engine's keeping of an Export, which writes them whole
+//! into the Run's folder or not at all; so it serves a live Run and one that
+//! ended, and Records committed meanwhile are not in it. A table format reads the
 //! same Records twice: once for the columns, the fields every Record holds
 //! in first-seen order, then for the rows. Its `export.*` settings resolve
 //! in the call's own scope: the machine's layers, the call's project

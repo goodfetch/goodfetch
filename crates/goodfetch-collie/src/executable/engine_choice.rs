@@ -356,15 +356,21 @@ impl Answer {
 }
 
 /// How a call that answered no result failed, as [`Answer`] says it.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Failed {
     /// The engine's error, or its refusal of `hello`.
+    #[error("{}", .0.message)]
     Error(ErrorObject),
     /// Under `--daemon`, the Daemon's refusal of `hello` by Product or by
     /// protocol version.
+    #[error("{}", .0.message)]
     Refused(ErrorObject),
     /// No call was made, for the reason its Error code says.
+    #[error("{}", .0.message)]
     Unanswered(ErrorObject),
     /// The command was interrupted, or sent `SIGTERM`.
+    #[error("the command was interrupted")]
     Interrupted(Interrupt),
 }
 

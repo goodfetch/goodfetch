@@ -1115,7 +1115,7 @@ impl Call {
                 "limit": 1,
                 "columns": [],
             });
-            (BOUND.name, BOUND.cancellable)
+            (BOUND, bound_of(self.product).cancellable)
         } else {
             (self.operation.name, self.operation.cancellable)
         };
@@ -1163,7 +1163,7 @@ impl Call {
             return ExitCode::from(goodfetch_protocol::cli::USAGE.code);
         }
         let failing = if bounding.get() {
-            BOUND.name
+            BOUND
         } else {
             self.operation.name
         };
@@ -1319,10 +1319,18 @@ impl JsonArray {
     }
 }
 
-/// The read whose `through` bounds a sequence of what a crawl committed
-/// without `--follow`: the last Record committed when the command began,
-/// which `dataset.page` answers.
-const BOUND: Operation = goodfetch_protocol::foxhound::dataset_view::DATASET_PAGE;
+/// The name of the read whose `through` bounds a sequence of what a crawl
+/// committed without `--follow`: the last Record committed when the command
+/// began. Written as its name, as `foxhound_names` lists it, since this crate
+/// names no Foxhound contract (ADR 0099).
+const BOUND: &str = "dataset.page";
+
+/// The read [`BOUND`] names, of `product`, which offers such a sequence.
+fn bound_of(product: Product) -> &'static Operation {
+    goodfetch_protocol::entries::operations_of(product)
+        .find(|operation| operation.name == BOUND)
+        .expect("invariant: a Product that offers what a crawl committed offers its bound's read")
+}
 
 /// The param of such a sequence, and the field of [`BOUND`]'s answer, that
 /// names the last Record it reads.

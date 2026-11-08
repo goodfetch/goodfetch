@@ -76,6 +76,7 @@ fn failure_ending(answer: &Answer, now: Instant, wall: SystemTime) -> Ended {
         Answer::Failed { code, details, .. } => (code, details),
         // robots.txt is the whole origin's file: one that answers 429 or
         // 5xx, or no answer, backs off the domain as a 503 does (ADR 0086).
+        // A hop's on another domain key says nothing of this request's.
         Answer::RobotsTxtUnreachable(_) => return Ended::BackOff(None),
         _ => return Ended::Done,
     };

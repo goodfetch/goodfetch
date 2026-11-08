@@ -734,7 +734,11 @@ impl HopGate for ChainGate {
                 // A crawl request retries a hop's unreachable robots.txt as
                 // it retries its own (ADR 0086).
                 Err(refusal) if refusal.by == RefusedBy::UnreachableRobotsTxt => {
-                    Err(Stop::RobotsTxtUnreachable(refusal.message))
+                    Err(Stop::RobotsTxtUnreachable {
+                        message: refusal.message,
+                        on_own_domain: self.hand_over.of_run.keys.key(hop.url.as_str())
+                            == self.hand_over.domain_key,
+                    })
                 }
                 Err(refusal) => skipped(refusal.by.skip_reason(), refusal.message),
             }

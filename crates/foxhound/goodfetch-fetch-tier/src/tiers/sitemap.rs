@@ -52,7 +52,7 @@ impl HttpTier {
         .map_err(|stop| match stop {
             Stop::Failed(error) => error,
             // The open gate skips no hop, and reads no robots.txt.
-            Stop::Skipped(Skip { message, .. }) | Stop::RobotsTxtUnreachable(message) => {
+            Stop::Skipped(Skip { message, .. }) | Stop::RobotsTxtUnreachable { message, .. } => {
                 CallError::new(
                     &RESPONSE_NOT_OK,
                     message,

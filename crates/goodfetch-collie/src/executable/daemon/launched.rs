@@ -251,12 +251,9 @@ pub(super) fn install_database(
 /// to sign in: `console.sign_in.idle_expiry` and `console.sign_in.rate`,
 /// which only an Operator policy sets, else their defaults.
 fn sign_in_policy(settings: Option<&Resolved>) -> SignInPolicy {
-    let Some(settings) = settings else {
-        return SignInPolicy::default();
-    };
     SignInPolicy {
-        idle_expiry: settings.get(&SIGN_IN_IDLE_EXPIRY),
-        rate: settings.get(&SIGN_IN_RATE),
+        idle_expiry: get_or_default(settings, &SIGN_IN_IDLE_EXPIRY),
+        rate: get_or_default(settings, &SIGN_IN_RATE),
     }
 }
 

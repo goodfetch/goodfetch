@@ -285,7 +285,7 @@ fn stopped(stop: Stop) -> CallError {
         Stop::Failed(error) => error,
         // The navigation's gate refuses with an error, never a skip, and
         // the transport's egress refusal is answered as it is.
-        Stop::Skipped(Skip { message, .. }) | Stop::RobotsTxtUnreachable(message) => {
+        Stop::Skipped(Skip { message, .. }) | Stop::RobotsTxtUnreachable { message, .. } => {
             CallError::new(
                 &NAVIGATION_FAILED,
                 message,

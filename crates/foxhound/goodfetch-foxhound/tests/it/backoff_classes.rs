@@ -212,7 +212,7 @@ fn ready_at(file: &Path, key: &str) -> Option<SystemTime> {
 
 /// Whether the Politeness file holds the domain key `key` for at least
 /// `at_least` from now.
-fn held_for(file: &Path, key: &str, at_least: Duration) -> bool {
+pub(crate) fn held_for(file: &Path, key: &str, at_least: Duration) -> bool {
     ready_at(file, key).is_some_and(|until| until > SystemTime::now() + at_least)
 }
 

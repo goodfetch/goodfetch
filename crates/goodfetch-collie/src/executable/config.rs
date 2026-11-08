@@ -12,7 +12,10 @@
 //!
 //! A setting it cannot take, such as a key no Product knows in a file,
 //! prints as every command's failure does and exits with its Error code's
-//! row of the exit-code table (ADR 0069).
+//! row of the exit-code table (ADR 0069); on machine settings it cannot
+//! read, before any engine in this process starts. An engine that does
+//! start writes what any engine's start writes, and logs on stderr at
+//! `log.level` (the notes of ADRs 0083 and 0122).
 //!
 //! The human output is one line per key, as `git config --show-origin`
 //! shows each value's origin: `key = value  (layer, locked by layer)`, a
@@ -60,6 +63,13 @@ pub(super) fn explain(
     human: &Human,
 ) -> ExitCode {
     let json = request.json;
+    // An engine in this process would start only to refuse the call, its
+    // start logging its own read of the same file before the failure.
+    if matches!(choice, Choice::Attached)
+        && let Err(failure) = machine.settings()
+    {
+        return failure.print(json, human);
+    }
     let Ok(folder) = std::env::current_dir() else {
         tracing::error!("the working folder cannot be read");
         return ExitCode::FAILURE;

@@ -118,7 +118,9 @@ pub fn skip_reason(preference: SitePreference) -> SkipReason {
 
 /// A site preference's refusal of a request: what refused it, and what
 /// it says of the request.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
+#[non_exhaustive]
 pub struct Refusal {
     /// What refused it.
     pub by: RefusedBy,

@@ -281,9 +281,6 @@ fn a_command_prints_the_same_bytes_in_each_mode() {
 #[case::daemon(Mode::Daemon)]
 fn a_command_run_in_each_mode_matches_one_snapshot_and_leaves_no_daemon(#[case] mode: Mode) {
     let env = unrecorded();
-    // No engine logs its dispatch records, so both modes print what the
-    // command prints, on stderr too; the next test reads those records.
-    env.log_level("info");
 
     let checked = cli(&env, collie())
         .args(["config", "explain", "timeout.navigation", "--json"])
@@ -291,7 +288,10 @@ fn a_command_run_in_each_mode_matches_one_snapshot_and_leaves_no_daemon(#[case] 
         .json("SettingsExplanation")
         .unwrap();
 
-    assert_cli_snapshot!("config_explain_timeout_navigation_json", checked.output);
+    assert_cli_snapshot!(
+        "config_explain_timeout_navigation_json",
+        checked.output.without_dispatch_records()
+    );
     assert!(!any_runtime_file(env.home()));
 }
 

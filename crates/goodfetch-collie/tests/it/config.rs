@@ -28,6 +28,35 @@ use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
+/// On machine settings it cannot read, `config explain` fails before any
+/// engine starts: it prints its failure as a settings file's refusal prints,
+/// naming no operation, and nothing an engine's start logs or writes reaches
+/// the person looking for that fault.
+///
+/// Covers: story:11-217, command:config.explain, error:setting_unknown
+#[test]
+fn config_explain_on_unreadable_settings_starts_no_engine() {
+    let env = TestEnv::new();
+    env.user_configuration("crawl.max_deepth = 3\n");
+
+    let output = cli(&env, COLLIE)
+        .args(["config", "explain", "--json"])
+        .run()
+        .unwrap();
+    let printed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (
+            output.exit,
+            printed["error"]["code"].clone(),
+            printed["error"].get("operation"),
+            output.stderr.as_str(),
+        ),
+        (Some(3), json!("setting_unknown"), None, ""),
+        "{output}"
+    );
+}
+
 /// The committed JSON Schema bundle, whose `config.explain` result is
 /// `config explain --json`'s output.
 const BUNDLE: &str = include_str!("../../../goodfetch-protocol/generated/bundle.json");

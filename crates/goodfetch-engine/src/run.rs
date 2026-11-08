@@ -511,7 +511,7 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
         RunError::Busy { run_id, folder } => CallError::new(
             &RUN_BUSY,
             format!(
-                "Another engine writes the Run `{run_id}`, and the owner the Run index names did not take the action; try again later."
+                "Another engine writes the Run `{run_id}`, and the owner the Run index names did not answer that it took the action, which it may still be taking; try again later."
             ),
             &RunDetails {
                 run_id,

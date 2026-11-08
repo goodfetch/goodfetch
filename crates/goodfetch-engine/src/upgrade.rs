@@ -2,11 +2,12 @@
 //! own copy of an older major's per-user and per-install files in Goodfetch
 //! home (its folder of that major: the Operator policy, user configuration,
 //! the Run index and the run folders), and never changes the older major's
-//! files, so that a person can go back. Its own Daemon's files, every
-//! `DaemonFile` its tokens among them, are no state, and are not copied. Shared files outside the per-major folders
-//! (the Browser cache, the Usage ledger's family, the list of installed
-//! executables) need no copy; the Usage ledger's managed rows of older
-//! majors are replaced with the new major's (ADR 0041).
+//! files, so that a person can go back. Its own Daemon's files, each
+//! `DaemonFile`, its tokens among them, are no state, and are not copied.
+//! Shared files outside the per-major folders (the Browser cache, the Usage
+//! ledger's family, the list of installed executables) need no copy; the
+//! Usage ledger's managed rows of older majors are replaced with the new
+//! major's (ADR 0041).
 //!
 //! It upgrades only from a major `compat/upgrade-paths.toml` lists: another
 //! older major is refused, naming the release to upgrade through first, and

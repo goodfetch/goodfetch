@@ -6556,7 +6556,7 @@ fn durability_of(settings: Option<&RunSettings>) -> Durability {
     settings.map_or(Durability::Full, |settings| {
         let resolved = settings.resolved();
         let interval = resolved.get(&RUN_STATE_COMMIT_INTERVAL);
-        Durability::named(resolved.value(&RUN_STATE_DURABILITY), interval).expect(
+        Durability::named(resolved.get(&RUN_STATE_DURABILITY), interval).expect(
             "invariant: the settings resolver lets only `run_state.durability`'s choices through",
         )
     })

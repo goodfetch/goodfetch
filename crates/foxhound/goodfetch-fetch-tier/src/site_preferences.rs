@@ -250,12 +250,7 @@ impl SitePreferences {
     pub fn of(settings: &Resolved) -> Self {
         let purpose = settings
             .get::<bool>(&SITE_PREFERENCES_RESPECT_USE_SIGNALS)
-            .then(|| {
-                settings
-                    .value(&SITE_PREFERENCES_PURPOSE)
-                    .as_str()
-                    .and_then(Purpose::named)
-            })
+            .then(|| Purpose::named(settings.get(&SITE_PREFERENCES_PURPOSE)))
             .flatten()
             .filter(|purpose| *purpose != Purpose::Search);
         Self {
@@ -263,8 +258,7 @@ impl SitePreferences {
             mark_robots_txt_ignored: settings.get(&SITE_PREFERENCES_MARK_ROBOTS_TXT_IGNORED),
             max_crawl_delay: settings.get(&SITE_PREFERENCES_MAX_CRAWL_DELAY),
             operator: settings
-                .value(&SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT)
-                .as_str()
+                .get::<Option<&str>>(&SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT)
                 .and_then(|token| ProductToken::new(token).ok()),
             purpose,
             signal_files: SignalFiles::default(),

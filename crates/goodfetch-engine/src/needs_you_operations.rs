@@ -5,10 +5,9 @@
 //! answer to a `consent_wall` item (ADRs 0048 and 0052): it adds the
 //! domain, or `*`, to `consent.domains` in user configuration in one call,
 //! an edit of the settings editor (`settings_editor`), every other byte of
-//! the file kept, after the resolver confirmed that no
-//! Operator policy locks the key, and records the answer in the Audit log
-//! with the warning the person was shown; the item then leaves the list at
-//! the source's next read. The catalog marks it person only, so the RPC
+//! the file kept, after the resolver confirmed that no Operator policy locks
+//! the key, and records the answer in the Audit log with the warning the
+//! person was shown; the item then leaves the list at the source's next read. The catalog marks it person only, so the RPC
 //! layer refuses it to every surface but the Console's and the CLI's.
 //! The answers to a `wall_refetch_stopped` item, which write
 //! `wall.refetch_domains` and `wall.denied_domains`, are in [`refetch`].

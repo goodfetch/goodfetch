@@ -256,30 +256,20 @@ pub(crate) struct Opening<'a> {
 }
 
 /// Why [`File::open`] did not open a store.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum OpenError {
     /// Its folder could not be made.
+    #[error(transparent)]
     Folder(std::io::Error),
     /// SQLite could not open the file.
+    #[error(transparent)]
     Unopened(rusqlite::Error),
     /// SQLite failed once it opened the file.
+    #[error(transparent)]
     Sqlite(rusqlite::Error),
     /// The file is of a format version this engine cannot read.
+    #[error("the file is {} {}, which this engine cannot read", .0.format, .0.found)]
     Format(FormatRefusal),
-}
-
-impl std::fmt::Display for OpenError {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Folder(error) => error.fmt(formatter),
-            Self::Unopened(error) | Self::Sqlite(error) => error.fmt(formatter),
-            Self::Format(refusal) => write!(
-                formatter,
-                "the file is {} {}, which this engine cannot read",
-                refusal.format, refusal.found
-            ),
-        }
-    }
 }
 
 /// A store whose format version this engine cannot read (ADR 0030).

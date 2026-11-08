@@ -62,6 +62,8 @@ fn a_url_the_domain_policy_refuses_is_never_looked_up() {
     assert_eq!(asked, Vec::new());
 }
 
+/// A name written with its trailing dot is looked up with it, so no
+/// resolver's search list applies to a name written to avoid one.
 #[test]
 fn an_allowed_url_is_looked_up_by_its_host_and_port_and_answers_its_judged_addresses() {
     let session_policy = policy(&["example.test"], &[]);
@@ -76,7 +78,7 @@ fn an_allowed_url_is_looked_up_by_its_host_and_port_and_answers_its_judged_addre
         (passed.unwrap(), asked),
         (
             sockets(&["93.184.215.14"]),
-            vec![("www.example.test".to_owned(), 8443)]
+            vec![("www.example.test.".to_owned(), 8443)]
         )
     );
 }

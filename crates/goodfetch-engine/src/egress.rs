@@ -26,10 +26,10 @@
 //! since the URL parser reads no host from it.
 //!
 //! Operator-configured endpoints are the second egress class (ADR 0017),
-//! judged through [`Gate::Endpoint`] under an [`EndpointPolicy`]: no run's domain policy applies, and an endpoint
-//! reaches private addresses, so a model on localhost works, unless
-//! `egress.no_private_endpoints`, set in the Operator policy alone, holds
-//! it to globally reachable ones.
+//! judged through [`Gate::Endpoint`] under an [`EndpointPolicy`]: no run's
+//! domain policy applies, and an endpoint reaches private addresses, so a
+//! model on localhost works, unless `egress.no_private_endpoints`, set in the
+//! Operator policy alone, holds it to globally reachable ones.
 
 use std::collections::HashSet;
 use std::hash::{BuildHasherDefault, DefaultHasher};

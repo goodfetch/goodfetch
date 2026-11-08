@@ -48,7 +48,7 @@ use goodfetch_engine::run_state::run_row;
 use goodfetch_engine::runs::{
     Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext, Run,
 };
-use goodfetch_engine::settings::{Resolved, RunSettings, catalog_value, get_or_default};
+use goodfetch_engine::settings::{Resolved, RunSettings, get_or_default};
 use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::clean_up_rules::{CleanUpRulesManifest, MANIFEST_FILE, RulesSource};
@@ -574,11 +574,10 @@ impl Versions {
             "source": version.manifest.source,
             "published_at": version.manifest.published_at,
             "applied_by": { "product": context.product, "product_version": context.product_version },
-            "update": context
-                .settings
-                .map(RunSettings::resolved)
-                .map_or_else(|| catalog_value(&CLEAN_UP_UPDATE), |settings| settings.value(&CLEAN_UP_UPDATE))
-                .clone(),
+            "update": get_or_default::<&str>(
+                context.settings.map(RunSettings::resolved),
+                &CLEAN_UP_UPDATE,
+            ),
             "resumed": resumed,
         });
         if let Some(fallback) = &fallback {

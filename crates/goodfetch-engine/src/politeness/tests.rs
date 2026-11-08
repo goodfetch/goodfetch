@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::formats::Compatibility;
+use goodfetch_protocol::home::POLITENESS_FILE;
 use goodfetch_test_support::{CrashVfs, IoFault, TestEnv};
 use rusqlite::{Connection, OpenFlags};
 use tokio::sync::broadcast;
@@ -79,7 +80,7 @@ fn gone_unless_live(folder: &Path, _epoch: u64) -> bool {
 
 async fn engine(env: &TestEnv, name: &str, owner: &TaskOwner) -> Politeness {
     Politeness::open(
-        env.home().join("politeness.sqlite"),
+        env.home().join(POLITENESS_FILE),
         &PolitenessOptions::default(),
         Vec::new(),
         gone_unless_live,
@@ -135,12 +136,11 @@ fn an_engine_opening_the_new_file_beside_another_engines_write_takes_its_permit(
     let env = TestEnv::new();
     let now = SystemTime::now();
 
-    let taken = crate::sqlite_wal::tests::opened_beside_a_write(
-        &env.home().join("politeness.sqlite"),
-        || {
+    let taken =
+        crate::sqlite_wal::tests::opened_beside_a_write(&env.home().join(POLITENESS_FILE), || {
             run(async |owner| {
                 let politeness = Politeness::open(
-                    env.home().join("politeness.sqlite"),
+                    env.home().join(POLITENESS_FILE),
                     &PolitenessOptions::default(),
                     Vec::new(),
                     gone_unless_live,
@@ -153,8 +153,7 @@ fn an_engine_opening_the_new_file_beside_another_engines_write_takes_its_permit(
                     .await
                     .map(|taken| matches!(taken, Taken::Granted(_)))
             })
-        },
-    );
+        });
 
     assert_eq!(taken, Ok(true));
 }
@@ -206,7 +205,7 @@ fn a_run_admits_only_while_the_combined_count_under_its_key_is_below_its_own_cap
 fn a_take_that_meets_a_full_disk_is_rolled_back_and_reported_as_a_storage_failure() {
     let env = TestEnv::new();
     let vfs = CrashVfs::register(&env.unique_name("politeness-full"), env.seed()).unwrap();
-    let file = env.home().join("politeness.sqlite");
+    let file = env.home().join(POLITENESS_FILE);
     let now = SystemTime::now();
 
     let (failed, reported) = run(async |owner| {
@@ -293,7 +292,7 @@ fn a_politeness_file_opened_under_inline_blocking_takes_no_thread_of_the_runtime
         let opened = tokio::time::timeout(
             Duration::from_secs(5),
             Politeness::open(
-                env.home().join("politeness.sqlite"),
+                env.home().join(POLITENESS_FILE),
                 &PolitenessOptions::default(),
                 Vec::new(),
                 gone_unless_live,
@@ -561,7 +560,7 @@ fn the_permits_of_a_run_that_is_gone_are_reclaimed() {
 #[test]
 fn the_file_records_its_format_and_refuses_another_major() {
     let env = TestEnv::new();
-    let path = env.home().join("politeness.sqlite");
+    let path = env.home().join(POLITENESS_FILE);
 
     let recorded = run(async |owner| {
         engine(&env, "first", owner).await;
@@ -642,7 +641,7 @@ fn damage_table(path: &Path, table: &str) {
 #[test]
 fn a_take_whose_read_meets_a_damaged_disk_is_reported_as_a_storage_failure() {
     let env = TestEnv::new();
-    let path = env.home().join("politeness.sqlite");
+    let path = env.home().join(POLITENESS_FILE);
     run(async |owner| {
         engine(&env, "first", owner).await;
     });

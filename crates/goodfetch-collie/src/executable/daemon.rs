@@ -113,9 +113,7 @@ pub(super) fn run(
 /// Whether the machine's `settings` choose the per-install layout
 /// (`run_state.layout`), in which the Daemon alone writes run state.
 pub(super) fn per_install(settings: Option<&Resolved>) -> bool {
-    settings.is_some_and(|settings| {
-        settings.value(&RUN_STATE_LAYOUT).as_str() == Some(LAYOUT_PER_INSTALL)
-    })
+    settings.is_some_and(|settings| settings.get::<&str>(&RUN_STATE_LAYOUT) == LAYOUT_PER_INSTALL)
 }
 
 /// How many times a Client looks for the Daemon again when the one it

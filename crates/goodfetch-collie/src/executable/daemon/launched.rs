@@ -42,7 +42,7 @@ use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::console::{
     ADDRESS as CONSOLE_ADDRESS, CONSOLE_PORT_IN_USE, CONTENT_ADDRESS, CONTENT_PUBLIC_URL,
-    ConsoleFailure, ConsoleState, PUBLIC_URL, default_address,
+    ConsoleFailure, ConsoleState, PUBLIC_URL,
 };
 use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile, DaemonToken, IDLE_TIMEOUT};
 use goodfetch_protocol::people::{SIGN_IN_IDLE_EXPIRY, SIGN_IN_RATE};
@@ -157,10 +157,7 @@ pub(in crate::executable) fn launched(
         }
     };
     let idle_timeout: Duration = get_or_default(Some(settings), &IDLE_TIMEOUT);
-    let console_address = settings.value(&CONSOLE_ADDRESS).as_str().map_or_else(
-        || default_address(&identity.product_version).to_string(),
-        str::to_owned,
-    );
+    let console_address = settings.get::<&str>(&CONSOLE_ADDRESS).to_owned();
     let install = match install_database(machine, &dependencies, Some(settings)) {
         Ok(install) => install,
         Err(failure) => return failure.report(),
@@ -254,19 +251,12 @@ pub(super) fn install_database(
 /// to sign in: `console.sign_in.idle_expiry` and `console.sign_in.rate`,
 /// which only an Operator policy sets, else their defaults.
 fn sign_in_policy(settings: Option<&Resolved>) -> SignInPolicy {
-    let defaults = SignInPolicy::default();
     let Some(settings) = settings else {
-        return defaults;
+        return SignInPolicy::default();
     };
     SignInPolicy {
-        idle_expiry: settings
-            .value(&SIGN_IN_IDLE_EXPIRY)
-            .as_u64()
-            .map_or(defaults.idle_expiry, Duration::from_millis),
-        rate: settings
-            .value(&SIGN_IN_RATE)
-            .as_u64()
-            .unwrap_or(defaults.rate),
+        idle_expiry: settings.get(&SIGN_IN_IDLE_EXPIRY),
+        rate: settings.get(&SIGN_IN_RATE),
     }
 }
 

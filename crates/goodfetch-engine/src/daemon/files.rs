@@ -141,14 +141,23 @@ impl DaemonFiles {
             Err(error) if error.kind() == io::ErrorKind::InvalidData => Err(error),
             Err(error) => return Err(error),
         };
+        if self.serving()? {
+            found.map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Whether a Daemon of this major holds the serving lock.
+    fn serving(&self) -> io::Result<bool> {
         let lock = match File::open(self.folder.join(SERVING_LOCK)) {
             Ok(lock) => lock,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
             Err(error) => return Err(error),
         };
         match lock.try_lock() {
-            Ok(()) => Ok(None),
-            Err(TryLockError::WouldBlock) => found.map(Some),
+            Ok(()) => Ok(false),
+            Err(TryLockError::WouldBlock) => Ok(true),
             Err(TryLockError::Error(error)) => Err(error),
         }
     }
@@ -337,15 +346,22 @@ impl DaemonFiles {
     }
 
     /// The per-user service `daemon install` registered, or `None` when
-    /// none is.
+    /// none is, or when its record is not one and no Daemon holds the
+    /// serving lock: `daemon install` then replaces it, and a Client starts
+    /// a Daemon past it.
     ///
     /// # Errors
     ///
     /// When its record exists but cannot be read, or, of kind
-    /// [`io::ErrorKind::InvalidData`], when it is no record this version
-    /// reads.
+    /// [`io::ErrorKind::InvalidData`], when a Daemon holds the serving lock
+    /// and its record is no record this version reads.
     pub fn service(&self) -> io::Result<Option<InstalledService>> {
-        parsed(&self.folder.join(SERVICE_FILE))
+        match parsed(&self.folder.join(SERVICE_FILE)) {
+            Err(error) if error.kind() == io::ErrorKind::InvalidData && !self.serving()? => {
+                Ok(None)
+            }
+            read => read,
+        }
     }
 
     /// Records the installed `service`, readable and writable by its owner

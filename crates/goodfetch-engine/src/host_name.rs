@@ -76,6 +76,7 @@ impl<T> Default for ListedDomains<T> {
 /// A listed domain that names no host.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("`{0}` names no host or domain")]
+#[non_exhaustive]
 pub struct NoHost(pub String);
 
 impl<T> ListedDomains<T> {

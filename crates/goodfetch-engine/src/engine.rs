@@ -385,6 +385,7 @@ impl Engine {
             home: dependencies.home.clone(),
             version: self.identity().product_version.clone(),
             clock: dependencies.clock,
+            settings: settings.clone(),
         });
         let (context, secrets) = self.engine_context(
             &mut dependencies,

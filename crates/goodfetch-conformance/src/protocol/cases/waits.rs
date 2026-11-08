@@ -14,7 +14,7 @@
 
 use std::time::Duration;
 
-use goodfetch_protocol::connection::{CALL_CANCELLED, DEADLINE_EXCEEDED, WaitedFor};
+use goodfetch_protocol::connection::{CALL_CANCELLED, DEADLINE_EXCEEDED};
 use goodfetch_protocol::page::events::PAGE_WAIT_FOR_REQUEST_FINISHED;
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::route::PAGE_ROUTE;
@@ -518,7 +518,7 @@ fn deadlines(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> R
                 DEADLINE_EXCEEDED.name, TIMEOUT_WAIT.name
             ),
             data["code"] == DEADLINE_EXCEEDED.name
-                && data["waited_for"] == waited_for.as_str()
+                && data["waited_for"] == waited_for
                 && data["limit"]["key"] == TIMEOUT_WAIT.name
                 && data["elapsed"]
                     .as_u64()
@@ -530,55 +530,57 @@ fn deadlines(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> R
 
 /// Each wait, with what it waits for on `page`, the live board, where none
 /// passes: its operation, its params and the `waited_for` its deadline
-/// names.
-fn never_passing(page: &Value) -> [(&'static str, Value, WaitedFor); 9] {
+/// names, spelled here as the wire has it: the engine sends
+/// `goodfetch_protocol`'s constants, so a check that read them could never
+/// disagree with what it sends, and no schema lists the values.
+fn never_passing(page: &Value) -> [(&'static str, Value, &'static str); 9] {
     let never = json!({ "kind": "glob", "pattern": "**/never" });
     let locator = |selector: &str| json!({ "page_id": page, "selector": selector });
     [
         (
             PAGE_WAIT_FOR_URL.name,
             json!({ "page_id": page, "url": never }),
-            WaitedFor::URL,
+            "url",
         ),
         (
             PAGE_WAIT_FOR_REQUEST.name,
             json!({ "page_id": page, "url": never }),
-            WaitedFor::REQUEST,
+            "request",
         ),
         (
             PAGE_WAIT_FOR_RESPONSE.name,
             json!({ "page_id": page, "url": never }),
-            WaitedFor::RESPONSE,
+            "response",
         ),
         (
             PAGE_WAIT_FOR_REQUEST_FINISHED.name,
             json!({ "page_id": page, "url": never }),
-            WaitedFor::FINISHED_REQUEST,
+            "finished request",
         ),
         (
             PAGE_WAIT_FOR_LOAD_STATE.name,
             json!({ "page_id": page, "state": "networkidle" }),
-            WaitedFor::NETWORK_IDLE,
+            "networkidle",
         ),
         (
             PAGE_WAIT_FOR_FUNCTION.name,
             json!({ "page_id": page, "function": "() => false" }),
-            WaitedFor::FUNCTION,
+            "function",
         ),
         (
             LOCATOR_WAIT_FOR_FUNCTION.name,
             json!({ "locator": locator("[data-id=board]"), "function": "(board) => board.id === 'never'" }),
-            WaitedFor::FUNCTION,
+            "function",
         ),
         (
             LOCATOR_WAIT_FOR.name,
             json!({ "locator": locator("#never"), "state": "attached" }),
-            WaitedFor::TARGET_ATTACHED,
+            "target_attached",
         ),
         (
             LOCATOR_WAIT_FOR_COUNT.name,
             json!({ "locator": locator("[data-id=board]"), "count": { "min": 2 } }),
-            WaitedFor::TARGET_COUNT,
+            "target_count",
         ),
     ]
 }
@@ -610,7 +612,7 @@ fn own_timeouts(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -
                 DEADLINE_EXCEEDED.name, TIMEOUT_WAIT.name
             ),
             data["code"] == DEADLINE_EXCEEDED.name
-                && data["waited_for"] == waited_for.as_str()
+                && data["waited_for"] == waited_for
                 && data["limit"]
                     == json!({ "key": TIMEOUT_WAIT.name, "value": SHORT_WAIT, "layer": "run" })
                 && data["elapsed"]

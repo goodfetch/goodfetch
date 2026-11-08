@@ -35,7 +35,7 @@ const GIVEN_UP: Duration = Duration::from_hours(1);
 fn a_forwarded_abort_the_owner_never_answers_ends_without_its_report() {
     let env = TestEnv::new();
 
-    let (forwarded, call) = goodfetch_test_support::runtime().block_on(async {
+    let (answered, call) = goodfetch_test_support::runtime().block_on(async {
         let (mut listener, address) = Network::Os
             .listen(&env.folder().join("owner.sock"))
             .await
@@ -70,12 +70,12 @@ fn a_forwarded_abort_the_owner_never_answers_ends_without_its_report() {
             (serde_json::from_str::<Value>(&call).unwrap(), lines, writer)
         };
         let aborting = tokio::time::timeout(GIVEN_UP, forwarder.abort(&owner, &run_id, &tasks));
-        let ((call, _lines, _writer), forwarded) = tokio::join!(owning, aborting);
-        (forwarded, call["method"].clone())
+        let ((call, _lines, _writer), answered) = tokio::join!(owning, aborting);
+        (answered, call["method"].clone())
     });
 
     assert_eq!(
-        (forwarded.ok(), call),
+        (answered.ok(), call),
         (Some(None), Value::from("run.abort"))
     );
 }

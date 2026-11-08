@@ -23,7 +23,9 @@ use std::io::{BufRead as _, BufReader, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
+use goodfetch_engine::run_state::run_row;
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_support::{
     Canaries, DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress,
     ListenerKind, Process, RuntimeFile, SnapshotValues, TestEnv, cli, engine_script,
@@ -511,20 +513,18 @@ fn a_killed_daemon_leaves_its_run_resumable_and_a_runtime_file_the_next_start_re
             .join("run.sqlite"),
     )
     .unwrap();
-    let lifecycle: String = run
-        .query_row("SELECT lifecycle FROM run", [], |row| row.get(0))
-        .unwrap();
+    let lifecycle = run_row::lifecycle(&run).unwrap();
     let integrity: String = run
         .query_row("PRAGMA integrity_check", [], |row| row.get(0))
         .unwrap();
     assert_eq!(
         (
-            lifecycle.as_str(),
+            lifecycle,
             integrity.as_str(),
             restarted["pid"].is_u64(),
             restarted["pid"] == json!(found.pid)
         ),
-        ("running", "ok", true, false)
+        (Lifecycle::Running, "ok", true, false)
     );
 }
 
@@ -683,6 +683,35 @@ fn a_connection_dropped_mid_command_fails_the_command() {
         (Some(8), "", true),
         "{}",
         output.stderr
+    );
+}
+
+/// A Daemon that cannot read a `daemon` command's `hello` answers it with
+/// an error whose id is null and answers nothing more: the command ends
+/// refused with that error, as a generated command does, rather than
+/// waiting for an answer that never comes.
+///
+/// Covers: story:3-11, command:daemon.status
+#[test]
+fn a_daemon_command_whose_hello_meets_an_error_without_id_ends_refused() {
+    let env = TestEnv::new();
+    let scripted = scripted_daemon(&env, "daemon/cli-daemon-hello-unreadable.json");
+
+    let output = cli(&env, COLLIE)
+        .args(["daemon", "status", "--json"])
+        .run()
+        .unwrap();
+    let played = scripted.child().wait().unwrap();
+    let failed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (
+            output.exit,
+            failed["error"]["code"].clone(),
+            played.success(),
+        ),
+        (Some(1), json!("message_too_large"), true),
+        "{output}"
     );
 }
 

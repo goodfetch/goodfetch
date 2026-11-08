@@ -9,6 +9,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_cdp::NetError;
 use proptest::prelude::*;
 use rstest::rstest;
 
@@ -195,7 +196,12 @@ fn a_failure_comes_from_the_proxy_when_chromium_names_its_answer(
     #[case] error: &str,
     #[case] expected: Party,
 ) {
-    assert_eq!(party(Answer::Failure { error }), expected);
+    assert_eq!(
+        party(Answer::Failure {
+            error: &NetError::of(error)
+        }),
+        expected
+    );
 }
 
 /// Covers: story:5-90
@@ -206,7 +212,7 @@ fn a_failure_comes_from_the_proxy_when_chromium_names_its_answer(
     true
 )]
 #[case::its_own_502(forwarded("squid; error=connection_refused"), Some(502), true)]
-#[case::a_tunnel_it_refused(Answer::Failure { error: "net::ERR_TUNNEL_CONNECTION_FAILED" }, None, true)]
+#[case::a_tunnel_it_refused(Answer::Failure { error: &NetError::of("net::ERR_TUNNEL_CONNECTION_FAILED") }, None, true)]
 #[case::its_own_403(
     forwarded("proving-ground; error=destination_ip_prohibited"),
     Some(403),
@@ -225,8 +231,8 @@ fn a_failure_comes_from_the_proxy_when_chromium_names_its_answer(
     Some(502),
     false
 )]
-#[case::it_is_down(Answer::Failure { error: "net::ERR_PROXY_CONNECTION_FAILED" }, None, false)]
-#[case::the_site_is_down(Answer::Failure { error: "net::ERR_CONNECTION_REFUSED" }, None, false)]
+#[case::it_is_down(Answer::Failure { error: &NetError::of("net::ERR_PROXY_CONNECTION_FAILED") }, None, false)]
+#[case::the_site_is_down(Answer::Failure { error: &NetError::of("net::ERR_CONNECTION_REFUSED") }, None, false)]
 fn only_the_proxy_itself_answering_429_502_or_refusing_a_tunnel_is_a_refusal_that_lowers_its_ceiling(
     #[case] answer: Answer<'_>,
     #[case] status: Option<u16>,

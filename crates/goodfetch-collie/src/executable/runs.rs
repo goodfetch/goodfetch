@@ -14,7 +14,7 @@ use goodfetch_engine::runs::reindex as rebuild;
 use goodfetch_protocol::run::{RUN_STATE_LOCATION, RunsReindexOutput};
 
 use super::browsers::machine_settings;
-use goodfetch_cli::output;
+use super::output;
 
 /// Rebuilds the Run index from the configured locations and `paths`,
 /// relative ones read from `folder`.
@@ -33,7 +33,7 @@ pub(super) fn reindex(
         }
     };
     let configured = settings
-        .get(RUN_STATE_LOCATION.name)
+        .effective(&RUN_STATE_LOCATION)
         .and_then(|location| location.value.as_str().map(PathBuf::from));
     let locations: Vec<PathBuf> = std::iter::once(home.runs(&identity.product_version))
         .chain(configured)

@@ -53,10 +53,10 @@ pub(super) fn export(
     product: Product,
 ) -> Option<Export> {
     let settings = settings?;
-    if settings.boolean(AUDIT_OTLP.name) != Some(true) {
+    if !settings.get::<bool>(&AUDIT_OTLP) {
         return None;
     }
-    let endpoint = settings.value(OTLP_LOGS_ENDPOINT.name).as_str()?;
+    let endpoint = settings.get::<Option<&str>>(&OTLP_LOGS_ENDPOINT)?;
     let exporter = opentelemetry_otlp::LogExporter::builder()
         .with_http()
         .with_http_client(ToCollector::new(settings, clock))

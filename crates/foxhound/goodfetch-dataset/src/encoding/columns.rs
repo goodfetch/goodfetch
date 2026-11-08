@@ -8,15 +8,25 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-/// How a field whose value is an object is written.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// How a field whose value is an object is written, `export.csv.nested`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Nested {
     /// As its JSON text, in the field's column.
-    #[default]
     Json,
     /// Each of its fields in a column of its own, named by its dotted path,
     /// at any depth; an empty object is its JSON text.
     Flatten,
+}
+
+impl Nested {
+    /// The way `choice`, one of `CSV_NESTED_VALUES`, names.
+    pub fn of(choice: &str) -> Option<Self> {
+        match choice {
+            "json" => Some(Self::Json),
+            "flatten" => Some(Self::Flatten),
+            _ => None,
+        }
+    }
 }
 
 /// One cell of a table Export.
@@ -83,8 +93,8 @@ impl Kind {
 }
 
 /// The columns of a table Export, as its Records are seen.
-#[derive(Clone, Debug, Default)]
-pub struct Columns {
+#[derive(Clone, Debug)]
+pub(crate) struct Columns {
     nested: Nested,
     names: Vec<String>,
     kinds: Vec<Kind>,
@@ -94,7 +104,7 @@ pub struct Columns {
 impl Columns {
     /// No column yet; objects written as `nested` says.
     #[must_use]
-    pub fn new(nested: Nested) -> Self {
+    pub(crate) fn new(nested: Nested) -> Self {
         Self {
             nested,
             names: Vec::new(),
@@ -105,7 +115,7 @@ impl Columns {
 
     /// Adds the fields of the Record whose committed JSON text is `json`
     /// that no Record seen before had, after those.
-    pub fn see(&mut self, json: &str) {
+    pub(crate) fn see(&mut self, json: &str) {
         let record = parsed(json);
         for (name, value) in self.fields(&record) {
             let column = if let Some(&column) = self.index.get(&name) {
@@ -127,7 +137,7 @@ impl Columns {
 
     /// The columns' names, in first-seen order.
     #[must_use]
-    pub fn names(&self) -> &[String] {
+    pub(crate) fn names(&self) -> &[String] {
         &self.names
     }
 

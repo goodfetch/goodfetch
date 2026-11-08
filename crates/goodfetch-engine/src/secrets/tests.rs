@@ -375,3 +375,80 @@ fn with_an_os_keychain_the_engines_own_key_is_made_once_there() {
         (Ok(32), true, false)
     );
 }
+
+/// keyring-core's mock store, counting each item a caller reaches through
+/// it: a keychain that shows whether anything asked it.
+struct Reaching {
+    store: Arc<keyring_core::mock::Store>,
+    #[expect(
+        clippy::disallowed_types,
+        reason = "a test's counter, which no loom model runs (ADR 0060)"
+    )]
+    reached: std::sync::atomic::AtomicUsize,
+}
+
+impl keyring_core::api::CredentialStoreApi for Reaching {
+    fn vendor(&self) -> String {
+        self.store.vendor()
+    }
+
+    fn id(&self) -> String {
+        self.store.id()
+    }
+
+    fn build(
+        &self,
+        service: &str,
+        user: &str,
+        modifiers: Option<&std::collections::HashMap<&str, &str>>,
+    ) -> keyring_core::Result<keyring_core::Entry> {
+        self.reached
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.store.build(service, user, modifiers)
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+impl std::fmt::Debug for Reaching {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("Reaching").finish_non_exhaustive()
+    }
+}
+
+/// Building the driver over the OS keychain, as the engine does at its
+/// start, and handing a Run what it resolves through reach none of the
+/// keychain's items: the keychain is asked only once a reference needs it
+/// (#2204 moves its probe to the first data key made or unwrapped).
+#[test]
+#[expect(
+    clippy::disallowed_types,
+    reason = "a test's counter, which no loom model runs (ADR 0060)"
+)]
+fn the_driver_asks_the_keychain_nothing_until_a_reference_needs_it() {
+    let env = TestEnv::new();
+    let store = Arc::new(Reaching {
+        store: keyring_core::mock::Store::new().unwrap(),
+        reached: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let keychain = Keychain::of(Arc::clone(&store) as Arc<keyring_core::CredentialStore>);
+    let runtime = goodfetch_test_support::runtime();
+    let secrets = runtime.block_on(async { driver_with(&env, &[], keychain) });
+    let resolving = secrets.for_run(Duration::from_secs(30));
+    let built = store.reached.load(std::sync::atomic::Ordering::SeqCst);
+
+    let _ = runtime.block_on(resolving.resolve(
+        &reference("keychain:goodfetch-test/portal"),
+        &for_the_key(None, &[]),
+    ));
+
+    assert_eq!(
+        (
+            built,
+            store.reached.load(std::sync::atomic::Ordering::SeqCst) > 0
+        ),
+        (0, true)
+    );
+}

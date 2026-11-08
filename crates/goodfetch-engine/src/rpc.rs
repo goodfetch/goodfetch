@@ -36,7 +36,8 @@ use goodfetch_protocol::jsonrpc::{
 use goodfetch_protocol::log::{CONNECTION_SET_LOG_LEVEL, LogLevelSet, SetLogLevelParams};
 use serde_json::Value;
 
-use crate::composition::{CallContext, CallError, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Handler};
 use crate::product::{Identity, Requested};
 
 pub use connection::CONSOLE_LISTENER;

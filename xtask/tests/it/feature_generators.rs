@@ -53,21 +53,21 @@ fn foxhound() -> Value {
     json!(["foxhound"])
 }
 
-const COMMAND_LINES_EXAMPLE: &str = "crates/goodfetch-collie/examples/command-lines.rs";
+const COMMAND_LINES_EXAMPLE: &str = "crates/foxhound/goodfetch-foxhound/examples/command-lines.rs";
 
 /// The namespaces file the stand-in gives.
 const NAMESPACES: &str = "// The fixture's namespaces.\n[]\n";
 
-/// Adds Collie's executable crate to the fixture, whose `command-lines`
+/// Adds Foxhound's executable crate to the fixture, whose `command-lines`
 /// example writes `command_lines` as both executables' command trees.
 fn add_executable_crate(workspace: &Workspace, command_lines: &Value) {
     workspace.write(
-        "crates/goodfetch-collie/Cargo.toml",
-        b"[package]\nname = \"goodfetch-collie\"\nversion.workspace = true\nedition.workspace = true\npublish.workspace = true\n\n[features]\nexecutable = []\n",
+        "crates/foxhound/goodfetch-foxhound/Cargo.toml",
+        b"[package]\nname = \"goodfetch-foxhound\"\nversion.workspace = true\nedition.workspace = true\npublish.workspace = true\n\n[features]\nexecutable = []\n",
     );
     workspace.write(
-        "crates/goodfetch-collie/src/lib.rs",
-        b"//! The fixture's stand-in of Collie's executable crate.\n",
+        "crates/foxhound/goodfetch-foxhound/src/lib.rs",
+        b"//! The fixture's stand-in of Foxhound's executable crate.\n",
     );
     write_command_lines(workspace, command_lines);
 }

@@ -26,7 +26,7 @@ use jiff::{Timestamp, ToSpan as _};
 
 use crate::home::Home;
 use crate::product::Identity;
-use crate::settings::{Layers, SettingsFiles, resolve};
+use crate::settings::SettingsFiles;
 
 /// The file, in Goodfetch home, of the day the notice was last shown.
 const SHOWN_FILE: &str = "age-notice";
@@ -98,18 +98,9 @@ impl AgeNotice {
     /// that do not read leave it off, since the command reports them.
     fn turned_on(&self) -> bool {
         let product = self.identity.product;
-        let Ok(machine) = self.settings.load(product) else {
-            return false;
-        };
-        let layers = Layers {
-            operator_policy: machine.operator_policy,
-            user_configuration: machine.user_configuration,
-            ..Layers::default()
-        };
-        resolve(&layers, product, product)
-            .ok()
-            .and_then(|resolved| resolved.boolean(VERSION_AGE_NOTICE.name))
-            .unwrap_or(false)
+        self.settings
+            .machine_settings(product)
+            .is_ok_and(|resolved| resolved.get(&VERSION_AGE_NOTICE))
     }
 
     fn line(&self, released: Date) -> String {

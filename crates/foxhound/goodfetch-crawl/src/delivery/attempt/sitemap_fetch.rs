@@ -41,7 +41,7 @@ impl On<'_> {
                 if let Err(refused) = address_check(run, http, leased).await {
                     return refused;
                 }
-                let hand_over = self.gating.hand_over(run, leased, lease, self.in_flight).await;
+                let hand_over = self.hand_over;
                 let Ok(url) = goodfetch_frontier::Url::parse(&leased.crawl_request.url) else {
                     return unreadable(&leased.crawl_request.url, "its URL does not parse");
                 };
@@ -69,7 +69,7 @@ impl On<'_> {
                 let limits = run
                     .settings()
                     .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
-                match http.sitemap(&url, &hand_over).await {
+                match http.sitemap(&url, hand_over).await {
                     Ok(body) => match sitemap::read_file(url.as_str(), &body, limits) {
                         Ok(document) => Answer::SitemapRead(document),
                         Err(sitemap::Refusal::Unreadable(why)) => unreadable(url.as_str(), &why.0),

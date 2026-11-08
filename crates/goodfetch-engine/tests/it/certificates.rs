@@ -56,7 +56,7 @@ fn traffic(proving_ground: &ProvingGround, domains: &[&str]) -> PageTraffic {
         client_certificates: ClientCertificates::default(),
         cookies: Vec::new(),
         clock: Clock::system(),
-        delays: Delays::BUILT_IN,
+        delays: Delays::default(),
     }
 }
 

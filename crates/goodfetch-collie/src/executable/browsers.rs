@@ -12,7 +12,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::Duration;
 
 use goodfetch_engine::Identity;
 use goodfetch_engine::browser_cache::{
@@ -26,7 +25,7 @@ use goodfetch_engine::http_client::Resolve;
 use goodfetch_engine::installed::{InstalledList, Seen, kept_inputs};
 use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::run::local_settings_error;
-use goodfetch_engine::settings::{Layers, Resolved, SettingsError, SettingsFiles, resolve};
+use goodfetch_engine::settings::{Resolved, SettingsError, SettingsFiles};
 use goodfetch_protocol::browser_cache::{
     ArtifactId, BrowserCleaned, BrowserInstalled, InstallOutcome, InstalledBuild, MAX_UNUSED_AGE,
     NotCleaned, PinnedBy, RemovedBuild,
@@ -36,7 +35,7 @@ use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::settings::NETWORK_RESOLVE;
 
-use goodfetch_cli::output::{self, Human};
+use super::output::{self, Human};
 
 /// The variable that roots Goodfetch home (ADR 0059).
 const HOME_VARIABLE: &str = "GOODFETCH_HOME";
@@ -65,24 +64,18 @@ pub(super) fn machine_settings(
     product: Product,
     version: &ProductVersion,
 ) -> Result<Resolved, SettingsError> {
-    let machine = SettingsFiles::of(home, version).load(product)?;
-    let layers = Layers {
-        operator_policy: machine.operator_policy,
-        user_configuration: machine.user_configuration,
-        ..Layers::default()
-    };
-    resolve(&layers, product, product)
+    SettingsFiles::of(home, version).machine_settings(product)
 }
 
 /// What downloads may do under `settings`: `egress.offline` and the layer
 /// that set it, `network.resolve`'s mapping and the Happy Eyeballs delays.
 fn fetching(settings: &Resolved, clock: Clock) -> Fetching {
     let offline = settings
-        .get(EGRESS_OFFLINE.name)
+        .effective(&EGRESS_OFFLINE)
         .filter(|offline| offline.value == serde_json::Value::Bool(true))
         .map(|offline| offline.layer);
     let mapping = settings
-        .hosts(NETWORK_RESOLVE.name)
+        .hosts(&NETWORK_RESOLVE)
         .into_iter()
         .fold(Resolve::new(), |mapping, (host, addresses)| {
             mapping.with(host, addresses)
@@ -97,12 +90,7 @@ fn fetching(settings: &Resolved, clock: Clock) -> Fetching {
 
 /// `browser_cache.max_unused_age` under `settings`.
 fn max_unused_age(settings: &Resolved) -> MaxUnusedAge {
-    MaxUnusedAge::new(
-        settings
-            .value(MAX_UNUSED_AGE.name)
-            .as_u64()
-            .map(Duration::from_millis),
-    )
+    MaxUnusedAge::new(settings.get(&MAX_UNUSED_AGE))
 }
 
 /// Prints the refusal of the machine's settings, `error`, on the

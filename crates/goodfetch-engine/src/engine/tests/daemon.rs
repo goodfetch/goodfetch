@@ -22,7 +22,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::run::{call, index_row, run_folder, run_row};
 use super::{Client, attached_on, dependencies, engine, engine_with};
-use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Contribution, Handler};
 use crate::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Drain, Holds, Succession};
 use crate::engine::Engine;
 use crate::ops::Ops;

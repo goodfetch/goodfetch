@@ -2,4 +2,5 @@
 [modules]
 composition = ["sample"]
 console_build = []
+executable = []
 sample = []

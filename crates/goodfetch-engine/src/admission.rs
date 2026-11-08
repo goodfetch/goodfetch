@@ -840,7 +840,7 @@ fn interval(per_minute: u64) -> Option<Duration> {
 
 /// The rate cap `settings` give a Run, `None` when unset.
 pub(crate) fn rate_cap_of(settings: &Resolved) -> Option<u64> {
-    settings.count(ADMISSION_MAX_REQUESTS_PER_MINUTE.name)
+    settings.get(&ADMISSION_MAX_REQUESTS_PER_MINUTE)
 }
 
 #[cfg(test)]

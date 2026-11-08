@@ -722,13 +722,13 @@ impl EndpointSettings {
     /// The settings `settings`, the machine's resolved ones, give.
     pub(crate) fn of(settings: &Resolved, clock: Clock) -> Self {
         let resolve = settings
-            .hosts(NETWORK_RESOLVE.name)
+            .hosts(&NETWORK_RESOLVE)
             .into_iter()
             .fold(Resolve::new(), |mapping, (host, addresses)| {
                 mapping.with(host, addresses)
             });
         let authorities = settings
-            .value(TLS_TRUSTED_CAS.name)
+            .value(&TLS_TRUSTED_CAS)
             .as_object()
             .into_iter()
             .flatten()

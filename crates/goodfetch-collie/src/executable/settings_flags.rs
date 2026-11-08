@@ -18,7 +18,7 @@ use serde_json::{Map, Value};
 
 /// The settings flags of a command whose operation takes `settings`.
 #[derive(Args, Clone, Debug, Default, PartialEq)]
-pub struct SettingsFlags {
+pub(super) struct SettingsFlags {
     /// Sets a setting for this run, as `key=value`, the value read as JSON
     /// when it parses as JSON and as text otherwise, a duration as
     /// milliseconds or as `45s`, `2m` or `1h`; repeatable
@@ -45,7 +45,7 @@ impl SettingsFlags {
     /// The run layer they give, each key in its canonical dotted form:
     /// `--settings`' values, each `--set` over them, a later one over an
     /// earlier one.
-    pub fn run_layer(&self) -> Map<String, Value> {
+    pub(super) fn run_layer(&self) -> Map<String, Value> {
         let mut run_layer = self
             .settings
             .as_ref()

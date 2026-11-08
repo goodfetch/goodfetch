@@ -22,7 +22,7 @@ use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use serde::Serialize;
 
-use crate::exit_codes;
+use super::exit_codes;
 
 fn write_stdout(bytes: &[u8]) -> std::io::Result<()> {
     #[expect(
@@ -80,6 +80,27 @@ pub fn json(value: &impl Serialize) {
     let mut bytes = serde_json::to_vec(value).expect("invariant: the output types serialize");
     bytes.push(b'\n');
     print_stdout(&bytes);
+}
+
+/// A value as human output shows it: text as it is, anything else as JSON.
+pub fn text(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.clone(),
+        value => value.to_string(),
+    }
+}
+
+/// Writes a call's result `value` as human output shows it: each field of
+/// an object as `name: value` on stdout, any other value on a line.
+pub fn fields(value: &serde_json::Value, human: &Human) {
+    match value {
+        serde_json::Value::Object(fields) => {
+            for (name, value) in fields {
+                human.field(name, &text(value));
+            }
+        }
+        value => line(&text(value)),
+    }
 }
 
 /// Writes `text` and a newline on stderr: a warning, a hint or a failure,
@@ -159,6 +180,10 @@ pub fn fail_exiting(
 }
 
 /// When human output is coloured: `--color auto|always|never`.
+#[expect(
+    missing_docs,
+    reason = "a doc comment on a value would put each value of `--help` on a line of its own"
+)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
 pub enum ColourChoice {
     // Plain comments, not doc comments, so that `--help` lists the three
@@ -181,6 +206,10 @@ pub enum ColourChoice {
 // that group: a flag global at the root would be copied into every group
 // whenever the command line is parsed, `--version` included (ADR 0071's
 // startup figure). The root takes it as a flag of its own, not global.
+#[expect(
+    missing_docs,
+    reason = "a doc comment would become the help of every command that flattens it"
+)]
 #[derive(Clone, Copy, Debug, Default, clap::Args)]
 pub struct ColourFlag {
     /// When to colour human output; `auto` colours on a terminal unless

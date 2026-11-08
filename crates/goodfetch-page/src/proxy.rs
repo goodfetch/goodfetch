@@ -30,6 +30,7 @@ use data_encoding::BASE64;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
 
+use goodfetch_cdp::NetError;
 use goodfetch_engine::CallError;
 use goodfetch_engine::egress::{self, EndpointPolicy};
 use goodfetch_engine::http_client::{self, Resolve};
@@ -37,6 +38,7 @@ use goodfetch_engine::run::secret_error;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::secrets::Purpose;
 use goodfetch_engine::settings::Resolved;
+use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::page::proxy::{
     CountryCode, PROXY_AUTH_FAILED, PROXY_BYPASS, PROXY_COUNTRY, PROXY_KIND, PROXY_PASSWORD,
@@ -46,6 +48,7 @@ use goodfetch_protocol::page::proxy::{
     ProxyUnavailableDetails,
 };
 use goodfetch_protocol::politeness::POLITENESS_PROXY_CONCURRENCY;
+use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::{NETWORK_RESOLVE, SETTING_INVALID, SettingInvalidDetails};
 use secrecy::{ExposeSecret as _, SecretString};
 
@@ -132,13 +135,14 @@ impl std::fmt::Debug for SessionProxy {
 
 /// `setting_invalid` for `key`, set at `settings`' layer for it, because of
 /// `reason`.
-fn invalid(settings: &Resolved, key: &str, reason: String) -> CallError {
+fn invalid(settings: &Resolved, setting: &Setting, reason: String) -> CallError {
+    let key = setting.name;
     CallError::new(
         &SETTING_INVALID,
         format!("`{key}` is refused: {reason}"),
         &SettingInvalidDetails {
             key: key.to_owned(),
-            layer: settings.get(key).map(|effective| effective.layer),
+            layer: settings.effective(setting).map(|effective| effective.layer),
             reason,
         },
     )
@@ -160,7 +164,7 @@ fn refused(settings: &Resolved, refusal: &Refusal) -> CallError {
             offered,
         } => invalid(
             settings,
-            PROXY_KIND.name,
+            &PROXY_KIND,
             format!(
                 "the Proxy provider `{provider}` offers no `{asked}` proxy; it offers {}",
                 names(offered.iter().map(ToString::to_string).collect())
@@ -173,7 +177,7 @@ fn refused(settings: &Resolved, refusal: &Refusal) -> CallError {
             offered,
         } => invalid(
             settings,
-            PROXY_COUNTRY.name,
+            &PROXY_COUNTRY,
             format!(
                 "the Proxy provider `{provider}` offers no `{kind}` proxy in `{asked}`; it offers {}",
                 names(offered.iter().map(ToString::to_string).collect())
@@ -181,14 +185,14 @@ fn refused(settings: &Resolved, refusal: &Refusal) -> CallError {
         ),
         Refusal::Empty { provider } => invalid(
             settings,
-            PROXY_PROVIDERS.name,
+            &PROXY_PROVIDERS,
             format!(
                 "the Proxy provider `{provider}` offers no proxy: give `proxy.providers.{provider}.servers` in configuration"
             ),
         ),
         Refusal::Unpriced { provider, currency } => invalid(
             settings,
-            PROXY_PROVIDERS.name,
+            &PROXY_PROVIDERS,
             format!(
                 "a currency Limit on `proxy_bytes` in {currency} holds the Run, and the Proxy provider `{provider}` has no price in {currency}: set `proxy.providers.{provider}.price`, such as `5 {currency}` per GB, in configuration"
             ),
@@ -199,12 +203,15 @@ fn refused(settings: &Resolved, refusal: &Refusal) -> CallError {
 /// The setting, `proxy.username` or `proxy.password`, whose value is longer
 /// than the 255 bytes a SOCKS5 proxy takes it in (RFC 1929); none when both
 /// fit.
-fn too_long_for_socks5(username: &str, password: Option<&SecretString>) -> Option<&'static str> {
+fn too_long_for_socks5(
+    username: &str,
+    password: Option<&SecretString>,
+) -> Option<&'static Setting> {
     const MOST: usize = u8::MAX as usize;
     if username.len() > MOST {
-        Some(PROXY_USERNAME.name)
+        Some(&PROXY_USERNAME)
     } else if password.is_some_and(|password| password.expose_secret().len() > MOST) {
-        Some(PROXY_PASSWORD.name)
+        Some(&PROXY_PASSWORD)
     } else {
         None
     }
@@ -214,7 +221,7 @@ fn too_long_for_socks5(username: &str, password: Option<&SecretString>) -> Optio
 /// `key` in `settings`, if `username` or `password` is too long.
 fn fits_socks5(
     settings: &Resolved,
-    key: Option<&str>,
+    key: Option<&Setting>,
     username: &str,
     password: Option<&SecretString>,
 ) -> Result<(), CallError> {
@@ -223,7 +230,8 @@ fn fits_socks5(
             settings,
             key.unwrap_or(long),
             format!(
-                "a SOCKS5 proxy takes a username and a password of at most 255 bytes each (RFC 1929), and `{long}` is longer"
+                "a SOCKS5 proxy takes a username and a password of at most 255 bytes each (RFC 1929), and `{}` is longer",
+                long.name
             ),
         )),
         None => Ok(()),
@@ -235,17 +243,17 @@ fn fits_socks5(
 fn wanted(settings: &Resolved) -> Wanted {
     Wanted {
         kind: settings
-            .value(PROXY_KIND.name)
+            .value(&PROXY_KIND)
             .as_str()
             .and_then(ProxyKind::named),
         country: settings
-            .value(PROXY_COUNTRY.name)
+            .value(&PROXY_COUNTRY)
             .as_str()
             .map(CountryCode::parse)
             .transpose()
             .expect("invariant: `proxy.country`'s value was checked against its kind"),
         sticky_lifetime: settings
-            .value(PROXY_STICKY_LIFETIME.name)
+            .value(&PROXY_STICKY_LIFETIME)
             .as_u64()
             .map(Duration::from_millis),
     }
@@ -264,7 +272,7 @@ fn adapter(
     name: &str,
     configuration: &ProxyProviderConfiguration,
 ) -> Result<(ProxyDriver, Option<Translation>), CallError> {
-    let account = |reason: String| invalid(settings, PROXY_PROVIDERS.name, reason);
+    let account = |reason: String| invalid(settings, &PROXY_PROVIDERS, reason);
     if name != bright_data::NAME && !configuration.zones.is_empty() {
         return Err(account(format!(
             "`proxy.providers.{name}.zones` names zones, which only `bright_data` has: leave it out"
@@ -290,7 +298,7 @@ fn adapter(
         _ => {
             return Err(invalid(
                 settings,
-                PROXY_PROVIDER.name,
+                &PROXY_PROVIDER,
                 format!(
                     "no Proxy provider is named `{name}`: the built-in ones are `bright_data`, `oxylabs`, `apify` and `list`"
                 ),
@@ -312,7 +320,7 @@ fn provided_mode(
 ) -> Result<Mode, CallError> {
     Ok(match (&chosen.username, chosen.server.scheme.is_socks()) {
         (Some(username), true) => {
-            fits_socks5(settings, Some(PROXY_PROVIDERS.name), username, password)?;
+            fits_socks5(settings, Some(&PROXY_PROVIDERS), username, password)?;
             Mode::Socks5 {
                 credentials: Some(Credentials {
                     username: username.clone(),
@@ -359,17 +367,18 @@ impl SessionProxy {
         run: &Run,
         opening: &Opening<'_>,
     ) -> Result<Option<Self>, CallError> {
-        let text = |key: &str| settings.value(key).as_str().map(str::to_owned);
-        let username = text(PROXY_USERNAME.name);
-        let reference = settings.secret_reference(PROXY_PASSWORD.name);
-        if let Some(provider) = text(PROXY_PROVIDER.name) {
-            let also = [PROXY_SERVER.name, PROXY_USERNAME.name, PROXY_PASSWORD.name]
+        let text = |setting: &Setting| settings.get::<Option<&str>>(setting).map(str::to_owned);
+        let username = text(&PROXY_USERNAME);
+        let reference = settings.get::<Option<SecretReference>>(&PROXY_PASSWORD);
+        if let Some(provider) = text(&PROXY_PROVIDER) {
+            let also = [&PROXY_SERVER, &PROXY_USERNAME, &PROXY_PASSWORD]
                 .into_iter()
-                .find(|key| !settings.value(key).is_null());
+                .find(|setting| !settings.value(setting).is_null())
+                .map(|setting| setting.name);
             if let Some(also) = also {
                 return Err(invalid(
                     settings,
-                    PROXY_PROVIDER.name,
+                    &PROXY_PROVIDER,
                     format!(
                         "the Session resolves both `{also}` and `proxy.provider`: a Session's one proxy is either `proxy.server`, with `proxy.username` and `proxy.password`, or a Proxy provider's, whose credentials are `proxy.providers.{provider}.username` and `.password`"
                     ),
@@ -379,7 +388,7 @@ impl SessionProxy {
                 .await
                 .map(Some);
         }
-        let Some(server) = text(PROXY_SERVER.name) else {
+        let Some(server) = settings.value(&PROXY_SERVER).as_str().map(str::to_owned) else {
             if username.is_some() {
                 return Err(needs(PROXY_USERNAME.name, PROXY_SERVER.name));
             }
@@ -399,7 +408,7 @@ impl SessionProxy {
             (_, None) => None,
             (Some(_), Some(reference)) => {
                 let layer = settings
-                    .get(PROXY_PASSWORD.name)
+                    .effective(&PROXY_PASSWORD)
                     .map(|effective| effective.layer);
                 let purpose = Purpose {
                     placeholder: PROXY_PASSWORD.name,
@@ -439,10 +448,10 @@ impl SessionProxy {
         };
         let limits = ProxyLimits::open(settings, run, account)
             .await
-            .map_err(|reason| invalid(settings, POLITENESS_PROXY_CONCURRENCY.name, reason))?;
+            .map_err(|reason| invalid(settings, &POLITENESS_PROXY_CONCURRENCY, reason))?;
         Ok(Some(Self {
             server,
-            bypass: text(PROXY_BYPASS.name),
+            bypass: text(&PROXY_BYPASS),
             username,
             password,
             relay,
@@ -463,7 +472,7 @@ impl SessionProxy {
         name: &str,
     ) -> Result<Self, CallError> {
         let configuration = settings
-            .value(PROXY_PROVIDERS.name)
+            .value(&PROXY_PROVIDERS)
             .get(name)
             .map(ProxyProviderConfiguration::read)
             .transpose()
@@ -483,7 +492,7 @@ impl SessionProxy {
                     domain: Some(&chosen.server.host),
                     domains: &[],
                     layer: settings
-                        .get(PROXY_PROVIDERS.name)
+                        .effective(&PROXY_PROVIDERS)
                         .map(|effective| effective.layer),
                     run_id: Some(run.id()),
                 };
@@ -527,14 +536,11 @@ impl SessionProxy {
         };
         let limits = ProxyLimits::open(settings, run, account)
             .await
-            .map_err(|reason| invalid(settings, POLITENESS_PROXY_CONCURRENCY.name, reason))?;
+            .map_err(|reason| invalid(settings, &POLITENESS_PROXY_CONCURRENCY, reason))?;
         Ok(Self {
             limits,
             server: chosen.server.clone(),
-            bypass: settings
-                .value(PROXY_BYPASS.name)
-                .as_str()
-                .map(str::to_owned),
+            bypass: settings.value(&PROXY_BYPASS).as_str().map(str::to_owned),
             username: chosen.username.clone(),
             password,
             relay: Some(relay),
@@ -680,7 +686,7 @@ impl SessionProxy {
     /// network error `error` raises, when it is the proxy's own failure:
     /// `proxy_auth_failed` when the proxy refused the relay's credentials,
     /// `proxy_unavailable` otherwise.
-    pub(crate) fn failure(&self, url: &str, error: &str) -> Option<CallError> {
+    pub(crate) fn failure(&self, url: &str, error: &NetError) -> Option<CallError> {
         if let Some(refusal) = self
             .provided
             .as_ref()
@@ -701,7 +707,7 @@ impl SessionProxy {
         Some(if self.refused_credentials(url) {
             self.auth_failed(url)
         } else {
-            self.unavailable(url, error)
+            self.unavailable(url, error.name())
         })
     }
 
@@ -843,7 +849,7 @@ impl SessionProxy {
 /// system's resolver configuration; none when it has none.
 async fn lookup(server: &ProxyServer, settings: &Resolved) -> Option<Vec<SocketAddr>> {
     let mapping = settings
-        .hosts(NETWORK_RESOLVE.name)
+        .hosts(&NETWORK_RESOLVE)
         .into_iter()
         .fold(Resolve::new(), |mapping, (host, addresses)| {
             mapping.with(host, addresses)

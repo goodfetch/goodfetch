@@ -1,11 +1,12 @@
 # The virtual root manifest of Goodfetch's one Cargo workspace (STYLE.md, ADR 0087).
 #
-# Members live under `crates/`, `crates/foxhound/` (every crate only Foxhound
-# links) and `crates/foxhound/sinks/` (the sink processes), plus
-# `proving-ground/` (the Proving ground's crate, ADR 0032) and `xtask/`.
-# Every crate's folder is named after the crate, `goodfetch-*`, so the globs
-# never match the grouping folders `crates/foxhound` and
-# `crates/foxhound/sinks`, which hold no manifest. (Cargo's `exclude` cannot
+# Members live under `crates/` and `crates/foxhound/` (every crate only
+# Foxhound links), plus `proving-ground/` (the Proving ground's crate, ADR
+# 0032) and `xtask/`; the sink processes will live under
+# `crates/foxhound/sinks/`, whose glob the Sinks area adds with the first of
+# them (Cargo fails on a glob whose folder does not exist). Every crate's
+# folder is named after the crate, `goodfetch-*`, so the globs never match
+# the grouping folder `crates/foxhound`, which holds no manifest. (Cargo's `exclude` cannot
 # drop them: it excludes every path under an excluded folder, members of a
 # glob included.)
 [workspace]
@@ -13,7 +14,6 @@ resolver = "3"
 members = [
   "crates/goodfetch-*",
   "crates/foxhound/goodfetch-*",
-  "crates/foxhound/sinks/goodfetch-*",
   "proving-ground",
   "xtask",
 ]
@@ -155,7 +155,6 @@ glob = { version = "0.3.4", default-features = false }
 goodfetch-cdp = { path = "crates/goodfetch-cdp" }
 # Both executables' command line, which Foxhound's reaches without Collie's
 # executable crate (ADR 0090).
-goodfetch-cli = { path = "crates/goodfetch-cli" }
 # The Clean-up rules and their matching (spec #577, ADR 0047).
 goodfetch-clean-up-rules = { path = "crates/goodfetch-clean-up-rules" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }

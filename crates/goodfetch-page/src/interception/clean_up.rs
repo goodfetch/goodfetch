@@ -11,7 +11,8 @@ use std::sync::Arc;
 use goodfetch_clean_up_rules::matching::{Choices, ResourceKind};
 use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::{Resolved, Values};
+use goodfetch_engine::settings::{Resolved, Values, catalog_value, value_as};
+use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::page::{
     BROWSER_BLOCK_RESOURCES, BROWSER_SERVICE_WORKERS, LIVE_VIEW_HIDING,
 };
@@ -78,28 +79,31 @@ pub(crate) const SESSION_KEYS: [&str; 7] = [
     LIVE_VIEW_HIDING.name,
 ];
 
-/// The value of `key` a Session's pages take: `own`, the Session's own
-/// settings, else `run`, its Run's resolved settings; `null` without either.
-pub(super) fn effective<'a>(run: Option<&'a Resolved>, own: &'a Values, key: &str) -> &'a Value {
-    own.get(key)
-        .or_else(|| run.map(|run| run.value(key)))
-        .unwrap_or(&Value::Null)
+/// The value of `setting` a Session's pages take: `own`, the Session's own
+/// settings, else `run`, its Run's resolved settings; its catalog default
+/// without either.
+pub(super) fn effective<'a>(
+    run: Option<&'a Resolved>,
+    own: &'a Values,
+    setting: &Setting,
+) -> &'a Value {
+    own.get(setting.name)
+        .or_else(|| run.map(|run| run.value(setting)))
+        .unwrap_or_else(|| catalog_value(setting))
 }
 
 /// The `live_view.hiding` a Session's own settings `own`, over `run`, its
-/// Run's resolved settings, choose: `auto` without either.
+/// Run's resolved settings, choose: its catalog default, `auto`, without
+/// either.
 pub(super) fn live_hiding(run: Option<&Resolved>, own: &Values) -> String {
-    effective(run, own, LIVE_VIEW_HIDING.name)
-        .as_str()
-        .unwrap_or("auto")
-        .to_owned()
+    value_as::<&str>(&LIVE_VIEW_HIDING, effective(run, own, &LIVE_VIEW_HIDING)).to_owned()
 }
 
 /// What a Session's own settings `own`, over `run`, its Run's resolved
 /// settings, choose of the Clean-up rules; the defaults without either.
 pub(super) fn choices(run: Option<&Resolved>, own: &Values) -> Choices {
-    let boolean = |key: &str, default: bool| effective(run, own, key).as_bool().unwrap_or(default);
-    let block_resources = effective(run, own, BROWSER_BLOCK_RESOURCES.name)
+    let boolean = |setting: &Setting| value_as(setting, effective(run, own, setting));
+    let block_resources = effective(run, own, &BROWSER_BLOCK_RESOURCES)
         .as_array()
         .into_iter()
         .flatten()
@@ -112,10 +116,10 @@ pub(super) fn choices(run: Option<&Resolved>, own: &Values) -> Choices {
         })
         .collect();
     Choices {
-        ads: boolean(FILTER_LISTS_ADS.name, true),
-        trackers: boolean(FILTER_LISTS_TRACKERS.name, true),
-        annoyances: boolean(FILTER_LISTS_ANNOYANCES.name, true),
-        first_party_scripts: boolean(FILTER_LISTS_FIRST_PARTY_SCRIPTS.name, false),
+        ads: boolean(&FILTER_LISTS_ADS),
+        trackers: boolean(&FILTER_LISTS_TRACKERS),
+        annoyances: boolean(&FILTER_LISTS_ANNOYANCES),
+        first_party_scripts: boolean(&FILTER_LISTS_FIRST_PARTY_SCRIPTS),
         block_resources,
     }
 }

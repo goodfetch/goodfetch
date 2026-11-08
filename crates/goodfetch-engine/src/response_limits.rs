@@ -34,7 +34,7 @@ use goodfetch_protocol::response_limits::{
     ResponseLimitExceededDetails,
 };
 
-use crate::composition::CallError;
+use crate::call_error::CallError;
 use crate::settings::Resolved;
 
 /// The largest window, as a power of two, a zstd frame may ask for: 8 MiB
@@ -73,20 +73,12 @@ impl Default for Limits {
 }
 
 impl Limits {
-    /// The limits `settings` set, each key's default where it holds no
-    /// count.
+    /// The limits `settings` set.
     pub fn of(settings: &Resolved) -> Self {
-        let defaults = Self::default();
         Self {
-            max_body_size: settings
-                .count(NETWORK_MAX_BODY_SIZE.name)
-                .unwrap_or(defaults.max_body_size),
-            max_decompression_ratio: settings
-                .count(NETWORK_MAX_DECOMPRESSION_RATIO.name)
-                .unwrap_or(defaults.max_decompression_ratio),
-            max_json_depth: settings
-                .count(NETWORK_MAX_JSON_DEPTH.name)
-                .unwrap_or(defaults.max_json_depth),
+            max_body_size: settings.get(&NETWORK_MAX_BODY_SIZE),
+            max_decompression_ratio: settings.get(&NETWORK_MAX_DECOMPRESSION_RATIO),
+            max_json_depth: settings.get(&NETWORK_MAX_JSON_DEPTH),
         }
     }
 

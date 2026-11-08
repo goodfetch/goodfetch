@@ -14,7 +14,7 @@ use goodfetch_protocol::catalog::{Product, ValueKind};
 use goodfetch_protocol::settings::{RunOrigin, SettingsLayer};
 use serde_json::{Value, json};
 
-use super::{policy, recipe, refusal, resolve, resolved, values};
+use super::{catalog_key, policy, recipe, refusal, resolve, resolved, values};
 use crate::settings::keys::{self, Key};
 use crate::settings::{Layers, SettingsError};
 
@@ -148,7 +148,7 @@ fn refused_by_the_policy(
 /// What resolving `layers` refused, or why it did not.
 fn refused(layers: &Layers, name: &str) -> Result<SettingsError, String> {
     match resolve(layers, Product::Foxhound, Product::Foxhound) {
-        Ok(resolved) => Err(format!("taken: {}", resolved.value(name))),
+        Ok(resolved) => Err(format!("taken: {}", resolved.value(catalog_key(name)))),
         Err(error) => Ok(error),
     }
 }
@@ -170,7 +170,9 @@ fn an_operator_policy_locks_every_crawl_key_against_every_higher_layer() {
             operator_policy: lock.clone(),
             ..Layers::default()
         });
-        let effective = alone.get(name).expect("a crawl key on a Foxhound Run");
+        let effective = alone
+            .effective(catalog_key(name))
+            .expect("a crawl key on a Foxhound Run");
         if (&effective.value, effective.layer, effective.locked_by)
             != (
                 &at,
@@ -230,7 +232,9 @@ fn an_operator_policy_caps_every_crawl_count_and_duration_against_every_higher_l
             operator_policy: cap.clone(),
             ..Layers::default()
         });
-        let effective = alone.get(name).expect("a crawl key on a Foxhound Run");
+        let effective = alone
+            .effective(catalog_key(name))
+            .expect("a crawl key on a Foxhound Run");
         let within = effective.value.as_u64().is_some_and(|value| value <= CAP);
         if !within || effective.cap != Some(json!(CAP)) {
             failures.push(format!("{name} capped alone: {effective:?}"));
@@ -302,7 +306,7 @@ fn a_cap_on_crawl_max_requests_bounds_a_run_asking_for_more() {
     assert_eq!(
         (
             (&limit.value, limit.layer),
-            fewer.value("crawl.max_requests"),
+            fewer.value(catalog_key("crawl.max_requests")),
             (&setting.value, setting.layer, &setting.cap),
         ),
         (

@@ -12,7 +12,8 @@ use goodfetch_protocol::people::{
     SignInList, SignInListParams, SignInRevokeParams, SignInRevoked,
 };
 
-use crate::composition::{CallContext, CallError, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Handler};
 use crate::people::{PeopleError, SignInDriver};
 
 /// The `sign_in.*` and `console.rotate_key` handlers.

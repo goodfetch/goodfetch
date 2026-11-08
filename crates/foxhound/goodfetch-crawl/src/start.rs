@@ -177,7 +177,7 @@ async fn start(
     let run_id = run_id(params.run_id.as_deref())?;
     code_free::declare(&mut params)?;
     let (settings, _) = context
-        .runs()
+        .engine()
         .settings()
         .open(Opening {
             run: Some(Product::Foxhound),
@@ -245,7 +245,7 @@ async fn start(
             binding: None,
             clean_up_digest: None,
             checkpoint_interval: checkpoint_interval(settings.resolved()),
-            timeout: settings.resolved().duration(TIMEOUT_RUN.name),
+            timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
         })
         .await

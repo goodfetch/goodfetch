@@ -32,7 +32,8 @@ use serde_json::{Value, json};
 
 use super::{Refused, consent_domain, replace};
 use crate::audit::{AuditLog, Origin};
-use crate::composition::{CallContext, CallError};
+use crate::call_error::CallError;
+use crate::composition::CallContext;
 use crate::needs_you::refetch::{coverage, machine_listing, normalized};
 use crate::run::settings_error;
 use crate::settings::{
@@ -70,8 +71,8 @@ struct Machine {
 
 impl Machine {
     async fn of(context: &CallContext) -> Result<Self, CallError> {
-        let runs = context.runs();
-        let settings = runs.settings().clone();
+        let engine = context.engine();
+        let settings = engine.settings().clone();
         let layers = settings
             .machine()
             .await
@@ -83,10 +84,10 @@ impl Machine {
             host: settings.host_defaults().await,
             product: settings.product(),
             version: context.identity().product_version.clone(),
-            audit: runs.audit().clone(),
+            audit: engine.audit().clone(),
             surface: context.surface(),
             person: context.person(),
-            now: runs.limits().now(),
+            now: engine.now(),
         })
     }
 
@@ -187,9 +188,10 @@ impl Machine {
 /// The call error of a write that refused.
 fn refused(refused: Refused, context: &CallContext) -> CallError {
     match refused {
-        Refused::Settings(error) => {
-            settings_error(&context.runs().settings().files().named_in(error), context)
-        }
+        Refused::Settings(error) => settings_error(
+            &context.engine().settings().files().named_in(error),
+            context,
+        ),
         Refused::File(error) => CallError::protocol(
             ProtocolFailure::InternalError,
             format!("a settings file cannot be written: {error}"),
@@ -213,7 +215,7 @@ pub(super) async fn remove_refetch_domain(
         })
         .transpose()?;
     let machine = Machine::of(&context).await?;
-    let owner = Arc::clone(&context.runs().limits().owner);
+    let owner = Arc::clone(context.engine().owner());
     let answered = domain.clone();
     owner
         .blocking(move || remove(&machine, &answered, instead))
@@ -304,7 +306,7 @@ pub(super) async fn deny_wall_domain(
         ));
     }
     let machine = Machine::of(&context).await?;
-    let owner = Arc::clone(&context.runs().limits().owner);
+    let owner = Arc::clone(context.engine().owner());
     owner
         .blocking(move || deny(&machine, domain, reason))
         .await

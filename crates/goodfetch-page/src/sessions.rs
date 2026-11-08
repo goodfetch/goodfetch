@@ -60,9 +60,9 @@ use goodfetch_engine::egress::CdpUrlOrigin;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::local_addresses::Unavailable;
 use goodfetch_engine::run::settings_error;
-use goodfetch_engine::run_state::{RunStateError, RunStateTables};
+use goodfetch_engine::run_state::{RunStateError, RunStateTables, run_row};
 use goodfetch_engine::runs::{Run, RunError};
-use goodfetch_engine::settings::{RunSettings, SettingsError, Values};
+use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::connection::{CLOSED, ClosedValue, StoppedBy};
@@ -999,7 +999,7 @@ impl Sessions {
             .map_err(|error| unavailable(run, &error, context))?;
         let (pool, losses) = Pool::new(
             run.clone(),
-            context.runs().home().clone(),
+            context.engine().home().clone(),
             Pins {
                 pinned_by: PinnedBy {
                     product: context.identity().product,
@@ -1248,7 +1248,7 @@ fn not_locked(
     context: &CallContext,
 ) -> Result<Values, CallError> {
     let locked = values.keys().find_map(|key| {
-        let effective = run.settings()?.resolved().get(key)?;
+        let effective = run.settings()?.resolved().effective(setting(key)?)?;
         effective.locked_by.map(|layer| SettingLimit {
             key: key.to_owned(),
             value: effective.value.clone(),
@@ -1341,7 +1341,7 @@ async fn open_proxy(
     };
     // A Proxy provider's price must be in the currency of each currency
     // Limit on `proxy_bytes` that holds the Run (ADR 0101).
-    let currencies = if resolved.value(PROXY_PROVIDER.name).is_null() {
+    let currencies = if resolved.value(&PROXY_PROVIDER).is_null() {
         Vec::new()
     } else {
         run.usage()
@@ -1421,7 +1421,7 @@ fn opening_source(
         Some(own) => own.map(|source| (source, SettingsLayer::Run, opener_for_model)),
         None => run
             .settings()
-            .and_then(|settings| settings.resolved().get(SESSION_SOURCE.name))
+            .and_then(|settings| settings.resolved().effective(&SESSION_SOURCE))
             .and_then(|effective| {
                 serde_json::from_value::<SessionSource>(effective.value.clone())
                     .ok()
@@ -1683,10 +1683,7 @@ fn local_address_refused(run: &Run, failure: LocalAddressFailure) -> CallError {
 /// `run`'s `egress.local_addresses` as its value writes it, when it sets
 /// one: an interface or a prefix as it is, a list as JSON.
 fn local_addresses_of(run: &Run) -> Option<String> {
-    let value = run
-        .settings()?
-        .resolved()
-        .value(EGRESS_LOCAL_ADDRESSES.name);
+    let value = run.settings()?.resolved().value(&EGRESS_LOCAL_ADDRESSES);
     match value {
         Value::Null => None,
         Value::String(text) => Some(text.clone()),
@@ -1789,22 +1786,18 @@ async fn finished(run_id: &RunId, context: &CallContext) -> bool {
         return false;
     };
     reader
-        .read(|connection| {
-            connection.query_row("SELECT lifecycle FROM run", [], |row| {
-                row.get::<_, String>(0)
-            })
-        })
+        .read(run_row::lifecycle)
         .await
-        .is_ok_and(|lifecycle| lifecycle == Lifecycle::Finished.as_str())
+        .is_ok_and(|lifecycle| lifecycle == Lifecycle::Finished)
 }
 
 /// The Run's `timeout.wait`, an app-state wait's deadline.
 fn wait_deadline(run: &Run) -> Deadline {
-    Deadline::of_run(run, &TIMEOUT_WAIT)
+    Deadline::of_resolved(run.settings().map(RunSettings::resolved), &TIMEOUT_WAIT)
 }
 
 /// The Run's `timeout.action`, with where it was set.
 fn action_timeout(run: &Run) -> (SettingLimit, Duration) {
-    let action = Deadline::of_run(run, &TIMEOUT_ACTION);
+    let action = Deadline::of_resolved(run.settings().map(RunSettings::resolved), &TIMEOUT_ACTION);
     (action.limit().clone(), action.duration())
 }

@@ -33,7 +33,8 @@ use goodfetch_protocol::settings::{
 use serde_json::{Value, json};
 
 use crate::audit::{AuditLog, Origin};
-use crate::composition::{CallContext, CallError, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Handler};
 use crate::durable;
 use crate::run::settings_error;
 use crate::settings::{
@@ -59,7 +60,7 @@ async fn explain(
     params: ConfigExplainParams,
     context: CallContext,
 ) -> Result<SettingsExplanation, CallError> {
-    let settings = context.runs().settings();
+    let settings = context.engine().settings();
     let (run, machine) = settings
         .open(Opening {
             run: None,
@@ -118,8 +119,8 @@ struct Edit {
 impl Edit {
     /// What an entry of `context` writing `layer` works with.
     fn of(context: &CallContext, layer: SettingsLayer) -> Self {
-        let runs = context.runs();
-        let settings = runs.settings();
+        let engine = context.engine();
+        let settings = engine.settings();
         let files = settings.files();
         Self {
             path: match layer {
@@ -128,7 +129,7 @@ impl Edit {
             },
             product: settings.product(),
             version: context.identity().product_version.clone(),
-            audit: runs.audit().clone(),
+            audit: engine.audit().clone(),
             origin: Origin {
                 actor: Actor::Person {
                     name: context.person(),
@@ -137,7 +138,7 @@ impl Edit {
                 layer: Some(layer),
                 run_id: None,
             },
-            now: runs.limits().now(),
+            now: engine.now(),
         }
     }
 
@@ -156,11 +157,11 @@ async fn blocking<T: Send + 'static>(
     context: &CallContext,
     work: impl FnOnce() -> Result<T, Refused> + Send + 'static,
 ) -> Result<T, CallError> {
-    let runs = context.runs();
-    let owner = Arc::clone(&runs.limits().owner);
+    let engine = context.engine();
+    let owner = Arc::clone(engine.owner());
     owner.blocking(work).await.map_err(|refused| match refused {
         Refused::Settings(error) => {
-            settings_error(&runs.settings().files().named_in(error), context)
+            settings_error(&engine.settings().files().named_in(error), context)
         }
         Refused::Conflict { read, current } => CallError::new(
             &POLICY_CONFLICT,
@@ -277,7 +278,7 @@ async fn user_write(
     params: UserWriteParams,
     context: CallContext,
 ) -> Result<UserConfigurationWritten, CallError> {
-    let settings = context.runs().settings().clone();
+    let settings = context.engine().settings().clone();
     let machine = settings
         .machine()
         .await

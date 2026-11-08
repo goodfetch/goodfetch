@@ -61,7 +61,7 @@ impl ShareMeasure {
     /// without any.
     pub(super) fn of(run: Option<&Resolved>) -> Self {
         match run
-            .map(|run| run.value(EXTRACTION_REMOVAL_SHARE.name))
+            .map(|run| run.value(&EXTRACTION_REMOVAL_SHARE))
             .and_then(Value::as_str)
         {
             Some("exact") => Self::Exact,
@@ -161,7 +161,7 @@ pub(super) fn extractor(
         .or(label)
         .or_else(|| named(session))
         .or_else(|| {
-            run.map(|run| run.value(CONTENT_EXTRACTOR.name))
+            run.map(|run| run.value(&CONTENT_EXTRACTOR))
                 .and_then(Value::as_str)
                 .and_then(BuiltIn::named)
         })

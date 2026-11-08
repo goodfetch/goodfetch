@@ -30,7 +30,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Keys, Waiting};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::mask::Masks;
-use goodfetch_engine::run_state::RunStateTables;
+use goodfetch_engine::run_state::{RunStateTables, run_row};
 use goodfetch_frontier::{Candidate, Declared, Scope, Url, payload, sitemap, trap_links};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{CrawlRequest, Seed};
@@ -624,6 +624,21 @@ pub(crate) fn pending_of(connection: &Connection, label: &str) -> rusqlite::Resu
         .collect()
 }
 
+/// The URL of the crawl request `id`, as its work item holds it; `None`
+/// for an ID no work item has. The reader other crates read the
+/// `work_items` table through, such as a Dataset's rejection table for each
+/// entry's URL.
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub fn url_of(connection: &Connection, id: &str) -> rusqlite::Result<Option<String>> {
+    connection
+        .prepare_cached("SELECT url FROM work_items WHERE id = ?1")
+        .and_then(|mut cached| cached.query_row([id], |row| row.get(0)))
+        .optional()
+}
+
 /// The URL and depth of the work item `id` while its attempt under
 /// `lease_epoch` holds its lease; `None` once that attempt ended.
 pub(crate) fn attempt(
@@ -895,16 +910,10 @@ fn commit_records(
     ended_at: &PointInTime,
     work: &CountedWork,
 ) -> rusqlite::Result<Vec<DatasetRecords>> {
-    let url: String = connection
-        .prepare_cached("SELECT url FROM work_items WHERE id = ?1")
-        .and_then(|mut cached| cached.query_row([id], |row| row.get(0)))?;
+    let url = url_of(connection, id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
     // The Run's constant digest, read again at each commit.
     work.count(Row::RecordConstantLookups);
-    let clean_up_rules: Option<String> = connection
-        .prepare_cached("SELECT clean_up_digest FROM run")
-        .and_then(|mut cached| cached.query_row([], |row| row.get(0)))
-        .optional()?
-        .flatten();
+    let clean_up_rules = run_row::clean_up_digest(connection)?;
     let provenance = RecordProvenance {
         request_id: id.to_owned(),
         tier: fetched.tier.clone(),

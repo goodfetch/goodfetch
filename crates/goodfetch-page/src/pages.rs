@@ -1067,7 +1067,7 @@ impl Pages {
                 .settings()
                 .is_some_and(|settings| settings.resolved().recipe_run()),
             // No engine serves accounts before area 12's: a person's own
-            // engine serves the program's own code alone (`runs::CALLER`).
+            // engine serves the program's own code alone (`engine_context::CALLER`).
             accounts: false,
         };
         if let Destination::Url(url) = destination

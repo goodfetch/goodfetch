@@ -31,6 +31,9 @@
 //! answer; a second one, or one during a call that cannot be cancelled,
 //! ends the command at once (ADRs 0069, 0080 and 0093).
 //!
+//! The `daemon` commands open their Connections with the same `Link` and
+//! `hello`, listening for no interrupt, so `SIGINT` keeps its default.
+//!
 //! Size: one concern, a command's Link to its engine: the choice of
 //! engine, `hello`, and the one call loop that interleaves the call's
 //! answers, its credits, the stream it sends and the interrupts, kept
@@ -42,9 +45,9 @@
 
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::transport::{self, Connection, ConnectionReader, ConnectionWriter, Network};
-use goodfetch_engine::{Dependencies, Engine};
+use goodfetch_engine::{Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::ErrorGroup;
-use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
+use goodfetch_protocol::catalog::{Operation, PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{
     CANCEL, CONNECTION_LOST, CancelParams, HELLO, HelloParams, NOT_IN_PRODUCT,
     PROTOCOL_VERSION_UNSUPPORTED, Surface,
@@ -61,7 +64,7 @@ use serde_json::{Map, Value};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
 use tokio::sync::mpsc;
 
-use crate::exit_codes;
+use super::exit_codes;
 
 /// The id of `hello`.
 const HELLO_ID: i64 = 0;
@@ -94,6 +97,10 @@ pub enum Choice {
 // A hand-written command's `--attached` and `--daemon`, as every generated
 // command takes them. Plain comments: a doc comment would become the help
 // of every command that flattens it.
+#[expect(
+    missing_docs,
+    reason = "a doc comment would become the help of every command that flattens it"
+)]
 #[derive(Clone, Copy, Debug, Default, clap::Args)]
 pub struct EngineFlags {
     /// Runs the call on an Attached engine in this process, even when a
@@ -140,8 +147,8 @@ pub struct Reached {
     pub remote: bool,
 }
 
-/// The executable's side of its major's Daemon, which this crate cannot
-/// know (ADRs 0024 and 0098): where it runs, which executable starts as
+/// The executable's side of its major's Daemon, which a command's call
+/// does not know (ADRs 0024 and 0098): where it runs, which executable starts as
 /// it, and how this executable restarts it.
 pub trait Daemons {
     /// The Daemon a command reaches: the remote one `GOODFETCH_URL` names;
@@ -192,6 +199,20 @@ pub struct EngineChoice<'a> {
     pub daemons: &'a dyn Daemons,
     /// Prints a warning, such as the refusal a command falls back from.
     pub warn: &'a dyn Fn(&str),
+}
+
+impl<'a> EngineChoice<'a> {
+    /// The engine of a command whose value does not outlive it, as
+    /// `choice` chooses: the Daemon when one runs or `--daemon` is given,
+    /// else an Attached engine; refusals warned of through `warn`.
+    pub fn passing(choice: Choice, daemons: &'a dyn Daemons, warn: &'a dyn Fn(&str)) -> Self {
+        Self {
+            choice,
+            lifetime: Lifetime::Passing,
+            daemons,
+            warn,
+        }
+    }
 }
 
 /// Receives each notification a followed call sends, by its method and
@@ -339,6 +360,21 @@ pub struct CommandCall<'a> {
     pub stopper: Option<Stopper<'a>>,
 }
 
+impl<'a> CommandCall<'a> {
+    /// The one call of `operation` with `params`, which nothing follows.
+    pub fn of(operation: &'a Operation, params: Value) -> Self {
+        Self {
+            method: operation.name,
+            params,
+            cancellable: operation.cancellable,
+            follower: None,
+            pager: None,
+            input: None,
+            stopper: None,
+        }
+    }
+}
+
 /// How a call ended.
 pub enum Answer {
     /// Its result.
@@ -357,6 +393,32 @@ pub enum Answer {
     Unanswered(ErrorObject),
     /// The command was interrupted, or sent `SIGTERM`, and its call
     /// cancelled when it could be.
+    Interrupted(Interrupt),
+}
+
+impl Answer {
+    /// Its result, or how the call failed.
+    pub fn into_result(self) -> Result<Value, Failed> {
+        match self {
+            Self::Result(value) => Ok(value),
+            Self::Error(error) => Err(Failed::Error(error)),
+            Self::Refused(error) => Err(Failed::Refused(error)),
+            Self::Unanswered(error) => Err(Failed::Unanswered(error)),
+            Self::Interrupted(interrupt) => Err(Failed::Interrupted(interrupt)),
+        }
+    }
+}
+
+/// How a call that answered no result failed, as [`Answer`] says it.
+pub enum Failed {
+    /// The engine's error, or its refusal of `hello`.
+    Error(ErrorObject),
+    /// Under `--daemon`, the Daemon's refusal of `hello` by Product or by
+    /// protocol version.
+    Refused(ErrorObject),
+    /// No call was made, for the reason its Error code says.
+    Unanswered(ErrorObject),
+    /// The command was interrupted, or sent `SIGTERM`.
     Interrupted(Interrupt),
 }
 
@@ -409,15 +471,12 @@ pub fn call(
             Ok(None) => return call_attached(engine, dependencies, needs, call),
             Err(problem) => return Answer::Unanswered(problem),
         };
-        let hello = HelloParams {
-            token: Some(found.token.expose().to_owned()),
-            ..hello(engine, needs)
-        };
-        match runtime.block_on(Link::open(&found.endpoint, &hello)) {
+        let hello = hello(engine.identity(), needs, Some(&found.token));
+        match runtime.block_on(Link::open(&found.endpoint, &hello, Interrupts::listening)) {
             Ok(mut link) => {
                 let answer = runtime.block_on(async {
                     let answer = link.call(call).await;
-                    let _ = link.writer.shutdown().await;
+                    link.close().await;
                     answer
                 });
                 end(runtime, reads);
@@ -534,7 +593,7 @@ pub fn call_attached(
 ) -> Answer {
     let reads = call.reads();
     let runtime = runtime();
-    let hello = hello(engine, needs);
+    let hello = hello(engine.identity(), needs, None);
     let (network, dialer) = transport::in_memory();
     let answer = runtime.block_on(async {
         let client = async {
@@ -594,16 +653,21 @@ impl CommandCall<'_> {
     }
 }
 
-/// The `hello` of a command of `engine`'s executable that needs `needs`,
-/// with no token.
-fn hello(engine: &Engine, needs: Product) -> HelloParams {
+/// The `hello` of a Client of the executable `identity` names that needs
+/// `needs`, carrying `token`, the Daemon's, which an Attached engine takes
+/// none of.
+pub(crate) fn hello(
+    identity: &Identity,
+    needs: Product,
+    token: Option<&DaemonToken>,
+) -> HelloParams {
     HelloParams {
         protocol_version: PROTOCOL_VERSION,
         surface: Surface::Cli,
         form: None,
-        token: None,
+        token: token.map(|token| token.expose().to_owned()),
         needs: Some(needs),
-        product_version: engine.identity().product_version.clone(),
+        product_version: identity.product_version.clone(),
         log_level: None,
         client_surface: None,
         keep_daemon_alive: false,
@@ -637,14 +701,14 @@ pub fn connection_lost(endpoint: &DaemonEndpoint, method: &str) -> ErrorObject {
 /// Opens `connection` with `hello`, then makes the one call, and closes
 /// the Connection once it is answered, which stops the Attached engine.
 async fn exchange(connection: Connection, hello: &HelloParams, call: CommandCall<'_>) -> Answer {
-    let mut link = Link::of(connection);
+    let mut link = Link::of(connection, Interrupts::listening());
     let answer = match link.hello(hello).await {
         Ok(()) => link.call(call).await,
         Err(Opening::Interrupted(interrupt)) => Answer::Interrupted(interrupt),
         Err(Opening::Refused(error) | Opening::HandOver(error)) => Answer::Error(error),
         Err(Opening::Gone | Opening::Unreachable) => closed(HELLO),
     };
-    let _ = link.writer.shutdown().await;
+    link.close().await;
     // The call was made: an Attached engine that ended it unanswered fails
     // it, as a bug does.
     match answer {
@@ -654,7 +718,7 @@ async fn exchange(connection: Connection, hello: &HelloParams, call: CommandCall
 }
 
 /// Why opening a Connection with `hello` failed.
-enum Opening {
+pub(crate) enum Opening {
     /// Nothing answered at the endpoint.
     Unreachable,
     /// The engine closed the Connection before it answered.
@@ -667,41 +731,86 @@ enum Opening {
     Interrupted(Interrupt),
 }
 
-/// The Client's end of the Connection.
-struct Link {
+/// The Client's end of the Connection: the one Daemon client, which a
+/// generated command and the `daemon` commands both open.
+pub(crate) struct Link {
     lines: Lines<BufReader<ConnectionReader>>,
     writer: ConnectionWriter,
     /// The operation of the call in flight, or last made.
     method: String,
     /// The signals that interrupt the command, listened for from the
-    /// Connection's opening to its end.
+    /// Connection's opening to its end; none for a Link that leaves them
+    /// to their default, as a `daemon` command's does.
     interrupts: Interrupts,
 }
 
 impl Link {
-    /// The Client's end of `connection`; called on the command's runtime,
-    /// where it starts listening for interrupts.
-    fn of(connection: Connection) -> Self {
+    /// The Client's end of `connection`, listening for `interrupts`; called
+    /// on the command's runtime.
+    fn of(connection: Connection, interrupts: Interrupts) -> Self {
         let (reader, writer) = connection.split();
         Self {
             lines: BufReader::new(reader).lines(),
             writer,
             method: HELLO.to_owned(),
-            interrupts: Interrupts::new(),
+            interrupts,
         }
     }
 
-    /// A Connection to the Daemon at `endpoint`, opened with `hello`.
-    async fn open(endpoint: &DaemonEndpoint, hello: &HelloParams) -> Result<Self, Opening> {
+    /// A Connection to the Daemon at `endpoint`, opened with `hello`; once
+    /// connected, it listens for the interrupts `interrupts` gives, on the
+    /// command's runtime.
+    pub(crate) async fn open(
+        endpoint: &DaemonEndpoint,
+        hello: &HelloParams,
+        interrupts: fn() -> Interrupts,
+    ) -> Result<Self, Opening> {
         let connection = transport::connect_daemon(endpoint)
             .await
             .map_err(|_| Opening::Unreachable)?;
-        let mut link = Self::of(connection);
+        let mut link = Self::of(connection, interrupts());
         match link.hello(hello).await {
             Ok(()) => Ok(link),
             Err(failure) => {
-                let _ = link.writer.shutdown().await;
+                link.close().await;
                 Err(failure)
+            }
+        }
+    }
+
+    /// Closes the Connection.
+    pub(crate) async fn close(&mut self) {
+        let _ = self.writer.shutdown().await;
+    }
+
+    /// Calls `method` with `params` as the call `id`, and reads its reply:
+    /// its result, its error, or `None` once the engine closed the
+    /// Connection. An error whose id is null, the engine's answer to a
+    /// message it could not read, is its reply, as it is to a command's
+    /// call; events and other replies are not.
+    pub(crate) async fn request(
+        &mut self,
+        id: i64,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, Option<ErrorObject>> {
+        method.clone_into(&mut self.method);
+        if !self.send(&request(id, method, params)).await {
+            return Err(None);
+        }
+        let id = RequestId::Number(id);
+        loop {
+            match next(&mut self.lines).await {
+                None => return Err(None),
+                Some(Message::Response(response)) if response.id == id => {
+                    return Ok(response.result);
+                }
+                Some(Message::Error(failure))
+                    if failure.id.is_none() || failure.id.as_ref() == Some(&id) =>
+                {
+                    return Err(Some(failure.error));
+                }
+                Some(_) => {}
             }
         }
     }
@@ -984,7 +1093,7 @@ fn record_wire(direction: &str, line: &[u8]) {
 /// from its creation on, so one that arrives while the command handles the
 /// last, such as a second interrupt while a stop is sent, waits for the
 /// next look; a signal the CLI cannot listen for never arrives.
-struct Interrupts {
+pub(crate) struct Interrupts {
     #[cfg(unix)]
     interrupt: Option<tokio::signal::unix::Signal>,
     #[cfg(unix)]
@@ -998,9 +1107,24 @@ struct Interrupts {
 }
 
 impl Interrupts {
+    /// None: the signals keep their default, which ends the process, as
+    /// they do for a `daemon` command, which installs no listener.
+    pub(crate) fn none() -> Self {
+        Self {
+            #[cfg(unix)]
+            interrupt: None,
+            #[cfg(unix)]
+            terminate: None,
+            #[cfg(windows)]
+            ctrl_c: None,
+            #[cfg(windows)]
+            ctrl_break: None,
+        }
+    }
+
     /// Listens for them; called on the command's runtime.
     #[cfg(unix)]
-    fn new() -> Self {
+    fn listening() -> Self {
         use tokio::signal::unix::{SignalKind, signal};
         Self {
             interrupt: signal(SignalKind::interrupt()).ok(),
@@ -1010,7 +1134,7 @@ impl Interrupts {
 
     /// Listens for them; called on the command's runtime.
     #[cfg(windows)]
-    fn new() -> Self {
+    fn listening() -> Self {
         Self {
             ctrl_c: tokio::signal::windows::ctrl_c().ok(),
             ctrl_break: tokio::signal::windows::ctrl_break().ok(),

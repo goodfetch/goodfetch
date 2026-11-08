@@ -13,9 +13,8 @@ use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails}
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 
+use crate::call_error::CallError;
 use crate::clock::Clock;
-use crate::composition::CallError;
-use crate::runs::Run;
 use crate::settings::Resolved;
 
 /// A timeout's deadline, as its setting resolved.
@@ -29,7 +28,7 @@ impl Deadline {
     /// The deadline `settings` give the timeout `setting`; `None` when it is
     /// unset or no duration.
     pub fn of(settings: &Resolved, setting: &Setting) -> Option<Self> {
-        let effective = settings.get(setting.name)?;
+        let effective = settings.effective(setting)?;
         let duration = Duration::from_millis(effective.value.as_u64()?);
         Some(Self {
             limit: SettingLimit {
@@ -70,11 +69,13 @@ impl Deadline {
         Self::given(setting, millis, SettingsLayer::Default)
     }
 
-    /// The deadline `run` waits under for the timeout `setting`: as its
-    /// settings resolve it, else the setting's declared default.
-    pub fn of_run(run: &Run, setting: &Setting) -> Self {
-        run.settings()
-            .and_then(|settings| Self::of(settings.resolved(), setting))
+    /// The deadline a Run whose settings resolved as `settings` waits
+    /// under for the timeout `setting`: as they resolve it, else the
+    /// setting's declared default, as for a Run whose settings resolved
+    /// none.
+    pub fn of_resolved(settings: Option<&Resolved>, setting: &Setting) -> Self {
+        settings
+            .and_then(|settings| Self::of(settings, setting))
             .unwrap_or_else(|| Self::declared(setting))
     }
 

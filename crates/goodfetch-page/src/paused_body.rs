@@ -5,24 +5,17 @@
 
 use std::collections::BTreeMap;
 
-use data_encoding::BASE64;
 use goodfetch_cdp::generated::{fetch, io};
 use goodfetch_engine::CallError;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_protocol::page::{RESPONSE_TRUNCATED, ResponseTruncatedDetails};
 
 use crate::driver::PageDriver;
+use crate::driver::cdp_response::{bytes_of, coded, declared_length};
 
 /// The bytes the browser reads in one `IO.read` of a body's stream: their
 /// Base64 stays far below what a CDP message carries.
 const STREAM_CHUNK: i64 = 1024 * 1024;
-
-/// Whether `headers`, by lower-cased name, list a content coding.
-pub(crate) fn coded(headers: &BTreeMap<String, String>) -> bool {
-    headers
-        .get("content-encoding")
-        .is_some_and(|coding| !coding.trim().eq_ignore_ascii_case("identity"))
-}
 
 /// Refuses the body of `url`, whose response has `headers` by lower-cased
 /// name, when its `Content-Length` declares it past `network.max_body_size`
@@ -37,10 +30,7 @@ pub(crate) fn declared_within_limits(
     headers: &BTreeMap<String, String>,
     limits: &Limits,
 ) -> Result<(), CallError> {
-    let declared = headers
-        .get("content-length")
-        .and_then(|length| length.trim().parse::<u64>().ok());
-    match declared {
+    match declared_length(headers) {
         Some(length) if !coded(headers) => limits
             .judge_decoded(url, length, None)
             .map_err(|exceeded| exceeded.error()),
@@ -100,16 +90,12 @@ pub(crate) async fn streamed(
                 break Err(broke_off(url, &bytes, declared));
             }
         };
-        if chunk.base64_encoded == Some(true) {
-            match BASE64.decode(chunk.data.as_bytes()) {
-                Ok(decoded) => bytes.extend_from_slice(&decoded),
-                Err(error) => {
-                    tracing::warn!(%error, "the browser gave a body's chunk in Base64 that does not decode");
-                    break Err(broke_off(url, &bytes, declared));
-                }
+        match bytes_of(chunk.data, chunk.base64_encoded == Some(true)) {
+            Ok(decoded) => bytes.extend_from_slice(&decoded),
+            Err(error) => {
+                tracing::warn!(%error, "the browser gave a body's chunk in Base64 that does not decode");
+                break Err(broke_off(url, &bytes, declared));
             }
-        } else {
-            bytes.extend_from_slice(chunk.data.as_bytes());
         }
         let decoded = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
         if let Err(exceeded) = limits.judge_decoded(url, decoded, declared) {

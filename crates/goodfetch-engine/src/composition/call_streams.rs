@@ -18,7 +18,7 @@ use tokio::io::AsyncReadExt as _;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::CallError;
+use crate::call_error::CallError;
 use crate::events::Credits;
 
 /// The way back to a call's Client: the notifications that name the call,

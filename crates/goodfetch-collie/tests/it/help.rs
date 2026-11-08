@@ -3,7 +3,7 @@
 //! English (ADRs 0069 and 0073): the help a person reads is the command
 //! tree the binary runs.
 
-use goodfetch_collie::executable::command;
+use goodfetch_collie::executable::{OwnCommands, command};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::{TestEnv, cli};
 use rstest::rstest;
@@ -16,7 +16,7 @@ fn rendered(path: &[&str]) -> String {
     let arguments = std::iter::once("goodfetch-collie")
         .chain(path.iter().copied())
         .chain(std::iter::once("--help"));
-    command(Product::Collie)
+    command(Product::Collie, OwnCommands::COLLIE)
         .version(env!("CARGO_PKG_VERSION"))
         .try_get_matches_from(arguments)
         .unwrap_err()

@@ -10,6 +10,9 @@
 //! Also the one translation of a start's, a Run's
 //! or a setting's failure into its Error code, which a Product's own start,
 //! such as Foxhound's `crawl.start`, answers with too.
+//!
+//! Size: one concern, the `run.*` handlers over the Run registry, a few
+//! lines each, and the one failure translation they all answer through.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -60,7 +63,8 @@ use goodfetch_protocol::settings::{
     SettingUnknownDetails, SettingsLayer, TIMEOUT_CLOSE, TIMEOUT_RUN,
 };
 
-use crate::composition::{CallContext, CallError, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
 use crate::runs::{
@@ -93,7 +97,7 @@ pub(crate) fn handlers() -> [Handler; 14] {
 /// How often a Run whose settings resolved as `resolved` writes a
 /// Checkpoint, from `checkpoint.interval`.
 pub fn checkpoint_interval(resolved: &Resolved) -> Option<std::time::Duration> {
-    resolved.duration(CHECKPOINT_INTERVAL.name)
+    resolved.get(&CHECKPOINT_INTERVAL)
 }
 
 /// The refusal of a file of `format` at the version `found`, which this
@@ -776,7 +780,7 @@ fn key_mismatch(run_id: RunId, reference: &SecretReference, wrapped_by: String) 
 async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
     let (settings, _) = context
-        .runs()
+        .engine()
         .settings()
         .open(Opening {
             run: Some(Product::Collie),
@@ -803,7 +807,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             binding: None,
             clean_up_digest: None,
             checkpoint_interval: checkpoint_interval(settings.resolved()),
-            timeout: settings.resolved().duration(TIMEOUT_RUN.name),
+            timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
         })
         .await
@@ -824,7 +828,7 @@ async fn finish(params: RunWaitParams, context: CallContext) -> Result<RunReport
     let report = match params.timeout {
         Some(millis) => {
             Deadline::given(&TIMEOUT_RUN, millis, SettingsLayer::Run)
-                .within(&context.runs().clock(), "Run's end", finishing)
+                .within(&context.engine().clock(), "Run's end", finishing)
                 .await?
         }
         None => finishing.await,
@@ -846,7 +850,7 @@ async fn stop(params: RunWaitParams, context: CallContext) -> Result<RunReport, 
         None => close_deadline(&context, &params.run_id).await,
     };
     let report = deadline
-        .within(&context.runs().clock(), "Run's next safe point", stopping)
+        .within(&context.engine().clock(), "Run's next safe point", stopping)
         .await?;
     ending(report.map_err(|error| run_error_of(error, context.identity(), RUN_STOP.name))?)
 }
@@ -943,7 +947,7 @@ async fn migrate(
 
 async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStarted, CallError> {
     let (settings, _) = context
-        .runs()
+        .engine()
         .settings()
         .open(Opening {
             run: None,
@@ -961,7 +965,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             run_id: params.run_id,
             checkpoint: params.checkpoint.map(PathBuf::from),
             checkpoint_interval: checkpoint_interval(settings.resolved()),
-            timeout: settings.resolved().duration(TIMEOUT_RUN.name),
+            timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
             retry_failed: false,
         })

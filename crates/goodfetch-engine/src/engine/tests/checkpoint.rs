@@ -32,7 +32,8 @@ use sha2::{Digest as _, Sha256};
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 
 use super::{Client, attached_on, dependencies, engine_with, hello, pretty};
-use crate::composition::{CallContext, CallError, Contribution, Handler};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Engine;
 use crate::run::format_refusal;
 use crate::run_state::RunStateTables;

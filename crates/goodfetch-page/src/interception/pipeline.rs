@@ -50,9 +50,9 @@ use super::routes::Route;
 use super::steps::{self, Blocking, Overrides, Stopped, entries};
 use super::{PageState, lock};
 use crate::borrowed::Lookups;
-use crate::driver::PageDriver;
+use crate::driver::{PageDriver, cdp_response};
 use crate::errors::{site_preferences_failure, site_preferences_refused};
-use crate::page_events::{self, Refusals, is_navigation, post_data, resource_type};
+use crate::page_events::{Refusals, is_navigation, post_data, resource_type};
 use crate::page_value::{
     DocumentResponse, Navigation, NavigationKind, Permit, ReadDocument, Reader, Reading, Refusal,
     SiteResponse,
@@ -363,7 +363,7 @@ impl Held {
     /// with `masks` as the page's events mask it.
     fn view(&self, masks: &Masks) -> RouteRequest {
         let headers = self.overrides.headers.clone().unwrap_or_else(|| {
-            let mut headers = page_events::headers(&self.paused.request.headers);
+            let mut headers = cdp_response::headers(&self.paused.request.headers);
             headers.remove(COOKIE);
             headers
         });
@@ -640,10 +640,7 @@ impl PageContext {
                     Some(paused) => {
                         // The gate judges a main-frame document before the
                         // route gets it.
-                        let status = paused
-                            .response_status_code
-                            .and_then(|status| u16::try_from(status).ok())
-                            .unwrap_or_default();
+                        let status = cdp_response::paused_status(&paused);
                         // A document the gate judges is read whole, as the
                         // gate reads it, and goes on as it came; one whose
                         // gate reads no body is read as the route reads it.
@@ -706,12 +703,8 @@ impl PageContext {
         paused: &fetch::RequestPausedEvent,
         read: Option<Vec<u8>>,
     ) -> (Result<Reply, CallError>, Taken) {
-        let headers: BTreeMap<String, String> = paused
-            .response_headers
-            .iter()
-            .flatten()
-            .map(|header| (header.name.to_ascii_lowercase(), header.value.clone()))
-            .collect();
+        let headers =
+            cdp_response::paused_headers(paused.response_headers.as_deref().unwrap_or_default());
         let limits = self
             .run
             .settings()
@@ -720,13 +713,8 @@ impl PageContext {
         if let Err(refused) = paused_body::declared_within_limits(url, &headers, &limits) {
             return (Err(refused), Taken::Nothing);
         }
-        let declared = headers
-            .get("content-length")
-            .and_then(|length| length.trim().parse::<u64>().ok());
-        let status = paused
-            .response_status_code
-            .and_then(|status| u16::try_from(status).ok())
-            .unwrap_or_default();
+        let declared = cdp_response::declared_length(&headers);
+        let status = cdp_response::paused_status(paused);
         let (read, streamed) = match read {
             Some(read) => {
                 let decoded = u64::try_from(read.len()).unwrap_or(u64::MAX);
@@ -1183,7 +1171,7 @@ impl PageContext {
             proxy.refusal(
                 &document,
                 proxy::Answer::Failure {
-                    error: &failed.error_text,
+                    error: &NetError::of(&failed.error_text),
                 },
                 None,
             )
@@ -1394,10 +1382,7 @@ impl PageContext {
         let carried = lock(&self.carried)
             .remove(&paused.request_id)
             .and_then(|page| page.upgrade());
-        let status = paused
-            .response_status_code
-            .and_then(|status| u16::try_from(status).ok())
-            .unwrap_or_default();
+        let status = cdp_response::paused_status(paused);
         if document {
             self.proxy_answered(paused, status).await;
         }
@@ -1450,12 +1435,9 @@ impl PageContext {
         let Some(page_id) = self.sender.page_id() else {
             return;
         };
-        let headers: Vec<(String, String)> = paused
-            .response_headers
-            .iter()
-            .flatten()
-            .map(|header| (header.name.to_ascii_lowercase(), header.value.clone()))
-            .collect();
+        let headers = cdp_response::paused_header_list(
+            paused.response_headers.as_deref().unwrap_or_default(),
+        );
         let request_id = paused.network_id.clone().unwrap_or_default();
         let document = ReadDocument {
             page_id,
@@ -1572,12 +1554,9 @@ impl PageContext {
                 &read
             }
         };
-        let headers: Vec<(String, String)> = paused
-            .response_headers
-            .iter()
-            .flatten()
-            .map(|header| (header.name.to_ascii_lowercase(), header.value.clone()))
-            .collect();
+        let headers = cdp_response::paused_header_list(
+            paused.response_headers.as_deref().unwrap_or_default(),
+        );
         let response = DocumentResponse {
             url: &paused.request.url,
             status,
@@ -1616,29 +1595,12 @@ impl PageContext {
     }
 
     /// The body of the response paused at `id`, after any content coding;
-    /// empty, and logged why, when the browser gives none or one that does
-    /// not decode.
+    /// empty, and logged why, when the browser gives none, one past what a
+    /// message carries, or one that does not decode.
     async fn body(&self, id: &fetch::RequestId) -> Vec<u8> {
-        let read = match self
-            .driver
-            .command(&fetch::GetResponseBodyParams {
-                request_id: id.clone(),
-            })
+        cdp_response::whole_body(&self.driver, id)
             .await
-        {
-            Ok(read) => read,
-            Err(failure) => {
-                tracing::debug!(%failure, "the browser gave no body of a paused response");
-                return Vec::new();
-            }
-        };
-        if !read.base64_encoded {
-            return read.body.into_bytes();
-        }
-        BASE64.decode(read.body.as_bytes()).unwrap_or_else(|error| {
-            tracing::warn!(%error, "the browser gave a paused response's body in Base64 that does not decode");
-            Vec::new()
-        })
+            .unwrap_or_default()
     }
 
     /// Fails `held`, which step 4 blocked, as `BlockedByClient`, as a

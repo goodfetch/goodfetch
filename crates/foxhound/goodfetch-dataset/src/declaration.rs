@@ -13,7 +13,8 @@
 //! names each issue by its path, a JSON Pointer into the Record. Each
 //! schema's validator is built once, with the Datasets, as the crawl starts
 //! or resumes, and a Record's check builds none (ADR 0138); a reader of its
-//! Records takes the declarations alone, building none.
+//! Records takes the declarations alone, building none, and a run file no
+//! crawl wrote declares none.
 
 use std::sync::Arc;
 
@@ -33,6 +34,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::records::Checked;
 use crate::rejections::{Rejection, Why};
+use crate::run_tables::DATASETS_TABLE;
 
 /// A pushed Record the check refused: the error `crawl_request.push`
 /// answers, and what to stage in the Record's place, its rejection when
@@ -363,12 +365,16 @@ pub struct Declarations(Vec<DatasetDeclaration>);
 
 impl Declarations {
     /// The declarations the run file `connection` holds; a row that no
-    /// longer reads is left out.
+    /// longer reads is left out, and a run file no crawl wrote, which holds
+    /// no Dataset's table, declares none.
     ///
     /// # Errors
     ///
     /// The run file's, when the rows cannot be read.
     pub fn read(connection: &Connection) -> rusqlite::Result<Self> {
+        if !DATASETS_TABLE.held_by(connection)? {
+            return Ok(Self::default());
+        }
         let mut select = connection
             .prepare_cached("SELECT name, schema, key FROM datasets ORDER BY position")?;
         let rows = select.query_map([], |row| {

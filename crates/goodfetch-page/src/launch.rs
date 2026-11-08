@@ -31,7 +31,7 @@ use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::sandbox_probe::{self, Probed};
-use goodfetch_engine::settings::{Resolved, RunSettings};
+use goodfetch_engine::settings::{Resolved, RunSettings, get_or_default};
 use goodfetch_engine::transport;
 use goodfetch_protocol::browser_cache::{
     BROWSER_NOT_INSTALLED, BrowserNotInstalledDetails, MissingBrowser,
@@ -211,9 +211,7 @@ pub(crate) async fn launch(
     let settings = run.settings().map(RunSettings::resolved);
     // Chromium's sandbox stays on unless switched off; where the startup
     // probe refused it, no browser starts (ADR 0049).
-    let sandbox = settings
-        .and_then(|settings| settings.boolean(SECURITY_BROWSER_SANDBOX.name))
-        .unwrap_or(true);
+    let sandbox = get_or_default(settings, &SECURITY_BROWSER_SANDBOX);
     let probed = if sandbox {
         Some(run.owner().blocking(sandbox_probe::probed).await)
     } else {
@@ -227,9 +225,7 @@ pub(crate) async fn launch(
     write_preferences(run, &data_folder)
         .await
         .map_err(|error| launch_failed(&executable, None, &error.to_string()))?;
-    let headless = settings
-        .and_then(|settings| settings.boolean(BROWSER_HEADLESS.name))
-        .unwrap_or(true);
+    let headless = get_or_default(settings, &BROWSER_HEADLESS);
     let (arguments, environment) = command_line(
         run,
         settings,
@@ -328,14 +324,12 @@ async fn command_line(
     relay_authority: Option<&str>,
 ) -> (Vec<String>, &'static [(&'static str, &'static str)]) {
     let resolve = settings
-        .map(|settings| settings.hosts(NETWORK_RESOLVE.name))
+        .map(|settings| settings.hosts(&NETWORK_RESOLVE))
         .unwrap_or_default();
     // A policy that is no policy opens no page anyway (`setting_invalid`).
     // Behind the egress relay, which every Session's context takes as its
     // proxy, the relay holds what the script would.
-    let relayed = settings
-        .and_then(|settings| settings.boolean(SECURITY_RAW_CDP_EGRESS_PROXY.name))
-        .unwrap_or(true);
+    let relayed: bool = get_or_default(settings, &SECURITY_RAW_CDP_EGRESS_PROXY);
     let proxy_script = settings
         .filter(|_| !relayed)
         .and_then(|settings| Policy::of(settings).ok())
@@ -467,7 +461,7 @@ async fn supervise(supervised: Supervised) {
         mut child,
         _group: group,
     } = process;
-    let close = Deadline::of_run(&run, &TIMEOUT_CLOSE);
+    let close = Deadline::of_resolved(run.settings().map(RunSettings::resolved), &TIMEOUT_CLOSE);
     let clock = run.clock();
     let (_, status) = tokio::join!(driver, async {
         let status = tokio::select! {

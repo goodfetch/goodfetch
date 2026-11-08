@@ -73,7 +73,7 @@ pub(super) fn arm(
             .document
             .run
             .settings()
-            .and_then(|settings| settings.resolved().duration(TIMEOUT_WAIT.name)),
+            .map(|settings| settings.resolved().get::<Duration>(&TIMEOUT_WAIT)),
     };
     let clock = page.document.run.clock();
     let tiers = tiers.clone();

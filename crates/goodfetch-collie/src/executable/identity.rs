@@ -7,9 +7,9 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::process::ExitCode;
 
+use super::output::{self, ColourChoice, Human};
+use super::{exit_codes, other_product};
 use clap::ValueEnum;
-use goodfetch_cli::output::{self, ColourChoice, Human};
-use goodfetch_cli::{exit_codes, other_product};
 use goodfetch_engine::CallError;
 use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::settings::{SettingsError, check_environment, deployment_variable};

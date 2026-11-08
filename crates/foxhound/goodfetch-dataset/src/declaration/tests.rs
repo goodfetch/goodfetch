@@ -1,9 +1,10 @@
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::foxhound::crawl::PushedRecord;
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
+use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use super::Datasets;
+use super::{Datasets, Declarations};
 
 /// The Datasets of a crawl declaring `books`, under a schema requiring
 /// `title`, and `free`, under none.
@@ -74,4 +75,23 @@ fn a_refused_push_validates_its_record_once() {
 
     assert!(refused.is_err());
     assert_eq!(counted(&work), (0, 1));
+}
+
+/// A run file no crawl wrote holds no Dataset's table, so it declares no
+/// Dataset (as `dataset.list` answers), and a read of any Dataset in it
+/// is refused with `dataset_unknown`, not as a Run whose state cannot be
+/// read.
+#[test]
+fn a_run_file_no_crawl_wrote_declares_no_dataset() {
+    let unwritten = Connection::open_in_memory().unwrap();
+
+    let declared = Declarations::read(&unwritten).unwrap();
+
+    assert_eq!(
+        (
+            declared.declarations().len(),
+            declared.readable("books").unwrap_err().code()
+        ),
+        (0, "dataset_unknown")
+    );
 }

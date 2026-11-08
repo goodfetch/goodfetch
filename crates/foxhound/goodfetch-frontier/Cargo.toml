@@ -16,6 +16,7 @@ data-encoding.workspace = true
 encoding_rs.workspace = true
 goodfetch-counted-work.workspace = true
 goodfetch-engine.workspace = true
+goodfetch-cdp.workspace = true
 goodfetch-page.workspace = true
 goodfetch-protocol.workspace = true
 # Each Label's Payload is checked against its JSON Schema at enqueue (ADR

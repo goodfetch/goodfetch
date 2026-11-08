@@ -32,7 +32,7 @@ impl DomainKeys {
     /// `crawl.domain_keys` sets in `settings`.
     pub fn of(settings: &Resolved) -> Self {
         let overrides = settings
-            .value(CRAWL_DOMAIN_KEYS.name)
+            .value(&CRAWL_DOMAIN_KEYS)
             .as_object()
             .into_iter()
             .flatten()

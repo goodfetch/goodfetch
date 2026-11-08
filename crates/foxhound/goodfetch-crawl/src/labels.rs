@@ -69,7 +69,7 @@ impl Fragments {
     pub(crate) fn of(settings: &Resolved, labels: &LabelSettings) -> Self {
         Self {
             run: settings
-                .get(CRAWL_KEEP_URL_FRAGMENT.name)
+                .effective(&CRAWL_KEEP_URL_FRAGMENT)
                 .is_some_and(|effective| effective.value == serde_json::Value::Bool(true)),
             labels: labels
                 .fragments()

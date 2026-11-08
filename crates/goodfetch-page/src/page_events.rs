@@ -231,7 +231,7 @@ impl Table {
     ) -> Option<impl Future<Output = ()> + Send + use<>> {
         let mut arming = lock(&self.0).get(page_id)?.shared.arming.subscribe();
         let on = *arming.borrow_and_update();
-        on.then(|| async move {
+        on.then_some(async move {
             let _ = arming.wait_for(|arming| !*arming).await;
         })
     }

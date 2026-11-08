@@ -44,8 +44,8 @@ fn committed_message() -> Value {
 struct Played(Browser);
 
 impl Connect for Played {
-    async fn connect(&self) -> Result<Browser, CallError> {
-        Ok(self.0.clone())
+    fn connect(&self) -> impl Future<Output = Result<Browser, CallError>> + Send {
+        std::future::ready(Ok(self.0.clone()))
     }
 }
 
@@ -70,7 +70,7 @@ fn a_capture_waits_for_a_watcher_behind_the_browsers_answer() {
         let session_driver = SessionDriver::new(Played(browser.clone()), SessionEgress::default());
         session_driver
             .context
-            .set("context".to_owned().into())
+            .set("context".to_owned())
             .expect("invariant: the driver was just made");
         let captured = Notify::new();
         let (_, (), (), asked) = tokio::join!(

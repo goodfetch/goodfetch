@@ -4,6 +4,10 @@
 //! answer to `Runtime.enable` back. The whole engine runs, over the Borrowed
 //! browser path.
 #![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+#![expect(
     clippy::disallowed_types,
     reason = "the relay and the silent site listen on their own sockets, and the relay dials the test's browser (ADR 0060)"
 )]
@@ -139,10 +143,10 @@ async fn relay(listener: TcpListener, browser: String, hold: Duration) -> Relaye
                 let Some(Ok(message)) = message else {
                     return relayed;
                 };
-                let held = enable.is_some() && matches!(&message, Message::Text(text)
+                let answers_enable = enable.is_some() && matches!(&message, Message::Text(text)
                     if serde_json::from_str::<Value>(text.as_str())
                         .is_ok_and(|answer| Some(&answer["id"]) == enable.as_ref()));
-                if held {
+                if answers_enable {
                     enable = None;
                     unanswered = Some(message);
                     release.as_mut().reset(Instant::now() + hold);

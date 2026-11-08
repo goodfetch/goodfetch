@@ -2,7 +2,8 @@
 //! function of a file's bytes that answers its groups, each with its
 //! `User-agent` lines, its rules and its Crawl-delay, and the file's
 //! Sitemap lines; [`judge`], whether a set of rules lets a crawler request
-//! a URL's [`target`]; and [`location`], the robots.txt of a URL's origin.
+//! a URL's [`target`]; [`matches`], whether one rule's pattern matches a
+//! target; and [`location`], the robots.txt of a URL's origin.
 //!
 //! The parser reads the first [`MAX_SIZE`] bytes, after a UTF-8 byte order
 //! mark, as lines ended by LF, CRLF or CR, each `key: value` with its key
@@ -299,6 +300,18 @@ pub fn judge<'a>(rules: impl IntoIterator<Item = &'a Rule>, target: &str) -> Jud
         Some(rule) if rule.kind == Kind::Disallow => Judgment::Disallowed(rule),
         best => Judgment::Allowed(best),
     }
+}
+
+/// Whether `pattern`, written as an Allow or Disallow rule's pattern,
+/// matches `target`, a URL's path and query as [`target`] gives them, as
+/// [`judge`] matches a rule: from its start, `*` matching any octets and a
+/// final `$` the target's end, both compared as percent-encoded octets. One
+/// pass of at most `pattern.len() * target.len()` steps, so no pattern
+/// makes it slow: other files that state paths as robots.txt does, such as
+/// `TDMRep`'s, match through it.
+pub fn matches(pattern: &str, target: &str) -> bool {
+    let (octets, anchored) = pattern_octets(pattern);
+    wildcard_match(&octets, anchored, &target_octets(target))
 }
 
 /// What robots.txt rules are matched against for `url`: its path and its

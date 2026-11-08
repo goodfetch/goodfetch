@@ -24,6 +24,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use goodfetch_counted_work::ParsedHtml;
+use goodfetch_engine::robots_txt;
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
 use tokio::sync::{Mutex, OnceCell};
@@ -330,36 +331,21 @@ struct TdmRepRule {
 
 /// Whether `TDMRep`'s well-known `file` reserves `url`'s rights against
 /// `purpose`, named: its first rule whose location matches the URL's path
-/// and query decides, as robots.txt targets them, a value other than `1`
-/// or `0` unset; a file that does not
-/// read reserves nothing.
+/// and query decides, a value other than `1` or `0` unset; a file that
+/// does not read reserves nothing. A location matches as a robots.txt
+/// rule's pattern does ([`robots_txt::matches`]): from the path's start,
+/// `*` any characters, a final `$` its end, case-sensitive, in one pass
+/// whatever the site wrote.
 pub fn tdmrep_file_refusing(file: &[u8], url: &Url, purpose: Purpose) -> Option<&'static str> {
     if purpose == Purpose::Search {
         return None;
     }
     let rules: Vec<TdmRepRule> = serde_json::from_slice(file).ok()?;
-    let target = match url.query() {
-        Some(query) => format!("{}?{query}", url.path()),
-        None => url.path().to_owned(),
-    };
+    let target = robots_txt::target(url);
     let rule = rules
         .iter()
-        .find(|rule| location_matches(rule.location.as_bytes(), target.as_bytes()))?;
+        .find(|rule| robots_txt::matches(&rule.location, &target))?;
     (rule.reservation.as_u64() == Some(1)).then_some("TDMRep's `/.well-known/tdmrep.json`")
-}
-
-/// Whether the `TDMRep` location `pattern` matches `path`, as a robots.txt
-/// rule matches: from its start, `*` any characters, a final `$` the
-/// path's end, case-sensitive.
-fn location_matches(pattern: &[u8], path: &[u8]) -> bool {
-    match pattern.split_first() {
-        None => true,
-        Some((b'$', [])) => path.is_empty(),
-        Some((b'*', rest)) => (0..=path.len()).any(|at| location_matches(rest, &path[at..])),
-        Some((first, rest)) => path
-            .split_first()
-            .is_some_and(|(byte, tail)| byte == first && location_matches(rest, tail)),
-    }
 }
 
 /// Whether the RSL `file` refuses `purpose`, named: it does when it holds

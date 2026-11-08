@@ -276,6 +276,10 @@ async fn behind_a_relay<T>(
     hold: Duration,
     program: impl AsyncFnOnce(&mut Client, String, u16) -> T,
 ) -> (Relayed, T) {
+    // The dispatch records go into the test's exercise record (ADR 0072).
+    let clock = Clock::system();
+    let _subscriber =
+        tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || clock.wall()));
     let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
     let profile = env.folder().join("relayed-browser-profile");
     let mut command = env.process_command(chrome_for_testing(&cache));
@@ -385,7 +389,7 @@ enum Behind {
 /// page log is read live, never from the 1,000 messages V8 keeps while
 /// `Runtime` is off; and it does though that `page.on` was cancelled
 /// meanwhile, whose `Runtime.enable` still goes on, once.
-/// Covers: operation:page.on, event:page.console, operation:page.evaluate
+/// Covers: operation:page.on, operation:page.evaluate
 #[rstest]
 #[case::while_it_listens(Behind::TheCall)]
 #[case::once_cancelled(Behind::ACancelThenTheCall)]
@@ -420,7 +424,7 @@ fn a_call_after_a_listener_acts_once_the_browser_answered_runtime_enable(#[case]
 /// on raises `deadline_exceeded` naming that limit, what it waited for being
 /// the browser's answer, and never reaches the page: the limit a program set
 /// is the one that holds.
-/// Covers: operation:page.on, operation:page.evaluate, operation:page.goto, operation:page.wait_for_function, operation:locator.click, operation:locator.wait_for, error:deadline_exceeded
+/// Covers: operation:page.on, error:deadline_exceeded
 #[rstest]
 #[case::evaluate(
     "page.evaluate",
@@ -494,7 +498,7 @@ fn a_calls_limit_holds_while_its_page_turns_runtime_on(
 /// What a call spends waiting for its page's `Runtime` comes off what its work
 /// may take: its deadline passes `LIMIT` after it arrived, not after the
 /// browser answered, and the time it reports counts the wait.
-/// Covers: operation:page.on, operation:page.goto, operation:page.wait_for_function, operation:locator.click, operation:locator.wait_for, error:deadline_exceeded
+/// Covers: operation:page.on, error:deadline_exceeded
 #[rstest]
 #[case::locator_action(
     "locator.click",

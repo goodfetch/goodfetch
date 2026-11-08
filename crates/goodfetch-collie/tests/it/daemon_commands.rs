@@ -9,10 +9,6 @@
     clippy::disallowed_methods,
     reason = "the tests read the Daemon's token files and logs themselves"
 )]
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
 
 use std::fmt::Write as _;
 
@@ -95,7 +91,7 @@ fn each_daemon_command_prints_the_majors_daemon_status() {
 /// anything: a typo in the file leaves the running Daemon serving, which never
 /// needed that file again.
 ///
-/// Covers: story:11-214, command:daemon.restart, error:setting_unknown
+/// Covers: story:11-214, command:daemon.restart
 #[test]
 fn a_restart_on_unreadable_settings_leaves_the_running_daemon_serving() {
     let env = TestEnv::new();

@@ -153,7 +153,7 @@ fn clients_of_the_two_products_alternating_restart_the_daemon_at_most_once() {
 /// too, since a Foxhound of the major counts as installed and its own
 /// executable would still not be the pick (ADR 0098).
 ///
-/// Covers: story:3-5, error:protocol_version_unsupported
+/// Covers: story:3-5
 #[test]
 fn a_refused_collie_client_is_told_to_install_foxhound_while_a_foxhound_is_the_pick() {
     let env = TestEnv::new();

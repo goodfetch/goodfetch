@@ -790,7 +790,7 @@ fn request_log(env: &TestEnv, run_id: &str) -> Vec<Value> {
 /// browser's error as Playwright's `request.failure()` gives it, the
 /// blocked one also its Error code, which the Run trace records since no
 /// call waited on it; a finished request carries no failure.
-/// Covers: story:5-48, operation:page.on, event:page.request_failed, event:page.request_finished, error:egress_refused
+/// Covers: story:4-3, story:5-48, operation:page.on, event:page.request_failed, event:page.request_finished, error:egress_refused
 #[test]
 fn a_blocked_an_aborted_and_a_failed_request_each_fail_as_playwright_reports_them() {
     let env = TestEnv::new();

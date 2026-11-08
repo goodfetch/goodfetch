@@ -177,13 +177,7 @@ impl SourceContext {
 
     /// The point in time it is now.
     pub fn now(&self) -> PointInTime {
-        let wall = jiff::Timestamp::try_from(self.clock.wall())
-            .expect("invariant: the clock reads a time jiff can hold");
-        PointInTime::from_rfc3339(
-            wall.round(jiff::Unit::Millisecond)
-                .unwrap_or(wall)
-                .to_string(),
-        )
+        self.clock.point_in_time()
     }
 }
 

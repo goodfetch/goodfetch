@@ -9,6 +9,8 @@
 use std::time::Duration;
 
 use goodfetch_protocol::audit::{AuditVerified, ExportedAuditEntry, SECRET_REFERENCE_USED};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::settings::SettingsLayer;
 use goodfetch_test_support::TestEnv;
 use jiff::{SignedDuration, Timestamp};
@@ -18,7 +20,9 @@ use serde_json::{Value, json};
 
 use super::export::{joined, jsonl};
 use super::{at, broken, log, now, origin, tamper};
-use crate::audit::{AuditLog, verify_exported};
+use crate::audit::{AuditError, AuditLog, verify_exported};
+use crate::home::Home;
+use crate::settings::SettingsFiles;
 
 /// One day, the retention the tests prune with.
 const DAY: Duration = Duration::from_hours(24);
@@ -282,5 +286,31 @@ fn a_second_pruning_moves_the_anchor_and_the_log_verifies_from_it() {
             ],
             intact(3)
         )
+    );
+}
+
+/// An append under machine layers whose `audit.retention` cannot be read
+/// is refused, appending nothing, rather than appended unpruned: the
+/// retention may be one that prunes what it would keep.
+/// Covers: story:4-72, setting:audit.retention
+#[test]
+fn an_append_whose_retention_cannot_be_read_is_refused_rather_than_never_pruned() {
+    let env = TestEnv::in_memory();
+    let home = Home::new(env.home().to_path_buf());
+    let version = ProductVersion::parse("1.4.0").unwrap();
+    let files = SettingsFiles::of(&home, &version);
+    let configuration = files.user_configuration().to_owned();
+    std::fs::create_dir_all(configuration.parent().unwrap()).unwrap();
+    std::fs::write(&configuration, "version = \"0.1\"\n\n[settings\n").unwrap();
+    let log = log(&env).retained_under(files, Product::Collie);
+
+    let recorded = log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now());
+
+    assert_eq!(
+        (
+            matches!(recorded, Err(AuditError::Retention { .. })),
+            log.export().unwrap()
+        ),
+        (true, Vec::new())
     );
 }

@@ -45,27 +45,6 @@ runners = [
     ] },
 ]
 
-[layers.http_client]
-summary = "The engine's own HTTP client (`http_client::PageTraffic`) against the Proving ground, whose connection record is the oracle: a case's lookups as the `resolve` mapping, an upstream proxy case through the Proving ground's open proxy, and rebinding end to end on Linux in a `DnsNamespace` whose resolver is the Proving ground's DNS fixture."
-runners = [
-    { test = "crates/goodfetch-engine/tests/it/resolved_address.rs::every_address_case_of_the_ssrf_table_is_refused_before_any_connection", families = [
-        "encoding",
-        "ipv6_form",
-        "special_purpose_block",
-        "mixed_answers",
-    ] },
-    { test = "crates/goodfetch-engine/tests/it/upstream_proxy.rs::every_upstream_proxy_case_of_the_ssrf_table_is_refused_before_the_proxy_sees_it", families = [
-        "upstream_proxy",
-    ] },
-    { test = "crates/goodfetch-engine/tests/it/egress.rs::every_domain_policy_case_of_the_ssrf_table_is_refused_before_any_connection", families = [
-        "domain_policy",
-    ] },
-    { test = "crates/goodfetch-engine/tests/it/resolved_address.rs::in_the_namespace_every_rebinding_case_of_the_ssrf_table_is_refused_on_its_second_connection", families = [
-        "rebinding",
-    ] },
-]
-not_run.redirect = "`PageTraffic::get` follows no redirect: it answers a 3xx as the site gave it, and a hop its caller sends is a request of its own, which this layer's other runners judge."
-
 [layers.operator_endpoints]
 summary = "The engine's HTTP client to an Operator-configured endpoint (ADR 0017), the OTLP collector its first, under an Operator policy that sets `egress.no_private_endpoints`, against the Proving ground: each case's URL as the collector's, its lookups as the `network.resolve` mapping; the positive control is the same switch off."
 runners = [
@@ -78,7 +57,7 @@ runners = [
     ] },
 ]
 not_run.redirect = "An Operator-configured endpoint's request follows no redirect (`http_client::ConfiguredEndpoint`)."
-not_run.rebinding = "An endpoint's export looks its host up on each connection through `http_client`'s lookup, the one the `http_client` layer's rebinding runner holds; an endpoint's own name is the Operator's, which the run's pages cannot answer."
+not_run.rebinding = "An endpoint's export looks its host up on each connection through `http_client`'s lookup, which judges each answer as the `classification` layer's rebinding runner does; an endpoint's own name is the Operator's, which the run's pages cannot answer."
 not_run.upstream_proxy = "An Operator-configured endpoint goes direct, never through the run's upstream proxy (ADR 0017's endpoint class)."
 
 [layers.session_proxy]

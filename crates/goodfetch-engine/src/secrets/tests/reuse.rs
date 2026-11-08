@@ -278,19 +278,3 @@ fn a_reference_listed_to_resolve_at_each_use_asks_its_provider_each_time() {
 
     assert_eq!(asked, 3);
 }
-
-/// A busy answer's `Retry-After` in seconds is the wait it asks for; an
-/// HTTP date, which needs the server's clock, or text that is no number of
-/// seconds, asks none, and the driver's backoff waits instead.
-#[rstest::rstest]
-#[case::seconds(Some("120"), Some(Duration::from_secs(120)))]
-#[case::seconds_with_spaces(Some(" 3 "), Some(Duration::from_secs(3)))]
-#[case::none(None, None)]
-#[case::an_http_date(Some("Wed, 21 Oct 2015 07:28:00 GMT"), None)]
-#[case::a_negative_number(Some("-1"), None)]
-fn a_retry_after_in_seconds_is_the_wait_it_asks_for(
-    #[case] header: Option<&str>,
-    #[case] wait: Option<Duration>,
-) {
-    assert_eq!(crate::secrets::retry_after(header), wait);
-}

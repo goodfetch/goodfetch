@@ -28,6 +28,7 @@ use super::files::{
 use super::report;
 use super::scan::Declaration;
 use crate::check::Finding;
+use crate::products;
 
 /// Whether the declarations hold every runner's: without the runners'
 /// listings, a generated Feature only a Vitest, Playwright or pytest test
@@ -363,10 +364,9 @@ fn defines(packages: &[String], id: &str) -> bool {
         "operation" | "error" | "event" | "setting" | "exit" | "format" | "block-cause" => {
             crate_("goodfetch-protocol", "crates/goodfetch-protocol")
         }
-        "command" => {
-            crate_("goodfetch-collie", "crates/goodfetch-collie")
-                || crate_("goodfetch-foxhound", "crates/foxhound/goodfetch-foxhound")
-        }
+        "command" => products::EXECUTABLES
+            .iter()
+            .any(|executable| crate_(executable.package, executable.folder)),
         "screen" => packages.iter().any(|package| {
             package == "console"
                 || package.starts_with("console/")

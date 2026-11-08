@@ -22,8 +22,7 @@ use crate::environment::Environment;
 use crate::issues::{Issues, Label};
 use crate::{github, output};
 
-use super::TESTING;
-use super::document::{self, MEASURED, Register};
+use super::document::{self, FILE as TESTING, MEASURED, Register};
 
 #[derive(clap::Args)]
 pub(crate) struct Arguments {

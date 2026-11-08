@@ -29,14 +29,11 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::sync::Semaphore;
 
-use crate::endpoint::{Refusals, names_an_address, same_token};
+use crate::endpoint::{self, Hosts, Listener, Origins, Refusals, same_token};
 use crate::engine_context::EngineContext;
 use crate::runs::{Runs, critical_among};
 use crate::tasks::TaskOwner;
 use crate::transport::OpsListener;
-
-/// The ops listener's name in the endpoint table (ADR 0067).
-const LISTENER: &str = "ops_listener";
 
 /// What `/metrics` answers with: Prometheus' text format.
 const PROMETHEUS_TEXT: &str = "text/plain; version=0.0.4; charset=utf-8";
@@ -268,11 +265,12 @@ impl Serving {
         let host = headers
             .get(header::HOST)
             .and_then(|host| host.to_str().ok());
-        if !names_an_address(host) {
-            return self.refused(StatusCode::FORBIDDEN, "host_foreign").await;
-        }
-        if headers.contains_key(header::ORIGIN) {
-            return self.refused(StatusCode::FORBIDDEN, "origin_foreign").await;
+        // Any `Origin` is refused, even one that is no text.
+        let origin = headers
+            .get(header::ORIGIN)
+            .map(|origin| origin.to_str().unwrap_or_default());
+        if let Some(refusal) = endpoint::refusal(host, origin, Hosts::Address, Origins::Forbidden) {
+            return self.refused(StatusCode::FORBIDDEN, refusal.reason()).await;
         }
         if request.method() != Method::GET && request.method() != Method::HEAD {
             let mut answer = empty(StatusCode::METHOD_NOT_ALLOWED);
@@ -345,7 +343,7 @@ fn empty(status: StatusCode) -> Response<Full<Bytes>> {
 impl Serving {
     /// The refusal `status` for `reason`, logged and recorded.
     async fn refused(&self, status: StatusCode, reason: &'static str) -> Response<Full<Bytes>> {
-        self.refusals.refused(LISTENER, reason).await;
+        self.refusals.refused(Listener::OpsListener, reason).await;
         let mut answer = empty(status);
         if status == StatusCode::UNAUTHORIZED {
             answer

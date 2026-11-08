@@ -130,9 +130,11 @@ lint:
     step --after xtask --after compare-crawlee-install --after compare-scrapy-install xtask-notices 'cargo run --quiet --bin xtask -- notices --side xtask/compare-crawlee --side xtask/compare-scrapy'
     # The Kennel's workspace (ADR 0141), read without a build: its lock's
     # licenses against the root allowlist, its bans and sources with its own
-    # deny.toml.
+    # deny.toml, and its manifest's lints, `rust-version` and shared
+    # dependency versions against the root's.
     step cargo-deny-kennel-licenses 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     step cargo-deny-kennel 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources'
+    step --after xtask xtask-kennel-manifest 'cargo run --quiet --bin xtask -- kennel-manifest'
     step cargo-shear 'ci/tool.sh cargo-shear cargo shear'
     # The workspace-hack is current and every member takes it (ADR 0094).
     step workspace-hack 'ci/tool.sh cargo-hakari ci/workspace-hack.sh check'
@@ -327,8 +329,11 @@ features *change:
     change=({{ change }})
     [[ ${#change[@]} -gt 0 ]] || change=(--local)
     selection=$(cargo run --quiet --bin xtask -- affected "${change[@]}")
-    selected() { sed -n "s/^$1=//p" <<< "$selection"; }
-    read -ra packages <<< "$(selected crates) $(selected vitest-packages) $(selected pytest-packages)"
+    source ci/output-value.sh
+    crates=$(output_value crates "$selection")
+    vitest=$(output_value vitest-packages "$selection")
+    pytest=$(output_value pytest-packages "$selection")
+    read -ra packages <<< "$crates $vitest $pytest"
     if [[ ${#packages[@]} -eq 0 ]]; then
       echo "The change reaches no package."
       exit 0
@@ -488,20 +493,24 @@ test suite *packages:
     mapfile -t playwright_order < <(ci/order-arguments.sh playwright)
     mapfile -t pytest_order < <(ci/order-arguments.sh pytest)
     # Each runner skips the tests on the test quarantine list through its own
-    # filter (ADR 0064): `xtask quarantine exclude` prints `<runner>\t<argument>`.
-    # nextest's arguments, which also skip the tests of an OS service a local
-    # host lacks, come from ci/nextest-skips.sh, as for ci/mutants.sh and
-    # ci/asan.sh.
+    # filter (ADR 0064): `xtask quarantine exclude` prints each runner's
+    # arguments as JSON. nextest's, which also skip the tests of an OS service
+    # a local host lacks, come from ci/nextest-skips.sh, as for ci/mutants.sh
+    # and ci/asan.sh.
     skip_nextest=() skip_vitest=() skip_playwright=() skip_pytest=()
     exclusions=$(cargo run --quiet --bin xtask -- quarantine exclude)
-    while IFS=$'\t' read -r runner argument; do
-      case "$runner" in
-        vitest) skip_vitest+=("$argument") ;;
-        playwright) skip_playwright+=("$argument") ;;
-        pytest) skip_pytest+=("$argument") ;;
-      esac
-    done <<< "$exclusions"
-    skips=$(ci/nextest-skips.sh)
+    for runner in vitest playwright pytest; do
+      arguments=$(jq -r --arg runner "$runner" '.[$runner][]' <<< "$exclusions")
+      while IFS= read -r argument; do
+        [[ -n "$argument" ]] || continue
+        case "$runner" in
+          vitest) skip_vitest+=("$argument") ;;
+          playwright) skip_playwright+=("$argument") ;;
+          pytest) skip_pytest+=("$argument") ;;
+        esac
+      done <<< "$arguments"
+    done
+    skips=$(ci/nextest-skips.sh "$exclusions")
     while IFS= read -r argument; do [[ -z "$argument" ]] || skip_nextest+=("$argument"); done <<< "$skips"
     # A selection may hold no test of a suite yet (NEXTEST_NO_TESTS=pass);
     # every test it holds still runs.
@@ -664,7 +673,10 @@ snapshots *arguments:
       [[ ${#pytest[@]} -gt 0 ]] || python=false
     else
       packages=(--workspace)
-      read -ra vitest <<< "$(cargo run --quiet --bin xtask -- affected --local | sed -n 's/^vitest-packages=//p')"
+      selection=$(cargo run --quiet --bin xtask -- affected --local)
+      source ci/output-value.sh
+      selected=$(output_value vitest-packages "$selection")
+      read -ra vitest <<< "$selected"
       [[ ${#vitest[@]} -gt 0 ]] || typescript=false
     fi
     # The tests find the commit's executables as under `just test`.
@@ -726,8 +738,9 @@ repeat count *selection:
     mapfile -t vitest_order < <(ci/order-arguments.sh vitest)
     mapfile -t playwright_order < <(ci/order-arguments.sh playwright)
     mapfile -t pytest_order < <(ci/order-arguments.sh pytest)
-    # `<runner>\t<batch>\t<argument>` lines, each runner's batches from 1.
-    arguments=$(cargo run --quiet --bin xtask -- repeat --count "{{ count }}" "$@")
+    # Each runner's commands, as JSON: `{"<runner>": [[<argument>, …], …]}`,
+    # one list of arguments a command, a batch of its tests.
+    batched=$(cargo run --quiet --bin xtask -- repeat --count "{{ count }}" "$@")
     {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     status=0
@@ -736,16 +749,15 @@ repeat count *selection:
         echo "Repeat run: $runner does not run after a red iteration"
         continue
       fi
-      batches=$(awk -F'\t' -v runner="$runner" '$1 == runner && $2 > last { last = $2 } END { print last + 0 }' <<< "$arguments")
+      batches=$(jq --arg runner "$runner" '.[$runner] | length' <<< "$batched")
       commands=1
       [[ "$runner" != nextest ]] || commands=$iterations
       # Each iteration after the first runs only while the run is green.
       for (( iteration = 1; iteration <= commands && (iteration == 1 || status == 0); iteration++ )); do
         for (( batch = 1; batch <= batches; batch++ )); do
           selected=()
-          while IFS=$'\t' read -r line_runner line_batch argument; do
-            if [[ "$line_runner" == "$runner" && "$line_batch" == "$batch" ]]; then selected+=("$argument"); fi
-          done <<< "$arguments"
+          arguments=$(jq -r --arg runner "$runner" --argjson batch "$batch" '.[$runner][$batch - 1][]' <<< "$batched")
+          while IFS= read -r argument; do [[ -z "$argument" ]] || selected+=("$argument"); done <<< "$arguments"
           case "$runner" in
             nextest)
               cargo nextest run --workspace --profile ci --cargo-profile {{ test_profile }} "${selected[@]}" || status=$?
@@ -822,7 +834,11 @@ stress base="" since="" *within:
     # Each count's tests go to `just repeat` in a file: a change's new and
     # changed tests can pass what one command line holds.
     tests=$(mktemp)
-    for count in 20 200; do
+    # Each count `xtask stress select` gives a test, smallest first.
+    source ci/output-value.sh
+    listed=$(cargo run --quiet --bin xtask -- stress counts)
+    counts=$(output_value counts "$listed")
+    for count in $counts; do
       # A red run stops at the end of its first red iteration: no later count runs.
       if (( status != 0 )); then
         echo "Stress run: the $count count does not run after a red iteration"
@@ -858,8 +874,11 @@ test-affected suite *change:
     [[ ${#change[@]} -gt 0 ]] || change=(--local)
     selection=$(cargo run --quiet --bin xtask -- affected "${change[@]}")
     echo "$selection"
-    selected() { sed -n "s/^$1=//p" <<< "$selection"; }
-    read -ra packages <<< "$(selected crates) $(selected vitest-packages) $(selected pytest-packages)"
+    source ci/output-value.sh
+    crates=$(output_value crates "$selection")
+    vitest=$(output_value vitest-packages "$selection")
+    pytest=$(output_value pytest-packages "$selection")
+    read -ra packages <<< "$crates $vitest $pytest"
     if [[ ${#packages[@]} -eq 0 ]]; then
       echo "The change needs no {{ suite }} tests."
       # So `just features-audit` reads no earlier run's records.
@@ -889,12 +908,13 @@ quick-steps:
     set -euo pipefail
     just="{{ just_executable() }}"
     echo "# Every step runs even after one failed; the run ends with the list of those that failed (ci/keep-going.sh)."
+    echo "# <base>: GOODFETCH_QUICK_BASE, else the branch's upstream off main, else origin/main."
     echo "# First, always:"
     echo "just compiler-cache"
-    echo "just floor-guard"
-    echo "just commit-leaks"
+    echo "just floor-guard <base>"
+    echo "just commit-leaks <base>"
     echo "# The change's gate, its gate= line:"
-    echo "cargo run --quiet --locked --bin xtask -- affected --local"
+    echo "cargo run --quiet --locked --bin xtask -- affected --local --since <base>"
     echo "# gate=docs: just lint-documents, and nothing after it."
     echo "# Any other gate: just lint, then the Quick suite, which runs after a red lint too."
     for recipe in fmt-check lint-documents lint; do
@@ -902,7 +922,7 @@ quick-steps:
       GOODFETCH_STEPS_LIST=1 "$just" "$recipe"
     done
     echo "# The Quick suite over what changed:"
-    echo "just test-affected quick --local"
+    echo "just test-affected quick --local --since <base>"
 
 # The Pre-merge suite on this host: the Quick suite, then the tests of what
 # changed, the stress run of new and changed tests and the static checks'
@@ -1554,7 +1574,7 @@ _clear-exercise-records:
     rm -rf target/test-records target/nextest/ci/junit.xml
 
 # One suite's tests over the whole workspace with `all`, else over what changed.
-_suite suite all:
+_suite suite all="":
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{ all }}" in
@@ -1565,7 +1585,7 @@ _suite suite all:
 
 # TLC on the models the change reaches (`all`: every model), then the job's
 # self-test, as CI's `tlc` job runs them; listed as skipped without Java.
-_tlc all:
+_tlc all="":
     #!/usr/bin/env bash
     set -euo pipefail
     just="{{ just_executable() }}"
@@ -1573,7 +1593,9 @@ _tlc all:
       all) models=(--all) ;;
       "")
         selection=$(cargo run --quiet --bin xtask -- affected --local)
-        read -ra models <<< "$(sed -n 's/^models=//p' <<< "$selection")"
+        source ci/output-value.sh
+        selected=$(output_value models "$selection")
+        read -ra models <<< "$selected"
         if [[ ${#models[@]} -eq 0 ]]; then
           echo "The change reaches no TLA+ model."
           exit 0
@@ -1585,16 +1607,20 @@ _tlc all:
     ci/tool.sh java "$just" tlc-self-test
 
 # The gate's `kennel` step: the Kennel's checks when the change reaches
-# its job (`xtask affected`'s `kennel`: a change to `kennel/` or
-# goodfetch-protocol, ADR 0141), and always with `all`.
-_kennel all:
+# its job (`xtask affected`'s `kennel`: a change to `kennel/`, to the root
+# crates it is built on or to the executables its tests run, ADR 0141), and
+# always with `all`.
+_kennel all="":
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{ all }}" in
       all) ;;
       "")
         selection=$(cargo run --quiet --bin xtask -- affected --local)
-        if ! grep -q '^jobs=.*"kennel"' <<< "$selection"; then
+        source ci/output-value.sh
+        jobs=$(output_value jobs "$selection")
+        reached=$(jq 'index("kennel") != null' <<< "$jobs")
+        if [[ $reached != true ]]; then
           echo "The change does not reach the Kennel."
           exit 0
         fi
@@ -1608,6 +1634,12 @@ _kennel all:
 _visual-elsewhere:
     @mkdir -p target
     @echo "visual projects: skipped, they run only in the pinned Playwright image (CI's visual job, ADR 0073)" >>target/skipped.txt
+
+# The steps a form of `just pre-merge` runs (`all`, `changed`, `quick` or
+# `docs`), in their order, with each one's `just` command, which
+# ci/pre-merge.sh follows (`xtask gate steps`, ADR 0135).
+_gate-steps form:
+    cargo run --quiet --bin xtask -- gate steps --form {{ form }}
 
 # The incremental gate's plan for HEAD (ADR 0135), from the results earlier
 # gate runs recorded in target/gate-runs/, which `just merge` keeps between

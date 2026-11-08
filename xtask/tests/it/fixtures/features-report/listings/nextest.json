@@ -1,6 +1,9 @@
 {
   "rust-suites": {
     "sample": {
+      "package-name": "sample",
+      "kind": "lib",
+      "binary-name": "sample",
       "testcases": {
         "tests::crawls": {},
         "tests::fails": {},
@@ -10,6 +13,9 @@
       }
     },
     "sample::it": {
+      "package-name": "sample",
+      "kind": "test",
+      "binary-name": "it",
       "testcases": {
         "journeys::j001::cli": {},
         "reaches_the_goal": {}

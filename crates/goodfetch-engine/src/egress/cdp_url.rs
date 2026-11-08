@@ -156,6 +156,7 @@ pub fn judge_cdp_url(
         setting,
     };
     let treated = origin.treated();
+    let name = super::name_of(url);
     if treated == Treated::Configured {
         return judge_endpoint_addresses(url, addresses, endpoints).map_err(|endpoint| {
             refused(
@@ -172,13 +173,15 @@ pub fn judge_cdp_url(
             }
             return Err(refused(CdpUrlRule::Loopback, address.ip(), None));
         }
-        judge_reachable(url, std::slice::from_ref(address), session).map_err(|page| {
-            refused(
-                CdpUrlRule::PrivateAddress,
-                page.address.unwrap_or(address.ip()),
-                page.setting,
-            )
-        })?;
+        judge_reachable(url, name.as_deref(), std::slice::from_ref(address), session).map_err(
+            |page| {
+                refused(
+                    CdpUrlRule::PrivateAddress,
+                    page.address.unwrap_or(address.ip()),
+                    page.setting,
+                )
+            },
+        )?;
     }
     Ok(())
 }

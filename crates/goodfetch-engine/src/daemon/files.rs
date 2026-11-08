@@ -10,7 +10,7 @@
 //! <home>/<major>/daemon.token        the persistent token, mode 0600, of a
 //!                                    socket-activated Daemon
 //! <home>/<major>/daemon-service.json the per-user service `daemon install`
-//!                                    registered
+//!                                    registered, mode 0600
 //! <home>/<major>/ops.token           the ops token, mode 0600, which the
 //!                                    ops listener's `/metrics` takes
 //! <home>/<major>/http-listener.token the HTTP listener's token, mode 0600,
@@ -48,7 +48,7 @@
 
 use std::fmt::Write as _;
 use std::fs::{self, File, OpenOptions, TryLockError};
-use std::io::{self, Write as _};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::connection::ProductVersion;
@@ -58,6 +58,7 @@ use goodfetch_protocol::daemon::{
 
 use sha2::{Digest as _, Sha256};
 
+use crate::durable;
 use crate::endpoint::new_token;
 use crate::home::Home;
 use crate::transport::{self, LONGEST_SOCKET_PATH};
@@ -110,27 +111,34 @@ impl DaemonFiles {
         self.folder.join(SOCKET)
     }
 
-    /// The runtime file, or `None` when there is none, or it is not one.
+    /// The runtime file, or `None` when there is none.
     ///
     /// # Errors
     ///
-    /// When it exists but cannot be read.
+    /// When it exists but cannot be read, or, of kind
+    /// [`io::ErrorKind::InvalidData`], when it is no runtime file this
+    /// version reads.
     pub fn read(&self) -> io::Result<Option<DaemonRuntimeFile>> {
-        match fs::read(self.runtime_file()) {
-            Ok(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error),
-        }
+        parsed(&self.runtime_file())
     }
 
     /// The running Daemon's runtime file: there, and its serving lock held.
+    /// Whatever the file holds, no Daemon runs while no one holds the lock,
+    /// so the next Daemon replaces a file that does not parse.
     ///
     /// # Errors
     ///
-    /// When the files cannot be read.
+    /// When the files cannot be read, or, of kind
+    /// [`io::ErrorKind::InvalidData`], when a Daemon holds the lock and its
+    /// runtime file is no runtime file this version reads: a Client then
+    /// cannot reach it, and starting another beside it would wait on its
+    /// lock.
     pub fn running(&self) -> io::Result<Option<DaemonRuntimeFile>> {
-        let Some(found) = self.read()? else {
-            return Ok(None);
+        let found = match self.read() {
+            Ok(None) => return Ok(None),
+            Ok(Some(found)) => Ok(found),
+            Err(error) if error.kind() == io::ErrorKind::InvalidData => Err(error),
+            Err(error) => return Err(error),
         };
         let lock = match File::open(self.folder.join(SERVING_LOCK)) {
             Ok(lock) => lock,
@@ -139,7 +147,7 @@ impl DaemonFiles {
         };
         match lock.try_lock() {
             Ok(()) => Ok(None),
-            Err(TryLockError::WouldBlock) => Ok(Some(found)),
+            Err(TryLockError::WouldBlock) => found.map(Some),
             Err(TryLockError::Error(error)) => Err(error),
         }
     }
@@ -151,14 +159,11 @@ impl DaemonFiles {
     ///
     /// When the per-major folder cannot be written.
     pub fn publish(&self, file: &DaemonRuntimeFile) -> io::Result<()> {
-        fs::create_dir_all(&self.folder)?;
-        let partial = self.folder.join(".daemon.json.partial");
-        remove(&partial)?;
-        let mut written = owner_only(&partial)?;
-        written.write_all(&serde_json::to_vec(file).expect("invariant: a runtime file encodes"))?;
-        written.sync_all()?;
-        drop(written);
-        fs::rename(&partial, self.runtime_file())
+        durable::create_folder(&self.folder)?;
+        durable::replace(
+            &self.runtime_file(),
+            &serde_json::to_vec(file).expect("invariant: a runtime file encodes"),
+        )
     }
 
     /// Removes the runtime file and the socket of the Daemon of `pid`,
@@ -168,7 +173,7 @@ impl DaemonFiles {
     ///
     /// When they cannot be removed.
     pub fn unpublish(&self, pid: u32) -> io::Result<()> {
-        let Some(found) = self.read()? else {
+        let Some(found) = self.ours()? else {
             return Ok(());
         };
         if found.pid != pid {
@@ -189,9 +194,18 @@ impl DaemonFiles {
     ///
     /// When it cannot be removed.
     pub fn unpublish_activated(&self, pid: u32) -> io::Result<()> {
-        match self.read()? {
+        match self.ours()? {
             Some(found) if found.pid == pid => remove(&self.runtime_file()),
             _ => Ok(()),
+        }
+    }
+
+    /// The runtime file, as a Daemon unpublishing reads it: one that does
+    /// not parse is none it wrote, so it is left as it is.
+    fn ours(&self) -> io::Result<Option<DaemonRuntimeFile>> {
+        match self.read() {
+            Err(error) if error.kind() == io::ErrorKind::InvalidData => Ok(None),
+            read => read,
         }
     }
 
@@ -283,14 +297,8 @@ impl DaemonFiles {
     /// readable and writable by its owner alone, in one rename.
     fn write_token(&self, name: &str) -> io::Result<String> {
         let token = new_token().map_err(|error| io::Error::other(error.to_string()))?;
-        fs::create_dir_all(&self.folder)?;
-        let partial = self.folder.join(format!(".{name}.partial"));
-        remove(&partial)?;
-        let mut written = owner_only(&partial)?;
-        written.write_all(token.as_bytes())?;
-        written.sync_all()?;
-        drop(written);
-        fs::rename(&partial, self.folder.join(name))?;
+        durable::create_folder(&self.folder)?;
+        durable::replace(&self.folder.join(name), token.as_bytes())?;
         Ok(token)
     }
 
@@ -312,15 +320,9 @@ impl DaemonFiles {
         let page = format!(
             "<!doctype html>\n<meta charset=\"utf-8\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<meta http-equiv=\"refresh\" content=\"0;url={escaped}\">\n<title>Console</title>\n<a href=\"{escaped}\" rel=\"noreferrer\">Open the Console</a>\n"
         );
-        fs::create_dir_all(&self.folder)?;
+        durable::create_folder(&self.folder)?;
         let path = self.folder.join(CONSOLE_OPENER);
-        let partial = self.folder.join(".console.html.partial");
-        remove(&partial)?;
-        let mut written = owner_only(&partial)?;
-        written.write_all(page.as_bytes())?;
-        written.sync_all()?;
-        drop(written);
-        fs::rename(&partial, &path)?;
+        durable::replace(&path, page.as_bytes())?;
         Ok(path)
     }
 
@@ -334,32 +336,29 @@ impl DaemonFiles {
     }
 
     /// The per-user service `daemon install` registered, or `None` when
-    /// none is, or its record is not one.
+    /// none is.
     ///
     /// # Errors
     ///
-    /// When its record exists but cannot be read.
+    /// When its record exists but cannot be read, or, of kind
+    /// [`io::ErrorKind::InvalidData`], when it is no record this version
+    /// reads.
     pub fn service(&self) -> io::Result<Option<InstalledService>> {
-        match fs::read(self.folder.join(SERVICE_FILE)) {
-            Ok(bytes) => Ok(serde_json::from_slice(&bytes).ok()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(error),
-        }
+        parsed(&self.folder.join(SERVICE_FILE))
     }
 
-    /// Records the installed `service`, in one rename.
+    /// Records the installed `service`, readable and writable by its owner
+    /// alone, in one rename.
     ///
     /// # Errors
     ///
     /// When the per-major folder cannot be written.
     pub fn record_service(&self, service: &InstalledService) -> io::Result<()> {
-        fs::create_dir_all(&self.folder)?;
-        let partial = self.folder.join(".daemon-service.json.partial");
-        fs::write(
-            &partial,
-            serde_json::to_vec_pretty(service).expect("invariant: a service encodes"),
-        )?;
-        fs::rename(&partial, self.folder.join(SERVICE_FILE))
+        durable::create_folder(&self.folder)?;
+        durable::replace(
+            &self.folder.join(SERVICE_FILE),
+            &serde_json::to_vec_pretty(service).expect("invariant: a service encodes"),
+        )
     }
 
     /// Forgets the installed service.
@@ -457,6 +456,23 @@ impl DaemonFiles {
     }
 }
 
+/// The JSON file at `path`, or `None` when there is none; one that does
+/// not parse as a `T` is an error of kind [`io::ErrorKind::InvalidData`]
+/// naming it.
+fn parsed<T: serde::de::DeserializeOwned>(path: &Path) -> io::Result<Option<T>> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    serde_json::from_slice(&bytes).map(Some).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{} does not parse: {error}", path.display()),
+        )
+    })
+}
+
 /// Whether systemd's C escaping (`cescape`) changes `byte`: a control or
 /// non-ASCII byte, `\`, `"` or `'`.
 fn systemd_escapes(byte: u8) -> bool {
@@ -468,17 +484,6 @@ fn remove(path: &Path) -> io::Result<()> {
         Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
         _ => Ok(()),
     }
-}
-
-#[cfg(unix)]
-fn owner_only(path: &Path) -> io::Result<File> {
-    use std::os::unix::fs::OpenOptionsExt as _;
-    OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)
 }
 
 /// Makes `folder` the user's own, mode `0700`, or checks that it is: owned
@@ -508,14 +513,4 @@ fn own_folder(folder: &Path, reference: &Path) -> io::Result<()> {
 #[cfg(not(unix))]
 fn own_folder(folder: &Path, _reference: &Path) -> io::Result<()> {
     fs::create_dir_all(folder)
-}
-
-#[cfg(not(unix))]
-fn owner_only(path: &Path) -> io::Result<File> {
-    // A per-user folder of Goodfetch home is the owner's alone on Windows.
-    OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(path)
 }

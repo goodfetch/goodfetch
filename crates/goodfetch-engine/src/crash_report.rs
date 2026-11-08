@@ -38,7 +38,7 @@ fn report(
     panic: &std::panic::PanicHookInfo<'_>,
     masks: &Masks,
 ) -> Report {
-    let at = jiff::Timestamp::try_from(clock.wall()).unwrap_or(jiff::Timestamp::UNIX_EPOCH);
+    let at = clock.timestamp();
     let message = panic
         .payload()
         .downcast_ref::<&str>()

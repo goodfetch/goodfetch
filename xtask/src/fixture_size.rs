@@ -13,19 +13,10 @@ use anyhow::{Context as _, Result};
 
 use crate::check::Finding;
 use crate::screenshots::is_reference_screenshot;
+use crate::tree;
 
 /// TESTING.md, Fixtures and data files: 256 KiB.
 const LIMIT_BYTES: u64 = 256 * 1024;
-
-/// Folders the walk never enters, wherever they are: version control, build
-/// outputs and installed packages.
-const SKIPPED: [&str; 4] = [".git", "target", "node_modules", ".venv"];
-
-/// The frozen R&D archive at the root (ADR 0032).
-const FROZEN: &str = "rnd";
-
-/// The static checks' proofs (`just proofs`), whose every file is a fixture.
-const PROOFS: &str = "ci/proofs";
 
 pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
@@ -46,18 +37,16 @@ fn walk(root: &Path, folder: &Path, in_fixtures: bool, findings: &mut Vec<Findin
             .unwrap_or_default();
         let metadata = std::fs::symlink_metadata(&path)
             .with_context(|| format!("reading {}", path.display()))?;
+        let relative = path.strip_prefix(root).unwrap_or(&path);
         if metadata.is_dir() {
-            if SKIPPED.contains(&name) || (folder == root && name == FROZEN) {
+            let relative = relative.to_string_lossy().replace('\\', "/");
+            if tree::never_entered(&relative) {
                 continue;
             }
-            let fixture_root = name == "fixtures"
-                || path
-                    .strip_prefix(root)
-                    .is_ok_and(|relative| relative == Path::new(PROOFS));
+            let fixture_root = name == tree::FIXTURES || relative == tree::PROOFS;
             walk(root, &path, in_fixtures || fixture_root, findings)?;
             continue;
         }
-        let relative = path.strip_prefix(root).unwrap_or(&path);
         if in_fixtures && metadata.len() > LIMIT_BYTES && !is_reference_screenshot(relative) {
             findings.push(Finding::new(
                 "oversized-fixture",

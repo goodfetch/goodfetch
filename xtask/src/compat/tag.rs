@@ -1,14 +1,9 @@
 //! A release tag's files, read through Git without checking the tag out:
 //! `freeze` copies each format's `head/` set from the tag, never from the
 //! working tree, which may hold newer, unreleased versions (ADR 0066).
-#![expect(
-    clippy::disallowed_methods,
-    reason = "xtask is synchronous; the blocking-process ban targets async crates (STYLE.md)"
-)]
-
 use std::path::Path;
-use std::process::Command;
 
+use crate::git;
 use anyhow::{Context as _, Result, bail};
 use goodfetch_protocol::releases::ProductVersion;
 
@@ -41,25 +36,9 @@ pub(super) fn release(tag: &str) -> Result<Release> {
     })
 }
 
-fn git(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(root)
-        .output()
-        .with_context(|| format!("running git {}", args.join(" ")))?;
-    if !output.status.success() {
-        bail!(
-            "git {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    Ok(output.stdout)
-}
-
 /// Fails unless `tag` names a commit of the repository at `root`.
 pub(super) fn verify(root: &Path, tag: &str) -> Result<()> {
-    git(
+    git::bytes(
         root,
         &[
             "rev-parse",
@@ -74,14 +53,14 @@ pub(super) fn verify(root: &Path, tag: &str) -> Result<()> {
 
 /// One file as the tag holds it.
 pub(super) fn file(root: &Path, tag: &str, path: &str) -> Result<Vec<u8>> {
-    git(root, &["cat-file", "blob", &format!("{tag}:{path}")])
+    git::bytes(root, &["cat-file", "blob", &format!("{tag}:{path}")])
         .with_context(|| format!("reading {path} at {tag}"))
 }
 
 /// Every file the tag holds under `folder`, by its path inside it.
 pub(super) fn folder(root: &Path, tag: &str, folder: &str) -> Result<Tree> {
     let prefix = format!("{folder}/");
-    let listing = git(
+    let listing = git::bytes(
         root,
         &["ls-tree", "-r", "-z", "--name-only", tag, "--", &prefix],
     )?;

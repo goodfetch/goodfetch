@@ -160,7 +160,7 @@ fn tag_selects_from_the_tags_catalog() {
 fn write_listings(workspace: &Workspace) {
     workspace.write(
         "listings/nextest.json",
-        br#"{ "rust-suites": { "journeyed::it": { "testcases": { "journeys::j001::cli": {} } } } }"#,
+        br#"{ "rust-suites": { "journeyed::it": { "package-name": "journeyed", "kind": "test", "binary-name": "it", "testcases": { "journeys::j001::cli": {} } } } }"#,
     );
     workspace.write("listings/vitest.json", b"[]");
     workspace.write("listings/pytest.json", br#"{ "tests": [] }"#);

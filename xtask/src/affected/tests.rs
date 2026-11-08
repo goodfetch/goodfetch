@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use rstest::rstest;
 
 use super::selection::{Job, Selection, select};
-use super::workspace::{Crate, Ecosystem, Embedded, Package, Workspace};
+use super::workspace::{Crate, Ecosystem, Embedded, Kennel, Package, Workspace};
 use super::{ChangedParts, RepoPath, WorkspaceMembers, select_with_readers};
 
 fn names(names: &[&str]) -> BTreeSet<String> {
@@ -86,7 +86,9 @@ fn package_running(runs: &[&str], package: Package) -> Package {
 /// test in the Console, which takes its screenshots through the shared
 /// test-support package. Test support is a dev-dependency only, and the
 /// conformance crate's and test-support packages' tests run the Proving
-/// ground's and the Products' executables, as in the repository.
+/// ground's and the Products' executables, as in the repository. The
+/// Kennel is built on the protocol crate, and its tests run test support's
+/// Scripted engine and Collie's Daemon (ADR 0141).
 fn fixture() -> Workspace {
     Workspace {
         crates: crates(),
@@ -94,6 +96,10 @@ fn fixture() -> Workspace {
         visual_tests: vec![RepoPath::new("console/src/screens/run.visual.test.tsx")],
         models: Vec::new(),
         embedded: Vec::new(),
+        kennel: Kennel {
+            dependencies: names(&["goodfetch-protocol"]),
+            runs: names(&["goodfetch-test-support", "goodfetch-collie"]),
+        },
     }
 }
 
@@ -263,36 +269,74 @@ fn value(selection: &Selection, key: &str) -> String {
 #[case::pre_merge_and_sinks_for_a_crate(&["crates/foxhound/sinks/goodfetch-sink-s3/src/main.rs"], r#"["pre-merge","sinks"]"#)]
 #[case::pre_merge_and_sinks_for_a_package(&["sdks/python/collie/src/goodfetch_collie/client.py"], r#"["pre-merge","sinks"]"#)]
 #[case::perf_for_a_crate_with_bench_targets(&["crates/foxhound/goodfetch-frontier/src/lib.rs"], r#"["pre-merge","sinks","perf"]"#)]
-#[case::evaluation_for_prompts(&["crates/goodfetch-engine/src/agent/prompts/act.md"], r#"["pre-merge","sinks","perf","visual","evaluation"]"#)]
-#[case::evaluation_for_request_snapshots(&["crates/goodfetch-collie/tests/it/request-snapshots/act.snap"], r#"["pre-merge","sinks","visual","evaluation"]"#)]
-// The catalog is the docs' reference too (spec #130, Pre-merge suite).
-// The Kennel is built on the protocol crate alone (ADR 0141).
+#[case::evaluation_for_prompts(&["crates/goodfetch-engine/src/agent/prompts/act.md"], r#"["pre-merge","sinks","perf","visual","evaluation","kennel"]"#)]
+#[case::evaluation_for_request_snapshots(&["crates/goodfetch-collie/tests/it/request-snapshots/act.snap"], r#"["pre-merge","sinks","visual","evaluation","kennel"]"#)]
+// The catalog is the docs' reference too (spec #130, Pre-merge suite), and
+// the Kennel is built on the protocol crate (ADR 0141).
 #[case::evaluation_docs_and_kennel_for_catalog_descriptions(&["crates/goodfetch-protocol/src/catalog/act.rs"], r#"["pre-merge","sinks","perf","visual","docs","evaluation","kennel"]"#)]
 // The Kennel's own workspace selects its checks and nothing else (ADR 0141).
 #[case::only_kennel_for_the_kennels_code(&["kennel/crates/goodfetch-kennel/src/state.rs"], r#"["kennel"]"#)]
 #[case::only_kennel_for_the_kennels_lockfile(&["kennel/Cargo.lock", "kennel/deny.toml"], r#"["kennel"]"#)]
-#[case::evaluation_for_skills(&["skills/collie/SKILL.md"], r#"["pre-merge","sinks","perf","visual","docs","evaluation"]"#)]
-#[case::every_job_but_evaluation_for_workspace_inputs(&["Cargo.lock"], r#"["pre-merge","sinks","perf","visual","docs"]"#)]
+#[case::evaluation_for_skills(&["skills/collie/SKILL.md"], r#"["pre-merge","sinks","perf","visual","docs","evaluation","kennel"]"#)]
+#[case::every_job_but_evaluation_for_workspace_inputs(&["Cargo.lock"], r#"["pre-merge","sinks","perf","visual","docs","kennel"]"#)]
 // The visual job runs when a visual test, a Reference screenshot, a runner's
 // config, the pinned image or the code a visual test exercises changes.
 #[case::visual_for_a_vitest_visual_test(&["console/src/screens/run.visual.test.tsx"], r#"["pre-merge","sinks","visual"]"#)]
 #[case::visual_for_a_playwright_visual_test(&["test-support/typescript/src/screenshot.visual.spec.ts"], r#"["pre-merge","sinks","visual"]"#)]
 #[case::visual_for_a_vitest_reference_screenshot(&["console/src/screens/__screenshots__/run.visual.test.tsx/run-1.png"], r#"["pre-merge","sinks","visual"]"#)]
 #[case::visual_for_a_playwright_reference_screenshot(&["test-support/typescript/src/screenshot.visual.spec.ts-snapshots/fixture-page.png"], r#"["pre-merge","sinks","visual"]"#)]
-#[case::visual_for_the_playwright_config(&["playwright.config.ts"], r#"["pre-merge","sinks","perf","visual","docs"]"#)]
-#[case::visual_for_the_pinned_image(&["ci/visual/image.toml"], r#"["pre-merge","sinks","perf","visual","docs"]"#)]
+#[case::visual_for_the_playwright_config(&["playwright.config.ts"], r#"["pre-merge","sinks","perf","visual","docs","kennel"]"#)]
+#[case::visual_for_the_pinned_image(&["ci/visual/image.toml"], r#"["pre-merge","sinks","perf","visual","docs","kennel"]"#)]
 #[case::visual_for_code_a_visual_test_exercises(&["console/src/app.tsx"], r#"["pre-merge","sinks","visual"]"#)]
 #[case::visual_for_a_package_a_visual_test_depends_on(&["test-support/typescript/src/screenshot.ts"], r#"["pre-merge","sinks","visual"]"#)]
 #[case::no_visual_for_a_package_no_visual_test_reaches(&["sdks/typescript/collie/src/index.ts"], r#"["pre-merge","sinks"]"#)]
 #[case::no_visual_for_a_nested_package_without_visual_tests(&["console/foxhound/src/datasets.tsx"], r#"["pre-merge","sinks"]"#)]
 // Test support's tests run Collie's executable, and the Console with its
 // visual test depends on test support.
-#[case::visual_for_an_executable_a_visual_tests_package_runs(&["crates/goodfetch-collie/src/main.rs"], r#"["pre-merge","sinks","visual"]"#)]
+#[case::visual_for_an_executable_a_visual_tests_package_runs(&["crates/goodfetch-collie/src/main.rs"], r#"["pre-merge","sinks","visual","kennel"]"#)]
 #[case::nothing_for_no_change(&[], "[]")]
 fn changed_paths_select_their_jobs(#[case] paths: &[&str], #[case] jobs: &str) {
     let selection = select_paths(paths);
 
     assert_eq!(value(&selection, "jobs"), jobs);
+}
+
+// The Kennel's job runs for a change its build or its tests reach: its own
+// workspace, the protocol crate it is built on, the code of the executables
+// its tests run (test support's Scripted engine and Collie's Daemon), and a
+// file no member owns, such as the `clippy.toml` its Clippy reads (ADR 0141).
+#[rstest]
+#[case::its_own_workspace(&["kennel/crates/goodfetch-kennel/src/state.rs"])]
+#[case::the_protocol_it_is_built_on(&["crates/goodfetch-protocol/src/lib.rs"])]
+#[case::the_scripted_engines_script_format(&["crates/goodfetch-test-support/src/script.rs"])]
+#[case::the_engines_home_layout(&["crates/goodfetch-engine/src/home.rs"])]
+#[case::collies_executable(&["crates/goodfetch-collie/src/main.rs"])]
+#[case::a_file_no_member_owns(&["clippy.toml"])]
+fn the_kennel_runs_for_a_change_its_build_or_tests_reach(#[case] paths: &[&str]) {
+    let selection = select_paths(paths);
+
+    assert!(
+        selection.selects(Job::Kennel),
+        "{}",
+        value(&selection, "jobs")
+    );
+}
+
+#[rstest]
+#[case::foxhounds_frontier(&["crates/foxhound/goodfetch-frontier/src/lib.rs"])]
+#[case::the_proving_ground(&["proving-ground/src/main.rs"])]
+#[case::an_sdk(&["sdks/python/collie/src/goodfetch_collie/client.py"])]
+#[case::the_docs(&["docs/collie/index.md"])]
+fn the_kennel_does_not_run_for_a_change_neither_its_build_nor_its_tests_reach(
+    #[case] paths: &[&str],
+) {
+    let selection = select_paths(paths);
+
+    assert!(
+        !selection.selects(Job::Kennel),
+        "{}",
+        value(&selection, "jobs")
+    );
 }
 
 // The local gate runs its quick form only when no test, benchmark, model,
@@ -576,23 +620,6 @@ fn no_sink_runs_without_the_pre_merge_suite() {
 }
 
 #[rstest]
-#[case::foxhound_crate(&["crates/foxhound/goodfetch-frontier/src/lib.rs"], "foxhound")]
-#[case::sink_process(&["crates/foxhound/sinks/goodfetch-sink-s3/src/main.rs"], "foxhound")]
-#[case::foxhound_console_package(&["console/foxhound/src/datasets.tsx"], "foxhound")]
-#[case::foxhound_sdk_files(&["sdks/typescript/foxhound/src/index.ts", "sdks/python/foxhound/src/goodfetch_foxhound/__init__.py"], "foxhound")]
-#[case::foxhound_and_shared_crate(&["crates/foxhound/goodfetch-frontier/src/lib.rs", "crates/goodfetch-engine/src/lib.rs"], "collie foxhound")]
-#[case::collie_sdk_files(&["sdks/typescript/collie/src/index.ts"], "collie foxhound")]
-#[case::docs(&["docs/foxhound/index.md"], "collie foxhound")]
-fn change_confined_to_foxhounds_side_selects_only_foxhound(
-    #[case] paths: &[&str],
-    #[case] products: &str,
-) {
-    let selection = select_paths(paths);
-
-    assert_eq!(value(&selection, "products"), products);
-}
-
-#[rstest]
 #[case::crate_and_its_dependants(&["crates/goodfetch-engine/src/lib.rs"], "goodfetch-engine/engine goodfetch-frontier/frontier")]
 #[case::crate_without_dependants(&["crates/foxhound/goodfetch-frontier/benches/frontier.rs"], "goodfetch-frontier/frontier")]
 #[case::crate_whose_dependants_have_none(&["crates/foxhound/sinks/goodfetch-sink-shared/src/lib.rs"], "")]
@@ -609,23 +636,6 @@ fn changed_crate_selects_its_and_its_dependants_bench_targets(
     let selection = select_paths(paths);
 
     assert_eq!(value(&selection, "bench-targets"), bench_targets);
-}
-
-#[rstest]
-#[case::changed_crates(&["crates/foxhound/sinks/goodfetch-sink-shared/src/lib.rs", "xtask/src/main.rs"], "rdeps(=goodfetch-sink-shared) | rdeps(=xtask)")]
-#[case::workspace_input(&["Cargo.toml"], "all()")]
-#[case::no_crate(&["sdks/typescript/collie/src/index.ts"], "none()")]
-// The Proving ground's own integration tests (`goodfetch-proving-ground::it`,
-// such as its task list's) are among `rdeps(=goodfetch-proving-ground)`'s.
-#[case::executable_and_the_crates_whose_tests_run_it(&["proving-ground/src/oracle.rs"], "rdeps(=goodfetch-conformance) | rdeps(=goodfetch-proving-ground)")]
-#[case::what_an_executable_is_built_from_and_the_crates_whose_tests_run_it(&["crates/goodfetch-engine/src/lib.rs"], "rdeps(=goodfetch-conformance) | rdeps(=goodfetch-engine)")]
-fn changed_crates_select_their_dependants_through_rdeps(
-    #[case] paths: &[&str],
-    #[case] filter: &str,
-) {
-    let selection = select_paths(paths);
-
-    assert_eq!(value(&selection, "nextest-filter"), filter);
 }
 
 #[rstest]
@@ -682,9 +692,7 @@ fn shared_crate_change_selects_both_products_tests() {
     let selection = select_paths(&["crates/goodfetch-engine/src/lib.rs"]);
 
     insta::assert_snapshot!(selection, @r#"
-    products=collie foxhound
-    jobs=["pre-merge","sinks","perf","visual"]
-    nextest-filter=rdeps(=goodfetch-conformance) | rdeps(=goodfetch-engine)
+    jobs=["pre-merge","sinks","perf","visual","kennel"]
     crates=goodfetch-collie goodfetch-conformance goodfetch-engine goodfetch-foxhound goodfetch-frontier
     vitest-packages=console test-support/typescript
     pytest-packages=
@@ -701,9 +709,7 @@ fn foxhound_side_change_outside_any_package_selects_all_of_foxhounds_tests() {
     let selection = select_paths(&["crates/foxhound/README.md"]);
 
     insta::assert_snapshot!(selection, @r#"
-    products=foxhound
     jobs=["pre-merge","sinks","perf","docs"]
-    nextest-filter=rdeps(=goodfetch-conformance) | rdeps(=goodfetch-foxhound) | rdeps(=goodfetch-frontier) | rdeps(=goodfetch-sink-kafka) | rdeps(=goodfetch-sink-s3) | rdeps(=goodfetch-sink-shared)
     crates=goodfetch-conformance goodfetch-foxhound goodfetch-frontier goodfetch-sink-kafka goodfetch-sink-s3 goodfetch-sink-shared
     vitest-packages=console/foxhound sdks/typescript/foxhound
     pytest-packages=sdks/python/foxhound
@@ -720,9 +726,7 @@ fn workspace_input_change_selects_everything() {
     let selection = select_paths(&["justfile"]);
 
     insta::assert_snapshot!(selection, @r#"
-    products=collie foxhound
-    jobs=["pre-merge","sinks","perf","visual","docs"]
-    nextest-filter=all()
+    jobs=["pre-merge","sinks","perf","visual","docs","kennel"]
     crates=goodfetch-collie goodfetch-conformance goodfetch-engine goodfetch-foxhound goodfetch-frontier goodfetch-protocol goodfetch-proving-ground goodfetch-sink-kafka goodfetch-sink-s3 goodfetch-sink-shared goodfetch-test-support xtask
     vitest-packages=console console/foxhound sdks/typescript/collie sdks/typescript/collie-client sdks/typescript/foxhound test-support/typescript
     pytest-packages=sdks/python/collie sdks/python/collie-client sdks/python/foxhound test-support/python

@@ -27,11 +27,12 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use super::{
-    AccountsStore, ConsoleKey, OfflineKeyRefused, Principal, SignInDriver, SignInFailure,
-    SignInPolicy, SignInRefused, SignIns, SingleUserLink, StoreError,
+    AccountsStore, ConsoleKey, OfflineKeyRefused, PeopleError, Principal, SignInDriver,
+    SignInFailure, SignInPolicy, SignInRefused, SignIns, SingleUserLink, StoreError,
 };
 use crate::audit::AuditLog;
 use crate::clock::Clock;
+use crate::endpoint::Listener;
 use crate::home::Home;
 use crate::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::connection::Surface;
@@ -68,6 +69,25 @@ fn driver_of(env: &TestEnv, major: &str, policy: SignInPolicy) -> SignInDriver {
 
 fn driver(env: &TestEnv) -> SignInDriver {
     driver_of(env, "1.0.0", SignInPolicy::default())
+}
+
+/// A driver over `env`'s accounts store and Console key whose Audit log
+/// cannot be written: it lies under a file, not a folder.
+fn driver_unrecorded(env: &TestEnv) -> SignInDriver {
+    let home = Home::new(env.home().to_path_buf());
+    let file = env.home().join("not-a-folder");
+    std::fs::create_dir_all(env.home()).unwrap();
+    std::fs::write(&file, b"").unwrap();
+    SignInDriver::new(SignIns {
+        link: SingleUserLink::new(LINK_TOKEN.to_owned()),
+        person: "ada".to_owned(),
+        store: AccountsStore::at(home.accounts_store(&version("1.0.0"))),
+        key: ConsoleKey::at(home.console_key()),
+        audit: AuditLog::of(&Home::new(file), None),
+        policy: SignInPolicy::default(),
+        clock: Clock::paused(start()),
+        owner: Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+    })
 }
 
 /// Every Audit log entry of `env`'s home, as JSON.
@@ -403,7 +423,7 @@ fn each_change_is_in_the_audit_log_by_the_os_user_through_the_console() {
         let (id, _) = signed_in.cookie().split_once('.').unwrap();
         driver.revoke(id, Some(Surface::Console)).await.unwrap();
         driver.rotate_key(Some(Surface::Console)).await.unwrap();
-        driver.refused("console", "token_wrong").await;
+        driver.refused(Listener::Console, "token_wrong").await;
 
         let entries = audit_entries(&env);
 
@@ -436,6 +456,76 @@ fn each_change_is_in_the_audit_log_by_the_os_user_through_the_console() {
             "no cookie is in the Audit log"
         );
         assert!(!text.contains(LINK_TOKEN), "nor the link's token");
+    });
+}
+
+/// A sign-in the Audit log cannot record is refused: it signs nobody in,
+/// and the accounts store keeps none.
+/// Covers: story:12-109
+#[test]
+fn a_sign_in_the_audit_log_cannot_record_signs_nobody_in() {
+    let env = TestEnv::new();
+    runtime().block_on(async {
+        let signed_in = driver_unrecorded(&env).with_link(LINK_TOKEN, HERE).await;
+
+        assert_eq!(
+            (
+                matches!(
+                    signed_in,
+                    Err(SignInFailure::People(PeopleError::Unrecorded(_)))
+                ),
+                driver(&env).list().await.unwrap()
+            ),
+            (true, Vec::new())
+        );
+    });
+}
+
+/// A revocation the Audit log cannot record still ends the sign-in, since
+/// refusing it would keep a sign-in its person wants ended, and answers
+/// that the entry is missing.
+/// Covers: story:12-109
+#[test]
+fn a_revocation_the_audit_log_cannot_record_ends_the_sign_in_and_says_so() {
+    let env = TestEnv::new();
+    runtime().block_on(async {
+        let signed_in = driver(&env).with_link(LINK_TOKEN, HERE).await.unwrap();
+        let (id, _) = signed_in.cookie().split_once('.').unwrap();
+
+        let revoked = driver_unrecorded(&env)
+            .revoke(id, Some(Surface::Console))
+            .await;
+
+        assert_eq!(
+            (
+                matches!(revoked, Err(PeopleError::Unrecorded(_))),
+                driver(&env).principal(signed_in.cookie()).await
+            ),
+            (true, None)
+        );
+    });
+}
+
+/// A key rotation the Audit log cannot record still ends every sign-in,
+/// and answers that the entry is missing.
+/// Covers: story:12-109
+#[test]
+fn a_key_rotation_the_audit_log_cannot_record_ends_every_sign_in_and_says_so() {
+    let env = TestEnv::new();
+    runtime().block_on(async {
+        let signed_in = driver(&env).with_link(LINK_TOKEN, HERE).await.unwrap();
+
+        let rotated = driver_unrecorded(&env)
+            .rotate_key(Some(Surface::Console))
+            .await;
+
+        assert_eq!(
+            (
+                matches!(rotated, Err(PeopleError::Unrecorded(_))),
+                driver(&env).principal(signed_in.cookie()).await
+            ),
+            (true, None)
+        );
     });
 }
 

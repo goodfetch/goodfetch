@@ -14,10 +14,7 @@ use hyper::header::{self, HeaderValue};
 use hyper::{Method, Response, StatusCode};
 
 use crate::content_origin::{ContentFile, ContentKey, Unsigned};
-use crate::rpc::Authorities;
-
-/// The listener name a content-origin refusal is recorded with.
-pub(super) const CONTENT_LISTENER: &str = "content_origin";
+use crate::endpoint::{self, Authorities, Hosts, Origins};
 
 /// The content origin as the Console's site holds it.
 pub(super) struct Content {
@@ -77,17 +74,14 @@ impl Content {
         console: &Authorities,
         now: SystemTime,
     ) -> Asked {
-        if !host.is_some_and(|host| self.authorities.admits_host(host)) {
+        if let Some(refusal) = endpoint::refusal(
+            host,
+            origin,
+            Hosts::Named(&self.authorities),
+            Origins::Allowed(&[&self.authorities, console]),
+        ) {
             return Asked::Refused {
-                reason: "host_foreign",
-                status: StatusCode::FORBIDDEN,
-            };
-        }
-        if origin.is_some_and(|origin| {
-            !self.authorities.admits_origin(origin) && !console.admits_origin(origin)
-        }) {
-            return Asked::Refused {
-                reason: "origin_foreign",
+                reason: refusal.reason(),
                 status: StatusCode::FORBIDDEN,
             };
         }

@@ -57,7 +57,7 @@ pub(crate) mod terminate;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -69,10 +69,10 @@ use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
-use goodfetch_engine::dns::Dns;
-use goodfetch_engine::egress::{self, EndpointPolicy, Policy, Refused};
-use goodfetch_engine::endpoint::{REFUSAL_TARGET, new_token};
-use goodfetch_engine::http_client::{self, LocalBinding, Resolve};
+use goodfetch_engine::dns::{Dns, HostMapping};
+use goodfetch_engine::egress::{EndpointPolicy, Gate, Policy, Refused};
+use goodfetch_engine::endpoint::{Listener, REFUSAL_TARGET, new_token};
+use goodfetch_engine::http_client::{self, LocalBinding};
 use goodfetch_engine::known_certificates::ExceptionKind;
 use goodfetch_engine::local_addresses::SessionAddresses;
 use goodfetch_engine::run_trace::RequestLog;
@@ -84,7 +84,7 @@ use goodfetch_engine::tls::{
 use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::page::RequestFailed;
 use goodfetch_protocol::security::SECURITY_RAW_CDP_EGRESS_PROXY;
-use goodfetch_protocol::settings::{NETWORK_RESOLVE, TIMEOUT_NAVIGATION};
+use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
 use serde_json::json;
 use tokio::io::AsyncWriteExt as _;
 use tokio::net::{TcpListener, TcpStream};
@@ -329,17 +329,6 @@ fn session_policy(settings: Option<&ResolvedSettings>) -> io::Result<Policy> {
     }
 }
 
-/// The `network.resolve` mapping of a Session whose Run resolved
-/// `settings`, by lowercase host.
-fn mapping_of(settings: Option<&ResolvedSettings>) -> BTreeMap<String, Vec<IpAddr>> {
-    settings
-        .map(|settings| settings.hosts(&NETWORK_RESOLVE))
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(host, addresses)| (host.to_ascii_lowercase(), addresses))
-        .collect()
-}
-
 /// Whether `settings`, a Session's, send its browser through the relay:
 /// `security.raw_cdp_egress_proxy` on, its default.
 pub(crate) fn relayed(settings: &ResolvedSettings) -> bool {
@@ -387,7 +376,7 @@ impl EgressRelay {
         );
         let settings = run.settings().map(RunSettings::resolved);
         let policy = session_policy(settings)?;
-        let mapping = mapping_of(settings);
+        let mapping = settings.map(HostMapping::of).unwrap_or_default();
         let RelayTls {
             authority,
             exceptions,
@@ -737,14 +726,14 @@ impl Observe for Record {
         if !given {
             tracing::debug!(
                 target: REFUSAL_TARGET,
-                listener = "egress_relay",
+                listener = Listener::EgressRelay.name(),
                 "a connection to a Session's egress relay gave no credentials and was asked for them"
             );
             return;
         }
         let refusals = self.run.refusals();
         self.run.spawn(async move {
-            refusals.refused("egress_relay", "token_wrong").await;
+            refusals.refused(Listener::EgressRelay, "token_wrong").await;
         });
     }
 }
@@ -801,7 +790,7 @@ impl Record {
 /// of the family and each name resolved by the engine's own resolver from
 /// them (ADR 0044).
 struct Tcp {
-    mapping: BTreeMap<String, Vec<IpAddr>>,
+    mapping: HostMapping,
     /// The upstream proxy's host and port, when there is one.
     upstream: Option<(String, u16)>,
     /// How the upstream proxy's own addresses are judged when the relay
@@ -815,17 +804,9 @@ impl Network for Tcp {
     type Stream = TcpStream;
 
     async fn resolve(&self, host: &str, port: u16) -> Option<Resolved> {
-        if let Some(mapped) = self.mapping.get(&host.to_ascii_lowercase()) {
-            return Some(Resolved {
-                addresses: mapped
-                    .iter()
-                    .map(|address| SocketAddr::new(*address, port))
-                    .collect(),
-            });
-        }
         let addresses = match &self.local {
-            Some(local) => local.lookup(host, port, &Resolve::new()).await,
-            None => http_client::lookup(host, port, &Resolve::new()).await,
+            Some(local) => local.lookup(host, port, &self.mapping).await,
+            None => http_client::lookup(host, port, &self.mapping).await,
         }
         .ok()?;
         Some(Resolved { addresses })
@@ -855,9 +836,12 @@ impl Network for Tcp {
             } else {
                 format!("http://{host}:{port}")
             };
-            egress::judge_endpoint_addresses(&url, &resolved.addresses, judged).map_err(
-                |refused| io::Error::new(io::ErrorKind::PermissionDenied, ProxyRefused(refused)),
-            )?;
+            Gate::Endpoint(judged)
+                .judge_host(host, &url)
+                .and_then(|judged| judged.addresses(&resolved.addresses))
+                .map_err(|refused| {
+                    io::Error::new(io::ErrorKind::PermissionDenied, ProxyRefused(refused))
+                })?;
         }
         let mut last = io::Error::from(io::ErrorKind::NotFound);
         for address in resolved.addresses {

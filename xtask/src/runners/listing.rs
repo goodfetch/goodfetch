@@ -1,4 +1,4 @@
-//! Each runner's own listing of the workspace's tests, as quarantine IDs with
+//! Each runner's own listing of the workspace's tests, as test IDs with
 //! where each test is defined. The JavaScript and Python runners run from the
 //! workspace's installed packages (`pnpm install`, `uv sync`), as the suite
 //! commands run them. A listing is read from the runner's own output, so a
@@ -15,7 +15,7 @@ use serde::Deserialize;
 use super::{Runner, TestId};
 
 /// Every test `runner` lists in the workspace at `root`.
-pub(super) fn tests(
+pub(crate) fn tests(
     runner: Runner,
     root: &Path,
     cargo: &OsStr,
@@ -96,26 +96,32 @@ pub(crate) fn output(
             }
             run(command.current_dir(root), "playwright test --list", &[0])?
         }
-        Runner::Pytest => {
-            let program = installed(root, ".venv/bin/pytest", "uv sync")?;
-            // Exit code 5: no test collected.
-            run(
-                Command::new(program)
-                    .args([
-                        "--collect-only",
-                        "-q",
-                        "-p",
-                        "no:randomly",
-                        "-p",
-                        "no:cacheprovider",
-                    ])
-                    .current_dir(root),
-                "pytest --collect-only",
-                &[0, 5],
-            )?
-        }
+        Runner::Pytest => run(&mut pytest_collection(root)?, PYTEST_COLLECTION, &[0, 5])?,
     };
     Ok(output.stdout)
+}
+
+/// What [`pytest_collection`] runs, as an error names it. It exits with 5
+/// when it collects no test.
+pub(crate) const PYTEST_COLLECTION: &str = "pytest --collect-only";
+
+/// pytest collecting the workspace's tests at `root` without running them,
+/// in their file order and with no cache written; its listing goes to its
+/// standard output, unless a further argument sends it elsewhere.
+pub(crate) fn pytest_collection(root: &Path) -> Result<Command> {
+    let program = installed(root, ".venv/bin/pytest", "uv sync")?;
+    let mut command = Command::new(program);
+    command
+        .args([
+            "--collect-only",
+            "-q",
+            "-p",
+            "no:randomly",
+            "-p",
+            "no:cacheprovider",
+        ])
+        .current_dir(root);
+    Ok(command)
 }
 
 /// The tests in `output`, what `runner` printed listing the workspace at `root`.
@@ -128,6 +134,7 @@ pub(crate) fn parse(runner: Runner, root: &Path, output: &[u8]) -> Result<Vec<Li
     }
 }
 
+/// `cargo nextest list --message-format json`'s output.
 #[derive(Deserialize)]
 struct NextestListing {
     #[serde(rename = "rust-suites")]
@@ -266,7 +273,7 @@ fn canonical(path: &Path) -> Result<PathBuf> {
 }
 
 /// `path` from `root` (canonical), `/`-separated; `None` outside it.
-fn relative(root: &Path, path: &Path) -> Option<String> {
+pub(crate) fn relative(root: &Path, path: &Path) -> Option<String> {
     let path = std::fs::canonicalize(path).ok()?;
     let relative = path.strip_prefix(root).ok()?;
     Some(
@@ -289,7 +296,9 @@ fn installed(root: &Path, relative: &str, install: &str) -> Result<PathBuf> {
     Ok(program)
 }
 
-fn run(command: &mut Command, name: &str, success: &[i32]) -> Result<Output> {
+/// Runs `command`, which `name` names in an error, and fails unless it
+/// exits with one of the `success` codes.
+pub(crate) fn run(command: &mut Command, name: &str, success: &[i32]) -> Result<Output> {
     let output = command
         .output()
         .with_context(|| format!("running {name}"))?;

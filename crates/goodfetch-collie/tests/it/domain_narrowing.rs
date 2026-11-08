@@ -84,7 +84,7 @@ fn locked(answered: &Value) -> (Value, Value, Value) {
 /// naming the key and the configured value that holds it, and starts no
 /// Run (the narrowing value is the positive control).
 ///
-/// Covers: story:4-4, error:egress_refused, error:setting_locked, setting:egress.allowed_domains, setting:egress.blocked_domains, operation:run.start, operation:page.goto
+/// Covers: story:4-2, story:4-3, story:4-4, error:egress_refused, error:setting_locked, setting:egress.allowed_domains, setting:egress.blocked_domains, operation:run.start, operation:page.goto
 #[test]
 fn a_client_acting_for_a_model_narrows_the_domain_policy_and_never_widens_it() {
     let env = TestEnv::new();

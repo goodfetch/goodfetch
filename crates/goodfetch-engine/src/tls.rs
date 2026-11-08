@@ -22,7 +22,8 @@ mod shared;
 
 use std::collections::BTreeMap;
 use std::io;
-use std::sync::{Arc, OnceLock};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub use client_certificates::{ClientCertificateFailure, ClientCertificates, IdentityFiles};
 pub use exceptions::{
@@ -32,6 +33,7 @@ pub use shared::{Decision, SharedTrust, Verdict, certificate_failure};
 
 use goodfetch_protocol::tls::{
     CERTIFICATE_INVALID, CertificateFailure, CertificateInvalidDetails, KnownCertificateFailure,
+    TLS_TRUSTED_CAS,
 };
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::client::{WebPkiServerVerifier, verify_server_cert_signed_by_trust_anchor};
@@ -39,14 +41,15 @@ use rustls::crypto::CryptoProvider;
 use rustls::pki_types::pem::{self, PemObject as _};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use rustls::server::ParsedCertificate;
-use rustls::sign::CertifiedKey;
 use rustls::time_provider::TimeProvider;
 use rustls::{CertificateError, DigitallySignedStruct, OtherError, RootCertStore, SignatureScheme};
-use url::Host;
 
 use crate::call_error::CallError;
 use crate::clock::Clock;
+use crate::host_name::{self, ListedDomains};
 use crate::known_certificates::KeyHash;
+use crate::settings::Resolved;
+use crate::tasks::TaskOwner;
 
 /// What a host's certificate may chain to beside Mozilla's roots.
 #[derive(Clone, Debug, Default)]
@@ -54,9 +57,8 @@ pub struct Trust {
     /// Trusted for every host: an Operator-configured endpoint's own
     /// authorities, which it reaches alone.
     everywhere: Vec<CertificateDer<'static>>,
-    /// Trusted for a domain and its subdomains, by the domain as the URL
-    /// parser leaves a host.
-    by_domain: BTreeMap<String, Vec<CertificateDer<'static>>>,
+    /// Trusted for a domain and its subdomains.
+    by_domain: ListedDomains<Vec<CertificateDer<'static>>>,
 }
 
 /// A host's certificate that failed verification, with no exception for
@@ -140,7 +142,7 @@ impl Trust {
     pub(crate) fn endpoint(authorities: &[CertificateDer<'static>]) -> Self {
         Self {
             everywhere: authorities.to_vec(),
-            by_domain: BTreeMap::new(),
+            by_domain: ListedDomains::new(),
         }
     }
 
@@ -155,45 +157,44 @@ impl Trust {
         domain: &str,
         authorities: Vec<CertificateDer<'static>>,
     ) -> Result<Self, InvalidDomain> {
-        let key = domain_key(domain).ok_or_else(|| InvalidDomain {
-            domain: domain.to_owned(),
-        })?;
-        self.by_domain.entry(key).or_default().extend(authorities);
+        self.by_domain
+            .entry(domain, Vec::new)
+            .map_err(|host_name::NoHost(domain)| InvalidDomain { domain })?
+            .extend(authorities);
         Ok(self)
     }
 
-    /// The domains `host` is, or is a subdomain of, that list
-    /// authorities: the most specific first.
-    fn domains_of(&self, host: &str) -> Vec<&str> {
-        let Some(mut name) = domain_key(host) else {
-            return Vec::new();
-        };
-        let mut found = Vec::new();
-        if name.parse::<std::net::IpAddr>().is_ok() {
-            // An address is listed only as itself.
-            found.extend(
+    /// The authorities trusted for `host` beside Mozilla's roots: those
+    /// trusted everywhere, then those of each listed domain that covers
+    /// it, the most specific first.
+    fn authorities_for(&self, host: &str) -> Vec<&CertificateDer<'static>> {
+        self.everywhere
+            .iter()
+            .chain(
                 self.by_domain
-                    .get_key_value(name.as_str())
-                    .map(|(key, _)| key.as_str()),
-            );
-            return found;
-        }
-        loop {
-            if let Some((domain, _)) = self.by_domain.get_key_value(name.as_str()) {
-                found.push(domain.as_str());
-            }
-            match name.split_once('.') {
-                Some((_, parent)) => name = parent.to_owned(),
-                None => return found,
-            }
-        }
+                    .covering(host)
+                    .into_iter()
+                    .flat_map(|(_, authorities)| authorities),
+            )
+            .collect()
     }
 
     /// The rustls configuration of a connection under this trust, offering
     /// HTTP/1.1 alone in ALPN; a transport that speaks HTTP/2 offers it
-    /// itself (Foxhound's HTTP fetch tier).
+    /// itself (Foxhound's HTTP fetch tier). The handshake judges the
+    /// certificate's dates at `clock`'s wall time.
     pub fn client_config(&self, clock: Clock) -> rustls::ClientConfig {
-        self.connection_config(None, None, clock)
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let verifier = Verifier::new(self, &provider);
+        let mut config =
+            rustls::ClientConfig::builder_with_details(provider, OnClock::shared(clock))
+                .with_safe_default_protocol_versions()
+                .expect("invariant: ring supports rustls's default protocol versions")
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(verifier))
+                .with_no_client_auth();
+        config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        config
     }
 
     /// Each scope of this trust, for a TLS library that takes one store of
@@ -206,18 +207,9 @@ impl Trust {
             domain: None,
             authorities: self.everywhere.clone(),
         };
-        let listed = self.by_domain.keys().map(|domain| TrustScope {
-            domain: Some(domain.clone()),
-            authorities: self
-                .everywhere
-                .iter()
-                .chain(
-                    self.domains_of(domain)
-                        .into_iter()
-                        .flat_map(|listed| &self.by_domain[listed]),
-                )
-                .cloned()
-                .collect(),
+        let listed = self.by_domain.iter().map(|(domain, _)| TrustScope {
+            domain: Some(domain.to_owned()),
+            authorities: self.authorities_for(domain).into_iter().cloned().collect(),
         });
         std::iter::once(everywhere).chain(listed).collect()
     }
@@ -225,100 +217,95 @@ impl Trust {
     /// The listed domain whose scope `host` is in: the most specific that
     /// `host` is, or is a subdomain of; `None` for the scope of no domain.
     pub fn scope_of(&self, host: &str) -> Option<&str> {
-        self.domains_of(host).first().copied()
+        self.by_domain.most_specific(host).map(|(domain, _)| domain)
     }
 
-    /// The rustls configuration of one connection of the engine's own HTTP
-    /// client. For a host listed for trust on first use, `seen` keeps the
-    /// key it presented and how it failed verification, for
-    /// [`CertificateExceptions`] to decide before anything is sent: the
-    /// handshake goes on whatever its certificate, unless `seen` is to stop
-    /// it before `client` would be sent. The handshake's signature is still
-    /// checked against that key. `client` is the client certificate it
-    /// presents when the server asks for one. The handshake judges the
-    /// certificate's dates at `clock`'s wall time.
-    pub(crate) fn connection_config(
-        &self,
-        seen: Option<Arc<Seen>>,
-        client: Option<Arc<CertifiedKey>>,
-        clock: Clock,
-    ) -> rustls::ClientConfig {
-        let provider = Arc::new(rustls::crypto::ring::default_provider());
-        let verifier = Verifier::new(self, &provider, seen);
-        let builder = rustls::ClientConfig::builder_with_details(provider, OnClock::shared(clock))
-            .with_safe_default_protocol_versions()
-            .expect("invariant: ring supports rustls's default protocol versions")
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(verifier));
-        let mut config = match client {
-            Some(certified) => builder
-                .with_client_cert_resolver(Arc::new(client_certificates::Presenting(certified))),
-            None => builder.with_no_client_auth(),
-        };
-        config.alpn_protocols = vec![b"http/1.1".to_vec()];
-        config
+    /// What the resolved `settings`' `tls.trusted_cas` trusts beside
+    /// Mozilla's roots, for a site's connections: each listed file read
+    /// now on `owner`'s blocking work, its authorities trusted for its
+    /// domain alone (ADR 0042); a file that cannot be read, or an entry
+    /// that names no host, is logged and trusts nothing.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses only the answer.
+    pub async fn of(settings: &Resolved, owner: &TaskOwner) -> Self {
+        let listed = TrustedCas::of(settings);
+        owner
+            .blocking(move || {
+                listed.trust(|file| {
+                    #[expect(
+                        clippy::disallowed_methods,
+                        reason = "it runs on the tasks module's blocking policy"
+                    )]
+                    std::fs::read(file)
+                })
+            })
+            .await
     }
 }
 
-/// What `setting`, a resolved value of `tls.trusted_cas`, trusts beside
-/// Mozilla's roots: each listed file read now on `owner`'s blocking work;
-/// a file that cannot be read, or an entry that names no host, is logged
-/// and trusts nothing.
-///
-/// # Cancel safety
-///
-/// Dropping the future loses only the answer.
-pub async fn trusted_cas(setting: &serde_json::Value, owner: &crate::tasks::TaskOwner) -> Trust {
-    let listed: Vec<(String, Vec<std::path::PathBuf>)> = setting
-        .as_object()
-        .into_iter()
-        .flatten()
-        .map(|(domain, files)| {
-            let files = files
-                .as_array()
+/// The files `tls.trusted_cas` lists for each domain, as resolved settings
+/// hold them, not yet read.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct TrustedCas(Vec<(String, Vec<PathBuf>)>);
+
+impl TrustedCas {
+    /// The files the resolved `settings` list.
+    pub(crate) fn of(settings: &Resolved) -> Self {
+        Self(
+            settings
+                .value(&TLS_TRUSTED_CAS)
+                .as_object()
                 .into_iter()
                 .flatten()
-                .filter_map(|file| file.as_str().map(std::path::PathBuf::from))
-                .collect();
-            (domain.clone(), files)
-        })
-        .collect();
-    let read = owner
-        .blocking(move || {
-            listed
-                .into_iter()
                 .map(|(domain, files)| {
-                    (
-                        domain,
-                        files
-                            .iter()
-                            .filter_map(|file| authorities_in(file))
-                            .flatten()
-                            .collect::<Vec<_>>(),
-                    )
+                    let files = files
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|file| file.as_str().map(PathBuf::from))
+                        .collect();
+                    (domain.clone(), files)
                 })
-                .collect::<Vec<_>>()
-        })
-        .await;
-    read.into_iter().fold(
-        Trust::default_roots(),
-        |trust, (domain, authorities)| match trust.clone().with_trusted_cas(&domain, authorities) {
-            Ok(with) => with,
-            Err(error) => {
-                tracing::warn!(%error, "an entry of `tls.trusted_cas` names no host");
-                trust
-            }
-        },
-    )
+                .collect(),
+        )
+    }
+
+    /// The trust the listed files give, each read with `read`; a file that
+    /// cannot be read, or holds no certificate, and an entry that names no
+    /// host are logged and trust nothing.
+    pub(crate) fn trust(&self, read: impl Fn(&Path) -> io::Result<Vec<u8>>) -> Trust {
+        self.0
+            .iter()
+            .fold(Trust::default_roots(), |trust, (domain, files)| {
+                let authorities = files
+                    .iter()
+                    .filter_map(|file| authorities_in(file, read(file)))
+                    .flatten()
+                    .collect();
+                match trust.clone().with_trusted_cas(domain, authorities) {
+                    Ok(with) => with,
+                    Err(error) => {
+                        tracing::warn!(%error, "an entry of `tls.trusted_cas` names no host");
+                        trust
+                    }
+                }
+            })
+    }
+
+    /// Each listed file, for a reader that reads them ahead of
+    /// [`TrustedCas::trust`].
+    pub(crate) fn files(&self) -> impl Iterator<Item = &Path> {
+        self.0
+            .iter()
+            .flat_map(|(_, files)| files.iter().map(PathBuf::as_path))
+    }
 }
 
-/// The authorities `file` holds; none, logged, when it cannot be read.
-fn authorities_in(file: &std::path::Path) -> Option<Vec<CertificateDer<'static>>> {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "it runs on the tasks module's blocking policy"
-    )]
-    let bytes = std::fs::read(file);
+/// The authorities `file`, read as `bytes`, holds; none, logged, when it
+/// could not be read or holds none.
+fn authorities_in(file: &Path, bytes: io::Result<Vec<u8>>) -> Option<Vec<CertificateDer<'static>>> {
     let read = bytes
         .map_err(|error| error.to_string())
         .and_then(|bytes| read_certificates(&bytes).map_err(|error| error.to_string()));
@@ -385,7 +372,7 @@ impl Trust {
     pub fn examiner(&self, clock: Clock) -> Examiner {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         Examiner {
-            verifier: Verifier::new(self, &provider, None),
+            verifier: Verifier::new(self, &provider),
             clock,
         }
     }
@@ -411,7 +398,7 @@ impl Examiner {
             .collect();
         let parsed = ParsedCertificate::try_from(&end_entity).map_err(|_| unreadable())?;
         let key = KeyHash::of_public_key(parsed.subject_public_key_info().as_ref());
-        let name = domain_key(host).unwrap_or_else(|| host.to_owned());
+        let name = host_name::lookup_key(host);
         let failure = match ServerName::try_from(name) {
             Ok(server_name) => self
                 .verifier
@@ -431,116 +418,6 @@ impl Examiner {
     }
 }
 
-/// A host or domain as the URL parser leaves it, in lower case and
-/// punycode, without the trailing dot that makes it fully qualified; an
-/// IPv6 address without brackets.
-fn domain_key(domain: &str) -> Option<String> {
-    let parsed = if domain.contains(':') && !domain.starts_with('[') {
-        Host::parse(&format!("[{domain}]")).ok()?
-    } else {
-        Host::parse(domain).ok()?
-    };
-    let key = match parsed {
-        Host::Domain(name) => name.strip_suffix('.').unwrap_or(&name).to_owned(),
-        Host::Ipv4(address) => address.to_string(),
-        Host::Ipv6(address) => address.to_string(),
-    };
-    (!key.is_empty()).then_some(key)
-}
-
-/// `host` as the known-certificates store keys it: as the URL parser leaves
-/// a host, without a trailing dot; none when it names no host.
-pub(crate) fn host_key(host: &str) -> Option<String> {
-    domain_key(host)
-}
-
-/// Whether `host` is, or is a subdomain of, a domain `listed` holds, each
-/// as [`domain_key`] leaves it; an address is listed only as itself.
-fn covered(host: &str, listed: impl Fn(&str) -> bool) -> bool {
-    let Some(mut name) = domain_key(host) else {
-        return false;
-    };
-    if name.parse::<std::net::IpAddr>().is_ok() {
-        return listed(&name);
-    }
-    loop {
-        if listed(&name) {
-            return true;
-        }
-        match name.split_once('.') {
-            Some((_, parent)) => name = parent.to_owned(),
-            None => return false,
-        }
-    }
-}
-
-/// What one connection's handshake showed of a listed host's certificate,
-/// kept by its verifier.
-#[derive(Debug, Default)]
-pub(crate) struct Seen {
-    presented: OnceLock<Presented>,
-    /// When a client certificate follows the server's: whether the host
-    /// has a pin, or a row the engine cannot read.
-    before_client_certificate: Option<bool>,
-}
-
-impl Seen {
-    /// For a connection that presents a client certificate to a host whose
-    /// pin row `pinned` says it has: the handshake goes on only for a
-    /// certificate that verifies, of a host with no pin.
-    pub(crate) fn before_client_certificate(pinned: bool) -> Self {
-        Self {
-            presented: OnceLock::new(),
-            before_client_certificate: Some(pinned),
-        }
-    }
-
-    /// What the handshake showed; none before it reached the certificate.
-    pub(crate) fn take(&self) -> Option<Presented> {
-        self.presented.get().cloned()
-    }
-
-    /// Keeps what the handshake showed: a connection verifies one
-    /// certificate, so a second is never kept.
-    fn keep(&self, presented: Presented) {
-        let _ = self.presented.set(presented);
-    }
-
-    /// Whether the handshake stops before the client certificate goes: a
-    /// certificate that `failed` verification, or a pinned host's, passes
-    /// only through an exception.
-    fn withholds(&self, failed: bool) -> bool {
-        self.before_client_certificate
-            .is_some_and(|pinned| pinned || failed)
-    }
-}
-
-/// A handshake stopped before its client certificate was sent, carried
-/// from the verifier through rustls's handshake error.
-#[derive(Debug)]
-struct Withheld;
-
-impl std::fmt::Display for Withheld {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("client_certificate_withheld")
-    }
-}
-
-impl std::error::Error for Withheld {}
-
-/// Whether a handshake that ended with `error` was stopped before its
-/// client certificate was sent, for the exception's decision on the
-/// certificate it was shown.
-pub(crate) fn withheld(error: &io::Error) -> bool {
-    let Some(rustls::Error::InvalidCertificate(CertificateError::Other(OtherError(other)))) = error
-        .get_ref()
-        .and_then(|inner| inner.downcast_ref::<rustls::Error>())
-    else {
-        return false;
-    };
-    other.downcast_ref::<Withheld>().is_some()
-}
-
 /// The per-host decision: a host's certificate is checked against
 /// Mozilla's roots and the authorities trusted for it, by the verifier
 /// built for its most specific listed domain.
@@ -553,9 +430,6 @@ struct Verifier {
     by_domain: BTreeMap<String, Arc<WebPkiServerVerifier>>,
     trust: Trust,
     provider: Arc<CryptoProvider>,
-    /// For a host listed for trust on first use: where the key it presents
-    /// is kept, its certificate let through to the exception's decision.
-    seen: Option<Arc<Seen>>,
 }
 
 /// How a certificate failed, carried from the verifier through rustls's
@@ -656,7 +530,7 @@ fn self_signed(end_entity: &CertificateDer<'_>, now: UnixTime, provider: &Crypto
 }
 
 impl Verifier {
-    fn new(trust: &Trust, provider: &Arc<CryptoProvider>, seen: Option<Arc<Seen>>) -> Self {
+    fn new(trust: &Trust, provider: &Arc<CryptoProvider>) -> Self {
         let build = |extra: &[&CertificateDer<'static>]| {
             let mut roots = RootCertStore::empty();
             roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -671,14 +545,15 @@ impl Verifier {
         };
         let by_domain = trust
             .by_domain
-            .keys()
-            .map(|domain| {
+            .iter()
+            .map(|(domain, _)| {
                 let extra: Vec<&CertificateDer<'static>> = trust
-                    .domains_of(domain)
+                    .by_domain
+                    .covering(domain)
                     .into_iter()
-                    .flat_map(|listed| &trust.by_domain[listed])
+                    .flat_map(|(_, authorities)| authorities)
                     .collect();
-                (domain.clone(), build(&extra))
+                (domain.to_owned(), build(&extra))
             })
             .collect();
         Self {
@@ -686,7 +561,6 @@ impl Verifier {
             by_domain,
             trust: trust.clone(),
             provider: Arc::clone(provider),
-            seen,
         }
     }
 
@@ -725,9 +599,8 @@ impl Verifier {
     fn for_server(&self, server_name: &ServerName<'_>) -> &WebPkiServerVerifier {
         let host = server_name.to_str();
         self.trust
-            .domains_of(&host)
-            .first()
-            .and_then(|domain| self.by_domain.get(*domain))
+            .scope_of(&host)
+            .and_then(|domain| self.by_domain.get(domain))
             .unwrap_or(&self.default)
     }
 }
@@ -741,30 +614,12 @@ impl ServerCertVerifier for Verifier {
         ocsp_response: &[u8],
         now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        let failure = match self.failure(end_entity, intermediates, server_name, ocsp_response, now)
-        {
-            Ok(None) if self.seen.is_none() => return Ok(ServerCertVerified::assertion()),
-            Ok(failure) => failure,
-            Err(other) => return Err(other),
-        };
-        let Some(seen) = &self.seen else {
-            let failure = failure.expect("invariant: a verified certificate returned above");
-            return Err(rustls::Error::InvalidCertificate(CertificateError::Other(
+        match self.failure(end_entity, intermediates, server_name, ocsp_response, now)? {
+            None => Ok(ServerCertVerified::assertion()),
+            Some(failure) => Err(rustls::Error::InvalidCertificate(CertificateError::Other(
                 OtherError(Arc::new(Rejected(failure))),
-            )));
-        };
-        let parsed = ParsedCertificate::try_from(end_entity)?;
-        let withholds = seen.withholds(failure.is_some());
-        seen.keep(Presented {
-            key: KeyHash::of_public_key(parsed.subject_public_key_info().as_ref()),
-            failure,
-        });
-        if withholds {
-            return Err(rustls::Error::InvalidCertificate(CertificateError::Other(
-                OtherError(Arc::new(Withheld)),
-            )));
+            ))),
         }
-        Ok(ServerCertVerified::assertion())
     }
 
     fn verify_tls12_signature(

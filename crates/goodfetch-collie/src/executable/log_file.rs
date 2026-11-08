@@ -296,9 +296,7 @@ fn set_of<'a>(name: &'a str, executable: &str) -> Option<&'a str> {
 
 /// The line that says `count` lines were dropped, at `clock`'s time.
 fn notice(count: u64, clock: Clock) -> Vec<u8> {
-    let timestamp = jiff::Timestamp::try_from(clock.wall())
-        .map(|time| time.to_string())
-        .unwrap_or_default();
+    let timestamp = clock.timestamp().to_string();
     let mut line = serde_json::to_vec(&serde_json::json!({
         "timestamp": timestamp,
         "level": "WARN",

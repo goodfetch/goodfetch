@@ -6,57 +6,94 @@
 //! tooling, so the module declares no Feature.
 #![cfg(unix)]
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use rstest::rstest;
 
 use crate::workspace::Workspace;
 
-/// Every step of `just pre-merge all`: the host's in the order it runs them,
-/// the checks that judge the whole change in seconds first, so a red one
-/// ends the gate before anything beside starts, then Collie's Console build,
-/// which the steps beside find in the workspace they mount, then those
-/// beside them.
-const STEPS: [&str; 24] = [
-    "dco",
-    "commit-messages",
-    "floor-guard",
-    "commit-leaks",
-    "audit",
-    "notices",
-    "console-build",
-    "lint",
-    "feature-combinations",
-    "fuzz-check",
-    "proofs",
-    "_suite quick all",
-    "_suite pre-merge all",
-    "features-audit",
-    "stress",
-    "journeys-tasks --check",
-    "features-tests clients-tests",
-    "_tlc all",
-    "_kennel all",
-    "msrv",
-    "miri",
-    "perf",
-    "linux",
-    "visual",
-];
+/// One entry of a form's step list, as `xtask gate steps` gives it: its
+/// name, its kind (`step`, `beside` or `command`) and the `just` call it
+/// makes.
+struct Listed {
+    name: String,
+    kind: String,
+    call: String,
+}
 
-/// The checks that judge the whole change in seconds, which run before any
-/// step beside the host's.
-const WHOLE_CHANGE: [&str; 6] = [
-    "dco",
-    "commit-messages",
-    "floor-guard",
-    "commit-leaks",
-    "audit",
-    "notices",
-];
+/// The value of `output`'s `<key>=` line.
+fn value<'a>(output: &'a str, key: &str) -> &'a str {
+    let prefix = format!("{key}=");
+    output
+        .lines()
+        .find_map(|line| line.strip_prefix(&prefix))
+        .unwrap_or_else(|| panic!("no `{key}=` line in:\n{output}"))
+}
 
-/// The steps that need Linux, run beside the host's.
-const BESIDE: [&str; 3] = ["perf", "linux", "visual"];
+/// The steps `just pre-merge <form>` runs, in their order, from the
+/// repository's own `xtask gate steps`.
+fn listed(workspace: &Workspace, form: &str) -> Vec<Listed> {
+    let outcome = workspace.xtask(&["gate", "steps", "--form", form]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    value(&outcome.stdout, "steps")
+        .split(' ')
+        .map(|name| Listed {
+            name: name.to_owned(),
+            kind: value(&outcome.stdout, &format!("{name}.kind")).to_owned(),
+            call: value(&outcome.stdout, &format!("{name}.just")).to_owned(),
+        })
+        .collect()
+}
+
+/// The calls `just pre-merge <form>` makes for `listed`'s steps, in their
+/// order: the Pre-merge suite's step runs the exercise audit after its
+/// suite.
+fn calls_of<'a>(listed: impl IntoIterator<Item = &'a Listed>) -> Vec<String> {
+    listed
+        .into_iter()
+        .flat_map(|step| {
+            let audit = (step.name == "pre-merge").then(|| "features-audit".to_owned());
+            std::iter::once(step.call.clone()).chain(audit)
+        })
+        .collect()
+}
+
+/// An incremental gate's plan (ADR 0135), in `xtask gate plan`'s keys: each
+/// step of the full gate runs in full but those `actions` gives as
+/// `(<step>, <action>, <members>, <why>)`. A plan whose `head` is `none`
+/// records nothing.
+fn plan(
+    workspace: &Workspace,
+    previous: &str,
+    head: &str,
+    members: &str,
+    unowned: &str,
+    actions: &[(&str, &str, &str, &str)],
+) -> String {
+    let mut text =
+        format!("previous={previous}\nhead={head}\nmembers={members}\nunowned={unowned}\n");
+    for step in listed(workspace, "all")
+        .into_iter()
+        .filter(|step| step.kind != "command")
+    {
+        let (action, members, why) = actions.iter().find(|(name, ..)| *name == step.name).map_or(
+            ("run", "-", "no earlier run"),
+            |(_, action, members, why)| (*action, *members, *why),
+        );
+        let name = step.name;
+        let _ = write!(
+            text,
+            "{name}.action={action}\n{name}.members={members}\n{name}.why={why}\n"
+        );
+    }
+    text
+}
+
+/// A plan with no earlier run, every step run in full, for `head`.
+fn no_earlier_run(workspace: &Workspace, head: &str) -> String {
+    plan(workspace, "none", head, "-", "-", &[])
+}
 
 /// The OS-service setup the suite runs first on a Linux host, which runs the
 /// tests only Linux decides itself (`ci/linux.sh`); elsewhere `just linux`'s
@@ -71,7 +108,9 @@ const HOST_SETUP: &[&str] = if cfg!(target_os = "linux") {
 /// the OS services' variables it was given to `variables`, and fails with
 /// status 3 when they are `failing`'s content, or with the status a
 /// `statuses` line `<arguments>=<status>` gives them. As `just _gate-plan` it
-/// prints `plan`'s content, the incremental gate's plan, when there is one.
+/// prints `plan`'s content, the incremental gate's plan, when there is one,
+/// else a plan that runs every step and records nothing; as `just
+/// _gate-steps` it runs the repository's own `xtask gate steps`.
 /// When they are `lingering`'s content, it starts a child, as `just perf`'s
 /// recipe starts `xtask perf build` and its `cargo bench`, its output
 /// thrown away, writes the child's process ID to `descendant` and waits for
@@ -86,8 +125,11 @@ fn stand_in_just(workspace: &Workspace) -> PathBuf {
 echo "$*" >>"{calls}"
 echo "$*|${{DBUS_SESSION_BUS_ADDRESS:-}}|${{GOODFETCH_OS_SERVICES:-}}|${{GOODFETCH_TEST_DNS_NAMESPACE:-}}" >>"{variables}"
 echo "$*|${{NEXTEST_TEST_THREADS-unset}}|${{CARGO_BUILD_JOBS-unset}}" >>"{caps}"
-if [ "$1" = _gate-plan ] && [ -f "{plan}" ]; then
-  cat "{plan}"
+if [ "$1" = _gate-steps ]; then
+  exec "{xtask}" gate steps --form "$2"
+fi
+if [ "$1" = _gate-plan ]; then
+  if [ -f "{plan}" ]; then cat "{plan}"; else cat "{default_plan}"; fi
 fi
 if [ -f "{statuses}" ]; then
   status=$(awk -v call="$*=" 'index($0, call) == 1 {{ print substr($0, length(call) + 1) }}' "{statuses}")
@@ -123,6 +165,8 @@ fi
         variables = folder.join("variables").display(),
         caps = folder.join("caps").display(),
         plan = folder.join("plan").display(),
+        default_plan = folder.join("default-plan").display(),
+        xtask = env!("CARGO_BIN_EXE_xtask"),
         failing = folder.join("failing").display(),
         statuses = folder.join("statuses").display(),
         killing = folder.join("killing").display(),
@@ -132,6 +176,11 @@ fi
         awaiting = folder.join("awaiting").display(),
         stdout = folder.join("stdout").display(),
     );
+    std::fs::write(
+        folder.join("default-plan"),
+        no_earlier_run(workspace, "none"),
+    )
+    .unwrap();
     let just = folder.join("just");
     std::fs::write(&just, script).unwrap();
     {
@@ -145,7 +194,8 @@ struct Run {
     code: Option<i32>,
     /// The steps' calls, the incremental gate's own aside.
     calls: Vec<String>,
-    /// The incremental gate's calls: `_gate-plan`, `_gate-record <step> <status>`.
+    /// The incremental gate's calls: `_gate-plan`, `_gate-record <step> <status>`;
+    /// the step list's, `_gate-steps <form>`, are in neither.
     gate: Vec<String>,
     /// Each call as `<arguments>|<session bus>|<GOODFETCH_OS_SERVICES>|<GOODFETCH_TEST_DNS_NAMESPACE>`.
     variables: Vec<String>,
@@ -198,7 +248,10 @@ fn pre_merge_with_env(
             .collect()
     };
     let is_gate = |call: &String| call.starts_with("_gate-");
-    let (gate, calls) = read("calls").into_iter().partition(is_gate);
+    let (gate, calls) = read("calls")
+        .into_iter()
+        .filter(|call| !call.starts_with("_gate-steps "))
+        .partition(is_gate);
     Run {
         code: status.code(),
         calls,
@@ -220,28 +273,33 @@ fn every_pre_merge_check_runs_and_the_skipped_parts_are_listed_last() {
     let run = pre_merge(&workspace, &stand_in, &["all"]);
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let steps = listed(&workspace, "all");
     let mut ran = run.calls.clone();
     assert_eq!(ran.pop().as_deref(), Some("_skips-report"));
     ran.sort();
-    let mut expected: Vec<String> = HOST_SETUP
-        .iter()
-        .chain(&STEPS)
-        .map(|step| (*step).to_owned())
-        .collect();
+    let setup = HOST_SETUP.iter().map(|call| (*call).to_owned());
+    let mut expected: Vec<String> = setup.clone().chain(calls_of(&steps)).collect();
     expected.sort();
     assert_eq!(ran, expected);
+    let beside: Vec<&str> = steps
+        .iter()
+        .filter(|step| step.kind == "beside")
+        .map(|step| step.call.as_str())
+        .collect();
+    assert_ne!(
+        beside.len(),
+        0,
+        "the full gate runs steps beside the host's"
+    );
     let host: Vec<&String> = run
         .calls
         .iter()
-        .filter(|call| !BESIDE.contains(&call.as_str()) && *call != "_skips-report")
+        .filter(|call| !beside.contains(&call.as_str()) && *call != "_skips-report")
         .collect();
-    assert_eq!(
-        host,
-        HOST_SETUP
-            .iter()
-            .chain(&STEPS[..STEPS.len() - BESIDE.len()])
-            .collect::<Vec<_>>()
-    );
+    let in_order: Vec<String> = setup
+        .chain(calls_of(steps.iter().filter(|step| step.kind != "beside")))
+        .collect();
+    assert_eq!(host, in_order.iter().collect::<Vec<_>>());
 }
 
 #[test]
@@ -254,30 +312,18 @@ fn without_all_the_suites_run_over_what_changed() {
     assert_eq!(run.code, Some(0), "{}", run.stderr);
     let mut ran = run.calls;
     ran.sort();
-    // The same steps, `all` left empty: `just _suite quick ""`.
     let mut expected: Vec<String> = HOST_SETUP
         .iter()
-        .chain(&STEPS)
-        .map(|step| step.replace(" all", " "))
+        .map(|call| (*call).to_owned())
+        .chain(calls_of(&listed(&workspace, "changed")))
         .chain(["_skips-report".to_owned()])
         .collect();
     expected.sort();
     assert_eq!(ran, expected);
+    // The same steps as the full gate's, none over the whole workspace.
+    assert!(ran.iter().all(|call| !call.ends_with(" all")), "{ran:?}");
+    assert!(ran.iter().any(|call| call == "_suite quick"), "{ran:?}");
 }
-
-/// The quick form's steps, in order: those that judge every change, never a
-/// test of the Pre-merge suite or a step beside the host's.
-const QUICK_STEPS: [&str; 9] = [
-    "dco",
-    "commit-messages",
-    "floor-guard",
-    "commit-leaks",
-    "audit",
-    "notices",
-    "lint",
-    "_suite quick all",
-    "journeys-tasks --check",
-];
 
 #[test]
 fn the_quick_form_runs_the_checks_every_change_needs_and_nothing_beside() {
@@ -287,27 +333,20 @@ fn the_quick_form_runs_the_checks_every_change_needs_and_nothing_beside() {
     let run = pre_merge(&workspace, &stand_in, &["quick"]);
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let steps = listed(&workspace, "quick");
+    assert!(steps.iter().all(|step| step.kind == "step"));
     let mut expected: Vec<String> = HOST_SETUP
         .iter()
-        .chain(&QUICK_STEPS)
-        .map(|step| (*step).to_owned())
+        .map(|call| (*call).to_owned())
+        .chain(calls_of(&steps))
         .collect();
     expected.push("_skips-report".to_owned());
     assert_eq!(run.calls, expected);
 }
 
-/// The docs form's steps, in order, for a change of documents alone
-/// (`xtask affected`'s `gate=docs`): the checks that read the change's
-/// commits and the bar, then the checks of `just lint` that read documents;
-/// no code lint, suite, OS service or step beside the host's.
-const DOCS_STEPS: [&str; 5] = [
-    "dco",
-    "commit-messages",
-    "floor-guard",
-    "commit-leaks",
-    "lint-documents",
-];
-
+/// The docs form runs its steps, for a change of documents alone (`xtask
+/// affected`'s `gate=docs`), in their order: no OS service, no step beside
+/// the host's.
 #[test]
 fn the_docs_form_runs_only_the_checks_that_read_documents_and_commits() {
     let workspace = Workspace::from_fixture("empty");
@@ -316,9 +355,22 @@ fn the_docs_form_runs_only_the_checks_that_read_documents_and_commits() {
     let run = pre_merge(&workspace, &stand_in, &["docs"]);
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    let mut expected: Vec<String> = DOCS_STEPS.iter().map(|step| (*step).to_owned()).collect();
+    let mut expected = calls_of(&listed(&workspace, "docs"));
     expected.push("_skips-report".to_owned());
     assert_eq!(run.calls, expected);
+}
+
+/// The calls of `form`'s steps through `step`, the one that fails.
+fn through(workspace: &Workspace, form: &str, step: &str) -> Vec<String> {
+    let steps = listed(workspace, form);
+    let last = steps
+        .iter()
+        .position(|listed| listed.name == step)
+        .unwrap_or_else(|| panic!("{form} runs no {step}"));
+    steps[..=last]
+        .iter()
+        .map(|step| step.call.clone())
+        .collect()
 }
 
 #[test]
@@ -330,32 +382,22 @@ fn a_red_check_ends_the_docs_form_before_the_document_checks() {
     let run = pre_merge(&workspace, &stand_in, &["docs"]);
 
     assert_eq!(run.code, Some(3), "{}", run.stderr);
-    assert_eq!(
-        run.calls,
-        ["dco", "commit-messages", "floor-guard", "_skips-report"]
-    );
+    let mut expected = through(&workspace, "docs", "floor-guard");
+    expected.push("_skips-report".to_owned());
+    assert_eq!(run.calls, expected);
 }
 
 /// A red check of the whole change ends the gate before the Console build
 /// and before any step beside the host's starts, so a gate that fails in
 /// seconds never starts perf (the test-gate audit's F3).
 #[rstest]
-#[case::dco("dco", &["dco"])]
-#[case::commit_messages("commit-messages", &["dco", "commit-messages"])]
-#[case::floor_guard("floor-guard", &["dco", "commit-messages", "floor-guard"])]
-#[case::commit_leaks(
-    "commit-leaks",
-    &["dco", "commit-messages", "floor-guard", "commit-leaks"]
-)]
-#[case::audit(
-    "audit",
-    &["dco", "commit-messages", "floor-guard", "commit-leaks", "audit"]
-)]
-#[case::notices("notices", &WHOLE_CHANGE)]
-fn a_red_whole_change_check_ends_the_gate_before_any_step_beside_starts(
-    #[case] check: &str,
-    #[case] through: &[&str],
-) {
+#[case::dco("dco")]
+#[case::commit_messages("commit-messages")]
+#[case::floor_guard("floor-guard")]
+#[case::commit_leaks("commit-leaks")]
+#[case::audit("audit")]
+#[case::notices("notices")]
+fn a_red_whole_change_check_ends_the_gate_before_any_step_beside_starts(#[case] check: &str) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
     std::fs::write(stand_in.join("failing"), check).unwrap();
@@ -363,7 +405,21 @@ fn a_red_whole_change_check_ends_the_gate_before_any_step_beside_starts(
     let run = pre_merge(&workspace, &stand_in, &["all"]);
 
     assert_eq!(run.code, Some(3), "{}", run.stderr);
-    for later in BESIDE.iter().chain(&["console-build", "lint"]) {
+    let beside: Vec<String> = listed(&workspace, "all")
+        .into_iter()
+        .filter(|step| step.kind == "beside")
+        .map(|step| step.call)
+        .collect();
+    assert_ne!(
+        beside.len(),
+        0,
+        "the full gate runs steps beside the host's"
+    );
+    for later in beside
+        .iter()
+        .map(String::as_str)
+        .chain(["console-build", "lint"])
+    {
         assert!(
             !run.calls.iter().any(|call| call == later),
             "{later} started after {check} failed: {:?}",
@@ -376,7 +432,7 @@ fn a_red_whole_change_check_ends_the_gate_before_any_step_beside_starts(
         .map(String::as_str)
         .filter(|call| !HOST_SETUP.contains(call) && *call != "_skips-report")
         .collect();
-    assert_eq!(ran, through);
+    assert_eq!(ran, through(&workspace, "all", check));
 }
 
 /// The gate's forms run every step with every thread, whatever thread or job
@@ -472,27 +528,10 @@ fn step_times(stdout: &str) -> (std::collections::BTreeMap<String, StepTimes>, V
 /// Each step of a gate run logs when it started and ended, so a gate log
 /// says where its time went (the test-gate audit's option 6).
 #[rstest]
-#[case::all(
-    "all",
-    &[
-        "console-build", "perf", "linux", "visual", "dco", "commit-messages", "floor-guard",
-        "lint", "feature-combinations", "audit", "commit-leaks", "fuzz-check", "proofs", "quick",
-        "pre-merge", "stress", "journeys-tasks", "features-tests", "tlc", "kennel", "msrv",
-        "miri", "notices",
-    ],
-)]
-#[case::quick(
-    "quick",
-    &[
-        "dco", "commit-messages", "floor-guard", "lint", "audit", "commit-leaks", "quick",
-        "journeys-tasks", "notices",
-    ],
-)]
-#[case::docs(
-    "docs",
-    &["dco", "commit-messages", "floor-guard", "commit-leaks", "lint-documents"],
-)]
-fn each_step_logs_when_it_started_and_ended(#[case] form: &str, #[case] steps: &[&str]) {
+#[case::all("all")]
+#[case::quick("quick")]
+#[case::docs("docs")]
+fn each_step_logs_when_it_started_and_ended(#[case] form: &str) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
     let before = jiff::Timestamp::now();
@@ -509,7 +548,8 @@ fn each_step_logs_when_it_started_and_ended(#[case] form: &str, #[case] steps: &
     } else {
         vec![]
     };
-    expected.extend(steps);
+    let steps = listed(&workspace, form);
+    expected.extend(steps.iter().map(|step| step.name.as_str()));
     expected.sort_unstable();
     assert_eq!(
         times.keys().map(String::as_str).collect::<Vec<_>>(),
@@ -674,23 +714,38 @@ fn on_linux_a_failed_os_service_setup_stops_the_suite_before_any_step() {
 /// it: perf, the Pre-merge suite and TLC reused from an earlier run on
 /// `earlier`, the Quick suite rerun for two members and the stress run for
 /// one; every other step runs.
-const PLAN: &str = "previous\tearlier
-head\tplanned
-members\ta b c :unowned
-unowned\tconsole/screens.spec.ts
-perf\treuse\t-\tgreen on earlier
-pre-merge\treuse\t-\tgreen on earlier
-tlc\treuse\t-\tgreen on earlier
-quick\tpart\ta b :unowned\tthe change since earlier reaches it
-stress\tpart\ta :unowned\tthe change since earlier reaches it
-lint\trun\t-\tevery run reruns it
-";
+fn incremental_plan(workspace: &Workspace) -> String {
+    plan(
+        workspace,
+        "earlier",
+        "planned",
+        "a b c :unowned",
+        "console/screens.spec.ts",
+        &[
+            ("perf", "reuse", "-", "green on earlier"),
+            ("pre-merge", "reuse", "-", "green on earlier"),
+            ("tlc", "reuse", "-", "green on earlier"),
+            (
+                "quick",
+                "part",
+                "a b :unowned",
+                "the change since earlier reaches it",
+            ),
+            (
+                "stress",
+                "part",
+                "a :unowned",
+                "the change since earlier reaches it",
+            ),
+        ],
+    )
+}
 
 #[test]
 fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result() {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
-    std::fs::write(stand_in.join("plan"), PLAN).unwrap();
+    std::fs::write(stand_in.join("plan"), incremental_plan(&workspace)).unwrap();
 
     let run = pre_merge(&workspace, &stand_in, &["all"]);
 
@@ -724,30 +779,13 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
     assert_eq!(run.gate.first().map(String::as_str), Some("_gate-plan"));
     let mut recorded = run.gate[1..].to_vec();
     recorded.sort();
-    let mut expected: Vec<String> = [
-        "dco",
-        "commit-messages",
-        "floor-guard",
-        "lint",
-        "feature-combinations",
-        "audit",
-        "commit-leaks",
-        "fuzz-check",
-        "proofs",
-        "quick",
-        "stress",
-        "journeys-tasks",
-        "features-tests",
-        "kennel",
-        "msrv",
-        "miri",
-        "notices",
-        "linux",
-        "visual",
-    ]
-    .iter()
-    .map(|step| format!("_gate-record planned {step} pass"))
-    .collect();
+    // Every step the plan runs, in full or in part, records its result.
+    let mut expected: Vec<String> = listed(&workspace, "all")
+        .into_iter()
+        .filter(|step| step.kind != "command")
+        .filter(|step| !["perf", "pre-merge", "tlc"].contains(&step.name.as_str()))
+        .map(|step| format!("_gate-record planned {} pass", step.name))
+        .collect();
     expected.sort();
     assert_eq!(recorded, expected);
 }
@@ -760,7 +798,7 @@ fn a_failed_step_is_recorded_as_failed(#[case] call: &str, #[case] step: &str) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
     // A plan with no earlier run: every step runs.
-    std::fs::write(stand_in.join("plan"), "previous\tnone\nhead\tplanned\n").unwrap();
+    std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
     std::fs::write(stand_in.join("failing"), call).unwrap();
 
     let run = pre_merge(&workspace, &stand_in, &["all"]);
@@ -795,7 +833,7 @@ fn a_failed_step_run_per_member_is_recorded_with_its_own_evidence(
 ) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
-    std::fs::write(stand_in.join("plan"), "previous\tnone\nhead\tplanned\n").unwrap();
+    std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
     std::fs::write(stand_in.join("failing"), call).unwrap();
     workspace.write(earlier, b"an earlier run's");
 
@@ -834,7 +872,7 @@ fn a_pre_merge_suite_red_in_nextest_alone_still_runs_the_exercise_audit(
 ) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
-    std::fs::write(stand_in.join("plan"), "previous\tnone\nhead\tplanned\n").unwrap();
+    std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
     let suite = if audit.starts_with("_suite") {
         String::new()
     } else {
@@ -960,7 +998,7 @@ fn a_step_beside_that_ended_before_a_host_step_failed_records_its_result(
 ) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
-    std::fs::write(stand_in.join("plan"), "previous\tnone\nhead\tplanned\n").unwrap();
+    std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
     if status == "fail" {
         std::fs::write(stand_in.join("failing"), step).unwrap();
     }
@@ -995,7 +1033,7 @@ fn a_step_beside_that_ended_before_a_host_step_failed_records_its_result(
 fn a_step_beside_still_running_when_a_host_step_fails_records_nothing() {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
-    std::fs::write(stand_in.join("plan"), "previous\tnone\nhead\tplanned\n").unwrap();
+    std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
     std::fs::write(stand_in.join("lingering"), "perf").unwrap();
     std::fs::write(stand_in.join("failing"), "lint").unwrap();
 
@@ -1027,7 +1065,7 @@ fn a_step_beside_still_running_when_a_host_step_fails_records_nothing() {
 fn only_the_whole_workspace_gate_plans_and_records(#[case] form: &str) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
-    std::fs::write(stand_in.join("plan"), PLAN).unwrap();
+    std::fs::write(stand_in.join("plan"), incremental_plan(&workspace)).unwrap();
     let args: &[&str] = if form.is_empty() { &[] } else { &[form] };
 
     let run = pre_merge(&workspace, &stand_in, args);
@@ -1120,12 +1158,19 @@ fn the_shuffling_runners_rerun_in_the_heads_order_and_their_failure_fails_the_ga
     let stand_in = stand_in_just(&workspace);
     std::fs::write(
         stand_in.join("plan"),
-        "previous\tearlier
-head\tplanned
-members\tcrate test-support/typescript
-unowned\t-
-pre-merge\tpart\ttest-support/typescript\tVitest, Playwright and pytest rerun every member in the head's test order
-",
+        plan(
+            &workspace,
+            "earlier",
+            "planned",
+            "crate test-support/typescript",
+            "-",
+            &[(
+                "pre-merge",
+                "part",
+                "test-support/typescript",
+                "Vitest, Playwright and pytest rerun every member in the head's test order",
+            )],
+        ),
     )
     .unwrap();
     let call = "test pre-merge --shuffled-all test-support/typescript";

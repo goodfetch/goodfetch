@@ -9,7 +9,8 @@
 # folder is read-only to it. Under the deny, pnpm runs offline. The pinned
 # image has no Rust, so `install` also writes the test quarantine list's
 # exclusions (`xtask quarantine exclude`, in the CI image's container) to
-# target/visual/quarantine.tsv, which `test` reads (ADR 0064).
+# target/visual/quarantine-<runner>.txt, one argument a line, which `test`
+# reads (ADR 0064).
 set -euo pipefail
 
 mode=${1:?usage: ci/vm/visual.sh install|test|update}
@@ -19,7 +20,7 @@ source "$here/common.sh"
 
 if [[ "$mode" == install ]]; then
   "$here/exec.sh" bash -c \
-    "mkdir -p target/visual && cargo run --quiet --bin xtask -- quarantine exclude >target/visual/quarantine.tsv"
+    "set -euo pipefail && mkdir -p target/visual && exclusions=\$(cargo run --quiet --bin xtask -- quarantine exclude) && for runner in vitest playwright; do jq -r --arg runner \"\$runner\" '.[\$runner][]' <<<\"\$exclusions\" >\"target/visual/quarantine-\$runner.txt\"; done"
   vm_shell nerdctl run --detach --name "$VISUAL_CONTAINER" --platform linux/amd64 --ipc=host \
     --volume /work:/work --volume /cache:/cache:ro \
     --env CI=true --env "GOODFETCH_VISUAL_IMAGE=$PLAYWRIGHT_DIGEST" \

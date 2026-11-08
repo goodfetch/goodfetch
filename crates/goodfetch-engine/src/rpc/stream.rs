@@ -99,7 +99,14 @@ async fn read_body(
     let file = body::file(&folder, &params.body).ok_or_else(not_found)?;
     let mut file = tokio::fs::File::open(&file)
         .await
-        .map_err(|_| not_found())?;
+        .map_err(|error| match error.kind() {
+            std::io::ErrorKind::NotFound => not_found(),
+            // The Run holds the body: a failure to open it is the engine's.
+            _ => CallError::protocol(
+                goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                format!("the body could not be opened: {error}"),
+            ),
+        })?;
     let size = context
         .stream()
         .send_file(&mut file)

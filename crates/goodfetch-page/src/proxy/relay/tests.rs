@@ -25,7 +25,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_engine::audit::AuditLog;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::endpoint::{Refusals, new_token};
+use goodfetch_engine::endpoint::{self, Refusals, new_token};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_test_support::{Endpoint, EndpointRunner, Listener, ListenerKind, Rule, TestEnv};
@@ -36,9 +36,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-use super::{
-    ACCEPT_BACKOFF, Credentials, LISTENER, Mode, USERNAME, Upstream, accepting, basic, relay,
-};
+use super::{ACCEPT_BACKOFF, Credentials, Mode, USERNAME, Upstream, accepting, basic, relay};
 use crate::egress_relay::deadlines::HEAD_DEADLINE;
 use crate::egress_relay::{ByAuthority, Outcomes};
 
@@ -112,7 +110,7 @@ fn refused_tokens(log: &AuditLog) -> usize {
             .filter(|exported| {
                 exported.entry.kind == "endpoint_authentication_failed"
                     && exported.entry.details
-                        == serde_json::json!({ "listener": LISTENER, "reason": "token_wrong" })
+                        == serde_json::json!({ "listener": endpoint::Listener::ProxyRelay.name(), "reason": "token_wrong" })
             })
             .count()
     })

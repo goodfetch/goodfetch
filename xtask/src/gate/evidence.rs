@@ -21,15 +21,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command as Process;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result};
 
 use super::plan::{UNOWNED, short};
 use crate::affected::{Kind, RepoPath, WorkspaceMembers};
 use crate::metadata;
-use crate::quarantine::Runner;
-use crate::quarantine::listing::{self, Listed, Location};
+use crate::runners::Runner;
+use crate::runners::listing::{self, Listed, Location};
 
 /// What each crate's last build read, by crate, as repository paths.
 pub(crate) struct RustInputs {
@@ -346,18 +345,7 @@ fn try_listed_since(
 /// part reruns them, since no member's result covers them (the review's
 /// F3, `console/screens.spec.ts`).
 pub(crate) fn unowned_tests(root: &Path, members: &WorkspaceMembers) -> Result<Vec<String>> {
-    let output = Process::new("git")
-        .args(["ls-files", "-z"])
-        .current_dir(root)
-        .output()
-        .context("running git")?;
-    if !output.status.success() {
-        bail!(
-            "git ls-files failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    let text = String::from_utf8(output.stdout).context("reading git's output")?;
+    let text = crate::git::text(root, &["ls-files", "-z"])?;
     Ok(text
         .split('\0')
         .filter(|path| is_test_file(path))

@@ -38,7 +38,7 @@ pub use files::{
     load_project, operator_policy, policy_version, project_settings, rewrite, set,
     user_configuration,
 };
-pub use hosts::{HostEntry, without_root};
+pub use hosts::HostEntry;
 pub use resolve::{
     Effective, HostDefaults, Layers, Policy, Recipe, Resolved, SettingValue, Unapplied,
     catalog_default, catalog_value, get_or_default, resolve, value_as,
@@ -150,10 +150,23 @@ impl Settings {
     ///
     /// Dropping the future leaves the read to finish on its own.
     pub async fn machine(&self) -> Result<MachineLayers, SettingsError> {
+        let settings = self.clone();
+        self.0
+            .owner
+            .blocking(move || settings.machine_blocking())
+            .await
+    }
+
+    /// Reads the machine's layers now, on the calling thread: for work on
+    /// the blocking policy already, such as an edit of the settings files
+    /// under their lock. Blocking.
+    ///
+    /// # Errors
+    ///
+    /// As [`SettingsFiles::load`].
+    pub(crate) fn machine_blocking(&self) -> Result<MachineLayers, SettingsError> {
         self.0.work.count(Row::ConfigurationReads);
-        let files = self.0.files.clone();
-        let product = self.0.product;
-        self.0.owner.blocking(move || files.load(product)).await
+        self.0.files.load(self.0.product)
     }
 
     /// The defaults this host gives in place of the catalog's, found on the

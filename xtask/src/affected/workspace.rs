@@ -3,7 +3,9 @@
 //! members of its own workspace it depends on, and where the visual tests are
 //! (ADR 0073). Cargo's members come from `cargo metadata`; pnpm's from
 //! `pnpm-workspace.yaml` and uv's from the root `pyproject.toml`, whose
-//! patterns use `*` for one folder name.
+//! patterns use `*` for one folder name. The Kennel's workspace, no member
+//! of the root one, is read for what of the root's its build and tests take
+//! (ADR 0141).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -17,7 +19,7 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 use super::{RepoPath, imports};
-use crate::{console, metadata, package_dependencies, tlc};
+use crate::{console, kennel, metadata, package_dependencies, tlc, tree};
 
 pub(crate) struct Workspace {
     pub(crate) crates: Vec<Crate>,
@@ -29,6 +31,21 @@ pub(crate) struct Workspace {
     /// The packages whose build a crate embeds: a change to one changes
     /// that crate's executable.
     pub(crate) embedded: Vec<Embedded>,
+    pub(crate) kennel: Kennel,
+}
+
+/// What the Kennel's workspace (ADR 0141), which `cargo metadata` of the
+/// root leaves out, takes from the root's crates: its job runs when a
+/// change reaches one as it would reach a crate's build or the executables
+/// its tests run. Empty when the repository has no Kennel.
+#[derive(Default)]
+pub(crate) struct Kennel {
+    /// The root's crates its crates depend on, of any kind:
+    /// `goodfetch-protocol`.
+    pub(crate) dependencies: BTreeSet<String>,
+    /// The root's crates whose executables its tests run, from its crates'
+    /// `[package.metadata.goodfetch] runs`.
+    pub(crate) runs: BTreeSet<String>,
 }
 
 /// A package whose build a crate embeds, as Collie's executable embeds the
@@ -111,6 +128,7 @@ pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Workspace> {
     visual_tests.sort();
     let crates = crates(cargo, root)?;
     let embedded = embedded(&crates, &packages);
+    let kennel = kennel(cargo, root, &crates)?;
     Ok(Workspace {
         crates,
         packages,
@@ -124,7 +142,31 @@ pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Workspace> {
             })
             .collect(),
         embedded,
+        kennel,
     })
+}
+
+/// What the Kennel's workspace takes from `crates`, the root's, read from
+/// its own `cargo metadata`.
+fn kennel(cargo: &OsStr, root: &Path, crates: &[Crate]) -> Result<Kennel> {
+    let folder = root.join(kennel::FOLDER);
+    if !folder.join("Cargo.toml").is_file() {
+        return Ok(Kennel::default());
+    }
+    let root_crate = |name: &String| crates.iter().any(|krate| &krate.name == name);
+    let mut found = Kennel::default();
+    for package in metadata::packages(cargo, &folder)? {
+        found.dependencies.extend(
+            package
+                .dependencies
+                .iter()
+                .map(|dependency| &dependency.name)
+                .filter(|name| root_crate(name))
+                .cloned(),
+        );
+        found.runs.extend(package.runs());
+    }
+    Ok(found)
 }
 
 /// Each Product's Console, whose build its executable embeds (ADRs 0057
@@ -170,15 +212,6 @@ fn runner_config_imports(root: &Path, names: &BTreeSet<String>) -> Result<BTreeS
     Ok(loaded)
 }
 
-/// Folders the visual projects never look in, wherever they are: build
-/// outputs, installed packages and fixtures (`playwright.config.ts`'s
-/// `testIgnore`); dot-folders are skipped too.
-const NOT_SEARCHED_FOR_VISUAL_TESTS: [&str; 4] = ["target", "node_modules", ".venv", "fixtures"];
-
-/// Folders from the root the visual projects never look in: the frozen R&D
-/// archive and the static checks' proofs.
-const ROOT_FOLDERS_WITHOUT_VISUAL_TESTS: [&str; 2] = ["rnd", "ci/proofs"];
-
 /// Whether the file name is a visual test's: `*.visual.spec.ts` for
 /// Playwright, `*.visual.test.ts[x]` for Vitest (TESTING.md).
 pub(crate) fn is_visual_test(name: &str) -> bool {
@@ -198,9 +231,13 @@ fn find_visual_tests(root: &Path, folder: &Path, found: &mut Vec<RepoPath>) -> R
         let metadata = std::fs::symlink_metadata(&path)
             .with_context(|| format!("reading {}", path.display()))?;
         if metadata.is_dir() {
-            let skipped = name.starts_with('.')
-                || NOT_SEARCHED_FOR_VISUAL_TESTS.contains(&name)
-                || ROOT_FOLDERS_WITHOUT_VISUAL_TESTS.contains(&relative(root, &path)?.as_str());
+            // The visual projects look in no fixtures folder and not in the
+            // proofs either (`playwright.config.ts`'s `testIgnore`).
+            let folder = relative(root, &path)?;
+            let skipped = tree::hidden(name)
+                || tree::never_entered(folder.as_str())
+                || name == tree::FIXTURES
+                || folder.as_str() == tree::PROOFS;
             if !skipped {
                 find_visual_tests(root, &path, found)?;
             }

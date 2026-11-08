@@ -22,7 +22,7 @@ use goodfetch_cdp::{NetError, Subscription};
 use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::client::{ClientRequestError, Sent};
-use goodfetch_engine::egress::{self, Policy, Refused, RequestKind};
+use goodfetch_engine::egress::{self, Gate, Policy, Refused, RequestKind};
 use goodfetch_engine::http_client;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::response_limits::Limits;
@@ -879,10 +879,12 @@ impl PageContext {
             &self.blocking
         };
         let stepped = match steps::send_on(&paused, &self.policy, blocking, fetch) {
-            Ok(steps::Sent::Continue(command)) => match self.judged_addresses(held.url()).await {
-                Ok(()) => Ok(steps::Sent::Continue(command)),
-                Err(refused) => Err(Stopped::Refused(refused)),
-            },
+            Ok(steps::Sent::Continue(command)) => {
+                match self.judged_addresses(held.url(), paused.egress).await {
+                    Ok(()) => Ok(steps::Sent::Continue(command)),
+                    Err(refused) => Err(Stopped::Refused(refused)),
+                }
+            }
             other => other,
         };
         // Step 7's guard of the Session's cookies: none goes to a host the
@@ -1072,23 +1074,20 @@ impl PageContext {
     ///
     /// [`Refused`] naming the first address a page may not reach, or
     /// `network.resolve` for a name the engine cannot resolve.
-    async fn judged_addresses(&self, url: &str) -> Result<(), Refused> {
+    async fn judged_addresses(&self, url: &str, kind: RequestKind) -> Result<(), Refused> {
         let Some(lookups) = &self.lookups else {
             return Ok(());
         };
-        let Ok(parsed) = url::Url::parse(url) else {
+        let judged = Gate::Session {
+            policy: &self.policy,
+            kind,
+        }
+        .judge(url)?;
+        let Some(port) = judged.port().filter(|_| !judged.host().is_empty()) else {
             return Ok(());
         };
-        let host = match parsed.host() {
-            Some(url::Host::Ipv6(address)) => address.to_string(),
-            Some(host) => host.to_string(),
-            None => return Ok(()),
-        };
-        let Some(port) = parsed.port_or_known_default() else {
-            return Ok(());
-        };
-        match http_client::lookup(&host, port, lookups.resolve()).await {
-            Ok(addresses) => egress::judge_addresses(url, &addresses, &self.policy),
+        match http_client::lookup(judged.host(), port, lookups.resolve()).await {
+            Ok(addresses) => judged.addresses(&addresses),
             Err(failure) => {
                 let location = lookups.location().await;
                 tracing::debug!(

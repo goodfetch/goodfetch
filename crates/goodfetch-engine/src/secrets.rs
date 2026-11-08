@@ -45,7 +45,6 @@ use goodfetch_protocol::secrets::{
     SECRETS_RESOLVE_EACH_USE, SecretFailure, SecretInputRefusedReason,
 };
 use goodfetch_protocol::settings::SettingsLayer;
-use jiff::Timestamp;
 use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::json;
 use subtle::ConstantTimeEq as _;
@@ -56,6 +55,7 @@ use crate::audit::{AuditError, AuditLog, Origin};
 use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::home::Home;
+use crate::host_name;
 use crate::known_certificates::{ExceptionKind, KeyHash};
 use crate::mask::{Mask, Masks, Reach, Redaction};
 use crate::settings::{HostDefaults, Resolved};
@@ -114,8 +114,6 @@ pub enum ProviderFailure {
     /// It failed in a way its translation point does not know (ADR 0127),
     /// logged at `warn` without its text: `provider_failed`.
     Unrecognized(PartyText),
-    /// The caller's resolver is missing, threw or gave no answer.
-    ResolverFailed,
 }
 
 /// What a provider's configuration lacks.
@@ -514,17 +512,6 @@ impl Secrets {
         self
     }
 
-    /// The schemes it answers: those it carries, those added with
-    /// [`Secrets::with`] and those a Product builds for each Run.
-    pub fn schemes(&self) -> std::collections::BTreeSet<Provider> {
-        self.0
-            .providers
-            .keys()
-            .chain(self.0.configured.keys())
-            .copied()
-            .collect()
-    }
-
     /// What one Run resolves through, as [`Secrets::for_run_with`], each
     /// provider a Product builds for each Run built from `settings`, the
     /// Run's resolved settings.
@@ -601,7 +588,8 @@ impl Secrets {
 /// (ADR 0042), with the key each presented and the kind of exception: the
 /// engine's client sends them no Session cookie, the driver resolves no
 /// value for them, and the Run's end records them once in the Audit log.
-/// Hosts are held as the URL parser leaves them, without a trailing dot.
+/// Hosts are held as [`host_name::key`] keys them, so a host matches
+/// whatever its case, IDNA spelling and trailing dot.
 /// Clones share it.
 #[derive(Clone, Debug, Default)]
 pub struct ExceptionHosts(Arc<tokio::sync::Mutex<BTreeMap<String, (KeyHash, ExceptionKind)>>>);
@@ -617,7 +605,7 @@ impl ExceptionHosts {
         self.0
             .lock()
             .await
-            .get(&host_key(host))
+            .get(&host_name::lookup_key(host))
             .map(|(key, _)| *key)
     }
 
@@ -627,7 +615,10 @@ impl ExceptionHosts {
     ///
     /// Dropping the future may leave the host out.
     pub(crate) async fn add(&self, host: &str, key: KeyHash, kind: ExceptionKind) {
-        self.0.lock().await.insert(host_key(host), (key, kind));
+        self.0
+            .lock()
+            .await
+            .insert(host_name::lookup_key(host), (key, kind));
     }
 
     /// Every host reached, in order, with the key it presented last and its
@@ -644,14 +635,6 @@ impl ExceptionHosts {
             .map(|(host, (key, kind))| (host.clone(), *key, *kind))
             .collect()
     }
-}
-
-/// `host` in lower case, without the trailing dot of a fully qualified
-/// name.
-fn host_key(host: &str) -> String {
-    let host = host.to_ascii_lowercase();
-    host.strip_suffix('.')
-        .map_or_else(|| host.clone(), str::to_owned)
 }
 
 /// One value a Run resolved, under the name it was resolved for.
@@ -898,8 +881,7 @@ impl RunSecrets {
             "reference": reference.as_str(),
             "domain": purpose.domain,
         });
-        let now =
-            Timestamp::try_from(self.0.secrets.0.clock.wall()).unwrap_or(Timestamp::UNIX_EPOCH);
+        let now = self.0.secrets.0.clock.timestamp();
         self.0
             .secrets
             .0
@@ -931,13 +913,6 @@ impl ProviderFailure {
     }
 }
 
-/// The wait a `Retry-After` header's `value` asks for: a whole number of
-/// seconds. An HTTP date, which needs the server's clock, asks none, and
-/// the driver's backoff waits instead.
-pub fn retry_after(value: Option<&str>) -> Option<Duration> {
-    value?.trim().parse::<u64>().ok().map(Duration::from_secs)
-}
-
 /// What a provider's failure on `reference` leads to: its variant and fix.
 fn failure_of(failure: ProviderFailure, reference: &SecretReference) -> (SecretFailure, String) {
     let scheme = reference.provider().as_str();
@@ -953,10 +928,6 @@ fn failure_of(failure: ProviderFailure, reference: &SecretReference) -> (SecretF
         ProviderFailure::Unrecognized(_) => (
             SecretFailure::ProviderFailed,
             format!("The `{scheme}` provider failed; its logs say why."),
-        ),
-        ProviderFailure::ResolverFailed => (
-            SecretFailure::ResolverFailed,
-            "Answer the reference from the program's `resolveSecret`.".to_owned(),
         ),
     }
 }

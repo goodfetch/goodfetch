@@ -5,6 +5,8 @@
 //! workspace's tests for real, and its JUnit file shows every run.
 //! Covers: story:1-113
 
+use std::collections::BTreeMap;
+
 use rstest::rstest;
 
 use crate::workspace::Workspace;
@@ -42,17 +44,10 @@ fn command(runner: &str) -> (&'static str, Vec<&'static str>, &'static str) {
 fn repeated(workspace: &Workspace, runner: &str, selection: &[&str]) -> Vec<(String, usize)> {
     let outcome = workspace.xtask(&[&["repeat"], selection].concat());
     assert_eq!(outcome.code, 0);
-    let arguments: Vec<&str> = outcome
-        .stdout
-        .lines()
-        .filter_map(|line| line.split_once('\t'))
-        .filter(|(line_runner, _)| *line_runner == runner)
-        .map(|(_, rest)| rest.split_once('\t').expect("a batch, then an argument"))
-        .map(|(batch, argument)| {
-            assert_eq!(batch, "1", "a few tests run in one command");
-            argument
-        })
-        .collect();
+    let mut commands = runner_commands(&outcome.stdout);
+    let batches = commands.remove(runner).expect("every runner is listed");
+    assert!(batches.len() <= 1, "a few tests run in one command");
+    let arguments = batches.concat();
     let (program, base, junit) = command(runner);
     let program = if program == "cargo" {
         program.into()
@@ -163,21 +158,15 @@ fn chosen_test_runs_the_given_number_of_times_and_no_other_test_runs(
     assert_eq!(ran, expected);
 }
 
-/// Each command `xtask repeat` has a runner run, in order: the lines'
-/// arguments grouped by what comes before each one's last tab (the runner
-/// and the batch).
+/// The JSON object `xtask repeat` prints: each runner's commands, in order,
+/// each one the arguments of one batch.
+fn runner_commands(stdout: &str) -> BTreeMap<String, Vec<Vec<String>>> {
+    serde_json::from_str(stdout).expect("`xtask repeat` prints a JSON object")
+}
+
+/// Each command `xtask repeat` has a runner run, every runner's in order.
 fn invocations(stdout: &str) -> Vec<Vec<String>> {
-    let mut invocations: Vec<(&str, Vec<String>)> = Vec::new();
-    for (command, argument) in stdout.lines().filter_map(|line| line.rsplit_once('\t')) {
-        match invocations.iter_mut().find(|(key, _)| *key == command) {
-            Some((_, arguments)) => arguments.push(argument.to_owned()),
-            None => invocations.push((command, vec![argument.to_owned()])),
-        }
-    }
-    invocations
-        .into_iter()
-        .map(|(_, arguments)| arguments)
-        .collect()
+    runner_commands(stdout).into_values().flatten().collect()
 }
 
 /// Starts a program with `arguments`, as the `repeat` recipe starts each
@@ -346,10 +335,11 @@ fn a_lazyfs_test_is_repeated_past_the_default_filter_where_lazyfs_is() {
 
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     assert!(
-        outcome
-            .stdout
-            .lines()
-            .any(|line| line == "nextest\t1\t--ignore-default-filter"),
+        runner_commands(&outcome.stdout)["nextest"]
+            .first()
+            .is_some_and(|batch| batch
+                .iter()
+                .any(|argument| argument == "--ignore-default-filter")),
         "{}",
         outcome.stdout
     );

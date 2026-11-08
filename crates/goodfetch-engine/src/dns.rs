@@ -38,6 +38,7 @@ use goodfetch_protocol::dns::{
     NAME_LOOKUP_FAILED, NAME_NOT_RESOLVED, NameLookupFailedDetails, NameNotResolvedDetails,
     NameResolver,
 };
+use goodfetch_protocol::settings::NETWORK_RESOLVE;
 use hickory_resolver::TokioResolver;
 use hickory_resolver::config::{
     ConnectionConfig, LookupIpStrategy, NameServerConfig, ResolveHosts, ResolverConfig,
@@ -52,26 +53,61 @@ use tokio::sync::Mutex;
 use self::cache::{AnswerCache, Kept, Outcome};
 use crate::call_error::CallError;
 use crate::clock::Clock;
+use crate::host_name;
+use crate::settings::Resolved;
 
-/// The `resolve` setting's value: host names mapped to the addresses they
-/// resolve to before any lookup (ADR 0059). A name matches whatever its case
-/// and trailing dot.
-#[derive(Clone, Debug, Default)]
+/// The `resolve` setting's value, `network.resolve` (ADR 0059): host names
+/// mapped to the addresses they resolve to before any lookup, each name
+/// keyed as [`host_name::key`] keys a host, so it matches whatever its case,
+/// IDNA spelling and trailing dot. Every resolution the engine does starts
+/// from it: [`Dns`], the engine's own HTTP client and a browser's resolver
+/// rules.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HostMapping(BTreeMap<String, Vec<IpAddr>>);
 
 impl HostMapping {
     /// The mapping of each name to its addresses.
-    pub fn new<'name>(entries: impl IntoIterator<Item = (&'name str, Vec<IpAddr>)>) -> Self {
+    pub fn new<Name: AsRef<str>>(entries: impl IntoIterator<Item = (Name, Vec<IpAddr>)>) -> Self {
         Self(
             entries
                 .into_iter()
-                .map(|(name, addresses)| (canonical(name), addresses))
+                .map(|(name, addresses)| (host_name::lookup_key(name.as_ref()), addresses))
                 .collect(),
         )
     }
 
+    /// The mapping `settings` hold in `network.resolve`.
+    pub fn of(settings: &Resolved) -> Self {
+        Self::new(settings.hosts(&NETWORK_RESOLVE))
+    }
+
+    /// The same mapping with `name` mapped to `addresses`.
+    #[must_use]
+    pub fn with(mut self, name: &str, addresses: Vec<IpAddr>) -> Self {
+        self.0.insert(host_name::lookup_key(name), addresses);
+        self
+    }
+
+    /// The addresses `name` stands for before any lookup: itself when it
+    /// is an IP address, which no mapping changes, else those the mapping
+    /// gives it; `None` when a resolver must answer.
+    pub fn fixed(&self, name: &str) -> Option<Vec<IpAddr>> {
+        if let Ok(address) = name.parse::<IpAddr>() {
+            return Some(vec![address]);
+        }
+        self.addresses(name).map(<[IpAddr]>::to_vec)
+    }
+
+    /// Each mapped name, as [`host_name::key`] keys it, with its addresses,
+    /// in order.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &[IpAddr])> {
+        self.0
+            .iter()
+            .map(|(name, addresses)| (name.as_str(), addresses.as_slice()))
+    }
+
     fn addresses(&self, name: &str) -> Option<&[IpAddr]> {
-        self.0.get(&canonical(name)).map(Vec::as_slice)
+        self.0.get(&host_name::lookup_key(name)).map(Vec::as_slice)
     }
 }
 
@@ -356,10 +392,8 @@ impl Dns {
         } else {
             NameResolver::System
         };
-        let found = if let Ok(literal) = name.parse::<IpAddr>() {
-            of_family(std::iter::once(literal), family)
-        } else if let Some(mapped) = self.mapping.addresses(name) {
-            of_family(mapped.iter().copied(), family)
+        let found = if let Some(fixed) = self.mapping.fixed(name) {
+            of_family(fixed.into_iter(), family)
         } else if resolver == NameResolver::Engine {
             return self.engine_addresses(name, family).await;
         } else {
@@ -507,14 +541,9 @@ fn unique(addresses: impl Iterator<Item = IpAddr>) -> Vec<IpAddr> {
     unique
 }
 
-/// A name's lookup key: lowercase, without its trailing dot.
-fn canonical(name: &str) -> String {
-    name.strip_suffix('.').unwrap_or(name).to_ascii_lowercase()
-}
-
 /// Whether `name` sits under `.local`, multicast DNS's domain (RFC 6762).
 fn is_multicast_dns_name(name: &str) -> bool {
-    canonical(name).rsplit('.').next() == Some("local")
+    host_name::lookup_key(name).rsplit('.').next() == Some("local")
 }
 
 #[cfg(test)]

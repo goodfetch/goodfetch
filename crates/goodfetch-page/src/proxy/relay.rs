@@ -290,7 +290,11 @@ async fn accept(listener: TcpListener, upstream: Arc<Upstream>, run: Run, stop: 
 /// the browser, and the next is accepted at once; any other error, such as
 /// too many open files, would fail every accept for a while, so the next
 /// waits [`ACCEPT_BACKOFF`] on `clock` rather than spin.
-async fn accepting<T, A, F, S>(
+///
+/// # Cancel safety
+///
+/// Dropping the future stops accepting; what `serve` took stays its own.
+pub async fn accepting<T, A, F, S>(
     mut accept: A,
     clock: &Clock,
     stop: &CancellationToken,
@@ -311,7 +315,7 @@ async fn accepting<T, A, F, S>(
             Ok(accepted) => serve(accepted),
             Err(error) if one_connections(&error) => {}
             Err(error) => {
-                tracing::warn!(%error, "the Session's relay could not accept a connection: it waits before the next");
+                tracing::warn!(%error, "a relay could not accept a connection: it waits before the next");
                 tokio::select! {
                     () = stop.cancelled() => return,
                     () = ending.cancelled() => return,

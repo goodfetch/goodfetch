@@ -10,14 +10,14 @@ use goodfetch_engine::clock::Clock;
 /// The longest a relay waits for a client's request head once it accepted
 /// the connection: a browser sends its head at once, so a client that sends
 /// none holds no task past it (deep review finding 577-8).
-pub(crate) const HEAD_DEADLINE: Duration = Duration::from_secs(10);
+pub const HEAD_DEADLINE: Duration = Duration::from_secs(10);
 
 /// What `work` gave, unless `deadline` passed on `clock` first.
 ///
 /// # Cancel safety
 ///
 /// As cancel-safe as `work`, which is dropped at the deadline.
-pub(crate) async fn within_or_none<T>(
+pub async fn within_or_none<T>(
     clock: &Clock,
     deadline: Duration,
     work: impl Future<Output = T>,
@@ -33,7 +33,11 @@ pub(crate) async fn within_or_none<T>(
 /// # Errors
 ///
 /// `work`'s, and `TimedOut` at the deadline.
-pub(crate) async fn within<T>(
+///
+/// # Cancel safety
+///
+/// As [`within_or_none`].
+pub async fn within<T>(
     clock: &Clock,
     deadline: Duration,
     work: impl Future<Output = io::Result<T>>,

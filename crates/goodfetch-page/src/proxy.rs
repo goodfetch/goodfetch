@@ -21,6 +21,8 @@ mod limits;
 mod party;
 mod relay;
 
+pub use relay::accepting;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 

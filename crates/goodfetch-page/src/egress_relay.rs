@@ -51,7 +51,7 @@ pub(crate) mod authority;
 pub(crate) mod capture;
 pub(crate) mod client_hello;
 pub(crate) mod cookies;
-pub(crate) mod deadlines;
+pub mod deadlines;
 pub(crate) mod head;
 pub(crate) mod serve;
 pub(crate) mod terminate;

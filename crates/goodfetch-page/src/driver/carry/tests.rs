@@ -3,12 +3,14 @@
 //! `Page.navigate`'s answer is replayed to the connection's driver.
 
 use goodfetch_cdp::SessionId as TargetSession;
+use goodfetch_engine::CallError;
 use goodfetch_test_support::runtime;
 use serde_json::{Value, json};
+use tokio::sync::Notify;
 
-use super::commit;
-use crate::driver::Browser;
+use super::{Origins, commit};
 use crate::driver::replay::{self, FRAME, SESSION};
+use crate::driver::{Browser, Connect, SessionDriver, SessionEgress};
 
 /// The origin whose storage the page carries.
 const ORIGIN: &str = "https://site.test";
@@ -36,6 +38,81 @@ fn committed_message() -> Value {
             "type": "Navigation",
         }),
     )
+}
+
+/// The played browser a Session's driver connects to.
+struct Played(Browser);
+
+impl Connect for Played {
+    async fn connect(&self) -> Result<Browser, CallError> {
+        Ok(self.0.clone())
+    }
+}
+
+/// How many turns of the runtime a watcher's task lags: far more than a
+/// capture's commands take to answer in process.
+const LAG: usize = 10_000;
+
+/// An origin the browser reported before it answered the capture's first
+/// command is captured, however far behind its watcher's task runs: the
+/// capture waits for the watcher, so it goes on to open a page of the origin
+/// to read its storage.
+#[test]
+fn a_capture_waits_for_a_watcher_behind_the_browsers_answer() {
+    runtime().block_on(async {
+        let ((connection, driver), mut played) = replay::connected();
+        let browser = Browser::played(connection);
+        let session = TargetSession(SESSION.to_owned());
+        let origins = Origins::default();
+        let watcher = origins
+            .clone()
+            .watch(browser.connection.subscribe(Some(&session)));
+        let session_driver = SessionDriver::new(Played(browser.clone()), SessionEgress::default());
+        session_driver
+            .context
+            .set("context".to_owned().into())
+            .expect("invariant: the driver was just made");
+        let captured = Notify::new();
+        let (_, (), (), asked) = tokio::join!(
+            driver.run(),
+            async {
+                for _ in 0..LAG {
+                    tokio::task::yield_now().await;
+                }
+                watcher.await;
+            },
+            async {
+                // Refused below, the page of the origin ends the capture.
+                let _ = session_driver.capture(&origins).await;
+                captured.notify_one();
+                drop((session_driver, browser));
+            },
+            async {
+                let command = played.command().await;
+                let answer = replay::answer(&command, json!({ "cookies": [] }));
+                assert!(
+                    played.send(&[committed_message(), answer]).await,
+                    "the client left"
+                );
+                let asked = tokio::select! {
+                    command = played.command() => Some(command),
+                    () = captured.notified() => None,
+                };
+                if let Some(command) = &asked {
+                    let refused = json!({
+                        "id": command["id"],
+                        "error": { "code": -32000, "message": "refused" },
+                    });
+                    assert!(played.send(&[refused]).await, "the client left");
+                    captured.notified().await;
+                }
+                drop(played);
+                asked.map(|command| command["method"].clone())
+            },
+        );
+
+        assert_eq!(asked, Some(json!("Target.createTarget")));
+    });
 }
 
 /// One replay of a storage page's commit whose `Page.navigate` the browser

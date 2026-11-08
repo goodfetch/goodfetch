@@ -32,6 +32,7 @@ use serde_json::{Value, json};
 use crate::attached;
 use crate::attached_with;
 use crate::backoff_classes::held_for;
+use crate::before_their_turn;
 use crate::frontier::crawl_with;
 
 /// The Proving ground's seed.
@@ -776,15 +777,9 @@ fn crawl_at_once(env: &TestEnv, proving_ground: &ProvingGround, host: &str, runs
 /// Two runs crawling one domain key at once, each in an engine of its own
 /// under one Goodfetch home and with no `politeness.domain.delay` of their
 /// own, keep to its host's Crawl-delay of 5 s: the site receives no page,
-/// by either run, sooner than 5 s after the page before it, and the first
-/// no sooner than 5 s after the first robots.txt request. (Each run's
-/// robots.txt fetch, sent before the Crawl-delay is known, may go beside
-/// the other's.) A page's delay counts from the start of the page before
-/// it, which the site sees only once its request arrived: the pages may
-/// arrive a little closer than their starts went, never 9/10 of the delay
-/// closer. The first page's delay counts from the robots.txt response's
-/// arrival, so the site never receives it sooner than 5 s after the
-/// robots.txt request.
+/// by either run, before its turn after the first robots.txt request. (Each
+/// run's robots.txt fetch, sent before the Crawl-delay is known, may go beside
+/// the other's, so only the first counts.)
 ///
 /// Covers: story:6-243, setting:site_preferences.max_crawl_delay, format:politeness-file
 #[test]
@@ -799,25 +794,24 @@ fn a_crawl_delay_spaces_two_concurrent_runs_on_one_domain_key() {
         &["first", "second"],
     );
     let arrivals = arrivals(&proving_ground, CRAWL_DELAY_HOST);
-    let first_robots_txt = arrivals
+    let pages: Vec<(String, u64)> = arrivals
         .iter()
-        .find(|(target, _)| target == "/robots.txt")
-        .map(|(_, at)| *at);
-    let pages: Vec<u64> = arrivals
-        .iter()
-        .filter(|(target, _)| target != "/robots.txt")
-        .map(|(_, at)| *at)
+        .take(1)
+        .chain(
+            arrivals
+                .iter()
+                .filter(|(target, _)| target != "/robots.txt"),
+        )
+        .cloned()
         .collect();
-    let spaced = pages
-        .windows(2)
-        .all(|pair| pair[1].saturating_sub(pair[0]) >= CRAWL_DELAY * 9 / 10);
-    let after_robots_txt = matches!(
-        (first_robots_txt, pages.first()),
-        (Some(robots), Some(page)) if page.saturating_sub(robots) >= CRAWL_DELAY
-    );
 
-    assert!(
-        pages.len() == 4 && spaced && after_robots_txt,
+    assert_eq!(
+        (
+            arrivals.first().map(|(target, _)| target.as_str()),
+            pages.len(),
+            before_their_turn(&pages, CRAWL_DELAY),
+        ),
+        (Some("/robots.txt"), 5, Vec::<String>::new()),
         "{arrivals:?}"
     );
 }

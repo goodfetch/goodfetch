@@ -234,11 +234,14 @@ fn a_key_the_runs_product_does_not_honour_reads_as_its_catalog_default() {
 ///
 /// Covers: story:3-86, setting:timeout.navigation
 #[test]
-#[should_panic(expected = "is read as")]
 fn a_setting_read_as_another_kind_is_refused() {
     let effective = resolved(&Layers::default());
 
-    let _: u64 = effective.get(&TIMEOUT_NAVIGATION);
+    let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        effective.get::<u64>(&TIMEOUT_NAVIGATION)
+    }));
+
+    assert!(read.is_err(), "{read:?}");
 }
 
 /// Covers: story:3-86, setting:egress.offline

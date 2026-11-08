@@ -7,6 +7,7 @@
 
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
+use std::process::Output;
 
 use rstest::rstest;
 
@@ -16,24 +17,49 @@ use crate::workspace::Workspace;
 /// A process ID above every system's limit, so no process has it.
 const NO_PROCESS: &str = "2147483646";
 
+fn write_executable(path: &Path, contents: &str) {
+    std::fs::write(path, contents).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
 /// A stand-in `just` that appends its arguments to `calls`, and them with the
-/// OS services' variables it was given to `variables`.
+/// OS services' variables it was given to `variables`, and writes its whole
+/// environment to `environment-<first argument>`. Beside it, `sudo` keeps
+/// nothing of its caller's environment, as `env_reset` does, and `systemd-run`
+/// runs what follows `--`, so the constrained run's suite sees only what the
+/// script hands it.
 fn stand_in_just(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
-    let just = folder.join("just");
-    std::fs::write(
-        &just,
-        format!(
+    write_executable(
+        &folder.join("just"),
+        &format!(
             "#!/bin/sh\necho \"$*\" >>\"{calls}\"\n\
-             echo \"$1|${{XDG_RUNTIME_DIR:-}}|${{GOODFETCH_OS_SERVICES:-}}\" >>\"{variables}\"\n",
+             echo \"$1|${{XDG_RUNTIME_DIR:-}}|${{GOODFETCH_OS_SERVICES:-}}\" >>\"{variables}\"\n\
+             env >\"{folder}/environment-$1\"\n",
             calls = folder.join("calls").display(),
             variables = folder.join("variables").display(),
+            folder = folder.display(),
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&just, std::fs::Permissions::from_mode(0o755)).unwrap();
+    );
+    write_executable(
+        &folder.join("sudo"),
+        "#!/bin/sh\nexec /usr/bin/env -i PATH=/usr/bin:/bin \"$@\"\n",
+    );
+    write_executable(
+        &folder.join("systemd-run"),
+        "#!/bin/sh\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n",
+    );
     folder
+}
+
+/// The variables the stand-in `just` was given when it ran the suite.
+fn suite_environment(stand_in: &Path) -> Vec<String> {
+    std::fs::read_to_string(stand_in.join("environment-test"))
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect()
 }
 
 struct Run {
@@ -51,9 +77,38 @@ fn origin_repository() -> Workspace {
     workspace.git(&["remote", "add", "origin", &path]);
     workspace.write(
         "runner-temp/goodfetch-os-services/env",
-        b"XDG_RUNTIME_DIR=/stand-in/runtime\n",
+        b"DBUS_SESSION_BUS_ADDRESS=unix:path=/stand-in/bus\nXDG_RUNTIME_DIR=/stand-in/runtime\n",
     );
     workspace
+}
+
+/// The repository's `ci/test-health/constrained.sh`.
+fn constrained_script() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/test-health/constrained.sh")
+}
+
+/// Commits the repository's constrained script to the fixture's `main`, where
+/// `scheduled.sh`'s worktree finds it.
+fn commit_constrained_script(workspace: &Workspace) {
+    let relative = "ci/test-health/constrained.sh";
+    workspace.git(&["switch", "--quiet", "main"]);
+    workspace.write(relative, &std::fs::read(constrained_script()).unwrap());
+    let script = workspace.path().join(relative);
+    std::fs::set_permissions(script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    workspace.git(&["add", relative]);
+    workspace.git(&["commit", "--quiet", "--message", "Add the constrained run"]);
+}
+
+/// Runs the repository's `ci/test-health/constrained.sh` alone, with a seed,
+/// the stand-ins first on `PATH`, and only these other variables.
+fn constrained(workspace: &Workspace, stand_in: &Path, variables: &[(&str, &str)]) -> Output {
+    workspace
+        .command(constrained_script())
+        .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
+        .env("GOODFETCH_ORDER_SEED", "1")
+        .envs(variables.iter().copied())
+        .output()
+        .unwrap()
 }
 
 /// Runs the repository's `ci/test-health/scheduled.sh` in the workspace, the
@@ -68,6 +123,7 @@ fn scheduled(workspace: &Workspace, stand_in: &Path, run: &str) -> Run {
         .env("GOODFETCH_TEST_HEALTH_LOG", &logs)
         .env("GOODFETCH_TEST_HEALTH_MIN_FREE_GB", "0")
         .env("RUNNER_TEMP", workspace.path().join("runner-temp"))
+        .env("TMPDIR", workspace.path())
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .output()
@@ -140,6 +196,83 @@ fn a_mutation_run_finds_the_os_services_the_setup_started() {
         variables.contains("\nmutants|/stand-in/runtime|required\n"),
         "{variables}"
     );
+}
+
+/// `sudo` resets the environment: on 2026-11-08 the constrained run built for
+/// 13 minutes, then `just test pre-merge` stopped before any test, its session
+/// bus and runtime folder gone. The way the DNS namespace comes up, declared
+/// so a fallback fails, and the temporary folder, whose files in a tmpfs would
+/// count against the run's memory limit, go through with them.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_constrained_run_hands_its_suite_what_the_run_set_up() {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+    commit_constrained_script(&workspace);
+
+    let outcome = scheduled(&workspace, &stand_in, "constrained");
+
+    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
+    assert!(
+        outcome.calls.iter().any(|call| call == "test pre-merge"),
+        "{:?}",
+        outcome.calls
+    );
+    let environment = suite_environment(&stand_in);
+    let temporary_folder = format!("TMPDIR={}", workspace.path().display());
+    for variable in [
+        "DBUS_SESSION_BUS_ADDRESS=unix:path=/stand-in/bus",
+        "XDG_RUNTIME_DIR=/stand-in/runtime",
+        "GOODFETCH_TEST_DNS_NAMESPACE=sudo",
+        &temporary_folder,
+    ] {
+        assert!(
+            environment.iter().any(|line| line == variable),
+            "no {variable} in {environment:?}"
+        );
+    }
+}
+
+/// The hosted job declares no way for the DNS namespace and no temporary
+/// folder. Set empty, the first would fail every test that enters a namespace.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_constrained_run_sets_no_variable_its_caller_left_unset() {
+    let workspace = repository();
+    let stand_in = stand_in_just(&workspace);
+
+    let output = constrained(
+        &workspace,
+        &stand_in,
+        &[
+            ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/stand-in/bus"),
+            ("XDG_RUNTIME_DIR", "/stand-in/runtime"),
+        ],
+    );
+
+    assert!(output.status.success(), "{output:?}");
+    let environment = suite_environment(&stand_in);
+    for variable in ["GOODFETCH_TEST_DNS_NAMESPACE=", "TMPDIR="] {
+        assert!(
+            !environment.iter().any(|line| line.starts_with(variable)),
+            "{variable} in {environment:?}"
+        );
+    }
+}
+
+/// A suite without them stops only after its build, so the run stops first.
+#[cfg(target_os = "linux")]
+#[rstest]
+#[case::no_session_bus(&[("XDG_RUNTIME_DIR", "/stand-in/runtime")])]
+#[case::no_runtime_folder(&[("DBUS_SESSION_BUS_ADDRESS", "unix:path=/stand-in/bus")])]
+fn a_constrained_run_without_the_os_services_starts_no_suite(#[case] variables: &[(&str, &str)]) {
+    let workspace = repository();
+    let stand_in = stand_in_just(&workspace);
+
+    let output = constrained(&workspace, &stand_in, variables);
+
+    assert!(!output.status.success(), "{output:?}");
+    assert!(!stand_in.join("calls").exists(), "{output:?}");
 }
 
 /// A gate that died left its lock behind: that holds up no run, and the lock

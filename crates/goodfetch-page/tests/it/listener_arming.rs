@@ -3,6 +3,14 @@
 //! that holds its answer to `Runtime.enable` back, the one thing a real
 //! browser cannot be made to do on demand. The whole engine runs, over the
 //! Borrowed browser path, as in the counts' Session.
+#![expect(
+    clippy::disallowed_types,
+    reason = "the test's browser end listens on its own socket, as the counts' Session's does (ADR 0071)"
+)]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the test builds its own runtime with real time, since its browser answers over a real socket, and its browser's hold runs on that time (ADR 0060)"
+)]
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -92,13 +100,13 @@ async fn browser(listener: TcpListener) -> Vec<&'static str> {
         .await
         .expect("invariant: the engine speaks WebSocket");
     let mut heard = Vec::new();
-    let mut held: Option<Value> = None;
-    let hold = tokio::time::sleep(Duration::ZERO);
-    let mut hold = std::pin::pin!(hold);
+    let mut unanswered: Option<Value> = None;
+    let release = tokio::time::sleep(Duration::ZERO);
+    let mut release = std::pin::pin!(release);
     loop {
         let message = tokio::select! {
-            () = &mut hold, if held.is_some() => {
-                let answer = held.take().expect("invariant: the guard says one is held");
+            () = &mut release, if unanswered.is_some() => {
+                let answer = unanswered.take().expect("invariant: the guard says one is held");
                 heard.push(ANSWERED);
                 if socket.send(Message::text(answer.to_string())).await.is_err() {
                     return heard;
@@ -122,8 +130,8 @@ async fn browser(listener: TcpListener) -> Vec<&'static str> {
         }
         if method == ENABLE {
             heard.push(ENABLE);
-            held = Some(answer);
-            hold.as_mut().reset(tokio::time::Instant::now() + HOLD);
+            unanswered = Some(answer);
+            release.as_mut().reset(tokio::time::Instant::now() + HOLD);
             continue;
         }
         if text.as_str().contains("the call after the listener") {
@@ -322,10 +330,6 @@ async fn heard_behind_a_listener(home: &Path, behind: Behind) -> Vec<&'static st
 #[rstest]
 #[case::while_it_listens(Behind::TheCall)]
 #[case::once_cancelled(Behind::ACancelThenTheCall)]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the test builds its own runtime with real time, since its browser answers over a real socket (ADR 0060)"
-)]
 fn a_call_after_a_listener_acts_once_the_browser_answered_runtime_enable(#[case] behind: Behind) {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let runtime = tokio::runtime::Builder::new_current_thread()

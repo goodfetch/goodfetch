@@ -499,7 +499,7 @@ fn a_mapped_answer_to_a_private_address_is_refused_unless_its_host_or_range_is_l
 )]
 mod linux {
     use std::io::ErrorKind;
-    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 
     use goodfetch_engine::clock::Clock;
     use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
@@ -514,10 +514,12 @@ mod linux {
     use crate::{Stack, running_clock_runtime};
 
     const CHILD: &str = "addresses::linux::in_the_namespace_a_name_that_rebinds_to_loopback_is_refused_on_its_second_connection";
+    const OTHER_TARGETS_CHILD: &str =
+        "addresses::linux::in_the_namespace_a_name_that_rebinds_past_loopback_is_refused";
 
-    /// Covers: story:4-102
-    #[test]
-    fn on_linux_a_name_that_rebinds_to_loopback_is_refused_on_its_second_connection() {
+    /// Runs the tests `child` names inside a DNS namespace on the Proving
+    /// ground's DNS fixture, and asserts that some ran and all passed.
+    fn passes_in_the_namespace(child: &str) {
         let env = TestEnv::new();
         let proving_ground = ProvingGround::start(&env, SEED).unwrap();
         let fixture = proving_ground.description().fixtures.dns.parse().unwrap();
@@ -527,7 +529,7 @@ mod linux {
             .output(
                 &env,
                 std::env::current_exe().unwrap(),
-                [CHILD, "--include-ignored"],
+                [child, "--include-ignored"],
             )
             .unwrap();
 
@@ -536,6 +538,110 @@ mod linux {
             output.status.success() && !stdout.contains("running 0 tests"),
             "{output:?}"
         );
+    }
+
+    /// Covers: story:4-102
+    #[test]
+    fn on_linux_a_name_that_rebinds_to_loopback_is_refused_on_its_second_connection() {
+        passes_in_the_namespace(CHILD);
+    }
+
+    /// The SSRF table's other two rebinding targets, through a real resolver,
+    /// which the in-process runner's scripted answers do not go through.
+    /// Covers: story:4-102
+    #[test]
+    fn on_linux_a_name_that_rebinds_past_loopback_is_refused() {
+        passes_in_the_namespace(OTHER_TARGETS_CHILD);
+    }
+
+    /// The child, which runs only inside the namespace. The fixture takes
+    /// turns per record type, so a name with an IPv6 entry answers it beside
+    /// the public stand-in from its first lookup: that case is refused on
+    /// either connection, and the metadata address on its second. No address
+    /// of the namespace may answer the metadata one, so only `::1` is watched.
+    #[rstest]
+    #[case::reqwest_to_metadata(
+        Stack::Reqwest,
+        Ipv4Addr::new(127, 0, 0, 4),
+        IpAddr::V4(Ipv4Addr::new(169, 254, 169, 254))
+    )]
+    #[case::wreq_to_metadata(
+        Stack::Wreq,
+        Ipv4Addr::new(127, 0, 0, 5),
+        IpAddr::V4(Ipv4Addr::new(169, 254, 169, 254))
+    )]
+    #[case::reqwest_to_ipv6_loopback(
+        Stack::Reqwest,
+        Ipv4Addr::new(127, 0, 0, 6),
+        IpAddr::V6(Ipv6Addr::LOCALHOST)
+    )]
+    #[case::wreq_to_ipv6_loopback(
+        Stack::Wreq,
+        Ipv4Addr::new(127, 0, 0, 7),
+        IpAddr::V6(Ipv6Addr::LOCALHOST)
+    )]
+    #[ignore = "run as a child by addresses::linux::on_linux_a_name_that_rebinds_past_loopback_is_refused"]
+    fn in_the_namespace_a_name_that_rebinds_past_loopback_is_refused(
+        #[case] stack: Stack,
+        #[case] public: Ipv4Addr,
+        #[case] rebound: IpAddr,
+    ) {
+        let public = IpAddr::V4(public);
+        let server = TcpListener::bind(SocketAddr::new(public, 0)).unwrap();
+        server.set_nonblocking(true).unwrap();
+        let port = server.local_addr().unwrap().port();
+        let watched = rebound
+            .is_loopback()
+            .then(|| TcpListener::bind(SocketAddr::new(rebound, port)).unwrap());
+        if let Some(watched) = &watched {
+            watched.set_nonblocking(true).unwrap();
+        }
+        let transport = built(
+            stack,
+            TransportConfig {
+                trust: Trust::default_roots(),
+                exceptions: CertificateExceptions::default(),
+                client_certificates: None,
+                proxy: None,
+                resolve: HostMapping::default(),
+                egress: policy(&every_host(), &[public.to_string()]),
+                clock: Clock::system(),
+                resolver: ResolverConfiguration::system().unwrap(),
+                local: None,
+            },
+        );
+        let name = format!("{}.{}.alternating.dns.test", label(public), label(rebound));
+        let hop = Hop::get(Url::parse(&format!("http://{name}:{port}/")).unwrap());
+
+        let refused = running_clock_runtime().block_on(async {
+            let server = tokio::net::TcpListener::from_std(server).unwrap();
+            for _ in 0..2 {
+                let serving = async {
+                    loop {
+                        answer_once(&server).await;
+                    }
+                };
+                let sent = tokio::select! {
+                    sent = transport.send(&hop, Reuse::Never) => sent.map(|_| ()),
+                    () = serving => unreachable!("the server serves until the send ends"),
+                };
+                if let Err(failure) = sent {
+                    return Some(failure);
+                }
+            }
+            None
+        });
+
+        let Some(TransportFailure::Egress(refused)) = refused else {
+            panic!("a send is refused: {refused:?}");
+        };
+        assert_eq!(refused.address, Some(rebound));
+        if let Some(watched) = watched {
+            assert_eq!(
+                watched.accept().map(|_| ()).unwrap_err().kind(),
+                ErrorKind::WouldBlock
+            );
+        }
     }
 
     /// Answers one plain HTTP request on `listener` with an empty 200.

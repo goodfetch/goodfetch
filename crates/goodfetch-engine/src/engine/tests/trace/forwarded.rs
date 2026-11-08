@@ -22,6 +22,7 @@ use crate::clock::Clock;
 use crate::forward::ToOwner;
 use crate::home::Home;
 use crate::runs::Forwarder as _;
+use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 use crate::transport::Network;
 
@@ -46,12 +47,19 @@ fn forwarded_read(env: &TestEnv) -> Value {
             address,
             token_file,
         });
+        let home = Home::new(env.home().to_owned());
+        let version = ProductVersion::parse("0.0.0").unwrap();
+        let tasks = TaskOwner::root(BlockingPolicy::Inline);
         let forwarder = ToOwner {
-            home: Home::new(env.home().to_owned()),
-            version: ProductVersion::parse("0.0.0").unwrap(),
+            settings: Settings::new(
+                SettingsFiles::of(&home, &version),
+                Product::Collie,
+                tasks.child(),
+            ),
+            home,
+            version,
             clock: Clock::system(),
         };
-        let tasks = TaskOwner::root(BlockingPolicy::Inline);
         let answering = async {
             let (reader, mut writer) = listener.accept().await.unwrap().split();
             let mut lines = BufReader::new(reader).lines();

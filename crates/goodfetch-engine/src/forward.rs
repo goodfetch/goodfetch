@@ -9,6 +9,7 @@
 //! read's (ADR 0102).
 
 use std::future::Future;
+use std::io;
 use std::pin::Pin;
 use std::time::Duration;
 
@@ -28,19 +29,53 @@ use crate::daemon::files::DaemonFiles;
 use crate::deadline::Deadline;
 use crate::home::Home;
 use crate::runs::{Forwarder, ReadAnswer};
+use crate::settings::Settings;
 use crate::tasks::TaskOwner;
+use crate::transport::Connection;
 use crate::{trace, transport};
+
+#[cfg(test)]
+mod tests;
 
 /// How long the owner has to answer `hello`: a live owner answers at once.
 const HELLO_DEADLINE: Duration = Duration::from_secs(5);
 
-/// How long the owner has to answer the forwarded call once it accepted
-/// `hello`: what `timeout.close` gives a stop by default, since an abort
-/// waits for the Run's next safe point. An owner that answers nothing by
-/// then counts as one that did not take the action, so the abort retries
-/// the writer lock rather than waiting forever.
-fn answer_deadline() -> Duration {
-    Deadline::declared(&TIMEOUT_CLOSE).duration()
+/// Why a forwarded call came to nothing.
+#[derive(Debug, thiserror::Error)]
+enum NoAnswer {
+    /// The owner could not be reached.
+    #[error("no Connection: {0}")]
+    Unconnected(#[source] io::Error),
+    /// The owner refused the Connection.
+    #[error("`hello` answered `{0}`")]
+    HelloRefused(String),
+    /// The owner did not answer `hello` within [`HELLO_DEADLINE`].
+    #[error("no answer to `hello`")]
+    HelloUnanswered,
+    /// The owner did not answer the call within its deadline.
+    #[error("no answer to `{0}`")]
+    CallUnanswered(String),
+    /// A call could not be written.
+    #[error("`{method}` not sent: {error}")]
+    NotSent {
+        /// The call's method.
+        method: String,
+        /// The OS's error.
+        #[source]
+        error: io::Error,
+    },
+    /// An answer could not be read.
+    #[error("{0}")]
+    Unread(#[source] io::Error),
+    /// The Connection ended before the answer.
+    #[error("the Connection closed")]
+    Closed,
+    /// An abort answered with the failure of this code.
+    #[error("answered `{0}`")]
+    Failed(String),
+    /// An abort's answer is no Run report.
+    #[error("no Run report: {0}")]
+    NoReport(#[source] serde_json::Error),
 }
 
 /// Forwards to the owner the Run index names: a Daemon of one major, or an
@@ -50,11 +85,34 @@ pub(crate) struct ToOwner {
     pub(crate) home: Home,
     /// This engine's Product version, which names the major.
     pub(crate) version: ProductVersion,
-    /// The engine's clock, which times the `hello`.
+    /// The engine's clock, which times the `hello` and the call.
     pub(crate) clock: Clock,
+    /// The machine's settings, whose `timeout.close` bounds the call.
+    pub(crate) settings: Settings,
 }
 
 impl ToOwner {
+    /// How long the owner has to answer the forwarded call once it accepted
+    /// `hello`: what the machine's `timeout.close` gives a stop, its default
+    /// when the machine's settings cannot be read, since an abort waits for
+    /// the Run's next safe point. This engine holds none of the settings of
+    /// a Run another engine works. An owner that answers nothing by then
+    /// counts as one that did not take the action, so the abort retries the
+    /// writer lock rather than waiting forever.
+    async fn answer_deadline(&self) -> Duration {
+        let product = self.settings.product();
+        let resolved = self
+            .settings
+            .machine()
+            .await
+            .and_then(|machine| machine.resolve(product))
+            .inspect_err(|error| {
+                tracing::warn!(%error, "`timeout.close` cannot be read, so a forwarded call waits for its default");
+            })
+            .ok();
+        Deadline::of_resolved(resolved.as_ref(), &TIMEOUT_CLOSE).duration()
+    }
+
     /// Where `owner` listens and the token its `hello` takes; `None` when
     /// it cannot be reached.
     async fn reach(&self, owner: &RunOwner, tasks: &TaskOwner) -> Option<(DaemonEndpoint, String)> {
@@ -100,17 +158,16 @@ impl Forwarder for ToOwner {
                 forwarded: true,
             };
             let hello = self.hello(token, Product::Collie);
-            let answered = call(&endpoint, &hello, RUN_ABORT.name, &params, self.clock).await;
+            let answered = self.call(&endpoint, &hello, RUN_ABORT.name, &params).await;
             let report = match answered {
-                Ok(Ok(report)) => serde_json::from_value(report)
-                    .map_err(|error| format!("no Run report: {error}")),
-                Ok(Err(failure)) => Err(format!("answered `{}`", failure.data.code)),
+                Ok(Ok(report)) => serde_json::from_value(report).map_err(NoAnswer::NoReport),
+                Ok(Err(failure)) => Err(NoAnswer::Failed(failure.data.code)),
                 Err(reason) => Err(reason),
             };
             match report {
                 Ok(report) => Some(report),
                 Err(reason) => {
-                    tracing::debug!(%run_id, %owner, reason, "the Run's owner did not stop it");
+                    tracing::debug!(%run_id, %owner, %reason, "the Run's owner did not stop it");
                     None
                 }
             }
@@ -128,10 +185,10 @@ impl Forwarder for ToOwner {
         Box::pin(async move {
             let (endpoint, token) = self.reach(owner, tasks).await?;
             let hello = self.hello(token, needs);
-            match call(&endpoint, &hello, method, &params, self.clock).await {
+            match self.call(&endpoint, &hello, method, &params).await {
                 Ok(answer) => Some(answer),
                 Err(reason) => {
-                    tracing::debug!(%owner, method, reason, "the Run's owner did not answer a read");
+                    tracing::debug!(%owner, method, %reason, "the Run's owner did not answer a read");
                     None
                 }
             }
@@ -139,85 +196,92 @@ impl Forwarder for ToOwner {
     }
 }
 
-/// Opens a Connection to `owner`, says `hello`, sends `method` with
-/// `params` and reads its answer: its result, or the failure it answered;
-/// `Err` when it gave neither, or not within its deadline. The call is a
-/// request the engine sends, so it opens a `CLIENT` span, whose Trace
-/// context its `_meta` carries (ADR 0132); `hello` opens the Connection and
-/// carries none.
-async fn call(
-    owner: &DaemonEndpoint,
-    hello: &HelloParams,
-    method: &'static str,
-    params: &impl serde::Serialize,
-    clock: Clock,
-) -> Result<Result<Value, ErrorObject>, String> {
-    let span = trace::client_span(method);
-    let mut params = serde_json::to_value(params).expect("invariant: params encode");
-    if let (Some(meta), Value::Object(members)) = (trace::sent(&span), &mut params) {
-        members.insert(
-            META.to_owned(),
-            serde_json::to_value(meta).expect("invariant: a Trace context encodes as JSON"),
-        );
-    }
-    let answer = exchange(owner, hello, method, &params, clock)
+impl ToOwner {
+    /// Opens a Connection to `owner`, says `hello`, sends `method` with
+    /// `params` and reads its answer: its result, or the failure it
+    /// answered; [`NoAnswer`] when it gave neither, or not within its
+    /// deadline. The call is a request the engine sends, so it opens a
+    /// `CLIENT` span, whose Trace context its `_meta` carries (ADR 0132);
+    /// `hello` opens the Connection and carries none.
+    async fn call(
+        &self,
+        owner: &DaemonEndpoint,
+        hello: &HelloParams,
+        method: &'static str,
+        params: &impl serde::Serialize,
+    ) -> Result<Result<Value, ErrorObject>, NoAnswer> {
+        let span = trace::client_span(method);
+        let mut params = serde_json::to_value(params).expect("invariant: params encode");
+        if let (Some(meta), Value::Object(members)) = (trace::sent(&span), &mut params) {
+            members.insert(
+                META.to_owned(),
+                serde_json::to_value(meta).expect("invariant: a Trace context encodes as JSON"),
+            );
+        }
+        let answer = async {
+            let connection = transport::connect_daemon(owner)
+                .await
+                .map_err(NoAnswer::Unconnected)?;
+            self.exchange(connection, hello, method, &params).await
+        }
         .instrument(span.clone())
         .await;
-    match &answer {
-        Ok(Ok(_)) => trace::record_id(&span, &RequestId::Number(CALL)),
-        Ok(Err(failure)) => {
-            trace::record_id(&span, &RequestId::Number(CALL));
-            trace::record_failure(&span, &failure.data.code, failure.code);
+        match &answer {
+            Ok(Ok(_)) => trace::record_id(&span, &RequestId::Number(CALL)),
+            Ok(Err(failure)) => {
+                trace::record_id(&span, &RequestId::Number(CALL));
+                trace::record_failure(&span, &failure.data.code, failure.code);
+            }
+            Err(_) => {}
         }
-        Err(_) => {}
+        answer
     }
-    answer
+
+    /// [`Self::call`]'s exchange on the Connection, under its span.
+    async fn exchange(
+        &self,
+        connection: Connection,
+        hello: &HelloParams,
+        method: &str,
+        params: &Value,
+    ) -> Result<Result<Value, ErrorObject>, NoAnswer> {
+        let (reader, mut writer) = connection.split();
+        let mut lines = BufReader::new(reader).lines();
+        send(&mut writer, 0, HELLO, hello).await?;
+        tokio::select! {
+            answer = reply(&mut lines, 0) => {
+                answer?.map_err(|failure| NoAnswer::HelloRefused(failure.data.code))?;
+            }
+            () = self.clock.sleep(HELLO_DEADLINE) => return Err(NoAnswer::HelloUnanswered),
+        }
+        let deadline = self.answer_deadline().await;
+        send(&mut writer, CALL, method, params).await?;
+        let answer = tokio::select! {
+            answer = reply(&mut lines, CALL) => answer?,
+            () = self.clock.sleep(deadline) => {
+                return Err(NoAnswer::CallUnanswered(method.to_owned()));
+            }
+        };
+        let _ = writer.shutdown().await;
+        Ok(answer)
+    }
 }
 
 /// The id the forwarded call goes under, after `hello`'s `0`.
 const CALL: i64 = 1;
-
-/// [`call`]'s exchange on the Connection, under its span.
-async fn exchange(
-    owner: &DaemonEndpoint,
-    hello: &HelloParams,
-    method: &str,
-    params: &Value,
-    clock: Clock,
-) -> Result<Result<Value, ErrorObject>, String> {
-    let connection = transport::connect_daemon(owner)
-        .await
-        .map_err(|error| format!("no Connection: {error}"))?;
-    let (reader, mut writer) = connection.split();
-    let mut lines = BufReader::new(reader).lines();
-    send(&mut writer, 0, HELLO, hello).await?;
-    tokio::select! {
-        answer = reply(&mut lines, 0) => {
-            answer?.map_err(|failure| format!("`hello` answered `{}`", failure.data.code))?;
-        }
-        () = clock.sleep(HELLO_DEADLINE) => return Err("no answer to `hello`".to_owned()),
-    }
-    send(&mut writer, CALL, method, params).await?;
-    let answer = tokio::select! {
-        answer = reply(&mut lines, CALL) => answer?,
-        () = clock.sleep(answer_deadline()) => return Err(format!("no answer to `{method}`")),
-    };
-    let _ = writer.shutdown().await;
-    Ok(answer)
-}
 
 /// The answer to the call `id`, its result or its failure, skipping every
 /// other message.
 async fn reply(
     lines: &mut tokio::io::Lines<BufReader<transport::ConnectionReader>>,
     id: i64,
-) -> Result<Result<Value, ErrorObject>, String> {
+) -> Result<Result<Value, ErrorObject>, NoAnswer> {
     loop {
         let line = lines
             .next_line()
             .await
-            .map_err(|error| error.to_string())?
-            .ok_or("the Connection closed")?;
+            .map_err(NoAnswer::Unread)?
+            .ok_or(NoAnswer::Closed)?;
         match serde_json::from_str::<Message>(&line) {
             Ok(Message::Response(response)) if response.id == RequestId::Number(id) => {
                 return Ok(Ok(response.result));
@@ -236,7 +300,7 @@ async fn send(
     id: i64,
     method: &str,
     params: &impl serde::Serialize,
-) -> Result<(), String> {
+) -> Result<(), NoAnswer> {
     let request = Request {
         jsonrpc: Version,
         id: RequestId::Number(id),
@@ -249,8 +313,8 @@ async fn send(
         Ok(()) => writer.flush().await,
         Err(error) => Err(error),
     };
-    sent.map_err(|error| format!("`{method}` not sent: {error}"))
+    sent.map_err(|error| NoAnswer::NotSent {
+        method: method.to_owned(),
+        error,
+    })
 }
-
-#[cfg(test)]
-mod tests;

@@ -909,12 +909,12 @@ fn a_document_is_judged_with_its_body_only_by_a_gate_that_reads_it(
         assert!(went.get("result").is_some(), "{went}");
     });
 
-    let judged: Vec<(bool, bool)> = gate
+    let judged_with_a_body: Vec<bool> = gate
         .judged()
         .iter()
         .zip(gate.judged_bodies())
         .filter(|(url, _)| url.ends_with("/target"))
-        .map(|(_, length)| (reads, length > 0))
+        .map(|(_, length)| length > 0)
         .collect();
-    assert_eq!(judged, vec![(reads, reads)]);
+    assert_eq!(judged_with_a_body, vec![reads]);
 }

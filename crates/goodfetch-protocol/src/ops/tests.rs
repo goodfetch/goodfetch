@@ -1,6 +1,4 @@
 use rstest::rstest;
-use serde::de::DeserializeOwned;
-use serde_json::json;
 
 use super::{CLIENT_CONNECTED, RUN_ACTIVE, RUN_ENDED};
 use crate::catalog::Metric;
@@ -66,31 +64,19 @@ fn values_of(metric: &Metric, label: &str) -> Vec<&'static str> {
         .values)()
 }
 
-fn every_value_is_a<T: DeserializeOwned>(values: &[&str]) -> bool {
-    values
-        .iter()
-        .all(|value| serde_json::from_value::<T>(json!(value)).is_ok())
-}
-
-/// The runtime metrics' label values are the protocol's own values of what
-/// they label.
-#[rstest]
-#[case::active_run_kind(every_value_is_a::<RunKind>(&values_of(&RUN_ACTIVE, "run_kind")))]
-#[case::ended_run_kind(every_value_is_a::<RunKind>(&values_of(&RUN_ENDED, "run_kind")))]
-#[case::lifecycle(every_value_is_a::<Lifecycle>(&values_of(&RUN_ENDED, "lifecycle")))]
-#[case::verdict(every_value_is_a::<Verdict>(&values_of(&RUN_ENDED, "verdict")))]
-#[case::completeness(every_value_is_a::<Completeness>(&values_of(&RUN_ENDED, "completeness")))]
-#[case::surface(every_value_is_a::<Surface>(&values_of(&CLIENT_CONNECTED, "surface")))]
-#[case::storage_available_holds(every_value_is_a::<SampledFolder>(&values_of(&AVAILABLE, "holds")))]
-#[case::storage_inodes_holds(every_value_is_a::<SampledFolder>(&values_of(&INODES_AVAILABLE, "holds")))]
-#[case::storage_level_holds(every_value_is_a::<SampledFolder>(&values_of(&LEVEL, "holds")))]
-fn a_runtime_metrics_label_values_are_the_protocols_own(#[case] own: bool) {
-    assert!(own);
-}
-
 /// A runtime metric's label that labels a protocol enum takes every value
-/// of it, so a value the engine records is always a declared one.
+/// of it, so a value the engine records is always a declared one; `lifecycle`
+/// all but `running`, which no ended Run is in.
 #[rstest]
+#[case::lifecycle(
+    sorted(&[values_of(&RUN_ENDED, "lifecycle"), vec!["running"]].concat()),
+    every_value_of::<Lifecycle>()
+)]
+#[case::storage_inodes_holds(
+    sorted(&values_of(&INODES_AVAILABLE, "holds")),
+    every_value_of::<SampledFolder>()
+)]
+#[case::storage_level_holds(sorted(&values_of(&LEVEL, "holds")), every_value_of::<SampledFolder>())]
 #[case::surface(sorted(&values_of(&CLIENT_CONNECTED, "surface")), every_value_of::<Surface>())]
 #[case::active_run_kind(sorted(&values_of(&RUN_ACTIVE, "run_kind")), every_value_of::<RunKind>())]
 #[case::ended_run_kind(sorted(&values_of(&RUN_ENDED, "run_kind")), every_value_of::<RunKind>())]

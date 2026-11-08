@@ -48,23 +48,12 @@ fn only_a_refusal_naming_no_install_comes_from_collies_engine_behind_the_gateway
     #[case] install: Option<&str>,
     #[case] behind: bool,
 ) {
-    // Collie's engine's own wording of the two `fix`es (ADR 0096).
-    let fix = match install {
-        Some(install) => format!(
-            "Run it with Foxhound, which contains everything Collie does (`{install}`), or connect to a Foxhound engine."
-        ),
-        None => {
-            "Only a run started for Foxhound carries `crawl.start`; start the run for Foxhound."
-                .to_owned()
-        }
-    };
     let mut data = json!({
         "code": "not_in_product",
         "product": "collie",
         "product_version": "0.0.0",
         "needs": "foxhound",
         "requested": "crawl.start",
-        "fix": fix,
         "retryable": false,
     });
     if let Some(install) = install {

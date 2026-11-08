@@ -459,7 +459,7 @@ pub(super) async fn attempt(
             answer
         }
         (AttemptPlan::Sample(sample), Some(http)) => {
-            let (answer, learned, weighed) = on.sample(&tiering, http).await;
+            let (answer, learned, weighed) = Box::pin(on.sample(&tiering, http)).await;
             merged = learned;
             sampled = weighed.map(|weighed| (sample.clone(), weighed));
             answer

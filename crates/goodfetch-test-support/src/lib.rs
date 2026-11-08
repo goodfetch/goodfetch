@@ -74,6 +74,7 @@ mod process;
 mod protocol_fuzz;
 mod proving_ground;
 mod proving_ground_format;
+mod proxy_in_front;
 mod pty;
 mod received_requests;
 mod resident;
@@ -177,6 +178,7 @@ pub use proving_ground_format::{
     FixtureAddresses, OWN_TARGETS, Observations, ObservedRequest, OracleSubmission,
     ProxyCredentials, ROUTES, ReceivedRequests, RequestTiming, Routes, ServeLine, ToolStatus,
 };
+pub use proxy_in_front::proxy_in_front;
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
 pub use resident::{peak_resident_bytes, private_resident_bytes_of};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};

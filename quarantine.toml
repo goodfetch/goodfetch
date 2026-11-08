@@ -19,12 +19,6 @@
 
 [[test]]
 runner = "nextest"
-id = "goodfetch-collie::it proxy::the_robots_txt_read_and_page_request_each_send_one_request_through_the_sessions_proxy"
-issue = 2228
-date = 2026-11-08
-
-[[test]]
-runner = "nextest"
 id = "goodfetch-foxhound::it navigation_gate::every_navigation_of_a_handlers_pages_takes_a_permit_of_its_domain"
 issue = 2229
 date = 2026-11-08

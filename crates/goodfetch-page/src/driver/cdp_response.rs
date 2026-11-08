@@ -6,11 +6,13 @@
 //!
 //! A load the browser reported failed after its response arrived broke off,
 //! unless the browser cancelled it or its content coding failed to decode
-//! (ADR 0118's #699 note). A load it reported finished is cut all the same
-//! when it came from the network with a body and counted no bytes: the
-//! pinned Chromium loses the failure of a body that broke off once its
-//! response was read at the response stage and sent on (ADR 0118's #1732
-//! note).
+//! (ADR 0118's #699 note); one whose body the engine read and sent on to
+//! its own page broke off even when the browser cancelled it, as it does
+//! when it turns that copy into a download. A load it reported finished is
+//! cut all the same when it came from the network with a body and counted
+//! no bytes: the pinned Chromium loses the failure of a body that broke off
+//! once its response was read at the response stage and sent on (ADR
+//! 0118's #1732 note).
 
 use std::collections::BTreeMap;
 
@@ -107,6 +109,18 @@ pub(crate) fn coded(headers: &BTreeMap<String, String>) -> bool {
 /// and a content coding that failed to decode (ADR 0118's #699 note).
 pub(crate) fn cut_by(error: &NetError) -> bool {
     *error != NetError::Aborted && !error.fails_to_decode()
+}
+
+/// Whether a load that failed with `error` after the engine read its
+/// response's body at the response stage and sent it on to its own page
+/// cut that body: any network error but a content coding that failed to
+/// decode. The browser's cancel (`net::ERR_ABORTED`) cuts it too: nothing
+/// of the engine's cancels that page's load once its response went on, but
+/// the browser does when it turns the page's copy into a download (a
+/// binary body sniffed under `text/plain`), before the network reported
+/// how the body ended, so the bytes read may be short.
+pub(crate) fn cut_after_sent_on(error: &NetError) -> bool {
+    !error.fails_to_decode()
 }
 
 /// The browser's count of a load's encoded bytes, its headers' included,

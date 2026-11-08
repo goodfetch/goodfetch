@@ -28,7 +28,8 @@ use goodfetch_protocol::run::{RunAbortParams, RunId, RunParams, RunWaitParams};
 use serde_json::{Value, json};
 
 use crate::client::{Following, NEVER};
-use crate::support::{PATIENCE, collie};
+use crate::support::PATIENCE;
+use crate::tools::collie;
 
 /// A Daemon of Collie's executable, run as the Daemon of a test's own
 /// Goodfetch home under a cleared environment, as the root workspace's
@@ -205,9 +206,7 @@ fn run_id(run: &str) -> RunId {
 
 #[test]
 fn the_kennel_pauses_stops_and_aborts_runs_another_connection_started() {
-    let Some(executable) = collie("the_kennel_pauses_stops_and_aborts_runs") else {
-        return;
-    };
+    let executable = collie();
     let folder = tempfile::tempdir().unwrap();
     let daemon = Daemon::start(&executable, folder.path());
     let mut program = Program::connect(&daemon.runtime_file);

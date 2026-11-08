@@ -70,8 +70,9 @@ mod seeds;
 pub use kennel_settings::{KennelSettingsView, PeriodLine, SettingsSection, SwitchLine};
 pub use seeds::{SeedsConfirmation, SeedsOffer};
 
+use super::part;
 use fields::{
-    governor_fields, lifecycle, part, progress_fields, report_fields, unreported, usage_fields,
+    governor_fields, lifecycle, progress_fields, report_fields, unreported, usage_fields,
 };
 use records::records_query;
 use seeds::Seeding;

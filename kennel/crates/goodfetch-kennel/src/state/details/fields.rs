@@ -13,9 +13,9 @@ use goodfetch_protocol::run::{
 use goodfetch_protocol::settings::{
     ExplainedSetting, RunOrigin, SettingsExplanation, SettingsLayer,
 };
-use serde_json::{Map, Value};
+use serde_json::Value;
 
-use super::super::product_name;
+use super::super::{part, product_name};
 use super::{Field, SettingLine, SettingsPanel, VALUE_MOST};
 use crate::client::CallFailure;
 use crate::text;
@@ -350,14 +350,6 @@ pub(super) fn unreported(code: &str) -> String {
     } else {
         format!("None: the Daemon answered {code}")
     }
-}
-
-/// A crawl's part `T` among a progress's or a report's kind parts, under
-/// its `requests` key.
-pub(super) fn part<T: serde::de::DeserializeOwned>(parts: &Map<String, Value>) -> Option<T> {
-    parts
-        .get("requests")
-        .and_then(|requests| serde_json::from_value(requests.clone()).ok())
 }
 
 /// A stop reason by its kind, as the wire names it.

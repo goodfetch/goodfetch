@@ -8,7 +8,7 @@
 //! crate both Products link names no Foxhound type for them (ADR 0087).
 
 use clap::Command;
-use goodfetch_collie::executable::generated::{self, OwnCommand, OwnCommands};
+use goodfetch_collie::executable::catalog_commands::{self, OwnCommand, OwnCommands};
 use goodfetch_protocol::catalog::Product;
 
 mod crawl_start;
@@ -26,7 +26,7 @@ const OWN: &[OwnCommand] = &[crawl_start::COMMAND, run_export::COMMAND];
 
 /// The commands of the generated group `group` of Foxhound's executable.
 fn members(group: Command) -> Command {
-    generated::members(group, Product::Foxhound, OWN)
+    catalog_commands::members(group, Product::Foxhound, OWN)
 }
 
 #[cfg(test)]

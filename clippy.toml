@@ -85,7 +85,7 @@ disallowed-methods = [
   { path = "dom_query::NodeRef::is", reason = "this compiles its selector on each call: compile through CountedWork::compile_selector and use is_match (ADR 0140)", allow-invalid = true },
   { path = "scraper::Selector::parse", reason = "a selector compiles through its one counted function (ADR 0140)", allow-invalid = true },
   { path = "regex::Regex::new", reason = "compile through CountedWork::compile_regex (ADR 0140)", allow-invalid = true },
-  { path = "glob::Pattern::new", reason = "compile through CountedWork::compile_glob (ADR 0140)", allow-invalid = true },
+  { path = "glob::Pattern::new", reason = "compile through CountedWork::glob (ADR 0140)", allow-invalid = true },
   # A file opens, and a folder is created, through its one counted function
   # (ADR 0140); `std::fs::File::open` and `create_dir_all` are under the
   # blocking ban below, whose exceptions already name their module.

@@ -11,6 +11,8 @@ use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
 use goodfetch_protocol::egress::EgressRule;
 use url::Url;
 
+use crate::driver::cdp_response;
+
 /// The refusal of the redirect answered to `url` with `status` and
 /// `headers`, when its `Location` names a scheme no request may use; a
 /// `Location` the browser cannot follow it fails itself.
@@ -20,7 +22,7 @@ pub(super) fn redirect(
     headers: &[fetch::HeaderEntry],
     policy: &Policy,
 ) -> Option<Refused> {
-    if !(300..400).contains(&status) {
+    if !cdp_response::redirects(status) {
         return None;
     }
     let location = headers

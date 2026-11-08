@@ -16,6 +16,7 @@ use dom_query::{Matcher, NodeRef};
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 
 use crate::extractor::{Article, Extractor, Found};
+use crate::whitespace;
 
 /// What holds no main content: navigation landmarks, and what no person
 /// reads.
@@ -95,9 +96,10 @@ pub(crate) fn main_text_length(
 }
 
 /// The text of `tree`'s main content, the page at `url`, found by
-/// `extractor`, and its title, each with every run of white space made one
-/// space and none at either end; an empty text when it has no main
-/// content. The main-content step consumes the tree, the last reader of the
+/// `extractor`, with every run of white space made one space and none at
+/// either end, and its title, collapsed as `metadata.title` is (ASCII
+/// white space alone, as the HTML Standard reads a title); an empty text
+/// when it has no main content. The main-content step consumes the tree, the last reader of the
 /// page as it was served (ADR 0138), with its fallback as the formats read
 /// it, and no copy: the fallback's text is read before it.
 pub(crate) fn title_and_main_text_of(
@@ -106,7 +108,7 @@ pub(crate) fn title_and_main_text_of(
     extractor: &dyn Extractor,
     work: &CountedWork,
 ) -> (String, String) {
-    let title = collapsed(
+    let title = whitespace::collapsed(
         &tree
             .select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "head title"))
             .text(),
@@ -121,11 +123,13 @@ pub(crate) fn title_and_main_text_of(
         .map(|found| found.text)
         .filter(|text| length(text) > 0)
         .unwrap_or(remaining);
-    (title, collapsed(&text))
+    (title, spaced(&text))
 }
 
-/// `text` with each run of white space made one space, none at either end.
-fn collapsed(text: &str) -> String {
+/// `text` with each run of white space, Unicode's included, made one
+/// space, none at either end: a reader sees a no-break space in a page's
+/// text as any other.
+fn spaced(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 

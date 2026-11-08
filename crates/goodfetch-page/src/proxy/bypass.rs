@@ -19,11 +19,18 @@ pub(crate) fn bypassed(bypass: Option<&str>, url: &str) -> bool {
     let Some(host) = host_of(&url) else {
         return false;
     };
+    rules(bypass).any(|rule| matches(rule, &url, &host))
+}
+
+/// The rules of `bypass`, the Session's `proxy.bypass`, each trimmed: the
+/// list split on commas, as Playwright splits it, and on semicolons, as
+/// Chromium splits the list it is then handed, so the browser and the
+/// engine read the same rules.
+pub(crate) fn rules(bypass: &str) -> impl Iterator<Item = &str> {
     bypass
         .split([',', ';'])
         .map(str::trim)
         .filter(|rule| !rule.is_empty())
-        .any(|rule| matches(rule, &url, &host))
 }
 
 /// `url`'s host, lowercase, an IPv6 address without its brackets.

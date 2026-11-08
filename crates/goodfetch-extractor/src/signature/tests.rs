@@ -58,7 +58,9 @@ fn pages_that_read_the_same_match(#[case] one: String, #[case] other: String) {
 }
 
 /// A title or a main text that differs makes another signature, and so
-/// does text moved from the title into the main content.
+/// does text moved from the title into the main content. A title keeps a
+/// no-break space, as `metadata.title` does (the HTML Standard collapses a
+/// title's ASCII white space alone).
 #[rstest]
 #[case::title(
     page("Events", "No events this month.", ""),
@@ -71,6 +73,10 @@ fn pages_that_read_the_same_match(#[case] one: String, #[case] other: String) {
 #[case::text_moved(
     page("Events A", "No events this month.", ""),
     page("Events", "A No events this month.", "")
+)]
+#[case::a_no_break_space_in_the_title(
+    page("Kite\u{a0}events", "No events this month.", ""),
+    page("Kite events", "No events this month.", "")
 )]
 fn pages_that_read_differently_differ(#[case] one: String, #[case] other: String) {
     assert_ne!(signature(&one, URL), signature(&other, URL));

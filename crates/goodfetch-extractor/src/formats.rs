@@ -5,6 +5,7 @@
 use std::fmt::{self, Debug, Formatter};
 
 use crate::blocks::{PageLists, fit, text};
+use crate::canonical::canonical_url;
 use crate::contacts::contacts;
 use crate::extractor::{Article, BuiltIn, Extractor};
 use crate::light::light;
@@ -401,8 +402,8 @@ fn metadata(
     } = head;
     let canonical = canonical.and_then(|href| {
         Url::parse(base_url)
-            .and_then(|base| base.join(&href))
             .ok()
+            .and_then(|base| canonical_url(&href, &base))
             .map(String::from)
     });
     Metadata {

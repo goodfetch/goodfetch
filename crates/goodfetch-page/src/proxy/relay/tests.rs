@@ -36,7 +36,8 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-use super::{ACCEPT_BACKOFF, Credentials, Mode, USERNAME, Upstream, accepting, basic, relay};
+use super::{ACCEPT_BACKOFF, Credentials, Mode, Upstream, accepting, basic, relay};
+use crate::egress_relay::answers::USERNAME;
 use crate::egress_relay::deadlines::HEAD_DEADLINE;
 use crate::egress_relay::{ByAuthority, Outcomes};
 

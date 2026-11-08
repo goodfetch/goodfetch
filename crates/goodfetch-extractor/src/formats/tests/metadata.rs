@@ -134,6 +134,17 @@ fn a_document_with_no_metadata_answers_nulls_and_empty_lists() {
     );
 }
 
+/// A canonical link in the page's body is not its canonical, as the
+/// Frontier's evidence reads it (ADR 0120): the head's alone counts.
+/// Covers: story:6-6
+#[test]
+fn a_canonical_link_in_the_body_is_not_the_pages_canonical() {
+    let html = r#"<html><head><title>Bridles</title></head><body>
+        <link rel="canonical" href="/elsewhere"></body></html>"#;
+
+    assert_eq!(metadata(html).canonical, None);
+}
+
 /// Covers: story:6-6
 #[test]
 fn a_canonical_url_that_does_not_parse_is_null() {

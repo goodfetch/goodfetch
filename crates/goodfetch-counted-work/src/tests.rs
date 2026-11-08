@@ -2,6 +2,9 @@
     clippy::disallowed_methods,
     reason = "ADR 0138: a test's own parse, on no page's path"
 )]
+use std::collections::{BTreeMap, BTreeSet};
+
+use super::compiled::CAPACITY;
 use super::{CountedWork, Row};
 
 #[test]
@@ -32,11 +35,6 @@ fn a_parsed_tree_is_send_so_one_task_can_keep_it_and_read_it() {
 
     let paragraph = work.literal_selector(Row::PageSelectorCompilations, "p.one");
     assert_eq!(parsed.select_matcher(&paragraph).text().as_ref(), "one");
-}
-
-#[test]
-fn a_row_is_named_as_the_register_names_it() {
-    assert_eq!(Row::PageParses.name(), "F1.parses");
 }
 
 /// Each counted function counts one unit on its row whether or not its work
@@ -76,110 +74,43 @@ fn a_compilation_or_an_opening_counts_one_on_its_row_and_answers_as_the_raw_call
     );
 }
 
-/// Each row's name, in `Row::ALL`'s order.
-const NAMES: [&str; 101] = [
-    "F1.parses",
-    "F1.selector_compilations",
-    "F1.readability_runs",
-    "F1.file_opens",
-    "F1.locale_form_builds",
-    "F1.plugin_serializations",
-    "F1.plugin_answer_parses",
-    "F1.tree_copies",
-    "F1.share_readability_runs",
-    "F1.block_classifications",
-    "E1.deep_copies",
-    "E1.encodes",
-    "F5.messages_no_hook",
-    "F5.calls",
-    "F5.builds",
-    "F6.opens",
-    "F6.transactions",
-    "F6.writer_reads",
-    "F4.declaration_reads",
-    "F4.validator_builds",
-    "F4.validations",
-    "F4.serializations",
-    "F4.deep_copies",
-    "F4.constant_lookups",
-    "F4.transactions",
-    "F3.invariant_reads",
-    "F3.compilations",
-    "F3.transactions",
-    "F3.invariant_reads.hop",
-    "F3.compilations.hop",
-    "F3.transactions.hop",
-    "F3.invariant_reads.sitemap",
-    "F3.compilations.sitemap",
-    "F3.transactions.sitemap",
-    "F3.compilations.payload",
-    "F3.payload_serializations",
-    "F3.validations",
-    "C1.encodes",
-    "C1.sends",
-    "C1.file_opens",
-    "C1.log_sends_off",
-    "C3.script_sends",
-    "C3.check_commands",
-    "C3.commands.click",
-    "C3.commands.fill",
-    "C3.commands.press",
-    "F2.transactions",
-    "F2.writer_reads",
-    "F2.configuration_reads",
-    "F2.prunes",
-    "F2.effect_syncs",
-    "E3.statements",
-    "E3.slice_transactions",
-    "E3.opens",
-    "C4.detection_reads",
-    "C4.compilations",
-    "C4.script_compilations",
-    "C4.provenance_entries",
-    "E7.merge_round_trips",
-    "E7.document_loads",
-    "E7.document_encodes",
-    "E7.opens",
-    "E7.prepares",
-    "E7.transactions",
-    "E7.syncs",
-    "E7.encodes",
-    "E2.configuration_reads",
-    "E2.opens",
-    "E2.prunes",
-    "E2.transactions",
-    "E2.syncs",
-    "C6.file_opens",
-    "C6.compilations",
-    "C6.spawns",
-    "C6.acknowledgements",
-    "C6.seals",
-    "E5.file_opens",
-    "E5.spawns",
-    "E5.formatting_off",
-    "E6.transactions",
-    "E6.opens",
-    "E6.script_sends",
-    "E6.robots_parses",
-    "E6.robots_reads",
-    "C2.commands",
-    "C2.world_creations",
-    "C2.document_worlds",
-    "C2.serialization_commands",
-    "E4.configuration_reads",
-    "E4.meminfo_opens",
-    "E4.static_opens",
-    "E4.cpu_stat_opens",
-    "E4.process_reads",
-    "E4.pool_walks",
-    "C5.fetch_messages_no_rule",
-    "C5.spawns",
-    "C5.file_opens",
-    "C5.matches",
-    "C5.answers",
-    "C5.compilations",
-    "C5.entries",
-];
+/// Each row is named as the register names it, `<entry>.<work>` with an
+/// entry such as `F1` and a work of one or two words, and no two rows share
+/// a name or a metric's labels, Shared path and work; each Shared path
+/// belongs to one register entry, the part of its rows' names before the
+/// dot.
+#[test]
+fn each_row_has_its_own_register_name_and_labels_and_its_path_one_entry() {
+    let mut names = BTreeSet::new();
+    let mut labels = BTreeSet::new();
+    let mut entries: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    let mut misnamed = Vec::new();
+    for row in Row::ALL {
+        let mut parts = row.name().split('.');
+        let entry = parts.next().unwrap_or_default();
+        let work: Vec<&str> = parts.collect();
+        let (letter, number) = entry.split_at(entry.len().min(1));
+        let shaped = letter.chars().all(|letter| letter.is_ascii_uppercase())
+            && !letter.is_empty()
+            && !number.is_empty()
+            && number.chars().all(|digit| digit.is_ascii_digit())
+            && (1..=2).contains(&work.len())
+            && work.iter().all(|word| {
+                !word.is_empty() && word.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+            });
+        if !shaped || !names.insert(row.name()) || !labels.insert((row.path(), row.work())) {
+            misnamed.push(row.name());
+        }
+        entries.entry(row.path()).or_default().insert(entry);
+    }
+    let shared: Vec<&str> = entries
+        .iter()
+        .filter(|(_, of)| of.len() > 1)
+        .map(|(path, _)| *path)
+        .collect();
+
+    assert_eq!((misnamed, shared), (Vec::new(), Vec::new()));
+}
 
 /// `Row::ALL` sizes the counts, so a row left out of it would index past them.
 #[test]
@@ -188,7 +119,6 @@ fn each_row_counts_on_its_own() {
 
     work.count(Row::SinkWriterReads);
 
-    assert_eq!(Row::ALL.map(Row::name), NAMES);
     assert_eq!(
         Row::ALL.map(|row| work.read(row)),
         Row::ALL.map(|row| u64::from(row.name() == "F6.writer_reads"))
@@ -232,19 +162,16 @@ fn a_kept_compilation_counts_once_for_its_text_and_its_rules_version() {
     );
 }
 
-/// The cache holds at most [`super::CAPACITY`] compilations: one over it
+/// The cache holds at most [`CAPACITY`] compilations: one over it
 /// evicts one kept before rather than grows.
 #[test]
 fn a_compilation_over_the_bound_evicts_rather_than_grows() {
     let work = CountedWork::default();
     let row = Row::PageSelectorCompilations;
-    let over = super::CAPACITY + 64;
+    let over = CAPACITY + 64;
     for class in 0..over {
         let _ = work.selector(row, &format!(".c{class}"));
     }
 
-    assert_eq!(
-        (work.kept() <= super::CAPACITY, work.read(row)),
-        (true, over)
-    );
+    assert_eq!((work.kept() <= CAPACITY, work.read(row)), (true, over));
 }

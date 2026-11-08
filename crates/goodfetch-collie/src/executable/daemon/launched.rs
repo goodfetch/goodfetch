@@ -50,8 +50,6 @@ use goodfetch_protocol::settings::SETTING_INVALID;
 use super::{Failure, Machine, multi_thread_runtime, now_of, per_install, unavailable};
 use crate::executable::output;
 
-use crate::executable::browsers;
-
 /// Starts the Daemon's process from `executable`, the versioned copy of
 /// build `build`, and waits for the runtime file it prints once ready.
 pub(super) fn launch(
@@ -131,6 +129,12 @@ pub(in crate::executable) fn launched(
     keep_alive: bool,
     service: bool,
 ) -> ExitCode {
+    // A Daemon starts only on machine settings it can read: a failure is
+    // its log's, with their Error code's exit.
+    let settings = match machine.settings() {
+        Ok(settings) => settings,
+        Err(failure) => return failure.report(),
+    };
     if service && let Some(exit) = give_place_to_the_pick(machine) {
         return exit;
     }
@@ -139,7 +143,7 @@ pub(in crate::executable) fn launched(
     let _copy = copy.and_then(|build| {
         let id = ArtifactId {
             kind: ArtifactKind::ExecutableCopy,
-            name: format!("goodfetch-{}", identity.product.as_str()),
+            name: identity.product.executable_name().to_owned(),
             build: build.to_owned(),
         };
         browser_cache::hold_copy(&machine.cache(), &id)
@@ -152,19 +156,12 @@ pub(in crate::executable) fn launched(
             return unavailable("the Daemon's serving lock cannot be taken")(error).report();
         }
     };
-    let settings =
-        browsers::machine_settings(machine.home, identity.product, &identity.product_version).ok();
-    let idle_timeout: Duration = get_or_default(settings.as_ref(), &IDLE_TIMEOUT);
-    let console_address = settings.as_ref().map_or_else(
+    let idle_timeout: Duration = get_or_default(Some(settings), &IDLE_TIMEOUT);
+    let console_address = settings.value(&CONSOLE_ADDRESS).as_str().map_or_else(
         || default_address(&identity.product_version).to_string(),
-        |settings| {
-            settings.value(&CONSOLE_ADDRESS).as_str().map_or_else(
-                || default_address(&identity.product_version).to_string(),
-                str::to_owned,
-            )
-        },
+        str::to_owned,
     );
-    let install = match install_database(machine, &dependencies, settings.as_ref()) {
+    let install = match install_database(machine, &dependencies, Some(settings)) {
         Ok(install) => install,
         Err(failure) => return failure.report(),
     };
@@ -180,7 +177,7 @@ pub(in crate::executable) fn launched(
         let (listener, endpoint, token, activated) =
             take_listener(machine, &files, &socket, service).await?;
         let (console, console_state) = if engine.serves_console() {
-            console_of_launch(machine, activated, &console_address, settings.as_ref()).await
+            console_of_launch(machine, activated, &console_address, Some(settings)).await
         } else {
             (DaemonConsole::Absent, ConsoleState::Absent)
         };

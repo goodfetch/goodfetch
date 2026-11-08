@@ -14,24 +14,16 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use adblock::Engine;
-use adblock::lists::{FilterSet, ParseOptions};
 use serde::Deserialize;
 
 #[path = "build/consent.rs"]
 mod consent;
+#[path = "src/filter_set.rs"]
+mod filter_set;
 
-/// The embedded Filter lists, each its own engine, by the file each is
-/// compiled to: `filter_lists.ads`, `.trackers` and `.annoyances` turn each
-/// on or off.
-const LISTS: [(&str, &str); 3] = [
-    ("ads", "rules/easylist.txt"),
-    ("trackers", "rules/easyprivacy.txt"),
-    ("annoyances", "rules/fanboy-annoyance.txt"),
-];
-
-/// Brave's unbreak list, compiled into each engine so that its exceptions
-/// apply whichever lists are on.
-const UNBREAK: &str = "rules/brave-unbreak.txt";
+/// The embedded part's manifest, which names each list's file under
+/// `rules/`, as a version of the Clean-up rules does.
+const MANIFEST: &str = "rules/manifest.json";
 
 const NEVER_BLOCK: &str = "rules/never-block.toml";
 
@@ -49,13 +41,13 @@ fn main() {
     println!("cargo::rerun-if-changed=rules");
     println!("cargo::rerun-if-changed=stand-ins");
     println!("cargo::rerun-if-changed=consent");
+    println!("cargo::rerun-if-changed=src/filter_set.rs");
 
-    let unbreak = read(&manifest, UNBREAK);
+    let lists = embedded_lists(&manifest);
+    let unbreak = read(&manifest, &format!("rules/{}", lists.unbreak));
     let mut embedded = String::new();
-    for (name, path) in LISTS {
-        let mut set = FilterSet::new(false);
-        set.add_filter_list(read(&manifest, path), ParseOptions::default());
-        set.add_filter_list(unbreak.clone(), ParseOptions::default());
+    for (name, file) in lists.engines() {
+        let set = filter_set::of(read(&manifest, &format!("rules/{file}")), unbreak.clone());
         let serialized = Engine::new_with_filter_set(set).serialize();
         let compressed = zstd::bulk::compress(&serialized, LEVEL)
             .expect("invariant: zstd compresses a buffer in memory");
@@ -75,7 +67,7 @@ fn main() {
         embedded,
         "/// The digest of the embedded part's files, by the Browser cache's tree rule.\n\
          const EMBEDDED_DIGEST_OF_BUILD: &str = {:?};",
-        embedded_digest(&manifest)
+        embedded_digest(&manifest, &lists)
     )
     .expect("invariant: writing to a String cannot fail");
     write(&out, "embedded.rs", &embedded);
@@ -92,24 +84,58 @@ fn main() {
     consent::bundle(&manifest, &out);
 }
 
-/// The embedded part's files under `rules/`, as a version of the Clean-up
-/// rules holds them: its manifest and the lists it names.
-const EMBEDDED_FILES: [&str; 5] = [
-    "brave-unbreak.txt",
-    "easylist.txt",
-    "easyprivacy.txt",
-    "fanboy-annoyance.txt",
-    "manifest.json",
-];
+/// The `lists` of the embedded part's manifest: each Filter list's file
+/// under `rules/`, by the `filter_lists.*` setting that turns it on, and
+/// Brave's unbreak list's.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Lists {
+    ads: String,
+    trackers: String,
+    annoyances: String,
+    unbreak: String,
+}
 
-/// The digest of the embedded part's files, `sha256:<hex>`, by the Browser
-/// cache's tree rule (ADR 0024): SHA-256 over, for each file in the order of
-/// its path, the path, a NUL, `f`, a NUL, the SHA-256 of its bytes and a
-/// newline.
-fn embedded_digest(manifest: &Path) -> String {
+impl Lists {
+    /// Each list compiled to its own engine, by the name of the setting
+    /// that turns it on, with its file: the unbreak list is compiled into
+    /// each.
+    fn engines(&self) -> [(&'static str, &str); 3] {
+        [
+            ("ads", &self.ads),
+            ("trackers", &self.trackers),
+            ("annoyances", &self.annoyances),
+        ]
+    }
+}
+
+/// The lists the embedded part's manifest names.
+fn embedded_lists(manifest: &Path) -> Lists {
+    #[derive(Deserialize)]
+    struct Manifest {
+        lists: Lists,
+    }
+    let parsed: Manifest = serde_json::from_str(&read(manifest, MANIFEST))
+        .unwrap_or_else(|error| panic!("invariant: {MANIFEST} is well formed: {error}"));
+    parsed.lists
+}
+
+/// The digest of the embedded part's files, its manifest and the `lists`
+/// it names, `sha256:<hex>`, by the Browser cache's tree rule (ADR 0024):
+/// SHA-256 over, for each file in the order of its path, the path, a NUL,
+/// `f`, a NUL, the SHA-256 of its bytes and a newline.
+fn embedded_digest(manifest: &Path, lists: &Lists) -> String {
     use sha2::{Digest as _, Sha256};
+    let mut files = vec![
+        lists.ads.as_str(),
+        lists.trackers.as_str(),
+        lists.annoyances.as_str(),
+        lists.unbreak.as_str(),
+        "manifest.json",
+    ];
+    files.sort_unstable();
     let mut tree = Sha256::new();
-    for name in EMBEDDED_FILES {
+    for name in files {
         let bytes = std::fs::read(manifest.join("rules").join(name))
             .unwrap_or_else(|error| panic!("invariant: the crate carries rules/{name}: {error}"));
         tree.update(name.as_bytes());

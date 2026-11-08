@@ -86,12 +86,14 @@ fn config_explain_names_a_flags_origin() {
         .run()
         .unwrap();
 
-    assert_cli_snapshot!(output, @r"
+    assert_cli_snapshot!(output, @r#"
     exit: 0
     ----- stdout -----
     timeout.navigation = 120000  (run from flag)
     ----- stderr -----
-    ");
+    [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="hello"
+    [INSTANT] TRACE goodfetch::rpc::dispatch: request answered method="config.explain"
+    "#);
 }
 
 /// Covers: story:11-203, command:run.start

@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use std::process::{ChildStdin, Command, Stdio};
 use std::time::Duration;
 
+use goodfetch_protocol::cli::ATTACHED_ENGINE;
 use goodfetch_protocol::events::EVENTS_SUBSCRIBE;
 use goodfetch_protocol::foxhound::crawl::{CRAWL_REQUEST_HANDLE, CRAWL_START};
 use goodfetch_protocol::jsonrpc::Message;
@@ -24,10 +25,6 @@ use goodfetch_test_support::{
 use serde_json::{Value, json};
 
 use crate::hello::Hello;
-
-/// The hidden subcommand that runs a Product's executable as an Attached
-/// engine.
-const ATTACHED_ENGINE: &str = "attached-engine";
 
 /// A running Attached engine, started in a test's setup.
 pub struct Attached {

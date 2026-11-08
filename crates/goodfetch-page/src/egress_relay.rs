@@ -45,6 +45,7 @@
     reason = "the egress relay opens its own loopback listener and its connections out, in this module only (ADR 0060)"
 )]
 
+pub(crate) mod answers;
 pub(crate) mod application_settings;
 pub(crate) mod authority;
 pub(crate) mod capture;
@@ -91,15 +92,12 @@ use tokio::io::AsyncWriteExt as _;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
+use self::answers::USERNAME;
 use self::application_settings::ApplicationSettings;
 use self::authority::Authority;
 use self::client_hello::ClientHello;
 use self::serve::{Met, Network, Observe, ProxyRefused, Relaying, Resolved, Unreached, Upstream};
 use self::terminate::{Stop, Terminating};
-
-/// The user name of every Session's relay credentials; the password is the
-/// Session's own.
-const USERNAME: &str = "goodfetch";
 
 /// The most refusals a relay keeps for the calls that wait on them.
 const KEPT_REFUSALS: usize = 64;

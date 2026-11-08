@@ -27,7 +27,7 @@ pub use connection::{
 };
 pub use failure::{Failure, PartyText, Refusal};
 pub use framing::{Framer, FramingError, MAX_FRAME};
-pub use net_error::{CertificateError, NetError};
+pub use net_error::{BROWSER_REDIRECT_CHAIN, CertificateError, NetError};
 
 /// A command of the protocol: its params, tied to its method's name and to
 /// what it returns.

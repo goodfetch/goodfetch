@@ -92,7 +92,7 @@ impl Scenario {
     /// before it is stopped.
     pub(crate) fn arguments(self) -> &'static [&'static str] {
         match self {
-            Self::IdleAttachedEngine | Self::Crawl => &["attached-engine"],
+            Self::IdleAttachedEngine | Self::Crawl => &[goodfetch_protocol::cli::ATTACHED_ENGINE],
             Self::IdleDaemon => &["daemon", "launched", "--keep-alive"],
         }
     }
@@ -136,7 +136,7 @@ pub(crate) fn as_shipped(command: &mut Command, home: &Path, goodfetch_variables
     for name in goodfetch_variables {
         command.env_remove(name);
     }
-    command.env("GOODFETCH_HOME", home);
+    command.env(goodfetch_protocol::settings::HOME_VARIABLE, home);
 }
 
 /// The idle-Daemon scenario's user configuration: the Daemon's Console

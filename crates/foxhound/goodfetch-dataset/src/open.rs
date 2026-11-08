@@ -27,11 +27,11 @@ pub async fn open_run(context: &CallContext, run_id: RunId) -> Result<RunReader,
         .runs()
         .reader(run_id)
         .await
-        .map_err(|error| run_error(error, context.identity()))?;
+        .map_err(|error| run_error(error, context))?;
     reader
         .read(|_| Ok(()))
         .await
-        .map_err(|error| run_error(error, context.identity()))?;
+        .map_err(|error| run_error(error, context))?;
     Ok(reader)
 }
 
@@ -55,11 +55,11 @@ pub(crate) async fn open_dataset(
         .runs()
         .reader(run_id)
         .await
-        .map_err(|error| run_error(error, context.identity()))?;
+        .map_err(|error| run_error(error, context))?;
     reader
         .read(Declarations::read)
         .await
-        .map_err(|error| run_error(error, context.identity()))?
+        .map_err(|error| run_error(error, context))?
         .readable(dataset)?;
     Ok(reader)
 }

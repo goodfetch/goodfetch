@@ -62,11 +62,15 @@ async fn explain(
         .await
         .map_err(|error| settings_error(&error, &context))?;
     let mut files = machine.files;
-    if let Some(project) = params.project {
+    let project = params
+        .project
+        .map(|project| (project.path, true))
+        .or(params.missing_project.map(|path| (path, false)));
+    if let Some((path, found)) = project {
         files.push(goodfetch_protocol::settings::SettingsFile {
             layer: goodfetch_protocol::settings::SettingsLayer::ProjectConfiguration,
-            path: project.path,
-            found: true,
+            path,
+            found,
         });
     }
     Ok(run.resolved().explain(&params.keys, files))

@@ -21,6 +21,7 @@ use std::path::Path;
 use std::process::Command;
 
 use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, CleanUp};
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
 use goodfetch_protocol::page::{Navigated, PageOpened};
@@ -507,8 +508,11 @@ fn a_running_browser_keeps_its_build_from_the_clean_up_until_it_exits() {
         };
         runtime()
             .block_on(
-                BrowserCache::new(&CacheLocation::new(env.home(), Some(cache.clone())))
-                    .clean_up(&request),
+                BrowserCache::new(
+                    &CacheLocation::new(env.home(), Some(cache.clone())),
+                    TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
+                )
+                .clean_up(&request),
             )
             .unwrap()
             .deleted

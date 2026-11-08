@@ -21,9 +21,12 @@ use goodfetch_protocol::needs_you::{
     NeedsYouChange, NeedsYouItem, NeedsYouList, NeedsYouListParams, NeedsYouRemoval, PAGE,
 };
 use goodfetch_protocol::run::PointInTime;
-use serde_json::Map;
+use rstest::rstest;
+use serde_json::{Map, json};
 use tokio::sync::watch;
 
+use super::consent::ConsentDomains;
+use super::refetch::coverage;
 use super::{Answering, Changes, NeedsYou, NeedsYouSource, Primitives, SourceContext, SourceError};
 use crate::clock::Clock;
 use crate::events::{Events, EventsOptions, Subscription};
@@ -33,6 +36,32 @@ use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
+
+/// `consent.domains` keys its entries as every host is keyed: however a
+/// person writes a domain, it covers the wall a Run recorded under its key.
+#[rstest]
+#[case::written_as_recorded(json!(["news.example"]), "news.example", true)]
+#[case::in_capitals_and_fully_qualified(json!(["News.Example."]), "news.example", true)]
+#[case::an_international_name(json!(["Bücher.de"]), "xn--bcher-kva.de", true)]
+#[case::every_domain(json!(["*"]), "xn--bcher-kva.de", true)]
+#[case::another_domain(json!(["news.example"]), "shop.example", false)]
+fn consent_domains_cover_a_domain_however_it_is_written(
+    #[case] domains: serde_json::Value,
+    #[case] domain: &str,
+    #[case] covered: bool,
+) {
+    assert_eq!(ConsentDomains::of(&domains).covers(domain), covered);
+}
+
+/// `wall.refetch_domains` lists a domain however a person wrote it, so
+/// "Needs you" finds the entry to remove.
+#[test]
+fn a_refetch_domain_written_as_an_international_name_covers_its_key() {
+    assert_eq!(
+        coverage(&["Bücher.de".to_owned()], "xn--bcher-kva.de"),
+        Some(false)
+    );
+}
 
 /// A source the test fills: what it holds now, which a person may dismiss
 /// when `dismissable`.

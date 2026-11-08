@@ -103,4 +103,4 @@ pub use composition::{
 pub use engine::{Dependencies, Engine};
 pub use engine_context::EngineContext;
 pub use info::contribution;
-pub use product::{CHANNEL_VARIABLE, Channel, Identity, Requested};
+pub use product::{Channel, Identity, Requested};

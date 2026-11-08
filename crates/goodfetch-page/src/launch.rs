@@ -110,10 +110,10 @@ async fn executable(
             notice,
         } => {
             notice_of(notice);
-            let cache = BrowserCache::new(&CacheLocation::new(
-                home.root(),
-                home.browsers_path().map(Path::to_path_buf),
-            ));
+            let cache = BrowserCache::new(
+                &CacheLocation::new(home.root(), home.browsers_path().map(Path::to_path_buf)),
+                run.owner().blocking_threads(),
+            );
             let pinned = pins.browser(name, platform).ok_or_else(|| {
                 CallError::new(
                     &BROWSER_NOT_INSTALLED,
@@ -144,9 +144,14 @@ async fn executable(
         }
         BrowserSource::Installed { candidates, notice } => {
             notice_of(notice);
-            let path = installed_browser(&choice, &candidates, pins.pinned_by.product)
-                .await
-                .map_err(|error| error.to_call_error())?;
+            let path = installed_browser(
+                &run.owner().blocking_threads(),
+                &choice,
+                &candidates,
+                pins.pinned_by.product,
+            )
+            .await
+            .map_err(|error| error.to_call_error())?;
             Ok((path, None, "chromium"))
         }
     }
@@ -214,11 +219,12 @@ pub(crate) async fn launch(
     // probe refused it, no browser starts (ADR 0049).
     let sandbox = get_or_default(settings, &SECURITY_BROWSER_SANDBOX);
     let probed = if sandbox {
-        Some(run.owner().blocking(sandbox_probe::probed).await)
+        let probe = run.sandbox_probe().clone();
+        Some(run.owner().blocking(move || probe.probed().clone()).await)
     } else {
         None
     };
-    if let Some(refusal) = probed.and_then(Probed::refusal) {
+    if let Some(refusal) = probed.as_ref().and_then(Probed::refusal) {
         return Err(refusal);
     }
     let (executable, held, kind) = executable(run, home, pins).await?;

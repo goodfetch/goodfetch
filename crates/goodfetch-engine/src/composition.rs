@@ -60,10 +60,18 @@ pub(crate) use call_streams::{CallNotifier, InputSender};
 #[derive(Clone)]
 pub struct CallContext {
     connection: Arc<ConnectionContext>,
+    operation: &'static Operation,
     id: RequestId,
     token: CancellationToken,
-    stream: Option<Arc<CallStream>>,
-    input: Option<Arc<CallInput>>,
+    channels: Option<Arc<CallChannels>>,
+}
+
+/// What only a streaming handler's or an input-taking handler's calls
+/// carry, behind one handle, so every other call's context stays the size
+/// it was with neither.
+struct CallChannels {
+    stream: Option<CallStream>,
+    input: Option<CallInput>,
 }
 
 /// What every call of one Connection is given: the engine's identity, the
@@ -130,22 +138,31 @@ pub(crate) trait DaemonSide: Send + Sync {
 }
 
 impl CallContext {
-    /// The call `id` on `connection`, cancelled through `token`, with
-    /// `stream` when its handler streams, and `input` when it takes input.
+    /// The call `id` of `operation` on `connection`, cancelled through
+    /// `token`, with `stream` when its handler streams, and `input` when it
+    /// takes input.
     pub(crate) fn new(
         connection: Arc<ConnectionContext>,
+        operation: &'static Operation,
         id: RequestId,
         token: CancellationToken,
         stream: Option<CallStream>,
         input: Option<CallInput>,
     ) -> Self {
+        let channels =
+            (stream.is_some() || input.is_some()).then(|| Arc::new(CallChannels { stream, input }));
         Self {
             connection,
+            operation,
             id,
             token,
-            stream: stream.map(Arc::new),
-            input: input.map(Arc::new),
+            channels,
         }
+    }
+
+    /// The operation called, which an error of the call names.
+    pub fn operation(&self) -> &'static Operation {
+        self.operation
     }
 
     /// The call's id, which the handler requests it sends its Client may
@@ -161,8 +178,9 @@ impl CallContext {
     ///
     /// When the handler takes no input: its calls carry none.
     pub fn input(&self) -> &CallInput {
-        self.input
+        self.channels
             .as_deref()
+            .and_then(|channels| channels.input.as_ref())
             .expect("invariant: a handler taking input gets its calls' input")
     }
 
@@ -178,8 +196,9 @@ impl CallContext {
     ///
     /// When the handler does not stream: its calls carry no stream.
     pub fn stream(&self) -> &CallStream {
-        self.stream
+        self.channels
             .as_deref()
+            .and_then(|channels| channels.stream.as_ref())
             .expect("invariant: a streaming handler's calls carry their stream")
     }
 

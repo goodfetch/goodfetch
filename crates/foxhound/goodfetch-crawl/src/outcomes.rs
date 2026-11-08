@@ -71,7 +71,7 @@ async fn outcomes(
     if let Some(answer) = through_owner(&context, &RUN_OUTCOMES, &params.run_id, &params).await? {
         return Ok(answer);
     }
-    let failed = |error: RunError| run_error(error, context.identity());
+    let failed = |error: RunError| run_error(error, &context);
     let mut reader = context
         .runs()
         .reader(params.run_id.clone())
@@ -121,7 +121,7 @@ async fn failed_requests(
     {
         return Ok(answer);
     }
-    let failed = |error: RunError| run_error(error, context.identity());
+    let failed = |error: RunError| run_error(error, &context);
     let mut reader = context
         .runs()
         .reader(params.run_id.clone())

@@ -24,7 +24,7 @@ async fn list(params: DatasetListParams, context: CallContext) -> Result<Dataset
     if let Some(answer) = through_owner(&context, &DATASET_LIST, &params.run_id, &params).await? {
         return Ok(answer);
     }
-    let failed = |error: RunError| run_error(error, context.identity());
+    let failed = |error: RunError| run_error(error, &context);
     let mut reader = context
         .runs()
         .reader(params.run_id.clone())

@@ -670,10 +670,7 @@ impl PageContext {
     ) -> (Result<Reply, CallError>, Taken) {
         let headers =
             cdp_response::paused_headers(paused.response_headers.as_deref().unwrap_or_default());
-        let limits = self
-            .run
-            .settings()
-            .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
+        let limits = Limits::of_run(self.run.settings());
         let url = &paused.request.url;
         if let Err(refused) = paused_body::declared_within_limits(url, &headers, &limits) {
             return (Err(refused), Taken::Nothing);

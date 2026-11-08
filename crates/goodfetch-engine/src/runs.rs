@@ -139,6 +139,7 @@ use crate::run_state::{
     self, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions, RunStateTables, Syncing,
 };
 use crate::run_trace;
+use crate::sandbox_probe::SandboxProbe;
 use crate::secrets::{Purpose, RunSecrets, SecretError, Secrets, is_engine_key};
 use crate::settings::{Resolved, RunSettings, get_or_default};
 use crate::staging::AttemptWrites;
@@ -1405,6 +1406,11 @@ impl Run {
     /// The engine's clock.
     pub fn clock(&self) -> Clock {
         self.clock
+    }
+
+    /// The engine's sandbox probe, whose answer each browser launch reads.
+    pub fn sandbox_probe(&self) -> &SandboxProbe {
+        self.runs.engine.sandbox_probe()
     }
 
     /// Shows `pause`, a Human pause waiting on one of its pages (ADR 0092),

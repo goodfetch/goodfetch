@@ -122,7 +122,7 @@ pub(crate) struct Input {
 /// It first runs what opens every run, on a home of its own, so the work
 /// done once per process stays out of what each scenario measures, alike in
 /// every scenario, and cancels in the difference `xtask counts` takes:
-/// - the sandbox probe's fork (`sandbox_probe::probed_in`): the child's
+/// - the sandbox probe's fork (`sandbox_probe`'s `this_host`): the child's
 ///   profile carries every count the parent made before the fork, which
 ///   happens later in a run with more messages, so each scenario counted
 ///   its own share of the run twice (about 11,550 instructions and 18

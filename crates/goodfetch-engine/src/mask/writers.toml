@@ -1,0 +1,283 @@
+# Every writer the Products' crates hold, listed with how it meets the `Mask`
+# (spec #564): each file whose code opens a file, writes one whole, gives the
+# `tracing` subscriber a writer, takes stdout or stderr, creates a SQLite table
+# or writes a Connection's lines, how many of those it holds, and whether what
+# they write is masked, where it says, or holds no resolved value, for the
+# reason it says. `xtask mask-writers` finds them in the source and fails on
+# any this list does not hold as it finds it, so a new writer cannot skip the
+# `Mask` unseen.
+
+[[writer]]
+path = "crates/foxhound/goodfetch-crawl/src/code_free.rs"
+count = 1
+how = "holds no value: a code-free crawl's extraction, the formats it asks for and which links it follows, as the program gave them"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-crawl/src/labels.rs"
+count = 2
+how = "holds no value: the Labels a crawl declares, their Payloads' schemas and their `fetch.tier`, and whether the Run and each Label keep URL fragments"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-crawl/src/tier_choice.rs"
+count = 1
+how = "holds no value: each Label's tier on each domain key, its samples' path segments and whether they matched"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-crawl/src/work_items.rs"
+count = 6
+how = "masked: a handler's failure is masked as `Scope::Kept` where the delivery receives it, a refused Record's `record_invalid` too; work items and outcomes hold URLs and the program's own data, and the reserved positions only a number; the request and Record counts hold an outcome's kind, its skip reason, Error code or Block cause (a code, never its message) and numbers"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-dataset/src/lib.rs"
+count = 3
+how = "masked: the Records a crawl commits, their Provenance and the rejection table's rejected Records with the check's reason and issues are written with every value the Run resolved as its `%name%` (`Scope::Kept`, in `records.rs`, #972); the Datasets a crawl declares (names, schemas, keys) are the program's own declarations"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-frontier/src/bounds.rs"
+count = 5
+how = "holds no value: the Frontier's counts and bounds"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-frontier/src/identity.rs"
+count = 2
+how = "holds no value: request identities: URL fingerprints"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-frontier/src/payload.rs"
+count = 3
+how = "holds no value: the program's own Payloads and the Labels' schemas"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-frontier/src/politeness.rs"
+count = 3
+how = "holds no value: per-domain Politeness state, the Crawl-delay each robots.txt asks for by domain key and location, its origin without credentials, and each domain key's pacing (its latency's mean and its token bucket), numbers only"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-frontier/src/queues.rs"
+count = 1
+how = "holds no value: per-domain queues of URLs"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-frontier/src/robots_txt.rs"
+count = 1
+how = "holds no value: robots.txt rules a site published"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-frontier/src/rules.rs"
+count = 10
+how = "holds no value: the crawl's scope and enqueue rules, from its inputs"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-frontier/src/scope.rs"
+count = 2
+how = "holds no value: the crawl's scope, from its inputs"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-frontier/src/seeds.rs"
+count = 1
+how = "holds no value: the crawl's seeds, from its inputs"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-frontier/src/sitemap.rs"
+count = 3
+how = "holds no value: a sitemap seed's sitemaps (URLs, the seed's rules), their entries' counts by reason, and each it could not read with the engine's own error code, status and message, no handler's"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-frontier/src/trap_links.rs"
+count = 1
+how = "holds no value: the IDs of the work items added through a link suspected a trap"
+
+[[writer]]
+path = "crates/foxhound/goodfetch-session-pool/src/store.rs"
+count = 3
+how = "holds no value: Session pool entries: identities, counts and local-address positions, and the address blocks blocked on a domain, settings by reference"
+
+[[writer]]
+path = "crates/goodfetch-collie/src/executable/logs.rs"
+count = 5
+how = "masked: every log writer is `Masked`, `Scope::KeptOutput`"
+
+[[writer]]
+path = "crates/goodfetch-collie/src/executable/output.rs"
+count = 4
+how = "masked: the CLI prints what the engine's replies hold, masked by the RPC layer as `Scope::Returned`, and its own messages"
+
+[[writer]]
+path = "crates/goodfetch-collie/src/executable/service.rs"
+count = 1
+how = "holds no value: the service manager's definitions and the Daemon's token record, no Run's value"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/age_notice.rs"
+count = 1
+how = "holds no value: the date a notice was shown"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/attached/files.rs"
+count = 2
+how = "holds no value: the private endpoint's socket and its own token, no Run's value"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/audit.rs"
+count = 1
+how = "holds no value: each entry names a Secret reference and its placeholder, never a value (ADR 0016)"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/browser_cache/store.rs"
+count = 4
+how = "holds no value: pinned browser builds and their markers"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/checkpoint.rs"
+count = 1
+how = "masked: a copy of the run file, whose texts were masked as `Scope::Kept` when written"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/crash_report.rs"
+count = 1
+how = "masked: each report is masked as `Scope::Kept`"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/daemon/files.rs"
+count = 1
+how = "holds no value: the Daemon's serving and start locks, opened empty and only locked; its runtime file, tokens and service record, written through `durable::replace`, hold no Run's value either"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/governor/system/linux.rs"
+count = 1
+how = "holds no value: it writes nothing, its one `OpenOptions` opening the `/proc` files a governor sample counts for reading only"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/key_value_store.rs"
+count = 1
+how = "holds no value: the program's own values, which it set from masked reads"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/known_certificates.rs"
+count = 2
+how = "holds no value: hosts and key hashes"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/ledger.rs"
+count = 2
+how = "holds no value: Usage counts"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/lowest_minor.rs"
+count = 1
+how = "holds no value: the lowest-minor marker"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/people/store.rs"
+count = 1
+how = "holds no value: Console sign-ins by verifier, no Run's value"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/pinned_download.rs"
+count = 1
+how = "holds no value: a pinned download's bytes"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/politeness.rs"
+count = 3
+how = "holds no value: per-domain Politeness state"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/robots_txt.rs"
+count = 1
+how = "holds no value: the robots.txt files sites published, read for a Run's own navigation, each by its origin's robots.txt URL without credentials, or the browser's or the engine's reason one never answered"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/run_files.rs"
+count = 2
+how = "holds no value: the program's own files, content-addressed"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/run_index.rs"
+count = 4
+how = "masked: its progress message is masked as `Scope::Kept` where the program sets it; consent walls and refetch stops hold domains and causes"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/run_key.rs"
+count = 1
+how = "holds no value: the Run's data key, wrapped"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/run_state.rs"
+count = 7
+how = "masked: warnings, the progress message and the Run report, its error included, are masked as `Scope::Kept` in `runs` before they are written; settings are kept by reference; the \"unclean\" mark at `off` is a constant row with no value of the Run's"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/run_state/install.rs"
+count = 3
+how = "holds no value: the per-install layout's copies of run files, masked when written"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/run_trace.rs"
+count = 2
+how = "masked: the request log's lines and the Provenance log's, which the Run's held file takes, pass through the Run's `Mask`, `Scope::KeptOutput`"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/rpc/connection.rs"
+count = 1
+how = "masked: every line a Connection sends is masked as `Scope::Returned`"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/runs/folder.rs"
+count = 2
+how = "holds no value: the run folder's lock and identifier files"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/runs/import.rs"
+count = 1
+how = "holds no value: a run file another engine wrote, masked there"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/runs/writer.rs"
+count = 2
+how = "holds no value: the writer's lock file"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/secrets.rs"
+count = 1
+how = "holds no value: the empty lock file an engine holds while it makes its own key"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/settings_editor.rs"
+count = 1
+how = "holds no value: the Operator policy's lock file, opened empty and only locked; the settings files themselves are written through `durable::replace`, holding a person's values and Secret references, never a Secret's value"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/sqlite_store.rs"
+count = 1
+how = "holds no value: each store's `format` table, its format's name and version"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/transport.rs"
+count = 1
+how = "masked: the Attached engine's stdout carries only the lines `rpc` masked"
+
+[[writer]]
+path = "crates/goodfetch-page/src/clean_up_versions.rs"
+count = 1
+how = "holds no value: downloaded Clean-up rules"
+
+[[writer]]
+path = "crates/goodfetch-page/src/launch.rs"
+count = 1
+how = "holds no value: the browser profile's starting preferences"
+
+[[writer]]
+path = "crates/goodfetch-page/src/proxy/limits.rs"
+count = 1
+how = "holds no value: proxy limits by endpoint and username, never a password"
+
+[[writer]]
+path = "crates/goodfetch-page/src/sessions.rs"
+count = 1
+how = "holds no value: Sessions' settings, Secret settings by reference"
+
+[[writer]]
+path = "crates/goodfetch-page/src/trace.rs"
+count = 1
+how = "holds no value: the CDP command log: each command's method alone; its Provenance log is `run_trace`'s"

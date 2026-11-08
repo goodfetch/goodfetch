@@ -34,7 +34,7 @@ use goodfetch_protocol::response_limits::{
 };
 
 use crate::call_error::CallError;
-use crate::settings::Resolved;
+use crate::settings::{Resolved, RunSettings};
 
 /// The decoded size past which `network.max_decompression_ratio` applies:
 /// 1 MiB.
@@ -83,6 +83,12 @@ impl Limits {
             max_decompression_ratio: settings.get(&NETWORK_MAX_DECOMPRESSION_RATIO),
             max_json_depth: settings.get(&NETWORK_MAX_JSON_DEPTH),
         }
+    }
+
+    /// The limits of a Run under `settings`; the catalog's defaults for a
+    /// Run with none.
+    pub fn of_run(settings: Option<&RunSettings>) -> Self {
+        settings.map_or_else(Self::default, |settings| Self::of(settings.resolved()))
     }
 
     /// Judges a body another reader decoded, such as a browser: `decoded`

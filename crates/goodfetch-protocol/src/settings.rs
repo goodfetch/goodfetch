@@ -388,6 +388,12 @@ pub struct ConfigExplainParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub project: Option<ProjectSettings>,
+    /// The path of the project configuration the Client was named, in place
+    /// of `project`, when no file is there: it sets nothing, and the answer
+    /// lists it as not found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub missing_project: Option<String>,
     /// Run-layer values to explain with, as a Run's `settings` would give
     /// them.
     #[serde(default, skip_serializing_if = "Map::is_empty")]

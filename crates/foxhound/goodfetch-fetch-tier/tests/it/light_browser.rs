@@ -22,6 +22,7 @@ use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, PinnedArtifac
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::pinned_download::Fetching;
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_fetch_tier::{light_browser_pins, prepare_light_browser};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Product;
@@ -170,7 +171,10 @@ fn lightpanda_is_downloaded_into_the_browser_cache_on_first_use() {
         let pin = pinned_here();
         let stand_in = StandIn::serve(HOST, BTreeMap::from([(path_of(&pin), bytes.clone())])).await;
         let (pin, fetching) = moved(pin, &stand_in);
-        let cache = BrowserCache::new(&CacheLocation::new(env.home(), None));
+        let cache = BrowserCache::new(
+            &CacheLocation::new(env.home(), None),
+            TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
+        );
         let now = jiff::Timestamp::try_from(env.start_time()).unwrap();
 
         let first = prepare_light_browser(&cache, &pin, &pinned_by(), &fetching, now)
@@ -207,7 +211,10 @@ fn a_lightpanda_download_without_its_pinned_digest_is_refused() {
         let pin = pinned_here();
         let stand_in = StandIn::serve(HOST, BTreeMap::from([(path_of(&pin), bytes)])).await;
         let (pin, fetching) = moved(pin, &stand_in);
-        let cache = BrowserCache::new(&CacheLocation::new(env.home(), None));
+        let cache = BrowserCache::new(
+            &CacheLocation::new(env.home(), None),
+            TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
+        );
         let now = jiff::Timestamp::try_from(env.start_time()).unwrap();
 
         let refused = prepare_light_browser(&cache, &pin, &pinned_by(), &fetching, now).await;

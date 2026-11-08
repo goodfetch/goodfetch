@@ -23,6 +23,7 @@ use std::time::Duration;
 use goodfetch_engine::browser_cache::{self, MaxUnusedAge};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::files::{DaemonFiles, FileLock};
+use goodfetch_engine::daemon::service::LaunchedCommand;
 use goodfetch_engine::daemon::{
     ContentOrigin, DaemonConsole, DaemonEnd, DaemonOptions, Holds, Succession,
 };
@@ -62,8 +63,7 @@ pub(super) fn launch(
     std::fs::create_dir_all(home.root()).map_err(unavailable("Goodfetch home cannot be made"))?;
     let mut command = std::process::Command::new(executable);
     command
-        .args(["daemon", "launched", "--copy", build])
-        .args(keep_alive.then_some("--keep-alive"))
+        .args(LaunchedCommand::started(build, keep_alive).arguments())
         .env_clear()
         .envs(environment)
         .current_dir(home.root())
@@ -675,7 +675,7 @@ fn give_place_to_the_pick(machine: &Machine<'_>) -> Option<ExitCode> {
         "the service starts its major's pick in its place"
     );
     let error = std::process::Command::new(&executable)
-        .args(["daemon", "launched", "--service", "--copy", &build])
+        .args(LaunchedCommand::of_service(&build, Vec::new()).arguments())
         .env_clear()
         .envs(machine.environment)
         .current_dir(machine.home.root())

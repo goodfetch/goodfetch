@@ -224,10 +224,10 @@ impl Kept {
     /// The versions kept in the Browser cache of `home`.
     fn in_home(home: &Home, owner: TaskOwner) -> Self {
         Self {
-            cache: BrowserCache::new(&CacheLocation::new(
-                home.root(),
-                home.browsers_path().map(Path::to_path_buf),
-            )),
+            cache: BrowserCache::new(
+                &CacheLocation::new(home.root(), home.browsers_path().map(Path::to_path_buf)),
+                owner.blocking_threads(),
+            ),
             owner,
         }
     }

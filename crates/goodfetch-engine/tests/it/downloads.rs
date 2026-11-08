@@ -16,6 +16,7 @@ use goodfetch_engine::browser_cache::{
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::browser_cache::{
     ArtifactId, ArtifactKind, DownloadFailure, DownloadProgress, InstallOutcome, PinnedBy,
 };
@@ -237,7 +238,10 @@ fn now(env: &TestEnv) -> jiff::Timestamp {
 }
 
 fn cache(env: &TestEnv) -> BrowserCache {
-    BrowserCache::new(&CacheLocation::new(env.home(), None))
+    BrowserCache::new(
+        &CacheLocation::new(env.home(), None),
+        TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
+    )
 }
 
 fn failure_of(error: CacheError) -> (String, DownloadFailure) {

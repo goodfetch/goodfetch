@@ -102,7 +102,7 @@ impl Read for Parts {
 
 async fn export(params: RunExportParams, context: CallContext) -> Result<Export, CallError> {
     let options = options(&params, &context).await?;
-    let failed = |error: RunError| run_error(error, context.identity());
+    let failed = |error: RunError| run_error(error, &context);
     let mut reader = open_dataset(&context, params.run_id.clone(), &params.dataset).await?;
     let dataset = params.dataset.clone();
     let through = reader
@@ -300,7 +300,7 @@ async fn kept_export(
     let Some((run_id, sha256)) = export_id.split() else {
         return Err(no_export(export_id));
     };
-    let failed = |error: RunError| run_error(error, context.identity());
+    let failed = |error: RunError| run_error(error, context);
     open_run(context, RunId::clone(&run_id)).await?;
     let folder = context
         .runs()

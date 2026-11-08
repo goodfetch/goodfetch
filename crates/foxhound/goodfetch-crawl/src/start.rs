@@ -156,7 +156,7 @@ async fn serve(
         .runs()
         .ended(params.run_id)
         .await
-        .map_err(|error| run_error(error, context.identity()))
+        .map_err(|error| run_error(error, &context))
 }
 
 /// A start's inputs: its `seeds`.
@@ -294,7 +294,7 @@ async fn schema_unchanged(
         return Ok(false);
     };
     let declared = declared.clone();
-    let failed = |error: RunError| run_error(error, context.identity());
+    let failed = |error: RunError| run_error(error, context);
     let mut reader = match context.runs().reader(run_id.clone()).await {
         Ok(reader) => reader,
         Err(RunError::NotFound(_)) => return Ok(false),

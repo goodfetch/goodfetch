@@ -29,6 +29,7 @@ use serde_json::{Value, json};
 use crate::audit::AuditError;
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
+use crate::host_name;
 use crate::needs_you::NeedsYouError;
 use crate::run::settings_error;
 use crate::settings::SettingsError;
@@ -95,7 +96,7 @@ fn consent_domain(domain: &str) -> Result<String, CallError> {
         )
     };
     let host = match url::Host::parse(domain) {
-        Ok(url::Host::Domain(host)) => host.trim_end_matches('.').to_owned(),
+        Ok(url::Host::Domain(host)) => host_name::without_root(&host).to_owned(),
         _ => return Err(refused("names no domain")),
     };
     let registrable = psl::domain_str(&host).unwrap_or(&host);
@@ -191,7 +192,11 @@ fn allow(editor: &SettingsEditor, domain: &str, warning: &str) -> Result<bool, R
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        if domains.iter().any(|listed| listed.as_str() == Some(domain)) {
+        if domains
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|listed| host_name::lookup_key(listed) == domain)
+        {
             return Ok(Change::Kept(false));
         }
         domains.push(json!(domain));

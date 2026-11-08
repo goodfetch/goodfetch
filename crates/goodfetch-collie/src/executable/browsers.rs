@@ -22,6 +22,7 @@ use goodfetch_engine::home::Home;
 use goodfetch_engine::installed::{InstalledList, Seen, kept_inputs};
 use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::browser_cache::{
     ArtifactId, BrowserCleaned, BrowserInstalled, InstallOutcome, InstalledBuild, MAX_UNUSED_AGE,
     NotCleaned, PinnedBy, RemovedBuild,
@@ -75,7 +76,8 @@ pub(super) fn install(machine: &Machine<'_>, json: bool, human: &Human) -> ExitC
         Err(failure) => return failure.print(json, human),
     };
     let pinned_by = pinned_by(identity);
-    let cache = BrowserCache::new(&machine.cache_location());
+    let owner = TaskOwner::root(BlockingPolicy::Threads);
+    let cache = BrowserCache::new(&machine.cache_location(), owner.blocking_threads());
     let pins = Pins {
         pinned_by,
         artifacts: crate::pinned_artifacts(),
@@ -160,7 +162,8 @@ pub(super) fn clean(
         Err(failure) => return failure.print(json, human),
     };
     let pinned_by = pinned_by(identity);
-    let cache = BrowserCache::new(&machine.cache_location());
+    let owner = TaskOwner::root(BlockingPolicy::Threads);
+    let cache = BrowserCache::new(&machine.cache_location(), owner.blocking_threads());
     let pins = Pins {
         pinned_by,
         artifacts: crate::pinned_artifacts(),

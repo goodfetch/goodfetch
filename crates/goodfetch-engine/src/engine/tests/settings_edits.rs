@@ -571,13 +571,17 @@ fn a_settings_write_waits_for_a_write_in_flight_and_both_land(
 ) {
     let env = TestEnv::new();
     write(&env, name, text);
-    let other = OtherWriter::holding(file(&env, name), other_change.0, other_change.1);
+    let path = file(&env, name);
 
     let answer = attached_on(
         &engine_with(Product::Collie, None),
         &env,
         |mut client| async move {
             opened(&mut client, "console", "collie").await;
+            // Held from here, so a slow start cannot spend the hold before
+            // the call: with the lock broken, the call's write then ends
+            // first, and the other writer's overwrites it.
+            let other = OtherWriter::holding(path, other_change.0, other_change.1);
             let answer = call(&mut client, 1, method, params).await;
             other.answered();
             answer

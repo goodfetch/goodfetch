@@ -155,7 +155,7 @@ fn crawl(
 fn host_requests(site: &Site, host: &str) -> Vec<ObservedRequest> {
     site.received_requests()
         .every()
-        .filter(|request| request.host.split(':').next() == Some(host))
+        .filter(|request| request.host == host)
         .cloned()
         .collect()
 }

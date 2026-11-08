@@ -111,7 +111,7 @@ fn requests_for(site: &Site, url: &str) -> Vec<ObservedRequest> {
     };
     site.received_requests()
         .of_the_case()
-        .filter(|request| request.host.split(':').next() == Some(HOST) && request.target == path)
+        .filter(|request| request.host == HOST && request.target == path)
         .cloned()
         .collect()
 }

@@ -13,10 +13,12 @@
 #[expect(
     dead_code,
     unreachable_pub,
-    reason = "the Proving ground's own source, of which the harness reads the observations' requests"
+    reason = "the Proving ground's own source, of which the harness reads its routes, its proxies' credentials and the observations' requests"
 )]
 mod interface;
 
+pub use self::interface::ProxyCredentials;
+use self::interface::ROUTES;
 pub(crate) use self::interface::{ObservedRequest, ReceivedRequests};
 use goodfetch_protocol::journey::TaskId;
 use goodfetch_protocol::result_document::{OracleAnswer, ProvingGroundCopy};
@@ -79,15 +81,6 @@ pub struct NetworkFixtures {
     /// any.
     #[serde(default)]
     pub proxy_credentials: Option<ProxyCredentials>,
-}
-
-/// The username and password a local copy's proxies take.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-pub struct ProxyCredentials {
-    /// The username.
-    pub username: String,
-    /// The password.
-    pub password: String,
 }
 
 /// A Secret canary the Proving ground planted (ADR 0067): its value, the
@@ -159,7 +152,7 @@ impl ProvingGround {
     /// When the Proving ground cannot be reached, answers another status
     /// than 200 or serves no task list.
     pub fn task_list(&self) -> Result<TaskList, ProvingGroundError> {
-        let url = format!("http://{}/tasks", self.address);
+        let url = format!("http://{}{}", self.address, ROUTES.tasks);
         let body = Self::answer(&url, self.agent.get(&url).call())?;
         serde_json::from_str(&body).map_err(|source| ProvingGroundError::Unreadable { url, source })
     }
@@ -193,7 +186,7 @@ impl ProvingGround {
     /// When the Proving ground cannot be reached, answers another status
     /// than 200 or serves no JSON.
     pub fn observations(&self) -> Result<serde_json::Value, ProvingGroundError> {
-        let url = format!("http://{}/observations", self.address);
+        let url = format!("http://{}{}", self.address, ROUTES.observations);
         let body = Self::answer(&url, self.agent.get(&url).call())?;
         serde_json::from_str(&body).map_err(|source| ProvingGroundError::Unreadable { url, source })
     }
@@ -220,7 +213,7 @@ impl ProvingGround {
     pub(crate) fn received_requests(&self) -> Result<ReceivedRequests, ProvingGroundError> {
         let observations = self.observations()?;
         ReceivedRequests::read(&observations).map_err(|source| ProvingGroundError::Unreadable {
-            url: format!("http://{}/observations", self.address),
+            url: format!("http://{}{}", self.address, ROUTES.observations),
             source,
         })
     }
@@ -252,7 +245,7 @@ impl ProvingGround {
     ///
     /// When the Proving ground cannot be reached or refuses the step.
     pub fn set_time_step(&self, step: u64) -> Result<(), ProvingGroundError> {
-        let url = format!("http://{}/time-step", self.address);
+        let url = format!("http://{}{}", self.address, ROUTES.time_step);
         Self::answer(
             &url,
             self.agent
@@ -309,7 +302,7 @@ impl ProvingGround {
         &self,
         submission: &Submission<'_, R>,
     ) -> Result<OracleAnswer, ProvingGroundError> {
-        let url = format!("http://{}/oracle", self.address);
+        let url = format!("http://{}{}", self.address, ROUTES.oracle);
         let body = Self::answer(&url, self.agent.post(&url).send_json(submission))?;
         serde_json::from_str(&body).map_err(|source| ProvingGroundError::Unreadable { url, source })
     }

@@ -1,7 +1,8 @@
-//! The one wait a case takes on something outside the Connection, such as
-//! the Proving ground's observations or oracle, or a file the engine
-//! writes: read it again, on the harness's own thread, until what it read
-//! holds or the wait ends.
+//! A wait a case takes on something outside the Connection, such as the
+//! Proving ground's observations or oracle, or a file the engine writes: read
+//! it again, on the harness's own thread, until what it read holds or the wait
+//! ends. `service_workers` keeps two loops of its own, which serve the engine
+//! between reads.
 
 use std::convert::Infallible;
 use std::time::{Duration, Instant};

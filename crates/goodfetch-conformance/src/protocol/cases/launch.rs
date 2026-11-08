@@ -84,7 +84,7 @@ pub(super) fn reports(observations: &Value, path: &str) -> Vec<(String, String)>
 fn header_values(requests: &ReceivedRequests, host: &str, name: &str) -> Vec<String> {
     requests
         .every()
-        .filter(|request| request.host.split(':').next() == Some(host))
+        .filter(|request| request.host == host)
         .flat_map(|request| &request.headers)
         .filter(|(seen, _)| seen.eq_ignore_ascii_case(name))
         .map(|(_, value)| value.clone())

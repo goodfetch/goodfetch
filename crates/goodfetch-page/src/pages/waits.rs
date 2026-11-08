@@ -265,7 +265,10 @@ impl Pages {
         page_id: &PageId,
         armed: impl Future<Output = Result<T, CallError>>,
     ) -> Result<T, CallError> {
-        let page = self.open(page_id).await?;
+        // It only listens, and its limit runs in `armed`: it waits for no
+        // `Runtime` a `page.on` is turning on.
+        self.init_scripts.settled(page_id).await;
+        let page = self.opened(page_id).await?;
         page.life
             .call(PageEvent::Read, async {
                 match armed.await {
@@ -300,9 +303,18 @@ impl Pages {
             Some(millis) => Duration::from_millis(millis),
             None => FRAME,
         };
-        let page = self.open(wait.page_id).await?;
+        let (page, spent) = self
+            .open(wait.page_id, |_| {
+                let deadline = self.events.get(wait.page_id)?.wait_deadline(wait.timeout)?;
+                Ok(deadline.deadline().cloned())
+            })
+            .await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
-        let deadline = self.events.get(wait.page_id)?.wait_deadline(wait.timeout)?;
+        let deadline = self
+            .events
+            .get(wait.page_id)?
+            .wait_deadline(wait.timeout)?
+            .having_spent(spent);
         let world = wait.world.unwrap_or_default();
         if world == World::Main {
             page.injections
@@ -334,7 +346,9 @@ impl Pages {
         (awaited, deadline): (Awaited, WaitDeadline),
         context: &CallContext,
     ) -> Result<Waited, CallError> {
-        let page = self.open(&locator.page_id).await?;
+        let (page, spent) = self
+            .open(&locator.page_id, |_| Ok(deadline.deadline().cloned()))
+            .await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
         let wait = Wait {
             operation,
@@ -343,6 +357,7 @@ impl Pages {
             window: deadline.deadline().map(|deadline| Window {
                 limit: deadline.limit().clone(),
                 duration: deadline.duration(),
+                spent,
             }),
             surface: context.surface(),
         };

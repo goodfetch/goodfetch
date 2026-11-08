@@ -999,6 +999,15 @@ impl Interception {
             .map_err(|refused| refused.error())
     }
 
+    /// Whether a page of the Session `session` started a main-frame
+    /// navigation, whoever started it, that its `load` has not ended.
+    pub(crate) fn navigation_pending(&self, session: &SessionId) -> bool {
+        lock(&self.shared.tables)
+            .pending
+            .get(session)
+            .is_some_and(|pending| pending.any())
+    }
+
     /// The failure a handler left on the page `page_id` for its next call,
     /// or else on its Session (a Session route's, on a service worker's
     /// request), taken.

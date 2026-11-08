@@ -197,6 +197,11 @@ impl PageLife {
         self.end(&Ending::Destroyed)
     }
 
+    /// Whether a navigation call on the page is pending now.
+    pub(crate) fn navigating(&self) -> bool {
+        *self.shared.state.borrow() == PageState::Navigating
+    }
+
     /// Whether the page is found past its memory cap for the first time:
     /// only the first finding ends it.
     pub(crate) fn past_cap(&self) -> bool {

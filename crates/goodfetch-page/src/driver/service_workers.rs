@@ -31,6 +31,7 @@
 use std::collections::BTreeMap;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
 use goodfetch_cdp::generated::{browser, fetch, network, runtime, target};
 use goodfetch_cdp::{SessionId as TargetSession, Subscription};
@@ -129,6 +130,7 @@ impl PageDriver {
             frame: worker,
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
+            spent: Duration::ZERO,
             turn: Arc::new(tokio::sync::Mutex::new(None)),
             gesture: Arc::new(tokio::sync::Mutex::new(())),
             value: crate::page_value::PageValue::empty(),

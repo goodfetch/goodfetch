@@ -15,8 +15,10 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use goodfetch_test_client::Attached;
+use goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
+use goodfetch_test_client::{Attached, HomeLayout};
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::attached_with;
@@ -143,6 +145,63 @@ fn a_cookie_the_browser_sample_set_is_sent_by_the_http_tiers_next_request_in_its
             ],
             &json!("finished")
         )
+    );
+}
+
+/// How many browser contexts the Run `run_id` created, by its CDP trace: its
+/// one Session's one in each browser it was seated in.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the Run's CDP trace from outside the engine, on no async worker"
+)]
+fn contexts_created(env: &TestEnv, run_id: &str) -> usize {
+    let file = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_CDP_COMMANDS);
+    std::fs::read_to_string(file)
+        .unwrap()
+        .lines()
+        .filter(|line| {
+            serde_json::from_str::<Value>(line).unwrap()["method"] == "Target.createBrowserContext"
+        })
+        .count()
+}
+
+/// A Session on a forced `browser_fetch` tier opens no page but the engine's
+/// own, and is held to its browser's limits all the same: past them, each
+/// next request goes out of a replacement browser.
+///
+/// Covers: story:3-62, setting:governor.browser.recycle_pages, setting:governor.browser.memory_cap
+#[rstest]
+#[case::after_its_pages(json!({ "recycle_pages": 1 }))]
+#[case::past_its_memory_cap(json!({ "memory_cap": 1 }))]
+fn a_session_on_the_browser_fetch_tier_moves_off_its_recycled_browser(#[case] limit: Value) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let mut settings = settings(&proving_ground, "browser_fetch");
+    settings["governor"] = json!({ "browser": limit });
+
+    let finished = crawl_declaring(
+        &mut engine,
+        "recycled",
+        &[
+            seed(&proving_ground, "/corpus/article?n=1", "a"),
+            seed(&proving_ground, "/corpus/article?n=2", "a"),
+            seed(&proving_ground, "/corpus/article?n=3", "a"),
+        ],
+        &json!({ "a": {} }),
+        &settings,
+        &mut |_, _| json!({ "result": { "records": [] } }),
+    );
+    assert!(engine.finished());
+
+    assert_eq!(
+        (
+            &finished["result"]["lifecycle"],
+            articles(&proving_ground).len(),
+            contexts_created(&env, "recycled") >= 3,
+        ),
+        (&json!("finished"), 3, true),
+        "{finished}"
     );
 }
 

@@ -412,6 +412,7 @@ impl PageEvents {
         };
         Ok(WaitDeadline {
             deadline,
+            spent: Duration::ZERO,
             clock: self.shared.clock,
         })
     }
@@ -421,6 +422,8 @@ impl PageEvents {
 #[derive(Clone)]
 pub(crate) struct WaitDeadline {
     deadline: Option<Deadline>,
+    /// What the wait's call spent of it before the wait began.
+    spent: Duration,
     clock: Clock,
 }
 
@@ -428,6 +431,12 @@ impl WaitDeadline {
     /// The deadline, if the wait has one.
     pub(crate) fn deadline(&self) -> Option<&Deadline> {
         self.deadline.as_ref()
+    }
+
+    /// This deadline for a wait whose call spent `spent` of it before the
+    /// wait began, waiting for its page's `Runtime` (ADR 0019).
+    pub(crate) fn having_spent(self, spent: Duration) -> Self {
+        Self { spent, ..self }
     }
 
     /// The Run's clock it is counted on.
@@ -450,9 +459,17 @@ impl WaitDeadline {
         waited_for: WaitedFor,
         work: impl Future<Output = T>,
     ) -> Result<T, CallError> {
-        match &self.deadline {
-            Some(deadline) => deadline.within(&self.clock, waited_for, work).await,
-            None => Ok(work.await),
+        let Some(deadline) = &self.deadline else {
+            return Ok(work.await);
+        };
+        let started = self.clock.now();
+        let end = started + deadline.duration().saturating_sub(self.spent);
+        tokio::select! {
+            biased;
+            answer = work => Ok(answer),
+            () = self.clock.sleep_until(end) => {
+                Err(deadline.exceeded(waited_for, self.clock.now() - started + self.spent))
+            }
         }
     }
 }

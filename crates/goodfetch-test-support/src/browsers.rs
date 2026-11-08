@@ -15,6 +15,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use crate::env::{START_TIME, TestEnv};
 use crate::facts::{CHROME_FOR_TESTING_BUILD, LIGHTPANDA_BUILD};
@@ -125,6 +126,51 @@ pub fn browser_cache_in_home(env: &TestEnv) -> Result<PathBuf, BrowserCacheError
 /// them stay searched.
 pub fn chrome_for_testing_files(cache: &Path) -> PathBuf {
     chrome_for_testing_entry(cache).join("files")
+}
+
+/// The executable of the pinned build in the Browser cache at `cache`, for a
+/// test that starts a browser of its own.
+pub fn chrome_for_testing(cache: &Path) -> PathBuf {
+    let files = chrome_for_testing_files(cache);
+    if cfg!(target_os = "linux") {
+        return files.join("chrome-linux64").join("chrome");
+    }
+    let platform = if cfg!(target_arch = "aarch64") {
+        "chrome-mac-arm64"
+    } else {
+        "chrome-mac-x64"
+    };
+    files
+        .join(platform)
+        .join("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
+}
+
+/// How long a test's own browser has to report its debugging port.
+const PORT_DEADLINE: Duration = Duration::from_secs(30);
+
+/// The port a browser launched with `--remote-debugging-port=0` on
+/// `profile` reports in its `DevToolsActivePort` file.
+///
+/// # Panics
+///
+/// When it reports none within its deadline.
+pub fn reported_debugging_port(profile: &Path) -> u16 {
+    let file = profile.join("DevToolsActivePort");
+    let started = Instant::now();
+    loop {
+        if let Some(port) = std::fs::read_to_string(&file)
+            .ok()
+            .and_then(|text| text.lines().next()?.parse().ok())
+        {
+            return port;
+        }
+        assert!(
+            started.elapsed() < PORT_DEADLINE,
+            "{} reported no port",
+            file.display()
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// The pinned Chrome for Testing build's entry in the Browser cache at

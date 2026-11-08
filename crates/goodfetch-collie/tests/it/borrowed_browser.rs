@@ -42,12 +42,11 @@ use goodfetch_protocol::home::RUN_TRACE_PROVENANCE;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     Answer, BROWSERS_PATH_VARIABLE, Outcome, Process, Redirect, Refusal, Runner, SsrfCase,
-    SsrfTable, TestEnv, browser_cache,
+    SsrfTable, TestEnv, browser_cache, chrome_for_testing, reported_debugging_port,
 };
 use serde_json::{Map, Value, json};
 
 use crate::COLLIE;
-use crate::background_traffic::{chrome_for_testing, reported_debugging_port};
 use crate::page::{BROWSER_DEADLINE, opened};
 use crate::page_ends::{call_in_flight, crashes_counted};
 use crate::page_events::Exchange;

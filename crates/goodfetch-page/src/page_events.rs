@@ -218,19 +218,22 @@ impl Table {
         })
     }
 
-    /// Waits until no `page.on` of the page `page_id` sent before now is
-    /// still turning `Runtime` on; at once for a page that is not open.
+    /// The wait until no `page.on` of the page `page_id` sent before now is
+    /// still turning `Runtime` on; none while none is, or for a page that is
+    /// not open.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future gives up the wait.
-    pub(crate) async fn armed(&self, page_id: &PageId) {
-        let arming = lock(&self.0)
-            .get(page_id)
-            .map(|events| events.shared.arming.subscribe());
-        if let Some(mut arming) = arming {
+    pub(crate) fn arming(
+        &self,
+        page_id: &PageId,
+    ) -> Option<impl Future<Output = ()> + Send + use<>> {
+        let mut arming = lock(&self.0).get(page_id)?.shared.arming.subscribe();
+        let on = *arming.borrow_and_update();
+        on.then(|| async move {
             let _ = arming.wait_for(|arming| !*arming).await;
-        }
+        })
     }
 
     /// Takes the pages `pages` out, as they go: their calls answer.
@@ -489,16 +492,16 @@ impl Listening {
 /// if it is still there, and the page's calls wait no more.
 fn arm_runtime(shared: &Arc<Shared>) -> oneshot::Receiver<Result<(), CallError>> {
     /// Ends the arming however the task ends.
-    struct Armed(Arc<Shared>);
-    impl Drop for Armed {
+    struct ArmingEnds(Arc<Shared>);
+    impl Drop for ArmingEnds {
         fn drop(&mut self) {
             self.0.arming.send_replace(false);
         }
     }
     let (answer, answered) = oneshot::channel();
-    let armed = Armed(Arc::clone(shared));
+    let ending = ArmingEnds(Arc::clone(shared));
     shared.run.spawn(async move {
-        let shared = &armed.0;
+        let shared = &ending.0;
         let enabled = shared
             .driver
             .opening_command(&runtime::EnableParams {})
@@ -507,7 +510,7 @@ fn arm_runtime(shared: &Arc<Shared>) -> oneshot::Receiver<Result<(), CallError>>
         if enabled.is_ok() {
             enable_runtime_on_frames(shared).await;
         }
-        drop(armed);
+        drop(ending);
         let _ = answer.send(enabled);
     });
     answered

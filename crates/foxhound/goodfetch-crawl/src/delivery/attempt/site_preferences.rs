@@ -93,7 +93,7 @@ impl On<'_> {
         } else {
             None
         };
-        if let (Some(reading), Some(politeness)) = (&reading, &of_run.politeness)
+        if let (Some(reading), Some(politeness)) = (&reading, &of_run.shared_politeness)
             && preferences.respects_robots_txt()
             && let Err(error) = goodfetch_frontier::crawl_delay_read(
                 politeness,

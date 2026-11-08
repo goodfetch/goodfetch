@@ -6,6 +6,7 @@
     reason = "a test reads a Run's Provenance file and waits on it outside any async worker (ADR 0062)"
 )]
 
+use std::io;
 use std::time::Duration;
 
 use goodfetch_protocol::home::RUN_TRACE_PROVENANCE;
@@ -21,13 +22,35 @@ const ROBOTS_TXT_DEADLINE: Duration = Duration::from_secs(60);
 const ROBOTS_TXT_POLL: Duration = Duration::from_millis(100);
 
 /// The Run trace's Provenance entries of the Run `run_id` in the test's home
-/// for a robots.txt reading.
+/// for a robots.txt reading: none while the Run has written no entry, which
+/// creates the file. A line still being written, after the last newline, is
+/// left for the next read.
+///
+/// # Panics
+///
+/// When the file is there but cannot be read, or a whole line of it is not
+/// JSON: a Provenance the test cannot read is never "no reading yet".
 pub fn robots_txt_readings(env: &TestEnv, run_id: &str) -> Vec<Value> {
     let file = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_PROVENANCE);
-    std::fs::read_to_string(file)
-        .unwrap_or_default()
+    let text = match std::fs::read_to_string(&file) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Vec::new(),
+        Err(error) => panic!(
+            "the Run's Provenance {} is unreadable: {error}",
+            file.display()
+        ),
+    };
+    let written = text.rsplit_once('\n').map_or("", |(whole, _)| whole);
+    written
         .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .map(|line| {
+            serde_json::from_str::<Value>(line).unwrap_or_else(|error| {
+                panic!(
+                    "a line of the Run's Provenance {} is not JSON ({error}): {line}",
+                    file.display()
+                )
+            })
+        })
         .filter(|entry| entry["action"] == json!("robots_txt"))
         .collect()
 }
@@ -48,7 +71,12 @@ pub fn robots_txt_read(env: &TestEnv, run_id: &str) {
         }
         std::thread::sleep(ROBOTS_TXT_POLL);
     }
-    panic!("the Run {run_id} recorded no robots.txt reading within a minute");
+    panic!(
+        "the Run {run_id} recorded no robots.txt reading within a minute in {}",
+        HomeLayout::of(env.home())
+            .run_trace(run_id, RUN_TRACE_PROVENANCE)
+            .display()
+    );
 }
 
 #[cfg(test)]

@@ -89,17 +89,6 @@ pub const SECRET_UNBOUND: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
-/// What `secret_unbound` details.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct SecretUnboundDetails {
-    /// The placeholder no scope binds.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub placeholder: String,
-    /// The placeholders bound where it was named.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub bound: Vec<String>,
-}
-
 /// The receiving domain is outside the binding's (ADR 0092).
 pub const SECRET_DOMAIN_NOT_ALLOWED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "secret_domain_not_allowed",

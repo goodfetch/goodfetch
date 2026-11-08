@@ -245,7 +245,7 @@ fn any_runtime_file(home: &Path) -> bool {
 }
 
 /// Whether one of the home's log files records the engine dispatching
-/// `method`, as only a Daemon does for `config explain`.
+/// `method`.
 fn dispatched(home: &Path, method: &str) -> bool {
     let Ok(logs) = std::fs::read_dir(home.join("logs")) else {
         return false;
@@ -281,6 +281,9 @@ fn a_command_prints_the_same_bytes_in_each_mode() {
 #[case::daemon(Mode::Daemon)]
 fn a_command_run_in_each_mode_matches_one_snapshot_and_leaves_no_daemon(#[case] mode: Mode) {
     let env = unrecorded();
+    // No engine logs its dispatch records, so both modes print what the
+    // command prints, on stderr too; the next test reads those records.
+    env.log_level("info");
 
     let checked = cli(&env, collie())
         .args(["config", "explain", "timeout.navigation", "--json"])
@@ -289,12 +292,30 @@ fn a_command_run_in_each_mode_matches_one_snapshot_and_leaves_no_daemon(#[case] 
         .unwrap();
 
     assert_cli_snapshot!("config_explain_timeout_navigation_json", checked.output);
+    assert!(!any_runtime_file(env.home()));
+}
+
+/// An Attached engine runs in the command's own process, so its dispatch
+/// records reach the command's stderr; a Daemon's stay in its own log.
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn a_commands_dispatch_records_show_which_engine_answered_it(#[case] mode: Mode) {
+    let env = unrecorded();
+
+    let output = cli(&env, collie())
+        .args(["config", "explain", "timeout.navigation", "--json"])
+        .mode(mode)
+        .run()
+        .unwrap();
+
     assert_eq!(
         (
             dispatched(env.home(), "config.explain"),
-            any_runtime_file(env.home()),
+            output.stderr.contains(DISPATCH_TARGET),
         ),
-        (mode == Mode::Daemon, false)
+        (true, mode == Mode::Attached),
+        "{output}"
     );
 }
 

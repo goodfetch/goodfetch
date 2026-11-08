@@ -21,7 +21,7 @@ use goodfetch_protocol::result_document::OracleOutcome;
 use goodfetch_protocol::settings::TIMEOUT_ACTION;
 use serde_json::{Value, json};
 
-use super::{Checks, Site, finish_run, new_page, start_run};
+use super::{Checks, Site, finish_run, new_page, poll, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::proving_ground::Submission;
 
@@ -70,11 +70,10 @@ fn on_task(
     let Some(page) = new_page(connection, run_id, checks)? else {
         return Ok(None);
     };
-    let id = connection.request(
+    let went = connection.call(
         PAGE_GOTO.name,
         &json!({ "page_id": page.page_id, "url": url }),
     )?;
-    let went = connection.browser_answer(id)?.message;
     checks.check(
         format!("`{}` reaches the task's page", PAGE_GOTO.name),
         went["result"]["response"]["status"] == 200,
@@ -102,29 +101,30 @@ fn act(connection: &mut Connection, page: &Value, step: Step) -> Result<Value, G
 
 /// The oracle's outcome for `task` reported as `status`, asked again until
 /// it verifies or [`EFFECT_WAIT`] passes, since a page posts its Effect
-/// after its event.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the synchronous harness polls the oracle on its own thread, outside any async worker"
-)]
+/// after its event; none when the oracle cannot judge it, which fails the
+/// case naming why.
 fn outcome(site: &Site, task: &str, status: &str) -> Option<OracleOutcome> {
-    let id = TaskId::try_from(task.to_owned()).ok()?;
-    let started = Instant::now();
-    loop {
-        let outcome = site
-            .proving_ground
-            .judge::<Value>(&Submission {
-                task: &id,
-                status,
-                records: &[],
-            })
-            .ok()
-            .map(|answer| answer.outcome);
-        if outcome == Some(OracleOutcome::Verified) || started.elapsed() > EFFECT_WAIT {
-            return outcome;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    let id = TaskId::try_from(task.to_owned()).expect("invariant: a case names its task by ID");
+    poll::try_until(
+        EFFECT_WAIT,
+        Duration::from_millis(100),
+        || {
+            site.proving_ground
+                .judge::<Value>(&Submission {
+                    task: &id,
+                    status,
+                    records: &[],
+                })
+                .map(|answer| answer.outcome)
+        },
+        |outcome| *outcome == OracleOutcome::Verified,
+    )
+    .map_err(|why| {
+        site.unread(format!(
+            "the Proving ground's oracle judges `{task}` ({why})"
+        ));
+    })
+    .ok()
 }
 
 /// The task `task` done through `steps`: each action answers an empty

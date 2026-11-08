@@ -94,12 +94,6 @@ fn choosing(name: &str) -> Value {
     json!({ "content": { "extractor": name } })
 }
 
-/// A call's answer.
-fn call(connection: &mut Connection, method: &str, params: &Value) -> Result<Value, Gone> {
-    let id = connection.request(method, params)?;
-    Ok(connection.browser_answer(id)?.message)
-}
-
 /// The page an answer of `run.new_page` or `session.new_page` names.
 fn page_of(answer: &Value, checks: &mut Checks, what: &str) -> Option<PageOpened> {
     let page = serde_json::from_value(answer["result"].clone()).ok();
@@ -154,7 +148,7 @@ fn chosen_at_each_scope(
     };
     let run_id = "conformance-formats-extractor-default";
     start_run(connection, site, run_id, &json!({}), checks)?;
-    let answer = call(connection, RUN_NEW_PAGE.name, &json!({ "run_id": run_id }))?;
+    let answer = connection.call(RUN_NEW_PAGE.name, &json!({ "run_id": run_id }))?;
     if let Some(page) = page_of(&answer, checks, "`run.new_page`") {
         let step = step_of(connection, &page, &url, checks)?;
         checks.check(
@@ -172,7 +166,7 @@ fn chosen_at_each_scope(
         &run_settings(Some("trafilatura")),
         checks,
     )?;
-    let answer = call(connection, RUN_NEW_PAGE.name, &json!({ "run_id": run_id }))?;
+    let answer = connection.call(RUN_NEW_PAGE.name, &json!({ "run_id": run_id }))?;
     if let Some(page) = page_of(&answer, checks, "`run.new_page`") {
         let step = step_of(connection, &page, &url, checks)?;
         checks.check(
@@ -180,8 +174,7 @@ fn chosen_at_each_scope(
             step == Some("trafilatura"),
         );
     }
-    let answer = call(
-        connection,
+    let answer = connection.call(
         RUN_NEW_PAGE.name,
         &json!({ "run_id": run_id, "settings": choosing("dom_smoothie") }),
     )?;
@@ -192,8 +185,7 @@ fn chosen_at_each_scope(
             step == Some("dom_smoothie"),
         );
     }
-    let opened = call(
-        connection,
+    let opened = connection.call(
         RUN_NEW_SESSION.name,
         &json!({ "run_id": run_id, "settings": choosing("dom_smoothie") }),
     )?;
@@ -206,11 +198,7 @@ fn chosen_at_each_scope(
         session.is_string(),
     );
     if session.is_string() {
-        let answer = call(
-            connection,
-            SESSION_NEW_PAGE.name,
-            &json!({ "session_id": session }),
-        )?;
+        let answer = connection.call(SESSION_NEW_PAGE.name, &json!({ "session_id": session }))?;
         if let Some(page) = page_of(&answer, checks, "`session.new_page`") {
             let step = step_of(connection, &page, &url, checks)?;
             checks.check(
@@ -218,8 +206,7 @@ fn chosen_at_each_scope(
                 step == Some("dom_smoothie"),
             );
         }
-        let answer = call(
-            connection,
+        let answer = connection.call(
             SESSION_NEW_PAGE.name,
             &json!({ "session_id": session, "settings": choosing("trafilatura") }),
         )?;
@@ -244,8 +231,7 @@ fn page_settings_refusals(
 ) -> Result<(), Gone> {
     let run_id = "conformance-formats-extractor-refusals";
     start_run(connection, site, run_id, &json!({}), checks)?;
-    let unknown = call(
-        connection,
+    let unknown = connection.call(
         RUN_NEW_PAGE.name,
         &json!({ "run_id": run_id, "settings": choosing("readability") }),
     )?;
@@ -257,8 +243,7 @@ fn page_settings_refusals(
         unknown["error"]["data"]["code"] == json!(SETTING_INVALID.name)
             && unknown["error"]["data"]["key"] == json!("content.extractor"),
     );
-    let other = call(
-        connection,
+    let other = connection.call(
         RUN_NEW_PAGE.name,
         &json!({ "run_id": run_id, "settings": { "filter_lists": { "ads": false } } }),
     )?;

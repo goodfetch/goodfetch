@@ -16,6 +16,9 @@ goodfetch-protocol.workspace = true
 regex.workspace = true
 # The Politeness file a case reads for what an engine wrote to it.
 rusqlite.workspace = true
+# The Proving ground's interface (`proving-ground/src/interface.rs`), whose
+# source the harness compiles to read the observations' requests.
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -39,6 +42,11 @@ rstest.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-shear]
+# The Proving ground's interface, a module the harness reaches by path,
+# derives `schemars::JsonSchema`, which cargo-shear does not follow.
+ignored = ["schemars"]
 
 # Its tests run the Proving ground's and each Product's executables through
 # the test tool manifest, so a change to any of them runs them (`xtask

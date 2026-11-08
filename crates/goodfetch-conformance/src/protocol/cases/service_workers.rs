@@ -17,7 +17,9 @@
 //! the build shows with a window, as its pages' do (ticket #696).
 
 use goodfetch_protocol::connection::CANCEL;
+use goodfetch_protocol::egress::EGRESS_REFUSED;
 use goodfetch_protocol::events::{CREDIT, EVENTS};
+use goodfetch_protocol::page::events as page_events;
 use goodfetch_protocol::page::events::PAGE_ON;
 use goodfetch_protocol::page::route::{PAGE_ROUTE, ROUTE_HANDLE, SESSION_ROUTE};
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
@@ -177,7 +179,6 @@ impl<'connection> Watch<'connection> {
         let mut seen = Vec::new();
         for _ in 0..polls {
             seen = site
-                .proving_ground
                 .observations()
                 .map(|observations| reports(&observations, page))
                 .unwrap_or_default();
@@ -195,13 +196,9 @@ impl<'connection> Watch<'connection> {
         let polls = BROWSER_DEADLINE.as_millis() / POLL.as_millis();
         for _ in 0..polls {
             let received = site
-                .proving_ground
                 .received_requests()
-                .unwrap_or_default()
                 .of_the_case()
-                .any(|request| {
-                    request["host"] == json!(IDENTITY_HOST) && request["target"] == json!(target)
-                });
+                .any(|request| request.host == IDENTITY_HOST && request.target == target);
             if received {
                 return Ok(true);
             }
@@ -219,7 +216,7 @@ impl<'connection> Watch<'connection> {
     fn until_responded(&mut self, suffixes: &[&str]) -> Result<bool, Gone> {
         let polls = BROWSER_DEADLINE.as_millis() / POLL.as_millis();
         for _ in 0..polls {
-            let responses = self.data("page.response");
+            let responses = self.data(page_events::PAGE_RESPONSE.name);
             if suffixes.iter().all(|suffix| {
                 responses
                     .iter()
@@ -402,7 +399,7 @@ fn under_the_interception(
         "a `page.response` event arrives for both calls within the wait",
         responded,
     );
-    let responses = watch.data("page.response");
+    let responses = watch.data(page_events::PAGE_RESPONSE.name);
     let from_worker = |suffix: &str| {
         responses.iter().any(|exchange| {
             url_of(&exchange["response"]).ends_with(suffix)
@@ -420,7 +417,7 @@ fn under_the_interception(
         (site, &page),
         checks,
     )?;
-    let requests = watch.data("page.request");
+    let requests = watch.data(page_events::PAGE_REQUEST.name);
     let count = |suffix: &str| {
         requests
             .iter()
@@ -454,7 +451,7 @@ fn under_the_interception(
     checks.check(
         "the Run trace records the forbidden host's request refused with `egress_refused`",
         traced(&forbidden)
-            .is_some_and(|data| data["failure"]["error"]["code"] == json!("egress_refused")),
+            .is_some_and(|data| data["failure"]["error"]["code"] == EGRESS_REFUSED.name),
     );
     checks.check(
         "the Run trace records the tracker's request failed as `net::ERR_BLOCKED_BY_CLIENT`",
@@ -576,17 +573,13 @@ fn blocked(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Res
 }
 
 /// The `User-Agent` of each request to `target` the Proving ground saw.
-fn user_agents_of(observations: &Value, target: &str) -> Vec<String> {
-    ReceivedRequests::of(observations)
+fn user_agents_of(requests: &ReceivedRequests, target: &str) -> Vec<String> {
+    requests
         .of_the_case()
-        .filter(|request| request["target"] == json!(target))
-        .flat_map(|request| request["headers"].as_array().cloned().unwrap_or_default())
-        .filter(|header| {
-            header[0]
-                .as_str()
-                .is_some_and(|name| name.eq_ignore_ascii_case("user-agent"))
-        })
-        .filter_map(|header| header[1].as_str().map(str::to_owned))
+        .filter(|request| request.target == target)
+        .flat_map(|request| &request.headers)
+        .filter(|(name, _)| name.eq_ignore_ascii_case("user-agent"))
+        .map(|(_, value)| value.clone())
         .collect()
 }
 
@@ -617,11 +610,10 @@ fn identity(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Re
             reported(&reports, "controlled"),
         ) == (Some("registered"), Some("true")),
     );
-    let user_agents = site
-        .proving_ground
-        .observations()
-        .map(|observations| user_agents_of(&observations, "/service-worker/own.json?case=identity"))
-        .unwrap_or_default();
+    let user_agents = user_agents_of(
+        &site.received_requests(),
+        "/service-worker/own.json?case=identity",
+    );
     checks.check(
         "the worker's own request reached the site",
         !user_agents.is_empty(),

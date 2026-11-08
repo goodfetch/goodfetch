@@ -14,6 +14,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
+use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::home::{POLITENESS_FILE, RUN_TRACE_CDP_COMMANDS};
@@ -21,13 +22,13 @@ use goodfetch_protocol::page::functions::PAGE_EVALUATE;
 use goodfetch_protocol::page::request::PAGE_REQUEST;
 use goodfetch_protocol::page::session_pages::SESSION_PAGES;
 use goodfetch_protocol::page::waits::{PAGE_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_URL};
-use goodfetch_protocol::page::{BLOCKED, BlockedDetails, LOCATOR_CLICK, PAGE_GOTO, PageOpened};
+use goodfetch_protocol::page::{BLOCKED, BlockedDetails, LOCATOR_CLICK, PageOpened};
 use serde_json::{Value, json};
 
 use super::clean_up::{provenance, trace_lines};
 use super::navigation::url_on;
 use super::{Checks, Site, finish_run, new_page, start_run};
-use crate::protocol::connection::{Connection, Gone};
+use crate::protocol::connection::{Connection, Gone, responded_with};
 use crate::protocol::hello_as;
 use crate::protocol::target::EngineTarget;
 
@@ -95,26 +96,9 @@ impl Case {
     }
 }
 
-/// Calls `method` with `params` and answers the engine's whole answer,
-/// waiting as long as a browser's launch may take.
-fn call(connection: &mut Connection, method: &str, params: &Value) -> Result<Value, Gone> {
-    let id = connection.request(method, params)?;
-    Ok(connection.browser_answer(id)?.message)
-}
-
-/// `page.goto` of `page` to `url`.
-fn goto(connection: &mut Connection, page: &PageOpened, url: &str) -> Result<Value, Gone> {
-    call(
-        connection,
-        PAGE_GOTO.name,
-        &json!({ "page_id": page.page_id, "url": url }),
-    )
-}
-
 /// `page.evaluate` of a function that reads the page's title.
 fn read_title(connection: &mut Connection, page: &PageOpened) -> Result<Value, Gone> {
-    call(
-        connection,
+    connection.call(
         PAGE_EVALUATE.name,
         &json!({ "page_id": page.page_id, "function": "() => document.title" }),
     )
@@ -131,17 +115,10 @@ fn blocked(answer: &Value) -> Option<BlockedDetails> {
 
 /// Whether `answer` raised `blocked` for `cause` on the document at a URL
 /// ending with `path`, answered with `status`.
-fn raised(answer: &Value, cause: &str, path: &str, status: u16) -> bool {
+fn raised(answer: &Value, cause: BlockCause, path: &str, status: u16) -> bool {
     blocked(answer).is_some_and(|details| {
-        details.cause.as_str() == cause
-            && details.url.ends_with(path)
-            && details.status == Some(status)
+        details.cause == cause && details.url.ends_with(path) && details.status == Some(status)
     })
-}
-
-/// Whether `answer` is the document's response, with `status`.
-fn answered(answer: &Value, status: u16) -> bool {
-    answer["result"]["response"]["status"] == json!(status)
 }
 
 /// The wall time now, which a `retry_after` is measured against.
@@ -181,68 +158,70 @@ fn kept_one_session(target: &EngineTarget, run_id: &str) -> bool {
 /// Whether the Politeness file of `target`'s Goodfetch home holds anything
 /// naming `host`: a domain limit, a Permit or a waiter of its key. A file
 /// never made holds nothing.
-pub(super) fn politeness_names(target: &EngineTarget, host: &str) -> bool {
+///
+/// # Errors
+///
+/// When the file is there but cannot be read through.
+fn politeness_names(target: &EngineTarget, host: &str) -> rusqlite::Result<bool> {
     let Some(home) = target.environment.get("GOODFETCH_HOME") else {
-        return false;
+        return Ok(false);
     };
     let file = Path::new(home).join(POLITENESS_FILE);
     if !file.is_file() {
-        return false;
+        return Ok(false);
     }
-    let Ok(connection) =
-        rusqlite::Connection::open_with_flags(&file, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-    else {
-        return true;
-    };
+    let connection =
+        rusqlite::Connection::open_with_flags(&file, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let tables: Vec<String> = connection
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
-        .and_then(|mut statement| {
-            statement
-                .query_map([], |row| row.get(0))?
-                .collect::<Result<_, _>>()
-        })
-        .unwrap_or_default();
-    tables.iter().any(|table| {
-        let query = format!("SELECT * FROM \"{table}\"");
-        let Ok(mut statement) = connection.prepare(&query) else {
-            return true;
-        };
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    for table in &tables {
+        let mut statement = connection.prepare(&format!("SELECT * FROM \"{table}\""))?;
         let columns = statement.column_count();
-        let Ok(mut rows) = statement.query([]) else {
-            return true;
-        };
-        while let Ok(Some(row)) = rows.next() {
+        let mut rows = statement.query([])?;
+        while let Some(row) = rows.next()? {
             for column in 0..columns {
-                if let Ok(rusqlite::types::ValueRef::Text(text)) = row.get_ref(column)
+                if let rusqlite::types::ValueRef::Text(text) = row.get_ref(column)?
                     && String::from_utf8_lossy(text).contains(host)
                 {
-                    return true;
+                    return Ok(true);
                 }
             }
         }
-        false
-    })
+    }
+    Ok(false)
+}
+
+/// Checks, as `name`, that the Politeness file of `target`'s Goodfetch home
+/// holds nothing naming `host`; a file the harness cannot read fails the
+/// check naming why.
+pub(super) fn politeness_names_nothing(
+    target: &EngineTarget,
+    host: &str,
+    name: &str,
+    checks: &mut Checks,
+) {
+    match politeness_names(target, host) {
+        Ok(names) => checks.check(name, !names),
+        Err(why) => checks.check(format!("{name} ({why})"), false),
+    }
 }
 
 /// The `scope.test` storage page with `mark`, which sets a cookie of the
 /// Session the first time.
 fn storage(site: &Site, mark: &str) -> String {
     site.named_url("scope.test", &format!("/storage?mark={mark}"))
-        .unwrap_or_default()
 }
 
 /// The cookies the Proving ground received with each request for the
 /// storage page with `mark`, in arrival order.
 fn storage_cookies(site: &Site, mark: &str) -> Vec<Value> {
     let target = format!("/storage?mark={mark}");
-    site.proving_ground
-        .received_requests()
-        .unwrap_or_default()
+    site.received_requests()
         .of_the_case()
-        .filter(|request| {
-            request["host"] == json!("scope.test") && request["target"] == json!(target)
-        })
-        .map(|request| request["cookies"].clone())
+        .filter(|request| request.host == "scope.test" && request.target == target)
+        .map(|request| json!(request.cookies))
         .collect()
 }
 
@@ -265,26 +244,26 @@ fn rate_limit(
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
     };
-    let stored = goto(connection, &page, &storage(site, mark))?;
+    let stored = connection.goto(&page, &storage(site, mark))?;
     checks.check(
         "the storage page sets the Session's cookie",
-        answered(&stored, 200),
+        responded_with(&stored, 200),
     );
     for form in ["seconds", "imf-fixdate"] {
         // An hour's wait: a `goto` that waited for it would outlast its
         // navigation timeout, so no load can make one that did not wait
         // look as if it had.
         let path = format!("/retry-after/429/{form}/long");
-        let url = site.named_url("fetch-edge.test", &path).unwrap_or_default();
+        let url = site.named_url("fetch-edge.test", &path);
         let before = now();
-        let went = goto(connection, &page, &url)?;
+        let went = connection.goto(&page, &url)?;
         let after = now();
         let asked = blocked(&went)
             .and_then(|details| details.retry_after)
             .map(SystemTime::from);
         checks.check(
             format!("a 429 whose `Retry-After` is in {form} raises `blocked` from its `goto` with `rate_limit`, its URL and status"),
-            raised(&went, "rate_limit", &path, 429),
+            raised(&went, BlockCause::RateLimit, &path, 429),
         );
         checks.check(
             format!("its `retry_after` is the time the site asked for: an hour after the response's own `Date`, from the moment it arrived ({form})"),
@@ -292,18 +271,18 @@ fn rate_limit(
                 before + RETRY_AFTER_LONG <= asked && asked <= after + RETRY_AFTER_LONG
             }),
         );
-        let again = goto(connection, &page, &url)?;
+        let again = connection.goto(&page, &url)?;
         checks.check(
             format!(
                 "nothing waits on it: the same URL loads on the same page before that time ({form})"
             ),
-            answered(&again, 200) && asked.is_some_and(|asked| now() < asked),
+            responded_with(&again, 200) && asked.is_some_and(|asked| now() < asked),
         );
     }
-    let back = goto(connection, &page, &storage(site, mark))?;
+    let back = connection.goto(&page, &storage(site, mark))?;
     checks.check(
         "the next navigation works and sends the Session's own cookie",
-        answered(&back, 200)
+        responded_with(&back, 200)
             && storage_cookies(site, mark) == vec![json!([]), json!([["mark", mark]])],
     );
     finish_run(connection, run_id)?;
@@ -311,9 +290,11 @@ fn rate_limit(
         "the Run kept one Session: it was never replaced",
         kept_one_session(target, run_id),
     );
-    checks.check(
+    politeness_names_nothing(
+        target,
+        "fetch-edge.test",
         "nothing in the Politeness file names the site's domain",
-        !politeness_names(target, "fetch-edge.test"),
+        checks,
     );
     Ok(())
 }
@@ -344,20 +325,18 @@ fn next_call(
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
     };
-    let went = goto(connection, &page, &ip_block)?;
+    let went = connection.goto(&page, &ip_block)?;
     checks.check(
         "a 403 that says the address is blocked raises `blocked` from its `goto` with `ip_block`",
-        raised(&went, "ip_block", "/corpus/ip-block", 403)
+        raised(&went, BlockCause::IpBlock, "/corpus/ip-block", 403)
             && blocked(&went).is_some_and(|details| details.retry_after.is_none()),
     );
-    let listed = goto(connection, &page, &index)?;
+    let listed = connection.goto(&page, &index)?;
     checks.check(
         "the page goes on to the corpus's index",
-        answered(&listed, 200),
+        responded_with(&listed, 200),
     );
-    let clicked = call(
-        connection,
-        LOCATOR_CLICK.name,
+    let clicked = connection.call(LOCATOR_CLICK.name,
         &json!({ "locator": { "page_id": page.page_id, "selector": "a[href=\"/corpus/cloudflare-block\"]" } }),
     )?;
     checks.check(
@@ -367,9 +346,7 @@ fn next_call(
     // The page's next call is the wait, when the refusal's document
     // committed before it came, and else the call after the wait, which
     // answers once the document is there.
-    let arrived = call(
-        connection,
-        PAGE_WAIT_FOR_FUNCTION.name,
+    let arrived = connection.call(PAGE_WAIT_FOR_FUNCTION.name,
         &json!({
             "page_id": page.page_id,
             "function": "() => location.pathname === '/corpus/cloudflare-block' && document.readyState === 'complete'",
@@ -382,31 +359,26 @@ fn next_call(
     };
     checks.check(
         "the page's next call once the refusal's document is there raises `blocked` with `ip_block`, the URL and the status",
-        raised(&next, "ip_block", "/corpus/cloudflare-block", 403),
+        raised(&next, BlockCause::IpBlock, "/corpus/cloudflare-block", 403),
     );
     let after = read_title(connection, &page)?;
     checks.check(
         "it raises it once: the call after answers",
         after["result"].is_object(),
     );
-    goto(connection, &page, &index)?;
-    let clicked = call(
-        connection,
-        LOCATOR_CLICK.name,
+    connection.goto(&page, &index)?;
+    let clicked = connection.call(LOCATOR_CLICK.name,
         &json!({ "locator": { "page_id": page.page_id, "selector": "a[href=\"/corpus/incapsula-block\"]" } }),
     )?;
-    let waited = call(
-        connection,
-        PAGE_WAIT_FOR_URL.name,
+    let waited = connection.call(PAGE_WAIT_FOR_URL.name,
         &json!({ "page_id": page.page_id, "url": { "kind": "glob", "pattern": "**/corpus/incapsula-block" } }),
     )?;
     checks.check(
         "a `waitForURL` that waits for such a navigation raises `blocked` itself",
         clicked.get("result").is_some()
-            && raised(&waited, "ip_block", "/corpus/incapsula-block", 403),
+            && raised(&waited, BlockCause::IpBlock, "/corpus/incapsula-block", 403),
     );
-    let pages = call(
-        connection,
+    let pages = connection.call(
         SESSION_PAGES.name,
         &json!({ "session_id": page.session_id }),
     )?;
@@ -421,15 +393,15 @@ fn next_call(
 
 /// The corpus pages, each with the Block cause a Session meeting it
 /// raises, or `None` for a page that answers its response, and its status.
-const CORPUS: [(&str, Option<&str>, u16); 12] = [
-    ("/corpus/interstitial", Some("challenge"), 403),
-    ("/corpus/captcha", Some("captcha"), 200),
-    ("/corpus/rate-limit", Some("rate_limit"), 429),
-    ("/corpus/ip-block", Some("ip_block"), 403),
-    ("/corpus/press-and-hold", Some("captcha"), 403),
-    ("/corpus/cloudflare-block", Some("ip_block"), 403),
-    ("/corpus/incapsula-block", Some("ip_block"), 403),
-    ("/corpus/sucuri-block", Some("ip_block"), 403),
+const CORPUS: [(&str, Option<BlockCause>, u16); 12] = [
+    ("/corpus/interstitial", Some(BlockCause::Challenge), 403),
+    ("/corpus/captcha", Some(BlockCause::Captcha), 200),
+    ("/corpus/rate-limit", Some(BlockCause::RateLimit), 429),
+    ("/corpus/ip-block", Some(BlockCause::IpBlock), 403),
+    ("/corpus/press-and-hold", Some(BlockCause::Captcha), 403),
+    ("/corpus/cloudflare-block", Some(BlockCause::IpBlock), 403),
+    ("/corpus/incapsula-block", Some(BlockCause::IpBlock), 403),
+    ("/corpus/sucuri-block", Some(BlockCause::IpBlock), 403),
     // `decoy` is Foxhound's Frontier's alone (ADR 0095).
     ("/corpus/labyrinth", None, 200),
     ("/corpus/vendor-script", None, 200),
@@ -455,22 +427,27 @@ fn corpus(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
         return finish_run(connection, run_id);
     };
     for (path, cause, status) in CORPUS {
-        let url = url_on(site, CORPUS_TASK, path).unwrap_or_default();
-        let went = goto(connection, &page, &url)?;
+        let url = url_on(site, CORPUS_TASK, path)
+            .expect("invariant: the case checked that the Proving ground serves the task");
+        let went = connection.goto(&page, &url)?;
         match cause {
             Some(cause) => checks.check(
-                format!("`{path}` raises `blocked` with `{cause}` and {status}"),
+                format!(
+                    "`{path}` raises `blocked` with `{}` and {status}",
+                    cause.as_str()
+                ),
                 raised(&went, cause, path, status),
             ),
             None => checks.check(
                 format!("`{path}` is no block: it answers its response, {status}"),
-                answered(&went, status),
+                responded_with(&went, status),
             ),
         }
     }
-    let rate_limited = url_on(site, CORPUS_TASK, "/corpus/rate-limit").unwrap_or_default();
+    let rate_limited = url_on(site, CORPUS_TASK, "/corpus/rate-limit")
+        .expect("invariant: the case checked that the Proving ground serves the task");
     let before = now();
-    let went = goto(connection, &page, &rate_limited)?;
+    let went = connection.goto(&page, &rate_limited)?;
     checks.check(
         "the corpus's rate limit names the two minutes its `Retry-After` asks for",
         blocked(&went)
@@ -519,16 +496,22 @@ fn owners(
         .get("GOODFETCH_HOME")
         .and_then(|home| super::consent::walls::major_of(home, "conformance-blocked-program"));
     checks.check("the engine's per-major folder is found", major.is_some());
-    let before = major
-        .as_deref()
-        .and_then(|major| super::consent::walls::configure(major, Some(&site.configured_hosts())));
+    let before = major.as_deref().and_then(|major| {
+        checks.needs(
+            "user configuration lists the site's hosts",
+            super::consent::walls::configure(major, Some(&site.configured_hosts())),
+        )
+    });
     let met = if opened.is_ok() {
         meets_blocks(&mut agent, target, site, "agent", checks)
     } else {
         Ok(())
     };
     if let Some(major) = &major {
-        super::consent::walls::configure(major, before.as_deref());
+        checks.needs(
+            "user configuration is put back",
+            super::consent::walls::configure(major, before.flatten().as_deref()),
+        );
     }
     connection.keep(agent.take_exchanged());
     agent.close();
@@ -550,22 +533,24 @@ fn meets_blocks(
         return finish_run(connection, &run_id);
     };
     for (path, cause, status) in [
-        ("/corpus/interstitial", "challenge", 403),
-        ("/corpus/ip-block", "ip_block", 403),
-        ("/corpus/rate-limit", "rate_limit", 429),
+        ("/corpus/interstitial", BlockCause::Challenge, 403),
+        ("/corpus/ip-block", BlockCause::IpBlock, 403),
+        ("/corpus/rate-limit", BlockCause::RateLimit, 429),
     ] {
-        let url = url_on(site, CORPUS_TASK, path).unwrap_or_default();
-        let went = goto(connection, &page, &url)?;
+        let url = url_on(site, CORPUS_TASK, path)
+            .expect("invariant: the case checked that the Proving ground serves the task");
+        let went = connection.goto(&page, &url)?;
         checks.check(
             format!(
-                "on the {owner}'s Session, `{path}` raises `blocked` with `{cause}` from its `goto`"
+                "on the {owner}'s Session, `{path}` raises `blocked` with `{}` from its `goto`",
+                cause.as_str()
             ),
             raised(&went, cause, path, status),
         );
     }
-    let rate_limited = url_on(site, CORPUS_TASK, "/corpus/rate-limit").unwrap_or_default();
-    let requested = call(
-        connection,
+    let rate_limited = url_on(site, CORPUS_TASK, "/corpus/rate-limit")
+        .expect("invariant: the case checked that the Proving ground serves the task");
+    let requested = connection.call(
         PAGE_REQUEST.name,
         &json!({ "page_id": page.page_id, "url": rate_limited }),
     )?;
@@ -575,11 +560,12 @@ fn meets_blocks(
         ),
         requested["result"]["status"] == json!(429),
     );
-    let article = url_on(site, CORPUS_TASK, "/corpus/article").unwrap_or_default();
-    let went = goto(connection, &page, &article)?;
+    let article = url_on(site, CORPUS_TASK, "/corpus/article")
+        .expect("invariant: the case checked that the Proving ground serves the task");
+    let went = connection.goto(&page, &article)?;
     checks.check(
         format!("the {owner}'s page then loads an article"),
-        answered(&went, 200),
+        responded_with(&went, 200),
     );
     finish_run(connection, &run_id)?;
     checks.check(
@@ -616,10 +602,8 @@ fn access_policy(
         let mut statuses = Vec::new();
         for number in 1..=3 {
             let host = format!("{}.access-policy.test", &task["access-policy/".len()..]);
-            let url = site
-                .named_url(&host, &format!("/catalog/{number}"))
-                .unwrap_or_default();
-            let went = goto(connection, &page, &url)?;
+            let url = site.named_url(&host, &format!("/catalog/{number}"));
+            let went = connection.goto(&page, &url)?;
             statuses.push(went["result"]["response"]["status"].clone());
         }
         checks.check(
@@ -634,9 +618,11 @@ fn access_policy(
         "the Run kept one Session: no second one was opened",
         kept_one_session(target, run_id),
     );
-    checks.check(
+    politeness_names_nothing(
+        target,
+        "access-policy.test",
         "nothing in the Politeness file names the access-policy domain",
-        !politeness_names(target, "access-policy.test"),
+        checks,
     );
     Ok(())
 }

@@ -97,14 +97,12 @@ fn open_in_session(
     settings: &Value,
     checks: &mut Checks,
 ) -> Result<Option<PageOpened>, Gone> {
-    let id = connection.request(
+    let opened = connection.call(
         RUN_NEW_SESSION.name,
         &json!({ "run_id": run_id, "settings": settings }),
     )?;
-    let opened = connection.browser_answer(id)?.message;
     let session = opened["result"]["session_id"].clone();
-    let id = connection.request(SESSION_NEW_PAGE.name, &json!({ "session_id": session }))?;
-    let paged = connection.browser_answer(id)?.message;
+    let paged = connection.call(SESSION_NEW_PAGE.name, &json!({ "session_id": session }))?;
     let page = serde_json::from_value::<PageOpened>(paged["result"].clone()).ok();
     checks.check(
         "a Session with its own Page check opens a page",
@@ -227,7 +225,7 @@ fn retry_failed(
         PAGE_ROUTE.name,
         &json!({ "page_id": checked.page_id, "url": glob("**/ads?retry=fails") }),
     )?;
-    let url = site.named_url(HOST, "/ads?retry=fails").unwrap_or_default();
+    let url = site.named_url(HOST, "/ads?retry=fails");
     let answer = goto(&mut routes, connection, &checked, &url)?;
     checks.check(
         format!(

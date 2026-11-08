@@ -1,9 +1,11 @@
 //! The Proving ground's interface, as its callers read it (ADRs 0032 and
-//! 0063): the first line `serve` prints, the paths of its own routes and
-//! the status a tool reports to its oracle. The Proving ground writes and
-//! reads them through these types; test support compiles this same file
-//! (`goodfetch-test-support`'s `proving_ground_format`), since the
-//! Proving ground takes no Goodfetch crate in its release build, and
+//! 0063): the first line `serve` prints, the paths of its own routes, the
+//! status a tool reports to its oracle and the requests `GET /observations`
+//! lists, with which of them a case asked for. The Proving ground writes
+//! and reads the first three through these types; test support
+//! (`goodfetch-test-support`'s `proving_ground_format`) and the conformance
+//! harness compile this same file, since the Proving ground takes no
+//! Goodfetch crate in its release build, and
 //! `xtask codegen` commits their JSON Schemas and route list for the
 //! TypeScript and Python test support. A renamed field fails to compile or
 //! to validate instead of failing a test far away at run time.
@@ -111,4 +113,124 @@ pub enum ToolStatus {
     NeedsReview,
     /// It claims failure.
     Failure,
+}
+
+/// One request a page host received, as `GET /observations` lists it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ObservedRequest {
+    /// Its place among every request, from 0.
+    pub sequence: u64,
+    /// The connection it came on.
+    pub connection: u64,
+    /// The task of the host it came to, if the host has one.
+    pub task: Option<String>,
+    /// The host name it named, without the port.
+    pub host: String,
+    /// `http/1.1` or `h2`.
+    pub protocol: String,
+    /// What it opens: `websocket`, `event_stream` or `request`.
+    pub kind: String,
+    /// Its method.
+    pub method: String,
+    /// Its target: the path and query.
+    pub target: String,
+    /// HTTP/2's pseudo-header names in the order sent.
+    pub pseudo_header_order: Option<Vec<String>>,
+    /// Every other header, in the order sent, names as sent.
+    pub headers: Vec<(String, String)>,
+    /// Its cookies, in the order sent.
+    pub cookies: Vec<(String, String)>,
+    /// Its HTTP Message Signatures headers (RFC 9421), when signed.
+    pub message_signature: Option<Value>,
+    /// The TLS `ClientHello` of its connection, over TLS.
+    pub tls: Option<Value>,
+    /// Its HTTP/2 connection's settings and its stream, over HTTP/2.
+    pub http2: Option<Value>,
+    /// Its answer's status, once the answer's head left.
+    pub status: Option<u16>,
+    /// When it arrived and was answered.
+    pub timing: RequestTiming,
+    /// The bytes received and sent for it.
+    pub bytes: Value,
+    /// The latest earlier request of the same host, method and target
+    /// this one repeats.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeats: Option<u64>,
+    /// The next request the same host received, and how long after.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_request: Option<Value>,
+    /// What the raw server sent of the answer, for the hosts it answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<Value>,
+}
+
+impl ObservedRequest {
+    /// The value of its first header named `name`, compared without case.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(header, _)| header.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+}
+
+/// When a request's head arrived and its answer's head left, in
+/// microseconds since `serve` started.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RequestTiming {
+    /// When its head arrived.
+    pub arrived_microseconds: u64,
+    /// When its answer's head left; none while it has not.
+    pub answered_microseconds: Option<u64>,
+}
+
+/// The targets the engine and the browser ask a site for on their own: the
+/// robots.txt read of a document's origin (ADR 0086) and Chromium's icon.
+pub const OWN_TARGETS: [&str; 2] = ["/robots.txt", "/favicon.ico"];
+
+/// Each request the Proving ground's page hosts received, in arrival order,
+/// as `GET /observations` lists them: what a test or a conformance case
+/// counts through. A site sees requests no case asked for, which land
+/// before or after any count a case takes (ADR 0064): the robots.txt the
+/// engine reads of each document's origin, which nothing a case calls
+/// waits for (ADR 0086), and the icon Chromium asks for on its own.
+/// [`of_the_case`](Self::of_the_case) leaves them out; a claim that covers
+/// them reads [`every`](Self::every). `xtask received-requests` refuses a
+/// read of the observations' requests anywhere else.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ReceivedRequests(Vec<ObservedRequest>);
+
+impl ReceivedRequests {
+    /// The requests of a Proving ground's `observations`.
+    ///
+    /// # Errors
+    ///
+    /// When the observations hold no list of requests, or a request this
+    /// format does not describe.
+    pub fn read(observations: &Value) -> Result<Self, serde_json::Error> {
+        /// The part of the observations that lists the requests.
+        #[derive(Deserialize)]
+        struct Listed {
+            requests: Vec<ObservedRequest>,
+        }
+        Listed::deserialize(observations).map(|listed| Self(listed.requests))
+    }
+
+    /// The requests the case is about: every one but those for
+    /// [`OWN_TARGETS`], which the engine and the browser send on their own,
+    /// whenever they like.
+    pub fn of_the_case(&self) -> impl Iterator<Item = &ObservedRequest> {
+        self.0
+            .iter()
+            .filter(|request| !OWN_TARGETS.contains(&request.target.as_str()))
+    }
+
+    /// Every request, the robots.txt reads and icons included, for a claim
+    /// about them or about all a site saw, taken at a named state such as
+    /// after the robots.txt read.
+    pub fn every(&self) -> impl Iterator<Item = &ObservedRequest> {
+        self.0.iter()
+    }
 }

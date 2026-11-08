@@ -15,10 +15,13 @@
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::ErrorGroup;
-use serde_json::{Value, json};
+use goodfetch_protocol::jsonrpc::ErrorData;
+use serde_json::{Map, Value, json};
 
 use super::{CRAWL_REQUEST_HANDLE, CRAWL_START, Checks, Connection, Gone, Site};
+use crate::proving_ground::ObservedRequest;
 use goodfetch_protocol::page::PAGE_FORMATS;
+use goodfetch_protocol::page::RESPONSE_TRUNCATED;
 use goodfetch_protocol::run::RUN_FINISH;
 
 /// The fetch edge pages' host.
@@ -75,17 +78,10 @@ fn start_declaring(
     mut settings: Value,
     checks: &mut Checks,
 ) -> Result<Option<Started>, Gone> {
-    let urls: Option<Vec<String>> = paths
+    let urls: Vec<String> = paths
         .iter()
         .map(|path| site.named_url(HOST, path))
         .collect();
-    checks.check(
-        "the Proving ground serves the fetch edge pages",
-        urls.is_some(),
-    );
-    let Some(urls) = urls else {
-        return Ok(None);
-    };
     settings["fetch"] = json!({ "tier": "http" });
     let settings = site.mapped(&settings, connection.acts_for_model());
     let seeds: Vec<Value> = urls
@@ -109,23 +105,16 @@ fn start_declaring(
 }
 
 /// The requests the Proving ground received for `url`, in arrival order.
-fn requests_for(site: &Site, url: &str) -> Vec<Value> {
+fn requests_for(site: &Site, url: &str) -> Vec<ObservedRequest> {
     let Some(path) = url
         .split_once(HOST)
         .and_then(|(_, rest)| rest.find('/').map(|slash| &rest[slash..]))
     else {
         return Vec::new();
     };
-    site.proving_ground
-        .received_requests()
-        .unwrap_or_default()
+    site.received_requests()
         .of_the_case()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|host| host.split(':').next() == Some(HOST))
-                && request["target"] == json!(path)
-        })
+        .filter(|request| request.host.split(':').next() == Some(HOST) && request.target == path)
         .cloned()
         .collect()
 }
@@ -178,7 +167,7 @@ pub(super) fn cut_bodies(
             format!("{url} ends `failed` with `response_truncated`"),
             outcome.is_some_and(|outcome| {
                 outcome["kind"] == json!("failed")
-                    && outcome["error"]["code"] == json!("response_truncated")
+                    && outcome["error"]["code"] == RESPONSE_TRUNCATED.name
             }),
         );
         checks.check(
@@ -189,7 +178,7 @@ pub(super) fn cut_bodies(
         let requests = requests_for(site, url);
         let gap = requests
             .first()
-            .and_then(|first| first["next_request"]["after_microseconds"].as_u64());
+            .and_then(|first| first.next_request.as_ref()?["after_microseconds"].as_u64());
         checks.check(
             format!("{url}'s retry waits out no backoff of its domain"),
             requests.len() == 2 && gap.is_some_and(|gap| gap < BACKOFF_INITIAL_MS * 1_000 / 2),
@@ -271,9 +260,7 @@ pub(super) fn resent(
     else {
         return Ok(());
     };
-    let Some(reused_url) = site.named_url(HOST, "/reuse/close") else {
-        return Ok(());
-    };
+    let reused_url = site.named_url(HOST, "/reuse/close");
     let first = match others.into_iter().next() {
         Some(message) => message,
         None => connection.next_within(crate::protocol::target::DEADLINE)?,
@@ -324,11 +311,11 @@ pub(super) fn resent(
     let requests = requests_for(site, &reused_url);
     checks.check(
         "the site saw the page twice, on two connections",
-        requests.len() == 2 && requests[0]["connection"] != requests[1]["connection"],
+        requests.len() == 2 && requests[0].connection != requests[1].connection,
     );
     let gap = requests
         .first()
-        .and_then(|first| first["next_request"]["after_microseconds"].as_u64());
+        .and_then(|first| first.next_request.as_ref()?["after_microseconds"].as_u64());
     checks.check(
         "the resend waits out no domain delay: it is no Politeness start",
         gap.is_some_and(|gap| gap < DOMAIN_DELAY_MS * 1_000 / 2),
@@ -529,12 +516,22 @@ fn served(
             .and_then(|seconds| seconds.parse::<u64>().ok());
         match asked {
             Some(seconds) if response["status"] == json!(503) => {
+                let details = Map::from_iter([
+                    ("status".to_owned(), json!(503)),
+                    (
+                        "retry_after".to_owned(),
+                        json!(rfc3339(received_at() + seconds)),
+                    ),
+                ]);
                 connection.fail_with(
                     &message["id"],
                     ErrorGroup::Page,
-                    "response_unavailable",
+                    ErrorData {
+                        code: "response_unavailable".to_owned(),
+                        retryable: true,
+                        details,
+                    },
                     "the site is failing for now",
-                    &json!({ "status": 503, "retry_after": rfc3339(received_at() + seconds) }),
                 )?;
             }
             _ => connection.reply(

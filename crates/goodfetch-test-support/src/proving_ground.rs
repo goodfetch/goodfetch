@@ -19,9 +19,8 @@ use std::time::Duration;
 use crate::env::TestEnv;
 use crate::process::{Process, ReportedAddressError, reported_address_within};
 use crate::proving_ground_format::{
-    OracleSubmission, ProxyCredentials, ROUTES, ServeLine, ToolStatus,
+    OracleSubmission, ProxyCredentials, ROUTES, ReceivedRequests, ServeLine, ToolStatus,
 };
-use crate::received_requests::ReceivedRequests;
 use crate::tools::{Tool, ToolsError, tools};
 
 /// How long `serve` has to print its first line, which it writes once its

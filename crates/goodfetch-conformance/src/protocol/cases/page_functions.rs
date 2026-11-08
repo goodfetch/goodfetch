@@ -111,11 +111,10 @@ fn on_the_page(
     };
     let page_id = json!(page.page_id);
     let registered = before(connection, &page_id)?;
-    let id = connection.request(
+    let went = connection.call(
         PAGE_GOTO.name,
         &json!({ "page_id": page_id, "url": format!("{origin}{PAGE_FUNCTIONS}") }),
     )?;
-    let went = connection.browser_answer(id)?.message;
     checks.check(
         "the page functions page loads",
         went["result"]["response"]["status"] == json!(200),
@@ -429,9 +428,7 @@ fn init_script(
         connection,
         &page,
         "async (src) => { const marked = new Promise((resolve) => { window.addEventListener('message', (event) => { if (event.data && event.data.initScriptMark !== undefined) { resolve(event.data.initScriptMark); } }); setTimeout(() => resolve(null), 5000); }); const frame = document.createElement('iframe'); frame.src = src; document.body.append(frame); return await marked; }",
-        Some(json!(
-            site.named_url(FRAME_HOST, "/framed").unwrap_or_default()
-        )),
+        Some(json!(site.named_url(FRAME_HOST, "/framed"))),
         "main",
     )?;
     checks.check(
@@ -514,14 +511,11 @@ fn registered_or_not(
         None,
         "main",
     )?;
-    let id = connection.request(
-        PAGE_WAIT_FOR_FUNCTION.name,
+    let seen = connection.call(PAGE_WAIT_FOR_FUNCTION.name,
         &json!({
             "page_id": page,
             "function": "() => window.beforeTheReload === undefined && document.readyState === 'complete' && (window.initScriptSeenByPage ?? 'none')",
-        }),
-    )?;
-    let seen = connection.browser_answer(id)?.message;
+        }))?;
     checks.check(
         "a page function sent right after an init script's call meets the script registered",
         reloaded["result"] == json!({ "value": true })

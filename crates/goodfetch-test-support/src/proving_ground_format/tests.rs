@@ -79,3 +79,10 @@ fn an_older_tags_serve_line_without_a_udp_fixture_reads_with_none() {
         (4000, "")
     );
 }
+
+#[test]
+fn observations_without_a_list_of_requests_are_refused() {
+    let read = ReceivedRequests::read(&json!({ "connections": [] }));
+
+    assert!(read.is_err());
+}

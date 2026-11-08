@@ -1,6 +1,7 @@
 use rstest::rstest;
 
 use super::{RunId, RunIdInvalid, Tags};
+use crate::catalog::{Product, SharedType};
 
 #[rstest]
 #[case::one_letter("a")]
@@ -64,78 +65,27 @@ fn tags_hold_at_most_sixteen_of_sixty_four_characters(
     assert_eq!(serde_json::from_value::<Tags>(tags).is_ok(), read);
 }
 
-/// The ticket's warning table (#1543, #713's `block_resources_visible` and
-/// #714's `clean_up_rules_fallback`): every code an area hands over to a
-/// Run's report, Foxhound's `trap_links_off`, #1909's `learning_off` and
-/// #1921's warnings of a per-page feature switched off included.
-const TICKET_WARNING_CODES: [&str; 28] = [
-    "fingerprint_none",
-    "fingerprint_js_injection",
-    "fingerprint_basic",
-    "fingerprint_basic_fallback",
-    "browser_build_outdated",
-    "browser_build_third_party",
-    "browser_build_firefox",
-    "browser_build_plugin",
-    "human_input_fallback",
-    "proxy_exit_may_change",
-    "filter_vendor_flagged",
-    "trap_links_off",
-    "learning_off",
-    "provenance_off",
-    "records_off",
-    "block_classification_off",
-    "local_address_rotated_within_block",
-    "cpu_throttled",
-    "storage_low",
-    "politeness_store_degraded",
-    "clean_up_rules_stale",
-    "clean_up_rules_fallback",
-    "block_resources_visible",
-    "path_not_writable",
-    "file_write_failed",
-    "baseline_unavailable",
-    "plugin_quantity_above_maximum",
-    "plugin_figures",
-];
-
+/// A warning of a crawl's is Foxhound's alone, so Collie's SDKs never type it;
+/// any other is Collie's, which Foxhound contains (ADR 0084).
+///
 /// Covers: story:3-155
-#[test]
-fn the_warning_table_lists_every_code_the_areas_hand_over() {
-    let mut table: Vec<&str> = crate::entries::MODULES
-        .into_iter()
-        .flat_map(|entries| entries.shared_type_values)
-        .filter(|value| value.shared_type == crate::catalog::SharedType::RunWarningCode)
-        .map(|value| value.name)
-        .collect();
-    table.sort_unstable();
-    let mut expected = TICKET_WARNING_CODES.to_vec();
-    expected.sort_unstable();
-
-    assert_eq!(table, expected);
-}
-
-/// Covers: story:3-155
-#[test]
-fn trap_links_off_is_foxhounds_and_every_other_code_both_products() {
-    use crate::catalog::{Product, SharedType};
-    for code in TICKET_WARNING_CODES {
-        let carried_by = crate::entries::product_of_value(SharedType::RunWarningCode, code);
-        let expected = if matches!(
-            code,
-            "trap_links_off"
-                | "learning_off"
-                | "provenance_off"
-                | "records_off"
-                | "block_classification_off"
-                | "local_address_rotated_within_block"
-        ) {
-            Product::Foxhound
-        } else {
-            Product::Collie
-        };
-        assert_eq!(carried_by, Some(expected), "{code}");
-    }
+#[rstest]
+#[case::trap_links_off("trap_links_off", Product::Foxhound)]
+#[case::learning_off("learning_off", Product::Foxhound)]
+#[case::provenance_off("provenance_off", Product::Foxhound)]
+#[case::records_off("records_off", Product::Foxhound)]
+#[case::block_classification_off("block_classification_off", Product::Foxhound)]
+#[case::local_address_rotated_within_block("local_address_rotated_within_block", Product::Foxhound)]
+#[case::fingerprint_none("fingerprint_none", Product::Collie)]
+#[case::storage_low("storage_low", Product::Collie)]
+fn a_warning_code_belongs_to_the_product_whose_runs_raise_it(
+    #[case] code: &str,
+    #[case] product: Product,
+) {
+    assert_eq!(
+        crate::entries::product_of_value(SharedType::RunWarningCode, code),
+        Some(product)
+    );
 }
 
 /// A report as a newer Foxhound engine sends it: a warning code this reader

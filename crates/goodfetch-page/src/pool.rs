@@ -37,7 +37,7 @@
 
 mod rules;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex as SyncMutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
@@ -152,9 +152,9 @@ struct Browsers {
     last: u64,
     /// The highest number a seat took.
     seats: u64,
-    /// The browsers whose crash was counted in Usage, each once, kept past
+    /// The count in Usage of each browser's crash, made once, kept past
     /// the browser's own entry: one per browser the Run launched at most.
-    crashes_counted: BTreeSet<u64>,
+    crashes_counted: BTreeMap<u64, Arc<OnceCell<()>>>,
 }
 
 /// A browser of the pool.
@@ -349,10 +349,16 @@ impl Pool {
         let _ = self.shared.losses.send(BrowserLoss { at, lost }).await;
     }
 
-    /// Whether the crash of the browser `number` is counted now: once per
-    /// browser, by the first of its Sessions to take it.
-    fn first_crash(&self, number: u64) -> bool {
-        lock(&self.shared.browsers).crashes_counted.insert(number)
+    /// The count in Usage of the crash of the browser `number`: made once
+    /// per browser, by the first of its Sessions and pages to take it, which
+    /// every other waits on.
+    fn crash_count(&self, number: u64) -> Arc<OnceCell<()>> {
+        Arc::clone(
+            lock(&self.shared.browsers)
+                .crashes_counted
+                .entry(number)
+                .or_default(),
+        )
     }
 
     /// What the Sessions' egress relays take of the Run's TLS settings:
@@ -1005,10 +1011,11 @@ impl Seat {
         }
     }
 
-    /// Whether the crash of the browser `number`, where a page of the
-    /// Session was, is counted now: once per browser (ADR 0040).
-    pub(crate) fn first_crash_of(&self, number: u64) -> bool {
-        self.shared.pool.first_crash(number)
+    /// The count in Usage of the crash of the browser `number`, where a
+    /// page of the Session was: once per browser (ADR 0040), made by the
+    /// first to take the crash and waited on by every other.
+    pub(crate) fn crash_count_of(&self, number: u64) -> Arc<OnceCell<()>> {
+        self.shared.pool.crash_count(number)
     }
 
     /// Whether the Session is seated in the browser `number` now, or was

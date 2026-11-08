@@ -25,6 +25,8 @@
 //!   it holds. In the per-install layout, with the run folders on a tmpfs
 //!   of their own inside the home's, `/readyz` and `holds="run_state"`
 //!   follow the install database's filesystem, the home's.
+//! - **A read-only location:** `run.checkpoint` fails with
+//!   `file_write_failed`, naming `EROFS`, and leaves no file.
 //!
 //! The crawl and WARC lines are area 6's.
 #![expect(
@@ -55,7 +57,9 @@ use crate::daemon_hello;
 use crate::daemon_run::{ANY_PORT, Foreground};
 use crate::ops::{get, series};
 use goodfetch_test_client::{Attached, hello};
-use goodfetch_test_support::{fill_filesystem, free_filesystem, inside_mount, tmpfs_mounted_home};
+use goodfetch_test_support::{
+    fill_filesystem, free_filesystem, inside_mount, read_only_mounted, tmpfs_mounted_home,
+};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -208,6 +212,51 @@ fn warnings(report: &Value) -> Vec<Value> {
 
 fn exists(pid: u32, path: &Path) -> bool {
     inside_mount(pid, path).exists()
+}
+
+/// Covers: story:3-30, error:file_write_failed
+#[test]
+fn a_checkpoint_to_a_read_only_filesystem_fails_and_leaves_no_file() {
+    let env = TestEnv::new();
+    let read_only = env.folder().join("read-only");
+    let mut command = read_only_mounted(&env, &read_only, COLLIE);
+    command.arg("attached-engine");
+    let mut engine = Attached::spawned(&env, MESSAGE_DEADLINE, &mut command);
+    let pid = engine.pid();
+    engine.send(&hello(Product::Collie));
+    let _ = engine.next();
+    let started = engine.ask(1, "run.start", &json!({ "run_id": "refused" }));
+
+    let failed = engine.ask(
+        2,
+        "run.checkpoint",
+        &json!({
+            "run_id": "refused",
+            "location": read_only.join("kept.sqlite").display().to_string(),
+        }),
+    );
+
+    let left = std::fs::read_dir(inside_mount(pid, &read_only))
+        .unwrap()
+        .count();
+    let _ = engine.finish();
+    let mut data = failed["error"]["data"].clone();
+    data["path"].take();
+    assert_eq!(
+        (started.get("result").is_some(), data, left),
+        (
+            true,
+            json!({
+                "code": "file_write_failed",
+                "retryable": false,
+                "reason": "read_only_filesystem",
+                "os_code": "EROFS",
+                "side": "engine",
+                "path": null,
+            }),
+            0,
+        )
+    );
 }
 
 /// Low: crossing `storage.low_free` leaves the Run working, its progress

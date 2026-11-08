@@ -4,7 +4,7 @@
 //! `file_write_failed`, side `engine`, naming the OS's reason, returns no
 //! Checkpoint and leaves no file. Each filesystem is a real one, a small
 //! disk image `hdiutil` attaches for the test and detaches after it, so the
-//! case runs on macOS; Linux needs a mount it cannot make unprivileged.
+//! case runs on macOS; `storage` holds Linux's, each on a tmpfs.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"

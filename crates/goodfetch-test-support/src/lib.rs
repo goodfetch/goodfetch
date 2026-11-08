@@ -204,7 +204,8 @@ pub use strict_stdout::{
     StrictStdoutErrorKind,
 };
 pub use tmpfs::{
-    fill_filesystem, free_filesystem, inside_mount, tmpfs_mounted, tmpfs_mounted_home,
+    fill_filesystem, free_filesystem, inside_mount, read_only_mounted, tmpfs_mounted,
+    tmpfs_mounted_home,
 };
 pub use tools::{Product, Tool, Tools, ToolsError, tools};
 pub use trace::{CapturedLog, logged, subscriber, subscriber_writing_to};

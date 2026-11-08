@@ -48,7 +48,6 @@ fn attached_with(
 /// [`attached`] as `command` starts it, such as Foxhound's executable run
 /// in a mount namespace of its own.
 fn attached_spawned(env: &TestEnv, deadline: Option<Duration>, command: &mut Command) -> Attached {
-    env.log_level("trace");
     opened(Attached::spawned(
         env,
         deadline.unwrap_or(MESSAGE_DEADLINE),

@@ -80,18 +80,25 @@ impl Attached {
         let mut command = env.process_command(executable);
         command.arg(ATTACHED_ENGINE);
         configure(&mut command);
-        Self::spawned(env, deadline, &mut command)
+        Self::started(env, deadline, &mut command)
     }
 
     /// Starts `command`, which runs a Product's `attached-engine` as its
     /// last arguments, such as inside a cgroup a service manager made or a
-    /// mount namespace of its own, each message awaited for up to
-    /// `deadline`.
+    /// mount namespace of its own, its `log.level` at `trace`, each message
+    /// awaited for up to `deadline`.
     ///
     /// # Panics
     ///
     /// When the command does not start.
     pub fn spawned(env: &TestEnv, deadline: Duration, command: &mut Command) -> Self {
+        env.log_level("trace");
+        Self::started(env, deadline, command)
+    }
+
+    /// Starts `command` under the `log.level` the test's user configuration
+    /// holds.
+    fn started(env: &TestEnv, deadline: Duration, command: &mut Command) -> Self {
         command.stderr(Stdio::piped());
         let process = env.spawn(command).expect("the Attached engine starts");
         let stdin = process.child().stdin.take();
@@ -329,3 +336,6 @@ impl Drop for Attached {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

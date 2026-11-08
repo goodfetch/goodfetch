@@ -112,7 +112,6 @@ fn in_a_memory_limited_cgroup_the_allowance_is_its_limit_and_follows_a_change_in
         .args(["-p", "MemoryMax=256M", "--"])
         .arg(COLLIE)
         .arg("attached-engine");
-    env.log_level("trace");
     let mut engine = Attached::spawned(&env, MESSAGE_DEADLINE, &mut command);
     engine.send(&hello(Product::Collie));
     let _ = engine.next();

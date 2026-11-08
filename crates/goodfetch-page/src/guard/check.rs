@@ -6,7 +6,8 @@
 use std::time::Duration;
 
 use goodfetch_protocol::connection::WaitedFor;
-use serde::Deserialize;
+use goodfetch_protocol::page::waits::ElementState;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 /// The check and arm, a function the guard's world calls.
@@ -126,7 +127,7 @@ impl Seen {
 /// A condition the check waits on, by the name `check.js` gives it: a step
 /// it names otherwise does not read, so the script and the guard cannot
 /// part on a name.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Step {
     /// A count wait's matches are not as many as its bounds allow.
@@ -152,20 +153,19 @@ pub(crate) enum Step {
 }
 
 impl Step {
+    /// The step a locator's wait for `state` waits at.
+    pub(crate) fn waiting_for(state: ElementState) -> Self {
+        match state {
+            ElementState::Attached => Self::Attached,
+            ElementState::Detached => Self::Detached,
+            ElementState::Visible => Self::Visible,
+            ElementState::Hidden => Self::Hidden,
+        }
+    }
+
     /// Its name, as `check.js` gives it.
     pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Count => "count",
-            Self::Detached => "detached",
-            Self::Unique => "unique",
-            Self::Hidden => "hidden",
-            Self::Attached => "attached",
-            Self::Visible => "visible",
-            Self::Enabled => "enabled",
-            Self::Editable => "editable",
-            Self::Stable => "stable",
-            Self::ReceivesEvents => "receives_events",
-        }
+        goodfetch_protocol::wire_name::of(&self)
     }
 
     /// What a call that waited for this check to pass waited for, as its

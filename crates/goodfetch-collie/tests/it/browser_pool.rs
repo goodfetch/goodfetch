@@ -380,6 +380,119 @@ fn storage_written_after_the_engines_own_page_read_robots_txt_is_carried(#[case]
     );
 }
 
+/// A Session that opens no page past its first and only sends `page.request`
+/// is held to its browser's limits all the same, the pages the engine opens
+/// for it counting: past them its requests go out of a replacement, with the
+/// cookie it kept, while the program's page stays open in the recycled browser.
+/// Covers: story:3-62, setting:governor.browser.recycle_pages, setting:governor.browser.memory_cap, operation:page.request
+#[cfg(unix)]
+#[rstest]
+#[case::after_its_pages(json!({ "recycle_pages": 1 }))]
+#[case::past_its_memory_cap(json!({ "memory_cap": 1 }))]
+fn a_session_that_only_sends_requests_moves_off_its_recycled_browser(#[case] limit: Value) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        "requests",
+        &pool(limit),
+        |_| {},
+    );
+    let session = new_session(&mut engine, 2, "requests");
+    let page = page_in(&mut engine, 3, &session);
+    let stored = store(&mut engine, 4, &proving_ground, &page, "first");
+    let url = proving_ground.url("scope.test", "/storage/found?mark=requested");
+    let statuses: Vec<Value> = (5..8)
+        .map(|id| {
+            engine.ask(
+                id,
+                "page.request",
+                &json!({ "page_id": page.page_id, "url": url }),
+            )["result"]["status"]
+                .clone()
+        })
+        .collect();
+    let replaced = browsers_once(&env, 2);
+    let _ = engine.ask(8, "run.finish", &json!({ "run_id": "requests" }));
+    let _ = engine.finish();
+
+    assert_eq!(
+        (
+            stored,
+            statuses,
+            replaced,
+            storage_requests(&proving_ground, "/storage/found?mark=requested").pop(),
+        ),
+        (
+            json!(200),
+            vec![json!(200), json!(200), json!(200)],
+            2,
+            Some((
+                "/storage/found?mark=requested".to_owned(),
+                json!([["mark", "first"]])
+            )),
+        )
+    );
+}
+
+/// A `page.request` sent while a page of its Session is still navigating
+/// leaves the Session where it is, though its browser is past its limits:
+/// a move then would capture the Session's storage before that navigation's
+/// document wrote it. The stalled-robots host never sends the rest of its
+/// robots.txt, so its navigation is still in flight when the request answers.
+/// Covers: story:3-62, setting:governor.browser.recycle_pages, operation:page.request
+#[cfg(unix)]
+#[test]
+fn a_request_while_a_navigation_is_in_flight_moves_no_session() {
+    const STALLED: &str = "stalled-robots.access-policy.test";
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        "racing",
+        &pool(json!({ "recycle_pages": 1 })),
+        |_| {},
+    );
+    let session = new_session(&mut engine, 2, "racing");
+    let page = page_in(&mut engine, 3, &session);
+    engine.send(&json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "page.goto",
+        "params": {
+            "page_id": page.page_id,
+            "url": proving_ground.url(STALLED, "/robots.txt"),
+        },
+    }));
+    // The engine's page took the robots.txt's body as a stream, which never
+    // ends: the document it arrived for has its head, and no `load` comes.
+    let reading = traced_once(&env, "racing", "Fetch.takeResponseBodyAsStream");
+
+    let requested = engine.ask(
+        5,
+        "page.request",
+        &json!({
+            "page_id": page.page_id,
+            "url": proving_ground.url("scope.test", "/storage/found?mark=racing"),
+        }),
+    );
+    let while_navigating = browsers(&env);
+    let _ = engine.ask(6, "run.finish", &json!({ "run_id": "racing" }));
+    let _ = engine.finish();
+
+    assert_eq!(
+        (reading, &requested["result"]["status"], while_navigating),
+        (true, &json!(200), 1),
+        "{requested}"
+    );
+}
+
 /// A browser with no open page past `governor.browser.recycle_idle` closes,
 /// and the Run's next Session gets a browser launched again.
 /// Covers: story:3-62, setting:governor.browser.recycle_idle, operation:session.close

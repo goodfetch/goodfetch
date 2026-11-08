@@ -44,6 +44,7 @@ mod service_workers;
 mod targets;
 mod world;
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -928,6 +929,7 @@ impl<B: Connect> SessionDriver<B> {
             frame,
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
+            spent: Duration::ZERO,
             turn: Arc::new(Mutex::new(None)),
             gesture: Arc::new(Mutex::new(())),
             value: PageValue::empty(),
@@ -1019,6 +1021,9 @@ pub(crate) struct PageDriver {
     /// How many navigation calls wait on the page now: a request the
     /// navigation gate refuses raises from them, or else is recorded.
     navigating: Arc<watch::Sender<u32>>,
+    /// What the call driving it spent of its own deadline before its work
+    /// began ([`Self::having_spent`]).
+    spent: Duration,
     /// What it carries for Foxhound: its navigation gate and lease check,
     /// the latter asked before each command its `browser` sends.
     value: PageValue,
@@ -1358,6 +1363,23 @@ impl PageDriver {
         *self.navigating.borrow() > 0
     }
 
+    /// This page's driver for a call that spent `spent` of its own deadline
+    /// before its work began, waiting for the page's `Runtime` (ADR 0019),
+    /// which its navigation deadlines count.
+    pub(crate) fn having_spent(&self, spent: Duration) -> Cow<'_, Self> {
+        if spent.is_zero() {
+            return Cow::Borrowed(self);
+        }
+        let mut page = self.clone();
+        page.spent = spent;
+        Cow::Owned(page)
+    }
+
+    /// The page's action deadline, its Run's `timeout.action`.
+    pub(crate) fn action_deadline(&self) -> &Deadline {
+        &self.browser.deadlines.action
+    }
+
     /// Runs `future` within the page's navigation deadline, its Run's
     /// `timeout.navigation`, the page's waits for its gate's and its
     /// proxy's permits not counted.
@@ -1415,9 +1437,10 @@ impl PageDriver {
             return Ok(future.await);
         };
         let limit = deadline.duration();
+        let left = limit.saturating_sub(self.spent);
         let done = match &self.waits {
-            Some(waits) => waits.within(limit, future).await.ok(),
-            None => tokio::time::timeout(limit, future).await.ok(),
+            Some(waits) => waits.within(left, future).await.ok(),
+            None => tokio::time::timeout(left, future).await.ok(),
         };
         done.ok_or_else(|| deadline.exceeded(waited_for, limit))
     }

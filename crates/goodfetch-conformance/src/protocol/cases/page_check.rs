@@ -115,7 +115,8 @@ fn sign_in(
         ("input[name=user]", account.username.as_str()),
         ("input[name=password]", account.password.as_str()),
     ] {
-        connection.call(LOCATOR_FILL.name,
+        connection.call(
+            LOCATOR_FILL.name,
             &json!({ "locator": { "page_id": page.page_id, "selector": selector }, "value": value }),
         )?;
     }

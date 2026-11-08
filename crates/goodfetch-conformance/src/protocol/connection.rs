@@ -159,10 +159,9 @@ impl Connection {
 
     fn send(&mut self, message: &impl Serialize) -> Result<(), Gone> {
         let message = serde_json::to_value(message).expect("invariant: a message serializes");
-        let message = &message;
-        let line = serde_json::to_vec(message).expect("invariant: a JSON value serializes");
+        let line = serde_json::to_vec(&message).expect("invariant: a JSON value serializes");
         let kept = match &self.started.token {
-            Some(token) => redacted(message, token),
+            Some(token) => redacted(&message, token),
             None => message.clone(),
         };
         self.exchanged

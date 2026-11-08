@@ -21,10 +21,8 @@ use goodfetch_protocol::page::request::PAGE_REQUEST;
 use goodfetch_protocol::page::route::{
     PAGE_ROUTE, ROUTE_CONTINUE, ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL,
 };
-use goodfetch_protocol::response_limits::RESPONSE_LIMIT_EXCEEDED;
 use goodfetch_protocol::response_limits::{
-    DEFAULT_MAX_BODY_SIZE, DEFAULT_MAX_DECOMPRESSION_RATIO, NETWORK_MAX_BODY_SIZE,
-    NETWORK_MAX_DECOMPRESSION_RATIO,
+    NETWORK_MAX_BODY_SIZE, NETWORK_MAX_DECOMPRESSION_RATIO, RESPONSE_LIMIT_EXCEEDED,
 };
 use serde_json::{Value, json};
 
@@ -283,16 +281,8 @@ fn request_limits(
         return finish_run(connection, run_id);
     };
     for (url, setting, limit) in [
-        (
-            &bomb,
-            NETWORK_MAX_DECOMPRESSION_RATIO.name,
-            DEFAULT_MAX_DECOMPRESSION_RATIO,
-        ),
-        (
-            &past_the_size,
-            NETWORK_MAX_BODY_SIZE.name,
-            DEFAULT_MAX_BODY_SIZE,
-        ),
+        (&bomb, NETWORK_MAX_DECOMPRESSION_RATIO.name, 100),
+        (&past_the_size, NETWORK_MAX_BODY_SIZE.name, 67_108_864),
     ] {
         let refused = call(connection, PAGE_REQUEST.name, &page, &json!({ "url": url }))?;
         checks.check(
@@ -517,7 +507,7 @@ fn coded_bombs_on(
             ),
             code_of(&refused) == &json!(RESPONSE_LIMIT_EXCEEDED.name)
                 && refused["error"]["data"]["setting"] == NETWORK_MAX_DECOMPRESSION_RATIO.name
-                && refused["error"]["data"]["limit"] == DEFAULT_MAX_DECOMPRESSION_RATIO,
+                && refused["error"]["data"]["limit"] == json!(100),
         );
     }
     let undecodable = call(

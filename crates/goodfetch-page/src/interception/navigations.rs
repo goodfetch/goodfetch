@@ -73,6 +73,11 @@ impl Pending {
         drop(ended);
     }
 
+    /// Whether any navigation is pending.
+    pub(super) fn any(&self) -> bool {
+        !lock(&self.0).is_empty()
+    }
+
     /// Takes the pending navigation that a request to `url` carries, once:
     /// the page it is pending on.
     pub(super) fn take(&self, url: &str) -> Option<(PageId, Weak<PageState>)> {

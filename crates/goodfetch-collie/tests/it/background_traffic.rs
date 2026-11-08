@@ -22,11 +22,13 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use goodfetch_engine::pinned_download::chromium_background_traffic_off;
 use goodfetch_test_client::HomeLayout;
-use goodfetch_test_support::{CHROME_FOR_TESTING_BUILD, ProvingGround, TestEnv, browser_cache};
+use goodfetch_test_support::{
+    ProvingGround, TestEnv, browser_cache, chrome_for_testing, reported_debugging_port,
+};
 use serde_json::{Value, json};
 
 use crate::page::{opened, started, started_with};
@@ -38,9 +40,6 @@ const SEED: u64 = 639;
 /// calls a browser makes, each retried after a failure, and its on-demand
 /// component installs.
 const IDLE: Duration = Duration::from_secs(10);
-
-/// How long the test's own browser has to report its debugging port.
-const PORT_DEADLINE: Duration = Duration::from_secs(30);
 
 /// The Browser data folder the engine launches the Run's browser on.
 fn launch_data_folder(env: &TestEnv, run_id: &str) -> PathBuf {
@@ -141,47 +140,6 @@ fn a_launched_browser_calls_no_vendor_host_through_navigation_and_idle_time() {
         (&json!(200), &json!(200), true, true, Vec::<&String>::new()),
         "{hosts:?}"
     );
-}
-
-/// The executable of the pinned build in the test's Browser cache.
-pub(crate) fn chrome_for_testing(cache: &Path) -> PathBuf {
-    let files = cache
-        .join("browser")
-        .join("chrome-for-testing")
-        .join(CHROME_FOR_TESTING_BUILD)
-        .join("files");
-    if cfg!(target_os = "linux") {
-        return files.join("chrome-linux64").join("chrome");
-    }
-    let platform = if cfg!(target_arch = "aarch64") {
-        "chrome-mac-arm64"
-    } else {
-        "chrome-mac-x64"
-    };
-    files
-        .join(platform)
-        .join("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
-}
-
-/// The port a browser launched with `--remote-debugging-port=0` on
-/// `profile` reports in its `DevToolsActivePort` file.
-pub(crate) fn reported_debugging_port(profile: &Path) -> u16 {
-    let file = profile.join("DevToolsActivePort");
-    let started = Instant::now();
-    loop {
-        if let Some(port) = std::fs::read_to_string(&file)
-            .ok()
-            .and_then(|text| text.lines().next()?.parse().ok())
-        {
-            return port;
-        }
-        assert!(
-            started.elapsed() < PORT_DEADLINE,
-            "{} reported no port",
-            file.display()
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
 }
 
 /// The IDs of the processes whose command line names a profile folder

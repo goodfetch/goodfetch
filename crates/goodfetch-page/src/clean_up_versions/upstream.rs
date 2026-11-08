@@ -28,20 +28,20 @@ use super::{FILE_LIMIT, Sources, Version, lock, within};
 
 /// The file of each list in a version the engine fetches: the embedded
 /// part's, as its manifest names them.
-fn files() -> RulesLists {
+fn embedded_lists() -> RulesLists {
     serde_json::from_str::<CleanUpRulesManifest>(EMBEDDED_MANIFEST)
         .expect("invariant: the clean-up crate carries a manifest of this format")
         .lists
 }
 
-/// Each list of `files` by its key in `clean_up.lists` and in the manifest,
-/// with its file.
-fn by_key(files: &RulesLists) -> [(&'static str, &str); 4] {
+/// Each of `lists` by its key in `clean_up.lists` and in the manifest, with
+/// its file.
+fn by_key(lists: &RulesLists) -> [(&'static str, &str); 4] {
     [
-        ("ads", &files.ads),
-        ("trackers", &files.trackers),
-        ("annoyances", &files.annoyances),
-        ("unbreak", &files.unbreak),
+        ("ads", &lists.ads),
+        ("trackers", &lists.trackers),
+        ("annoyances", &lists.annoyances),
+        ("unbreak", &lists.unbreak),
     ]
 }
 
@@ -165,7 +165,7 @@ async fn fresh_or_fetched(sources: &Sources, now: jiff::Timestamp) -> Result<Ver
 
 /// A new version of the lists, fetched now.
 async fn fetched(sources: &Sources, now: jiff::Timestamp) -> Result<Version, Unobtained> {
-    let lists = files();
+    let lists = embedded_lists();
     let mut files = Vec::new();
     let mut expiry = None::<Duration>;
     for (list, file) in by_key(&lists) {

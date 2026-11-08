@@ -511,11 +511,13 @@ fn registered_or_not(
         None,
         "main",
     )?;
-    let seen = connection.call(PAGE_WAIT_FOR_FUNCTION.name,
+    let seen = connection.call(
+        PAGE_WAIT_FOR_FUNCTION.name,
         &json!({
             "page_id": page,
             "function": "() => window.beforeTheReload === undefined && document.readyState === 'complete' && (window.initScriptSeenByPage ?? 'none')",
-        }))?;
+        }),
+    )?;
     checks.check(
         "a page function sent right after an init script's call meets the script registered",
         reloaded["result"] == json!({ "value": true })

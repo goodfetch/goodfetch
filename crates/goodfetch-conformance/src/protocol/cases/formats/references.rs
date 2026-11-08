@@ -260,11 +260,13 @@ fn one_calls_formats_come_from_one_serialization(
         let Some(first_kite) = first_kite else {
             return finish_run(connection, run_id);
         };
-        let moved_on = connection.call(PAGE_WAIT_FOR_FUNCTION.name,
+        let moved_on = connection.call(
+            PAGE_WAIT_FOR_FUNCTION.name,
             &json!({
                 "page_id": page.page_id,
                 "function": format!("() => Number(document.body.dataset.shown) > {}", first_kite + 10),
-            }))?;
+            }),
+        )?;
         checks.check(
             "the page moves on to a later kite",
             moved_on.get("result").is_some(),

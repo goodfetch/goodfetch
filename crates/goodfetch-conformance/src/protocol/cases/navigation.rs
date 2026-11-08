@@ -96,6 +96,17 @@ pub(super) fn open(
     if !served {
         return Ok(None);
     }
+    open_page(connection, site, run_id, checks)
+}
+
+/// Opens a page of a new Run `run_id`, for a case whose URLs the Proving
+/// ground always gives; `None` when the page did not open.
+pub(super) fn open_page(
+    connection: &mut Connection,
+    site: &Site,
+    run_id: &str,
+    checks: &mut Checks,
+) -> Result<Option<Value>, Gone> {
     start_run(connection, site, run_id, &json!({}), checks)?;
     Ok(new_page(connection, run_id, checks)?.map(|page| json!(page.page_id)))
 }

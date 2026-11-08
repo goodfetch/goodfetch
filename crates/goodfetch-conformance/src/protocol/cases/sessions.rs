@@ -11,8 +11,9 @@ use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_CLOSE, SESSION_NEW_PAGE};
 use goodfetch_protocol::page::{PAGE_GOTO, PageOpened, RUN_NEW_PAGE, SessionId};
 use goodfetch_protocol::run::{RUN_ENDED, RUN_START};
-use goodfetch_protocol::settings::SESSION_SOURCE;
-use goodfetch_protocol::settings::{CAPABILITY_UNAVAILABLE, SETTING_NOT_APPLICABLE};
+use goodfetch_protocol::settings::{
+    CAPABILITY_UNAVAILABLE, SESSION_SOURCE, SETTING_NOT_APPLICABLE,
+};
 use serde_json::{Value, json};
 
 use super::{Checks, Site, finish_run, start_run};

@@ -110,6 +110,16 @@ pub(crate) struct Window {
     pub(crate) limit: SettingLimit,
     /// Its duration.
     pub(crate) duration: Duration,
+    /// What the call spent of it before its work began, waiting for its
+    /// page's `Runtime` (ADR 0019).
+    pub(crate) spent: Duration,
+}
+
+impl Window {
+    /// What is left of it for the call's work.
+    fn left(&self) -> Duration {
+        self.duration.saturating_sub(self.spent)
+    }
 }
 
 /// One locator action: what it acts on, and for whom.
@@ -167,7 +177,8 @@ pub(crate) async fn act(
     };
     // A check answers within its slice of the deadline, so the guard's own
     // loop reports what it saw last; past that, the page is not answering.
-    let unanswered = started + request.window.duration + SLICE;
+    let unanswered = started + request.window.left() + SLICE;
+    let spent = request.window.spent;
     tokio::select! {
         biased;
         acted = Box::pin(attempt(page, request, clock)) => acted,
@@ -178,7 +189,7 @@ pub(crate) async fn act(
                 observed: "the page answered none of the action's checks in time: its main thread is busy, or another action holds its turn".to_owned(),
                 matches: Vec::new(),
             },
-            clock.now() - started,
+            clock.now() - started + spent,
         )),
     }
 }
@@ -190,13 +201,13 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
     // its input, its disarm and its wait for a navigation it started alike.
     let page = &page.counting(request.action.commands());
     let started = clock.now();
-    let end = started + request.window.duration;
+    let end = started + request.window.left();
     let mut turn = page.turn(request.operation).await;
     let mut last = Seen::waiting(Step::Attached, "the action waited its turn on the page");
     loop {
         let remaining = end.saturating_duration_since(clock.now());
         if remaining.is_zero() {
-            let elapsed = clock.now() - started;
+            let elapsed = clock.now() - started + request.window.spent;
             let asked = Asked {
                 operation: request.operation,
                 selector: request.selector,
@@ -508,13 +519,11 @@ pub(crate) async fn wait(
     clock: &Clock,
 ) -> Result<Waited, CallError> {
     let started = clock.now();
-    let end = wait.window.as_ref().map(|window| started + window.duration);
-    let (state, bounds) = match wait.awaited {
-        Awaited::State(state) => (state_name(state), (None, None)),
-        Awaited::Count(count) => ("count".to_owned(), (count.min, count.max)),
+    let end = wait.window.as_ref().map(|window| started + window.left());
+    let (step, bounds) = match wait.awaited {
+        Awaited::State(state) => (Step::waiting_for(state), (None, None)),
+        Awaited::Count(count) => (Step::Count, (count.min, count.max)),
     };
-    let step = serde_json::from_value(serde_json::Value::String(state.clone()))
-        .expect("invariant: each state a locator waits for is a step of the check");
     let mut last = Seen::Waiting {
         step,
         observed: "the page was not checked yet".to_owned(),
@@ -525,15 +534,17 @@ pub(crate) async fn wait(
         if remaining.is_zero()
             && let Some(window) = wait.window
         {
+            let elapsed = clock.now() - started + window.spent;
             let asked = Asked {
                 operation: wait.operation,
                 selector: wait.selector,
                 surface: wait.surface,
                 limit: window.limit,
             };
-            return Err(at_deadline(asked, last, clock.now() - started));
+            return Err(at_deadline(asked, last, elapsed));
         }
-        let argument = check::wait_argument(wait.selector, &state, bounds, remaining.min(SLICE));
+        let argument =
+            check::wait_argument(wait.selector, step.as_str(), bounds, remaining.min(SLICE));
         // Each of a wait's checks makes the guard's world again, a command of
         // its own (X11).
         page.work().count(Row::ActionScriptSends);
@@ -569,14 +580,6 @@ pub(crate) async fn wait(
 /// How long a locator wait leaves a document that is not there yet before
 /// it checks again.
 const RECHECK: Duration = Duration::from_millis(20);
-
-/// The name the check takes for `state`: its name on the wire.
-fn state_name(state: ElementState) -> String {
-    serde_json::to_value(state)
-        .ok()
-        .and_then(|name| name.as_str().map(str::to_owned))
-        .expect("invariant: an element state serializes as its name")
-}
 
 /// What a call at its deadline asked: its operation, its locator's
 /// selector, the Client's surface and the setting whose time passed.

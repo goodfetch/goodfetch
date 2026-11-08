@@ -30,7 +30,7 @@ use serde_json::{Value, json};
 
 use super::hostile_input;
 use super::launch::{IDENTITY_HOST, reports_once};
-use super::navigation::{call, failed_with, open, url_on};
+use super::navigation::{call, failed_with, open, open_page, url_on};
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone, code_of};
 use crate::protocol::target::EngineTarget;
@@ -140,7 +140,7 @@ fn too_many_requests(
 ) -> Result<(), Gone> {
     let run_id = "conformance-page-request-429";
     let limited = site.named_url("fetch-edge.test", "/retry-after/429/long");
-    let Some(page) = open(connection, site, run_id, &[], checks)? else {
+    let Some(page) = open_page(connection, site, run_id, checks)? else {
         return Ok(());
     };
     let answer = request(connection, &page, &json!({ "url": limited }))?;
@@ -181,7 +181,7 @@ fn redirect_counts(
 ) -> Result<(), Gone> {
     let run_id = "conformance-page-request-redirects";
     let chain = site.named_url("fetch-edge.test", "/redirect/hops/5");
-    let Some(page) = open(connection, site, run_id, &[], checks)? else {
+    let Some(page) = open_page(connection, site, run_id, checks)? else {
         return Ok(());
     };
     for count in [20, 21] {
@@ -278,7 +278,7 @@ fn cut_body(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Re
         ),
     ]
     .map(|(what, path, declared)| (what, site.named_url("fetch-edge.test", path), declared));
-    let Some(page) = open(connection, site, run_id, &[], checks)? else {
+    let Some(page) = open_page(connection, site, run_id, checks)? else {
         return Ok(());
     };
     for (what, url, declared) in &cuts {

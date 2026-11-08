@@ -1,19 +1,23 @@
 //! A `page.on` that turns the `Runtime` domain on is armed before the
-//! Client's next call on the page acts (ADR 0019), against a scripted browser
-//! that holds its answer to `Runtime.enable` back, the one thing a real
-//! browser cannot be made to do on demand. The whole engine runs, over the
-//! Borrowed browser path, as in the counts' Session.
+//! Client's next call on the page acts, and that wait counts inside the call's
+//! own limit (ADR 0019), against a real browser behind a relay that holds its
+//! answer to `Runtime.enable` back. The whole engine runs, over the Borrowed
+//! browser path.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 #![expect(
     clippy::disallowed_types,
-    reason = "the test's browser end listens on its own socket, as the counts' Session's does (ADR 0071)"
+    reason = "the relay and the silent site listen on their own sockets, and the relay dials the test's browser (ADR 0060)"
 )]
 #![expect(
     clippy::disallowed_methods,
-    reason = "the test builds its own runtime with real time, since its browser answers over a real socket, and its browser's hold runs on that time (ADR 0060)"
+    reason = "the test builds its own runtime with real time, since the browser answers over a real socket, starts that browser and reads its port, and the relay's hold runs on that time (ADR 0060)"
 )]
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,6 +26,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::metrics::Metrics;
+use goodfetch_engine::pinned_download::chromium_background_traffic_off;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, ConnectionReader, ConnectionWriter, Network};
@@ -29,120 +34,126 @@ use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_page::blocks::NoBlocks;
 use goodfetch_page::page_value::ProgramPages;
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::connection::{HELLO, ProductVersion};
+use goodfetch_test_client::Hello;
+use goodfetch_test_support::{TestEnv, browser_cache, chrome_for_testing, reported_debugging_port};
 use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message;
 
-/// How long the browser holds `Runtime.enable`'s answer back: long past what
-/// a call that does not wait takes to reach it. The behaviour depends on no
-/// figure: a call that waits comes after the answer however long this is.
+/// How long the relay holds `Runtime.enable`'s answer back behind a call that
+/// must come after it: long past what a call that does not wait takes to reach
+/// it. The behaviour depends on no figure: a call that waits comes after the
+/// answer however long this is.
 const HOLD: Duration = Duration::from_millis(500);
 
-/// What the program's next call runs in the page, by which the browser tells
+/// How long it holds the answer back behind a call whose limit passes first:
+/// far past that limit, so a call that waits the answer out is seen to.
+const LONG_HOLD: Duration = Duration::from_secs(5);
+
+/// That call's limit.
+const SHORT_LIMIT: u64 = 300;
+
+/// A limit the hold of [`SPENT_HOLD`] takes half of.
+const LIMIT: u64 = 4_000;
+
+/// How long the relay holds the answer back behind a call of [`LIMIT`].
+const SPENT_HOLD: Duration = Duration::from_secs(2);
+
+/// What the program's next call runs in the page, by which the relay tells
 /// its command from those the engine sends on its own.
 const SCRIPT: &str = "() => 'the call after the listener'";
 
-/// What the browser heard of the three things that matter.
+/// What the relay saw of the three things that matter.
 const ENABLE: &str = "Runtime.enable";
 const ANSWERED: &str = "Runtime.enable answered";
 const CALL: &str = "the program's call";
 
-/// What the browser answers `method`; `{}` for every command whose answer the
-/// engine does not read.
-fn answer_of(method: &str) -> Value {
-    match method {
-        "Browser.getVersion" => json!({
-            "protocolVersion": "1.3",
-            "product": "Scripted/1.0",
-            "revision": "0",
-            "userAgent": "Scripted",
-            "jsVersion": "0",
-        }),
-        "Target.getBrowserContexts" => {
-            json!({ "browserContextIds": [], "defaultBrowserContextId": "context" })
-        }
-        "Target.createBrowserContext" => json!({ "browserContextId": "context" }),
-        "Target.createTarget" => json!({ "targetId": "target" }),
-        "Target.attachToTarget" => json!({ "sessionId": "session" }),
-        "Page.getFrameTree" => json!({ "frameTree": { "frame": {
-            "id": "target",
-            "loaderId": "loader",
-            "url": "about:blank",
-            "domainAndRegistry": "",
-            "securityOrigin": "null",
-            "mimeType": "text/html",
-            "adFrameStatus": { "adFrameType": "none" },
-            "secureContextType": "InsecureScheme",
-            "crossOriginIsolatedContextType": "NotIsolated",
-            "gatedAPIFeatures": [],
-        } } }),
-        "Page.createIsolatedWorld" => json!({ "executionContextId": 1 }),
-        "Page.addScriptToEvaluateOnNewDocument" => json!({ "identifier": "script" }),
-        "Runtime.evaluate" | "Runtime.callFunctionOn" => {
-            json!({ "result": { "type": "undefined" } })
-        }
-        _ => json!({}),
-    }
+/// What the relay saw.
+struct Relayed {
+    /// The three things that matter, in order.
+    heard: Vec<&'static str>,
+    /// When it let the answer go.
+    released: Option<Instant>,
 }
 
-/// The browser: answers each command at once but `Runtime.enable`, whose
-/// answer it holds back for [`HOLD`]; answers what it heard, in order, once
+/// The relay on `listener`: passes every message between the engine and the
+/// browser at `browser`, as they come, but the browser's answer to
+/// `Runtime.enable`, which it holds back for `hold`; answers what it saw once
 /// the engine closed its connection.
-async fn browser(listener: TcpListener) -> Vec<&'static str> {
+async fn relay(listener: TcpListener, browser: String, hold: Duration) -> Relayed {
     let (stream, _) = listener
         .accept()
         .await
         .expect("invariant: the engine connects");
-    let mut socket = tokio_tungstenite::accept_async(stream)
+    let mut engine = tokio_tungstenite::accept_async(stream)
         .await
         .expect("invariant: the engine speaks WebSocket");
-    let mut heard = Vec::new();
-    let mut unanswered: Option<Value> = None;
+    let address = browser
+        .strip_prefix("ws://")
+        .and_then(|rest| rest.split('/').next())
+        .expect("invariant: the browser's address is a WebSocket URL");
+    let dialed = TcpStream::connect(address)
+        .await
+        .expect("invariant: the browser listens");
+    let (mut upstream, _) = tokio_tungstenite::client_async(browser.as_str(), dialed)
+        .await
+        .expect("invariant: the browser speaks WebSocket");
+    let mut relayed = Relayed {
+        heard: Vec::new(),
+        released: None,
+    };
+    let mut enable = None;
+    let mut unanswered: Option<Message> = None;
     let release = tokio::time::sleep(Duration::ZERO);
     let mut release = std::pin::pin!(release);
     loop {
-        let message = tokio::select! {
+        tokio::select! {
             () = &mut release, if unanswered.is_some() => {
                 let answer = unanswered.take().expect("invariant: the guard says one is held");
-                heard.push(ANSWERED);
-                if socket.send(Message::text(answer.to_string())).await.is_err() {
-                    return heard;
+                relayed.heard.push(ANSWERED);
+                relayed.released = Some(Instant::now());
+                if engine.send(answer).await.is_err() {
+                    return relayed;
                 }
-                continue;
             }
-            message = socket.next() => message,
-        };
-        let Some(Ok(message)) = message else {
-            return heard;
-        };
-        let Message::Text(text) = message else {
-            continue;
-        };
-        let command: Value =
-            serde_json::from_str(text.as_str()).expect("invariant: a command is JSON");
-        let method = command["method"].as_str().unwrap_or_default();
-        let mut answer = json!({ "id": command["id"], "result": answer_of(method) });
-        if let Some(session) = command.get("sessionId") {
-            answer["sessionId"] = session.clone();
-        }
-        if method == ENABLE {
-            heard.push(ENABLE);
-            unanswered = Some(answer);
-            release.as_mut().reset(tokio::time::Instant::now() + HOLD);
-            continue;
-        }
-        if text.as_str().contains("the call after the listener") {
-            heard.push(CALL);
-        }
-        if socket
-            .send(Message::text(answer.to_string()))
-            .await
-            .is_err()
-        {
-            return heard;
+            message = engine.next() => {
+                let Some(Ok(message)) = message else {
+                    return relayed;
+                };
+                if let Message::Text(text) = &message {
+                    let command: Value =
+                        serde_json::from_str(text.as_str()).expect("invariant: a command is JSON");
+                    if command["method"] == ENABLE {
+                        relayed.heard.push(ENABLE);
+                        enable = Some(command["id"].clone());
+                    }
+                    if text.as_str().contains("the call after the listener") {
+                        relayed.heard.push(CALL);
+                    }
+                }
+                if upstream.send(message).await.is_err() {
+                    return relayed;
+                }
+            }
+            message = upstream.next() => {
+                let Some(Ok(message)) = message else {
+                    return relayed;
+                };
+                let answers_enable = enable.is_some() && matches!(&message, Message::Text(text)
+                    if serde_json::from_str::<Value>(text.as_str())
+                        .is_ok_and(|answer| Some(&answer["id"]) == enable.as_ref()));
+                if answers_enable {
+                    enable = None;
+                    unanswered = Some(message);
+                    release.as_mut().reset(Instant::now() + hold);
+                } else if engine.send(message).await.is_err() {
+                    return relayed;
+                }
+            }
         }
     }
 }
@@ -194,6 +205,40 @@ impl Client {
             .cloned()
             .unwrap_or_else(|| panic!("`{method}` failed: {answer}"))
     }
+
+    /// Ends the Connection, once the engine read to its end.
+    async fn leave(&mut self) {
+        self.writer.shutdown().await.expect("invariant: in memory");
+        while let Ok(Some(_)) = self.lines.next_line().await {}
+    }
+
+    /// Opens a page in a new Run of `settings` on the browser at `cdp_url`:
+    /// its ID.
+    async fn page(&mut self, cdp_url: &str, settings: &Value) -> Value {
+        self.call(1, HELLO, &Hello::needing(Product::Collie).params())
+            .await;
+        self.call(
+            2,
+            "run.start",
+            &json!({ "run_id": "arming", "settings": settings }),
+        )
+        .await;
+        let session = self
+            .call(
+                3,
+                "run.new_session",
+                &json!({ "run_id": "arming", "source": { "kind": "cdp_url", "url": cdp_url } }),
+            )
+            .await;
+        let opened = self
+            .call(
+                4,
+                "session.new_page",
+                &json!({ "session_id": session["session_id"] }),
+            )
+            .await;
+        opened["page_id"].clone()
+    }
 }
 
 /// The call `id` of `method`.
@@ -201,78 +246,73 @@ fn request(id: u64, method: &str, params: &Value) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
 }
 
-/// What the Client sends behind `page.on`, in one write with it.
-#[derive(Clone, Copy)]
-enum Behind {
-    /// Only its next call on the page.
-    TheCall,
-    /// The cancel of that `page.on`, then its next call on the page.
-    ACancelThenTheCall,
+/// `params` of a call on `page`, which a locator's call names in its locator.
+fn on_page(params: &Value, page: &Value) -> Value {
+    let mut params = params.clone();
+    let names_it = if params.get("locator").is_some() {
+        &mut params["locator"]
+    } else {
+        &mut params
+    };
+    names_it["page_id"] = page.clone();
+    params
 }
 
-/// A program that opens a page, then sends `page.on` for `console` with
-/// `behind` in one write, and ends once the call answered.
-async fn program(client: &mut Client, cdp_url: &str, behind: Behind) {
-    client
-        .call(
-            1,
-            "hello",
-            &json!({ "protocol_version": "0.1", "surface": "rust", "needs": "collie", "product_version": "0.0.0" }),
-        )
-        .await;
-    client
-        .call(2, "run.start", &json!({ "run_id": "arming" }))
-        .await;
-    let session = client
-        .call(
-            3,
-            "run.new_session",
-            &json!({ "run_id": "arming", "source": { "kind": "cdp_url", "url": cdp_url } }),
-        )
-        .await;
-    let opened = client
-        .call(
-            4,
-            "session.new_page",
-            &json!({ "session_id": session["session_id"] }),
-        )
-        .await;
-    let page = &opened["page_id"];
-    let listens = request(
+/// The `page.on` that turns `Runtime` on, on the page `page`, as the call 5.
+fn listens(page: &Value) -> Value {
+    request(
         5,
         "page.on",
         &json!({ "page_id": page, "event": "console" }),
-    );
-    let evaluates = request(
-        6,
-        "page.evaluate",
-        &json!({ "page_id": page, "function": SCRIPT }),
-    );
-    match behind {
-        Behind::TheCall => client.write(&[listens, evaluates]).await,
-        Behind::ACancelThenTheCall => {
-            let cancels = json!({ "jsonrpc": "2.0", "method": "$/cancel", "params": { "id": 5 } });
-            client.write(&[listens, cancels, evaluates]).await;
-        }
-    }
-    // Whatever it answers: only when its command came is under test.
-    client.answer(6).await;
-    client
-        .writer
-        .shutdown()
-        .await
-        .expect("invariant: in memory");
-    while let Ok(Some(_)) = client.lines.next_line().await {}
+    )
 }
 
-/// Runs [`program`] on an engine in the home `home`, against [`browser`]:
-/// what the browser heard.
-async fn heard_behind_a_listener(home: &Path, behind: Behind) -> Vec<&'static str> {
+/// Runs `program` on an engine in `env`'s Goodfetch home, against a real browser
+/// behind a relay that holds `Runtime.enable`'s answer for `hold`: what the
+/// relay saw, and what the program answered. The program takes the relay's
+/// address, and the address of a site that never answers.
+async fn behind_a_relay<T>(
+    env: &TestEnv,
+    hold: Duration,
+    program: impl AsyncFnOnce(&mut Client, String, u16) -> T,
+) -> (Relayed, T) {
+    let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
+    let profile = env.folder().join("relayed-browser-profile");
+    let mut command = env.process_command(chrome_for_testing(&cache));
+    command
+        .args(chromium_background_traffic_off())
+        .args([
+            "--headless",
+            "--no-first-run",
+            "--use-mock-keychain",
+            "--password-store=basic",
+            "--remote-debugging-port=0",
+            "--host-resolver-rules=MAP * 127.0.0.1",
+        ])
+        .arg(format!("--user-data-dir={}", profile.display()))
+        .arg("about:blank")
+        .stderr(Stdio::null());
+    let process = env.spawn(&mut command).expect("the browser starts");
+    let port = reported_debugging_port(&profile);
+    let reported = std::fs::read_to_string(profile.join("DevToolsActivePort"))
+        .expect("invariant: it reported its port there");
+    let path = reported
+        .lines()
+        .nth(1)
+        .expect("invariant: its second line is the browser's path");
+    let browser = format!("ws://127.0.0.1:{port}{path}");
+
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("invariant: loopback binds");
     let address = listener.local_addr().expect("invariant: it is bound");
-    let cdp_url = format!("ws://{address}/devtools/browser/scripted");
+    let cdp_url = format!("ws://{address}/devtools/browser/relayed");
+    // It takes connections and never reads them, so a document it is asked
+    // for never comes.
+    let silent = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("invariant: loopback binds");
+    let silent_port = silent.local_addr().expect("invariant: it is bound").port();
     let (network, dialer) = transport::in_memory();
     let client = async {
         let (reader, writer) = dialer
@@ -284,7 +324,7 @@ async fn heard_behind_a_listener(home: &Path, behind: Behind) -> Vec<&'static st
             lines: BufReader::new(reader).lines(),
             writer,
         };
-        program(&mut client, &cdp_url, behind).await;
+        program(&mut client, cdp_url, silent_port).await
     };
     let identity = Identity {
         product: Product::Collie,
@@ -304,7 +344,7 @@ async fn heard_behind_a_listener(home: &Path, behind: Behind) -> Vec<&'static st
     let dependencies = Dependencies {
         environment: BTreeMap::new(),
         keychain: goodfetch_engine::secrets::Keychain::absent(),
-        home: Home::new(home.to_owned()),
+        home: Home::new(env.home().to_owned()),
         clock: Clock::system(),
         entropy: Entropy::seeded(2224),
         blocking: BlockingPolicy::Inline,
@@ -312,13 +352,32 @@ async fn heard_behind_a_listener(home: &Path, behind: Behind) -> Vec<&'static st
         run_state: RunStateOptions::default(),
         politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
     };
-    let (ended, (), heard) = tokio::join!(
+    let (ended, answered, relayed) = tokio::join!(
         engine.run_attached(Network::InMemory(network), dependencies),
         client,
-        browser(listener),
+        relay(listener, browser, hold),
     );
     ended.expect("invariant: the engine got its Connection");
-    heard
+    process.terminate().expect("the browser stops");
+    let _ = process.child().wait();
+    (relayed, answered)
+}
+
+/// A runtime for one test, on real time, as the browser answers.
+fn runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("invariant: the runtime starts")
+}
+
+/// What the Client sends behind `page.on`, in one write with it.
+#[derive(Clone, Copy)]
+enum Behind {
+    /// Only its next call on the page.
+    TheCall,
+    /// The cancel of that `page.on`, then its next call on the page.
+    ACancelThenTheCall,
 }
 
 /// The Client's next call on a page waits for the browser's answer to the
@@ -331,13 +390,170 @@ async fn heard_behind_a_listener(home: &Path, behind: Behind) -> Vec<&'static st
 #[case::while_it_listens(Behind::TheCall)]
 #[case::once_cancelled(Behind::ACancelThenTheCall)]
 fn a_call_after_a_listener_acts_once_the_browser_answered_runtime_enable(#[case] behind: Behind) {
-    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("invariant: the runtime starts");
+    let env = TestEnv::new();
 
-    let heard = runtime.block_on(heard_behind_a_listener(home.path(), behind));
+    let (relayed, ()) =
+        runtime().block_on(behind_a_relay(&env, HOLD, async |client, cdp_url, _| {
+            let page = client.page(&cdp_url, &json!({})).await;
+            let evaluates = request(
+                6,
+                "page.evaluate",
+                &json!({ "page_id": page, "function": SCRIPT }),
+            );
+            match behind {
+                Behind::TheCall => client.write(&[listens(&page), evaluates]).await,
+                Behind::ACancelThenTheCall => {
+                    let cancels =
+                        json!({ "jsonrpc": "2.0", "method": "$/cancel", "params": { "id": 5 } });
+                    client.write(&[listens(&page), cancels, evaluates]).await;
+                }
+            }
+            // Whatever it answers: only when its command came is under test.
+            client.answer(6).await;
+            client.leave().await;
+        }));
 
-    assert_eq!(heard, [ENABLE, ANSWERED, CALL]);
+    assert_eq!(relayed.heard, [ENABLE, ANSWERED, CALL]);
+}
+
+/// A call whose own limit passes while its page's `Runtime` is still turning
+/// on raises `deadline_exceeded` naming that limit, what it waited for being
+/// the browser's answer, and never reaches the page: the limit a program set
+/// is the one that holds.
+/// Covers: operation:page.on, operation:page.evaluate, operation:page.goto, operation:page.wait_for_function, operation:locator.click, operation:locator.wait_for, error:deadline_exceeded
+#[rstest]
+#[case::evaluate(
+    "page.evaluate",
+    json!({ "function": SCRIPT }),
+    json!({ "timeout": { "action": SHORT_LIMIT } }),
+    "timeout.action"
+)]
+#[case::locator_action(
+    "locator.click",
+    json!({ "locator": { "selector": "#missing" } }),
+    json!({ "timeout": { "action": SHORT_LIMIT } }),
+    "timeout.action"
+)]
+#[case::wait_for_function(
+    "page.wait_for_function",
+    json!({ "function": SCRIPT, "timeout": SHORT_LIMIT }),
+    json!({}),
+    "timeout.wait"
+)]
+#[case::wait_on_a_locator(
+    "locator.wait_for",
+    json!({ "locator": { "selector": "#missing" }, "timeout": SHORT_LIMIT }),
+    json!({}),
+    "timeout.wait"
+)]
+#[case::navigation(
+    "page.goto",
+    json!({ "url": "about:blank", "timeout": SHORT_LIMIT }),
+    json!({}),
+    "timeout.navigation"
+)]
+fn a_calls_limit_holds_while_its_page_turns_runtime_on(
+    #[case] method: &str,
+    #[case] params: Value,
+    #[case] settings: Value,
+    #[case] limit: &str,
+) {
+    let env = TestEnv::new();
+
+    let (relayed, answer) = runtime().block_on(behind_a_relay(
+        &env,
+        LONG_HOLD,
+        async |client, cdp_url, _| {
+            let page = client.page(&cdp_url, &settings).await;
+            let call = request(6, method, &on_page(&params, &page));
+            client.write(&[listens(&page), call]).await;
+            let answer = client.answer(6).await;
+            client.leave().await;
+            answer
+        },
+    ));
+
+    let data = &answer["error"]["data"];
+    assert_eq!(
+        (
+            &data["code"],
+            &data["limit"]["key"],
+            &data["waited_for"],
+            relayed.heard,
+        ),
+        (
+            &json!("deadline_exceeded"),
+            &json!(limit),
+            &json!("browser_answer"),
+            vec![ENABLE],
+        ),
+        "{answer}"
+    );
+}
+
+/// What a call spends waiting for its page's `Runtime` comes off what its work
+/// may take: its deadline passes `LIMIT` after it arrived, not after the
+/// browser answered, and the time it reports counts the wait.
+/// Covers: operation:page.on, operation:page.goto, operation:page.wait_for_function, operation:locator.click, operation:locator.wait_for, error:deadline_exceeded
+#[rstest]
+#[case::locator_action(
+    "locator.click",
+    json!({ "locator": { "selector": "#missing" } }),
+    json!({ "timeout": { "action": LIMIT } })
+)]
+#[case::wait_for_function(
+    "page.wait_for_function",
+    json!({ "function": "() => false", "timeout": LIMIT }),
+    json!({})
+)]
+#[case::wait_on_a_locator(
+    "locator.wait_for",
+    json!({ "locator": { "selector": "#missing" }, "timeout": LIMIT }),
+    json!({})
+)]
+#[case::navigation(
+    "page.goto",
+    json!({ "timeout": LIMIT }),
+    json!({ "network": { "resolve": { "site.test": ["93.184.215.14"] } } })
+)]
+fn a_calls_limit_counts_its_wait_for_runtime(
+    #[case] method: &str,
+    #[case] params: Value,
+    #[case] settings: Value,
+) {
+    let env = TestEnv::new();
+
+    let (relayed, (answer, answered)) = runtime().block_on(behind_a_relay(
+        &env,
+        SPENT_HOLD,
+        async |client, cdp_url, silent_port| {
+            let page = client.page(&cdp_url, &settings).await;
+            let mut params = on_page(&params, &page);
+            if method == "page.goto" {
+                params["url"] = json!(format!("http://site.test:{silent_port}/"));
+            }
+            client
+                .write(&[listens(&page), request(6, method, &params)])
+                .await;
+            let answer = client.answer(6).await;
+            let answered = Instant::now();
+            client.leave().await;
+            (answer, answered)
+        },
+    ));
+
+    let released = relayed.released.expect("the relay let the answer go");
+    let data = &answer["error"]["data"];
+    let elapsed = data["elapsed"]
+        .as_u64()
+        .unwrap_or_else(|| panic!("{answer}"));
+    assert_eq!(
+        (
+            &data["code"],
+            elapsed >= LIMIT,
+            answered.duration_since(released) < Duration::from_millis(LIMIT),
+        ),
+        (&json!("deadline_exceeded"), true, true),
+        "{answer}"
+    );
 }

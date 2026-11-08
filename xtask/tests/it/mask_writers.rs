@@ -14,6 +14,9 @@ const WRITER: &str = "crates/goodfetch-engine/src/report.rs";
 const ONE_WRITE: &str =
     "fn keep(path: &Path) {\n    std::fs::write(path, \"report\").unwrap();\n}\n";
 
+/// A file that writes two wholes.
+const TWO_WRITES: &str = "fn keep(path: &Path) {\n    std::fs::write(path, \"report\").unwrap();\n    std::fs::write(path, \"again\").unwrap();\n}\n";
+
 /// A list holding `path`, whose `count` writers hold no value.
 fn listing(path: &str, count: usize) -> String {
     format!("[[writer]]\npath = \"{path}\"\ncount = {count}\nhow = \"holds no value: a report\"\n")
@@ -43,8 +46,23 @@ fn a_writer_the_list_does_not_hold_fails() {
     assert_eq!(outcome.code, 1);
 }
 
+/// A new writer in a file the list already holds, which is the one a count
+/// alone can see.
 #[test]
 fn a_file_with_more_writers_than_the_list_says_fails() {
+    let workspace = workspace(&listing(WRITER, 1), &[(WRITER, TWO_WRITES)]);
+
+    let outcome = workspace.xtask(&["mask-writers"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("mask-writer-count", WRITER)]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn a_file_with_fewer_writers_than_the_list_says_fails() {
     let workspace = workspace(&listing(WRITER, 2), &[(WRITER, ONE_WRITE)]);
 
     let outcome = workspace.xtask(&["mask-writers"]);

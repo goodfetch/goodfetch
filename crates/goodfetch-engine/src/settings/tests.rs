@@ -9,8 +9,6 @@ use std::time::Duration;
 
 use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::foxhound::frontier::CRAWL_MAX_REQUESTS;
-use goodfetch_protocol::foxhound::settings::PROVENANCE_LOG;
 use goodfetch_protocol::secrets::RUN_STATE_KEY_REFERENCE;
 use goodfetch_protocol::settings::{
     Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsLayer, TIMEOUT_NAVIGATION,
@@ -217,13 +215,15 @@ fn a_setting_reads_as_its_kind_and_a_cleared_one_as_none() {
 #[test]
 fn a_key_the_runs_product_does_not_honour_reads_as_its_catalog_default() {
     let collie = resolve(&Layers::default(), Product::Collie, Product::Collie).unwrap();
+    let provenance_log = super::setting("provenance.log").unwrap();
+    let max_requests = super::setting("crawl.max_requests").unwrap();
 
     assert_eq!(
         (
-            collie.effective(&PROVENANCE_LOG).is_none(),
-            collie.get::<bool>(&PROVENANCE_LOG),
-            collie.get::<Option<u64>>(&CRAWL_MAX_REQUESTS),
-            get_or_default::<bool>(None, &PROVENANCE_LOG),
+            collie.effective(provenance_log).is_none(),
+            collie.get::<bool>(provenance_log),
+            collie.get::<Option<u64>>(max_requests),
+            get_or_default::<bool>(None, provenance_log),
         ),
         (true, true, None, true)
     );

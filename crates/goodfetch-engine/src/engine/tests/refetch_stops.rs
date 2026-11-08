@@ -21,6 +21,7 @@
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
+use goodfetch_protocol::home::{OPERATOR_POLICY_FILE, USER_CONFIGURATION_FILE};
 use goodfetch_protocol::run::RunId;
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
@@ -30,7 +31,7 @@ use super::consent_walls::{audit_entries, configure, opened, unrecordable, write
 use super::disk_view::DiskView;
 use super::needs_you::{Seen, listed};
 use super::run::call;
-use super::{Client, attached_on, engine_with};
+use super::{Client, attached_on, engine_with, per_major};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Engine;
@@ -84,7 +85,7 @@ fn stopping_engine(env: &TestEnv) -> Engine {
 
 /// The machine's settings files, by name in the per-major folder.
 fn file(env: &TestEnv, name: &str) -> String {
-    env.home().join("1").join(name).display().to_string()
+    per_major(env).join(name).display().to_string()
 }
 
 /// Starts the Run `stopped`, with `project` as its project configuration
@@ -164,15 +165,15 @@ const ANSWERS: [&str; 3] = [
     "wall.refetch_domains = [\"other.test\", \"walled.test\"]\n",
     "",
     false,
-    Some(("user_configuration", "configuration.toml", false)),
+    Some(("user_configuration", USER_CONFIGURATION_FILE, false)),
 )]
 #[case::listed_in_the_operator_policy(
     "",
     "version = \"0.1\"\n\n[settings]\nwall.refetch_domains = [\"walled.test\"]\n",
     false,
-    Some(("operator_policy", "operator-policy.toml", false)),
+    Some(("operator_policy", OPERATOR_POLICY_FILE, false)),
 )]
-#[case::covered_only_by_a_star("wall.refetch_domains = [\"*\"]\n", "", false, Some(("user_configuration", "configuration.toml", true)))]
+#[case::covered_only_by_a_star("wall.refetch_domains = [\"*\"]\n", "", false, Some(("user_configuration", USER_CONFIGURATION_FILE, true)))]
 #[case::listed_in_project_configuration("", "", true, Some(("project_configuration", "", false)))]
 #[case::listed_nowhere_any_more("wall.refetch_domains = [\"other.test\"]\n", "", false, None)]
 /// Covers: setting:wall.denied_domains
@@ -191,7 +192,7 @@ fn a_stopped_refetch_is_listed_with_the_layer_that_lists_its_domain(
     let env = TestEnv::new();
     configure(&env, configuration);
     if !policy.is_empty() {
-        write(&env, "operator-policy.toml", policy);
+        write(&env, OPERATOR_POLICY_FILE, policy);
     }
     let project = in_project.then(|| project(&env));
     let project_file = project
@@ -313,19 +314,19 @@ async fn answered(mut client: Client, method: String, params: Value) -> (Value, 
     "wall.refetch_domains = [\"other.test\", \"walled.test\"]\n",
     "",
     json!(null),
-    ("configuration.toml", "user_configuration", json!(["other.test"])),
+    (USER_CONFIGURATION_FILE, "user_configuration", json!(["other.test"])),
 )]
 #[case::from_the_operator_policy(
     "",
     "version = \"0.1\"\n\n[settings]\nwall.refetch_domains = [\"walled.test\", \"other.test\"]\n",
     json!(null),
-    ("operator-policy.toml", "operator_policy", json!(["other.test"])),
+    (OPERATOR_POLICY_FILE, "operator_policy", json!(["other.test"])),
 )]
 #[case::a_star_replaced_by_a_list(
     "wall.refetch_domains = [\"*\"]\n",
     "",
     json!(["other.test", "third.test"]),
-    ("configuration.toml", "user_configuration", json!(["other.test", "third.test"])),
+    (USER_CONFIGURATION_FILE, "user_configuration", json!(["other.test", "third.test"])),
 )]
 fn removal_edits_the_layer_that_lists_the_domain(
     #[case] configuration: &str,
@@ -336,7 +337,7 @@ fn removal_edits_the_layer_that_lists_the_domain(
     let env = TestEnv::new();
     configure(&env, configuration);
     if !policy.is_empty() {
-        write(&env, "operator-policy.toml", policy);
+        write(&env, OPERATOR_POLICY_FILE, policy);
     }
     let mut params = json!({ "domain": STOPPED });
     if !instead.is_null() {
@@ -404,7 +405,7 @@ fn denial_writes_wall_denied_domains_with_its_reason() {
         )
     });
 
-    let written = std::fs::read_to_string(file(&env, "operator-policy.toml")).unwrap();
+    let written = std::fs::read_to_string(file(&env, OPERATOR_POLICY_FILE)).unwrap();
     let entries = audit_entries(&env);
     assert_eq!(
         (
@@ -488,10 +489,10 @@ fn an_answer_no_person_may_give_is_refused_and_writes_nothing(
     let env = TestEnv::new();
     configure(&env, configuration);
     if !policy.is_empty() {
-        write(&env, "operator-policy.toml", policy);
+        write(&env, OPERATOR_POLICY_FILE, policy);
     }
     let files = || {
-        ["configuration.toml", "operator-policy.toml"]
+        [USER_CONFIGURATION_FILE, OPERATOR_POLICY_FILE]
             .map(|name| std::fs::read_to_string(file(&env, name)).ok())
     };
     let before = files();
@@ -552,7 +553,7 @@ fn a_removal_the_audit_log_cannot_record_is_written_and_says_so() {
     assert_eq!(
         (
             &answer["error"]["code"],
-            std::fs::read_to_string(file(&env, "configuration.toml"))
+            std::fs::read_to_string(file(&env, USER_CONFIGURATION_FILE))
                 .unwrap()
                 .contains("refetch_domains = [\"other.test\"]"),
         ),

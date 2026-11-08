@@ -24,25 +24,27 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::home::{OPERATOR_POLICY_FILE, USER_CONFIGURATION_FILE};
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::consent_walls::{audit_entries, unrecordable};
 use super::run::call;
-use super::{Client, attached_on, engine_with};
+use super::{Client, attached_on, engine_with, per_major};
+use crate::settings_editor::LOCK_FILE;
 
 const POLICY: &str =
     "# Kept by the platform team.\nversion = \"0.1\"\n\n[cap.timeout]\nrun = 900000\n";
 
 /// The per-major folder's `file`.
 fn file(env: &TestEnv, file: &str) -> std::path::PathBuf {
-    env.home().join("1").join(file)
+    per_major(env).join(file)
 }
 
 /// Writes `text` as `name` of the test home's per-major folder.
 fn write(env: &TestEnv, name: &str, text: &str) {
-    std::fs::create_dir_all(env.home().join("1")).unwrap();
+    std::fs::create_dir_all(per_major(env)).unwrap();
     std::fs::write(file(env, name), text).unwrap();
 }
 
@@ -102,7 +104,7 @@ async fn read_write_read(mut client: Client, edit: impl FnOnce()) -> [Value; 3] 
 #[test]
 fn a_policy_write_with_the_digest_read_writes_atomically_with_a_diff_in_the_audit_log() {
     let env = TestEnv::new();
-    write(&env, "operator-policy.toml", POLICY);
+    write(&env, OPERATOR_POLICY_FILE, POLICY);
 
     let [read, written, again] = attached_on(&engine_with(Product::Collie, None), &env, |client| {
         read_write_read(client, || {})
@@ -117,7 +119,7 @@ fn a_policy_write_with_the_digest_read_writes_atomically_with_a_diff_in_the_audi
         (
             &read["result"]["entries"],
             &written["result"]["diff"],
-            std::fs::read_to_string(file(&env, "operator-policy.toml")).unwrap(),
+            std::fs::read_to_string(file(&env, OPERATOR_POLICY_FILE)).unwrap(),
             recorded(&env, "operator_policy_written"),
             &again["result"]["digest"],
             &again["result"]["entries"],
@@ -149,11 +151,11 @@ fn a_policy_write_with_the_digest_read_writes_atomically_with_a_diff_in_the_audi
 #[test]
 fn a_policy_write_with_a_stale_digest_is_a_policy_conflict_and_changes_nothing() {
     let env = TestEnv::new();
-    write(&env, "operator-policy.toml", POLICY);
+    write(&env, OPERATOR_POLICY_FILE, POLICY);
     let hand_edit = "version = \"0.1\"\n\n[cap.timeout]\nrun = 300000\n";
 
     let [read, written, _] = attached_on(&engine_with(Product::Collie, None), &env, |client| {
-        read_write_read(client, || write(&env, "operator-policy.toml", hand_edit))
+        read_write_read(client, || write(&env, OPERATOR_POLICY_FILE, hand_edit))
     });
 
     assert_eq!(
@@ -164,7 +166,7 @@ fn a_policy_write_with_a_stale_digest_is_a_policy_conflict_and_changes_nothing()
                 .as_str()
                 .unwrap()
                 .contains("config.policy_read"),
-            std::fs::read_to_string(file(&env, "operator-policy.toml")).unwrap(),
+            std::fs::read_to_string(file(&env, OPERATOR_POLICY_FILE)).unwrap(),
             recorded(&env, "operator_policy_written"),
         ),
         (
@@ -187,7 +189,7 @@ fn a_policy_write_with_a_stale_digest_is_a_policy_conflict_and_changes_nothing()
 #[test]
 fn a_policy_write_sent_again_after_it_was_made_answers_as_written() {
     let env = TestEnv::new();
-    write(&env, "operator-policy.toml", POLICY);
+    write(&env, OPERATOR_POLICY_FILE, POLICY);
 
     let [first, again] = attached_on(
         &engine_with(Product::Collie, None),
@@ -205,7 +207,7 @@ fn a_policy_write_sent_again_after_it_was_made_answers_as_written() {
         },
     );
 
-    let written = std::fs::read_to_string(file(&env, "operator-policy.toml")).unwrap();
+    let written = std::fs::read_to_string(file(&env, OPERATOR_POLICY_FILE)).unwrap();
     assert_eq!(
         (
             &again["result"]["digest"],
@@ -228,7 +230,7 @@ fn a_user_level_value_written_takes_effect_and_a_locked_one_is_refused() {
     let env = TestEnv::new();
     write(
         &env,
-        "operator-policy.toml",
+        OPERATOR_POLICY_FILE,
         "version = \"0.1\"\n\n[lock.timeout]\nrun = 600000\n",
     );
 
@@ -282,7 +284,7 @@ fn a_user_level_value_written_takes_effect_and_a_locked_one_is_refused() {
             &written["result"]["diff"],
             &locked["error"]["data"]["code"],
             shown,
-            std::fs::read_to_string(file(&env, "configuration.toml")).unwrap(),
+            std::fs::read_to_string(file(&env, USER_CONFIGURATION_FILE)).unwrap(),
             recorded(&env, "user_configuration_written").len(),
         ),
         (
@@ -368,7 +370,7 @@ fn a_policy_write_from_an_sdk_is_refused() {
     assert_eq!(
         (
             written["result"].is_null(),
-            file(&env, "operator-policy.toml").exists()
+            file(&env, OPERATOR_POLICY_FILE).exists()
         ),
         (true, false)
     );
@@ -414,7 +416,7 @@ fn a_policy_write_with_no_changes_writes_the_file_its_digest_names() {
         (
             emptied["error"].clone(),
             next["error"].clone(),
-            file(&env, "operator-policy.toml").exists()
+            file(&env, OPERATOR_POLICY_FILE).exists()
         ),
         (Value::Null, Value::Null, true),
         "{emptied} {next}"
@@ -450,7 +452,7 @@ fn a_write_the_audit_log_cannot_record_is_made_and_says_so() {
     assert_eq!(
         (
             &written["error"]["code"],
-            std::fs::read_to_string(file(&env, "configuration.toml"))
+            std::fs::read_to_string(file(&env, USER_CONFIGURATION_FILE))
                 .unwrap()
                 .contains("navigation = 45000"),
         ),
@@ -482,7 +484,7 @@ impl OtherWriter {
         let (held, holds) = mpsc::channel();
         let (answered, waits) = mpsc::channel::<()>();
         let thread = std::thread::spawn(move || {
-            let lock = std::fs::File::create(path.with_file_name("operator-policy.lock")).unwrap();
+            let lock = std::fs::File::create(path.with_file_name(LOCK_FILE)).unwrap();
             lock.lock().unwrap();
             let read = std::fs::read_to_string(&path).unwrap();
             held.send(()).unwrap();
@@ -530,7 +532,7 @@ fn values_at(text: &str, paths: &[&str]) -> Vec<Value> {
 #[rstest]
 /// Covers: operation:needs_you.deny_wall_domain
 #[case::a_wall_domain_denied(
-    "operator-policy.toml",
+    OPERATOR_POLICY_FILE,
     POLICY,
     ("run = 900000", "run = 600000"),
     "needs_you.deny_wall_domain",
@@ -540,7 +542,7 @@ fn values_at(text: &str, paths: &[&str]) -> Vec<Value> {
 )]
 /// Covers: operation:needs_you.allow_consent_domain
 #[case::a_consent_domain_allowed(
-    "configuration.toml",
+    USER_CONFIGURATION_FILE,
     CONFIGURATION,
     ("= 20000", "= 30000"),
     "needs_you.allow_consent_domain",
@@ -550,7 +552,7 @@ fn values_at(text: &str, paths: &[&str]) -> Vec<Value> {
 )]
 /// Covers: operation:config.user_write
 #[case::a_user_level_value_written(
-    "configuration.toml",
+    USER_CONFIGURATION_FILE,
     CONFIGURATION,
     ("= 20000", "= 30000"),
     "config.user_write",

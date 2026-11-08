@@ -8,12 +8,11 @@
 //! to the authorities `tls.trusted_cas` lists for its own domain, and no
 //! exception of `tls.accept_invalid_certs` lets an invalid one through.
 
-use goodfetch_protocol::egress::ConfiguredKind;
 use hyper::body::Bytes;
 use hyper::{Request, Response};
 
 use crate::clock::Clock;
-use crate::egress::Refused;
+use crate::egress::{ConfiguredKind, Refused};
 use crate::http_client::{EndpointSettings, WholeFailure};
 use crate::settings::Resolved;
 

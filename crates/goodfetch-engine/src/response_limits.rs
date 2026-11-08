@@ -30,12 +30,15 @@ use std::io::{self, Write};
 use goodfetch_protocol::response_limits::{
     DEFAULT_MAX_BODY_SIZE, DEFAULT_MAX_DECOMPRESSION_RATIO, DEFAULT_MAX_JSON_DEPTH, LimitSetting,
     MAX_JSON_DEPTH_CEILING, NETWORK_MAX_BODY_SIZE, NETWORK_MAX_DECOMPRESSION_RATIO,
-    NETWORK_MAX_JSON_DEPTH, RATIO_APPLIES_PAST, RESPONSE_LIMIT_EXCEEDED,
-    ResponseLimitExceededDetails,
+    NETWORK_MAX_JSON_DEPTH, RESPONSE_LIMIT_EXCEEDED, ResponseLimitExceededDetails,
 };
 
 use crate::call_error::CallError;
 use crate::settings::Resolved;
+
+/// The decoded size past which `network.max_decompression_ratio` applies:
+/// 1 MiB.
+const RATIO_APPLIES_PAST: u64 = 1024 * 1024;
 
 /// The largest window, as a power of two, a zstd frame may ask for: 8 MiB
 /// (RFC 9659, and Chromium's `windowLogMax`).

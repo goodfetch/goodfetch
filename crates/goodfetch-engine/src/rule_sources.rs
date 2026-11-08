@@ -10,12 +10,11 @@
 //! request's own headers, such as a registry's token, go only to the host
 //! they were meant for. The body is read whole, up to the caller's limit.
 
-use goodfetch_protocol::egress::ConfiguredKind;
 use http_body_util::Empty;
 use hyper::body::Bytes;
 use hyper::{Request, StatusCode, Uri};
 
-use crate::egress::Refused;
+use crate::egress::{ConfiguredKind, Refused};
 use crate::http_client::{self, ConfiguredEndpoint, EndpointFailure};
 use crate::pinned_download::{Fetching, USER_AGENT};
 use crate::tls::Trust;

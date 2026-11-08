@@ -1,7 +1,7 @@
 //! IANA's IPv4 and IPv6 special-purpose address registries as a table, the
 //! source of the resolved-address classification (ADRs 0017 and 0067).
-//! `xtask codegen` writes [`BLOCKS`] from the registries committed in
-//! `iana/` with their date, and fails when the two drift apart.
+//! `xtask codegen` writes [`BLOCKS`] from the registries this crate commits
+//! in `iana/` with their date, and fails when the two drift apart.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -49,4 +49,4 @@ pub struct Registry {
     pub committed: &'static str,
 }
 
-include!("../generated/special_purpose.rs");
+include!("../../generated/special_purpose.rs");

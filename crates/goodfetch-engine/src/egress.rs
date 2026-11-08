@@ -51,12 +51,15 @@ use crate::settings::{HostEntry, Resolved, without_root};
 
 mod address;
 mod cdp_url;
+mod configured_kinds;
 mod proxy_script;
+pub mod special_purpose;
 
 pub use address::{AddressClass, classify, classify_socket};
 pub use cdp_url::{
     BrowserLocation, CdpUrlOrigin, CdpUrlRefused, cdp_url_address, judge_cdp_url, judge_unresolved,
 };
+pub use configured_kinds::{CONFIGURED_KINDS, ConfiguredKind, ConfiguredKindClass, EgressClass};
 
 #[cfg(test)]
 mod tests;

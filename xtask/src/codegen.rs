@@ -21,7 +21,7 @@
 //! written from its one source in Rust for test support, `xtask` and the
 //! TypeScript and Python helpers.
 //! It writes the resolved-address classification's table into
-//! `goodfetch-protocol`, from IANA's special-purpose registries committed
+//! `goodfetch-engine`, from IANA's special-purpose registries committed
 //! beside it with their date (ADR 0067), and the label values of
 //! `goodfetch.counted_work`, from `goodfetch-counted-work`'s rows (ADR 0140).
 //!

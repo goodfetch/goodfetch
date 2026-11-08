@@ -2,9 +2,10 @@
 //! read-only SQL query over the runs a person selects, each run's tables
 //! registered as table functions that read its run file, with external
 //! access off, time, memory and row limits, and secret fields never
-//! columns; the tables a query can read, with their columns' types; and
-//! its Error codes and settings. Foxhound's own; a catalog read every
-//! surface offers.
+//! columns; and its Error codes and settings. Foxhound's own; a catalog
+//! read every surface offers. The tables a query can read, with their
+//! columns' types, are `goodfetch-dataset`'s, which writes the run file
+//! they read.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -21,85 +22,6 @@ const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
 /// The most runs one query selects.
 pub const MAX_RUNS: usize = 100;
-
-/// The type of a column of a run table, as a query reads it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ColumnType {
-    /// Text, `VARCHAR`.
-    Text,
-    /// A whole number, `BIGINT`.
-    Integer,
-    /// A JSON value as its text, `VARCHAR`, which DuckDB's JSON functions
-    /// read.
-    Json,
-}
-
-/// One column of a run table.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RunColumn {
-    /// Its name.
-    pub name: &'static str,
-    /// Its type.
-    pub column_type: ColumnType,
-}
-
-/// A run table a query reads, as the table function of its name, which
-/// takes a selected run's Run ID: `records('my-run')`. Its columns are the
-/// only fields of the run file it reads; no secret field is one (ADR 0057).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RunTable {
-    /// Its name, the table function's.
-    pub name: &'static str,
-    /// Its columns, in order; the first is always `run`, the Run ID.
-    pub columns: &'static [RunColumn],
-}
-
-const fn column(name: &'static str, column_type: ColumnType) -> RunColumn {
-    RunColumn { name, column_type }
-}
-
-/// Each Dataset's committed Records, as `run.records` reads them.
-pub const RECORDS: RunTable = RunTable {
-    name: "records",
-    columns: &[
-        column("run", ColumnType::Text),
-        column("dataset", ColumnType::Text),
-        column("number", ColumnType::Integer),
-        column("value", ColumnType::Json),
-        column("request_id", ColumnType::Text),
-        column("url", ColumnType::Text),
-        column("committed_at", ColumnType::Text),
-        column("provenance", ColumnType::Json),
-    ],
-};
-
-/// Each Dataset's rejected Records, as `run.rejected_records` reads them.
-pub const REJECTED_RECORDS: RunTable = RunTable {
-    name: "rejected_records",
-    columns: &[
-        column("run", ColumnType::Text),
-        column("dataset", ColumnType::Text),
-        column("number", ColumnType::Integer),
-        column("data", ColumnType::Json),
-        column("request_id", ColumnType::Text),
-        column("rejection", ColumnType::Json),
-    ],
-};
-
-/// The Datasets a crawl declares.
-pub const DATASETS: RunTable = RunTable {
-    name: "datasets",
-    columns: &[
-        column("run", ColumnType::Text),
-        column("name", ColumnType::Text),
-        column("position", ColumnType::Integer),
-        column("schema", ColumnType::Json),
-        column("key", ColumnType::Json),
-    ],
-};
-
-/// Every run table a query reads.
-pub const RUN_TABLES: [RunTable; 3] = [RECORDS, REJECTED_RECORDS, DATASETS];
 
 /// What `dataset.query` takes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

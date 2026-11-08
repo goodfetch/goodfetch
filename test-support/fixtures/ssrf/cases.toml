@@ -2,7 +2,7 @@
 # through `goodfetch-test-support`'s `SsrfTable::committed()` and
 # `run_cases`. Its format is `SsrfTable`, whose JSON Schema `xtask codegen`
 # commits as `../schemas/ssrf-cases.schema.json`. The Quick suite fails when a
-# block of the IANA registries (`crates/goodfetch-protocol/iana/`) that is not
+# block of the IANA registries (`crates/goodfetch-engine/iana/`) that is not
 # globally reachable has no case, when a case names an unknown family or block, or
 # when two cases share a name.
 #

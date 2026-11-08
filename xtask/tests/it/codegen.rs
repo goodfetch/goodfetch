@@ -1114,11 +1114,11 @@ fn check_fails_on_a_stale_license_list() {
 }
 
 /// IANA's IPv4 special-purpose registry and the classification table
-/// `xtask codegen` writes from it into `goodfetch-protocol` (ADR 0067).
-const IPV4_REGISTRY: &str = "crates/goodfetch-protocol/iana/iana-ipv4-special-registry-1.csv";
+/// `xtask codegen` writes from it into `goodfetch-engine` (ADR 0067).
+const IPV4_REGISTRY: &str = "crates/goodfetch-engine/iana/iana-ipv4-special-registry-1.csv";
 const IPV4_REGISTRY_SOURCE: &str =
-    "crates/goodfetch-protocol/iana/iana-ipv4-special-registry-1.source.toml";
-const SPECIAL_PURPOSE_TABLE: &str = "crates/goodfetch-protocol/generated/special_purpose.rs";
+    "crates/goodfetch-engine/iana/iana-ipv4-special-registry-1.source.toml";
+const SPECIAL_PURPOSE_TABLE: &str = "crates/goodfetch-engine/generated/special_purpose.rs";
 
 /// Covers: story:4-8
 #[rstest]

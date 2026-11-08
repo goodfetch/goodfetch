@@ -9,6 +9,6 @@ registry_updated = "2025-10-09"
 date = "2026-10-19"
 sha256 = "cbc4b7653c8bc640ba1e8e5d4ebbf11e7c7a1d867e7f1593aad001d3f8632aac"
 command = """
-curl -sS -o crates/goodfetch-protocol/iana/iana-ipv4-special-registry-1.csv \
+curl -sS -o crates/goodfetch-engine/iana/iana-ipv4-special-registry-1.csv \
   https://www.iana.org/assignments/iana-ipv4-special-registry/iana-ipv4-special-registry-1.csv
 """

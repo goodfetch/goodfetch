@@ -9,7 +9,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6};
 
-use goodfetch_protocol::special_purpose::BLOCKS;
+use crate::egress::special_purpose::BLOCKS;
 use goodfetch_test_support::{Cidr, Reachability, SpecialPurposeBlock, SpecialPurposeRegistries};
 use proptest::prelude::*;
 use rstest::rstest;

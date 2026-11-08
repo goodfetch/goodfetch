@@ -40,7 +40,7 @@ pub use pipeline::write_export;
 pub use records::{Checked, Committing, Query, commit, read};
 pub use rejections::{Rejection, RequestUrl, fuzz_rejection};
 pub use resume::Began;
-pub use run_tables::{RUN_FILE_TABLES, RunFileTable};
+pub use run_tables::{ColumnType, RUN_FILE_TABLES, RunColumn, RunFileTable, RunTable};
 
 /// The tables of a crawl's Datasets in every run file: `datasets`, each
 /// declared Dataset in the order declared, with its JSON Schema and that

@@ -17,7 +17,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
-use goodfetch_protocol::special_purpose::{BLOCKS, Block};
+use super::special_purpose::{BLOCKS, Block};
 
 /// What an address is to a request a page makes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

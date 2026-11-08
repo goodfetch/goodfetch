@@ -1,4 +1,3 @@
-use goodfetch_protocol::foxhound::sql_tab::RUN_TABLES;
 use rusqlite::Connection;
 
 use super::RUN_FILE_TABLES;
@@ -22,13 +21,6 @@ fn columns_of(connection: &Connection, name: &str) -> Vec<String> {
         .unwrap()
         .collect::<Result<_, _>>()
         .unwrap()
-}
-
-#[test]
-fn every_run_table_the_sql_tab_reads_has_its_place_in_the_run_file_in_order() {
-    let served = RUN_FILE_TABLES.map(|table| table.run_table);
-
-    assert_eq!(served, RUN_TABLES);
 }
 
 #[test]

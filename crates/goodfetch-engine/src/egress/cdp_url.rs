@@ -13,13 +13,14 @@
 use std::net::{IpAddr, SocketAddr};
 
 use goodfetch_protocol::egress::{
-    CDP_URL_NOT_ALLOWED, CdpUrlNotAllowedDetails, CdpUrlRule, ConfiguredKind, EgressClass,
-    EgressRule,
+    CDP_URL_NOT_ALLOWED, CdpUrlNotAllowedDetails, CdpUrlRule, EgressRule,
 };
 use goodfetch_protocol::settings::{NETWORK_RESOLVE, SettingsLayer};
 use url::Url;
 
-use super::{EndpointPolicy, Policy, judge_endpoint_addresses, judge_reachable};
+use super::{
+    ConfiguredKind, EgressClass, EndpointPolicy, Policy, judge_endpoint_addresses, judge_reachable,
+};
 use crate::call_error::CallError;
 
 /// What `cdp_url_not_allowed` asks for: the layers whose value is

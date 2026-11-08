@@ -24,7 +24,7 @@ use goodfetch_protocol::needs_you::{
     CONSENT_DOMAIN_ALLOWED, ConsentDomainAllowed, NEEDS_YOU_ALLOW_CONSENT_DOMAIN,
     NEEDS_YOU_DENY_WALL_DOMAIN, NEEDS_YOU_DISMISS, NEEDS_YOU_LIST, NEEDS_YOU_REMOVE_REFETCH_DOMAIN,
     NeedsYouAllowConsentDomainParams, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList,
-    NeedsYouListParams, consent_domain_warning,
+    NeedsYouListParams,
 };
 use goodfetch_protocol::settings::{CONSENT_DOMAINS, SettingsLayer};
 use serde_json::{Value, json};
@@ -277,4 +277,17 @@ fn replace(path: &std::path::Path, text: &str) -> io::Result<()> {
         durable::create_folder(folder)?;
     }
     durable::replace(path, text.as_bytes())
+}
+
+/// What a person takes on by adding `domain`, or `*`, to `consent.domains`
+/// (ADRs 0048 and 0052), in the words the Console shows beside the answer
+/// and the Audit log records with it.
+fn consent_domain_warning(domain: &str) -> String {
+    if domain == "*" {
+        "Accepting consent walls on every domain gives consent in your name on every site that shows one: those sites may load their trackers and set their cookies, and under the GDPR that consent is yours. An Agent also no longer asks you before accepting a consent prompt on any domain. Every later run accepts them until you remove `*` from `consent.domains`.".to_owned()
+    } else {
+        format!(
+            "Accepting the consent walls of {domain} gives consent in your name: the site may load its trackers and set their cookies, and under the GDPR that consent is yours. Every later run accepts them until you remove {domain} from `consent.domains`."
+        )
+    }
 }

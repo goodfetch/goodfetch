@@ -24,8 +24,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use duckdb::Connection as Duckdb;
 use duckdb::core::{DataChunkHandle, Inserter as _, LogicalTypeHandle, LogicalTypeId};
 use duckdb::vtab::{BindInfo, InitInfo, TableFunctionInfo, VTab};
-use goodfetch_dataset::{RUN_FILE_TABLES, RunFileTable};
-use goodfetch_protocol::foxhound::sql_tab::ColumnType;
+use goodfetch_dataset::{ColumnType, RUN_FILE_TABLES, RunFileTable};
 use rusqlite::Connection;
 use rusqlite::types::ValueRef;
 

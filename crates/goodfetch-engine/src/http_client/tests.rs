@@ -1,13 +1,14 @@
 //! Who may call the engine's HTTP client (ADR 0043): the modules
 //! `modules.toml` lets import it, which the module check holds every import
 //! to, each either `pinned_download` or the module of a kind of
-//! Operator-configured endpoint that `goodfetch-protocol`'s
-//! `CONFIGURED_KINDS` classes (spec #564's two egress classes).
+//! Operator-configured endpoint that `egress`'s `CONFIGURED_KINDS` classes
+//! (spec #564's two egress classes).
 
 use std::collections::BTreeMap;
 
-use goodfetch_protocol::egress::{CONFIGURED_KINDS, ConfiguredKind};
 use rstest::rstest;
+
+use crate::egress::{CONFIGURED_KINDS, ConfiguredKind};
 
 /// The crate's module rules, as the module check reads them.
 const MODULES: &str = include_str!("../../modules.toml");
@@ -26,7 +27,7 @@ enum Destination {
 
 impl Destination {
     /// Whether ADR 0043 lets the engine connect to it: a pinned download,
-    /// or a kind the protocol's table classes.
+    /// or a kind the egress policy's table classes.
     fn is_classified(self) -> bool {
         match self {
             Self::PinnedDownload => true,

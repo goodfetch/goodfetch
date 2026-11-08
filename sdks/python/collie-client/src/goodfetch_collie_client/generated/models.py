@@ -3535,6 +3535,12 @@ class ConfigExplainParams(BaseModel):
     The keys to explain, each a key or a prefix of keys, such as
     `timeout`; every key when empty.
     """
+    missing_project: str | None = None
+    """
+    The path of the project configuration the Client was named, in place
+    of `project`, when no file is there: it sets nothing, and the answer
+    lists it as not found.
+    """
     origin: RunOrigin | None = None
     """
     Where those run values come from: a scope's `settings` option by

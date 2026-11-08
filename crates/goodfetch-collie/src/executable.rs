@@ -3,15 +3,15 @@
 //! codes, and one start, from the composition and Product its `main` passes.
 //! Today the command line holds `--version`, the hidden Attached-engine
 //! entry, which an SDK starts, the hidden `command-line`, which prints the
-//! command line for `xtask codegen` (ADR 0072), `browser install`, `browser clean`,
-//! `console`, `config explain`,
+//! command line for `xtask codegen` (ADR 0072), `browser install`, `browser
+//! clean`, `console`, `config explain`,
 //! `daemon start|stop|restart|status|health|install|uninstall|rotate-token|http-listener-token|run`,
 //! with the hidden `daemon launched` a start or the installed service
-//! runs, `runs reindex` and `upgrade-files`, beside the commands the `catalog_commands` module generates
-//! from the catalog for every other namespace, such as `run start` and
-//! `engine info`, and `--color auto|always|never` on every command; the CLI's
-//! other commands join with area 11. Every
-//! command but `daemon launched` and `command-line` first records the
+//! runs, `runs reindex` and `upgrade-files`, beside the commands the
+//! `catalog_commands` module generates from the catalog for every other
+//! namespace, such as `run start` and `engine info`, and `--color
+//! auto|always|never` on every command; the CLI's other commands join with
+//! area 11. Every command but `daemon launched` and `command-line` first records the
 //! executable in the list of installed executables (ADR 0098);
 //! `command-line` runs before any of the executable's set-up.
 //!
@@ -313,10 +313,13 @@ enum ConfigCommand {
         /// Prints the result as JSON.
         #[arg(long)]
         json: bool,
-        // `--attached`, the default, and `--daemon`, as every command takes
-        // them; no doc comment, which would become the flags' help.
-        #[command(flatten)]
-        engine: EngineFlags,
+        /// Asks the Daemon of the major, starting it if none runs, instead
+        /// of resolving in this process.
+        #[arg(long)]
+        daemon: bool,
+        /// Resolves in this process, as it does unless `--daemon` is given.
+        #[arg(long, conflicts_with = "daemon")]
+        attached: bool,
     },
 }
 
@@ -529,10 +532,10 @@ fn instrumented(
 /// Installs the `tracing` subscriber of `parsed`'s process, with
 /// `log_events` and every writer masking with `masks`, under the `log.*`
 /// settings of the machine's `settings`, their defaults when they cannot be
-/// read, so that the command can log why, and its crash reports, and answers it with the process's
-/// `Entropy` from the OS, a fork of which draws its export's trace and span
-/// IDs; fails once it has logged why the logs cannot go where the `log.*`
-/// settings say, with the Error code (ADR 0122).
+/// read, so that the command can log why, and its crash reports, and answers
+/// it with the process's `Entropy` from the OS, a fork of which draws its
+/// export's trace and span IDs; fails once it has logged why the logs cannot
+/// go where the `log.*` settings say, with the Error code (ADR 0122).
 fn observe(
     start: &Start,
     binary: &str,
@@ -675,16 +678,17 @@ fn run(
                     settings,
                     project,
                     json,
-                    engine: flags,
+                    daemon,
+                    attached: _,
                 },
             ..
         } => config::explain(
             (engine, dependencies),
             &machine,
-            // An Attached engine unless `--daemon` is given.
-            match flags.choice() {
-                Choice::Daemon => Choice::Daemon,
-                Choice::Auto | Choice::Attached => Choice::Attached,
+            if daemon {
+                Choice::Daemon
+            } else {
+                Choice::Attached
             },
             &config::Explain {
                 keys,

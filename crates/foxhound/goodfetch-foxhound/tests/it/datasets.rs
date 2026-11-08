@@ -24,8 +24,8 @@ use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::attached;
 use crate::frontier::{Inside, crawl_from};
+use crate::{attached, run_file};
 
 /// A book's JSON Schema: `title` and `isbn` required, `price` a number.
 fn book_schema() -> Value {
@@ -442,11 +442,6 @@ fn records_of_a_retried_request_commit_once_numbered_from_one_in_commit_order() 
             ],
         )
     );
-}
-
-/// The run file of the Run `run_id`.
-fn run_file(env: &TestEnv, run_id: &str) -> Connection {
-    Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap()
 }
 
 /// The reply of a start under the Run ID `run_id` of the seed

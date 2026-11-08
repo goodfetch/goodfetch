@@ -27,7 +27,8 @@ use serde_json::{Value, json};
 
 use crate::fetch_tiers::{engine, expecting, outcomes, provenance, settings, tiers};
 use crate::frontier::{Inside, added, crawl_declaring};
-use crate::staging::{keys, run_file, work_items};
+use crate::run_file;
+use crate::staging::{keys, work_items};
 
 /// The Proving ground's seed.
 const SEED: u64 = 945;

@@ -21,7 +21,6 @@ use std::collections::BTreeSet;
 use goodfetch_test_client::Attached;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{Canaries, Output, ProvingGround, SecretKind, TestEnv};
-use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use crate::attached;
@@ -29,6 +28,7 @@ use crate::attached_with;
 use crate::exports::save_as;
 use crate::fetch_tiers::{provenance, settings};
 use crate::frontier::{Inside, crawl_from};
+use crate::run_file;
 
 /// The Proving ground's seed.
 const SEED: u64 = 972;
@@ -183,11 +183,6 @@ fn every_record_names_its_request_tier_encoding_and_clean_up_rules_in_its_proven
         }))
         .to_vec()
     );
-}
-
-/// The Run file of the Run `run_id`.
-fn run_file(env: &TestEnv, run_id: &str) -> Connection {
-    Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap()
 }
 
 /// The Export of `dataset` of `run_id` in `format`, compressed as

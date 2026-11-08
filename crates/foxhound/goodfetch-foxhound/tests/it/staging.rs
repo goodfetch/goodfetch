@@ -11,11 +11,10 @@
 
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, TestEnv};
-use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::attached;
 use crate::frontier::{Inside, added, crawl_declaring, crawl_under};
+use crate::{attached, run_file};
 
 /// The crawl's one seed.
 const SEED: &str = "https://shop.test/a";
@@ -97,10 +96,6 @@ pub(crate) fn keys(env: &TestEnv, run_id: &str) -> Vec<(String, String)> {
         .unwrap()
         .map(Result::unwrap)
         .collect()
-}
-
-pub(crate) fn run_file(env: &TestEnv, run_id: &str) -> Connection {
-    Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap()
 }
 
 /// The handler's answer that commits one Record naming its page.

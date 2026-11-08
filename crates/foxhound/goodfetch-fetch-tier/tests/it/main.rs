@@ -40,6 +40,17 @@ fn running_clock_runtime() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
+/// The requests the Proving ground received on `host` for `path`.
+fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<serde_json::Value> {
+    proving_ground
+        .received_requests()
+        .unwrap()
+        .of_the_case()
+        .filter(|request| request.host.split(':').next() == Some(host) && request.target == path)
+        .map(|request| serde_json::to_value(request).unwrap())
+        .collect()
+}
+
 /// The HTTP transports each test runs on.
 #[derive(Clone, Copy, Debug)]
 enum Stack {

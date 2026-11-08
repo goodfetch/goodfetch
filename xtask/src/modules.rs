@@ -327,11 +327,13 @@ fn module_files(
     {
         return Ok(Vec::new());
     }
-    let source = parse(
-        &path,
-        path.parent().context("a module file sits in a folder")?,
-    )?;
     let declaring = path.parent().context("a module file sits in a folder")?;
+    let mut source = parse(&path, declaring)?;
+    // `rustc` reads a `#[path]` file as it reads a `mod.rs`: the modules it
+    // declares sit beside it, not in a folder named after it.
+    if path_attribute(&module.attrs).is_some() {
+        source.children = declaring.to_path_buf();
+    }
     let mut files = Vec::new();
     for item in non_test_items(&source.syntax.items) {
         if let syn::Item::Mod(child) = item {

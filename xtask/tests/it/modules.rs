@@ -92,6 +92,30 @@ fn module_from_a_path_attribute_is_checked_from_its_file() {
     assert_eq!(outcome.code, 1);
 }
 
+/// `rustc` reads a `#[path]` file as it reads a `mod.rs`: what it declares
+/// sits beside it, so that is where its modules are found.
+#[test]
+fn module_a_path_attributes_file_declares_is_found_beside_that_file() {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.write(
+        "crates/goodfetch-engine/src/dispatch.rs",
+        b"//! Dispatch.\n\n#[path = \"../shared/route.rs\"]\nmod route;\n\npub fn dispatch() -> u64 {\n    route::route()\n}\n",
+    );
+    workspace.write(
+        "crates/goodfetch-engine/shared/route.rs",
+        b"//! Routes.\n\nmod hop;\n\npub fn route() -> u64 {\n    hop::hop()\n}\n",
+    );
+    workspace.write(
+        "crates/goodfetch-engine/shared/hop.rs",
+        b"//! Hops.\n\npub fn hop() -> u64 {\n    1\n}\n",
+    );
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0);
+}
+
 #[rstest]
 #[case::module_missing_from_the_file(
     "unlisted-module.toml",

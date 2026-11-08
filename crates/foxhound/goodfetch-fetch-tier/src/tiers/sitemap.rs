@@ -12,7 +12,7 @@ use goodfetch_protocol::foxhound::crawl::{RESPONSE_NOT_OK, RESPONSE_UNAVAILABLE}
 use url::Url;
 
 use super::HttpTier;
-use crate::chain::{Gating, HopGate, Stop, follow};
+use crate::chain::{Gating, HopGate, Skip, Stop, follow};
 use crate::driver::{Hop, fetch};
 use crate::gate::HandOver;
 
@@ -51,12 +51,14 @@ impl HttpTier {
         .await
         .map_err(|stop| match stop {
             Stop::Failed(error) => error,
-            // The open gate skips no hop.
-            Stop::Skipped(skip) => CallError::new(
-                &RESPONSE_NOT_OK,
-                skip.message,
-                &serde_json::json!({ "url": url.as_str() }),
-            ),
+            // The open gate skips no hop, and reads no robots.txt.
+            Stop::Skipped(Skip { message, .. }) | Stop::RobotsTxtUnreachable(message) => {
+                CallError::new(
+                    &RESPONSE_NOT_OK,
+                    skip.message,
+                    &serde_json::json!({ "url": url.as_str() }),
+                )
+            }
         })?;
         let status = fetched.status;
         if (200..300).contains(&status) {

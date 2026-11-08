@@ -42,8 +42,9 @@
 //! recorded for every run sharing the domain, the lease renewed through
 //! the wait as through a handler page's wait for a permit (ADR 0093). While
 //! `site_preferences.respect_robots_txt` is on, a request robots.txt
-//! disallows is never sent and ends `skipped` with `robots_txt`; one whose
-//! robots.txt cannot be read, with no earlier copy, is not sent either, the
+//! disallows is never sent and ends `skipped` with `robots_txt`, before
+//! any wait for its domain's delay; one whose robots.txt, or a redirect
+//! hop's, cannot be read, with no earlier copy, is not sent either, the
 //! failed fetch counting as one of its attempts and backing its domain
 //! off, and it ends `skipped` with `robots_txt` once its retries ran out.
 //! While it is off, robots.txt is read only while
@@ -77,10 +78,11 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::{RunSettings, get_or_default};
+use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
     Capture, Chosen, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL, PooledSession,
-    ReplayPlan, Requester, RunHandOver, SignalFiles, Stop, TierChoice, infer_plan, tier_serves,
+    ReplayPlan, Request, Requester, RunHandOver, SitePreferences, Stop, TierChoice, infer_plan,
+    tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -95,8 +97,7 @@ use goodfetch_protocol::foxhound::progress::InFlightPhase;
 use goodfetch_protocol::foxhound::provenance::{CertificateExceptionMark, EncodingProvenance};
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::foxhound::settings::{
-    POLITENESS_DOMAIN_ADAPTIVE_DELAY, POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_MAX_CRAWL_DELAY,
-    SITE_PREFERENCES_RESPECT_ROBOTS_TXT, SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
+    POLITENESS_DOMAIN_ADAPTIVE_DELAY, POLITENESS_DOMAIN_DELAY,
 };
 use goodfetch_protocol::page::{NAVIGATION_FAILED, PageId, PageResponse};
 use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
@@ -122,11 +123,7 @@ mod sitemap_fetch;
 
 use learning::learn;
 pub(super) use learning::{Taught, learns};
-use site_preferences::{
-    escaped_refusal, honoured_purpose, read_robots_txt, reads_robots_txt, respects_robots_txt,
-    robots_txt_ignored, robots_txt_refusal, share_robots_txt, use_signals_declared,
-    use_signals_refusal,
-};
+use site_preferences::{escaped_refusal, share_robots_txt};
 
 /// The Error code of a page the site refused, which Collie's page raises
 /// with the Block cause in its details (ADRs 0035 and 0079); declared with
@@ -244,47 +241,41 @@ const BROWSER: TierChoice = TierChoice {
 };
 
 /// What every attempt of `run` hands over alike with its pages, built once
-/// as its delivery opens, never per attempt (ADR 0138): its settings as
-/// the navigation gate reads them, the Politeness it shares, robots.txt
-/// and the AI-use signal files fetched on `http`, the Run's HTTP tier,
-/// whose address check judges each redirect hop, and `egress`, its domain
-/// policy.
+/// as its delivery opens, never per attempt (ADR 0138): its `settings` as
+/// the navigation gate and the site's preferences read them, the
+/// Politeness it shares, robots.txt and the AI-use signal files fetched on
+/// `http`, the Run's HTTP tier, whose address check judges each redirect
+/// hop, and `egress`, its domain policy.
 pub(super) async fn run_hand_over(
     run: &Run,
+    settings: &Resolved,
     http: Option<&HttpTier>,
     egress: &Arc<Policy>,
 ) -> Arc<RunHandOver> {
-    let settings = run.settings().map(RunSettings::resolved);
-    // A crawl whose Politeness paces nothing records no start, send or
-    // latency in it (ADR 0138).
-    let politeness = if settings.is_none_or(goodfetch_frontier::paces) {
-        share_robots_txt(run).await
+    let site_preferences = SitePreferences::of(settings);
+    // The Run reads robots.txt from the copy its user's runs share in the
+    // Politeness file (ADR 0086); a crawl whose Politeness paces nothing
+    // records no start, send or latency in it (ADR 0138).
+    let paces = goodfetch_frontier::paces(settings);
+    let shared = if paces
+        || site_preferences.reads_robots_txt(Request::CrawlRequest)
+        || site_preferences.reads_robots_txt(Request::Navigation)
+    {
+        share_robots_txt(run, settings).await
     } else {
         None
     };
     Arc::new(RunHandOver {
         run: run.clone(),
-        keys: settings.map(DomainKeys::of).unwrap_or_default(),
-        politeness,
+        keys: DomainKeys::of(settings),
+        politeness: shared.filter(|_| paces),
         robots: http.map(HttpTier::robots_txt_fetch),
-        operator_token: settings.and_then(|settings| {
-            settings
-                .value(&SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT)
-                .as_str()
-                .map(str::to_owned)
-        }),
         domain_delay: settings
-            .and_then(|settings| settings.get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY))
+            .get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY)
             .unwrap_or_default(),
-        adaptive_delay: get_or_default(settings, &POLITENESS_DOMAIN_ADAPTIVE_DELAY),
-        pace: settings
-            .map(goodfetch_frontier::Pace::of)
-            .unwrap_or_default(),
-        respect_robots_txt: get_or_default(settings, &SITE_PREFERENCES_RESPECT_ROBOTS_TXT),
-        max_crawl_delay: settings
-            .map(|settings| settings.get::<Duration>(&SITE_PREFERENCES_MAX_CRAWL_DELAY)),
-        use_signals: settings.and_then(honoured_purpose),
-        signal_files: SignalFiles::default(),
+        adaptive_delay: settings.get(&POLITENESS_DOMAIN_ADAPTIVE_DELAY),
+        pace: goodfetch_frontier::Pace::of(settings),
+        site_preferences,
         egress: Arc::clone(egress),
         addresses: http.map(HttpTier::address_check),
     })
@@ -1053,27 +1044,9 @@ impl On<'_> {
             biased;
             document = async {
                 address_check(run, http, leased).await?;
-                let read = if reads_robots_txt(run) {
-                    read_robots_txt(run, http, leased, &*hand_over.lease).await
-                } else {
-                    None
-                };
-                if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {
-                    return Err(refused);
-                }
-                if robots_txt_ignored(run, leased, read.as_deref()) {
-                    lease.robots_txt_ignored();
-                }
-                if let Some(refused) = use_signals_declared(
-                    run,
-                    http,
-                    leased,
-                    read.as_deref(),
-                    &hand_over.of_run.signal_files,
-                )
-                .await
-                {
-                    return Err(refused);
+                if let Ok(url) = goodfetch_frontier::Url::parse(&leased.crawl_request.url) {
+                    self.site_preferences_judged(http, Request::CrawlRequest, &url)
+                        .await?;
                 }
                 let served = if choice.tier == FetchTier::LightBrowser {
                     let identity = self.context.identity();
@@ -1099,6 +1072,9 @@ impl On<'_> {
                 served
                     .map_err(|stop| match stop {
                         Stop::Failed(error) => failed(&error),
+                        Stop::RobotsTxtUnreachable(message) => {
+                            Answer::RobotsTxtUnreachable(message)
+                        }
                         Stop::Skipped(skip) => {
                             tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, reason = ?skip.reason, message = skip.message, "a redirect hop ended its request skipped");
                             Answer::Refused(skip.reason)
@@ -1111,14 +1087,7 @@ impl On<'_> {
             tiers,
             page_id: Some(fetched?),
         };
-        if let Some(refused) = use_signals_refusal(
-            run,
-            (tiers, http),
-            served.page_id(),
-            &hand_over.of_run.signal_files,
-        )
-        .await
-        {
+        if let Some(refused) = self.document_refusal(tiers, http, served.page_id()).await {
             return Err(refused);
         }
         Ok(served)

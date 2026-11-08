@@ -10,11 +10,11 @@ use std::time::Duration;
 
 use goodfetch_engine::CallContext;
 use goodfetch_engine::CallError;
-use goodfetch_engine::admission::{Room, SecondCopies};
+use goodfetch_engine::admission::SecondCopies;
 use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{
     Chosen, FetchTiers, HandOver, HttpTier, Judged, PooledSession, Race, RaceEnd, TierChoice,
-    record_race,
+    record_race, room_taken,
 };
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::page::{PageId, PageResponse};
@@ -332,11 +332,6 @@ enum Navigated {
     NotSent,
 }
 
-/// How long a race's navigation whose domain is full waits before it asks
-/// for room again: the Politeness file wakes only the admission's own
-/// waiters.
-const FULL_RETRY: Duration = Duration::from_millis(250);
-
 /// A race's navigation, run as a task of its own: cancelled, it is never
 /// sent, or its page closes, its load with it.
 struct Navigation {
@@ -355,8 +350,8 @@ struct Navigation {
 
 impl Navigation {
     /// Waits for its start, then for room beside the attempt's own as a
-    /// second copy, asking again every [`FULL_RETRY`] while its domain is
-    /// full, as the navigation gate does, charges one request in Usage and navigates, unless
+    /// second copy, asking again as the navigation gate does
+    /// ([`room_taken`]), charges one request in Usage and navigates, unless
     /// `cancelled` resolves first; tells `sending` once it is sent,
     /// answers on `navigated`, and closes the page of a navigation no one
     /// waits for any more.
@@ -374,12 +369,12 @@ impl Navigation {
                 _ = &mut cancelled => return,
                 () = clock.sleep_until(until) => {}
             }
-            match self.second_copies.take(&self.domain_key, clock.now()).await {
-                Room::Taken(copy) => break copy,
-                Room::Until(moment) => until = moment,
-                // Room frees as the domain's requests end; the race's end
-                // cancels the wait.
-                Room::Full => until = clock.now() + FULL_RETRY,
+            // Room frees as the domain's requests end; the race's end
+            // cancels the wait.
+            let room = self.second_copies.take(&self.domain_key, clock.now()).await;
+            match room_taken(room, clock.now()) {
+                Ok(copy) => break copy,
+                Err(at) => until = at,
             }
         };
         if !matches!(

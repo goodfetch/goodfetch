@@ -1,48 +1,34 @@
-//! What a site's preferences say of an attempt's request (ADRs 0086 and
-//! 0093): its origin's robots.txt, read from the copy the user's runs
-//! share, only while the crawl obeys it, marks the Records taken against it
-//! or honours the AI-use signals it declares (ADR 0138), and its
-//! Crawl-delay recorded and waited while the crawl obeys it; the refusal of a request
-//! that robots.txt disallows or whose Crawl-delay exceeds the crawl's
-//! bound; the AI-use signals its host declares before it is sent and those
-//! its document's response and markup carry; and a handler's escaped
-//! `site_preferences_refused`.
+//! What a crawl request's attempt does with the answers of the one judge
+//! of a site's preferences (ADRs 0086, 0093 and 0138;
+//! `goodfetch_fetch_tier::SitePreferences`): its origin's robots.txt read
+//! on the attempt's own HTTP tier, its Crawl-delay recorded for the
+//! request's domain key, a refusal turned into the attempt's answer, a
+//! Record marked when the crawl ignores the robots.txt that disallows it,
+//! the document's start after that robots.txt waited out, and a handler's
+//! escaped `site_preferences_refused`.
 
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
 
-use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::politeness::Politeness;
-use goodfetch_engine::robots_txt::{self, Fetch, Fetched};
+use goodfetch_engine::robots_txt::Answer as Fetched;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::{Resolved, RunSettings};
+use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
-    FetchTiers, HttpTier, Purpose, SignalFiles, TDMREP_FILE, content_signals_refusing,
-    rsl_refusing, tdmrep_file_refusing,
+    AfterRobotsTxt, FetchTiers, HttpTier, Reading, Refusal, RefusedBy, Request, skip_reason,
 };
 use goodfetch_frontier::SharedRobotsTxt;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
-use goodfetch_protocol::foxhound::settings::{
-    POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_MARK_ROBOTS_TXT_IGNORED,
-    SITE_PREFERENCES_MAX_CRAWL_DELAY, SITE_PREFERENCES_RESPECT_ROBOTS_TXT,
-    SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
-};
 use goodfetch_protocol::page::{PageId, SITE_PREFERENCES_REFUSED, SitePreference};
-use goodfetch_protocol::site_preferences::{
-    SITE_PREFERENCES_PURPOSE, SITE_PREFERENCES_RESPECT_USE_SIGNALS,
-};
 use serde_json::{Map, Value};
-use tokio::sync::oneshot;
+use url::Url;
 
-use super::Answer;
-use crate::work_items::Leased;
+use super::{Answer, On};
 
-/// The Politeness the crawl's Run shares, once it opened: from then on
-/// the Run reads robots.txt from the copy its user's runs share there
-/// (ADR 0086). A Politeness file that cannot open leaves the Run its own
-/// copy.
-pub(super) async fn share_robots_txt(run: &Run) -> Option<Politeness> {
-    let settings = run.settings()?.resolved();
+/// The Politeness the crawl's Run shares, under `settings`, once it
+/// opened: from then on the Run reads robots.txt from the copy its user's
+/// runs share there (ADR 0086). A Politeness file that cannot open leaves
+/// the Run its own copy.
+pub(super) async fn share_robots_txt(run: &Run, settings: &Resolved) -> Option<Politeness> {
     match run.politeness(settings).await {
         Ok((politeness, _)) => {
             let shared = politeness.clone();
@@ -56,272 +42,130 @@ pub(super) async fn share_robots_txt(run: &Run) -> Option<Politeness> {
     }
 }
 
-/// Whether a crawl under `run`'s settings obeys robots.txt:
-/// `site_preferences.respect_robots_txt`, on unless set off (ADR 0086).
-pub(super) fn respects_robots_txt(run: &Run) -> bool {
-    run.settings()
-        .map(RunSettings::resolved)
-        .is_none_or(respects)
+/// Fetches `location`, a robots.txt or an AI-use signal file, on `http`
+/// for `run`.
+async fn fetched_on(http: &HttpTier, run: &Run, location: Url) -> Fetched {
+    http.robots_txt(run, &location).await
 }
 
-fn respects(settings: &Resolved) -> bool {
-    settings.get(&SITE_PREFERENCES_RESPECT_ROBOTS_TXT)
-}
-
-fn marks_ignored(settings: &Resolved) -> bool {
-    settings.get(&SITE_PREFERENCES_MARK_ROBOTS_TXT_IGNORED)
-}
-
-/// Whether the attempt of a crawl request under `run`'s settings reads its
-/// origin's robots.txt before its document is fetched: while the crawl
-/// obeys it, while it marks the Records taken against it
-/// (`site_preferences.mark_robots_txt_ignored`), or while it honours the
-/// AI-use signals, whose `Content-Signal` lines robots.txt declares.
-/// Otherwise robots.txt is neither fetched, read nor stored (ADRs 0086 and
-/// 0138).
-pub(super) fn reads_robots_txt(run: &Run) -> bool {
-    run.settings()
-        .map(RunSettings::resolved)
-        .is_none_or(|settings| {
-            respects(settings) || marks_ignored(settings) || honoured_purpose(settings).is_some()
-        })
-}
-
-/// Reads the robots.txt of `leased`'s origin, as the crawl's Run reads it:
-/// from the copy its user's runs share, fetched on `http` only when the
-/// copy has none to use. While the crawl obeys robots.txt, the Crawl-delay
-/// it asks for is recorded for the request's domain key, for every run
-/// sharing the domain. A robots.txt
-/// fetch is a request of the domain: while the one the attempt made, or
-/// the one whose copy it read, is less than the delay before, the document
-/// starts `politeness.domain.delay` after that fetch's response arrived,
-/// or the Crawl-delay when the crawl waits it out and it is longer, and no
-/// sooner than that after the start another sharing run took meanwhile;
-/// that start is taken in the Politeness file for every run sharing the
-/// domain. Counted from the response's arrival, the site never receives
-/// the document sooner than the delay after the robots.txt request,
-/// whatever that request's connection cost. That wait is a permit's wait
-/// for the domain's delay: `lease` is held through it, so it counts
-/// against no timeout and the Run's live status names it (ADR 0093).
-/// Answers what applies, or `None` for a URL with no robots.txt.
-pub(super) async fn read_robots_txt(
-    run: &Run,
-    http: &HttpTier,
-    leased: &Leased,
-    lease: &dyn LeaseCheck,
-) -> Option<Arc<Fetched>> {
-    let location = goodfetch_frontier::Url::parse(&leased.crawl_request.url)
-        .ok()
-        .and_then(|url| robots_txt::location(&url))?;
-    let politeness = share_robots_txt(run).await;
-    let (arriving, arrived) = oneshot::channel::<SystemTime>();
-    let fetch: Fetch<'_> = Box::pin(async {
-        let answer = http.robots_txt(run, &location).await;
-        let _ = arriving.send(run.clock().wall());
-        answer
-    });
-    let read = run.robots_txt().copy(&location, fetch).await;
-    let Some(settings) = run
-        .settings()
-        .map(goodfetch_engine::settings::RunSettings::resolved)
-    else {
-        return Some(read);
-    };
-    let respected = respects(settings);
-    let asked = respected
-        .then(|| crawl_delay_asked(settings, &read))
-        .flatten();
-    if respected
-        && let Some(politeness) = &politeness
-        && let Err(error) = goodfetch_frontier::crawl_delay_read(
-            politeness,
-            &leased.waiting.key,
-            location.as_str(),
-            asked,
-        )
-        .await
-    {
-        tracing::warn!(%error, run_id = %run.id(), "a host's Crawl-delay was not recorded for its domain");
-    }
-    let delay = settings
-        .get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY)
-        .max(asked.filter(|asked| waits_out(settings, *asked)))
-        .filter(|delay| !delay.is_zero());
-    let Some(delay) = delay else {
-        return Some(read);
-    };
-    let fetched = arrived.await.ok();
-    let start = match &politeness {
-        Some(politeness) => goodfetch_frontier::start_after_robots_txt(
-            politeness,
-            &leased.waiting.key,
-            location.as_str(),
-            fetched,
-            delay,
-            run.clock().wall(),
-        )
-        .await
-        .unwrap_or_else(|error| {
-            tracing::warn!(%error, run_id = %run.id(), "a document's start after its robots.txt was not recorded");
-            fetched.map(|fetched| fetched + delay)
-        }),
-        None => fetched.map(|fetched| fetched + delay),
-    };
-    if let Some(wait) = start.and_then(|start| start.duration_since(run.clock().wall()).ok()) {
-        let _waiting = lease.permit_wait(&leased.crawl_request.url);
-        run.clock().sleep(wait).await;
-    }
-    Some(read)
-}
-
-/// The Crawl-delay the robots.txt `read` asks of a crawl under `settings`,
-/// its operator token's group merged with Foxhound's (ADR 0086).
-fn crawl_delay_asked(settings: &Resolved, read: &Fetched) -> Option<Duration> {
-    let operator_token = settings
-        .value(&SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT)
-        .as_str();
-    goodfetch_fetch_tier::crawl_delay(read, operator_token)
-}
-
-/// Whether a crawl under `settings` waits out the Crawl-delay `asked`:
-/// while `site_preferences.respect_robots_txt` is on, up to
-/// `site_preferences.max_crawl_delay` (ADR 0086).
-fn waits_out(settings: &Resolved, asked: Duration) -> bool {
-    respects(settings) && asked <= settings.get::<Duration>(&SITE_PREFERENCES_MAX_CRAWL_DELAY)
-}
-
-/// The `site_preferences.purpose` a crawl under `settings` judges the
-/// AI-use signals against: none while `site_preferences.respect_use_signals`
-/// is off, or when the Purpose is `search`, which is no declaration (ADR
-/// 0086).
-pub(super) fn honoured_purpose(settings: &Resolved) -> Option<Purpose> {
-    if !settings.get::<bool>(&SITE_PREFERENCES_RESPECT_USE_SIGNALS) {
-        return None;
-    }
-    settings
-        .value(&SITE_PREFERENCES_PURPOSE)
-        .as_str()
-        .and_then(Purpose::named)
-        .filter(|purpose| *purpose != Purpose::Search)
-}
-
-/// What the AI-use signals `leased`'s host declared before its request is
-/// sent say of it while `site_preferences.respect_use_signals` is on (ADRs
-/// 0016 and 0086): the `Content-Signal` lines of the robots.txt `read`'s
-/// groups that apply, and `TDMRep`'s well-known file, fetched on `http`
-/// once per origin for the Run through `files`. Nothing when none refuses
-/// the Run's `site_preferences.purpose`, else the attempt's answer, sent
-/// nothing.
-pub(super) async fn use_signals_declared(
-    run: &Run,
-    http: &HttpTier,
-    leased: &Leased,
-    read: Option<&Fetched>,
-    files: &SignalFiles,
-) -> Option<Answer> {
-    let settings = run.settings()?.resolved();
-    let purpose = honoured_purpose(settings)?;
-    let refused = Some(Answer::Refused(SkipReason::UseSignals));
-    if let Some(read) = read {
-        let operator_token = settings
-            .value(&SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT)
-            .as_str();
-        let signals = goodfetch_fetch_tier::content_signals(read, operator_token);
-        if content_signals_refusing(&signals, purpose).is_some() {
-            return refused;
+impl On<'_> {
+    /// What the site's preferences say of the attempt's `request` to
+    /// `url` before it is sent (`SitePreferences::judged`), its origin's
+    /// robots.txt read on `http` when something uses it, and robots.txt
+    /// itself whatever the crawl respects for a sitemap seed that is one.
+    /// While the crawl respects robots.txt, the Crawl-delay it asks for is
+    /// recorded for the request's domain key, for every run sharing the
+    /// domain, before the request is judged. A refused request is never
+    /// sent: its answer says why. One the crawl fetches although robots.txt
+    /// disallows it marks the Records it commits. A request let go then
+    /// waits for its start after the robots.txt it read
+    /// (`Reading::start_after`): `politeness.domain.delay`, or the
+    /// Crawl-delay when it is longer, after that robots.txt fetch's
+    /// response arrived, so the site never receives the document sooner
+    /// than that after the robots.txt request. The lease is held through
+    /// that wait, a permit's wait for the domain's delay: it counts against
+    /// no timeout and the Run's live status names it (ADR 0093). Answers
+    /// the robots.txt it read.
+    pub(super) async fn site_preferences_judged(
+        &self,
+        http: &HttpTier,
+        request: Request,
+        url: &Url,
+    ) -> Result<Option<Reading>, Answer> {
+        let (run, leased, of_run) = (self.run, self.leased, &self.hand_over.of_run);
+        let preferences = &of_run.site_preferences;
+        let key = &leased.waiting.key;
+        let reads = preferences.reads_robots_txt(request);
+        let robots_seed =
+            request == Request::Sitemap && goodfetch_frontier::sitemap::is_robots_txt(url);
+        if robots_seed
+            && !reads
+            && let Some(settings) = run.settings()
+        {
+            // A crawl that reads no robots.txt for its requests did not
+            // share the copy as it started (ADR 0086).
+            share_robots_txt(run, settings.resolved()).await;
         }
+        let reading = if reads || robots_seed {
+            preferences
+                .read_robots_txt(run, url, |location| fetched_on(http, run, location))
+                .await
+        } else {
+            None
+        };
+        if let (Some(reading), Some(politeness)) = (&reading, &of_run.politeness)
+            && preferences.respects_robots_txt()
+            && let Err(error) = goodfetch_frontier::crawl_delay_read(
+                politeness,
+                key,
+                reading.location().as_str(),
+                preferences.crawl_delay_asked(reading),
+            )
+            .await
+        {
+            tracing::warn!(%error, run_id = %run.id(), "a host's Crawl-delay was not recorded for its domain");
+        }
+        let allowed = preferences
+            .judged(request, url, reading.as_ref(), |location| {
+                fetched_on(http, run, location)
+            })
+            .await
+            .map_err(|refusal| answer(run, leased.crawl_request.id.as_str(), refusal))?;
+        if allowed.ignored {
+            self.lease.robots_txt_ignored();
+        }
+        let spacing = of_run
+            .domain_delay
+            .max(allowed.crawl_delay.unwrap_or_default());
+        if let Some(read) = &reading
+            && let AfterRobotsTxt::At(start) = read
+                .start_after(of_run.politeness.as_ref(), run, key, spacing)
+                .await
+            && let Ok(wait) = start.duration_since(run.clock().wall())
+        {
+            let _waiting = self.hand_over.lease.permit_wait(&leased.crawl_request.url);
+            run.clock().sleep(wait).await;
+        }
+        Ok(reading)
     }
-    let url = goodfetch_frontier::Url::parse(&leased.crawl_request.url).ok()?;
-    let location = url.join(TDMREP_FILE).ok()?;
-    let file = files
-        .read(&location, http.signal_file(run, &location))
-        .await?;
-    tdmrep_file_refusing(&file, &url, purpose).and(refused)
+
+    /// What the AI-use signals the response of the served page `page_id`
+    /// carried, in its headers and its document's markup, say of it
+    /// (`SitePreferences::document_judged`), the RSL license they name
+    /// fetched on `http` once for the Run: nothing when none refuses the
+    /// Run's `site_preferences.purpose`, else the attempt's answer, its
+    /// handler never run.
+    pub(super) async fn document_refusal(
+        &self,
+        tiers: &FetchTiers,
+        http: &HttpTier,
+        page_id: &PageId,
+    ) -> Option<Answer> {
+        let (run, leased) = (self.run, self.leased);
+        let preferences = &self.hand_over.of_run.site_preferences;
+        if !preferences.honours_use_signals() {
+            return None;
+        }
+        let signals = tiers.use_signals(page_id);
+        preferences
+            .document_judged(&leased.crawl_request.url, &signals, |location| {
+                fetched_on(http, run, location)
+            })
+            .await
+            .err()
+            .map(|refusal| answer(run, leased.crawl_request.id.as_str(), refusal))
+    }
 }
 
-/// What the AI-use signals the response of the served page `page_id`
-/// carried, in its headers and its document's markup, say of its request
-/// while `site_preferences.respect_use_signals` is on (ADRs 0045, 0086 and
-/// 0093), the RSL license they name fetched on `http` once for the Run
-/// through `files`: nothing when none refuses the Run's
-/// `site_preferences.purpose`, else the attempt's answer, its handler
-/// never run.
-pub(super) async fn use_signals_refusal(
-    run: &Run,
-    (tiers, http): (&FetchTiers, &HttpTier),
-    page_id: &PageId,
-    files: &SignalFiles,
-) -> Option<Answer> {
-    let purpose = honoured_purpose(run.settings()?.resolved())?;
-    let refused = Some(Answer::Refused(SkipReason::UseSignals));
-    let signals = tiers.use_signals(page_id);
-    if signals.refusing(purpose).is_some() {
-        return refused;
+/// The answer of an attempt whose request a site's preferences refused:
+/// one whose robots.txt could not be read is retried as a failed fetch,
+/// backing its domain off; any other ends `skipped` with its reason.
+fn answer(run: &Run, work_item: &str, refusal: Refusal) -> Answer {
+    tracing::debug!(run_id = %run.id(), work_item, by = ?refusal.by, message = refusal.message, "a site preference refused a crawl request");
+    match refusal.by {
+        RefusedBy::UnreachableRobotsTxt => Answer::RobotsTxtUnreachable(refusal.message),
+        by => Answer::Refused(by.skip_reason()),
     }
-    let license = signals.license()?;
-    let file = files
-        .read(&license, http.signal_file(run, &license))
-        .await?;
-    rsl_refusing(&file, purpose).and(refused)
-}
-
-/// What the robots.txt `read` for `leased`'s request says of it while
-/// `site_preferences.respect_robots_txt` is on (ADR 0086): nothing when
-/// it allows it and asks for no Crawl-delay above
-/// `site_preferences.max_crawl_delay`, else the attempt's answer, sent
-/// nothing.
-pub(super) fn robots_txt_refusal(
-    run: &Run,
-    leased: &Leased,
-    read: Option<&Fetched>,
-) -> Option<Answer> {
-    let settings = run.settings()?.resolved();
-    if !respects(settings) {
-        return None;
-    }
-    let read = read?;
-    if let Fetched::Unreachable(reason) = read {
-        return Some(Answer::RobotsTxtUnreachable(format!(
-            "The site's robots.txt could not be read ({reason}), and no earlier copy applies, so the request was not sent."
-        )));
-    }
-    let url = goodfetch_frontier::Url::parse(&leased.crawl_request.url).ok()?;
-    let operator_token = settings
-        .value(&SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT)
-        .as_str();
-    if goodfetch_fetch_tier::disallowing(read, operator_token, &url).is_some() {
-        return Some(Answer::Refused(SkipReason::RobotsTxt));
-    }
-    crawl_delay_asked(settings, read)
-        .filter(|asked| !waits_out(settings, *asked))
-        .map(|_| Answer::Refused(SkipReason::CrawlDelay))
-}
-
-/// Whether `leased`'s request is one the robots.txt `read` disallows,
-/// fetched anyway since `site_preferences.respect_robots_txt` is off, while
-/// `site_preferences.mark_robots_txt_ignored` is on: the Provenance of each
-/// Record it commits then marks it `ignored` (ADRs 0086 and 0138). A
-/// robots.txt that could not be read disallows nothing here.
-pub(super) fn robots_txt_ignored(run: &Run, leased: &Leased, read: Option<&Fetched>) -> bool {
-    let Some(settings) = run.settings().map(RunSettings::resolved) else {
-        return false;
-    };
-    if respects(settings) || !marks_ignored(settings) {
-        return false;
-    }
-    let (Some(read), Ok(url)) = (
-        read,
-        goodfetch_frontier::Url::parse(&leased.crawl_request.url),
-    ) else {
-        return false;
-    };
-    if matches!(read, Fetched::Unreachable(_)) {
-        return false;
-    }
-    let operator_token = settings
-        .value(&SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT)
-        .as_str();
-    goodfetch_fetch_tier::disallowing(read, operator_token, &url).is_some()
 }
 
 /// The skip reason of a handler's failure that is a `site_preferences_refused`
@@ -333,9 +177,7 @@ pub(super) fn escaped_refusal(code: &str, details: &Map<String, Value>) -> Optio
         return None;
     }
     let reason = details.get("reason").cloned()?;
-    match serde_json::from_value::<SitePreference>(reason).ok()? {
-        SitePreference::RobotsTxt => Some(SkipReason::RobotsTxt),
-        SitePreference::CrawlDelay => Some(SkipReason::CrawlDelay),
-        SitePreference::UseSignals => Some(SkipReason::UseSignals),
-    }
+    serde_json::from_value::<SitePreference>(reason)
+        .ok()
+        .map(skip_reason)
 }

@@ -432,7 +432,7 @@ fn is_usage(element: &BytesStart<'_>) -> bool {
 /// fetch that answered no `2xx` keeps no body. Cheap to clone; every clone
 /// shares the files.
 #[derive(Clone, Default)]
-pub struct SignalFiles {
+pub(crate) struct SignalFiles {
     files: Arc<Mutex<HashMap<String, Arc<SignalFile>>>>,
 }
 
@@ -449,7 +449,7 @@ impl SignalFiles {
     /// fetch and keeps nothing: a concurrent or later reader fetches the
     /// file with its own. Dropping any other reader's future loses only
     /// its answer.
-    pub async fn read<F>(&self, url: &Url, fetch: F) -> Option<Arc<[u8]>>
+    pub(crate) async fn read<F>(&self, url: &Url, fetch: F) -> Option<Arc<[u8]>>
     where
         F: Future<Output = Option<Vec<u8>>>,
     {

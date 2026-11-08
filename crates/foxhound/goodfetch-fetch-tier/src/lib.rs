@@ -39,6 +39,7 @@ mod redirects;
 mod redundant;
 mod refresh;
 mod served_calls;
+mod site_preferences;
 mod sniffing;
 #[cfg(test)]
 #[path = "sniffing/tests.rs"]
@@ -66,10 +67,7 @@ pub use document::{FieldElement, Matched, SelectorInvalid, check_selector, check
 pub use driver::{
     Body, FetchBounds, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch, met,
 };
-pub use gate::{
-    FetchAdmission, HandOver, RobotsTxtFetch, RunHandOver, content_signals, crawl_delay,
-    disallowing,
-};
+pub use gate::{FetchAdmission, HandOver, RobotsTxtFetch, RunHandOver, room_taken};
 pub use goodfetch_extractor::BuiltIn;
 pub use goodfetch_page::page_value::PooledSession;
 pub use http_profile::HttpProfile;
@@ -80,6 +78,9 @@ pub use light_browser::{
 pub use redundant::Requester;
 pub use refresh::fuzz_refresh;
 pub use served_calls::serves as tier_serves;
+pub use site_preferences::{
+    AfterRobotsTxt, Allowed, Reading, Refusal, RefusedBy, Request, SitePreferences, skip_reason,
+};
 pub use sniffing::sniff;
 pub use tiers::{
     Chosen, FetchTiers, FieldElements, HandedOver, HttpTier, Judged, LinksUnread, PAGE_CHECK_CALL,
@@ -90,7 +91,6 @@ pub use transports::{
 };
 pub use untouched::{UntouchedDemand, UntouchedReaders};
 pub use use_signals::{
-    Purpose, SignalFiles, TDMREP_FILE, UseSignals, content_signals_refusing, rsl_refusing,
-    tdmrep_file_refusing,
+    Purpose, TDMREP_FILE, UseSignals, content_signals_refusing, rsl_refusing, tdmrep_file_refusing,
 };
 pub use xpath::XpathInvalid;

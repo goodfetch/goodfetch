@@ -6,14 +6,12 @@
 
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::robots_txt::Fetched;
-use goodfetch_fetch_tier::HttpTier;
+use goodfetch_fetch_tier::{HttpTier, Request};
 use goodfetch_frontier::sitemap;
 use goodfetch_protocol::foxhound::crawl::RESPONSE_NOT_OK;
 use serde_json::{Map, Value};
 
-use super::{
-    Answer, On, address_check, failed, read_robots_txt, respects_robots_txt, robots_txt_refusal,
-};
+use super::{Answer, On, address_check, failed};
 
 impl On<'_> {
     /// The fetch of a sitemap seed's sitemap, or of the robots.txt whose
@@ -45,16 +43,12 @@ impl On<'_> {
                 let Ok(url) = goodfetch_frontier::Url::parse(&leased.crawl_request.url) else {
                     return unreadable(&leased.crawl_request.url, "its URL does not parse");
                 };
-                let read = if respects_robots_txt(run) || sitemap::is_robots_txt(&url) {
-                    read_robots_txt(run, http, leased, &*hand_over.lease).await
-                } else {
-                    None
+                let read = match self.site_preferences_judged(http, Request::Sitemap, &url).await {
+                    Ok(read) => read,
+                    Err(refused) => return refused,
                 };
-                if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {
-                    return refused;
-                }
                 if sitemap::is_robots_txt(&url) {
-                    return match read.as_deref() {
+                    return match read.as_ref().map(|read| read.copy()) {
                         Some(Fetched::File(file)) => Answer::SitemapRead(sitemap::Document::Sitemaps(
                             file.sitemaps().to_vec(),
                         )),

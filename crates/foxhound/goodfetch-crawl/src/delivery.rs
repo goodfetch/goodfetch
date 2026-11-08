@@ -266,7 +266,7 @@ pub(crate) async fn drive(
         }
     }
     // What every attempt hands over alike, built once (ADR 0138).
-    let handing = run_hand_over(&run, fetching.http, &arrivals.egress).await;
+    let handing = run_hand_over(&run, settings.resolved(), fetching.http, &arrivals.egress).await;
     let fetching = (&fetching, &handing);
     deliver(&run, &mut servers, &mut arrivals, &settings, fetching).await;
     crawls.close(run.id()).await;

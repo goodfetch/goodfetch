@@ -22,15 +22,15 @@ const WALL_SCHEME: &str = "urn:goodfetch:wall";
 
 /// The fields an item or entry is taken from, `export.feed.*`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FeedFields {
+pub(crate) struct FeedFields {
     /// Its title, `export.feed.title`.
-    pub title: String,
+    pub(crate) title: String,
     /// Its link, `export.feed.link`.
-    pub link: String,
+    pub(crate) link: String,
     /// Its date, `export.feed.published`.
-    pub published: String,
+    pub(crate) published: String,
     /// Its summary, `export.feed.summary`.
-    pub summary: String,
+    pub(crate) summary: String,
 }
 
 /// Which feed.

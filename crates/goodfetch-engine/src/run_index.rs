@@ -37,13 +37,14 @@ use crate::sqlite_store::{
 /// How long a write waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// How its commits reach the disk: each synced, without `F_FULLFSYNC` on
-/// macOS, its WAL copied into the file as its last connection closes.
+/// How its commits reach the disk, as every synced per-user store's: each
+/// synced, through `F_FULLFSYNC` on macOS, and its WAL left as it is when a
+/// connection closes (#2110).
 const DURABILITY: Durability = Durability {
     synchronous: Synchronous::Full,
     opening: Synchronous::Full,
-    full_fsync: FullFsync::Off,
-    wal_on_close: WalOnClose::Checkpointed,
+    full_fsync: FullFsync::Commits,
+    wal_on_close: WalOnClose::Kept,
 };
 
 const SCHEMA: &[&str] = &[

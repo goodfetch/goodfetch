@@ -297,7 +297,9 @@ fn with_redaction_off_a_resolved_credential_stays_only_in_the_run_trace() {
 /// `Mask` knows the canary, and the same search finds it in every output
 /// the Run wrote it to. A search that finds nothing then proves what it
 /// claims, with no switch in the masking path. The run file's pages are in
-/// its WAL, which its writer leaves beside it once the Run ended (#2117).
+/// its WAL, which its writer leaves beside it once the Run ended (#2117),
+/// and so is the Run index's row, whose connections leave their WAL as it
+/// is when they close (#2110).
 /// Covers: story:4-91
 #[test]
 fn with_the_reflected_value_resolved_by_no_run_the_search_finds_it_in_every_output() {
@@ -319,7 +321,7 @@ fn with_the_reflected_value_resolved_by_no_run_the_search_finds_it_in_every_outp
     assert_eq!(
         outputs.into_iter().collect::<Vec<_>>(),
         vec![
-            "/home/1/run-index.sqlite",
+            "/home/1/run-index.sqlite-wal",
             "/home/1/runs/masked/run.sqlite-wal",
             "/home/1/runs/masked/trace/requests.jsonl",
             "received",

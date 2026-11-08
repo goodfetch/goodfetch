@@ -309,7 +309,7 @@ struct Shared {
     /// driver made it or found it made: the first caller makes it, and
     /// every later or concurrent one waits for that making, so the engine
     /// makes one.
-    made: Arc<[tokio::sync::OnceCell<()>; 2]>,
+    made: Arc<[tokio::sync::OnceCell<()>; ENGINE_KEYS.len()]>,
     /// Every live Run's resolved values, which each Run's own join.
     masks: Masks,
     /// Where the waits before a busy provider is asked again draw from.

@@ -15,8 +15,10 @@
 //! token; a refusal marked as a handover makes it wait for the pick, and a
 //! refusal by Product or protocol version fails with a `fix` naming this
 //! executable's `daemon restart`. A Daemon that hands over starts the pick
-//! itself. Every Client, a `daemon` command's and a command's call alike,
-//! goes through that one Daemon client, [`Machine::open_daemon`].
+//! itself. Every Client of the major's Daemon or a remote one, a `daemon`
+//! command's and a command's call alike, goes through that one Daemon
+//! client, [`Machine::open_daemon`]; only the foreground Daemon at
+//! `daemon.address`, which nothing starts or hands over to, is opened once.
 //!
 //! The machine's settings are read once, by `main`, and held on the
 //! [`Machine`]: a command that needs them and cannot read them fails with
@@ -113,9 +115,7 @@ pub(super) fn run(
 /// Whether the machine's `settings` choose the per-install layout
 /// (`run_state.layout`), in which the Daemon alone writes run state.
 pub(super) fn per_install(settings: Option<&Resolved>) -> bool {
-    settings.is_some_and(|settings| {
-        settings.value(&RUN_STATE_LAYOUT).as_str() == Some(LAYOUT_PER_INSTALL)
-    })
+    settings.is_some_and(|settings| settings.get::<&str>(&RUN_STATE_LAYOUT) == LAYOUT_PER_INSTALL)
 }
 
 /// How many times a Client looks for the Daemon again when the one it
@@ -492,12 +492,7 @@ impl Machine<'_> {
                 next: 1,
             })),
             Ok(None) => Ok(None),
-            Err(NotOpened::Failed(failure)) => Err(failure),
-            Err(NotOpened::Refused(error)) => Err(Failure::of(error)),
-            Err(NotOpened::RefusedByProductOrVersion(error)) => Err(Failure::DaemonRefused(error)),
-            Err(NotOpened::Interrupted(_)) => Err(Failure::Unavailable(
-                "a `daemon` command listens for no interrupt".to_owned(),
-            )),
+            Err(not_opened) => Err(not_opened.failure_of_a_daemon_command()),
         }
     }
 
@@ -749,14 +744,7 @@ impl Machine<'_> {
         let connection = match runtime.block_on(self.open(&found, Product::Collie)) {
             Ok(connection) => connection,
             Err(Opening::Refused(error)) => {
-                return Err(match self.refusal(error, false) {
-                    NotOpened::RefusedByProductOrVersion(error) => Failure::DaemonRefused(error),
-                    NotOpened::Refused(error) => Failure::of(error),
-                    NotOpened::Failed(failure) => failure,
-                    NotOpened::Interrupted(_) => Failure::Unavailable(
-                        "a `daemon` command listens for no interrupt".to_owned(),
-                    ),
-                });
+                return Err(self.refusal(error, false).failure_of_a_daemon_command());
             }
             Err(
                 Opening::HandOver(_)
@@ -867,6 +855,21 @@ pub(super) enum NotOpened {
     Interrupted(Interrupt),
     /// No Daemon could be found, started or reached, as its Error code says.
     Failed(Failure),
+}
+
+impl NotOpened {
+    /// How a `daemon` command fails on it. Such a command opens its Link
+    /// with [`Interrupts::none`], which hears no interrupt.
+    fn failure_of_a_daemon_command(self) -> Failure {
+        match self {
+            Self::RefusedByProductOrVersion(error) => Failure::DaemonRefused(error),
+            Self::Refused(error) => Failure::of(error),
+            Self::Failed(failure) => failure,
+            Self::Interrupted(_) => {
+                unreachable!("invariant: `Interrupts::none` listens to no interrupt")
+            }
+        }
+    }
 }
 
 /// A Client's open Connection to the Daemon.

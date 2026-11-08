@@ -850,7 +850,7 @@ async fn write_managed(context: EngineContext, version: ProductVersion) {
     let machine = match context.settings().machine().await {
         Ok(machine) => machine,
         Err(error) => {
-            tracing::warn!(%error, "the Operator policy could not be read to write its managed Limits");
+            tracing::warn!(%error, "the machine's settings files could not be read, so no managed Limit was written");
             return;
         }
     };

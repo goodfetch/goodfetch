@@ -874,11 +874,32 @@ fn test_tools_builds(ran: &Ran) -> usize {
 #[cfg(unix)]
 #[test]
 fn a_stress_run_builds_the_test_tools_once() {
-    let recipes = recipes("20\tnextest\tsample counted::red_on_its_second_run\n");
+    let recipes =
+        recipes("20\tnextest\tsample tests::steady\n200\tnextest\tsample tests::steady\n");
 
     let ran = recipes.just(&["stress", "HEAD"]);
 
+    assert_eq!(ran.code, Some(0), "{}", ran.output);
     assert_eq!(test_tools_builds(&ran), 1, "{:?}", ran.calls);
+}
+
+/// A test taken off the quarantine list runs its 200 times: the recipe keeps
+/// only the selection lines of a count `xtask stress counts` lists, so a
+/// count it stopped listing would run nothing, in a green job.
+#[cfg(unix)]
+#[test]
+fn a_test_taken_off_the_quarantine_list_runs_its_200_times() {
+    let recipes = recipes("200\tnextest\tsample tests::steady\n");
+
+    let ran = recipes.just(&["stress", "HEAD"]);
+
+    assert_eq!(ran.code, Some(0), "{}", ran.output);
+    assert_eq!(
+        recipes.junit("target/junit/repeat-200"),
+        [("tests::steady".to_owned(), 200, 0)],
+        "{}",
+        ran.output
+    );
 }
 
 /// `just repeat` builds the test tool manifest once before its runs.

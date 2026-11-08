@@ -576,23 +576,6 @@ fn no_sink_runs_without_the_pre_merge_suite() {
 }
 
 #[rstest]
-#[case::foxhound_crate(&["crates/foxhound/goodfetch-frontier/src/lib.rs"], "foxhound")]
-#[case::sink_process(&["crates/foxhound/sinks/goodfetch-sink-s3/src/main.rs"], "foxhound")]
-#[case::foxhound_console_package(&["console/foxhound/src/datasets.tsx"], "foxhound")]
-#[case::foxhound_sdk_files(&["sdks/typescript/foxhound/src/index.ts", "sdks/python/foxhound/src/goodfetch_foxhound/__init__.py"], "foxhound")]
-#[case::foxhound_and_shared_crate(&["crates/foxhound/goodfetch-frontier/src/lib.rs", "crates/goodfetch-engine/src/lib.rs"], "collie foxhound")]
-#[case::collie_sdk_files(&["sdks/typescript/collie/src/index.ts"], "collie foxhound")]
-#[case::docs(&["docs/foxhound/index.md"], "collie foxhound")]
-fn change_confined_to_foxhounds_side_selects_only_foxhound(
-    #[case] paths: &[&str],
-    #[case] products: &str,
-) {
-    let selection = select_paths(paths);
-
-    assert_eq!(value(&selection, "products"), products);
-}
-
-#[rstest]
 #[case::crate_and_its_dependants(&["crates/goodfetch-engine/src/lib.rs"], "goodfetch-engine/engine goodfetch-frontier/frontier")]
 #[case::crate_without_dependants(&["crates/foxhound/goodfetch-frontier/benches/frontier.rs"], "goodfetch-frontier/frontier")]
 #[case::crate_whose_dependants_have_none(&["crates/foxhound/sinks/goodfetch-sink-shared/src/lib.rs"], "")]
@@ -609,23 +592,6 @@ fn changed_crate_selects_its_and_its_dependants_bench_targets(
     let selection = select_paths(paths);
 
     assert_eq!(value(&selection, "bench-targets"), bench_targets);
-}
-
-#[rstest]
-#[case::changed_crates(&["crates/foxhound/sinks/goodfetch-sink-shared/src/lib.rs", "xtask/src/main.rs"], "rdeps(=goodfetch-sink-shared) | rdeps(=xtask)")]
-#[case::workspace_input(&["Cargo.toml"], "all()")]
-#[case::no_crate(&["sdks/typescript/collie/src/index.ts"], "none()")]
-// The Proving ground's own integration tests (`goodfetch-proving-ground::it`,
-// such as its task list's) are among `rdeps(=goodfetch-proving-ground)`'s.
-#[case::executable_and_the_crates_whose_tests_run_it(&["proving-ground/src/oracle.rs"], "rdeps(=goodfetch-conformance) | rdeps(=goodfetch-proving-ground)")]
-#[case::what_an_executable_is_built_from_and_the_crates_whose_tests_run_it(&["crates/goodfetch-engine/src/lib.rs"], "rdeps(=goodfetch-conformance) | rdeps(=goodfetch-engine)")]
-fn changed_crates_select_their_dependants_through_rdeps(
-    #[case] paths: &[&str],
-    #[case] filter: &str,
-) {
-    let selection = select_paths(paths);
-
-    assert_eq!(value(&selection, "nextest-filter"), filter);
 }
 
 #[rstest]
@@ -682,9 +648,7 @@ fn shared_crate_change_selects_both_products_tests() {
     let selection = select_paths(&["crates/goodfetch-engine/src/lib.rs"]);
 
     insta::assert_snapshot!(selection, @r#"
-    products=collie foxhound
     jobs=["pre-merge","sinks","perf","visual"]
-    nextest-filter=rdeps(=goodfetch-conformance) | rdeps(=goodfetch-engine)
     crates=goodfetch-collie goodfetch-conformance goodfetch-engine goodfetch-foxhound goodfetch-frontier
     vitest-packages=console test-support/typescript
     pytest-packages=
@@ -701,9 +665,7 @@ fn foxhound_side_change_outside_any_package_selects_all_of_foxhounds_tests() {
     let selection = select_paths(&["crates/foxhound/README.md"]);
 
     insta::assert_snapshot!(selection, @r#"
-    products=foxhound
     jobs=["pre-merge","sinks","perf","docs"]
-    nextest-filter=rdeps(=goodfetch-conformance) | rdeps(=goodfetch-foxhound) | rdeps(=goodfetch-frontier) | rdeps(=goodfetch-sink-kafka) | rdeps(=goodfetch-sink-s3) | rdeps(=goodfetch-sink-shared)
     crates=goodfetch-conformance goodfetch-foxhound goodfetch-frontier goodfetch-sink-kafka goodfetch-sink-s3 goodfetch-sink-shared
     vitest-packages=console/foxhound sdks/typescript/foxhound
     pytest-packages=sdks/python/foxhound
@@ -720,9 +682,7 @@ fn workspace_input_change_selects_everything() {
     let selection = select_paths(&["justfile"]);
 
     insta::assert_snapshot!(selection, @r#"
-    products=collie foxhound
     jobs=["pre-merge","sinks","perf","visual","docs"]
-    nextest-filter=all()
     crates=goodfetch-collie goodfetch-conformance goodfetch-engine goodfetch-foxhound goodfetch-frontier goodfetch-protocol goodfetch-proving-ground goodfetch-sink-kafka goodfetch-sink-s3 goodfetch-sink-shared goodfetch-test-support xtask
     vitest-packages=console console/foxhound sdks/typescript/collie sdks/typescript/collie-client sdks/typescript/foxhound test-support/typescript
     pytest-packages=sdks/python/collie sdks/python/collie-client sdks/python/foxhound test-support/python

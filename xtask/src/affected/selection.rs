@@ -19,8 +19,8 @@ use crate::{foxhound_side, perf, screenshots, tlc};
 /// 0032).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Job {
-    /// The rest of the Pre-merge suite: the Rust tests of `nextest-filter`,
-    /// and the touched TypeScript and Python packages, SDKs and adapters
+    /// The rest of the Pre-merge suite: the Rust tests of `crates`, and the
+    /// touched TypeScript and Python packages, SDKs and adapters
     /// among them, on one runtime each.
     PreMerge,
     /// The sink suites against their emulators and containers.
@@ -75,18 +75,8 @@ enum Products {
     Both,
 }
 
-/// What nextest runs.
-enum RustTests {
-    None,
-    All,
-    /// The changed crates; nextest adds the crates that depend on them.
-    DependantsOf(BTreeSet<String>),
-}
-
 pub(crate) struct Selection {
-    products: Products,
     jobs: BTreeSet<Job>,
-    rust: RustTests,
     /// The changed crates and their dependants, for runs that select crates
     /// by name (`cargo -p`) rather than through nextest's `rdeps(…)`.
     crates: BTreeSet<String>,
@@ -447,13 +437,6 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath], parts: &ChangedP
         |krate| &krate.name,
         |krate| &krate.dependencies,
     );
-    let rust = if changed_crates.is_empty() {
-        RustTests::None
-    } else if changed_crates.len() == workspace.crates.len() {
-        RustTests::All
-    } else {
-        RustTests::DependantsOf(changed_crates)
-    };
     let vitest_packages = package_folders(workspace, &changed_packages, Ecosystem::TypeScript);
     let pytest_packages = package_folders(workspace, &changed_packages, Ecosystem::Python);
     // A visual test exercises its own package and the packages it depends on.
@@ -464,9 +447,8 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath], parts: &ChangedP
         jobs.insert(Job::Visual);
     }
 
-    let pre_merge = !matches!(rust, RustTests::None)
-        || !vitest_packages.is_empty()
-        || !pytest_packages.is_empty();
+    let pre_merge =
+        !changed_crates.is_empty() || !vitest_packages.is_empty() || !pytest_packages.is_empty();
     let sinks = if pre_merge {
         jobs.insert(Job::PreMerge);
         names(members.iter().filter(|krate| is_sink(krate)))
@@ -525,9 +507,7 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath], parts: &ChangedP
     }
 
     Selection {
-        products,
         jobs,
-        rust,
         crates: names(&reached),
         vitest_packages,
         pytest_packages,
@@ -596,23 +576,8 @@ impl Selection {
 
 impl fmt::Display for Selection {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let products = match self.products {
-            Products::Foxhound => "foxhound",
-            Products::Both => "collie foxhound",
-        };
         let jobs: Vec<String> = self.job_ids().map(|id| format!("\"{id}\"")).collect();
-        let nextest_filter = match &self.rust {
-            RustTests::None => "none()".to_owned(),
-            RustTests::All => "all()".to_owned(),
-            RustTests::DependantsOf(crates) => crates
-                .iter()
-                .map(|name| format!("rdeps(={name})"))
-                .collect::<Vec<_>>()
-                .join(" | "),
-        };
-        writeln!(formatter, "products={products}")?;
         writeln!(formatter, "jobs=[{}]", jobs.join(","))?;
-        writeln!(formatter, "nextest-filter={nextest_filter}")?;
         writeln!(
             formatter,
             "crates={}",

@@ -2,14 +2,20 @@
 //! Commands) around its gate: it refuses to start one while the file system
 //! of the gate's `target/` is short of space (#1822), keeps a failing gate's
 //! log and test results in the repository's common folder (#2087), and
-//! sweeps the gate's `target/` after each gate, still holding its lock. `gh`,
-//! `cargo` and `just` are stand-ins that record each call, and `date` one
-//! that gives the gate's start as [`STARTED`]. The local gate is
+//! sweeps the gate's `target/` after each gate, still holding its lock; and
+//! the gate outlives the shell that started it, whose output it no longer
+//! needs. `gh`, `cargo` and `just` are stand-ins that record each call, and
+//! `date` one that gives the gate's start as [`STARTED`]. The local gate is
 //! repository tooling, so the module declares no Feature.
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt as _;
+use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
+
+use rstest::rstest;
 
 use crate::affected::{commit_all, repository};
 use crate::workspace::Workspace;
@@ -23,8 +29,11 @@ const STARTED: &str = "1800000000";
 /// and for `date`, which gives [`STARTED`] for `-u +%s` and leaves every
 /// other format to the system's `date`.
 /// `gh pr view` shows an open pull request at the head of `change`; `cargo
-/// run … affected` prints `gate=quick`; `just pre-merge` writes a JUnit
-/// file and, while `failing` exists, fails with status 3.
+/// run … affected` prints `gate=quick`, and its sweep notes `sweeping` and
+/// waits while `sweep-hold` exists; `just pre-merge` writes a JUnit file,
+/// notes the signals it ignores in `signals` where the system lists them,
+/// notes its process in `reached`, waits while `hold` exists, writes a line
+/// and, while `failing` exists, fails with status 3.
 fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
@@ -42,8 +51,16 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
             "cargo",
             format!(
                 "#!/bin/sh\necho \"cargo $* in $PWD\" >>\"{calls}\"\n\
-                 case \" $* \" in *\" affected \"*) echo gate=quick ;; esac\n",
+                 case \" $* \" in\n\
+                   *\" affected \"*) echo gate=quick ;;\n\
+                   *\" sweep-target \"*)\n\
+                     : >\"{sweeping}\"\n\
+                     while [ -f \"{sweep_hold}\" ]; do sleep 0.02; done\n\
+                     ;;\n\
+                 esac\n",
                 calls = calls.display(),
+                sweeping = folder.join("sweeping").display(),
+                sweep_hold = folder.join("sweep-hold").display(),
             ),
         ),
         (
@@ -52,9 +69,16 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
                 "#!/bin/sh\necho \"just $*\" >>\"{calls}\"\n\
                  if [ \"$1\" = pre-merge ]; then\n\
                    mkdir -p target/nextest/quick && echo '<testsuites/>' >target/nextest/quick/junit.xml\n\
+                   if [ -r /proc/self/status ]; then grep '^SigIgn:' /proc/self/status >\"{signals}\"; fi\n\
+                   echo $$ >\"{reached}\"\n\
+                   while [ -f \"{hold}\" ]; do sleep 0.02; done\n\
+                   echo 'the steps ran'\n\
                    if [ -f \"{failing}\" ]; then echo 'a test failed'; exit 3; fi\n\
                  fi\n",
                 calls = calls.display(),
+                signals = folder.join("signals").display(),
+                reached = folder.join("reached").display(),
+                hold = folder.join("hold").display(),
                 failing = folder.join("failing").display(),
             ),
         ),
@@ -93,34 +117,102 @@ fn pull_request() -> (Workspace, String) {
     (workspace, head)
 }
 
-/// Runs the repository's `ci/merge-pr.sh` on #7, the stand-ins first on
-/// `PATH`, with these variables added.
-fn merge(workspace: &Workspace, stand_in: &Path, variables: &[(&str, &str)]) -> Run {
+/// The repository's `ci/merge-pr.sh` on #7, the stand-ins first on `PATH`,
+/// with these variables added.
+fn merge_command(workspace: &Workspace, stand_in: &Path, variables: &[(&str, &str)]) -> Command {
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/merge-pr.sh");
-    let output = workspace
-        .command(script)
+    let mut command = workspace.command(script);
+    command
         .arg(NUMBER)
         .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
-        .env("TMPDIR", workspace.path())
         .env(
             "GOODFETCH_GATE_BACKSTOP_LOG",
             workspace.path().join("no-backstop"),
         )
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .envs(variables.iter().copied())
+        .envs(variables.iter().copied());
+    command
+}
+
+fn calls(stand_in: &Path) -> Vec<String> {
+    std::fs::read_to_string(stand_in.join("calls"))
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Runs `merge_command` to its end.
+fn merge(workspace: &Workspace, stand_in: &Path, variables: &[(&str, &str)]) -> Run {
+    let output = merge_command(workspace, stand_in, variables)
         .output()
         .unwrap();
     Run {
         code: output.status.code(),
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        calls: std::fs::read_to_string(stand_in.join("calls"))
-            .unwrap_or_default()
-            .lines()
-            .map(str::to_owned)
-            .collect(),
+        calls: calls(stand_in),
     }
+}
+
+/// Starts `merge_command` with its output in pipes, the leader of a process
+/// group of its own, as a session's shell is, and waits until the gate's
+/// steps run and wait on `hold`.
+fn merge_up_to_its_steps(workspace: &Workspace, stand_in: &Path) -> Child {
+    std::fs::write(stand_in.join("hold"), "").unwrap();
+    let caller = merge_command(workspace, stand_in, &[("GOODFETCH_GATE_MIN_FREE_GB", "0")])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    until("the gate's steps to start", || {
+        std::fs::read_to_string(stand_in.join("reached")).is_ok_and(|pid| pid.ends_with('\n'))
+    });
+    caller
+}
+
+/// Waits, on the real clock, for something a process outside the test does.
+fn until(what: &str, condition: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !condition() {
+        assert!(Instant::now() < deadline, "no sign of {what}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Sends `signal` to `target`, a process or, as `-<group>`, a process group.
+fn signal(signal: &str, target: &str) {
+    let sent = Command::new("kill")
+        .args([signal, "--", target])
+        .status()
+        .unwrap();
+    assert!(sent.success(), "kill {signal} {target}");
+}
+
+fn runs(pid: &str) -> bool {
+    Command::new("kill")
+        .args(["-0", pid])
+        .stderr(Stdio::null())
+        .status()
+        .unwrap()
+        .success()
+}
+
+fn gate_lock(workspace: &Workspace) -> PathBuf {
+    workspace.path().join(".claude/worktrees/merge-gate.lock")
+}
+
+/// Waits until the gate has merged, then let its lock go.
+fn until_the_gate_merged(workspace: &Workspace, stand_in: &Path) {
+    until("the gate's merge", || {
+        calls(stand_in)
+            .iter()
+            .any(|call| call.starts_with("gh pr merge"))
+    });
+    until("the gate's lock to go", || !gate_lock(workspace).exists());
 }
 
 fn gate_worktree(workspace: &Workspace) -> PathBuf {
@@ -148,10 +240,10 @@ fn a_gate_refuses_to_start_while_its_target_file_system_is_short_of_space() {
 
     assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
     assert!(
-        run.stderr
+        run.stdout
             .contains("GB free, under the 1000000000 GB a gate's builds need"),
         "{}",
-        run.stderr
+        run.stdout
     );
     assert!(
         !run.calls.iter().any(|call| call.starts_with("just ")),
@@ -163,12 +255,7 @@ fn a_gate_refuses_to_start_while_its_target_file_system_is_short_of_space() {
         "{:?}",
         run.calls
     );
-    assert!(
-        !workspace
-            .path()
-            .join(".claude/worktrees/merge-gate.lock")
-            .exists()
-    );
+    assert!(!gate_lock(&workspace).exists());
 }
 
 /// A green gate merges, then sweeps the gate's `target/` before it lets
@@ -200,12 +287,7 @@ fn after_a_green_gate_the_target_is_swept_under_the_gates_lock() {
     );
     assert!(call(&run, "just pre-merge quick") < sweep);
     assert!(call(&run, "gh pr merge") < sweep);
-    assert!(
-        !workspace
-            .path()
-            .join(".claude/worktrees/merge-gate.lock")
-            .exists()
-    );
+    assert!(!gate_lock(&workspace).exists());
 }
 
 #[test]
@@ -249,9 +331,153 @@ fn a_failing_gate_keeps_its_log_and_test_results_and_is_swept_too() {
     );
     assert!(kept[0].join("nextest/quick/junit.xml").is_file());
     assert!(
-        run.stderr
+        run.stdout
             .contains(&format!("kept in {}", kept[0].display())),
         "{}",
-        run.stderr
+        run.stdout
     );
+}
+
+/// A session restart stops the shell that hosts `just merge`, with its
+/// process group (2026-11-08: SIGTERM killed a gate 1 h 47 in). The gate is
+/// past that reach and still merges.
+#[test]
+fn a_gate_merges_after_the_shell_that_started_it_dies() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let mut caller = merge_up_to_its_steps(&workspace, &stand_in);
+
+    signal("-TERM", &format!("-{}", caller.id()));
+    caller.wait().unwrap();
+    std::fs::remove_file(stand_in.join("hold")).unwrap();
+
+    until_the_gate_merged(&workspace, &stand_in);
+}
+
+/// Output the caller stops reading stops nothing: the gate's output goes to
+/// its log.
+#[test]
+fn a_gate_merges_after_its_callers_output_closes() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let mut caller = merge_up_to_its_steps(&workspace, &stand_in);
+
+    drop(caller.stdout.take());
+    drop(caller.stderr.take());
+    std::fs::remove_file(stand_in.join("hold")).unwrap();
+
+    until_the_gate_merged(&workspace, &stand_in);
+    caller.wait().unwrap();
+}
+
+/// While the caller lives it follows the gate: it shows the gate's output,
+/// says where its log is, and ends with the gate's exit status.
+#[test]
+fn a_caller_shows_the_gates_output_and_log_and_ends_with_its_status() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("failing"), "").unwrap();
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(3), "{}{}", run.stdout, run.stderr);
+    assert!(run.stdout.contains("a test failed"), "{}", run.stdout);
+    let logs: Vec<PathBuf> = std::fs::read_dir(workspace.path().join(".git/goodfetch-gate-logs"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "log"))
+        .collect();
+    assert_eq!(logs.len(), 1, "{logs:?}");
+    assert!(
+        std::fs::read_to_string(&logs[0])
+            .unwrap()
+            .contains("a test failed")
+    );
+    assert!(
+        run.stdout.contains(&logs[0].display().to_string()),
+        "{}",
+        run.stdout
+    );
+}
+
+/// A stop signal to the process the gate's lock names stops the gate's steps
+/// and lets the lock go; nothing merges, and the caller ends with 143.
+#[rstest]
+#[case::sigterm("-TERM")]
+#[case::sighup("-HUP")]
+#[case::sigint("-INT")]
+fn a_stop_signal_to_the_gate_stops_its_steps_and_releases_its_lock(#[case] stop: &str) {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let mut caller = merge_up_to_its_steps(&workspace, &stand_in);
+    let gate = std::fs::read_to_string(gate_lock(&workspace).join("pid")).unwrap();
+    let step = std::fs::read_to_string(stand_in.join("reached")).unwrap();
+
+    signal(stop, gate.trim());
+
+    until("the gate's lock to go", || !gate_lock(&workspace).exists());
+    let code = caller.wait().unwrap().code();
+    assert!(!runs(step.trim()), "the gate's step still runs");
+    assert_eq!(code, Some(143));
+    assert!(
+        !calls(&stand_in)
+            .iter()
+            .any(|call| call.starts_with("gh pr merge")),
+        "{:?}",
+        calls(&stand_in)
+    );
+}
+
+/// A gate that has merged has nothing left to stop: SIGTERM during its sweep
+/// neither cuts the sweep nor keeps the lock, and the caller ends with the
+/// merge's status.
+#[test]
+fn sigterm_during_the_sweep_leaves_the_gates_end_whole() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("sweep-hold"), "").unwrap();
+    let mut caller = merge_command(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    )
+    .stdin(Stdio::null())
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .spawn()
+    .unwrap();
+    until("the gate's sweep", || stand_in.join("sweeping").exists());
+    let gate = std::fs::read_to_string(gate_lock(&workspace).join("pid")).unwrap();
+
+    signal("-TERM", gate.trim());
+    std::fs::remove_file(stand_in.join("sweep-hold")).unwrap();
+
+    until("the gate's lock to go", || !gate_lock(&workspace).exists());
+    assert_eq!(caller.wait().unwrap().code(), Some(0));
+}
+
+/// The gate starts as a background command, which ignores SIGINT and SIGQUIT,
+/// from a caller that may ignore more; its steps, and so the tests' processes,
+/// still get what a foreground command gets.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_gates_steps_ignore_no_signal_the_gates_start_would_have_them_ignore() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    let signals = std::fs::read_to_string(stand_in.join("signals")).unwrap();
+    let ignored = u64::from_str_radix(signals.trim_start_matches("SigIgn:").trim(), 16).unwrap();
+    // SIGHUP, SIGINT, SIGQUIT, SIGPIPE and SIGTERM, bits 0, 1, 2, 12 and 14.
+    assert_eq!(ignored & 0x5007, 0, "{signals}");
 }

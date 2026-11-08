@@ -1542,7 +1542,12 @@ hooks:
 # under GOODFETCH_GATE_MIN_FREE_GB (30) free on the file system of the gate's
 # `target/`, keeps a failing gate's log and test results in the common Git
 # folder's `goodfetch-gate-failures/` for 30 days, and sweeps the gate's
-# `target/` after the gate, still holding its lock.
+# `target/` after the gate, still holding its lock. The gate outlives the
+# shell that starts it: it runs in a session of its own, with its output in
+# the common Git folder's `goodfetch-gate-logs/`, and this command follows
+# that log and ends with the gate's status. Stopping this command leaves the
+# gate running; SIGTERM to the process it names stops the gate and releases
+# its lock.
 merge number *override:
     ci/merge-pr.sh {{ number }} {{ override }}
 

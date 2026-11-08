@@ -334,17 +334,28 @@ pub(crate) async fn settled_or(mut holds: impl FnMut() -> bool, seen: impl Fn() 
 /// `gate`, once its Run started with `settings` beside `network.resolve`,
 /// which maps the Proving ground's hosts to it, and its first page opened;
 /// the engine stops its Run, closing its browser, once `test` ends.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the tests build their own runtime with real time, since a real browser answers in real time (ADR 0060)"
-)]
 pub(crate) fn with_handler_page(
     gate: &RecordingGate,
     settings: Map<String, Value>,
     test: impl AsyncFnOnce(&mut Program),
 ) {
+    with_handler_page_of(gate, |_| settings, test);
+}
+
+/// As [`with_handler_page`], with the settings `settings_of` the test's
+/// Proving ground, such as one naming its proxies' addresses.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the tests build their own runtime with real time, since a real browser answers in real time (ADR 0060)"
+)]
+pub(crate) fn with_handler_page_of(
+    gate: &RecordingGate,
+    settings_of: impl FnOnce(&ProvingGround) -> Map<String, Value>,
+    test: impl AsyncFnOnce(&mut Program),
+) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, 720).expect("the Proving ground starts");
+    let settings = settings_of(&proving_ground);
     let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
     let composition = Composition::default()
         .with(goodfetch_engine::contribution())

@@ -19,6 +19,7 @@ use phonenumber::{Mode, PhoneNumber};
 use url::Url;
 
 use crate::social;
+use crate::whitespace::collapsed;
 
 /// The elements whose text the page does not show.
 const UNSHOWN: &[&str] = &[
@@ -507,9 +508,4 @@ fn numbers(text: &str) -> Vec<(&str, &str)> {
         }
     }
     found
-}
-
-/// `text` with its white space collapsed.
-fn collapsed(text: &str) -> String {
-    text.split_ascii_whitespace().collect::<Vec<_>>().join(" ")
 }

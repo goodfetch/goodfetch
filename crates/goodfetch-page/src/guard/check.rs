@@ -92,7 +92,7 @@ pub(crate) enum Seen {
     /// It is not, at the step `step`.
     Waiting {
         /// The condition that did not hold, such as `visible` or `unique`.
-        step: String,
+        step: Step,
         /// What the page showed instead.
         observed: String,
         /// Every element that matched, when there were several.
@@ -107,8 +107,64 @@ pub(crate) enum Seen {
 }
 
 impl Seen {
+    /// A wait at `step`, the page showing `observed`, listing no matches.
+    pub(crate) fn waiting(step: Step, observed: impl Into<String>) -> Self {
+        Self::Waiting {
+            step,
+            observed: observed.into(),
+            matches: Vec::new(),
+        }
+    }
+
     /// The check's answer, `value`, as what it saw.
     pub(crate) fn read(value: &Value) -> Result<Self, serde_json::Error> {
         Self::deserialize(value)
+    }
+}
+
+/// A condition the check waits on, by the name `check.js` gives it: a step
+/// it names otherwise does not read, so the script and the guard cannot
+/// part on a name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Step {
+    /// A count wait's matches are not as many as its bounds allow.
+    Count,
+    /// A `detached` wait still matches.
+    Detached,
+    /// More than one element matches.
+    Unique,
+    /// A `hidden` wait's match is visible.
+    Hidden,
+    /// Nothing matches.
+    Attached,
+    /// The match is not visible.
+    Visible,
+    /// The match is disabled.
+    Enabled,
+    /// The match is not editable.
+    Editable,
+    /// The match is moving.
+    Stable,
+    /// Another element would receive the event.
+    ReceivesEvents,
+}
+
+impl Step {
+    /// Its name, as `check.js` and `deadline_exceeded`'s `waited_for` give
+    /// it.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Count => "count",
+            Self::Detached => "detached",
+            Self::Unique => "unique",
+            Self::Hidden => "hidden",
+            Self::Attached => "attached",
+            Self::Visible => "visible",
+            Self::Enabled => "enabled",
+            Self::Editable => "editable",
+            Self::Stable => "stable",
+            Self::ReceivesEvents => "receives_events",
+        }
     }
 }

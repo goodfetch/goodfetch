@@ -13,6 +13,7 @@
 
 pub mod consent;
 pub mod cosmetic;
+mod filter_set;
 pub mod hiding;
 pub mod matching;
 pub mod never_block;

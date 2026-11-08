@@ -20,6 +20,12 @@ use super::{Browser, PageDriver, navigation};
 /// moves it (ADR 0059's note of 2026-10-24).
 const QUIT_WINDOW: Duration = Duration::from_secs(2);
 
+/// The longest a page's end takes to be known once its target or its
+/// browser's connection went: a destroyed target waits [`QUIT_WINDOW`] for
+/// its browser's quit, and a lost launched browser [`QUIT_WINDOW`] more for
+/// its exit status.
+pub(crate) const ENDING_KNOWN_WITHIN: Duration = Duration::from_secs(2 * QUIT_WINDOW.as_secs());
+
 /// How a page's target ended when the engine did not close its browser
 /// (ADR 0113; spec #594's `TargetDestroyed`, `RendererCrash`, `BrowserQuit`
 /// and `BrowserCrash`).

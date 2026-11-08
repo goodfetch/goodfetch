@@ -23,6 +23,12 @@
 //! certificates made in each benchmark's setup; no network, no sleep, no
 //! work whose amount depends on timing.
 
+#[path = "../src/egress_relay/answers.rs"]
+#[expect(
+    dead_code,
+    reason = "the scenario's relay answers its client, never gives credentials of its own"
+)]
+mod answers;
 #[path = "../src/egress_relay/application_settings.rs"]
 #[expect(
     dead_code,

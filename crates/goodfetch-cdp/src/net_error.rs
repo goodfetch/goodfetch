@@ -11,6 +11,12 @@
 
 use crate::failure::PartyText;
 
+/// The requests a navigation's redirect chain holds at most in the browser,
+/// its first included (Chromium's `kMaxRedirects`, ADR 0118): the pinned
+/// Chromium follows one fewer redirects, and fails the navigation at the
+/// next with [`NetError::TooManyRedirects`].
+pub const BROWSER_REDIRECT_CHAIN: u32 = 20;
+
 /// A network error of the browser's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -18,7 +24,8 @@ pub enum NetError {
     /// The browser cancelled the request or navigation: another superseded
     /// it, it was stopped, or its answer has no document.
     Aborted,
-    /// A navigation went past the browser's 19 redirects.
+    /// A navigation went past the browser's redirects, its chain already
+    /// [`BROWSER_REDIRECT_CHAIN`] requests long.
     TooManyRedirects,
     /// A body's listed content coding did not decode.
     ContentDecodingFailed,
@@ -43,6 +50,11 @@ pub enum NetError {
     ConnectionRefused,
     /// The connection to the site timed out.
     ConnectionTimedOut,
+    /// The site's answer timed out, once connected.
+    TimedOut,
+    /// An HTTP/2 stream or connection reset the browser has no error of
+    /// its own for, such as the site's `ENHANCE_YOUR_CALM`.
+    Http2ProtocolError,
     /// Any other failure to connect to the site.
     ConnectionFailed,
     /// The proxy answered the tunnel's `CONNECT` with a refusal other than
@@ -97,7 +109,7 @@ const PREFIX: &str = "net::ERR_";
 const INSPECTOR: &str = ".Inspector";
 
 /// The names of the errors with their own variant.
-const NAMED: [(&str, NetError); 16] = [
+const NAMED: [(&str, NetError); 18] = [
     ("net::ERR_ABORTED", NetError::Aborted),
     ("net::ERR_TOO_MANY_REDIRECTS", NetError::TooManyRedirects),
     (
@@ -122,6 +134,11 @@ const NAMED: [(&str, NetError); 16] = [
         NetError::ConnectionTimedOut,
     ),
     ("net::ERR_CONNECTION_FAILED", NetError::ConnectionFailed),
+    ("net::ERR_TIMED_OUT", NetError::TimedOut),
+    (
+        "net::ERR_HTTP2_PROTOCOL_ERROR",
+        NetError::Http2ProtocolError,
+    ),
     ("net::ERR_TUNNEL_CONNECTION_FAILED", NetError::TunnelRefused),
     (
         "net::ERR_CERT_COMMON_NAME_INVALID",

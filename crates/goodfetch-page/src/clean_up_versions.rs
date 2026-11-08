@@ -869,13 +869,16 @@ async fn known(
         .map(|(version, held)| (version, Some(held)))
 }
 
-/// The Clean-up rules digest `run`'s state records.
+/// The Clean-up rules digest `run`'s state records; none, and the failure
+/// logged, when its state does not read.
 async fn recorded_digest(run: &Run) -> Option<String> {
-    run.state()
-        .read(run_row::clean_up_digest)
-        .await
-        .ok()
-        .flatten()
+    match run.state().read(run_row::clean_up_digest).await {
+        Ok(digest) => digest,
+        Err(error) => {
+            tracing::warn!(%error, "the Run's state did not read its Clean-up rules' digest: none is recorded for it");
+            None
+        }
+    }
 }
 
 impl CleanUpVersions for Versions {

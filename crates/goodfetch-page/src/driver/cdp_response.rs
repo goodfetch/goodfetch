@@ -69,6 +69,12 @@ pub(crate) fn status(code: i64) -> u16 {
     u16::try_from(code).unwrap_or_default()
 }
 
+/// Whether `status` is a redirect's, a 3xx: never 0, the status of no
+/// response.
+pub(crate) fn redirects(status: u16) -> bool {
+    (300..400).contains(&status)
+}
+
 /// The status of the response paused at `paused`; 0 when it paused before
 /// a response arrived.
 pub(crate) fn paused_status(paused: &fetch::RequestPausedEvent) -> u16 {

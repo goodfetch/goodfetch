@@ -5,8 +5,8 @@
 //! feature), so every Session shares one behind an `Arc` with no lock.
 
 use adblock::Engine;
-use adblock::lists::{FilterSet, ParseOptions};
 
+use crate::filter_set;
 use crate::stand_ins;
 
 /// One embedded engine as the build wrote it.
@@ -91,9 +91,7 @@ impl FilterLists {
     /// on a blocking task (ADR 0060).
     pub fn compile(texts: &ListTexts<'_>) -> Self {
         let compiled = |list: &str| {
-            let mut set = FilterSet::new(false);
-            set.add_filter_list(list.to_owned(), ParseOptions::default());
-            set.add_filter_list(texts.unbreak.to_owned(), ParseOptions::default());
+            let set = filter_set::of(list.to_owned(), texts.unbreak.to_owned());
             let mut engine = Engine::new_with_filter_set(set);
             engine.use_resources(stand_ins::resources());
             engine

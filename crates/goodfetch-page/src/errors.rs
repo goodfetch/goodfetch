@@ -13,7 +13,7 @@
 //! which only a broken renderer refuses, and an internal error for a
 //! locator action or a page function, which have no generic code.
 
-use goodfetch_cdp::{CertificateError, Failure, NetError, Refusal};
+use goodfetch_cdp::{BROWSER_REDIRECT_CHAIN, CertificateError, Failure, NetError, Refusal};
 use goodfetch_engine::CallError;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_protocol::connection::{
@@ -281,12 +281,6 @@ pub(crate) fn interrupted(url: &str) -> CallError {
     )
 }
 
-/// The browser's redirect count (Chromium's `kMaxRedirects`, ADR 0118): a
-/// navigation's chain holds at most this many requests, its first
-/// included, so the pinned Chromium follows 19 redirects and fails the
-/// navigation at the next.
-const BROWSER_REDIRECTS: u32 = 20;
-
 /// `too_many_redirects` for the navigation to `url`, whose request went to
 /// each URL of `chain` in turn, the first included.
 pub(crate) fn too_many_redirects(url: &str, chain: Vec<String>) -> CallError {
@@ -296,14 +290,14 @@ pub(crate) fn too_many_redirects(url: &str, chain: Vec<String>) -> CallError {
     CallError::new(
         &TOO_MANY_REDIRECTS,
         format!(
-            "the navigation to {first} was redirected again after {} redirects, past the browser's count of {BROWSER_REDIRECTS}",
+            "the navigation to {first} was redirected again after {} redirects, past the browser's chain of {BROWSER_REDIRECT_CHAIN} requests",
             hops.len()
         ),
         &TooManyRedirectsDetails {
             url: first.clone(),
             hops,
             limit: RedirectLimit::Browser {
-                count: BROWSER_REDIRECTS,
+                count: BROWSER_REDIRECT_CHAIN,
             },
         },
     )

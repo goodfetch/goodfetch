@@ -50,10 +50,11 @@ world = []
 # Which of `interception`'s own modules may import which.
 [submodules.interception]
 answers = ["steps"]
+authentication = []
 clean_up = ["steps"]
 hops = []
 navigations = []
-pipeline = ["answers", "hops", "routes", "steps"]
+pipeline = ["answers", "authentication", "hops", "routes", "steps"]
 routes = []
 steps = []
 
@@ -72,6 +73,7 @@ rules = []
 
 # Which of `egress_relay`'s own modules may import which.
 [submodules.egress_relay]
+answers = []
 application_settings = []
 authority = []
 capture = ["application_settings"]
@@ -79,7 +81,7 @@ client_hello = []
 cookies = []
 deadlines = []
 head = []
-serve = ["client_hello", "deadlines", "head", "terminate"]
+serve = ["answers", "client_hello", "deadlines", "head", "terminate"]
 terminate = ["application_settings", "authority", "client_hello", "cookies"]
 
 # Which of `proxy`'s own modules may import which.

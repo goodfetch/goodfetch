@@ -86,6 +86,7 @@ fn parse(outcome: &Outcome) -> Plan {
             Some((step, "why")) => {
                 plan.why.insert(step.to_owned(), value.to_owned());
             }
+            Some((_, "earned")) => {}
             Some(_) => panic!("an unexpected plan line: {line:?}"),
         }
     }
@@ -359,6 +360,172 @@ fn a_change_to_the_justfile_reruns_every_step_in_full() {
         second.steps
     );
     assert!(second.why["perf"].starts_with("justfile changed since "));
+}
+
+/// The fixture with an `xtask` crate of its own, as the repository has, and
+/// its dep-info: a first run green on every step.
+fn green_run_with_xtask(workspace: &Workspace, records: &Path) {
+    add_xtask(workspace, records);
+    let first = plan(workspace, records);
+    record_plan(workspace, records, &first, &[]);
+}
+
+/// Adds an `xtask` crate to the fixture, as the repository has, with the
+/// dep-info of its executable and its tests.
+fn add_xtask(workspace: &Workspace, records: &Path) {
+    workspace.edit(
+        "Cargo.toml",
+        "\"proving-ground\",",
+        "\"proving-ground\",\n  \"xtask\",",
+    );
+    workspace.write(
+        "xtask/Cargo.toml",
+        b"[package]\nname = \"xtask\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+    );
+    workspace.write("xtask/src/main.rs", b"fn main() {}\n");
+    workspace.write("xtask/tests/it/main.rs", b"//! Its tests.\n");
+    commit_all(workspace, "Add xtask");
+    let deps = target(records).join("debug/deps");
+    for (name, source) in [
+        ("xtask", "xtask/src/main.rs"),
+        ("it", "xtask/tests/it/main.rs"),
+    ] {
+        let file = deps.join(format!("{name}-0.d"));
+        let source = workspace.path().join(source);
+        std::fs::write(&file, format!("{}: {}\n", file.display(), source.display())).unwrap();
+    }
+}
+
+/// The steps of `plan` that run whatever a change reaches.
+const EVERY_RUN: [&str; 12] = [
+    "dco",
+    "commit-messages",
+    "floor-guard",
+    "commit-leaks",
+    "audit",
+    "notices",
+    "lint",
+    "feature-combinations",
+    "fuzz-check",
+    "proofs",
+    "journeys-tasks",
+    "features-tests",
+];
+
+/// The members Vitest, Playwright and pytest test in the fixture: every run
+/// reruns them in the head's order.
+const SHUFFLED: [&str; 4] = [
+    "sdks/python/collie-client",
+    "sdks/python/foxhound",
+    "sdks/typescript/collie-client",
+    "sdks/typescript/foxhound",
+];
+
+/// #2090's F4: a file of the gate's inputs reaches the steps that read it and
+/// no other. An xtask test file reaches xtask's own tests and, since the
+/// Linux-only tests are partly xtask's, `just linux`; a `ci/` file its
+/// steps; one no gate step runs, or that only a step every run reruns reads,
+/// reaches nothing more.
+#[rstest::rstest]
+#[case::xtask_test_file("xtask/tests/it/stress.rs", &["linux"], true)]
+#[case::xtask_fixture("xtask/tests/it/fixtures/empty/README.md", &["linux"], true)]
+#[case::ci_no_gate_step_runs("ci/coverage.sh", &[], false)]
+#[case::ci_backstop("ci/gate-backstop.sh", &[], false)]
+#[case::ci_read_by_a_step_every_run_reruns("ci/gitleaks.toml", &[], false)]
+#[case::ci_proof("ci/proofs/msrv/Cargo.toml", &[], false)]
+#[case::ci_perf("ci/perf.sh", &["perf"], false)]
+#[case::ci_linux("ci/linux.sh", &["linux"], false)]
+#[case::ci_visual("ci/visual/run.sh", &["visual"], false)]
+#[case::ci_container("ci/container.sh", &["linux", "perf", "visual"], false)]
+#[case::ci_msrv("ci/msrv.sh", &["msrv"], false)]
+#[case::ci_miri("ci/miri.toml", &["miri"], false)]
+fn a_gate_input_the_map_names_reaches_only_the_steps_that_read_it(
+    #[case] path: &str,
+    #[case] steps: &[&str],
+    #[case] reaches_xtask: bool,
+) {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    green_run_with_xtask(&workspace, &records);
+    workspace.write(path, b"# Changed.\n");
+    commit_all(&workspace, "Change one input");
+
+    let second = plan(&workspace, &records);
+
+    let ran: BTreeSet<&str> = second
+        .steps
+        .iter()
+        .filter(|(_, (action, _))| action == "run")
+        .map(|(step, _)| step.as_str())
+        .collect();
+    let expected: BTreeSet<&str> = EVERY_RUN.iter().chain(steps).copied().collect();
+    assert_eq!(ran, expected, "{:?}", second.why);
+    let mut rerun: BTreeSet<String> = SHUFFLED.iter().map(|member| (*member).to_owned()).collect();
+    if reaches_xtask {
+        rerun.insert("xtask".to_owned());
+    }
+    for step in ["quick", "pre-merge", "stress"] {
+        assert_eq!(action(&second, step).0, "part", "{step}: {:?}", second.why);
+        assert_eq!(members(&second, step), rerun, "{step}: {:?}", second.why);
+    }
+}
+
+/// A `ci/` file a member's test names still reaches that member, by the
+/// string-literal evidence: a test may run it.
+#[test]
+fn a_ci_file_a_test_names_reaches_that_tests_member() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    workspace.write(
+        "xtask/tests/it/coverage.rs",
+        b"const SCRIPT: &str = \"../ci/coverage.sh\";\n",
+    );
+    workspace.write("ci/coverage.sh", b"#!/bin/sh\n");
+    green_run_with_xtask(&workspace, &records);
+    workspace.write("ci/coverage.sh", b"#!/bin/sh\nexit 0\n");
+    commit_all(&workspace, "Change the coverage script");
+
+    let second = plan(&workspace, &records);
+
+    assert!(
+        members(&second, "pre-merge").contains("xtask"),
+        "{:?}",
+        second.why
+    );
+    assert!(
+        second.why["pre-merge"].contains("names ci/coverage.sh"),
+        "{}",
+        second.why["pre-merge"]
+    );
+    // Its evidence reaches xtask's tests alone, which no crate depends on.
+    for step in ["perf", "msrv", "miri", "tlc", "visual", "kennel"] {
+        assert_eq!(action(&second, step).0, "reuse", "{step}: {:?}", second.why);
+    }
+}
+
+/// Any path of the gate's inputs the map does not name still reruns every
+/// step, as does `xtask/src/`, which decides the plan.
+#[rstest::rstest]
+#[case::a_script_every_step_needs("ci/pre-merge.sh")]
+#[case::a_new_ci_file("ci/a-new-script.sh")]
+#[case::a_new_ci_folder("ci/a-new-folder/settings.toml")]
+#[case::xtask_source("xtask/src/gate/plan.rs")]
+#[case::xtask_manifest("xtask/Cargo.toml")]
+#[case::xtask_modules("xtask/modules.toml")]
+fn a_gate_input_the_map_does_not_name_reruns_every_step(#[case] path: &str) {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    green_run_with_xtask(&workspace, &records);
+    let mut contents = workspace.read(path).unwrap_or_default();
+    contents.extend_from_slice(b"\n# Changed.\n");
+    workspace.write(path, &contents);
+    commit_all(&workspace, "Change one input");
+
+    let second = plan(&workspace, &records);
+
+    assert!(
+        second.steps.values().all(|(action, _)| action == "run"),
+        "{:?}",
+        second.steps
+    );
+    assert!(second.why["perf"].contains(path), "{}", second.why["perf"]);
 }
 
 #[test]
@@ -638,6 +805,8 @@ fn a_red_stress_run_records_green_each_crate_whose_selected_tests_all_passed_the
     }
     let folder = records.with_file_name("repeat-3");
     std::fs::create_dir_all(&folder).unwrap();
+    let red = records.with_file_name("stress-red-commands.tsv");
+    std::fs::write(&red, NEXTEST_TEST_FAILED).unwrap();
     let selection = records.with_file_name("stress-selection.tsv");
     std::fs::write(
         &selection,
@@ -651,6 +820,7 @@ fn a_red_stress_run_records_green_each_crate_whose_selected_tests_all_passed_the
     let engine = [
         ("goodfetch-engine@stress-0", "dispatch::routes", true),
         ("goodfetch-engine@stress-1", "dispatch::routes", true),
+        ("goodfetch-engine@stress-2", "dispatch::routes", false),
     ];
     let frontier = [
         ("goodfetch-frontier::it@stress-0", "claim::slices", true),
@@ -675,6 +845,10 @@ fn a_red_stress_run_records_green_each_crate_whose_selected_tests_all_passed_the
         &[
             "--selection",
             &selection.to_string_lossy(),
+            "--red-commands",
+            &red.to_string_lossy(),
+            "--started",
+            STARTED,
             "--junit",
             &folder.to_string_lossy(),
         ],
@@ -688,6 +862,722 @@ fn a_red_stress_run_records_green_each_crate_whose_selected_tests_all_passed_the
     let rerun = members(&second, "stress");
     assert!(rerun.contains("goodfetch-engine"), "{rerun:?}");
     assert!(!rerun.contains("goodfetch-frontier"), "{rerun:?}");
+}
+
+/// The stress run of the fixture's `xtask`, engine and frontier tests, and a
+/// Vitest test, each its 20 times.
+const SELECTION: &str = "20\tnextest\txtask::it a::flaky\n\
+                         20\tnextest\tgoodfetch-engine b::steady\n\
+                         20\tnextest\tgoodfetch-frontier::it c::steady\n\
+                         20\tvitest\tsdk > a case\n";
+
+/// What `just repeat --until-red` says of a nextest run with a failing test.
+const NEXTEST_TEST_FAILED: &str = "nextest\t100\n";
+
+/// When the fixture's stress runs begin: before `NOW`, when they are recorded.
+const STARTED: &str = "1799999000";
+
+/// Records `plan`'s stress run red with `selection`, each of `iterations` the
+/// nextest cases one iteration ran, as `just repeat --until-red` keeps them.
+fn red_stress_run(
+    workspace: &Workspace,
+    records: &Path,
+    plan: &Plan,
+    selection: &str,
+    iterations: &[Vec<(&str, &str, bool)>],
+) {
+    red_stress_run_saying(
+        workspace,
+        records,
+        plan,
+        Some(selection),
+        iterations,
+        Some(NEXTEST_TEST_FAILED),
+    );
+}
+
+/// As [`red_stress_run`], with the commands the run says went red, if it says,
+/// and its selection, if it left one.
+fn red_stress_run_saying(
+    workspace: &Workspace,
+    records: &Path,
+    plan: &Plan,
+    selection: Option<&str>,
+    iterations: &[Vec<(&str, &str, bool)>],
+    red_commands: Option<&str>,
+) {
+    let folder = records.with_file_name(format!("repeat-of-{}", plan.head));
+    std::fs::create_dir_all(&folder).unwrap();
+    for (iteration, cases) in iterations.iter().enumerate() {
+        std::fs::write(
+            folder.join(format!("nextest-ci.1.{iteration}.xml")),
+            nextest_junit(cases, true),
+        )
+        .unwrap();
+    }
+    let file = folder.with_extension("selection");
+    if let Some(selection) = selection {
+        std::fs::write(&file, selection).unwrap();
+    }
+    let red = folder.with_extension("red");
+    if let Some(red_commands) = red_commands {
+        std::fs::write(&red, red_commands).unwrap();
+    }
+    record_with(
+        workspace,
+        records,
+        &plan.head,
+        "stress",
+        &[
+            "--selection",
+            &file.to_string_lossy(),
+            "--red-commands",
+            &red.to_string_lossy(),
+            "--started",
+            STARTED,
+            "--junit",
+            &folder.to_string_lossy(),
+        ],
+    );
+}
+
+/// The iterations of a run on SELECTION that went red on xtask's test on the
+/// last of `passes` + 1: the engine's and the frontier's passed each time.
+fn red_on_xtask_after(passes: usize) -> Vec<Vec<(&'static str, &'static str, bool)>> {
+    (0..=passes)
+        .map(|iteration| {
+            vec![
+                ("xtask::it@stress-0", "a::flaky", iteration < passes),
+                ("goodfetch-engine@stress-0", "b::steady", true),
+                ("goodfetch-frontier::it@stress-0", "c::steady", true),
+            ]
+        })
+        .collect()
+}
+
+/// The fixture with xtask, on a first run with every step green but the stress
+/// run, red on xtask's test on its 7th pass; then a fix to that test's file.
+/// Returns the first head.
+fn red_on_xtask_then_its_fix(workspace: &Workspace, records: &Path) -> String {
+    add_xtask(workspace, records);
+    let first = plan(workspace, records);
+    for step in first.steps.keys() {
+        if step != "stress" {
+            record(workspace, records, &first.head, step, "pass");
+        }
+    }
+    red_stress_run(
+        workspace,
+        records,
+        &first,
+        SELECTION,
+        &red_on_xtask_after(6),
+    );
+    workspace.write("xtask/tests/it/stress.rs", b"//! The fix.\n");
+    commit_all(workspace, "Fix the flaky test");
+    first.head
+}
+
+/// The earned file of the run on `head`, as `<member> <origin> <passes> <test>`
+/// lines, or none.
+fn earned(records: &Path, head: &str) -> Vec<String> {
+    std::fs::read_to_string(records.join(format!("{head}.earned")))
+        .unwrap_or_default()
+        .lines()
+        .map(|line| {
+            let fields: Vec<&str> = line.split('\t').collect();
+            let [member, origin, _at, passes, test] = fields.as_slice() else {
+                panic!("an earned line has five fields, not {line:?}");
+            };
+            format!("{member} {origin} {passes} {test}")
+        })
+        .collect()
+}
+
+/// #2233, as on #2223's gate at f5841c69f: one test failed in xtask on the
+/// 7th pass. The fix's plan reruns the members it reaches and those short of
+/// their passes, each of which keeps the clean passes it has; the member with
+/// the red test keeps none, and the Vitest member, which runs in the head's
+/// order, none. Nothing else reruns.
+#[test]
+fn a_red_stress_run_leaves_its_clean_members_their_passes_and_the_fix_reruns_what_it_reaches() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let first = red_on_xtask_then_its_fix(&workspace, &records);
+
+    let second = plan(&workspace, &records);
+
+    assert_eq!(action(&second, "stress").0, "part", "{:?}", second.why);
+    let mut rerun: BTreeSet<String> = SHUFFLED.iter().map(|member| (*member).to_owned()).collect();
+    rerun.extend(["xtask", "goodfetch-engine", "goodfetch-frontier"].map(str::to_owned));
+    assert_eq!(members(&second, "stress"), rerun);
+    assert_eq!(
+        earned(&records, &second.head),
+        [
+            format!("goodfetch-engine {first} 7 goodfetch-engine b::steady"),
+            format!("goodfetch-frontier {first} 7 goodfetch-frontier::it c::steady"),
+        ]
+    );
+    // The fix reaches xtask's tests alone in the other suites.
+    let mut suites: BTreeSet<String> = SHUFFLED.iter().map(|member| (*member).to_owned()).collect();
+    suites.insert("xtask".to_owned());
+    assert_eq!(members(&second, "quick"), suites);
+    assert_eq!(members(&second, "pre-merge"), suites);
+    for step in ["perf", "visual", "tlc", "kennel", "msrv", "miri"] {
+        assert_eq!(action(&second, step).0, "reuse", "{step}: {:?}", second.why);
+    }
+}
+
+/// A later red run adds a clean member's passes to what it had, keeping the
+/// head and the time of its earliest; a member that went red in it loses
+/// them, so a planted failure both turns the run red and starts the member's
+/// count again.
+#[test]
+fn a_later_red_run_adds_to_clean_passes_and_a_red_test_takes_its_members_away() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let first = red_on_xtask_then_its_fix(&workspace, &records);
+    let second = plan(&workspace, &records);
+    let cases = |engine: bool| {
+        vec![
+            ("goodfetch-engine@stress-0", "b::steady", engine),
+            ("goodfetch-frontier::it@stress-0", "c::steady", true),
+        ]
+    };
+    // The 13 passes they owe; the engine's test, planted red, fails the 4th.
+    red_stress_run(
+        &workspace,
+        &records,
+        &second,
+        "13\tnextest\tgoodfetch-engine b::steady\n13\tnextest\tgoodfetch-frontier::it c::steady\n",
+        &[cases(true), cases(true), cases(true), cases(false)],
+    );
+
+    assert_eq!(
+        earned(&records, &second.head),
+        [format!(
+            "goodfetch-frontier {first} 11 goodfetch-frontier::it c::steady"
+        )]
+    );
+    let third = plan(&workspace, &records);
+    assert!(members(&third, "stress").contains("goodfetch-engine"));
+    assert_eq!(
+        earned(&records, &third.head),
+        [format!(
+            "goodfetch-frontier {first} 11 goodfetch-frontier::it c::steady"
+        )],
+        "{:?}",
+        third.why
+    );
+}
+
+/// A red run whose files do not account for its failure records every member
+/// red, and with no clean pass it can vouch for: the passes it was handed go,
+/// and the crate behind a crash keeps nothing. Nextest went red with no failing
+/// test in its files, or exited as no test failure does, or the run says
+/// nothing of what went red, or its selection is gone.
+#[rstest::rstest]
+#[case::nextest_red_and_no_failing_test(Some("nextest\t100\n"), true, false)]
+#[case::nextest_ended_as_no_failure_does(Some("nextest\t101\n"), true, false)]
+#[case::another_batch_ended_as_no_failure_does(Some("nextest\t100\nnextest\t101\n"), true, true)]
+#[case::no_word_of_what_went_red(None, true, false)]
+#[case::no_selection(Some("nextest\t100\n"), false, true)]
+fn a_red_stress_run_its_files_do_not_account_for_leaves_no_earned_passes(
+    #[case] red_commands: Option<&str>,
+    #[case] has_selection: bool,
+    #[case] a_test_failed: bool,
+) {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    red_on_xtask_then_its_fix(&workspace, &records);
+    let second = plan(&workspace, &records);
+    assert_ne!(earned(&records, &second.head), Vec::<String>::new());
+    let cases = vec![
+        ("goodfetch-engine@stress-0", "b::steady", true),
+        (
+            "goodfetch-frontier::it@stress-0",
+            "c::steady",
+            !a_test_failed,
+        ),
+    ];
+
+    red_stress_run_saying(
+        &workspace,
+        &records,
+        &second,
+        has_selection.then_some(
+            "13\tnextest\tgoodfetch-engine b::steady\n13\tnextest\tgoodfetch-frontier::it c::steady\n",
+        ),
+        &[cases.clone(), cases],
+        red_commands,
+    );
+
+    assert_eq!(earned(&records, &second.head), Vec::<String>::new());
+    let third = plan(&workspace, &records);
+    assert_eq!(earned(&records, &third.head), Vec::<String>::new());
+    assert!(
+        members(&third, "stress").contains("goodfetch-engine"),
+        "{:?}",
+        third.why
+    );
+}
+
+/// Vitest, Playwright and pytest run after nextest and each in its own process,
+/// so a red one says nothing of the crates: each that passed its count records
+/// green, and one a later count left short keeps what it has.
+#[test]
+fn a_red_run_of_another_runner_leaves_the_crates_what_their_files_show() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    add_xtask(&workspace, &records);
+    let first = plan(&workspace, &records);
+    for step in first.steps.keys() {
+        if step != "stress" {
+            record(&workspace, &records, &first.head, step, "pass");
+        }
+    }
+    let cases = vec![("goodfetch-engine@stress-0", "b::steady", true)];
+
+    red_stress_run_saying(
+        &workspace,
+        &records,
+        &first,
+        Some(
+            "2\tnextest\tgoodfetch-engine b::steady\n2\tvitest\tsdk > a case\n\
+             20\tnextest\tgoodfetch-frontier::it c::steady\n",
+        ),
+        &[cases.clone(), cases],
+        Some("vitest\t1\n"),
+    );
+
+    let recorded = std::fs::read_to_string(records.join(format!("{}.tsv", first.head))).unwrap();
+    let status = |member: &str| {
+        let unit = format!("stress:{member}\t");
+        recorded
+            .lines()
+            .rfind(|line| line.starts_with(&unit))
+            .map(|line| line.split('\t').nth(1).unwrap().to_owned())
+    };
+    assert_eq!(status("goodfetch-engine").as_deref(), Some("pass"));
+    assert_eq!(status("goodfetch-frontier").as_deref(), Some("fail"));
+}
+
+/// An earned file that cannot be read earns nothing: the plan still runs, and
+/// the members run their whole count.
+#[test]
+fn an_unreadable_earned_file_earns_nothing() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let first = red_on_xtask_then_its_fix(&workspace, &records);
+    std::fs::write(records.join(format!("{first}.earned")), "not a line\n").unwrap();
+
+    let second = plan(&workspace, &records);
+
+    assert!(
+        members(&second, "stress").contains("goodfetch-engine"),
+        "{:?}",
+        second.why
+    );
+    assert_eq!(earned(&records, &second.head), Vec::<String>::new());
+}
+
+/// `xtask stress select` reads the file the plan wrote; a green run then
+/// records each member that kept passes green, with the start of the first run
+/// that gave one and the head it ran on, so the age limit counts from it and
+/// the backstop finds it.
+#[test]
+fn a_green_run_keeps_where_its_earned_passes_came_from() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let first = red_on_xtask_then_its_fix(&workspace, &records);
+    let second = plan(&workspace, &records);
+
+    record(&workspace, &records, &second.head, "stress", "pass");
+
+    let recorded = std::fs::read_to_string(records.join(format!("{}.tsv", second.head))).unwrap();
+    let line = recorded
+        .lines()
+        .rfind(|line| line.starts_with("stress:goodfetch-engine\t"))
+        .unwrap();
+    let fields: Vec<&str> = line.split('\t').collect();
+    assert_eq!(fields[1], "pass", "{line}");
+    assert_eq!(fields[2], second.head, "{line}");
+    assert_eq!(fields[4], STARTED, "{line}");
+    assert_eq!(fields[5], first, "{line}");
+    assert_eq!(earned(&records, &second.head), Vec::<String>::new());
+}
+
+/// The age limit counts from the start of the run that gave the first pass,
+/// which is no later than the pass, not from the end of that run: a run that
+/// began past the limit and ended within it leaves nothing to count.
+#[test]
+fn earned_passes_age_from_the_start_of_the_run_that_gave_them() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    add_xtask(&workspace, &records);
+    let first = plan(&workspace, &records);
+    for step in first.steps.keys() {
+        if step != "stress" {
+            record(&workspace, &records, &first.head, step, "pass");
+        }
+    }
+    let folder = records.with_file_name("repeat-of-first");
+    std::fs::create_dir_all(&folder).unwrap();
+    for (iteration, cases) in red_on_xtask_after(6).iter().enumerate() {
+        std::fs::write(
+            folder.join(format!("nextest-ci.1.{iteration}.xml")),
+            nextest_junit(cases, true),
+        )
+        .unwrap();
+    }
+    let selection = folder.with_extension("selection");
+    std::fs::write(&selection, SELECTION).unwrap();
+    let red = folder.with_extension("red");
+    std::fs::write(&red, NEXTEST_TEST_FAILED).unwrap();
+    let a_day_and_more_ago = NOW.parse::<u64>().unwrap() - 24 * 60 * 60 - 1;
+
+    record_with(
+        &workspace,
+        &records,
+        &first.head,
+        "stress",
+        &[
+            "--selection",
+            &selection.to_string_lossy(),
+            "--red-commands",
+            &red.to_string_lossy(),
+            "--started",
+            &a_day_and_more_ago.to_string(),
+            "--junit",
+            &folder.to_string_lossy(),
+        ],
+    );
+    assert_ne!(earned(&records, &first.head), Vec::<String>::new());
+    workspace.write("xtask/tests/it/stress.rs", b"//! The fix.\n");
+    commit_all(&workspace, "Fix the flaky test");
+
+    let second = plan(&workspace, &records);
+
+    assert_eq!(earned(&records, &second.head), Vec::<String>::new());
+}
+
+/// The selection counted the earned file `xtask gate plan` wrote, and only the
+/// record can mark a green result as resting on those passes for the backstop:
+/// a file that can no longer be read, or that lost a member the plan kept, fails
+/// the record, and no green result lands without its mark.
+#[rstest::rstest]
+#[case::cannot_be_read(Some("not a line\n"))]
+#[case::is_gone(None)]
+fn a_stress_result_is_not_recorded_when_its_earned_file_no_longer_says(
+    #[case] now_holds: Option<&str>,
+) {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    red_on_xtask_then_its_fix(&workspace, &records);
+    let second = plan(&workspace, &records);
+    let file = records.join(format!("{}.earned", second.head));
+    match now_holds {
+        Some(text) => std::fs::write(&file, text).unwrap(),
+        None => std::fs::remove_file(&file).unwrap(),
+    }
+
+    let outcome = workspace.xtask(&[
+        "gate",
+        "record",
+        "--records",
+        &records.to_string_lossy(),
+        "--head",
+        &second.head,
+        "--now",
+        NOW,
+        "--step",
+        "stress",
+        "--status",
+        "pass",
+    ]);
+
+    assert_ne!(outcome.code, 0, "{}", outcome.stdout);
+    let recorded = std::fs::read_to_string(records.join(format!("{}.tsv", second.head))).unwrap();
+    assert!(
+        !recorded
+            .lines()
+            .any(|line| line.starts_with("stress:goodfetch-engine\t")),
+        "{recorded}"
+    );
+}
+
+/// The backstop: a full run on main's head stresses nothing, since its base is
+/// that head, so its green says nothing of a result that counted passes from an
+/// earlier head. The comparison lists each one, with the base its run compared
+/// with, for the backstop to stress again.
+#[test]
+fn a_full_run_lists_each_result_that_counted_earlier_passes() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let first = red_on_xtask_then_its_fix(&workspace, &records);
+    let second = plan(&workspace, &records);
+    record_plan(&workspace, &records, &second, &[]);
+    workspace.git(&["commit", "--quiet", "--allow-empty", "--message", "Merge"]);
+    let backstop = records.with_file_name("backstop-runs");
+    let full = plan_with(&workspace, &backstop, "CI=", &["--full"]);
+    record_plan(&workspace, &backstop, &full, &[]);
+
+    let compared = compare(&workspace, &backstop, &records, &full.head);
+
+    assert_eq!(compared.code, 0, "{}", compared.stderr);
+    let base = workspace.git(&["rev-parse", "origin/main"]);
+    assert_eq!(
+        found_in(&compared),
+        ["goodfetch-engine", "goodfetch-frontier"].map(|member| serde_json::json!({
+            "kind": "earned", "unit": format!("stress:{member}"), "step": "stress",
+            "member": member, "run": second.head, "origin": first, "base": base.trim(),
+        })),
+        "{}",
+        compared.stdout
+    );
+}
+
+fn found_in(compared: &Outcome) -> Vec<serde_json::Value> {
+    serde_json::from_str(&compared.stdout).unwrap()
+}
+
+/// `head`, on `trunk`'s line, merged as `gh pr merge --merge` merges: a merge
+/// commit whose second parent is the gated head.
+fn merged(workspace: &Workspace, head: &str) -> String {
+    workspace.git(&["merge", "--quiet", "--no-ff", "--message", "Merge", head]);
+    workspace.git(&["rev-parse", "HEAD"]).trim().to_owned()
+}
+
+/// Pull request A merges with earned passes, then pull request B merges on
+/// another tree before the backstop runs, carrying A's results. Those results
+/// are listed from any full run after it, until a green backstop run holds A's
+/// merge, however many merges or skipped days came between; a head that never
+/// merged is not.
+#[test]
+fn a_full_run_lists_the_earned_passes_of_every_merge_since_the_last_green_run() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let before_a = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    let first = red_on_xtask_then_its_fix(&workspace, &records);
+    let a = plan(&workspace, &records);
+    record_plan(&workspace, &records, &a, &[]);
+    // `trunk` starts where A's branch left the fixture, before xtask's commits.
+    workspace.git(&["switch", "--quiet", "--create", "trunk", &before_a]);
+    let merged_a = merged(&workspace, &a.head);
+    let a_tree = workspace.git(&["rev-parse", "HEAD^{tree}"]);
+    // Pull request B, on another tree, with nothing earned.
+    workspace.git(&["switch", "--quiet", "--create", "b"]);
+    workspace.write("docs/b.md", b"# B\n");
+    commit_all(&workspace, "Change B");
+    let b = plan(&workspace, &records);
+    record_plan(&workspace, &records, &b, &[]);
+    workspace.git(&["switch", "--quiet", "trunk"]);
+    merged(&workspace, &b.head);
+    assert_ne!(workspace.git(&["rev-parse", "HEAD^{tree}"]), a_tree);
+    // A head with earned passes that never merged.
+    workspace.git(&["switch", "--quiet", "--create", "never-merged"]);
+    workspace.write("docs/never.md", b"# Never\n");
+    commit_all(&workspace, "Change never merged");
+    let never = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    std::fs::write(
+        records.join(format!("{never}.tsv")),
+        format!(
+            "base\tb\nhost\th\nstress:goodfetch-conformance\tpass\t{never}\tt\t{NOW}\t{first}\n"
+        ),
+    )
+    .unwrap();
+    workspace.git(&["switch", "--quiet", "trunk"]);
+    let backstop = records.with_file_name("backstop-runs");
+    let full = plan_with(&workspace, &backstop, "CI=", &["--full"]);
+    record_plan(&workspace, &backstop, &full, &[]);
+    let listed = |since: Option<&str>| -> Vec<(String, String)> {
+        let outcome = compare_since(&workspace, &backstop, &records, &full.head, since);
+        assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+        found_in(&outcome)
+            .iter()
+            .filter(|found| found["kind"] == "earned")
+            .map(|found| {
+                (
+                    found["run"].as_str().unwrap().to_owned(),
+                    found["member"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect()
+    };
+    // The last green run was before A merged, or the backstop never ran green.
+    let of_a_and_b_carrying_them: Vec<(String, String)> = [&a.head, &b.head]
+        .into_iter()
+        .flat_map(|run| {
+            ["goodfetch-engine", "goodfetch-frontier"]
+                .map(|member| (run.clone(), member.to_owned()))
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    assert_eq!(listed(Some(&before_a)), of_a_and_b_carrying_them);
+    assert_eq!(listed(None), of_a_and_b_carrying_them);
+    // A green run holds A's merge: those passes are done with, B's carrying them
+    // included.
+    assert_eq!(listed(Some(&merged_a)), []);
+}
+
+/// A pull request pushed again over its first head: the head that merged carries
+/// a result that counted earned passes from the first, which `main` never held.
+/// No green run stressed those passes again, so the result is listed.
+#[test]
+fn a_result_carried_from_a_head_main_never_held_is_listed() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let before = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    workspace.write("docs/pushed.md", b"# First push\n");
+    commit_all(&workspace, "First push");
+    let first_push = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    workspace.git(&["switch", "--quiet", "--create", "second-push", &before]);
+    workspace.write("docs/pushed.md", b"# Second push\n");
+    commit_all(&workspace, "Second push");
+    let head = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    std::fs::create_dir_all(&records).unwrap();
+    std::fs::write(
+        records.join(format!("{head}.tsv")),
+        format!(
+            "base\tb\nhost\th\nstress:goodfetch-conformance\tpass\t{first_push}\tt\t{NOW}\t{before}\n"
+        ),
+    )
+    .unwrap();
+    workspace.git(&["switch", "--quiet", "--create", "trunk", &before]);
+    merged(&workspace, &head);
+    let backstop = records.with_file_name("backstop-runs");
+    let full = plan_with(&workspace, &backstop, "CI=", &["--full"]);
+    record_plan(&workspace, &backstop, &full, &[]);
+
+    let compared = compare_since(&workspace, &backstop, &records, &full.head, Some(&before));
+
+    assert_eq!(compared.code, 0, "{}", compared.stderr);
+    assert!(
+        found_in(&compared)
+            .iter()
+            .any(|found| found["kind"] == "earned"
+                && found["run"] == head.as_str()
+                && found["member"] == "goodfetch-conformance"),
+        "{}",
+        compared.stdout
+    );
+}
+
+/// How `ci/merge-pr.sh` opens the message of a merge a full gate passed, and of
+/// one a quick gate passed, which `merge_pr` holds it to.
+const FULL_GATE_MERGE: &str = "Merged on the local gate: `just pre-merge all`, which starts with `just quick all`'s lint and Quick suite, passed.";
+const QUICK_GATE_MERGE: &str = "Merged on the local gate: `just pre-merge quick` (no test, benchmark, model, container or Evaluation reads the change) passed.";
+
+/// A commit on a branch of its own from `from`, merged nowhere yet: its head.
+fn change_from(workspace: &Workspace, from: &str, name: &str) -> String {
+    workspace.git(&["switch", "--quiet", "--create", name, from]);
+    workspace.write(&format!("docs/{name}.md"), b"# A change\n");
+    commit_all(workspace, name);
+    workspace.git(&["rev-parse", "HEAD"]).trim().to_owned()
+}
+
+/// `head` merged on `trunk` with `message`, as `just merge` words its merge.
+fn merged_saying(workspace: &Workspace, head: &str, message: &str) -> String {
+    workspace.git(&["switch", "--quiet", "trunk"]);
+    workspace.git(&["merge", "--quiet", "--no-ff", "--message", message, head]);
+    workspace.git(&["rev-parse", "HEAD"]).trim().to_owned()
+}
+
+/// The runs the comparison says have no record, `""` for the whole folder.
+fn missing_in(compared: &Outcome) -> Vec<String> {
+    assert_eq!(compared.code, 0, "{}", compared.stderr);
+    found_in(compared)
+        .iter()
+        .filter(|found| found["kind"] == "missing")
+        .map(|found| found["run"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// A full gate leaves a record that may hold earned passes, so a merge it passed
+/// since the last green run must have one: without it, the day could not say what
+/// the merge earned. A quick or docs gate leaves none, and a merge the last green
+/// run holds is done with. With no green run there is no range to hold them to:
+/// history holds merges whose records went long ago.
+#[test]
+fn a_full_gates_merge_since_the_last_green_run_needs_its_record() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let before = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    let earlier = change_from(&workspace, &before, "earlier");
+    let kept = change_from(&workspace, &before, "kept");
+    let lost = change_from(&workspace, &before, "lost");
+    let quick = change_from(&workspace, &before, "quick");
+    std::fs::create_dir_all(&records).unwrap();
+    std::fs::write(records.join(format!("{kept}.tsv")), "base\tb\nhost\th\n").unwrap();
+    workspace.git(&["switch", "--quiet", "--create", "trunk", &before]);
+    let last_green = merged_saying(&workspace, &earlier, FULL_GATE_MERGE);
+    merged_saying(&workspace, &kept, FULL_GATE_MERGE);
+    merged_saying(&workspace, &lost, FULL_GATE_MERGE);
+    merged_saying(&workspace, &quick, QUICK_GATE_MERGE);
+    let backstop = records.with_file_name("backstop-runs");
+    let full = plan_with(&workspace, &backstop, "CI=", &["--full"]);
+    record_plan(&workspace, &backstop, &full, &[]);
+
+    let since = compare_since(
+        &workspace,
+        &backstop,
+        &records,
+        &full.head,
+        Some(&last_green),
+    );
+    let first_run = compare_since(&workspace, &backstop, &records, &full.head, None);
+
+    assert_eq!(missing_in(&since), [lost]);
+    assert_eq!(missing_in(&first_run), Vec::<String>::new());
+}
+
+/// With `just merge`'s records gone, nothing can say what the merges since the
+/// last green run earned, and no green run says so for any merge at all. With
+/// nothing merged since the last green run, nothing rests on them.
+#[rstest::rstest]
+#[case::merges_since_the_last_green_run("before", true)]
+#[case::no_green_run_yet("none", true)]
+#[case::nothing_merged_since("head", false)]
+fn a_records_folder_that_is_gone_is_missing(#[case] since: &str, #[case] is_missing: bool) {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let before = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    let change = change_from(&workspace, &before, "a-change");
+    workspace.git(&["switch", "--quiet", "--create", "trunk", &before]);
+    let head = merged_saying(&workspace, &change, QUICK_GATE_MERGE);
+    let backstop = records.with_file_name("backstop-runs");
+    let full = plan_with(&workspace, &backstop, "CI=", &["--full"]);
+    record_plan(&workspace, &backstop, &full, &[]);
+    let gone = records.with_file_name("no-such-folder");
+    let since = match since {
+        "before" => Some(before.as_str()),
+        "head" => Some(head.as_str()),
+        _ => None,
+    };
+
+    let compared = compare_since(&workspace, &backstop, &gone, &full.head, since);
+
+    let expected: &[&str] = if is_missing { &[""] } else { &[] };
+    assert_eq!(missing_in(&compared), expected);
+}
+
+/// A merged head whose record cannot be read may have counted earned passes, so
+/// the comparison says so instead of dropping it, and the backstop counts it as
+/// a miss. An unmerged head's is only logged, as before.
+#[test]
+fn a_merged_head_whose_record_cannot_be_read_is_listed() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let before = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    workspace.write("docs/a.md", b"# A\n");
+    commit_all(&workspace, "Change A");
+    let head = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    workspace.git(&["switch", "--quiet", "--create", "trunk", &before]);
+    merged(&workspace, &head);
+    std::fs::create_dir_all(&records).unwrap();
+    std::fs::write(records.join(format!("{head}.tsv")), "not a record\n").unwrap();
+    let backstop = records.with_file_name("backstop-runs");
+    let full = plan_with(&workspace, &backstop, "CI=", &["--full"]);
+    record_plan(&workspace, &backstop, &full, &[]);
+
+    let compared = compare_since(&workspace, &backstop, &records, &full.head, Some(&before));
+
+    assert_eq!(compared.code, 0, "{}", compared.stderr);
+    let found = found_in(&compared);
+    assert!(
+        found
+            .iter()
+            .any(|found| found["kind"] == "unreadable" && found["run"] == head.as_str()),
+        "{}",
+        compared.stdout
+    );
 }
 
 /// Records every step its plan runs as `ci/pre-merge.sh` does, green but
@@ -721,16 +1611,33 @@ fn green_runs(workspace: &Workspace, records: &Path) -> (String, String) {
 /// Compares the full run on `full`, recorded in `records`, with the runs in
 /// `runs`.
 fn compare(workspace: &Workspace, records: &Path, runs: &Path, full: &str) -> Outcome {
-    workspace.xtask(&[
+    compare_since(workspace, records, runs, full, None)
+}
+
+/// As [`compare`], since the backstop's last green run on `since`.
+fn compare_since(
+    workspace: &Workspace,
+    records: &Path,
+    runs: &Path,
+    full: &str,
+    since: Option<&str>,
+) -> Outcome {
+    let records = records.to_string_lossy();
+    let runs = runs.to_string_lossy();
+    let mut command = vec![
         "gate",
         "compare",
         "--records",
-        &records.to_string_lossy(),
+        &records,
         "--runs",
-        &runs.to_string_lossy(),
+        &runs,
         "--full",
         full,
-    ])
+    ];
+    if let Some(since) = since {
+        command.extend(["--since", since]);
+    }
+    workspace.xtask(&command)
 }
 
 /// The backstop (ADR 0135; the test-gate audit's option 7): a full run, in
@@ -752,10 +1659,12 @@ fn a_full_run_finds_each_reused_result_it_finds_red() {
 
     assert_eq!(compared.code, 0, "{}", compared.stderr);
     let found: Vec<serde_json::Value> = serde_json::from_str(&compared.stdout).unwrap();
+    let base = workspace.git(&["rev-parse", "origin/main"]);
+    let base = base.trim();
     assert!(
         found.contains(&serde_json::json!({
             "kind": "miss", "unit": "perf", "step": "perf", "member": null,
-            "run": second, "origin": first,
+            "run": second, "origin": first, "base": base,
         })),
         "{}",
         compared.stdout
@@ -763,7 +1672,7 @@ fn a_full_run_finds_each_reused_result_it_finds_red() {
     assert!(
         found.contains(&serde_json::json!({
             "kind": "suspect", "unit": "pre-merge:goodfetch-engine", "step": "pre-merge",
-            "member": "goodfetch-engine", "run": second, "origin": first,
+            "member": "goodfetch-engine", "run": second, "origin": first, "base": base,
         })),
         "{}",
         compared.stdout

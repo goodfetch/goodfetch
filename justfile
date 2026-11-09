@@ -731,9 +731,13 @@ _repeat count *selection:
     # `--until-red`, first (the stress run's): the run stops at the end of
     # its first red iteration (ADR 0064's amendment of 2026-10-28). nextest
     # runs its iterations one a command, each of its batches once, and after
-    # a red one no other iteration or runner runs.
+    # a red one no other iteration or runner runs. It lists each command that
+    # goes red, `<runner>\t<status>`, which `xtask gate record` judges the run
+    # by: nextest exits 100 for a failed test run, which a cancelled run also is,
+    # so only a failing test in its files accounts for it.
     iterations=1
-    if [[ "${1:-}" == --until-red ]]; then iterations={{ count }}; fi
+    until_red=false
+    if [[ "${1:-}" == --until-red ]]; then iterations={{ count }} until_red=true; fi
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     GOODFETCH_ORDER_SEED=$(ci/order-seed.sh)
     export GOODFETCH_ORDER_SEED
@@ -748,7 +752,7 @@ _repeat count *selection:
     batched=$(cargo run --quiet --bin xtask -- repeat --count "{{ count }}" "$@")
     status=0
     for runner in nextest vitest playwright pytest; do
-      if (( iterations > 1 && status != 0 )); then
+      if $until_red && (( status != 0 )); then
         echo "Repeat run: $runner does not run after a red iteration"
         continue
       fi
@@ -761,20 +765,28 @@ _repeat count *selection:
           selected=()
           arguments=$(jq -r --arg runner "$runner" --argjson batch "$batch" '.[$runner][$batch - 1][]' <<< "$batched")
           while IFS= read -r argument; do [[ -z "$argument" ]] || selected+=("$argument"); done <<< "$arguments"
+          ended=0
           case "$runner" in
             nextest)
-              cargo nextest run --workspace --profile ci --cargo-profile {{ test_profile }} "${selected[@]}" || status=$?
+              cargo nextest run --workspace --profile ci --cargo-profile {{ test_profile }} "${selected[@]}" || ended=$?
               report=target/nextest/ci/junit.xml name=nextest-ci ;;
             vitest)
-              pnpm exec vitest run "${vitest_order[@]}" "${selected[@]}" || status=$?
+              pnpm exec vitest run "${vitest_order[@]}" "${selected[@]}" || ended=$?
               report=target/junit/vitest.xml name=vitest ;;
             playwright)
-              pnpm exec playwright test "${playwright_order[@]}" "${selected[@]}" || status=$?
+              pnpm exec playwright test "${playwright_order[@]}" "${selected[@]}" || ended=$?
               report=target/junit/playwright.xml name=playwright ;;
             pytest)
-              uv run pytest "${pytest_order[@]}" "${selected[@]}" || status=$?
+              uv run pytest "${pytest_order[@]}" "${selected[@]}" || ended=$?
               report=target/junit/pytest.xml name=pytest ;;
           esac
+          if (( ended != 0 )); then
+            status=$ended
+            if $until_red; then
+              mkdir -p target
+              printf '%s\t%s\n' "$runner" "$ended" >> target/stress-red-commands.tsv
+            fi
+          fi
           if (( commands > 1 )) && [[ -f "$report" ]]; then
             mkdir -p target/junit
             mv "$report" "target/junit/$name.$batch.$iteration.xml"
@@ -804,18 +816,24 @@ _repeat count *selection:
 # The incremental gate (ADR 0135) narrows it: with `within` workspace members (crates
 # by name, pnpm and uv packages by folder), only their new and changed
 # tests run, plus each test whose file changed `since` the earlier gate
-# run's head.
-# Stresses new and changed tests: `just stress [base] [since] [within…]`.
+# run's head; and a test with clean passes in the `earned` file, which `xtask
+# gate plan` wrote, runs what its count still owes (#2233), so each count's
+# folder and its `just repeat` hold the runs this run gives it. The backstop
+# passes `merged`: every commit since `base` is on `main` already, each judged
+# by its own gate, so a test or member gone since is noted, not refused.
+# Stresses new and changed tests: `just stress [base] [since] [earned] [merged] [within…]`.
 [positional-arguments]
-stress base="" since="" *within:
+stress base="" since="" earned="" merged="" *within:
     #!/usr/bin/env bash
     set -euo pipefail
-    shift 2
+    shift 4
     base="{{ base }}"
     [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
     narrowing=()
     for member in "$@"; do narrowing+=(--within "$member"); done
     [[ -z "{{ since }}" ]] || narrowing+=(--since "{{ since }}")
+    [[ -z "{{ earned }}" ]] || narrowing+=(--earned "{{ earned }}")
+    [[ -z "{{ merged }}" ]] || narrowing+=(--merged)
     target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
     # Vitest lists a file's tests by loading it, as a run does, so the
     # listings get the variables `just repeat` runs the tests with.
@@ -838,9 +856,7 @@ stress base="" since="" *within:
     # changed tests can pass what one command line holds.
     tests=$(mktemp)
     # Each count `xtask stress select` gives a test, smallest first.
-    source ci/output-value.sh
-    listed=$(cargo run --quiet --bin xtask -- stress counts)
-    counts=$(output_value counts "$listed")
+    counts=$(cut -f1 <<< "$selection" | sort -nu)
     for count in $counts; do
       # A red run stops at the end of its first red iteration: no later count runs.
       if (( status != 0 )); then
@@ -1681,11 +1697,15 @@ _gate-record head step status *evidence:
       --now "$(date +%s)" --step {{ step }} --status {{ status }} {{ evidence }}
 
 # The incremental gate's backstop (ADR 0135), daily from the gate host's
-# cron on `main`'s head: in a gate worktree of its own, `just pre-merge all`
-# in full (`GOODFETCH_GATE_FULL=1`), then each result an incremental run of
-# `just merge` on the same tree reused and the full run found red, a
-# selection miss to fix (ci/gate-backstop.sh). Its log and results go to
-# ~/gate-backstop/ (GOODFETCH_GATE_BACKSTOP_LOG). Run from the main checkout.
+# cron on `main`'s head, each run with that commit's own scripts: in a gate
+# worktree of its own, `just pre-merge all` in full (`GOODFETCH_GATE_FULL=1`), then
+# each result an incremental run of `just merge` on the same tree reused and the
+# full run found red, a selection miss to fix, and a whole-count stress run of
+# each crate whose result in a merge since its last green run counted earned
+# passes (ci/gate-backstop.sh). It needs GOODFETCH_LAZYFS on Linux, and its way
+# past a miss nothing can clear is TESTING.md's, never an edit of its results.
+# Its log and results go to ~/gate-backstop/ (GOODFETCH_GATE_BACKSTOP_LOG). Run
+# from the main checkout.
 gate-backstop ref="origin/main":
     ci/gate-backstop.sh {{ ref }}
 
@@ -1700,10 +1720,12 @@ test-health run ref="origin/main":
     ci/test-health/scheduled.sh {{ run }} {{ ref }}
 
 # The backstop's comparison (ADR 0135): each result an incremental run in
-# `runs` on the full run's tree reused and the full run on `full` found red.
-_gate-compare full runs="target/gate-runs":
+# `runs` on the full run's tree reused and the full run on `full` found red, and
+# each result of a run merged since the green backstop run on `since` that
+# counted earned passes, on whichever tree.
+_gate-compare full runs="target/gate-runs" since="":
     cargo run --quiet --locked --bin xtask -- gate compare --records target/gate-runs \
-      --runs "{{ runs }}" --full {{ full }}
+      --runs "{{ runs }}" --full {{ full }} {{ if since == "" { "" } else { "--since " + since } }}
 
 # Starts and checks the real OS services the tests use (ci/os-services.sh),
 # which `just pre-merge` runs first on a Linux host.

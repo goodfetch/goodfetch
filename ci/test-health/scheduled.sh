@@ -21,7 +21,9 @@
 # the disk lacks room or the worktree is busy; a run that ends on its setup,
 # before its tests, reads `fail`. Its log is `<log>/<day>-<run>.log`, with
 # `<log>` GOODFETCH_TEST_HEALTH_LOG or ~/test-health. It fails when the run
-# fails or is skipped. It keeps to bash 3.2, which stock macOS runs.
+# fails or is skipped. A run is the scripts of the commit it tests, whichever
+# script started it: nothing fast-forwards the checkout cron starts in. It
+# keeps to bash 3.2, which stock macOS runs.
 set -euo pipefail
 
 run=${1:?usage: just test-health <constrained|mutants> [ref]}
@@ -43,15 +45,23 @@ echo "== $(date -u +%FT%TZ) the $run test-health run on $ref"
 commit=unknown
 said=""
 locked=""
+scripts=${GOODFETCH_GATE_SCRIPTS:-}
 result() {
   echo "$day $commit $run=$1" >>"$logs/results.txt"
   said=yes
 }
 # `set -e` ends the run on a setup that fails: its line still says so.
-trap '[[ -n $said ]] || result fail; [[ -z $locked ]] || rm -rf "$lock"' EXIT
+trap '[[ -n $said ]] || result fail; [[ -z $locked ]] || rm -rf "$lock"; rm -rf "$scripts"' EXIT
 
 git fetch --quiet origin
 commit=$(git rev-parse --verify "$ref^{commit}")
+if [[ ${GOODFETCH_GATE_SCRIPTS_OF:-} != "$commit" ]]; then
+  scripts=$(mktemp -d)
+  git archive "$commit" ci | tar -x -C "$scripts"
+  GOODFETCH_GATE_SCRIPTS_OF=$commit GOODFETCH_GATE_SCRIPTS=$scripts \
+    exec bash "$scripts/ci/test-health/scheduled.sh" "$run" "$commit" </dev/null
+fi
+unset GOODFETCH_GATE_SCRIPTS GOODFETCH_GATE_SCRIPTS_OF
 
 gate_worktree_name="gate-backstop"
 # shellcheck source=ci/gate-worktree.sh

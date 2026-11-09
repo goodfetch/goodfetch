@@ -10,13 +10,15 @@
 //!   a checkout of the base in the same job.
 //!   The incremental gate (ADR 0135) narrows it `--within` the members the
 //!   change since an earlier gate run reaches, and adds every test whose
-//!   file that change (`--since` the earlier run's head) changed.
+//!   file that change (`--since` the earlier run's head) changed. A test with
+//!   clean passes the plan kept (`--earned`, #2233) runs what its count still
+//!   owes, so it has its whole count across those runs.
 //!   A test the base lists and the head does not fails the selection,
 //!   unless a `Quality-change` trailer of the change names its ID (the
 //!   Floor; `deleted`).
 //! - **listings**: saves the head's four listings for later changes' bases.
 //!
-//! A count is never lowered and nothing skips the run.
+//! A test's count is never lowered and nothing skips the run.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
@@ -35,6 +37,7 @@ use crate::affected::{Kind, UNOWNED, WorkspaceMembers};
 use crate::check::{self, Finding};
 use crate::console;
 use crate::environment::Environment;
+use crate::gate;
 use crate::git;
 use crate::metadata::{self, Package};
 use crate::output;
@@ -48,10 +51,6 @@ const CHANGED_RUNS: u32 = 20;
 /// How many times a test taken off the quarantine list runs (ADR 0064).
 const UNQUARANTINED_RUNS: u32 = 200;
 
-/// Every count a selected test runs, smallest first: the order `just
-/// stress` runs them in.
-const COUNTS: [u32; 2] = [CHANGED_RUNS, UNQUARANTINED_RUNS];
-
 /// The file a runner's saved listing is written to, in its commit's folder.
 fn saved_file(runner: Runner) -> &'static str {
     match runner {
@@ -62,7 +61,7 @@ fn saved_file(runner: Runner) -> &'static str {
     }
 }
 
-/// A test to run, and how many times.
+/// A test to run, and how many times this run owes it.
 struct Selected {
     count: u32,
     runner: Runner,
@@ -130,9 +129,29 @@ struct Narrowing {
     /// runner lists.
     since: Option<String>,
     members: WorkspaceMembers,
+    /// Each test's clean passes from earlier runs, which the plan found still
+    /// hold (#2233): they count toward its count.
+    earned: BTreeMap<String, u32>,
 }
 
 impl Narrowing {
+    /// A note for each member within that the workspace no longer has, which
+    /// has nothing left to stress.
+    fn members_gone(&self) -> Vec<Finding> {
+        let members: BTreeSet<String> = self.members.all().map(|(name, _)| name).collect();
+        self.within
+            .iter()
+            .filter(|member| *member != UNOWNED && !members.contains(*member))
+            .map(|member| {
+                Finding::new(
+                    "member-gone",
+                    member.clone(),
+                    "the workspace no longer has it, so it has nothing left to stress",
+                )
+            })
+            .collect()
+    }
+
     /// Whether some member within is tested by `runner`.
     fn lists(&self, runner: Runner) -> bool {
         let kind = match runner {
@@ -249,8 +268,16 @@ fn select(
             let Some(count) = pull_request.max(changed_since_earlier) else {
                 continue;
             };
+            let earned = narrowing
+                .and_then(|narrowing| narrowing.earned.get(test.as_str()))
+                .copied()
+                .unwrap_or(0);
+            let owed = count.saturating_sub(earned);
+            if owed == 0 {
+                continue;
+            }
             selection.push(Selected {
-                count,
+                count: owed,
                 runner,
                 test,
             });
@@ -529,7 +556,8 @@ fn canonical(path: &Path) -> Result<PathBuf> {
 pub(crate) enum Command {
     /// Prints the tests a change stresses, as `<count>\t<runner>\t<test ID>`
     /// lines: each new or changed test 20 times, each test the change takes
-    /// off the quarantine list 200 times.
+    /// off the quarantine list 200 times, less the clean passes `--earned`
+    /// gives it.
     Select {
         /// The change's base commit.
         #[arg(long)]
@@ -550,10 +578,19 @@ pub(crate) enum Command {
         /// file changed since then runs too.
         #[arg(long, requires = "within")]
         since: Option<String>,
+        /// The earned file `xtask gate plan` wrote, with `--within`: each
+        /// test's clean passes from earlier runs. Missing or unreadable, it
+        /// counts none.
+        #[arg(long, requires = "within")]
+        earned: Option<PathBuf>,
+        /// With `--within`: every commit from the base to HEAD is on `main`
+        /// already, as for the backstop's stress run. Each merge's own gate
+        /// judged the tests it deleted, so a test deleted since the base, or
+        /// a member of `--within` the workspace no longer has, is noted and
+        /// does not fail the selection.
+        #[arg(long, requires = "within")]
+        merged: bool,
     },
-    /// Prints every count `select` gives a test, smallest first, as one
-    /// `counts=<count> <count>…` line: `just stress` runs each in turn.
-    Counts,
     /// Saves each runner's listing of the workspace into `<out>/<HEAD's
     /// commit>/`, for the changes whose base it is.
     Listings {
@@ -574,6 +611,8 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             cargo_profile,
             within,
             since,
+            earned,
+            merged,
         } => {
             let runners = Runners {
                 cargo: &environment.cargo,
@@ -587,12 +626,20 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     within: within.into_iter().collect(),
                     since,
                     members: WorkspaceMembers::read(&environment.cargo, root)?,
+                    earned: earned.map_or_else(BTreeMap::new, |file| {
+                        gate::earned_passes(&environment.path(&file))
+                    }),
                 })
             };
             let selection = select(root, &runners, &base, saved.as_deref(), narrowing.as_ref())?;
             // Stdout is the selection, which `just stress` reads.
             check::note_to(&selection.accepted, output::error);
-            if !selection.deleted.is_empty() {
+            if merged {
+                check::note_to(&selection.deleted, output::error);
+                if let Some(narrowing) = &narrowing {
+                    check::note_to(&narrowing.members_gone(), output::error);
+                }
+            } else if !selection.deleted.is_empty() {
                 return Ok(check::report_to(&selection.deleted, output::error));
             }
             for selected in selection.stressed {
@@ -603,10 +650,6 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     selected.test
                 ));
             }
-        }
-        Command::Counts => {
-            let counts: Vec<String> = COUNTS.iter().map(u32::to_string).collect();
-            output::line(&format!("counts={}", counts.join(" ")));
         }
         Command::Listings { out, cargo_profile } => {
             let runners = Runners {

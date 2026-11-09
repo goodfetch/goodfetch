@@ -63,6 +63,9 @@ const LIMIT: u64 = 4_000;
 /// How long the relay holds the answer back behind a call of [`LIMIT`].
 const SPENT_HOLD: Duration = Duration::from_secs(2);
 
+/// How long the browser has to exit before it's killed.
+const BROWSER_STOP: Duration = Duration::from_secs(10);
+
 /// What the program's next call runs in the page, by which the relay tells
 /// its command from those the engine sends on its own.
 const SCRIPT: &str = "() => 'the call after the listener'";
@@ -362,8 +365,7 @@ async fn behind_a_relay<T>(
         relay(listener, browser, hold),
     );
     ended.expect("invariant: the engine got its Connection");
-    process.terminate().expect("the browser stops");
-    let _ = process.child().wait();
+    let _ = process.interrupt_and_wait(BROWSER_STOP);
     (relayed, answered)
 }
 

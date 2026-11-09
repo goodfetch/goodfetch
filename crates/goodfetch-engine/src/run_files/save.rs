@@ -256,6 +256,10 @@ fn unhide(path: &Path) -> io::Result<()> {
             .collect();
         // SAFETY: `wide` is a NUL-terminated UTF-16 path that lives across
         // the call.
+        #[expect(
+            unsafe_code,
+            reason = "Windows offers the file attribute only through this call, and the standard library doesn't wrap it"
+        )]
         let set = unsafe {
             windows_sys::Win32::Storage::FileSystem::SetFileAttributesW(
                 wide.as_ptr(),

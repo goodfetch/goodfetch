@@ -20,11 +20,17 @@
 //! - **record**: appends a step's result to the run's record, only for the
 //!   planned head on a clean tree. A failed step run per member records
 //!   green each crate its nextest JUnit files show passed in full, and its
-//!   other members red (`attribution`).
+//!   other members red (`attribution`). A red stress run also leaves each
+//!   crate short of its counts, with no failing test, its clean passes
+//!   ([`plan::EarnedPasses`]), which the plan keeps while a green result would
+//!   hold.
 //! - **compare**: the backstop's check: from a full run's record, each
 //!   result that an incremental run on the same tree reused and the full
 //!   run found red, as `miss` lines, or `suspect` lines for a step run per
-//!   member, whose red the members that run reran may hold.
+//!   member, whose red the members that run reran may hold; and, whatever
+//!   the full run found and whatever its tree, each result of a merge since
+//!   the backstop's last green run that counted earned passes, as `earned`
+//!   lines.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and blocking-process bans target async crates (STYLE.md)"
@@ -42,6 +48,7 @@ use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::Path;
 use std::process::{Command as Process, ExitCode};
+use std::time::SystemTime;
 
 use anyhow::{Context as _, Result, bail};
 use sha2::{Digest as _, Sha256};
@@ -49,6 +56,7 @@ use sha2::{Digest as _, Sha256};
 use crate::affected::{self, Job, Range, RepoPath, WorkspaceMembers};
 use crate::environment::Environment;
 use crate::{git, metadata, output};
+use attribution::{Evidence, Judged, StressEvidence};
 use evidence::RustInputs;
 use plan::{Action, GateRun, Head, Outcome, Planned, Step, Touched, UNOWNED, short, unit};
 
@@ -59,6 +67,21 @@ const BASE_BRANCH: &str = "origin/main";
 pub(crate) enum Status {
     Pass,
     Fail,
+}
+
+/// Each test's clean passes in the earned file `xtask gate plan` wrote, which
+/// `xtask stress select` takes from their counts; none when it is missing or
+/// cannot be read, and none of a member's past the age limit by now, since the
+/// stress run reads the file later than the plan that kept them.
+pub(crate) fn earned_passes(file: &Path) -> BTreeMap<String, u32> {
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_or(u64::MAX, |since_the_epoch| since_the_epoch.as_secs());
+    runs::read_earned(file)
+        .into_values()
+        .filter(|earned| !plan::past_max_age(now, earned.at))
+        .flat_map(|earned| earned.passes)
+        .collect()
 }
 
 /// `xtask gate`'s commands.
@@ -129,13 +152,25 @@ pub(crate) enum Command {
         /// The stress run's selection, its `<count>\t<runner>\t<test ID>`
         /// lines: a crate passed in full when each of its selected nextest
         /// tests passed its count of times in the `--junit` files.
-        #[arg(long)]
+        #[arg(long, requires_all = ["red_commands", "started"])]
         selection: Option<std::path::PathBuf>,
+        /// The stress run's `<runner>\t<status>` lines, one a command that
+        /// went red; with `--selection`. A red run the `--junit` files do not
+        /// account for leaves no earned passes.
+        #[arg(long, requires = "selection")]
+        red_commands: Option<std::path::PathBuf>,
+        /// When the stress run began, in seconds since the Unix epoch; with
+        /// `--selection`. The passes it gives age from here, which is no later
+        /// than the first of them.
+        #[arg(long, requires = "selection")]
+        started: Option<u64>,
     },
     /// Prints, as a JSON array, each result an incremental run on the full
     /// run's tree reused and the full run on `full` did not find green, with
-    /// its kind (`miss`, `suspect`, `unchecked`), unit, step and member: the
-    /// backstop's check.
+    /// its kind (`miss`, `suspect`, `unchecked`), unit, step and member; each
+    /// result of a run merged since `since` that counted earned passes
+    /// (`earned`), whatever its tree, with its run's base; and each such run
+    /// whose record cannot be read (`unreadable`): the backstop's check.
     Compare {
         /// The folder of the full run's record.
         #[arg(long)]
@@ -147,6 +182,10 @@ pub(crate) enum Command {
         /// The head of the full run (`GOODFETCH_GATE_FULL=1`).
         #[arg(long)]
         full: String,
+        /// The commit of the backstop's last green run that `full` holds: what
+        /// it holds has been checked. With none, every run `full` holds counts.
+        #[arg(long)]
+        since: Option<String>,
     },
 }
 
@@ -189,6 +228,8 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             status,
             junit,
             selection,
+            red_commands,
+            started,
         } => {
             let Some(step) = Step::from_name(&step) else {
                 bail!("no gate step is named {step}");
@@ -213,7 +254,13 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 };
                 Some(Evidence {
                     junit: junit.iter().map(|path| environment.path(path)).collect(),
-                    selection: selection.map(|path| environment.path(&path)),
+                    stress: selection
+                        .zip(red_commands)
+                        .map(|(selection, red_commands)| StressEvidence {
+                            selection: environment.path(&selection),
+                            red_commands: environment.path(&red_commands),
+                        }),
+                    started,
                     crates,
                     unjudged,
                 })
@@ -236,10 +283,11 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             records,
             runs,
             full,
+            since,
         } => {
             let records = environment.path(&records);
             let runs = runs.map_or_else(|| records.clone(), |runs| environment.path(&runs));
-            return compare::compare(root, &records, &runs, &full);
+            return compare::compare(root, &records, &runs, &full, since.as_deref());
         }
     }
     Ok(ExitCode::SUCCESS)
@@ -345,6 +393,10 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
             .iter()
             .flat_map(|planned| planned.carried.clone())
             .collect(),
+        earned: planned
+            .iter()
+            .flat_map(|planned| planned.earned.clone())
+            .collect(),
     };
     write(records, &carried, &machine)
 }
@@ -369,6 +421,7 @@ fn plan_dirty(plan_file: &Path) -> Result<()> {
                 why: why.to_owned(),
             },
             carried: BTreeMap::new(),
+            earned: BTreeMap::new(),
         })
         .collect();
     let machine = render(None, NO_HEAD, &BTreeSet::new(), &[], &planned);
@@ -376,12 +429,13 @@ fn plan_dirty(plan_file: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Writes the run's record, its carried results, and its plan.
+/// Writes the run's record, its carried results and earned passes, and its plan.
 fn write(records: &Path, carried: &GateRun, plan: &str) -> Result<()> {
     std::fs::create_dir_all(records).with_context(|| format!("creating {}", records.display()))?;
     let record_file = runs::file(records, &carried.head);
     std::fs::write(&record_file, runs::render(carried))
         .with_context(|| format!("writing {}", record_file.display()))?;
+    runs::write_earned(records, &carried.head, &carried.earned)?;
     let plan_file = runs::plan_file(records, &carried.head);
     std::fs::write(&plan_file, plan).with_context(|| format!("writing {}", plan_file.display()))
 }
@@ -430,6 +484,7 @@ impl Reader<'_> {
             .values()
             .filter(|outcome| outcome.green)
             .map(|outcome| &outcome.origin)
+            .chain(previous.earned.values().map(|earned| &earned.origin))
             .collect();
         let mut rust = None;
         let mut touched = BTreeMap::new();
@@ -470,7 +525,7 @@ impl Reader<'_> {
                 ));
             }
         };
-        let selection = self.members.select(&paths);
+        let selection = self.members.select(&plan::selected(&paths));
         if paths.is_empty() || plan::gate_input(&paths).is_some() {
             return Ok((Touched::new(&paths, &selection), BTreeMap::new()));
         }
@@ -499,11 +554,14 @@ impl Reader<'_> {
         // A member whose build or files read a changed file reaches its
         // dependants as a change to its own files would. The runners'
         // listings name every test they reach, in whichever member, so
-        // their members are added as they are.
-        let mut widened = paths.clone();
+        // their members are added as they are. xtask has no dependant and no
+        // benchmark, and the crate builds read no file of its tests, so
+        // what reaches it reaches its tests alone.
+        let mut widened = plan::selected(&paths);
         widened.extend(
             found
                 .keys()
+                .filter(|member| *member != plan::XTASK)
                 .filter_map(|member| self.members.folder(member))
                 .map(|folder| RepoPath::new(format!("{folder}/.evidence"))),
         );
@@ -525,6 +583,10 @@ impl Reader<'_> {
         let mut touched = Touched::new(&paths, &self.members.select(&widened));
         if visual {
             touched.jobs.insert(Job::Visual);
+        }
+        // `just linux` runs some of xtask's tests on a host that is not Linux.
+        if found.contains_key(plan::XTASK) {
+            touched.steps.insert(Step::Linux);
         }
         touched.evidence = found;
         Ok((touched, missed))
@@ -581,6 +643,7 @@ fn assumed_green(root: &Path, assumed: &str, head: &Head<'_>) -> Result<GateRun>
         origin: assumed.to_owned(),
         tree,
         at: head.now,
+        earned_on: None,
     };
     let mut units = BTreeMap::new();
     for step in Step::ALL {
@@ -597,6 +660,7 @@ fn assumed_green(root: &Path, assumed: &str, head: &Head<'_>) -> Result<GateRun>
         base: head.base.to_owned(),
         host: head.host.to_owned(),
         units,
+        earned: BTreeMap::new(),
     })
 }
 
@@ -640,7 +704,8 @@ const NO_HEAD: &str = "none";
 /// The plan as `ci/pre-merge.sh` reads it, through `ci/output-value.sh`,
 /// and `xtask gate record` (`plan_value`): the `previous`, `head`, `members`
 /// and `unowned` lines, then each step's `<step>.action` (`run`, `part` or
-/// `reuse`), `<step>.members` and `<step>.why` lines. A list is its items
+/// `reuse`), `<step>.members` and `<step>.why` lines, with `<step>.earned`, the
+/// members that keep passes, for a step that counts them. A list is its items
 /// joined by spaces, `-` when it is empty; a value is one line.
 fn render(
     previous: Option<&str>,
@@ -671,7 +736,13 @@ fn render(
             unowned.join(" ")
         },
     );
-    for Planned { step, action, .. } in planned {
+    for Planned {
+        step,
+        action,
+        earned,
+        ..
+    } in planned
+    {
         let (name, units, why) = match action {
             Action::Run { why } => ("run", "-".to_owned(), why.clone()),
             Action::Part { members, why } => ("part", joined(members), why.clone()),
@@ -681,6 +752,10 @@ fn render(
                 format!("green on {}", joined(origins)),
             ),
         };
+        if step.counts_passes() {
+            let kept = earned.keys().cloned().collect();
+            line(&format!("{}.earned", step.name()), &joined(&kept));
+        }
         let step = step.name();
         line(&format!("{step}.action"), name);
         line(&format!("{step}.members"), &units);
@@ -714,6 +789,7 @@ fn describe(previous: Option<&str>, planned: &[Planned]) -> String {
         step,
         action,
         carried,
+        earned,
     } in planned
     {
         let line = match action {
@@ -732,6 +808,15 @@ fn describe(previous: Option<&str>, planned: &[Planned]) -> String {
             ),
         };
         let _ = writeln!(text, "  {}: {line}", step.name());
+        for (member, passes) in earned {
+            let _ = writeln!(
+                text,
+                "  {}: {member} keeps the clean passes of its {} tests, begun on {}; each runs what its count still owes",
+                step.name(),
+                passes.passes.len(),
+                short(&passes.origin)
+            );
+        }
     }
     text
 }
@@ -752,19 +837,6 @@ struct Recorded {
     status: Status,
     /// What a failed step run per member's crates are judged by.
     evidence: Option<Evidence>,
-}
-
-/// A failed step's nextest files and, for the stress run, its selection,
-/// with the workspace's crates (`attribution`).
-struct Evidence {
-    junit: Vec<std::path::PathBuf>,
-    selection: Option<std::path::PathBuf>,
-    crates: BTreeSet<String>,
-    /// The crates a red run of the step does not judge in full whatever
-    /// their tests did: after a red Pre-merge suite, those holding insta
-    /// snapshots, whose unreferenced snapshots cargo-insta judges only
-    /// once every test passed.
-    unjudged: BTreeSet<String>,
 }
 
 /// The crates whose folders hold a committed insta snapshot (`.snap`).
@@ -835,81 +907,52 @@ fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
     } else {
         Vec::new()
     };
-    let passed = match evidence {
-        Some(evidence) if *status == Status::Fail => passed_in_full(*step, &members, evidence),
-        _ => BTreeSet::new(),
+    let judged = match evidence {
+        Some(evidence) if *status == Status::Fail => evidence.judge(*step, &members),
+        _ => Judged::default(),
+    };
+    let earned = if step.counts_passes() {
+        let kept = words(value(&format!("{}.earned", step.name()))?);
+        runs::earned_the_plan_kept(records, head, &kept)
+            .with_context(|| format!("{} is not recorded", step.name()))?
+    } else {
+        BTreeMap::new()
     };
     let tree = git::line(root, &["rev-parse", "--verify", "HEAD^{tree}"])?;
-    let outcome = |green: bool| Outcome {
-        green,
-        origin: head.clone(),
-        tree: tree.clone(),
-        at: *now,
+    let outcome = |member: Option<&str>, green: bool| {
+        // A green result that counted earlier passes is as old as they are.
+        let counted = member
+            .and_then(|member| earned.get(member))
+            .filter(|_| green);
+        Outcome {
+            green,
+            origin: head.clone(),
+            tree: tree.clone(),
+            at: counted.map_or(*now, |passes| passes.at),
+            earned_on: counted.map(|passes| passes.origin.clone()),
+        }
     };
     let text: String = if step.per_member() {
         members
             .iter()
             .map(|member| {
-                let green = *status == Status::Pass || passed.contains(member);
-                runs::line(&unit(*step, Some(member)), &outcome(green))
+                let green = *status == Status::Pass || judged.passed.contains(member);
+                runs::line(
+                    &unit(*step, Some(member)),
+                    &outcome(Some(member.as_str()), green),
+                )
             })
             .collect()
     } else {
-        runs::line(&unit(*step, None), &outcome(*status == Status::Pass))
+        runs::line(&unit(*step, None), &outcome(None, *status == Status::Pass))
     };
-    output::append(&runs::file(records, head), &text)
-}
-
-/// The members of a failed step that passed in full: its crates the
-/// evidence shows passed, or none when it does not account for the failure.
-/// Says which in the run's log.
-fn passed_in_full(step: Step, members: &[String], evidence: &Evidence) -> BTreeSet<String> {
-    let crates: BTreeSet<String> = members
-        .iter()
-        .filter(|member| evidence.crates.contains(*member))
-        .cloned()
-        .collect();
-    match attribution::attribute(&crates, &evidence.junit, evidence.selection.as_deref()) {
-        attribution::Attribution::Passed(passed) => {
-            let unjudged: BTreeSet<String> =
-                passed.intersection(&evidence.unjudged).cloned().collect();
-            let passed: BTreeSet<String> = passed.difference(&unjudged).cloned().collect();
-            let failed: BTreeSet<String> = crates
-                .difference(&passed)
-                .filter(|krate| !unjudged.contains(*krate))
-                .cloned()
-                .collect();
-            output::error(&format!(
-                "Gate: {} failed in {}; its other crates passed in full and are recorded green: {}",
-                step.name(),
-                listed(&failed),
-                listed(&passed)
-            ));
-            if !unjudged.is_empty() {
-                output::error(&format!(
-                    "Gate: {} hold insta snapshots, which cargo-insta judges unreferenced only once every test passed, so they are recorded red",
-                    listed(&unjudged)
-                ));
-            }
-            passed
-        }
-        attribution::Attribution::Unattributed(why) => {
-            output::error(&format!(
-                "Gate: {} failed and {why}, so each of its members is recorded red",
-                step.name()
-            ));
-            BTreeSet::new()
-        }
+    output::append(&runs::file(records, head), &text)?;
+    if step.counts_passes() {
+        let started = evidence.as_ref().and_then(|evidence| evidence.started);
+        let kept = runs::add_earned(&earned, judged.clean, head, started.unwrap_or(*now));
+        runs::write_earned(records, head, &kept)?;
     }
-}
-
-/// Crates as the log lists them: joined by spaces, or `none`.
-fn listed(crates: &BTreeSet<String>) -> String {
-    if crates.is_empty() {
-        "none".to_owned()
-    } else {
-        crates.iter().cloned().collect::<Vec<_>>().join(" ")
-    }
+    Ok(())
 }
 
 #[cfg(test)]

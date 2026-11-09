@@ -32,17 +32,15 @@ esac
 
 ref=origin/main
 results=${GOODFETCH_GATE_BACKSTOP_LOG:-$HOME/gate-backstop}/results.txt
-greens=$(awk '$3 == "gate=pass" && $4 == "misses=0" { print $2 }' "$results" 2>/dev/null || true)
+# shellcheck source=ci/backstop-green.sh
+source "$(dirname "$0")/backstop-green.sh"
+greens=$(backstop_greens "$results")
 if [[ -z $greens ]]; then
   echo "The merge cap: the backstop has no green run yet in $results, so the cap counts nothing until its first one"
   exit 0
 fi
 
-# The latest green run whose commit `main` holds.
-tested=""
-while IFS= read -r commit; do
-  if git merge-base --is-ancestor "$commit" "$ref" 2>/dev/null; then tested=$commit; fi
-done <<<"$greens"
+tested=$(latest_green "$greens" "$ref")
 
 refuse() {
   if $past_cap; then

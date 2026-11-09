@@ -77,8 +77,8 @@ enum Products {
 
 pub(crate) struct Selection {
     jobs: BTreeSet<Job>,
-    /// The changed crates and their dependants, for runs that select crates
-    /// by name (`cargo -p`).
+    /// The changed crates and their dependants, with the crates whose tests
+    /// alone change, for runs that select crates by name (`cargo -p`).
     crates: BTreeSet<String>,
     vitest_packages: BTreeSet<RepoPath>,
     pytest_packages: BTreeSet<RepoPath>,
@@ -200,6 +200,31 @@ fn owner<'a>(workspace: &'a Workspace, path: &RepoPath) -> Option<Owner<'a>> {
         .map(|(_, owner)| owner)
 }
 
+/// The name of a crate's integration tests' folder, which Cargo builds into
+/// its `test` targets alone.
+pub(super) const TESTS_FOLDER: &str = "tests";
+
+/// The integration tests' folder of the crate in `folder`.
+pub(crate) fn tests_folder(folder: &str) -> String {
+    format!("{folder}/{TESTS_FOLDER}")
+}
+
+/// Whether `path` lies in the `tests/` folder of `krate`, which owns it: a
+/// file only the crate's tests read, by no library or executable build
+/// (#2238). Whether anything else names it is the caller's to check
+/// (`readers::tests_read_elsewhere`).
+fn in_tests_folder(krate: &Crate, path: &RepoPath) -> bool {
+    path.is_in(&tests_folder(krate.folder.as_str()))
+}
+
+/// The crate whose `tests/` folder holds `path`, the crate owning it.
+pub(super) fn tests_owner<'a>(workspace: &'a Workspace, path: &RepoPath) -> Option<&'a Crate> {
+    match owner(workspace, path) {
+        Some(Owner::Crate(krate)) if in_tests_folder(krate, path) => Some(krate),
+        _ => None,
+    }
+}
+
 /// The name of the member that owns `path`, as the selection lists it: a
 /// crate's name, a package's folder.
 pub(crate) fn owner_name(workspace: &Workspace, path: &RepoPath) -> Option<String> {
@@ -254,13 +279,40 @@ fn products(paths: &[RepoPath]) -> Products {
 struct Changed<'a> {
     jobs: BTreeSet<Job>,
     crates: BTreeSet<String>,
+    /// The crates whose tests alone change: a path of their `tests/`
+    /// folder, which no build reads, so it reaches no dependant, no
+    /// executable and no bench target.
+    tested: BTreeSet<String>,
     packages: Vec<&'a Package>,
+}
+
+/// A path no member owns, such as a lockfile, a tool's settings or a
+/// workflow, may change any test: every one of the Products' runs.
+fn change_everything<'a>(workspace: &'a Workspace, products: Products, changed: &mut Changed<'a>) {
+    let in_scope = |folder: &RepoPath| match products {
+        Products::Foxhound => foxhound_side::contains(&format!("{}/", folder.as_str())),
+        Products::Both => true,
+    };
+    changed.jobs.insert(Job::Docs);
+    changed.crates.extend(
+        workspace
+            .crates
+            .iter()
+            .filter(|krate| in_scope(&krate.folder))
+            .map(|krate| krate.name.clone()),
+    );
+    changed.packages = workspace
+        .packages
+        .iter()
+        .filter(|package| in_scope(&package.folder))
+        .collect();
 }
 
 fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products) -> Changed<'a> {
     let mut changed = Changed {
         jobs: BTreeSet::new(),
         crates: BTreeSet::new(),
+        tested: BTreeSet::new(),
         packages: Vec::new(),
     };
     let mut everything = false;
@@ -277,6 +329,9 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
             changed.jobs.insert(Job::Kennel);
         }
         match owner(workspace, path) {
+            Some(Owner::Crate(krate)) if in_tests_folder(krate, path) => {
+                changed.tested.insert(krate.name.clone());
+            }
             Some(Owner::Crate(krate)) => {
                 changed.crates.insert(krate.name.clone());
             }
@@ -289,25 +344,7 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
         }
     }
     if everything {
-        // A path no member owns, such as a lockfile, a tool's settings or a
-        // workflow, may change any test: every one of the Products' runs.
-        let in_scope = |folder: &RepoPath| match products {
-            Products::Foxhound => foxhound_side::contains(&format!("{}/", folder.as_str())),
-            Products::Both => true,
-        };
-        changed.jobs.insert(Job::Docs);
-        changed.crates.extend(
-            workspace
-                .crates
-                .iter()
-                .filter(|krate| in_scope(&krate.folder))
-                .map(|krate| krate.name.clone()),
-        );
-        changed.packages = workspace
-            .packages
-            .iter()
-            .filter(|package| in_scope(&package.folder))
-            .collect();
+        change_everything(workspace, products, &mut changed);
     }
     // A crate that embeds a package's build changes with that package and
     // with what its build and code depend on, not with what its tests alone
@@ -436,16 +473,26 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath], parts: &ChangedP
     let Changed {
         mut jobs,
         crates: changed_crates,
+        tested,
         packages: changed_packages,
     } = changed(workspace, paths, products);
 
     let members: Vec<&Crate> = workspace.crates.iter().collect();
-    let reached = with_dependants(
+    let built = with_dependants(
         &members,
         &changed_crates,
         |krate| &krate.name,
         |krate| &krate.dependencies,
     );
+    // The crates whose tests alone change join those whose build does, for
+    // their tests only: their bench targets stay out.
+    let reached: Vec<&Crate> = members
+        .iter()
+        .copied()
+        .filter(|krate| {
+            tested.contains(&krate.name) || built.iter().any(|other| other.name == krate.name)
+        })
+        .collect();
     let vitest_packages = package_folders(workspace, &changed_packages, Ecosystem::TypeScript);
     let pytest_packages = package_folders(workspace, &changed_packages, Ecosystem::Python);
     // A visual test exercises its own package and the packages it depends on.
@@ -457,7 +504,7 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath], parts: &ChangedP
     }
 
     let pre_merge =
-        !changed_crates.is_empty() || !vitest_packages.is_empty() || !pytest_packages.is_empty();
+        !reached.is_empty() || !vitest_packages.is_empty() || !pytest_packages.is_empty();
     let sinks = if pre_merge {
         jobs.insert(Job::PreMerge);
         names(members.iter().filter(|krate| is_sink(krate)))
@@ -477,7 +524,7 @@ pub(crate) fn select(workspace: &Workspace, paths: &[RepoPath], parts: &ChangedP
     let reference_moved = paths
         .iter()
         .any(|path| path.as_str() == perf::REFERENCE_FILE);
-    let bench_targets: BTreeSet<String> = reached
+    let bench_targets: BTreeSet<String> = built
         .iter()
         .copied()
         .chain(

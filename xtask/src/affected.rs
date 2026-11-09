@@ -23,8 +23,8 @@ use crate::output;
 
 pub(crate) use git::Range;
 pub(crate) use parts::ChangedParts;
-pub(crate) use readers::literal_readers;
-pub(crate) use selection::{Job, Selection, selectable_job_ids};
+pub(crate) use readers::{literal_readers, tests_read_elsewhere};
+pub(crate) use selection::{Job, Selection, selectable_job_ids, tests_folder};
 use workspace::{Ecosystem, Workspace};
 
 /// A path relative to the repository root, with `/` separators and no
@@ -91,7 +91,9 @@ fn changed_parts(
 /// which no build or import shows, and the quick gate runs no such test
 /// (ADR 0135). The gate's evidence widens its parts the same way. Of a
 /// document whose `parts` were read, only the changed parts' readers are
-/// (`literal_readers`).
+/// (`literal_readers`). A crate whose changed `tests/` file a file outside
+/// that folder names is changed throughout, as before #2238
+/// (`tests_read_elsewhere`).
 fn select_with_readers(
     root: &Path,
     members: &WorkspaceMembers,
@@ -99,9 +101,12 @@ fn select_with_readers(
     parts: &ChangedParts,
 ) -> Result<Selection> {
     let mut widened = paths.to_vec();
+    let readers = literal_readers(root, members, paths, parts)?;
+    let shared = tests_read_elsewhere(root, members, paths)?;
     widened.extend(
-        literal_readers(root, members, paths, parts)?
+        readers
             .keys()
+            .chain(shared.keys())
             .filter_map(|member| members.folder(member))
             .map(|folder| RepoPath::new(format!("{folder}/.evidence"))),
     );
@@ -195,6 +200,13 @@ impl WorkspaceMembers {
     /// holds it most closely.
     pub(crate) fn owner(&self, path: &str) -> Option<String> {
         selection::owner_name(&self.workspace, &RepoPath::new(path))
+    }
+
+    /// The crate whose `tests/` folder holds `path`, as its name and its
+    /// folder.
+    pub(crate) fn tests_owner(&self, path: &RepoPath) -> Option<(&str, &str)> {
+        selection::tests_owner(&self.workspace, path)
+            .map(|krate| (krate.name.as_str(), krate.folder.as_str()))
     }
 
     /// The selection for a change to `paths`, each changed throughout.

@@ -619,6 +619,78 @@ fn a_crate_with_a_test_target_whose_dep_info_is_missing_reruns() {
     );
 }
 
+/// A change to a crate's `tests/` folder after a recorded run reruns that
+/// crate's tests alone: its test target's dep-info shows the target read
+/// the file, and no library, executable or benchmark build did, so neither
+/// its dependant nor perf reruns (#2238).
+#[test]
+fn a_change_to_a_crates_tests_folder_reruns_its_tests_alone() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    workspace.write("crates/goodfetch-engine/tests/it.rs", b"//! Its tests.\n");
+    commit_all(&workspace, "Add the engine's integration tests");
+    let file = target(&records).join("debug/deps/it-0.d");
+    let source = workspace.path().join("crates/goodfetch-engine/tests/it.rs");
+    std::fs::write(&file, format!("{}: {}\n", file.display(), source.display())).unwrap();
+    first_run(&workspace, &records);
+    workspace.write(
+        "crates/goodfetch-engine/tests/it.rs",
+        b"//! Its tests, reworded.\n",
+    );
+    commit_all(&workspace, "Reword the engine's integration tests");
+
+    let second = plan(&workspace, &records);
+
+    let mut expected: BTreeSet<String> =
+        SHUFFLED.iter().map(|member| (*member).to_owned()).collect();
+    expected.insert("goodfetch-engine".to_owned());
+    assert_eq!(
+        (
+            action(&second, "pre-merge").0,
+            members(&second, "pre-merge")
+        ),
+        ("part", expected),
+        "{}",
+        second.why["pre-merge"]
+    );
+    assert_eq!(action(&second, "perf").0, "reuse", "{}", second.why["perf"]);
+}
+
+/// A changed file of a crate's `tests/` folder that a file outside it names
+/// reruns the crate with its dependants, and the log gives that reason, not
+/// the narrower one its integration tests' dep-info gives (#2238).
+#[test]
+fn a_tests_file_another_file_names_reruns_its_crate_with_its_dependants() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    workspace.write("crates/goodfetch-engine/tests/it.rs", b"//! Its tests.\n");
+    workspace.write(
+        "shared/runners.toml",
+        b"runner = \"crates/goodfetch-engine/tests/it.rs::every_case\"\n",
+    );
+    commit_all(
+        &workspace,
+        "Add the engine's integration tests and their runners",
+    );
+    let file = target(&records).join("debug/deps/it-0.d");
+    let source = workspace.path().join("crates/goodfetch-engine/tests/it.rs");
+    std::fs::write(&file, format!("{}: {}\n", file.display(), source.display())).unwrap();
+    first_run(&workspace, &records);
+    workspace.write(
+        "crates/goodfetch-engine/tests/it.rs",
+        b"//! Its tests, reworded.\n",
+    );
+    commit_all(&workspace, "Reword the engine's integration tests");
+
+    let second = plan(&workspace, &records);
+
+    let rerun = members(&second, "pre-merge");
+    assert!(rerun.contains("goodfetch-frontier"), "{rerun:?}");
+    let why = &second.why["pre-merge"];
+    assert!(
+        why.contains("shared/runners.toml names crates/goodfetch-engine/tests/it.rs"),
+        "{why}"
+    );
+}
+
 /// A nextest JUnit file of `cases`, each `(binary ID, test name, passed)`,
 /// as nextest writes it, or, when not `whole`, one that declares a case
 /// more than it holds, as a run stopped while writing it leaves it.

@@ -24,7 +24,7 @@ use crate::output;
 pub(crate) use git::Range;
 pub(crate) use parts::ChangedParts;
 pub(crate) use readers::{literal_readers, tests_read_elsewhere};
-pub(crate) use selection::{Job, Selection, TESTS_FOLDER, selectable_job_ids};
+pub(crate) use selection::{Job, Selection, selectable_job_ids, tests_folder};
 use workspace::{Ecosystem, Workspace};
 
 /// A path relative to the repository root, with `/` separators and no

@@ -200,16 +200,21 @@ fn owner<'a>(workspace: &'a Workspace, path: &RepoPath) -> Option<Owner<'a>> {
         .map(|(_, owner)| owner)
 }
 
-/// The folder of a crate's integration tests, which Cargo builds into its
-/// `test` targets alone.
-pub(crate) const TESTS_FOLDER: &str = "tests";
+/// The name of a crate's integration tests' folder, which Cargo builds into
+/// its `test` targets alone.
+pub(super) const TESTS_FOLDER: &str = "tests";
+
+/// The integration tests' folder of the crate in `folder`.
+pub(crate) fn tests_folder(folder: &str) -> String {
+    format!("{folder}/{TESTS_FOLDER}")
+}
 
 /// Whether `path` lies in the `tests/` folder of `krate`, which owns it: a
 /// file only the crate's tests read, by no library or executable build
 /// (#2238). Whether anything else names it is the caller's to check
 /// (`readers::tests_read_elsewhere`).
 fn in_tests_folder(krate: &Crate, path: &RepoPath) -> bool {
-    path.is_in(&format!("{}/{TESTS_FOLDER}", krate.folder.as_str()))
+    path.is_in(&tests_folder(krate.folder.as_str()))
 }
 
 /// The crate whose `tests/` folder holds `path`, the crate owning it.

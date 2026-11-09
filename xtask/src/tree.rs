@@ -58,7 +58,14 @@ pub(crate) fn hidden(name: &str) -> bool {
 /// Every file under `folder` (relative to `root`), as sorted `/`-separated
 /// paths relative to `root`; nothing when `folder` does not exist.
 pub(crate) fn files(root: &Path, folder: &str) -> Result<Vec<String>> {
-    walked(root, folder, None)
+    walked(root, folder, None, false)
+}
+
+/// Every file of the repository at `root` that a walk may enter: in hidden
+/// folders (`.cargo/`, `.config/`, `.github/`) and fixtures folders too, for
+/// a search of what may name a file, which must miss no reader.
+pub(crate) fn every_file(root: &Path) -> Result<Vec<String>> {
+    walked(root, "", Some(&[]), true)
 }
 
 /// Every file under `folder` as [`files`] gives them, fixtures folders
@@ -69,25 +76,31 @@ pub(crate) fn files_with_fixtures(
     folder: &str,
     except: &[&str],
 ) -> Result<Vec<String>> {
-    walked(root, folder, Some(except))
+    walked(root, folder, Some(except), false)
 }
 
-fn walked(root: &Path, folder: &str, fixtures: Option<&[&str]>) -> Result<Vec<String>> {
+fn walked(
+    root: &Path,
+    folder: &str,
+    fixtures: Option<&[&str]>,
+    hidden_too: bool,
+) -> Result<Vec<String>> {
     let mut files = Vec::new();
     let start = root.join(folder);
     if start.is_dir() {
-        walk(root, &start, fixtures, &mut files)?;
+        walk(root, &start, (fixtures, hidden_too), &mut files)?;
     }
     files.sort();
     Ok(files)
 }
 
 /// Walks `folder`; `fixtures` enters fixtures folders but those it names
-/// (paths from `root`), and `None` enters none.
+/// (paths from `root`), and `None` enters none; `hidden_too` enters hidden
+/// folders, those no walk enters still left out.
 fn walk(
     root: &Path,
     folder: &Path,
-    fixtures: Option<&[&str]>,
+    (fixtures, hidden_too): (Option<&[&str]>, bool),
     files: &mut Vec<String>,
 ) -> Result<()> {
     for entry in
@@ -108,8 +121,9 @@ fn walk(
                 .replace('\\', "/");
             let skipped_fixtures = name == FIXTURES
                 && fixtures.is_none_or(|except| except.contains(&relative.as_str()));
-            if !(hidden(&name) || never_entered(&relative) || skipped_fixtures) {
-                walk(root, &path, fixtures, files)?;
+            let skipped_hidden = hidden(&name) && !hidden_too;
+            if !(skipped_hidden || never_entered(&relative) || skipped_fixtures) {
+                walk(root, &path, (fixtures, hidden_too), files)?;
             }
         } else if kind.is_file() {
             let relative = path.strip_prefix(root).unwrap_or(&path);

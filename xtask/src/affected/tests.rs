@@ -742,12 +742,63 @@ fn a_change_to_a_crates_tests_folder_reaches_its_tests_alone() {
 /// A file of a crate's `tests/` folder that a file outside that folder
 /// names may be read by more than the crate's tests: a shared fixture
 /// listing it, as the SSRF layers table lists Collie's runners, which test
-/// support's test reads; the crate's own code including it; another crate
-/// naming it from its folder. It keeps a change to the crate's reach, here
-/// the conformance crate whose tests run Collie's executable. A name of
-/// another file of the folder, or of a file no `tests/` folder of that
-/// crate holds, leaves it to the crate's tests (#2238).
+/// support's test reads; the crate's own code including it, or its build
+/// script watching it; another crate naming it from its folder, in one
+/// literal, in pieces or through a variable; a file of a hidden folder. It
+/// keeps a change to the crate's reach, here the conformance crate whose
+/// tests run Collie's executable. A name of another file of the folder, or
+/// of a file no `tests/` folder of that crate holds, and prose, leave it to
+/// the crate's tests (#2238). Literals that would name the repository's own
+/// Collie tests from this file are split.
 #[rstest]
+#[case::a_path_built_from_pieces(
+    "crates/goodfetch-conformance/src/lib.rs",
+    r#"let cases = root.join("goodfetch-collie").join("tests").join("it");"#,
+    "crates/goodfetch-collie/tests/it/log.rs",
+    true
+)]
+#[case::a_path_built_through_a_variable(
+    "test-support/python/src/goodfetch_test_support/cases.py",
+    "CRATE = ROOT / \"crates\" / \"goodfetch-collie\"\n\n\ndef cases():\n    return CRATE / \"tests\" / \"it\"\n",
+    "crates/goodfetch-collie/tests/it/log.rs",
+    true
+)]
+#[case::a_build_script_watching_it(
+    "crates/goodfetch-collie/build.rs",
+    r#"println!("cargo::rerun-if-changed=tests/it/fixtures/page.html");"#,
+    "crates/goodfetch-collie/tests/it/fixtures/page.html",
+    true
+)]
+#[case::a_code_line_starting_with_a_star(
+    "crates/goodfetch-conformance/src/lib.rs",
+    concat!(
+        "fn set(slot: &mut PathBuf) {\n    *slot = PathBuf::from(\"../goodfetch-",
+        "collie/tests/it/log.rs\");\n}\n"
+    ),
+    "crates/goodfetch-collie/tests/it/log.rs",
+    true
+)]
+#[case::a_file_of_a_hidden_folder(
+    ".cargo/config.toml",
+    "[env]\nCOLLIE_CASES = { value = \"crates/goodfetch-collie/tests/it/cases\", relative = true }\n",
+    "crates/goodfetch-collie/tests/it/cases/one.toml",
+    true
+)]
+#[case::the_crates_readme_in_prose(
+    "crates/goodfetch-collie/README.md",
+    "Its tests in `tests/it` run its executable.\n",
+    "crates/goodfetch-collie/tests/it/log.rs",
+    false
+)]
+#[case::another_crate_anchoring_its_own_tests(
+    "crates/goodfetch-conformance/tests/it/runs.rs",
+    concat!(
+        "const PRODUCT: &str = \"goodfetch-collie\";\n",
+        r#"const SCRIPTS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/it/fixtures");"#
+    ),
+    "crates/goodfetch-collie/tests/it/fixtures/one.json",
+    false
+)]
 #[case::a_shared_fixture_naming_it(
     "test-support/fixtures/ssrf/layers.toml",
     r#"{ test = "crates/goodfetch-collie/tests/it/navigation_egress.rs::every_case", families = [] }"#,
@@ -756,7 +807,10 @@ fn a_change_to_a_crates_tests_folder_reaches_its_tests_alone() {
 )]
 #[case::the_crates_own_code_including_it(
     "crates/goodfetch-collie/src/pages.rs",
-    r#"const PAGE: &str = include_str!("../tests/it/fixtures/page.html");"#,
+    concat!(
+        r#"const PAGE: &str = include_str!("../"#,
+        r#"tests/it/fixtures/page.html");"#
+    ),
     "crates/goodfetch-collie/tests/it/fixtures/page.html",
     true
 )]
@@ -790,7 +844,10 @@ fn a_change_to_a_crates_tests_folder_reaches_its_tests_alone() {
 )]
 #[case::a_comment_naming_it(
     "crates/goodfetch-conformance/src/lib.rs",
-    "//! Its cases mirror ../goodfetch-collie/tests/it/body_limits.rs.",
+    concat!(
+        "//! Its cases mirror ../goodfetch-",
+        "collie/tests/it/body_limits.rs."
+    ),
     "crates/goodfetch-collie/tests/it/body_limits.rs",
     false
 )]

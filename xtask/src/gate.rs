@@ -559,8 +559,12 @@ impl Reader<'_> {
         )?;
         let shared = affected::tests_read_elsewhere(self.root, self.members, &paths)?;
         for (member, why) in readers.into_iter().chain(shared) {
-            tests_alone.remove(&member);
-            found.entry(member).or_insert(why);
+            // The wider reach's reason is the one the log gives.
+            if tests_alone.remove(&member) {
+                found.insert(member, why);
+            } else {
+                found.entry(member).or_insert(why);
+            }
         }
         // A member whose build or files read a changed file reaches its
         // dependants as a change to its own files would; one whose
@@ -578,7 +582,7 @@ impl Reader<'_> {
                 .filter_map(|member| {
                     let folder = self.members.folder(member)?;
                     Some(if tests_alone.contains(member) {
-                        RepoPath::new(format!("{folder}/{}/.evidence", affected::TESTS_FOLDER))
+                        RepoPath::new(format!("{}/.evidence", affected::tests_folder(&folder)))
                     } else {
                         RepoPath::new(format!("{folder}/.evidence"))
                     })

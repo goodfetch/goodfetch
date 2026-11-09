@@ -214,7 +214,7 @@ struct Waiter {
 #[derive(Clone)]
 enum Replayed {
     /// The call its pattern matched.
-    Answered(goodfetch_protocol::page::events::PageExchange),
+    Answered(Box<goodfetch_protocol::page::events::PageExchange>),
     /// That call's answer passed a limit: `response_limit_exceeded`.
     PastALimit(goodfetch_engine::response_limits::LimitExceeded),
     /// None came, so it escalates.

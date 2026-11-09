@@ -176,7 +176,12 @@ pub(super) async fn replay(
             response,
         };
         let url = exchange.request.url.clone();
-        tell(tiers, page_id, &url, &Replayed::Answered(exchange));
+        tell(
+            tiers,
+            page_id,
+            &url,
+            &Replayed::Answered(Box::new(exchange)),
+        );
         replay.answered(&json);
     }
     // The waits left: told none came, so they escalate.

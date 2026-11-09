@@ -279,6 +279,61 @@ fn the_stress_base_build_and_linked_folders_are_never_entered() {
     );
 }
 
+/// `--leave` names a folder the sweep never enters, wherever it is under the
+/// target folder: the backstop's sweep leaves the weekly constrained
+/// test-health run's `ci-test` profile out of its two-day window
+/// (`ci/gate-backstop.sh`).
+#[test]
+fn a_folder_the_sweep_is_told_to_leave_is_never_entered() {
+    let workspace = Workspace::from_fixture("empty");
+    let left = library(&workspace, "target/ci-test", "old", DEAD, 72);
+    let under_a_triple = library(
+        &workspace,
+        "target/x86_64-unknown-linux-gnu/ci-test",
+        "old",
+        DEAD,
+        72,
+    );
+    let swept = library(&workspace, "target/debug", "old", DEAD, 72);
+
+    let outcome = sweep(&workspace, &["--leave", "ci-test"]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert!(
+        left.iter()
+            .chain(&under_a_triple)
+            .all(|file| exists(&workspace, file))
+    );
+    assert!(swept.iter().all(|file| !exists(&workspace, file)));
+}
+
+/// A profile folder swept as the target itself takes that sweep's own
+/// window, as the backstop gives `ci-test` a longer one.
+#[test]
+fn a_profile_folder_is_swept_as_the_target_with_a_window_of_its_own() {
+    let workspace = Workspace::from_fixture("empty");
+    let last_week = library(&workspace, "target/ci-test", "recent", LIVE, 200);
+    let long_ago = library(&workspace, "target/ci-test", "older", DEAD, 400);
+    let elsewhere = library(&workspace, "target/debug", "older", DEAD, 400);
+
+    let outcome = workspace.xtask(&[
+        "sweep-target",
+        "--target",
+        "target/ci-test",
+        "--unused-hours",
+        "384",
+    ]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert!(
+        last_week
+            .iter()
+            .chain(&elsewhere)
+            .all(|file| exists(&workspace, file))
+    );
+    assert!(long_ago.iter().all(|file| !exists(&workspace, file)));
+}
+
 /// Cargo makes a unit's fingerprint folder before it compiles the unit and
 /// writes the fingerprint after: a folder made within the hours, empty or
 /// not, is a unit a build reached.

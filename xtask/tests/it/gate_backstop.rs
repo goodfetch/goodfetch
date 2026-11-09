@@ -10,11 +10,14 @@
 use std::path::{Path, PathBuf};
 
 use crate::affected::repository;
+use crate::merge_pr::{NO_PROCESS, until};
 use crate::workspace::Workspace;
 
 /// A stand-in `just` that appends its arguments, with `GOODFETCH_GATE_FULL`,
 /// to `calls`, prints `compare`'s content as `just _gate-compare`, and fails
-/// with status 3 for the calls `failing` lists, one a line.
+/// with status 3 for the calls `failing` lists, one a line. As `just
+/// sweep-target` it appends to `sweeps` its arguments, `locked` when the
+/// backstop's worktree is held, and the folder it runs in.
 fn stand_in_just(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
@@ -24,6 +27,11 @@ echo "$*|${{GOODFETCH_GATE_FULL:-}}" >>"{calls}"
 if [ "$1" = _gate-compare ] && [ -f "{compare}" ]; then
   cat "{compare}"
 fi
+if [ "$1" = sweep-target ]; then
+  held=free
+  if [ -f "{lock}/pid" ]; then held=locked; fi
+  echo "$*|$held|$PWD" >>"{sweeps}"
+fi
 if [ -f "{failing}" ] && grep -qxF -- "$*" "{failing}"; then
   exit 3
 fi
@@ -31,6 +39,11 @@ fi
         calls = folder.join("calls").display(),
         compare = folder.join("compare").display(),
         failing = folder.join("failing").display(),
+        sweeps = folder.join("sweeps").display(),
+        lock = workspace
+            .path()
+            .join(".claude/worktrees/gate-backstop.lock")
+            .display(),
     );
     write_executable(&folder.join("just"), &script);
     // A stand-in LazyFS build, which the backstop asks for before any step.
@@ -76,7 +89,7 @@ fn commit_to_main(workspace: &Workspace, files: &[(&str, &[u8])]) {
 /// The fixture as a repository whose `origin` is itself, so `origin/main`
 /// is its `main`, holding the scripts the backstop runs from the commit it
 /// tests.
-fn backstop_repository() -> Workspace {
+pub(crate) fn backstop_repository() -> Workspace {
     let workspace = repository();
     let path = workspace.path().display().to_string();
     workspace.git(&["remote", "add", "origin", &path]);
@@ -140,17 +153,33 @@ fn run_of(
     variables: &[(&str, &str)],
     mut command: std::process::Command,
 ) -> Run {
-    let logs = workspace.path().join("logs");
-    let output = command
+    let output = as_cron_runs_it(workspace, stand_in, variables, &mut command)
+        .output()
+        .unwrap();
+    run_ended(workspace, stand_in, output.status.code())
+}
+
+/// Gives `command` what the backstop's cron line gives it: the stand-in first
+/// on `PATH`, the logs in the workspace, and these variables added.
+fn as_cron_runs_it<'a>(
+    workspace: &Workspace,
+    stand_in: &Path,
+    variables: &[(&str, &str)],
+    command: &'a mut std::process::Command,
+) -> &'a mut std::process::Command {
+    command
         .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
         .env("RUNNER_TEMP", workspace.path().join("runner-temp"))
-        .env("GOODFETCH_GATE_BACKSTOP_LOG", &logs)
+        .env("GOODFETCH_GATE_BACKSTOP_LOG", workspace.path().join("logs"))
         .env("GOODFETCH_LAZYFS", stand_in.join("lazyfs"))
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .envs(variables.iter().copied())
-        .output()
-        .unwrap();
+}
+
+/// What a run that ended with `code` left: its calls, its lines and its log.
+fn run_ended(workspace: &Workspace, stand_in: &Path, code: Option<i32>) -> Run {
+    let logs = workspace.path().join("logs");
     let read = |path: PathBuf| std::fs::read_to_string(path).unwrap_or_default();
     let log = std::fs::read_dir(&logs)
         .map(|entries| {
@@ -162,7 +191,7 @@ fn run_of(
         })
         .unwrap_or_default();
     Run {
-        code: output.status.code(),
+        code,
         calls: read(stand_in.join("calls"))
             .lines()
             .map(str::to_owned)
@@ -692,6 +721,201 @@ fn a_backstop_without_the_disk_its_build_needs_is_skipped() {
         run.results.contains(" gate=skipped (free disk "),
         "{}",
         run.results
+    );
+    assert!(sweeps(&stand_in).is_empty(), "{:?}", sweeps(&stand_in));
+}
+
+/// The backstop's sweeps of its worktree's `target/`, as the stand-in noted
+/// them: `<arguments>|<locked or free>|<folder>`.
+fn sweeps(stand_in: &Path) -> Vec<String> {
+    std::fs::read_to_string(stand_in.join("sweeps"))
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The two sweeps of a backstop that ran, in its worktree and under its lock:
+/// every profile but `ci-test` keeps what a build read in the last two days,
+/// the daily runs' reach, and `ci-test`, which only the weekly constrained
+/// test-health run builds, what one read in the last fifteen.
+fn the_backstops_sweeps(workspace: &Workspace) -> Vec<String> {
+    let worktree = workspace
+        .path()
+        .join(".claude/worktrees/gate-backstop")
+        .canonicalize()
+        .unwrap();
+    [
+        "sweep-target --leave ci-test --unused-hours 72",
+        "sweep-target --target target/ci-test --unused-hours 384",
+    ]
+    .into_iter()
+    .map(|sweep| format!("{sweep}|locked|{}", worktree.display()))
+    .collect()
+}
+
+/// The backstop's worktree is on the host's own disk, and nothing removed
+/// what its builds no longer use (62 GiB after its first runs, on
+/// 2026-11-09). After its full run, green or red, and once its line is
+/// written, the backstop sweeps its worktree's `target/`, still holding the
+/// worktree's lock, so no test-health run builds there meanwhile; the sweep
+/// keeps what the three runs that share the worktree still read.
+#[rstest::rstest]
+#[case::a_green_run(false, Some(0))]
+#[case::a_red_run(true, Some(1))]
+fn after_its_full_run_the_backstop_sweeps_its_target_under_its_lock(
+    #[case] red: bool,
+    #[case] code: Option<i32>,
+) {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    if red {
+        std::fs::write(stand_in.join("failing"), "pre-merge all\n").unwrap();
+    }
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, code, "{}", run.log);
+    assert_eq!(sweeps(&stand_in), the_backstops_sweeps(&workspace));
+    let full_run = run
+        .calls
+        .iter()
+        .position(|call| call == "pre-merge all|1")
+        .unwrap();
+    let first_sweep = run
+        .calls
+        .iter()
+        .position(|call| call.starts_with("sweep-target "))
+        .unwrap();
+    assert!(full_run < first_sweep, "{:?}", run.calls);
+    assert_eq!(run.results.lines().count(), 1, "{}", run.results);
+}
+
+/// A sweep that fails changes no verdict: the run warns, sweeps the other
+/// part and keeps its green line.
+#[test]
+fn a_sweep_that_fails_only_warns() {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(
+        stand_in.join("failing"),
+        "sweep-target --leave ci-test --unused-hours 72\n",
+    )
+    .unwrap();
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(0), "{}", run.log);
+    assert!(
+        run.log
+            .contains("warning: the backstop's target/ was not swept"),
+        "{}",
+        run.log
+    );
+    assert_eq!(sweeps(&stand_in), the_backstops_sweeps(&workspace));
+    assert!(
+        run.results.contains(" gate=pass misses=0 "),
+        "{}",
+        run.results
+    );
+}
+
+/// The backstop's full run is a second gate's worth of suites, and two of
+/// them on one host fail tests on timing (ADR 0135's amendment of
+/// 2026-11-10). A backstop that finds `just merge`'s gate running holds its
+/// own worktree, says in its lock which gate it lets end first, so that gate
+/// does not wait for it in turn, and starts no step until that gate ends;
+/// then it runs in full, and a skipped day is not the price of a long gate.
+#[test]
+fn a_backstop_lets_a_running_merge_gate_end_before_it_starts_and_says_which() {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    let mut gate = std::process::Command::new("sleep")
+        .arg("600")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let gate_process = gate.id().to_string();
+    workspace.write(
+        ".claude/worktrees/merge-gate.lock/pid",
+        gate_process.as_bytes(),
+    );
+    workspace.write(
+        "runner-temp/goodfetch-os-services/env",
+        b"DBUS_SESSION_BUS_ADDRESS=unix:path=/stand-in/bus\n",
+    );
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/gate-backstop.sh");
+    let mut command = workspace.command(script);
+    command.arg("origin/main");
+    let mut backstop = as_cron_runs_it(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_BACKSTOP_MIN_FREE_GB", "0")],
+        &mut command,
+    )
+    .stdin(std::process::Stdio::null())
+    .stdout(std::process::Stdio::null())
+    .stderr(std::process::Stdio::null())
+    .spawn()
+    .unwrap();
+    let waits_for = workspace
+        .path()
+        .join(".claude/worktrees/gate-backstop.lock/waits-for");
+
+    until("the backstop's word of the gate it waits for", || {
+        std::fs::read_to_string(&waits_for).is_ok_and(|process| process.trim() == gate_process)
+    });
+
+    let before_the_gates_end = run_ended(&workspace, &stand_in, None);
+    gate.kill().unwrap();
+    gate.wait().unwrap();
+    let code = backstop.wait().unwrap().code();
+    let run = run_ended(&workspace, &stand_in, code);
+    assert!(
+        before_the_gates_end.calls.is_empty(),
+        "{:?}",
+        before_the_gates_end.calls
+    );
+    assert_eq!(run.code, Some(0), "{}", run.log);
+    assert!(
+        run.log.contains(&format!(
+            "waiting for the merge gate, process {gate_process}, to end"
+        )),
+        "{}",
+        run.log
+    );
+    assert!(
+        run.calls.contains(&"pre-merge all|1".to_owned()),
+        "{:?}",
+        run.calls
+    );
+    assert!(
+        run.results.contains(" gate=pass misses=0 "),
+        "{}",
+        run.results
+    );
+}
+
+/// A gate that died left its lock behind: it holds no backstop up, and the
+/// backstop does not say it waits.
+#[test]
+fn a_backstop_waits_for_no_gate_that_died() {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    workspace.write(
+        ".claude/worktrees/merge-gate.lock/pid",
+        NO_PROCESS.as_bytes(),
+    );
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(0), "{}", run.log);
+    assert!(!run.log.contains("waiting for"), "{}", run.log);
+    assert!(
+        run.calls.contains(&"pre-merge all|1".to_owned()),
+        "{:?}",
+        run.calls
     );
 }
 

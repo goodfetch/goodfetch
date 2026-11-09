@@ -8,8 +8,8 @@
 # absolute paths, still hold at its next run, and the gate's records in its
 # `target/gate-runs/` serve the next run. Locked, so a `git worktree prune`
 # from another session cannot drop it, and held by one run at a time
-# through a lock folder. Sourced, never run. It keeps to bash 3.2, which
-# stock macOS runs.
+# through a lock folder, which the other worktree's runs read before they
+# start. Sourced, never run. It keeps to bash 3.2, which stock macOS runs.
 
 root=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)
 worktree="$root/.claude/worktrees/${gate_worktree_name:-merge-gate}"
@@ -23,12 +23,33 @@ gate_worktree_holder() {
   if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then echo "$holder"; fi
 }
 
-# Prints the test-health run that holds the backstop's worktree, when it still
-# runs: ci/test-health/scheduled.sh marks the lock it takes, which the
-# backstop's own run does not, and a run that died holds nothing.
-test_health_holder() {
-  local backstop="$root/.claude/worktrees/gate-backstop.lock"
-  if [[ -f $backstop/test-health ]]; then gate_worktree_holder "$backstop"; fi
+# `just merge`'s gate and the runs in the backstop's worktree read each
+# other's lock, whichever worktree this file was sourced for, so no two of
+# them run their suites on the host at once.
+
+# Prints the process of `just merge`'s gate, when one runs.
+merge_gate_holder() {
+  gate_worktree_holder "$root/.claude/worktrees/merge-gate.lock"
+}
+
+# Prints the run that holds the backstop's worktree and that `just merge`'s
+# gate, process `$1`, lets end before it starts, as `the test-health run,
+# process <n>` or `the backstop, process <n>`; nothing when the gate may
+# start. ci/test-health/scheduled.sh marks the lock it takes with a
+# `test-health` file. The backstop's own run that found a gate running names
+# it in `waits-for` and lets it end first (ci/gate-backstop.sh): that gate
+# does not wait for the backstop in turn, and any later gate does, since the
+# backstop was there before it. A run that died holds nothing.
+run_in_the_backstops_worktree() {
+  local gate=$1 holder backstop_lock="$root/.claude/worktrees/gate-backstop.lock"
+  holder=$(gate_worktree_holder "$backstop_lock")
+  if [[ -z $holder ]]; then
+    return 0
+  elif [[ -f $backstop_lock/test-health ]]; then
+    echo "the test-health run, process $holder"
+  elif [[ $(cat "$backstop_lock/waits-for" 2>/dev/null || true) != "$gate" ]]; then
+    echo "the backstop, process $holder"
+  fi
 }
 
 # Takes the worktree's lock for this process, or fails while another run's

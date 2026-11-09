@@ -38,7 +38,14 @@
 # each miss, suspect or unchecked result to `<log>/misses.txt`; the run's own
 # log is `<log>/<day>.log`, with `<log>`
 # GOODFETCH_GATE_BACKSTOP_LOG or ~/gate-backstop. It fails when the full run
-# fails or finds a miss. It keeps to bash 3.2, which stock macOS runs.
+# fails or finds a miss.
+#
+# The full run and `just merge`'s gate never run together (ADR 0135's
+# amendment of 2026-11-10): a backstop that finds a gate running waits for it
+# to end, holding its worktree, and a gate started while the backstop holds
+# its worktree waits for the backstop. After its line is written, the run
+# sweeps its worktree's `target/`, still holding the lock. It keeps to bash
+# 3.2, which stock macOS runs.
 set -euo pipefail
 
 ref=${1:-origin/main}
@@ -88,10 +95,30 @@ gate_worktree_name="gate-backstop"
 source "$(dirname "$0")/gate-worktree.sh"
 # shellcheck source=ci/backstop-green.sh
 source "$(dirname "$0")/backstop-green.sh"
+gate_worktree_lock
+trap 'rm -rf "$lock" "$scripts"' EXIT
+# The full run and `just merge`'s gate never run together: each is a gate's
+# worth of suites, and two on one host fail tests on timing (TESTING.md,
+# Checks by role). The backstop has its lock before it reads the gate's, as a
+# gate has its own before it reads this one, so of the two starting together
+# at least one sees the other. A gate running now ends first: the backstop
+# names it in its lock, so that gate does not wait for the backstop in turn
+# (ci/gate-worktree.sh), and waits for that one gate, however long, since a
+# skipped day would leave `main` without its check and count toward the merge
+# cap. A gate started meanwhile waits for the backstop, which was there first.
+# A lock whose holder ended holds nothing.
+running=$(merge_gate_holder)
+if [[ -n $running ]]; then
+  echo "$running" >"$lock/waits-for"
+  echo "== waiting for the merge gate, process $running, to end before the full run starts"
+  while [[ $(merge_gate_holder) == "$running" ]]; do sleep 1; done
+  rm -f "$lock/waits-for"
+  echo "== $(date -u +%FT%TZ) the merge gate ended"
+fi
 # The host keeps 60 GB free: the backstop starts only with room for its
 # build on top, about 25 GB for its worktree's first, 5 GB for a later one
-# (GOODFETCH_GATE_BACKSTOP_MIN_FREE_GB sets the floor itself). A skipped day
-# is listed and fails.
+# (GOODFETCH_GATE_BACKSTOP_MIN_FREE_GB sets the floor itself), read once no
+# gate runs. A skipped day is listed and fails.
 if [[ -d "$worktree/target" ]]; then needed=65; else needed=85; fi
 needed=${GOODFETCH_GATE_BACKSTOP_MIN_FREE_GB:-$needed}
 free=$(df -Pk "$root" | awk 'NR == 2 { print int($4 / 1048576) }')
@@ -100,8 +127,6 @@ if ((free < needed)); then
   echo "$day $commit gate=skipped (free disk $free GB < $needed GB)" >>"$logs/results.txt"
   exit 1
 fi
-gate_worktree_lock
-trap 'rm -rf "$lock" "$scripts"' EXIT
 gate_worktree_checkout "$commit"
 # The incremental runs it compares with: `just merge`'s, read only.
 merged_runs="$root/.claude/worktrees/merge-gate/target/gate-runs"
@@ -200,4 +225,25 @@ for base in $bases; do
 done
 
 echo "$day $commit gate=$gate misses=$misses suspects=$suspects unchecked=$unchecked earned=$earned${told_since:+ since=$told_since}" >>"$logs/results.txt"
+
+# Once the day's line is written, and still holding the worktree's lock, so
+# no test-health run builds here meanwhile, the worktree's `target/` loses the
+# build units no run still reads (`xtask sweep-target`), as `just merge` sweeps
+# its gate's: it is on the host's own disk, whose free space decides whether
+# the next run starts. Three runs build here, and a unit one of them will read
+# again stays: this run and the mutation run, daily, in the same profiles,
+# which keep what a build read in the last two days, so a day either skipped
+# costs no rebuild; and the constrained test-health run, weekly, alone in the
+# `ci-test` profile that `CI` selects, which keeps what a build read in the
+# last fifteen, so a Sunday it skipped costs none either. Only Cargo's build
+# units go, in a profile no Cargo process holds: no gate record, listing or
+# perf base tree, and nothing outside this folder, such as the compiler cache
+# or a container's volume. A run that ends before this, stopped or on a fault,
+# leaves the sweep to the next day's; a sweep that fails changes no verdict.
+sweep_target() {
+  just sweep-target "$@" ||
+    echo "warning: the backstop's target/ was not swept (just sweep-target $*)" >&2
+}
+sweep_target --leave ci-test --unused-hours 72
+sweep_target --target target/ci-test --unused-hours 384
 [[ $gate == pass && $misses -eq 0 ]]

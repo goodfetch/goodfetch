@@ -153,15 +153,21 @@ source "$(dirname "$0")/output-value.sh"
 gate_worktree_lock
 locked=1
 
-# A test-health run shares the host's cores with whatever runs beside it, and
-# on 2026-11-08 its load failed a gate on a leak timeout. The gate waits, holding
-# its lock so no later run starts, until the run ends: within its minutes, or at
-# once if it died. A run sees this lock once it has marked its own, and skips.
+# A run in the backstop's worktree, a test-health run or the backstop's own
+# full run, shares the host's cores with whatever runs beside it, and on
+# 2026-11-08 a test-health run's load failed a gate on a leak timeout. The gate
+# waits, holding its lock so no later run starts, until that run ends: within
+# its minutes, or at once if it died. A test-health run sees this lock once it
+# has marked its own, and skips. The backstop takes its lock before it reads
+# this one, as the gate has taken this one before it reads the backstop's, so
+# of a backstop and a gate starting together at least one sees the other: a
+# backstop that sees this gate lets it end first and says so in its lock, and
+# the gate then goes on (ci/gate-worktree.sh).
 waiting_for=""
-while holder=$(test_health_holder) && [[ -n $holder ]]; do
-  if [[ $holder != "$waiting_for" ]]; then
-    echo "Waiting for the test-health run, process $holder, to end before the gate starts"
-    waiting_for=$holder
+while ahead=$(run_in_the_backstops_worktree "$$") && [[ -n $ahead ]]; do
+  if [[ $ahead != "$waiting_for" ]]; then
+    echo "Waiting for $ahead, to end before the gate starts"
+    waiting_for=$ahead
   fi
   sleep 1
 done

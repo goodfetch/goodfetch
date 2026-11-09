@@ -949,7 +949,8 @@ quick-steps:
 # the other steps, each in its own container, with their lines marked:
 # `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
 # projects in the pinned Playwright image, ADR 0073). The suite waits for
-# them and fails when one fails (ci/pre-merge.sh). `quick` runs only the
+# them and fails when one fails (ci/pre-merge.sh). A red step ends no form:
+# every other step still runs, and the end names each red step. `quick` runs only the
 # checks every change needs, for a change no test reads (ADR 0135). `all`
 # on a head descending from a head whose gate ran reruns only the steps and
 # members' tests the change since then reaches, with every whole-change
@@ -1704,6 +1705,9 @@ _gate-record head step status *evidence:
 # each crate whose result in a merge since its last green run counted earned
 # passes (ci/gate-backstop.sh). It needs GOODFETCH_LAZYFS on Linux, and its way
 # past a miss nothing can clear is TESTING.md's, never an edit of its results.
+# It waits for a running gate of `just merge` before its full run, as a gate
+# started meanwhile waits for it, and sweeps its worktree's `target/` after
+# its day's line, still holding its lock.
 # Its log and results go to ~/gate-backstop/ (GOODFETCH_GATE_BACKSTOP_LOG). Run
 # from the main checkout.
 gate-backstop ref="origin/main":

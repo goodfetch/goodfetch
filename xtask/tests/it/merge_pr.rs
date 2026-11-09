@@ -3,7 +3,8 @@
 //! of the gate's `target/` is short of space (#1822), keeps a failing gate's
 //! log and test results in the repository's common folder (#2087), and
 //! sweeps the gate's `target/` after each gate, still holding its lock; a
-//! gate waits for a running test-health run; it files the merge's stress
+//! gate waits for the run in the backstop's worktree, a test-health run or
+//! the backstop's own, unless that one waits for it; it files the merge's stress
 //! listings; and the gate outlives the shell that started it, whose output it
 //! no longer needs. `gh`, `cargo` and `just` are stand-ins that record each call, and
 //! `date` one that gives the gate's start as [`STARTED`]. The local gate is
@@ -28,7 +29,7 @@ const NUMBER: &str = "7";
 const STARTED: &str = "1800000000";
 
 /// A process ID above every system's limit, so no process has it.
-const NO_PROCESS: &str = "2147483646";
+pub(crate) const NO_PROCESS: &str = "2147483646";
 
 /// Stand-ins for `gh`, `cargo` and `just` that append each call to `calls`,
 /// and for `date`, which gives [`STARTED`] for `-u +%s` and leaves every
@@ -43,8 +44,10 @@ const NO_PROCESS: &str = "2147483646";
 /// the base's tip while `base-listings` exists, the plan a full gate reads,
 /// unless `no-plan` exists, and a JUnit file,
 /// notes the signals it ignores in `signals` where the system lists them,
-/// notes its process in `reached`, waits while `hold` exists, writes a line
-/// and, while `failing` exists, fails with status 3.
+/// notes its process in `reached`, waits while `hold` exists, writes a line,
+/// takes a second more while `lengthy` exists and, while `failing` exists,
+/// fails with status 3; a `just pre-merge` that starts while another runs
+/// notes itself in `together`.
 fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
@@ -97,6 +100,8 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
                    echo \"acceptance $GOODFETCH_PERF_PULL_REQUEST\" >>\"{calls}\"\n\
                  fi\n\
                  if [ \"$1\" = pre-merge ]; then\n\
+                   alone=\"\"\n\
+                   if mkdir \"{running}\" 2>/dev/null; then alone=1; else echo \"$*\" >>\"{together}\"; fi\n\
                    if [ -f \"{base_listings}\" ]; then\n\
                      tip=$(git rev-parse origin/main)\n\
                      mkdir -p \"target/stress-listings/$tip\" && : >\"target/stress-listings/$tip/listed\"\n\
@@ -108,9 +113,14 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
                    echo $$ >\"{reached}\"\n\
                    while [ -f \"{hold}\" ]; do sleep 0.02; done\n\
                    echo 'the steps ran'\n\
+                   if [ -f \"{lengthy}\" ]; then sleep 1; fi\n\
+                   [ -z \"$alone\" ] || rmdir \"{running}\"\n\
                    if [ -f \"{failing}\" ]; then echo 'a test failed'; exit 3; fi\n\
                  fi\n",
                 calls = calls.display(),
+                running = folder.join("running").display(),
+                together = folder.join("together").display(),
+                lengthy = folder.join("lengthy").display(),
                 base_listings = folder.join("base-listings").display(),
                 no_plan = folder.join("no-plan").display(),
                 signals = folder.join("signals").display(),
@@ -872,45 +882,79 @@ fn merge_writing_to_a_file(workspace: &Workspace, stand_in: &Path) -> (Child, Pa
     (caller, output)
 }
 
-/// Leaves the backstop's worktree held by process `holder`, a test-health run's
-/// mark beside it when `by_test_health`, the backstop's own run otherwise.
-fn hold_the_backstops_worktree(workspace: &Workspace, holder: &str, by_test_health: bool) {
-    workspace.write(
-        ".claude/worktrees/gate-backstop.lock/pid",
-        holder.as_bytes(),
-    );
-    if by_test_health {
-        workspace.write(".claude/worktrees/gate-backstop.lock/test-health", b"");
+/// Who holds the backstop's worktree, as its lock folder says it.
+#[derive(Clone, Copy)]
+enum HeldBy {
+    /// A test-health run, which marks the lock it takes.
+    TestHealth,
+    /// The backstop's own run, in its full run.
+    Backstop,
+    /// The backstop's own run, which lets the gate of this process, running
+    /// when it started, end first.
+    BackstopWaitingFor(&'static str),
+}
+
+fn backstop_lock(workspace: &Workspace) -> PathBuf {
+    workspace
+        .path()
+        .join(".claude/worktrees/gate-backstop.lock")
+}
+
+/// Leaves the backstop's worktree held by process `holder`, as `held` says.
+fn hold_the_backstops_worktree(workspace: &Workspace, holder: &str, held: HeldBy) {
+    let lock = backstop_lock(workspace);
+    std::fs::create_dir_all(&lock).unwrap();
+    std::fs::write(lock.join("pid"), holder).unwrap();
+    match held {
+        HeldBy::TestHealth => std::fs::write(lock.join("test-health"), "").unwrap(),
+        HeldBy::Backstop => {}
+        HeldBy::BackstopWaitingFor(gate) => {
+            std::fs::write(lock.join("waits-for"), gate).unwrap();
+        }
     }
 }
 
-/// A test-health run takes the host's cores for hours, and on 2026-11-08 a
-/// gate beside one failed on the load. The gate says it waits, starts no step
-/// until the run ends, then runs as usual.
-#[test]
-fn a_gate_waits_for_a_running_test_health_run_and_says_so() {
-    let (workspace, head) = pull_request();
-    let stand_in = stand_ins(&workspace, &head);
-    let mut test_health = Command::new("sleep")
+/// A process that lives until the test ends it, to hold a lock.
+fn holder() -> Child {
+    Command::new("sleep")
         .arg("600")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .unwrap();
-    hold_the_backstops_worktree(&workspace, &test_health.id().to_string(), true);
+        .unwrap()
+}
+
+/// A test-health run takes the host's cores for hours, and on 2026-11-08 a
+/// gate beside one failed on the load; the backstop's full run is a second
+/// gate's worth of suites (ADR 0135's amendment of 2026-11-10). The gate says
+/// which it waits for, starts no step until that run ends, then runs as
+/// usual. A backstop that waits for an earlier gate was there first, so the
+/// gate waits for it too.
+#[rstest]
+#[case::a_test_health_run(HeldBy::TestHealth, "the test-health run")]
+#[case::the_backstop(HeldBy::Backstop, "the backstop")]
+#[case::the_backstop_waiting_for_an_earlier_gate(
+    HeldBy::BackstopWaitingFor(NO_PROCESS),
+    "the backstop"
+)]
+fn a_gate_waits_for_the_run_in_the_backstops_worktree_and_says_so(
+    #[case] held: HeldBy,
+    #[case] named: &str,
+) {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let mut run = holder();
+    hold_the_backstops_worktree(&workspace, &run.id().to_string(), held);
     let (mut caller, output) = merge_writing_to_a_file(&workspace, &stand_in);
-    let waiting = format!(
-        "Waiting for the test-health run, process {}",
-        test_health.id()
-    );
+    let waiting = format!("Waiting for {named}, process {}", run.id());
 
     until("the gate's word that it waits", || {
         std::fs::read_to_string(&output).is_ok_and(|text| text.contains(&waiting))
     });
 
     let before_the_end = calls(&stand_in);
-    test_health.kill().unwrap();
-    test_health.wait().unwrap();
+    run.kill().unwrap();
+    run.wait().unwrap();
     until_the_gate_merged(&workspace, &stand_in);
     assert!(
         !before_the_end.iter().any(|call| call.starts_with("just ")),
@@ -919,17 +963,138 @@ fn a_gate_waits_for_a_running_test_health_run_and_says_so() {
     assert!(caller.wait().unwrap().success());
 }
 
-/// A run that died left its lock and mark behind, and the backstop's own run
-/// is no test-health run: neither holds a gate up, or says it does.
-#[rstest]
-#[case::a_run_that_died(NO_PROCESS, true)]
-#[case::the_backstops_own_run("live", false)]
-fn a_gate_waits_for_nothing_else(#[case] holder: &str, #[case] by_test_health: bool) {
+/// A backstop that found this gate running lets it end first and says so in
+/// its lock, so the two never wait for each other: the gate goes on while the
+/// backstop still holds its worktree.
+#[test]
+fn a_gate_goes_first_once_the_backstop_says_it_waits_for_it() {
     let (workspace, head) = pull_request();
     let stand_in = stand_ins(&workspace, &head);
-    let live = std::process::id().to_string();
-    let holder = if holder == "live" { &live } else { holder };
-    hold_the_backstops_worktree(&workspace, holder, by_test_health);
+    let mut backstop = holder();
+    hold_the_backstops_worktree(&workspace, &backstop.id().to_string(), HeldBy::Backstop);
+    let (mut caller, output) = merge_writing_to_a_file(&workspace, &stand_in);
+    until("the gate's word that it waits", || {
+        std::fs::read_to_string(&output).is_ok_and(|text| text.contains("Waiting for the backstop"))
+    });
+
+    let gate = std::fs::read_to_string(gate_lock(&workspace).join("pid")).unwrap();
+    std::fs::write(backstop_lock(&workspace).join("waits-for"), gate.trim()).unwrap();
+
+    until_the_gate_merged(&workspace, &stand_in);
+    assert!(caller.wait().unwrap().success());
+    assert!(runs(&backstop.id().to_string()));
+    backstop.kill().unwrap();
+    backstop.wait().unwrap();
+}
+
+/// The text of every log in `folders`, each under its path.
+fn logs_of(folders: &[PathBuf]) -> String {
+    use std::fmt::Write as _;
+    let logs = folders
+        .iter()
+        .filter_map(|folder| std::fs::read_dir(folder).ok())
+        .flat_map(|entries| entries.filter_map(Result::ok).map(|entry| entry.path()))
+        .filter(|path| path.extension().is_some_and(|extension| extension == "log"));
+    let mut text = String::new();
+    for path in logs {
+        let log = std::fs::read_to_string(&path).unwrap_or_default();
+        let _ = writeln!(text, "== {}\n{log}", path.display());
+    }
+    text
+}
+
+/// A gate and the backstop started at the same moment never run their suites
+/// together, whichever takes its lock first, and neither waits for the other
+/// for ever: each has its own lock before it reads the other's, so at least
+/// one sees the other, and a backstop that sees the gate lets it go first.
+/// Both real scripts run here, once with each started first, each `just
+/// pre-merge` taking a second.
+#[test]
+fn a_gate_and_the_backstop_started_together_never_run_their_suites_together() {
+    let workspace = crate::gate_backstop::backstop_repository();
+    // Ignored, as the repository's `.gitignore` ignores it, so each
+    // worktree is a clean checkout again at its next run.
+    workspace.write(".git/info/exclude", b"/target/\n");
+    workspace.git(&["merge", "--quiet", "--no-edit", "main"]);
+    workspace.write("change.txt", b"a change\n");
+    commit_all(&workspace, "A change");
+    let head = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    workspace.git(&["update-ref", &format!("refs/pull/{NUMBER}/head"), &head]);
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("lengthy"), "").unwrap();
+    workspace.write(
+        "runner-temp/goodfetch-os-services/env",
+        b"DBUS_SESSION_BUS_ADDRESS=unix:path=/stand-in/bus\n",
+    );
+    let backstop = || {
+        let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/gate-backstop.sh");
+        let mut command = workspace.command(script);
+        command
+            .arg("origin/main")
+            .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
+            .env("RUNNER_TEMP", workspace.path().join("runner-temp"))
+            .env("GOODFETCH_GATE_BACKSTOP_LOG", workspace.path().join("logs"))
+            .env("GOODFETCH_GATE_BACKSTOP_MIN_FREE_GB", "0")
+            .env("GOODFETCH_LAZYFS", stand_in.join("just"))
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        command.spawn().unwrap()
+    };
+    let gate = || {
+        merge_command(
+            &workspace,
+            &stand_in,
+            &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+        )
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap()
+    };
+
+    for round in 0..2 {
+        let (mut first, mut second) = if round == 0 {
+            (backstop(), gate())
+        } else {
+            (gate(), backstop())
+        };
+        let statuses = [first.wait().unwrap(), second.wait().unwrap()];
+        assert!(
+            statuses.iter().all(std::process::ExitStatus::success),
+            "round {round}: {statuses:?}\n{}",
+            logs_of(&[
+                workspace.path().join("logs"),
+                workspace.path().join(".git/goodfetch-gate-logs")
+            ])
+        );
+    }
+
+    let ran = calls(&stand_in);
+    for suites in ["just pre-merge quick", "just pre-merge all"] {
+        assert_eq!(
+            ran.iter().filter(|call| *call == suites).count(),
+            2,
+            "{suites}: {ran:?}"
+        );
+    }
+    let together = std::fs::read_to_string(stand_in.join("together")).unwrap_or_default();
+    assert!(together.is_empty(), "ran while another ran: {together}");
+}
+
+/// A run that died left its lock and its marks behind: it holds no gate up,
+/// and the gate does not say it waits.
+#[rstest]
+#[case::a_test_health_run(HeldBy::TestHealth)]
+#[case::the_backstop(HeldBy::Backstop)]
+#[case::the_backstop_while_it_waited(HeldBy::BackstopWaitingFor(NO_PROCESS))]
+fn a_gate_waits_for_no_run_that_died(#[case] held: HeldBy) {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    hold_the_backstops_worktree(&workspace, NO_PROCESS, held);
 
     let (mut caller, output) = merge_writing_to_a_file(&workspace, &stand_in);
 

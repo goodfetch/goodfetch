@@ -28,7 +28,10 @@
 //! and fails. Each profile is swept holding Cargo's own locks of it, so a
 //! build running beside the sweep keeps its profile whole. Symbolic links
 //! are never followed, and a `stress-base` folder, the stress run's base
-//! build (`just stress`), is never entered.
+//! build (`just stress`), is never entered, nor is a folder `--leave` names:
+//! a profile that a run reads less often than the sweep's window gets a
+//! sweep of its own, with the profile's folder as its target (the backstop's
+//! worktree, `ci/gate-backstop.sh`).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -72,6 +75,10 @@ pub(crate) struct Arguments {
     /// in the day before it, which `relatime` may lag; not after now.
     #[arg(long, conflicts_with = "unused_hours")]
     read_since: Option<u64>,
+    /// Never enters a folder of this name, wherever it is under the target
+    /// folder: a profile another sweep gives a window of its own.
+    #[arg(long, value_name = "FOLDER")]
+    leave: Vec<String>,
     /// Lists what would go, removing nothing.
     #[arg(long)]
     dry_run: bool,
@@ -116,7 +123,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
             format!("for {} h", arguments.unused_hours),
         ),
     };
-    let swept = sweep(&target, cutoff, arguments.dry_run)?;
+    let swept = sweep(&target, cutoff, &arguments.leave, arguments.dry_run)?;
     for (profile, reason) in &swept.skipped {
         output::line(&format!("{}: left whole, {reason}", profile.display()));
     }
@@ -140,16 +147,21 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
 
 /// Removes, from the target folder `target`, every unit whose fingerprint
 /// no process read since `cutoff`, every hashed file with no fingerprint, and
-/// every incremental folder unwritten since `cutoff`; with `dry_run`, lists
-/// them only.
-pub(crate) fn sweep(target: &Path, cutoff: SystemTime, dry_run: bool) -> Result<Swept> {
+/// every incremental folder unwritten since `cutoff`, entering no folder
+/// `leave` names; with `dry_run`, lists them only.
+pub(crate) fn sweep(
+    target: &Path,
+    cutoff: SystemTime,
+    leave: &[String],
+    dry_run: bool,
+) -> Result<Swept> {
     let mut swept = Swept::default();
     if !target.is_dir() {
         return Ok(swept);
     }
     records_access_times(target)?;
     let mut profiles = Vec::new();
-    find_profiles(target, 0, &mut profiles)?;
+    find_profiles(target, 0, leave, &mut profiles)?;
     for profile in profiles {
         let locks = match lock(&profile)? {
             Ok(locks) => locks,
@@ -190,8 +202,13 @@ fn records_access_times(target: &Path) -> Result<()> {
 
 /// Each folder holding a `.fingerprint/`, at most [`MAX_DEPTH`] below
 /// `folder`, without following a link or entering a hidden or stress-base
-/// folder.
-fn find_profiles(folder: &Path, depth: usize, profiles: &mut Vec<PathBuf>) -> Result<()> {
+/// folder, or one `leave` names.
+fn find_profiles(
+    folder: &Path,
+    depth: usize,
+    leave: &[String],
+    profiles: &mut Vec<PathBuf>,
+) -> Result<()> {
     if folder.join(".fingerprint").is_dir() {
         profiles.push(folder.to_path_buf());
         return Ok(());
@@ -206,8 +223,9 @@ fn find_profiles(folder: &Path, depth: usize, profiles: &mut Vec<PathBuf>) -> Re
             .unwrap_or("");
         let metadata = std::fs::symlink_metadata(&entry)
             .with_context(|| format!("reading {}", entry.display()))?;
-        if metadata.is_dir() && !name.starts_with('.') && name != STRESS_BASE {
-            find_profiles(&entry, depth + 1, profiles)?;
+        let left = name == STRESS_BASE || leave.iter().any(|left| left == name);
+        if metadata.is_dir() && !name.starts_with('.') && !left {
+            find_profiles(&entry, depth + 1, leave, profiles)?;
         }
     }
     Ok(())

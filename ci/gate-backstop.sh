@@ -11,11 +11,15 @@
 # members the incremental run reran may hold the red, so each suspect
 # crate's tests rerun alone and a red confirms the miss. The full run's stress
 # run has `main`'s head as its base, so it stresses nothing: each crate whose
-# result in that run counted passes from an earlier head (#2233) is stressed
-# again here, at its whole count, against that run's base, and a red is a miss.
+# result in a merge since the last green run counted passes from an earlier
+# head (#2233), whatever that merge's tree, is stressed again here, at its whole
+# count, against that merge's base, and a red is a miss. A day with a miss, a
+# failure or a skip is no green run, so the next day reaches the same merges.
+# A test renamed since runs at its new name; a test or crate gone since has
+# nothing left to stress, and the selection notes it in this run's log.
 #
 # Each run appends one line to `<log>/results.txt`, `<UTC day> <commit>
-# gate=<pass|fail> misses=<n> suspects=<n> unchecked=<n> credited=<n>`, or
+# gate=<pass|fail> misses=<n> suspects=<n> unchecked=<n> earned=<n>`, or
 # `gate=skipped (…)` when the disk lacks room, and each miss, suspect or
 # unchecked result to `<log>/misses.txt`; the run's own log is
 # `<log>/<day>.log`, with `<log>`
@@ -36,6 +40,8 @@ commit=$(git rev-parse --verify "$ref^{commit}")
 gate_worktree_name="gate-backstop"
 # shellcheck source=ci/gate-worktree.sh
 source "$(dirname "$0")/gate-worktree.sh"
+# shellcheck source=ci/backstop-green.sh
+source "$(dirname "$0")/backstop-green.sh"
 # The host keeps 60 GB free: the backstop starts only with room for its
 # build on top, about 25 GB for its worktree's first, 5 GB for a later one
 # (GOODFETCH_GATE_BACKSTOP_MIN_FREE_GB sets the floor itself). A skipped day
@@ -60,10 +66,12 @@ gate=pass
 GOODFETCH_GATE_FULL=1 just pre-merge all || gate=fail
 echo "== the full run on $commit: $gate"
 
-misses=0 suspects=0 unchecked=0 credited=0
+misses=0 suspects=0 unchecked=0 earned=0
+# Read before this run's line joins them. What the last green run held is done.
+since=$(latest_green "$(backstop_greens "$logs/results.txt")" "$commit")
 # A JSON array of the results found, each with its kind, unit, step,
 # member, run, origin and base (`xtask gate compare`).
-compared=$(just _gate-compare "$commit" "$merged_runs") || {
+compared=$(just _gate-compare "$commit" "$merged_runs" ${since:+"$since"}) || {
   echo "error: the full run on $commit could not be compared" >&2
   compared="[]"
   gate=fail
@@ -83,6 +91,13 @@ while IFS= read -r line; do
   misses=$((misses + 1))
   note "$line"
 done <<<"$missed"
+# A merged run whose record cannot be read may have counted earned passes.
+unreadable=$(jq -r '.[] | select(.kind == "unreadable") | "miss record \(.run): merged since the last green run, and its record cannot be read"' <<<"$compared")
+while IFS= read -r line; do
+  [[ -n $line ]] || continue
+  misses=$((misses + 1))
+  note "$line"
+done <<<"$unreadable"
 unreached=$(jq -r '.[] | select(.kind == "unchecked") | "unchecked \(.unit): the run on \(.run) reused it from \(.origin); the full run stopped before it"' <<<"$compared")
 while IFS= read -r line; do
   [[ -n $line ]] || continue
@@ -116,17 +131,19 @@ for step in quick pre-merge stress; do
   done
 done
 # The crates whose stress result counted passes from an earlier head, by the
-# base their run compared with: their whole counts, on this tree.
-bases=$(jq -r '[.[] | select(.kind == "credited") | .base] | unique | .[]' <<<"$compared")
+# base their run compared with: their whole counts, on this tree, whose change
+# since that base holds their merge's and any later merge's. A stress run that
+# cannot run is a miss too, so the day is no green run and the next one retries.
+bases=$(jq -r '[.[] | select(.kind == "earned") | .base] | unique | .[]' <<<"$compared")
 for base in $bases; do
-  listed=$(jq -r --arg base "$base" '[.[] | select(.kind == "credited" and .base == $base) | .member] | unique | .[]' <<<"$compared" | tr '\n' ' ')
+  listed=$(jq -r --arg base "$base" '[.[] | select(.kind == "earned" and .base == $base) | .member] | unique | .[]' <<<"$compared" | tr '\n' ' ')
   read -ra crates <<<"$listed"
-  credited=$((credited + ${#crates[@]}))
-  if ! just stress "$base" "" "" "${crates[@]}"; then
+  earned=$((earned + ${#crates[@]}))
+  if ! just stress "$base" "" "" merged "${crates[@]}"; then
     misses=$((misses + 1))
-    note "miss stress: ${crates[*]}: an incremental run on this tree counted their earlier passes, and their whole counts against $base are red here"
+    note "miss stress: ${crates[*]}: a merge since the last green run counted their earlier passes, and their whole counts against $base are red or could not run here"
   fi
 done
 
-echo "$day $commit gate=$gate misses=$misses suspects=$suspects unchecked=$unchecked credited=$credited" >>"$logs/results.txt"
+echo "$day $commit gate=$gate misses=$misses suspects=$suspects unchecked=$unchecked earned=$earned" >>"$logs/results.txt"
 [[ $gate == pass && $misses -eq 0 ]]

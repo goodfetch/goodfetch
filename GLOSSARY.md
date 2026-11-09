@@ -732,6 +732,10 @@ _Avoid_: code signing (alone), signature (alone), certificate
 A test that passes and fails with the same pinned inputs. Unlike Drift, the fault is in the test or the product, never in the site.
 _Avoid_: flake, intermittent test, unstable test
 
+**Earned passes**:
+The clean passes a red stress run leaves a crate's tests toward their counts, which the next gate run counts while the crate's inputs, the host and the base stay the same, so each test runs only what its count still owes.
+_Avoid_: credit, credited passes
+
 **Live check**:
 A check of Goodfetch against something it does not pin, such as a vendor, a real SaaS account, a live model or a moving Chrome channel, run outside the test suites and ending in pass, fail or inconclusive.
 _Avoid_: monitor, flaky test, informing job, canary (for a Live check)

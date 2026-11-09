@@ -1,15 +1,17 @@
 //! The gate's records, kept with the gate's worktree under
 //! `target/gate-runs/` and never committed: `<head>.tsv`, each unit's result
 //! for the run on that head; `<head>.plan`, the plan that run follows; and
-//! `<head>.credit`, the clean passes of the members its stress run has short
+//! `<head>.earned`, the clean passes of the members its stress run has short
 //! of their counts.
 //! A record is a `base\t<commit>` line and a `host\t<fingerprint>` line,
 //! then one `<unit>\t<pass|fail>\t<origin commit>\t<origin tree>\t<unix time>`
 //! line per result, with `\t<commit>` after it for a stress result that counted
 //! passes from an earlier head; the last line for a unit wins, so a run appends
 //! each step's result as it ends.
-//! A credit file is one `<member>\t<origin commit>\t<unix time>\t<passes>\t<test>`
-//! line per test. One that is missing or cannot be read is no credit.
+//! An earned file is one `<member>\t<origin commit>\t<unix time>\t<passes>\t<test>`
+//! line per test. For a plan or a selection, one that is missing or cannot be
+//! read earns nothing; `gate record`, which must mark what the selection
+//! counted, fails instead.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -21,7 +23,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail, ensure};
 
-use super::plan::{Credit, GateRun, Outcome};
+use super::plan::{EarnedPasses, GateRun, Outcome};
 use crate::output;
 
 const PASS: &str = "pass";
@@ -36,7 +38,7 @@ pub(crate) fn parse(head: &str, text: &str) -> Result<GateRun> {
         match fields.as_slice() {
             ["base", commit] => base = Some((*commit).to_owned()),
             ["host", fingerprint] => host = Some((*fingerprint).to_owned()),
-            [unit, status, origin, tree, at, credited @ ..] if credited.len() <= 1 => {
+            [unit, status, origin, tree, at, earned_on @ ..] if earned_on.len() <= 1 => {
                 let green = match *status {
                     PASS => true,
                     FAIL => false,
@@ -51,7 +53,7 @@ pub(crate) fn parse(head: &str, text: &str) -> Result<GateRun> {
                         at: at
                             .parse()
                             .with_context(|| format!("the time of {unit} is {at:?}"))?,
-                        credited: credited.first().map(|commit| (*commit).to_owned()),
+                        earned_on: earned_on.first().map(|commit| (*commit).to_owned()),
                     },
                 );
             }
@@ -65,7 +67,7 @@ pub(crate) fn parse(head: &str, text: &str) -> Result<GateRun> {
         base: base.context("a record names its base on a `base` line")?,
         host: host.context("a record names its host on a `host` line")?,
         units,
-        credits: BTreeMap::new(),
+        earned: BTreeMap::new(),
     })
 }
 
@@ -86,22 +88,22 @@ pub(crate) fn line(unit: &str, outcome: &Outcome) -> String {
         "{unit}\t{status}\t{}\t{}\t{}",
         outcome.origin, outcome.tree, outcome.at
     );
-    if let Some(credited) = &outcome.credited {
-        let _ = write!(text, "\t{credited}");
+    if let Some(earned_on) = &outcome.earned_on {
+        let _ = write!(text, "\t{earned_on}");
     }
     text.push('\n');
     text
 }
 
-/// The credits a credit file's text holds; a line that cannot be read, or a
-/// member's lines that disagree on where its passes began, is an error.
-pub(crate) fn parse_credits(text: &str) -> Result<BTreeMap<String, Credit>> {
-    let mut credits: BTreeMap<String, Credit> = BTreeMap::new();
+/// The earned passes an earned file's text holds; a line that cannot be read,
+/// or a member's lines that disagree on where its passes began, is an error.
+pub(crate) fn parse_earned(text: &str) -> Result<BTreeMap<String, EarnedPasses>> {
+    let mut earned: BTreeMap<String, EarnedPasses> = BTreeMap::new();
     for line in text.lines().filter(|line| !line.is_empty()) {
         let fields: Vec<&str> = line.split('\t').collect();
         let [member, origin, at, passes, id] = fields.as_slice() else {
             bail!(
-                "a credit line is `<member>\\t<origin>\\t<time>\\t<passes>\\t<test>`, not {line:?}"
+                "an earned line is `<member>\\t<origin>\\t<time>\\t<passes>\\t<test>`, not {line:?}"
             );
         };
         let at = at
@@ -110,100 +112,121 @@ pub(crate) fn parse_credits(text: &str) -> Result<BTreeMap<String, Credit>> {
         let passes = passes
             .parse()
             .with_context(|| format!("the passes of {id} are {passes:?}"))?;
-        let credit = credits
+        let held = earned
             .entry((*member).to_owned())
-            .or_insert_with(|| Credit {
+            .or_insert_with(|| EarnedPasses {
                 origin: (*origin).to_owned(),
                 at,
                 passes: BTreeMap::new(),
             });
         ensure!(
-            credit.origin == *origin && credit.at == at,
+            held.origin == *origin && held.at == at,
             "the lines of {member} name two heads or times"
         );
-        credit.passes.insert((*id).to_owned(), passes);
+        held.passes.insert((*id).to_owned(), passes);
     }
-    Ok(credits)
+    Ok(earned)
 }
 
-pub(crate) fn render_credits(credits: &BTreeMap<String, Credit>) -> String {
+pub(crate) fn render_earned(earned: &BTreeMap<String, EarnedPasses>) -> String {
     let mut text = String::new();
-    for (member, credit) in credits {
-        for (test, passes) in &credit.passes {
+    for (member, held) in earned {
+        for (test, passes) in &held.passes {
             let _ = writeln!(
                 text,
                 "{member}\t{}\t{}\t{passes}\t{test}",
-                credit.origin, credit.at
+                held.origin, held.at
             );
         }
     }
     text
 }
 
-/// What each member of `clean` keeps after a red stress run on `head`: the
-/// passes it had in `credits` and those the run gave it, begun where and when
-/// its earliest ran. No other member keeps any: one that went red, one that has
-/// its counts, and every one when the files do not account for the failure.
-pub(crate) fn earned(
-    credits: &BTreeMap<String, Credit>,
+/// What each member of `clean` keeps after a red stress run on `head` that
+/// began at `started`: the passes it had in `earned` and those the run gave
+/// it, begun where and when its earliest run did. No other member keeps any:
+/// one that went red, one that has its counts, and every one when the files do
+/// not account for the failure.
+pub(crate) fn add_earned(
+    earned: &BTreeMap<String, EarnedPasses>,
     clean: BTreeMap<String, BTreeMap<String, u32>>,
     head: &str,
-    now: u64,
-) -> BTreeMap<String, Credit> {
+    started: u64,
+) -> BTreeMap<String, EarnedPasses> {
     clean
         .into_iter()
         .filter_map(|(member, passes)| {
-            let mut credit = credits.get(&member).cloned().unwrap_or_else(|| Credit {
-                origin: head.to_owned(),
-                at: now,
-                passes: BTreeMap::new(),
-            });
+            let mut kept = earned
+                .get(&member)
+                .cloned()
+                .unwrap_or_else(|| EarnedPasses {
+                    origin: head.to_owned(),
+                    at: started,
+                    passes: BTreeMap::new(),
+                });
             for (test, count) in passes {
-                *credit.passes.entry(test).or_default() += count;
+                *kept.passes.entry(test).or_default() += count;
             }
-            credit.passes.retain(|_, count| *count > 0);
-            (!credit.passes.is_empty()).then_some((member, credit))
+            kept.passes.retain(|_, count| *count > 0);
+            (!kept.passes.is_empty()).then_some((member, kept))
         })
         .collect()
 }
 
-/// The credit file of the run on `head`.
-pub(crate) fn credit_file(folder: &Path, head: &str) -> PathBuf {
-    folder.join(format!("{head}.credit"))
+/// The earned file of the run on `head`.
+pub(crate) fn earned_file(folder: &Path, head: &str) -> PathBuf {
+    folder.join(format!("{head}.earned"))
 }
 
-/// The credits in `file`: none when it is missing or cannot be read, which
-/// costs a rerun of the passes and never counts one that did not run.
-pub(crate) fn read_credits(file: &Path) -> BTreeMap<String, Credit> {
+/// The earned passes in `file`: none when it is missing, and an error when it
+/// cannot be read.
+pub(crate) fn read_earned_strictly(file: &Path) -> Result<BTreeMap<String, EarnedPasses>> {
     let text = match std::fs::read_to_string(file) {
         Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return BTreeMap::new(),
-        Err(error) => {
-            output::error(&format!(
-                "Gate: {} gives no credit: {error}",
-                file.display()
-            ));
-            return BTreeMap::new();
-        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
+        Err(error) => return Err(error).with_context(|| format!("reading {}", file.display())),
     };
-    parse_credits(&text).unwrap_or_else(|error| {
-        output::error(&format!(
-            "Gate: {} gives no credit: {error:#}",
+    parse_earned(&text).with_context(|| format!("reading {}", file.display()))
+}
+
+/// The earned passes of the run on `head`, for its record. The selection counted
+/// what the plan kept, the members `kept`, and a green result must carry that
+/// mark for the backstop: a file that cannot be read or has lost one of them is
+/// an error, never a green result without it.
+pub(crate) fn earned_the_plan_kept(
+    folder: &Path,
+    head: &str,
+    kept: &[String],
+) -> Result<BTreeMap<String, EarnedPasses>> {
+    let file = earned_file(folder, head);
+    let earned = read_earned_strictly(&file)?;
+    if let Some(lost) = kept.iter().find(|member| !earned.contains_key(*member)) {
+        bail!(
+            "the plan kept passes of {lost}, and {} no longer holds them",
             file.display()
-        ));
+        );
+    }
+    Ok(earned)
+}
+
+/// The earned passes in `file`: none when it is missing or cannot be read,
+/// which costs a rerun of the passes and never counts one that did not run.
+pub(crate) fn read_earned(file: &Path) -> BTreeMap<String, EarnedPasses> {
+    read_earned_strictly(file).unwrap_or_else(|error| {
+        output::error(&format!("Gate: no earned passes: {error:#}"));
         BTreeMap::new()
     })
 }
 
-/// Writes `credits` as the run on `head`'s, and removes the file when there
-/// are none.
-pub(crate) fn write_credits(
+/// Writes `earned` as the run on `head`'s, and removes the file when there are
+/// none.
+pub(crate) fn write_earned(
     folder: &Path,
     head: &str,
-    credits: &BTreeMap<String, Credit>,
+    earned: &BTreeMap<String, EarnedPasses>,
 ) -> Result<()> {
-    let file = credit_file(folder, head);
-    if credits.is_empty() {
+    let file = earned_file(folder, head);
+    if earned.is_empty() {
         return match std::fs::remove_file(&file) {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
                 Err(error).with_context(|| format!("removing {}", file.display()))
@@ -211,7 +234,7 @@ pub(crate) fn write_credits(
             _ => Ok(()),
         };
     }
-    std::fs::write(&file, render_credits(credits))
+    std::fs::write(&file, render_earned(earned))
         .with_context(|| format!("writing {}", file.display()))
 }
 
@@ -252,6 +275,6 @@ pub(crate) fn read(folder: &Path, head: &str) -> Result<GateRun> {
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     let mut run = parse(head, &text).with_context(|| format!("reading {}", path.display()))?;
-    run.credits = read_credits(&credit_file(folder, head));
+    run.earned = read_earned(&earned_file(folder, head));
     Ok(run)
 }

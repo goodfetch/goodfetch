@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use rstest::rstest;
 
 use super::plan::{
-    Action, Credit, GateRun, Head, MAX_AGE, Outcome, Planned, Step, Touched, UNOWNED, gate_input,
-    narrowed, plan, unit,
+    Action, EarnedPasses, GateRun, Head, MAX_AGE, Outcome, Planned, Step, Touched, UNOWNED,
+    gate_input, narrowed, plan, unit,
 };
 use super::steps::{Entry, Form, Kind, entries};
 use super::{plan_value, render, runs};
@@ -39,7 +39,7 @@ fn green(origin: &str) -> Outcome {
         origin: origin.to_owned(),
         tree: format!("{origin}-tree"),
         at: NOW - 60,
-        credited: None,
+        earned_on: None,
     }
 }
 
@@ -60,7 +60,7 @@ fn full_green_run() -> GateRun {
         base: BASE.to_owned(),
         host: HOST.to_owned(),
         units,
-        credits: BTreeMap::new(),
+        earned: BTreeMap::new(),
     }
 }
 
@@ -466,9 +466,9 @@ fn run_short_of_its_passes() -> GateRun {
             ..green(EARLIER)
         },
     );
-    record.credits.insert(
+    record.earned.insert(
         SHORT.to_owned(),
-        Credit {
+        EarnedPasses {
             origin: EARLIER.to_owned(),
             at: NOW - 60,
             passes: BTreeMap::from([("goodfetch-engine a::test".to_owned(), 7)]),
@@ -477,12 +477,12 @@ fn run_short_of_its_passes() -> GateRun {
     record
 }
 
-fn stress_credits(plan: &[Planned]) -> &BTreeMap<String, Credit> {
+fn stress_earned(plan: &[Planned]) -> &BTreeMap<String, EarnedPasses> {
     &plan
         .iter()
         .find(|planned| planned.step == Step::Stress)
         .expect("every step is planned")
-        .credits
+        .earned
 }
 
 /// A member short of its passes reruns, keeping them while nothing that
@@ -498,17 +498,17 @@ fn a_member_short_of_its_passes_reruns_with_them() {
         Action::Part { members, why }
             if members == &BTreeSet::from([SHORT.to_owned()]) && why.contains("red on earlier")
     ));
-    assert_eq!(stress_credits(&plan).get(SHORT), record.credits.get(SHORT));
+    assert_eq!(stress_earned(&plan).get(SHORT), record.earned.get(SHORT));
     // Only the stress run counts passes.
     for planned in plan.iter().filter(|planned| planned.step != Step::Stress) {
-        assert!(planned.credits.is_empty(), "{:?}", planned.step);
+        assert!(planned.earned.is_empty(), "{:?}", planned.step);
     }
 }
 
 /// Every member short of its passes is still a part, whose selection takes
-/// the credit: a run in full takes none.
+/// the earned passes: a run in full takes none.
 #[test]
-fn every_member_rerun_with_credit_for_one_is_a_part() {
+fn every_member_rerun_with_earned_passes_for_one_is_a_part() {
     let record = run_short_of_its_passes();
     let touched = Touched {
         members: members()
@@ -521,7 +521,7 @@ fn every_member_rerun_with_credit_for_one_is_a_part() {
     let plan = planned(Some(&record), &touched_since_earlier(touched));
 
     assert!(matches!(action(&plan, Step::Stress), Action::Part { .. }));
-    assert_eq!(stress_credits(&plan).len(), 1);
+    assert_eq!(stress_earned(&plan).len(), 1);
 }
 
 /// The passes count only with the member's inputs identical, on the same
@@ -543,7 +543,7 @@ fn every_member_rerun_with_credit_for_one_is_a_part() {
     record.base = "older-base".to_owned();
 })]
 #[case::they_are_older_than_the_limit(|record: &mut GateRun, _: &mut Touched| {
-    record.credits.get_mut(SHORT).unwrap().at = NOW - MAX_AGE - 1;
+    record.earned.get_mut(SHORT).unwrap().at = NOW - MAX_AGE - 1;
 })]
 fn passes_count_only_while_nothing_that_bears_on_them_changed(
     #[case] change: fn(&mut GateRun, &mut Touched),
@@ -554,16 +554,16 @@ fn passes_count_only_while_nothing_that_bears_on_them_changed(
 
     let plan = planned(Some(&record), &touched_since_earlier(touched));
 
-    assert_eq!(stress_credits(&plan), &BTreeMap::new());
+    assert_eq!(stress_earned(&plan), &BTreeMap::new());
     assert!(!matches!(action(&plan, Step::Stress), Action::Reuse { .. }));
 }
 
-/// A credit carried from an earlier head is judged by the change since that
-/// head, not since the run that carried it.
+/// Passes carried from an earlier head are judged by the change since that
+/// head, not since the run that carried them.
 #[test]
-fn a_carried_credit_is_judged_since_the_head_its_passes_began_on() {
+fn carried_passes_are_judged_since_the_head_they_began_on() {
     let mut record = run_short_of_its_passes();
-    record.credits.get_mut(SHORT).unwrap().origin = "first".to_owned();
+    record.earned.get_mut(SHORT).unwrap().origin = "first".to_owned();
     let touched = BTreeMap::from([
         (EARLIER.to_owned(), Touched::default()),
         (
@@ -577,7 +577,7 @@ fn a_carried_credit_is_judged_since_the_head_its_passes_began_on() {
 
     let plan = planned(Some(&record), &touched);
 
-    assert_eq!(stress_credits(&plan), &BTreeMap::new());
+    assert_eq!(stress_earned(&plan), &BTreeMap::new());
 }
 
 /// Vitest, Playwright and pytest order their tests by the head's seed, so
@@ -595,7 +595,7 @@ fn a_member_a_shuffling_runner_tests_keeps_no_passes() {
         &touched_since_earlier(Touched::default()),
     );
 
-    assert_eq!(stress_credits(&plan), &BTreeMap::new());
+    assert_eq!(stress_earned(&plan), &BTreeMap::new());
 }
 
 /// A green stress result that counted earlier passes reads back with the head
@@ -607,16 +607,19 @@ fn a_result_that_counted_earlier_passes_reads_back_with_their_head() {
 
     let record = runs::parse("feed", text).unwrap();
 
-    assert_eq!(record.units["stress:a"].credited.as_deref(), Some("c0ffee"));
-    assert_eq!(record.units["stress:b"].credited, None);
+    assert_eq!(
+        record.units["stress:a"].earned_on.as_deref(),
+        Some("c0ffee")
+    );
+    assert_eq!(record.units["stress:b"].earned_on, None);
     assert_eq!(runs::parse("feed", &runs::render(&record)).unwrap(), record);
 }
 
 #[test]
-fn credits_read_back_as_written() {
-    let credits = BTreeMap::from([(
+fn earned_passes_read_back_as_written() {
+    let earned = BTreeMap::from([(
         "goodfetch-engine".to_owned(),
-        Credit {
+        EarnedPasses {
             origin: "c0ffee".to_owned(),
             at: 10,
             passes: BTreeMap::from([
@@ -626,9 +629,9 @@ fn credits_read_back_as_written() {
         },
     )]);
 
-    let read = runs::parse_credits(&runs::render_credits(&credits)).unwrap();
+    let read = runs::parse_earned(&runs::render_earned(&earned)).unwrap();
 
-    assert_eq!(read, credits);
+    assert_eq!(read, earned);
 }
 
 /// A file that could mix two members' lines or a count it cannot read says
@@ -639,8 +642,8 @@ fn credits_read_back_as_written() {
 #[case::not_a_time("a\tc0ffee\tsoon\t7\ta test\n")]
 #[case::two_origins_for_a_member("a\tc0ffee\t10\t7\ta one\na\tfeed\t10\t7\ta two\n")]
 #[case::two_times_for_a_member("a\tc0ffee\t10\t7\ta one\na\tc0ffee\t11\t7\ta two\n")]
-fn a_credit_file_that_cannot_be_read_is_an_error(#[case] text: &str) {
-    assert!(runs::parse_credits(text).is_err());
+fn an_earned_file_that_cannot_be_read_is_an_error(#[case] text: &str) {
+    assert!(runs::parse_earned(text).is_err());
 }
 
 #[test]
@@ -757,7 +760,7 @@ fn a_record_reads_back_as_written_and_its_last_line_for_a_unit_wins() {
             origin: "feed".to_owned(),
             tree: "t2".to_owned(),
             at: 20,
-            credited: None,
+            earned_on: None,
         })
     );
     assert_eq!(runs::parse("feed", &runs::render(&record)).unwrap(), record);
@@ -1071,7 +1074,7 @@ fn a_reason_over_several_lines_stays_on_its_key_line() {
             why: "git failed:\nfatal: bad object".to_owned(),
         },
         carried: BTreeMap::new(),
-        credits: BTreeMap::new(),
+        earned: BTreeMap::new(),
     }];
 
     let text = render(None, "head", &BTreeSet::new(), &[], &plan);

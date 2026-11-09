@@ -951,7 +951,7 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
     }
     for rerun in [
         "test quick --shuffled-all a b console/screens.spec.ts",
-        "stress  earlier target/gate-runs/planned.credit a :unowned",
+        "stress  earlier target/gate-runs/planned.earned  a :unowned",
         "lint",
         "linux",
         "visual",
@@ -1015,8 +1015,8 @@ fn a_failed_step_is_recorded_as_failed(#[case] call: &str, #[case] step: &str) {
 )]
 #[case::stress(
     "stress",
-    "stress fail --selection target/stress-selection.tsv",
-    "target/junit/repeat-20/nextest-ci.xml"
+    "stress fail --selection target/stress-selection.tsv --red-commands target/stress-red-commands.tsv --started ",
+    "target/stress-red-commands.tsv"
 )]
 fn a_failed_step_run_per_member_is_recorded_with_its_own_evidence(
     #[case] call: &str,
@@ -1032,13 +1032,38 @@ fn a_failed_step_run_per_member_is_recorded_with_its_own_evidence(
     let run = pre_merge(&workspace, &stand_in, &["all"]);
 
     assert_eq!(run.code, Some(3), "{}", run.stderr);
+    let recorded = format!("_gate-record planned {recorded}");
     assert!(
-        run.gate
-            .contains(&format!("_gate-record planned {recorded}")),
+        run.gate.iter().any(|call| call.starts_with(&recorded)),
         "{:?}",
         run.gate
     );
     assert!(!workspace.path().join(earlier).exists());
+}
+
+/// A red stress run says when it began, so its clean passes age from no later
+/// than the first of them (ADR 0135), and the time is today's.
+#[test]
+fn a_failed_stress_run_is_recorded_with_when_it_began() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
+    std::fs::write(stand_in.join("failing"), "stress").unwrap();
+    let before = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    let started: u64 = run
+        .gate
+        .iter()
+        .find_map(|call| call.split_once(" --started ").map(|(_, rest)| rest))
+        .and_then(|rest| rest.split(' ').next())
+        .and_then(|time| time.parse().ok())
+        .unwrap_or_else(|| panic!("{:?}", run.gate));
+    assert!(started >= before, "{started} {before}");
 }
 
 /// A Pre-merge suite that failed with 100, nextest's status for failed

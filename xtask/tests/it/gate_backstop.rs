@@ -179,7 +179,7 @@ fn each_reused_result_the_full_run_finds_red_is_a_miss_that_fails_the_backstop()
     );
     assert!(
         run.results
-            .ends_with("gate=pass misses=2 suspects=1 unchecked=1 credited=0\n"),
+            .ends_with("gate=pass misses=2 suspects=1 unchecked=1 earned=0\n"),
         "{}",
         run.results
     );
@@ -198,10 +198,99 @@ fn each_reused_result_the_full_run_finds_red_is_a_miss_that_fails_the_backstop()
     );
 }
 
+/// Each day compares from the backstop's last green run that `main` holds, so
+/// earned passes merged since are stressed again however many merges, red days
+/// or skipped days came between: a day that has not done them is no green run.
+#[rstest::rstest]
+#[case::no_green_run_yet(&[], false)]
+#[case::green_on_main(&["green"], true)]
+#[case::green_then_a_red_day(&["green", "fail"], true)]
+#[case::green_then_a_day_with_a_miss(&["green", "miss"], true)]
+#[case::green_then_a_skipped_day(&["green", "skipped"], true)]
+#[case::green_off_main(&["off-main"], false)]
+fn each_day_compares_since_the_last_green_run_main_holds(
+    #[case] days: &[&str],
+    #[case] since_green: bool,
+) {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    let off_main = workspace.git(&["rev-parse", "change"]);
+    workspace.git(&[
+        "commit",
+        "--quiet",
+        "--allow-empty",
+        "--message",
+        "Off main",
+    ]);
+    let off_main_head = workspace.git(&["rev-parse", "HEAD"]);
+    assert_ne!(off_main, off_main_head);
+    workspace.git(&["switch", "--quiet", "main"]);
+    let green = workspace.git(&["rev-parse", "HEAD"]);
+    let (green, off_main) = (green.trim(), off_main_head.trim());
+    workspace.git(&["commit", "--quiet", "--allow-empty", "--message", "A merge"]);
+    workspace.git(&["commit", "--quiet", "--allow-empty", "--message", "Another"]);
+    let logs = workspace.path().join("logs");
+    std::fs::create_dir_all(&logs).unwrap();
+    let results: String = days
+        .iter()
+        .map(|day| match *day {
+            "green" => format!("d {green} gate=pass misses=0 suspects=0 unchecked=0 earned=0\n"),
+            "fail" => format!("d {off_main} gate=fail misses=0 suspects=0 unchecked=0 earned=0\n"),
+            "miss" => format!("d {off_main} gate=pass misses=1 suspects=0 unchecked=0 earned=0\n"),
+            "skipped" => format!("d {off_main} gate=skipped (free disk 1 GB < 2 GB)\n"),
+            _ => format!("d {off_main} gate=pass misses=0 suspects=0 unchecked=0 earned=0\n"),
+        })
+        .collect();
+    std::fs::write(logs.join("results.txt"), results).unwrap();
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(0), "{}", run.log);
+    let merged_runs = workspace
+        .path()
+        .join(".claude/worktrees/merge-gate/target/gate-runs");
+    let tail = if since_green {
+        format!(" {} {green}|", merged_runs.display())
+    } else {
+        format!(" {}|", merged_runs.display())
+    };
+    assert!(
+        run.calls
+            .iter()
+            .any(|call| call.starts_with("_gate-compare ") && call.ends_with(&tail)),
+        "{tail}: {:?}",
+        run.calls
+    );
+}
+
+/// A record the comparison cannot read may hold earned passes, so it is a miss:
+/// the day is no green run, and the next day's comparison reaches it again.
+#[test]
+fn a_merged_record_that_cannot_be_read_is_a_miss() {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    let compared = serde_json::json!([{
+        "kind": "unreadable", "unit": "", "step": "", "member": null,
+        "run": "gated", "origin": "", "base": "",
+    }]);
+    std::fs::write(stand_in.join("compare"), compared.to_string()).unwrap();
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(1), "{}", run.log);
+    assert!(
+        run.results.contains("gate=pass misses=1 "),
+        "{}",
+        run.results
+    );
+    assert!(run.misses.contains("miss record gated"), "{}", run.misses);
+}
+
 /// A full run on `main`'s head stresses nothing, since its base is that head,
 /// so a result that counted passes from an earlier head (#2233) is stressed
 /// again here, at its whole count, against the base its run compared with: red
-/// is a miss that fails the backstop.
+/// is a miss that fails the backstop. Each merge is on `main` already, so the
+/// selection only notes a test or a member gone since (`merged`).
 #[rstest::rstest]
 #[case::green(false, Some(0), "misses=0")]
 #[case::red(true, Some(1), "misses=1")]
@@ -214,7 +303,7 @@ fn each_result_that_counted_earlier_passes_is_stressed_again(
     let stand_in = stand_in_just(&workspace);
     let found = |member: &str, base: &str| {
         serde_json::json!({
-            "kind": "credited", "unit": format!("stress:{member}"), "step": "stress",
+            "kind": "earned", "unit": format!("stress:{member}"), "step": "stress",
             "member": member, "run": "gated", "origin": "earlier", "base": base,
         })
     };
@@ -228,7 +317,7 @@ fn each_result_that_counted_earlier_passes_is_stressed_again(
     if red {
         std::fs::write(
             stand_in.join("failing"),
-            "stress the-base   goodfetch-engine goodfetch-frontier\n",
+            "stress the-base   merged goodfetch-engine goodfetch-frontier\n",
         )
         .unwrap();
     }
@@ -237,8 +326,8 @@ fn each_result_that_counted_earlier_passes_is_stressed_again(
 
     assert_eq!(run.code, code, "{}", run.log);
     for stressed in [
-        "stress the-base   goodfetch-engine goodfetch-frontier|",
-        "stress another-base   goodfetch-conformance|",
+        "stress the-base   merged goodfetch-engine goodfetch-frontier|",
+        "stress another-base   merged goodfetch-conformance|",
     ] {
         assert!(
             run.calls.contains(&stressed.to_owned()),
@@ -248,7 +337,7 @@ fn each_result_that_counted_earlier_passes_is_stressed_again(
     }
     assert!(
         run.results.ends_with(&format!(
-            "gate=pass {misses} suspects=0 unchecked=0 credited=3\n"
+            "gate=pass {misses} suspects=0 unchecked=0 earned=3\n"
         )),
         "{}",
         run.results
@@ -278,7 +367,7 @@ fn a_backstop_with_no_miss_passes() {
     );
     assert!(
         run.results
-            .ends_with("gate=pass misses=0 suspects=0 unchecked=0 credited=0\n"),
+            .ends_with("gate=pass misses=0 suspects=0 unchecked=0 earned=0\n"),
         "{}",
         run.results
     );

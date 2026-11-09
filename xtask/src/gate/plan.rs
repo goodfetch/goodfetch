@@ -174,7 +174,7 @@ impl Step {
     }
 
     /// Whether the step asks each test for a count of clean passes, which a
-    /// red run may leave part way (`Credit`).
+    /// red run may leave part way ([`EarnedPasses`]).
     pub(crate) const fn counts_passes(self) -> bool {
         matches!(self, Self::Stress)
     }
@@ -240,9 +240,15 @@ const fn read_by(path: &'static str, steps: &'static [Step]) -> Narrowed {
 }
 
 /// The paths of the gate's inputs that reach less than every step; the first
-/// that holds a path names it. Any other path of the inputs reruns every step,
-/// so a new `ci/` file does until it is named here.
-const NARROWED: [Narrowed; 44] = [
+/// that holds a path names it. Any other path of the inputs reruns every step.
+/// So a new file directly in `ci/` reruns every step until it is named here,
+/// while a new file in a folder named here (`ci/proofs`, `ci/release`,
+/// `ci/visual`, `ci/test-health` and the like) reaches what that folder's entry
+/// says from the start: the guard test in `gate/tests.rs` fails when a step's
+/// recipe or script names such a file with a root-relative path. A step that
+/// reads one any other way, by a sibling's relative path or from xtask's code,
+/// is out of the guard's sight, so naming a folder here rests on what it holds.
+const NARROWED: [Narrowed; 45] = [
     // xtask's own tests, with their fixtures. `just linux` runs some of them
     // on a host that is not Linux (ci/linux.sh).
     Narrowed {
@@ -289,6 +295,7 @@ const NARROWED: [Narrowed; 44] = [
     read_by("ci/test-health.crontab", &[]),
     read_by("ci/test-health", &[]),
     read_by("ci/merge-cap.sh", &[]),
+    read_by("ci/backstop-green.sh", &[]),
     read_by("ci/quick.sh", &[]),
     read_by("ci/results", &[]),
     read_by("ci/release", &[]),
@@ -391,12 +398,12 @@ pub(crate) struct Outcome {
     pub(crate) origin: String,
     pub(crate) tree: String,
     /// When it ran, in seconds since the Unix epoch; for a result that counted
-    /// earlier passes, when the earliest of them ran.
+    /// earned passes, when the first run that gave one began.
     pub(crate) at: u64,
     /// The head the earliest passes ran on, for a stress result that counted
-    /// passes earlier runs left it ([`Credit`]). The result rests on a run the
-    /// head it names never saw, so the backstop stresses it again.
-    pub(crate) credited: Option<String>,
+    /// [`EarnedPasses`]. The result rests on a run this head never saw, so the
+    /// backstop stresses it again.
+    pub(crate) earned_on: Option<String>,
 }
 
 /// The clean passes a member's selected tests have toward their counts, from
@@ -407,10 +414,11 @@ pub(crate) struct Outcome {
 /// that bears on the member changes since `origin`, and within `MAX_AGE` of
 /// `at`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Credit {
+pub(crate) struct EarnedPasses {
     /// The head the earliest of the passes ran on.
     pub(crate) origin: String,
-    /// When the earliest of them ran, in seconds since the Unix epoch.
+    /// When the stress run that gave the earliest of them began, in seconds
+    /// since the Unix epoch: no later than that pass, so never younger.
     pub(crate) at: u64,
     /// Each test's clean passes, by the ID the stress run's selection gives it.
     pub(crate) passes: BTreeMap<String, u32>,
@@ -426,7 +434,7 @@ pub(crate) struct GateRun {
     pub(crate) host: String,
     pub(crate) units: BTreeMap<String, Outcome>,
     /// The clean passes of the members its stress run left short, by member.
-    pub(crate) credits: BTreeMap<String, Credit>,
+    pub(crate) earned: BTreeMap<String, EarnedPasses>,
 }
 
 /// A unit's key: the step's name, then `:<member>` for a step that runs
@@ -476,7 +484,7 @@ pub(crate) struct Planned {
     /// The units whose green results this run carries into its record.
     pub(crate) carried: BTreeMap<String, Outcome>,
     /// The members it reruns that keep their clean passes, by member.
-    pub(crate) credits: BTreeMap<String, Credit>,
+    pub(crate) earned: BTreeMap<String, EarnedPasses>,
 }
 
 /// Each step's action for `head`, from the nearest earlier run on an
@@ -504,20 +512,20 @@ pub(crate) fn plan(
                             origins: BTreeSet::from([outcome.origin.clone()]),
                         },
                         carried: BTreeMap::from([(unit(step, None), outcome)]),
-                        credits: BTreeMap::new(),
+                        earned: BTreeMap::new(),
                     },
                     Err(why) => Planned {
                         step,
                         action: Action::Run { why },
                         carried: BTreeMap::new(),
-                        credits: BTreeMap::new(),
+                        earned: BTreeMap::new(),
                     },
                 };
             }
             let mut rerun = BTreeSet::new();
             let mut reasons = Vec::new();
             let mut carried = BTreeMap::new();
-            let mut credits = BTreeMap::new();
+            let mut earned = BTreeMap::new();
             for member in head.members {
                 match judge(Some(member)) {
                     Ok(outcome) => {
@@ -528,10 +536,10 @@ pub(crate) fn plan(
                         if !reasons.contains(&why) {
                             reasons.push(why);
                         }
-                        if let Some(credit) = previous
-                            .and_then(|previous| credit(step, member, head, previous, touched))
+                        if let Some(passes) = previous
+                            .and_then(|previous| kept_passes(step, member, head, previous, touched))
                         {
-                            credits.insert(member.clone(), credit);
+                            earned.insert(member.clone(), passes);
                         }
                     }
                 }
@@ -548,7 +556,7 @@ pub(crate) fn plan(
                         .map(|outcome| outcome.origin.clone())
                         .collect(),
                 }
-            } else if rerun.len() == head.members.len() && credits.is_empty() {
+            } else if rerun.len() == head.members.len() && earned.is_empty() {
                 Action::Run { why }
             } else {
                 Action::Part {
@@ -563,7 +571,7 @@ pub(crate) fn plan(
                 step,
                 action,
                 carried,
-                credits,
+                earned,
             }
         })
         .collect()
@@ -607,26 +615,26 @@ fn judge(
 /// The clean passes of `member` this run may count, when `step` counts passes.
 /// They hold by the rule a green result holds by, so they count only with the
 /// member's inputs identical, on the same host and base, within the age limit.
-fn credit(
+fn kept_passes(
     step: Step,
     member: &str,
     head: &Head<'_>,
     previous: &GateRun,
     touched: &BTreeMap<String, Touched>,
-) -> Option<Credit> {
+) -> Option<EarnedPasses> {
     if !step.counts_passes() || head.shuffled.contains(member) {
         return None;
     }
-    let credit = previous.credits.get(member)?;
+    let passes = previous.earned.get(member)?;
     still_holds(
         step,
         Some(member),
-        &credit.origin,
-        credit.at,
+        &passes.origin,
+        passes.at,
         (head, previous, touched),
     )
     .ok()?;
-    Some(credit.clone())
+    Some(passes.clone())
 }
 
 /// Whether what ran on `origin` at `at` still holds for this run: why not, if

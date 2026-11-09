@@ -20,7 +20,13 @@
 //!   its count, with no failure, which is what a green stress run asks of
 //!   it; a test that failed or ran fewer times keeps its crate red. A crate
 //!   whose tests only ran fewer times, none failing, keeps the clean passes
-//!   they have, each test's (#2233).
+//!   they have, each test's (#2233). The run says which commands went red and
+//!   how each ended (`just repeat --until-red`'s `target/stress-red-commands.tsv`):
+//!   the files account for a red nextest command only if it ended as a failing
+//!   test ends it, with a failing test in them, so a crash or a killed run,
+//!   whose report says nothing of the crate behind it, takes everything; a red
+//!   command of another runner, in a process of its own, says nothing of the
+//!   crates. A run that says nothing of a red command failed elsewhere.
 //!
 //! Only crates record green or keep passes: Vitest, Playwright and pytest rerun
 //! every member in every run (ADR 0135).
@@ -32,10 +38,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+use super::plan::Step;
 use crate::junit::{self, Ending};
+use crate::output;
+use crate::runners::Runner;
 
 /// What a failed step's files say of its crates.
-pub(super) enum Attribution {
+enum Attribution {
     /// The files account for the failure.
     Passed {
         /// The crates that passed in full; the step's other members are red.
@@ -50,7 +59,100 @@ pub(super) enum Attribution {
 
 /// A nextest test: its binary ID, without a stress run's `@stress-<n>`, and
 /// its name, joined by a space, as the stress run's selection names it.
-pub(super) type Test = String;
+type Test = String;
+
+/// The status nextest exits with when a test failed, and for no other reason.
+const NEXTEST_TEST_FAILED: &str = "100";
+
+/// What a failed stress run left beside its nextest files.
+pub(super) struct StressEvidence {
+    /// Its `<count>\t<runner>\t<test ID>` lines.
+    pub(super) selection: PathBuf,
+    /// Its `<runner>\t<status>` lines, one a command that went red.
+    pub(super) red_commands: PathBuf,
+}
+
+/// A failed step's nextest files and, for the stress run, what else it left
+/// and when it began, with the workspace's crates.
+pub(super) struct Evidence {
+    pub(super) junit: Vec<PathBuf>,
+    pub(super) stress: Option<StressEvidence>,
+    /// When the stress run began, in seconds since the Unix epoch.
+    pub(super) started: Option<u64>,
+    pub(super) crates: BTreeSet<String>,
+    /// The crates a red run of the step does not judge in full whatever
+    /// their tests did: after a red Pre-merge suite, those holding insta
+    /// snapshots, whose unreferenced snapshots cargo-insta judges only
+    /// once every test passed.
+    pub(super) unjudged: BTreeSet<String>,
+}
+
+/// What a failed step's evidence says of its members.
+#[derive(Default)]
+pub(super) struct Judged {
+    /// Those that passed in full.
+    pub(super) passed: BTreeSet<String>,
+    /// Those short of their counts with no failing test, with the clean passes
+    /// the run gave each of their selected tests.
+    pub(super) clean: BTreeMap<String, BTreeMap<String, u32>>,
+}
+
+impl Evidence {
+    /// What the evidence shows of the crates among `members`, the failed
+    /// `step`'s, or nothing when it does not account for the failure. Says
+    /// which in the run's log.
+    pub(super) fn judge(&self, step: Step, members: &[String]) -> Judged {
+        let crates: BTreeSet<String> = members
+            .iter()
+            .filter(|member| self.crates.contains(*member))
+            .cloned()
+            .collect();
+        match attribute(&crates, &self.junit, self.stress.as_ref()) {
+            Attribution::Passed {
+                crates: passed,
+                clean,
+            } => {
+                let unjudged: BTreeSet<String> =
+                    passed.intersection(&self.unjudged).cloned().collect();
+                let passed: BTreeSet<String> = passed.difference(&unjudged).cloned().collect();
+                let failed: BTreeSet<String> = crates
+                    .difference(&passed)
+                    .filter(|krate| !unjudged.contains(*krate))
+                    .cloned()
+                    .collect();
+                output::error(&format!(
+                    "Gate: {} failed in {}; its other crates passed in full and are recorded green: {}",
+                    step.name(),
+                    listed(&failed),
+                    listed(&passed)
+                ));
+                if !unjudged.is_empty() {
+                    output::error(&format!(
+                        "Gate: {} hold insta snapshots, which cargo-insta judges unreferenced only once every test passed, so they are recorded red",
+                        listed(&unjudged)
+                    ));
+                }
+                Judged { passed, clean }
+            }
+            Attribution::Unattributed(why) => {
+                output::error(&format!(
+                    "Gate: {} failed and {why}, so each of its members is recorded red",
+                    step.name()
+                ));
+                Judged::default()
+            }
+        }
+    }
+}
+
+/// Crates as the log lists them: joined by spaces, or `none`.
+fn listed(crates: &BTreeSet<String>) -> String {
+    if crates.is_empty() {
+        "none".to_owned()
+    } else {
+        crates.iter().cloned().collect::<Vec<_>>().join(" ")
+    }
+}
 
 /// How many times each test passed and failed in the files.
 #[derive(Default)]
@@ -61,11 +163,11 @@ struct Runs {
 
 /// The crates among `crates`, the step's, that passed in full by the nextest
 /// files in `junit` (files, or folders of `nextest*.xml` files) and, for a
-/// stress run, its `selection`.
-pub(super) fn attribute(
+/// stress run, the files it left.
+fn attribute(
     crates: &BTreeSet<String>,
     junit: &[PathBuf],
-    selection: Option<&Path>,
+    stress: Option<&StressEvidence>,
 ) -> Attribution {
     let runs = match tally(junit) {
         Ok(runs) => runs,
@@ -78,13 +180,16 @@ pub(super) fn attribute(
         .collect();
     // A stress run's crates are judged by its selection; the Quick suite's
     // by its failing tests, of which there must be one.
-    let (failing, clean) = if let Some(selection) = selection {
-        match std::fs::read_to_string(selection) {
+    let (failing, clean) = if let Some(stress) = stress {
+        if let Err(why) = red_commands_accounted_for(&stress.red_commands, &failed) {
+            return Attribution::Unattributed(why);
+        }
+        match std::fs::read_to_string(&stress.selection) {
             Ok(text) => short_of_their_counts(&text, &runs, failed),
             Err(error) => {
                 return Attribution::Unattributed(format!(
                     "its selection {} could not be read: {error}",
-                    selection.display()
+                    stress.selection.display()
                 ));
             }
         }
@@ -105,6 +210,38 @@ pub(super) fn attribute(
         crates: crates.difference(&failing).cloned().collect(),
         clean,
     }
+}
+
+/// Why the nextest files, where `failed` are the crates of their failing tests,
+/// do not account for the red commands the stress run lists in `file`, if so.
+fn red_commands_accounted_for(file: &Path, failed: &BTreeSet<String>) -> Result<(), String> {
+    let text = std::fs::read_to_string(file).map_err(|error| {
+        format!(
+            "it names no red command of its runners in {} ({error}), so it failed elsewhere",
+            file.display()
+        )
+    })?;
+    let mut nextest_went_red = false;
+    for line in text.lines() {
+        let Some((runner, status)) = line.split_once('\t') else {
+            return Err(format!("{} holds {line:?}", file.display()));
+        };
+        if runner == Runner::Nextest.name() {
+            nextest_went_red = true;
+            if status != NEXTEST_TEST_FAILED {
+                return Err(format!(
+                    "nextest exited {status}, which no failing test gives, so its files say nothing of the crate behind it"
+                ));
+            }
+        }
+    }
+    if text.trim().is_empty() {
+        return Err(format!("{} names no red command", file.display()));
+    }
+    if nextest_went_red && failed.is_empty() {
+        return Err("nextest went red and no test in its files failed".to_owned());
+    }
+    Ok(())
 }
 
 /// `failed`, the crates of the tests that failed, with those of the stress

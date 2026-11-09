@@ -1,4 +1,8 @@
 //! Covers: story:5-119
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_page::page_value::{ObservedResponse, ResponseObserver};

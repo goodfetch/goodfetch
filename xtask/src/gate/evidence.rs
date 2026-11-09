@@ -32,7 +32,13 @@ use crate::runners::listing::{self, Listed, Location};
 
 /// What each crate's last build read, by crate, as repository paths.
 pub(crate) struct RustInputs {
+    /// What its library, executables, benchmarks and examples read, and
+    /// its build script's `rerun-if-changed` paths: a change to one reaches
+    /// the crate's dependants, as a change to its own files does.
     by_crate: BTreeMap<String, BTreeSet<String>>,
+    /// What its integration tests, its `test` targets, alone read: a change
+    /// to one reaches the crate's tests alone (#2238).
+    by_tests: BTreeMap<String, BTreeSet<String>>,
     /// Each crate's targets that a test build compiles (its library, its
     /// executables and its `tests/` targets), by their dep-info name.
     test_targets: BTreeMap<String, BTreeSet<String>>,
@@ -61,7 +67,31 @@ pub(crate) fn rust_inputs(
     target: &Path,
     members: &WorkspaceMembers,
 ) -> Result<RustInputs> {
-    let test_targets: BTreeMap<String, BTreeSet<String>> = metadata::packages(cargo, root)?
+    let packages = metadata::packages(cargo, root)?;
+    // Each crate's `test` targets, by their dep-info name, when no other
+    // target of the crate shares it, as a library's test build shares its
+    // library's: what one of them alone read reaches the crate's tests.
+    let integration_tests: BTreeMap<String, BTreeSet<String>> = packages
+        .iter()
+        .map(|package| {
+            let name = |target: &metadata::Target| target.name.replace('-', "_");
+            let others: BTreeSet<String> = package
+                .targets
+                .iter()
+                .filter(|target| target.kind.iter().any(|kind| kind != "test"))
+                .map(name)
+                .collect();
+            let tests = package
+                .targets
+                .iter()
+                .filter(|target| target.kind.iter().all(|kind| kind == "test"))
+                .map(name)
+                .filter(|test| !others.contains(test))
+                .collect();
+            (package.name.clone(), tests)
+        })
+        .collect();
+    let test_targets: BTreeMap<String, BTreeSet<String>> = packages
         .into_iter()
         .map(|package| {
             let names = package
@@ -90,6 +120,7 @@ pub(crate) fn rust_inputs(
         .map(|(name, _)| name)
         .collect();
     let mut by_crate: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut by_tests: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for profile in folders(target)? {
         for file in files(&profile.join("deps"))? {
             if file.extension() != Some(OsStr::new("d")) {
@@ -113,7 +144,15 @@ pub(crate) fn rust_inputs(
                 seen.entry(owner.clone())
                     .or_default()
                     .insert(name.to_owned());
-                by_crate.entry(owner).or_default().extend(paths);
+                let tests_alone = integration_tests
+                    .get(&owner)
+                    .is_some_and(|tests| tests.contains(name));
+                let read = if tests_alone {
+                    &mut by_tests
+                } else {
+                    &mut by_crate
+                };
+                read.entry(owner).or_default().extend(paths);
             }
         }
         for folder in folders(&profile.join("build"))? {
@@ -144,56 +183,83 @@ pub(crate) fn rust_inputs(
     }
     Ok(RustInputs {
         by_crate,
+        by_tests,
         test_targets,
         seen,
         target: target.to_path_buf(),
     })
 }
 
+/// Why the evidence reaches a crate, and how far.
+pub(crate) struct Read {
+    pub(crate) why: String,
+    /// Whether only its integration tests read the change: it reaches the
+    /// crate's tests, and none of its dependants (#2238).
+    pub(crate) tests_alone: bool,
+}
+
 impl RustInputs {
     /// Each crate a changed path reaches through what its build read, and
-    /// each crate with no dep-info, which reruns.
+    /// each crate with no dep-info, which reruns with its dependants.
     pub(crate) fn reached(
         &self,
         members: &WorkspaceMembers,
         changed: &BTreeSet<String>,
-    ) -> BTreeMap<String, String> {
+    ) -> BTreeMap<String, Read> {
         let mut reached = BTreeMap::new();
+        let build = |why: String| Read {
+            why,
+            tests_alone: false,
+        };
         for (krate, _) in members.all().filter(|(_, kind)| *kind == Kind::Crate) {
-            match self.by_crate.get(&krate) {
-                None => {
-                    reached.insert(
-                        krate,
-                        format!(
-                            "no dep-info of its build under {}, so nothing shows what it read",
-                            self.target.display()
-                        ),
-                    );
-                }
-                Some(inputs) => {
-                    let seen = self.seen.get(&krate);
-                    let missing = self.test_targets.get(&krate).and_then(|targets| {
-                        targets
-                            .iter()
-                            .find(|target| seen.is_none_or(|seen| !seen.contains(*target)))
-                    });
-                    if let Some(missing) = missing {
-                        reached.insert(
-                            krate,
-                            format!(
-                                "no dep-info of its test target `{missing}` under {}, so nothing shows what it read",
-                                self.target.display()
-                            ),
-                        );
-                    } else if let Some(path) = inputs.iter().find(|input| changed.contains(*input))
-                    {
-                        reached.insert(krate, format!("its build read {path}"));
-                    }
-                }
+            let built = self.by_crate.get(&krate);
+            let tested = self.by_tests.get(&krate);
+            if built.is_none() && tested.is_none() {
+                reached.insert(
+                    krate,
+                    build(format!(
+                        "no dep-info of its build under {}, so nothing shows what it read",
+                        self.target.display()
+                    )),
+                );
+                continue;
+            }
+            let seen = self.seen.get(&krate);
+            let missing = self.test_targets.get(&krate).and_then(|targets| {
+                targets
+                    .iter()
+                    .find(|target| seen.is_none_or(|seen| !seen.contains(*target)))
+            });
+            if let Some(missing) = missing {
+                reached.insert(
+                    krate,
+                    build(format!(
+                        "no dep-info of its test target `{missing}` under {}, so nothing shows what it read",
+                        self.target.display()
+                    )),
+                );
+            } else if let Some(path) = first_changed(built, changed) {
+                reached.insert(krate, build(format!("its build read {path}")));
+            } else if let Some(path) = first_changed(tested, changed) {
+                reached.insert(
+                    krate,
+                    Read {
+                        why: format!("its integration tests read {path}"),
+                        tests_alone: true,
+                    },
+                );
             }
         }
         reached
     }
+}
+
+/// The first of `inputs` that `changed` holds.
+fn first_changed<'a>(
+    inputs: Option<&'a BTreeSet<String>>,
+    changed: &BTreeSet<String>,
+) -> Option<&'a String> {
+    inputs?.iter().find(|input| changed.contains(*input))
 }
 
 /// The paths `text`, a Makefile-style dep-info file, names: each target and

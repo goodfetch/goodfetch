@@ -270,7 +270,8 @@ fn value(selection: &Selection, key: &str) -> String {
 #[case::pre_merge_and_sinks_for_a_package(&["sdks/python/collie/src/goodfetch_collie/client.py"], r#"["pre-merge","sinks"]"#)]
 #[case::perf_for_a_crate_with_bench_targets(&["crates/foxhound/goodfetch-frontier/src/lib.rs"], r#"["pre-merge","sinks","perf"]"#)]
 #[case::evaluation_for_prompts(&["crates/goodfetch-engine/src/agent/prompts/act.md"], r#"["pre-merge","sinks","perf","visual","evaluation","kennel"]"#)]
-#[case::evaluation_for_request_snapshots(&["crates/goodfetch-collie/tests/it/request-snapshots/act.snap"], r#"["pre-merge","sinks","visual","evaluation","kennel"]"#)]
+// Collie's tests alone read their request snapshots (#2238).
+#[case::evaluation_for_request_snapshots(&["crates/goodfetch-collie/tests/it/request-snapshots/act.snap"], r#"["pre-merge","sinks","evaluation"]"#)]
 // The catalog is the docs' reference too (spec #130, Pre-merge suite), and
 // the Kennel is built on the protocol crate (ADR 0141).
 #[case::evaluation_docs_and_kennel_for_catalog_descriptions(&["crates/goodfetch-protocol/src/catalog/act.rs"], r#"["pre-merge","sinks","perf","visual","docs","evaluation","kennel"]"#)]
@@ -702,6 +703,135 @@ fn shared_crate_change_selects_both_products_tests() {
     models=
     gate=full
     "#);
+}
+
+/// A file of a crate's `tests/` folder is read by that crate's tests alone,
+/// by no library or executable build: it reaches neither the crates and
+/// packages whose tests run the crate's executable, nor the Kennel, nor the
+/// crate's dependants or its bench targets (#2238).
+#[test]
+fn a_change_to_a_crates_tests_folder_reaches_its_tests_alone() {
+    let mut workspace = fixture();
+    for krate in &mut workspace.crates {
+        if krate.name == "goodfetch-collie" {
+            krate.benches = names(&["startup"]);
+        }
+    }
+
+    let selection = select(
+        &workspace,
+        &[RepoPath::new(
+            "crates/goodfetch-collie/tests/it/body_limits.rs",
+        )],
+        &ChangedParts::default(),
+    );
+
+    insta::assert_snapshot!(selection, @r#"
+    jobs=["pre-merge","sinks"]
+    crates=goodfetch-collie
+    vitest-packages=
+    pytest-packages=
+    sinks=goodfetch-sink-kafka goodfetch-sink-s3
+    sinks-touched=
+    bench-targets=
+    models=
+    gate=full
+    "#);
+}
+
+/// A file of a crate's `tests/` folder that a file outside that folder
+/// names may be read by more than the crate's tests: a shared fixture
+/// listing it, as the SSRF layers table lists Collie's runners, which test
+/// support's test reads; the crate's own code including it; another crate
+/// naming it from its folder. It keeps a change to the crate's reach, here
+/// the conformance crate whose tests run Collie's executable. A name of
+/// another file of the folder, or of a file no `tests/` folder of that
+/// crate holds, leaves it to the crate's tests (#2238).
+#[rstest]
+#[case::a_shared_fixture_naming_it(
+    "test-support/fixtures/ssrf/layers.toml",
+    r#"{ test = "crates/goodfetch-collie/tests/it/navigation_egress.rs::every_case", families = [] }"#,
+    "crates/goodfetch-collie/tests/it/navigation_egress.rs",
+    true
+)]
+#[case::the_crates_own_code_including_it(
+    "crates/goodfetch-collie/src/pages.rs",
+    r#"const PAGE: &str = include_str!("../tests/it/fixtures/page.html");"#,
+    "crates/goodfetch-collie/tests/it/fixtures/page.html",
+    true
+)]
+#[case::the_crates_own_code_naming_its_folder(
+    "crates/goodfetch-collie/src/pages.rs",
+    r#"let pages = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");"#,
+    "crates/goodfetch-collie/tests/it/fixtures/page.html",
+    true
+)]
+// Split, so this file names no folder of the repository's own Collie tests.
+#[case::another_crate_naming_a_folder_holding_it(
+    "crates/goodfetch-conformance/src/lib.rs",
+    concat!(
+        r#"const CASES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../goodfetch-"#,
+        r#"collie/tests/it");"#
+    ),
+    "crates/goodfetch-collie/tests/it/cases.rs",
+    true
+)]
+#[case::a_name_of_another_file_of_the_folder(
+    "test-support/fixtures/ssrf/layers.toml",
+    r#"{ test = "crates/goodfetch-collie/tests/it/navigation_egress.rs::every_case", families = [] }"#,
+    "crates/goodfetch-collie/tests/it/body_limits.rs",
+    false
+)]
+#[case::the_crates_code_naming_a_unit_tests_file(
+    "crates/goodfetch-collie/src/egress.rs",
+    r#"const RUNNER: &str = "src/egress/tests/client.rs";"#,
+    "crates/goodfetch-collie/tests/it/client.rs",
+    false
+)]
+#[case::a_comment_naming_it(
+    "crates/goodfetch-conformance/src/lib.rs",
+    "//! Its cases mirror ../goodfetch-collie/tests/it/body_limits.rs.",
+    "crates/goodfetch-collie/tests/it/body_limits.rs",
+    false
+)]
+#[case::prose_in_the_crates_own_files(
+    "crates/goodfetch-collie/Cargo.toml",
+    "# Its own executable, for the integration tests (tests/it/body_limits.rs).",
+    "crates/goodfetch-collie/tests/it/body_limits.rs",
+    false
+)]
+#[case::another_crates_tests_folder_by_its_own_path(
+    "crates/goodfetch-engine/src/lib.rs",
+    r#"const CASES: &str = "tests/it/body_limits.rs";"#,
+    "crates/goodfetch-collie/tests/it/body_limits.rs",
+    false
+)]
+fn a_tests_file_named_outside_its_folder_keeps_its_crates_reach(
+    #[case] reader: &str,
+    #[case] text: &str,
+    #[case] changed: &str,
+    #[case] wide: bool,
+) {
+    let root = tempfile::tempdir().unwrap();
+    write(root.path(), reader, text);
+    write(root.path(), changed, "");
+    let members = WorkspaceMembers::from_workspace(fixture());
+
+    let selection = select_with_readers(
+        root.path(),
+        &members,
+        &[RepoPath::new(changed)],
+        &ChangedParts::default(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        value(&selection, "crates")
+            .split(' ')
+            .any(|krate| krate == "goodfetch-conformance"),
+        wide,
+        "{selection}"
+    );
 }
 
 #[test]

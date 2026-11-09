@@ -538,32 +538,51 @@ impl Reader<'_> {
                 self.members,
             )?);
         }
+        // The crates only their integration tests' dep-info shows reading a
+        // changed file.
+        let mut tests_alone = BTreeSet::new();
         if let Some(rust) = rust {
             let changed: BTreeSet<String> =
                 paths.iter().map(|path| path.as_str().to_owned()).collect();
-            found.extend(rust.reached(self.members, &changed));
+            for (member, read) in rust.reached(self.members, &changed) {
+                if read.tests_alone {
+                    tests_alone.insert(member.clone());
+                }
+                found.insert(member, read.why);
+            }
         }
-        for (member, why) in affected::literal_readers(
+        let readers = affected::literal_readers(
             self.root,
             self.members,
             &paths,
             &affected::ChangedParts::default(),
-        )? {
+        )?;
+        let shared = affected::tests_read_elsewhere(self.root, self.members, &paths)?;
+        for (member, why) in readers.into_iter().chain(shared) {
+            tests_alone.remove(&member);
             found.entry(member).or_insert(why);
         }
         // A member whose build or files read a changed file reaches its
-        // dependants as a change to its own files would. The runners'
-        // listings name every test they reach, in whichever member, so
-        // their members are added as they are. xtask has no dependant and no
-        // benchmark, and the crate builds read no file of its tests, so
-        // what reaches it reaches its tests alone.
+        // dependants as a change to its own files would; one whose
+        // integration tests alone read it reaches its tests alone, as a
+        // change to its `tests/` folder does. The runners' listings name
+        // every test they reach, in whichever member, so their members are
+        // added as they are. xtask has no dependant and no benchmark, and
+        // the crate builds read no file of its tests, so what reaches it
+        // reaches its tests alone.
         let mut widened = plan::selected(&paths);
         widened.extend(
             found
                 .keys()
                 .filter(|member| *member != plan::XTASK)
-                .filter_map(|member| self.members.folder(member))
-                .map(|folder| RepoPath::new(format!("{folder}/.evidence"))),
+                .filter_map(|member| {
+                    let folder = self.members.folder(member)?;
+                    Some(if tests_alone.contains(member) {
+                        RepoPath::new(format!("{folder}/{}/.evidence", affected::TESTS_FOLDER))
+                    } else {
+                        RepoPath::new(format!("{folder}/.evidence"))
+                    })
+                }),
         );
         let listed = evidence::listed_since(self.root, self.cargo, origin, self.members);
         // A listed member's visual tests run in the visual job alone, which

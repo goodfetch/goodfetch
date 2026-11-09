@@ -17,8 +17,9 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use super::selection::needs_no_tests;
+use super::selection::{TESTS_FOLDER, needs_no_tests};
 use super::{ChangedParts, RepoPath, WorkspaceMembers};
+use crate::tree;
 
 /// The extensions of the files whose string literals may name a file a test
 /// reads at run time.
@@ -78,6 +79,110 @@ pub(crate) fn literal_readers(
         }
     }
     Ok(reached)
+}
+
+/// The crates a changed file of their `tests/` folder may reach beyond
+/// their tests, each with why. Such a file reaches the crate's tests alone
+/// (#2238), unless a file outside that folder names it, or a folder of the
+/// `tests/` folder that holds it: a shared fixture listing it, as the SSRF
+/// layers table lists Collie's runners for test support's test to read;
+/// the crate's own code including or reading it; another crate's code
+/// naming it through the crate's folder (`../goodfetch-collie/tests/it`).
+/// Then it reaches what a change to the crate reaches, as before. Documents
+/// the Quick suite alone checks, and comment lines, name files without
+/// reading them, so they do not count. A name of the folder through no
+/// path, as a walk of every crate's `tests/` does, is not seen: those walks
+/// are xtask's checks, which every gate reruns.
+pub(crate) fn tests_read_elsewhere(
+    root: &Path,
+    members: &WorkspaceMembers,
+    changed: &[RepoPath],
+) -> Result<BTreeMap<String, String>> {
+    let tests: Vec<(&RepoPath, &str, &str)> = changed
+        .iter()
+        .filter_map(|path| {
+            members
+                .tests_owner(path)
+                .map(|(krate, folder)| (path, krate, folder))
+        })
+        .collect();
+    let mut reached = BTreeMap::new();
+    if tests.is_empty() {
+        return Ok(reached);
+    }
+    for file in tree::files_with_fixtures(root, "", &[])? {
+        let file = RepoPath::new(file);
+        if needs_no_tests(&file) {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(root.join(file.as_str())) else {
+            continue;
+        };
+        let text = code_lines(&text, Path::new(file.as_str()));
+        for (path, krate, folder) in &tests {
+            let tests_folder = format!("{folder}/{TESTS_FOLDER}");
+            let Some(within) = path
+                .as_str()
+                .strip_prefix(&tests_folder)
+                .and_then(|rest| rest.strip_prefix('/'))
+            else {
+                continue;
+            };
+            if reached.contains_key(*krate) || file.is_in(&tests_folder) {
+                continue;
+            }
+            let segment = folder.rsplit('/').next().unwrap_or(folder);
+            if names_a_tests_file(&text, segment, file.is_in(folder), within) {
+                reached.insert(
+                    (*krate).to_owned(),
+                    format!("{} names {}", file.as_str(), path.as_str()),
+                );
+            }
+        }
+    }
+    Ok(reached)
+}
+
+/// Whether a character may be part of a path written in a file.
+fn in_a_path(character: char) -> bool {
+    character.is_ascii_alphanumeric() || "_-./".contains(character)
+}
+
+/// Whether `text` names `within`, a path from a crate's `tests/` folder, or
+/// a folder holding it: a `tests` path segment that the crate's folder name
+/// `segment` precedes (`goodfetch-collie/tests/it`), or, in a file of the
+/// crate itself (`own`), no folder, `.` or `..` (`"tests"`, `"/tests/it"`,
+/// `"../tests/it/page.html"`), then nothing more or a path `within` lies in.
+/// A `tests` that neither a `/` nor a quote opens is a word, not a path.
+fn names_a_tests_file(text: &str, segment: &str, own: bool, within: &str) -> bool {
+    text.match_indices(TESTS_FOLDER).any(|(start, _)| {
+        let before = &text[..start];
+        let after = &text[start + TESTS_FOLDER.len()..];
+        if after.starts_with(|next: char| in_a_path(next) && next != '/') {
+            return false;
+        }
+        let preceding = match before.chars().last() {
+            Some('/') => before[..before.len() - 1]
+                .rsplit(|character: char| character == '/' || !in_a_path(character))
+                .next()
+                .unwrap_or_default(),
+            // A word of prose, `the integration tests`, is no path.
+            Some('"' | '\'' | '`') => "",
+            _ => return false,
+        };
+        let from_the_crate = preceding == segment || (own && ["", ".", ".."].contains(&preceding));
+        if !from_the_crate {
+            return false;
+        }
+        let named: String = after
+            .strip_prefix('/')
+            .unwrap_or_default()
+            .chars()
+            .take_while(|character| in_a_path(*character))
+            .collect();
+        let named = named.trim_end_matches('/');
+        named.is_empty() || RepoPath::new(within).is_in(named)
+    })
 }
 
 /// Whether a member whose `files` name `path` reads a changed part of it:

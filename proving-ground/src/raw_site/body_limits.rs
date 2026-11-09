@@ -6,7 +6,8 @@
 //! naming `network.max_body_size`; a discovered API whose JSON nests arrays
 //! 129 deep expects it naming `network.max_json_depth`. One task is the
 //! positive control: JSON nested exactly 128 deep, whose innermost object a
-//! correct tool keeps as one Record. The sixth is a gzip body within the
+//! correct tool keeps as one Record. Each of those two hosts serves the same
+//! JSON as its `TDMRep` well-known file. The sixth is a gzip body within the
 //! engine's `network.max_decompression_ratio` that decodes to 272 MiB, past
 //! the 256 MiB a browser's pipe frames in one message, which expects
 //! `response_limit_exceeded` naming `network.max_body_size` from every
@@ -122,6 +123,17 @@ fn path(limit: Limit) -> &'static str {
     }
 }
 
+/// `TDMRep`'s well-known file, which a crawl declaring a Purpose reads before
+/// it sends a request: a JSON task's host serves its JSON there too, so a
+/// crawl's own read of JSON from outside meets the depth.
+const TDMREP_FILE: &str = "/.well-known/tdmrep.json";
+
+/// Whether `limit`'s task answers at `at`.
+fn serves(limit: Limit, at: &str) -> bool {
+    at == path(limit)
+        || (at == TDMREP_FILE && matches!(limit, Limit::JsonPastTheDepth | Limit::JsonAtTheDepth))
+}
+
 /// The Record the positive control keeps.
 fn kept(ordinal: u64) -> Record {
     Record::from([
@@ -188,7 +200,7 @@ pub(super) fn answer(host: &str, request: &Request) -> Answer {
         let at = usize::try_from(ordinal.checked_sub(1)?).ok()?;
         LIMITS.get(at).map(|(limit, _)| (ordinal, *limit))
     });
-    let Some((ordinal, limit)) = found.filter(|(_, limit)| request.path() == path(*limit)) else {
+    let Some((ordinal, limit)) = found.filter(|(_, limit)| serves(*limit, request.path())) else {
         return Answer::Page(Page::text(404, "not found"));
     };
     let filler = |framing, length| Answer::Filler {

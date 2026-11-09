@@ -39,6 +39,11 @@
 //!   each answer names, or once with a token its document issued, which
 //!   the API takes only once.
 //!
+//! - `/deep/<n>`: a list by page number, whose second page, from `n` =
+//!   [`DEEP_FROM`] on, answers JSON nested [`DEEP_NESTING`] deep, past the
+//!   engine's `network.max_json_depth`: a plan learned on the first lists
+//!   meets it when it replays a later one (ADR 0067).
+//!
 //! `n` runs from 1 to 99, written without leading zeros; each listing holds
 //! three entries named from the seed and `n`. A query `hold=<ms>`, from 1
 //! to [`MAX_HOLD_MS`], holds the answer that long and names the hold in
@@ -191,6 +196,18 @@ const SCROLL_SCRIPT: &str = r"for (let page = 1; page !== null; ) {
 }
 ";
 
+/// The script of `/deep/<n>`: it loads its list's pages by page number.
+const DEEP_SCRIPT: &str = r"for (let page = 1; page !== null; ) {
+  page = load(`/api/deep/${feed.dataset.number}?page=${page}`).next;
+}
+";
+
+/// The first `/deep/<n>` whose second page nests past the limit.
+const DEEP_FROM: u64 = 4;
+
+/// How deep that page nests: one past `network.max_json_depth`'s default.
+const DEEP_NESTING: usize = 129;
+
 /// The script of `/cursor/<n>`: it loads its list's pages, each from the
 /// cursor the page before named, until one names none.
 const CURSOR_SCRIPT: &str = r"for (let url = `/api/cursor/${feed.dataset.number}`; url !== null; ) {
@@ -229,6 +246,7 @@ fn list_place(kind: &str) -> u64 {
     match kind {
         "scroll" => 1,
         "cursor" => 2,
+        "deep" => 5,
         _ => 3,
     }
 }
@@ -254,6 +272,7 @@ fn list_shell(state: &State, kind: &str, number: u64) -> Option<Page> {
     let (script, extra) = match kind {
         "scroll" => (SCROLL_SCRIPT, String::new()),
         "cursor" => (CURSOR_SCRIPT, String::new()),
+        "deep" => (DEEP_SCRIPT, String::new()),
         "signed" => {
             let mut tokens = state.tokens.lock();
             tokens.issued += 1;
@@ -275,13 +294,16 @@ fn list_api(visit: &Visit<'_>, state: &State, kind: &str, number: u64) -> Option
     let seed = visit.seed;
     let json = |value: serde_json::Value| Page::text("application/json", value.to_string());
     Some(match kind {
-        "scroll" => {
+        "scroll" | "deep" => {
             let page = visit
                 .request
                 .parameter("page")
                 .and_then(canonical_number)
                 .unwrap_or(1);
-            if (1..=LIST_PAGES).contains(&page) {
+            if kind == "deep" && number >= DEEP_FROM && page == 2 {
+                let (open, close) = ("[".repeat(DEEP_NESTING), "]".repeat(DEEP_NESTING));
+                Page::text("application/json", format!("{open}{close}"))
+            } else if (1..=LIST_PAGES).contains(&page) {
                 let next = (page < LIST_PAGES).then_some(page + 1);
                 json(
                     serde_json::json!({ "items": list_items(seed, kind, number, page), "next": next }),

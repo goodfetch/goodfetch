@@ -61,7 +61,10 @@ enum Attribution {
 /// its name, joined by a space, as the stress run's selection names it.
 type Test = String;
 
-/// The status nextest exits with when a test failed, and for no other reason.
+/// The status nextest exits with when its test run failed: a test failed, or the
+/// run was cancelled during its tests. Only a failing test in its files tells a
+/// failure from a cancelled run, and a cancelled run's clean passes are still
+/// clean: a test counts only what its files say it passed.
 const NEXTEST_TEST_FAILED: &str = "100";
 
 /// What a failed stress run left beside its nextest files.
@@ -230,7 +233,7 @@ fn red_commands_accounted_for(file: &Path, failed: &BTreeSet<String>) -> Result<
             nextest_went_red = true;
             if status != NEXTEST_TEST_FAILED {
                 return Err(format!(
-                    "nextest exited {status}, which no failing test gives, so its files say nothing of the crate behind it"
+                    "nextest exited {status}, not as a failed test run does, so its files say nothing of the crate behind it"
                 ));
             }
         }

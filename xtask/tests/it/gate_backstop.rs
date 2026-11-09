@@ -32,13 +32,16 @@ fi
         compare = folder.join("compare").display(),
         failing = folder.join("failing").display(),
     );
-    let just = folder.join("just");
-    std::fs::write(&just, script).unwrap();
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(&just, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    write_executable(&folder.join("just"), &script);
+    // A stand-in LazyFS build, which the backstop asks for before any step.
+    write_executable(&folder.join("lazyfs"), "#!/bin/sh\n");
     folder
+}
+
+fn write_executable(path: &Path, contents: &str) {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::write(path, contents).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 struct Run {
@@ -49,13 +52,61 @@ struct Run {
     log: String,
 }
 
+/// A file of the repository's `ci/`, as the commit under test holds it.
+fn repository_script(name: &str) -> Vec<u8> {
+    std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../ci")
+            .join(name),
+    )
+    .unwrap()
+}
+
+/// Commits `files` to the fixture's `main` and goes back to its other branch.
+fn commit_to_main(workspace: &Workspace, files: &[(&str, &[u8])]) {
+    workspace.git(&["switch", "--quiet", "main"]);
+    for (file, contents) in files {
+        workspace.write(file, contents);
+        workspace.git(&["add", file]);
+    }
+    workspace.git(&["commit", "--quiet", "--message", "Change the scripts"]);
+    workspace.git(&["switch", "--quiet", "change"]);
+}
+
 /// The fixture as a repository whose `origin` is itself, so `origin/main`
-/// is its `main`.
+/// is its `main`, holding the scripts the backstop runs from the commit it
+/// tests.
 fn backstop_repository() -> Workspace {
     let workspace = repository();
     let path = workspace.path().display().to_string();
     workspace.git(&["remote", "add", "origin", &path]);
+    commit_to_main(
+        &workspace,
+        &[
+            (
+                "ci/gate-backstop.sh",
+                &repository_script("gate-backstop.sh"),
+            ),
+            (
+                "ci/gate-worktree.sh",
+                &repository_script("gate-worktree.sh"),
+            ),
+            (
+                "ci/backstop-green.sh",
+                &repository_script("backstop-green.sh"),
+            ),
+        ],
+    );
     workspace
+}
+
+/// What a commit's script does instead of the backstop, to tell that it ran.
+fn script_noting_it_ran(workspace: &Workspace) -> (String, PathBuf) {
+    let marker = workspace.path().join("the-commits-script-ran");
+    (
+        format!("#!/bin/bash\necho \"$*\" >>\"{}\"\n", marker.display()),
+        marker,
+    )
 }
 
 /// Runs the repository's `ci/gate-backstop.sh` in the workspace, with the
@@ -75,14 +126,26 @@ fn backstop_with_env(workspace: &Workspace, stand_in: &Path, variables: &[(&str,
         "runner-temp/goodfetch-os-services/env",
         b"DBUS_SESSION_BUS_ADDRESS=unix:path=/stand-in/bus\n",
     );
-    let logs = workspace.path().join("logs");
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/gate-backstop.sh");
-    let output = workspace
-        .command(script)
-        .arg("origin/main")
+    let mut command = workspace.command(script);
+    command.arg("origin/main");
+    run_of(workspace, stand_in, variables, command)
+}
+
+/// Runs `command` as the backstop's cron line runs, with the stand-in first on
+/// `PATH`, the logs in the workspace, and these variables added.
+fn run_of(
+    workspace: &Workspace,
+    stand_in: &Path,
+    variables: &[(&str, &str)],
+    mut command: std::process::Command,
+) -> Run {
+    let logs = workspace.path().join("logs");
+    let output = command
         .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
         .env("RUNNER_TEMP", workspace.path().join("runner-temp"))
         .env("GOODFETCH_GATE_BACKSTOP_LOG", &logs)
+        .env("GOODFETCH_LAZYFS", stand_in.join("lazyfs"))
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .envs(variables.iter().copied())
@@ -284,6 +347,224 @@ fn a_merged_record_that_cannot_be_read_is_a_miss() {
         run.results
     );
     assert!(run.misses.contains("miss record gated"), "{}", run.misses);
+}
+
+/// A record that is gone may have held earned passes too, as may a whole folder
+/// of them: a line that read green over it would move the next day's comparison
+/// past that merge for good.
+#[rstest::rstest]
+#[case::one_record("gated", "miss record gated: a full gate merged it")]
+#[case::the_folder("", "miss records: ")]
+fn a_merged_record_that_is_gone_is_a_miss(#[case] gone: &str, #[case] said: &str) {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    let compared = serde_json::json!([{
+        "kind": "missing", "unit": "", "step": "", "member": null,
+        "run": gone, "origin": "", "base": "",
+    }]);
+    std::fs::write(stand_in.join("compare"), compared.to_string()).unwrap();
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(1), "{}", run.log);
+    assert!(
+        run.results.contains("gate=pass misses=1 "),
+        "{}",
+        run.results
+    );
+    assert!(run.misses.contains(said), "{}", run.misses);
+}
+
+/// A checkout nothing fast-forwards holds an old script, which could compare,
+/// skip what a later script stresses and write a green line. So whichever script
+/// starts a run, the run is the commit's, its helpers included.
+#[test]
+fn a_run_uses_the_script_of_the_commit_it_tests() {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    let (script, marker) = script_noting_it_ran(&workspace);
+    commit_to_main(&workspace, &[("ci/gate-backstop.sh", script.as_bytes())]);
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(0), "{}", run.log);
+    assert!(run.calls.is_empty(), "{:?}", run.calls);
+    assert!(run.results.is_empty(), "{}", run.results);
+    let commit = workspace.git(&["rev-parse", "main"]);
+    assert_eq!(
+        std::fs::read_to_string(marker).unwrap().trim(),
+        commit.trim()
+    );
+}
+
+/// The helpers come from the commit as well.
+#[test]
+fn a_run_uses_the_helpers_of_the_commit_it_tests() {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    commit_to_main(
+        &workspace,
+        &[(
+            "ci/backstop-green.sh",
+            b"backstop_greens() { :; }\nlatest_green() { git rev-parse main~1; }\n",
+        )],
+    );
+    let earlier = workspace.git(&["rev-parse", "main~1"]);
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(0), "{}", run.log);
+    assert!(
+        run.calls
+            .iter()
+            .any(|call| call.starts_with("_gate-compare ")
+                && call.ends_with(&format!(" {}|", earlier.trim()))),
+        "{:?}",
+        run.calls
+    );
+}
+
+/// Cron's line starts from `origin/main`'s script, not the checkout's, which on
+/// the day this came in may predate it.
+#[test]
+fn the_crontab_line_runs_the_script_of_origin_main() {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    let (script, marker) = script_noting_it_ran(&workspace);
+    commit_to_main(&workspace, &[("ci/gate-backstop.sh", script.as_bytes())]);
+    let crontab = repository_script("gate-backstop.crontab");
+    let crontab = String::from_utf8(crontab).unwrap();
+    let entry = crontab
+        .lines()
+        .find(|line| line.starts_with("37 3 "))
+        .unwrap();
+    let line = entry
+        .split_once(" bash -lc '")
+        .and_then(|(_, line)| line.strip_suffix('\''))
+        .unwrap();
+    let mut command = std::process::Command::new("bash");
+    command.args(["-c", line]);
+    command.current_dir("/");
+
+    let run = run_of(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_CHECKOUT", workspace.path().to_str().unwrap())],
+        command,
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.log);
+    assert!(run.calls.is_empty(), "{:?}", run.calls);
+    assert!(marker.is_file(), "{}", run.log);
+}
+
+/// The re-stress refuses a `lazyfs::` test without a LazyFS build, and what it
+/// selects takes a build to find, so a run asks up front, as `just merge`'s full
+/// gate does: it fails plainly and first, never as a daily miss.
+#[cfg(target_os = "linux")]
+#[rstest::rstest]
+#[case::unset("")]
+#[case::not_a_build("/no/such/lazyfs")]
+fn a_backstop_without_a_lazyfs_build_starts_no_step(#[case] lazyfs: &str) {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+
+    let run = backstop_with_env(
+        &workspace,
+        &stand_in,
+        &[
+            ("GOODFETCH_GATE_BACKSTOP_MIN_FREE_GB", "0"),
+            ("GOODFETCH_LAZYFS", lazyfs),
+        ],
+    );
+
+    assert_eq!(run.code, Some(1), "{}", run.log);
+    assert!(run.calls.is_empty(), "{:?}", run.calls);
+    assert!(
+        run.results.contains(" gate=skipped (no LazyFS build"),
+        "{}",
+        run.results
+    );
+    assert!(run.misses.is_empty(), "{}", run.misses);
+    assert!(run.log.contains("GOODFETCH_LAZYFS"), "{}", run.log);
+}
+
+/// The way out of a miss nothing can clear, a base that can never run or a record
+/// gone for good: the owner names the commit whose merges are done with, a whole
+/// run still has to pass, and its line says it was told. The next day starts there,
+/// and nobody edits `results.txt`.
+#[test]
+fn the_owner_can_name_where_a_run_starts_and_its_line_says_so() {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    let main = workspace.git(&["rev-parse", "main"]);
+    let main = main.trim();
+    workspace.git(&["switch", "--quiet", "main"]);
+    workspace.git(&["commit", "--quiet", "--allow-empty", "--message", "A merge"]);
+    workspace.git(&["switch", "--quiet", "change"]);
+
+    let told = backstop_with_env(
+        &workspace,
+        &stand_in,
+        &[
+            ("GOODFETCH_GATE_BACKSTOP_MIN_FREE_GB", "0"),
+            ("GOODFETCH_GATE_BACKSTOP_SINCE", main),
+        ],
+    );
+
+    assert_eq!(told.code, Some(0), "{}", told.log);
+    assert!(
+        told.calls
+            .iter()
+            .any(|call| call.starts_with("_gate-compare ") && call.ends_with(&format!(" {main}|"))),
+        "{:?}",
+        told.calls
+    );
+    assert!(
+        told.results.ends_with(&format!(
+            " misses=0 suspects=0 unchecked=0 earned=0 since={main}\n"
+        )),
+        "{}",
+        told.results
+    );
+    let head = workspace.git(&["rev-parse", "main"]);
+    let next = backstop(&workspace, &stand_in);
+    assert!(
+        next.calls
+            .iter()
+            .any(|call| call.starts_with("_gate-compare ")
+                && call.ends_with(&format!(" {}|", head.trim()))),
+        "{:?}",
+        next.calls
+    );
+}
+
+/// A commit `main` does not hold says nothing of the merges on it.
+#[test]
+fn a_named_start_main_does_not_hold_starts_no_step() {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    workspace.git(&[
+        "commit",
+        "--quiet",
+        "--allow-empty",
+        "--message",
+        "Off main",
+    ]);
+    let off_main = workspace.git(&["rev-parse", "HEAD"]);
+
+    let run = backstop_with_env(
+        &workspace,
+        &stand_in,
+        &[
+            ("GOODFETCH_GATE_BACKSTOP_MIN_FREE_GB", "0"),
+            ("GOODFETCH_GATE_BACKSTOP_SINCE", off_main.trim()),
+        ],
+    );
+
+    assert_eq!(run.code, Some(1), "{}", run.log);
+    assert!(run.calls.is_empty(), "{:?}", run.calls);
+    assert!(run.results.is_empty(), "{}", run.results);
 }
 
 /// A full run on `main`'s head stresses nothing, since its base is that head,

@@ -3,5 +3,19 @@
 # runs of `just merge` (ci/gate-backstop.sh). It goes into the gate host's
 # crontab (`crontab -e`), with GOODFETCH_CHECKOUT set to the main checkout.
 # On a day the disk lacks room for its build it lists itself as skipped.
+#
+# It starts `origin/main`'s script, not the checkout's, which nothing
+# fast-forwards; the script then runs the scripts of the commit it tests.
+#
+# A login shell gives it the host's PATH and build settings (~/.profile); cron
+# adds what the shells the owner starts take from elsewhere. GOODFETCH_LAZYFS
+# names the LazyFS build its re-stress needs for a `lazyfs::` test, outside
+# every checkout since a gate clears its worktree's target/lazyfs/; without one
+# on Linux the backstop lists itself as skipped before any step. Build one with
+# `just lazyfs-build` and copy its target/lazyfs/bin/ there, again whenever
+# test-support/lazyfs/sources.toml moves. SCCACHE_CLIENT_SIDE gives each compile
+# its own cargo's jobs and nice level instead of the shared daemon's.
 GOODFETCH_CHECKOUT=/Users/jb/Dev/goodfetch
-37 3 * * * bash -lc 'cd "$GOODFETCH_CHECKOUT" && nice -n 10 just gate-backstop origin/main'
+GOODFETCH_LAZYFS=/Users/jb/.local/share/goodfetch/lazyfs/bin/lazyfs
+SCCACHE_CLIENT_SIDE=1
+37 3 * * * bash -lc 'cd "$GOODFETCH_CHECKOUT" && git fetch --quiet origin && script=$(git show origin/main:ci/gate-backstop.sh) && nice -n 10 bash -c "$script" gate-backstop origin/main'

@@ -890,18 +890,19 @@ fn red_stress_run(
         workspace,
         records,
         plan,
-        selection,
+        Some(selection),
         iterations,
         Some(NEXTEST_TEST_FAILED),
     );
 }
 
-/// As [`red_stress_run`], with the commands the run says went red, if it says.
+/// As [`red_stress_run`], with the commands the run says went red, if it says,
+/// and its selection, if it left one.
 fn red_stress_run_saying(
     workspace: &Workspace,
     records: &Path,
     plan: &Plan,
-    selection: &str,
+    selection: Option<&str>,
     iterations: &[Vec<(&str, &str, bool)>],
     red_commands: Option<&str>,
 ) {
@@ -915,7 +916,9 @@ fn red_stress_run_saying(
         .unwrap();
     }
     let file = folder.with_extension("selection");
-    std::fs::write(&file, selection).unwrap();
+    if let Some(selection) = selection {
+        std::fs::write(&file, selection).unwrap();
+    }
     let red = folder.with_extension("red");
     if let Some(red_commands) = red_commands {
         std::fs::write(&red, red_commands).unwrap();
@@ -1076,7 +1079,7 @@ fn a_later_red_run_adds_to_clean_passes_and_a_red_test_takes_its_members_away() 
 #[case::nextest_ended_as_no_failure_does(Some("nextest\t101\n"), true, false)]
 #[case::another_batch_ended_as_no_failure_does(Some("nextest\t100\nnextest\t101\n"), true, true)]
 #[case::no_word_of_what_went_red(None, true, false)]
-#[case::no_selection(Some("nextest\t100\n"), false, false)]
+#[case::no_selection(Some("nextest\t100\n"), false, true)]
 fn a_red_stress_run_its_files_do_not_account_for_leaves_no_earned_passes(
     #[case] red_commands: Option<&str>,
     #[case] has_selection: bool,
@@ -1095,31 +1098,16 @@ fn a_red_stress_run_its_files_do_not_account_for_leaves_no_earned_passes(
         ),
     ];
 
-    if has_selection {
-        red_stress_run_saying(
-            &workspace,
-            &records,
-            &second,
+    red_stress_run_saying(
+        &workspace,
+        &records,
+        &second,
+        has_selection.then_some(
             "13\tnextest\tgoodfetch-engine b::steady\n13\tnextest\tgoodfetch-frontier::it c::steady\n",
-            &[cases.clone(), cases],
-            red_commands,
-        );
-    } else {
-        record_with(
-            &workspace,
-            &records,
-            &second.head,
-            "stress",
-            &[
-                "--selection",
-                "no-such-selection.tsv",
-                "--red-commands",
-                "no-such-file",
-                "--started",
-                STARTED,
-            ],
-        );
-    }
+        ),
+        &[cases.clone(), cases],
+        red_commands,
+    );
 
     assert_eq!(earned(&records, &second.head), Vec::<String>::new());
     let third = plan(&workspace, &records);
@@ -1150,8 +1138,10 @@ fn a_red_run_of_another_runner_leaves_the_crates_what_their_files_show() {
         &workspace,
         &records,
         &first,
-        "2\tnextest\tgoodfetch-engine b::steady\n2\tvitest\tsdk > a case\n\
-         20\tnextest\tgoodfetch-frontier::it c::steady\n",
+        Some(
+            "2\tnextest\tgoodfetch-engine b::steady\n2\tvitest\tsdk > a case\n\
+             20\tnextest\tgoodfetch-frontier::it c::steady\n",
+        ),
         &[cases.clone(), cases],
         Some("vitest\t1\n"),
     );
@@ -1461,6 +1451,102 @@ fn a_result_carried_from_a_head_main_never_held_is_listed() {
         "{}",
         compared.stdout
     );
+}
+
+/// How `ci/merge-pr.sh` opens the message of a merge a full gate passed, and of
+/// one a quick gate passed, which `merge_pr` holds it to.
+const FULL_GATE_MERGE: &str = "Merged on the local gate: `just pre-merge all`, which starts with `just quick all`'s lint and Quick suite, passed.";
+const QUICK_GATE_MERGE: &str = "Merged on the local gate: `just pre-merge quick` (no test, benchmark, model, container or Evaluation reads the change) passed.";
+
+/// A commit on a branch of its own from `from`, merged nowhere yet: its head.
+fn change_from(workspace: &Workspace, from: &str, name: &str) -> String {
+    workspace.git(&["switch", "--quiet", "--create", name, from]);
+    workspace.write(&format!("docs/{name}.md"), b"# A change\n");
+    commit_all(workspace, name);
+    workspace.git(&["rev-parse", "HEAD"]).trim().to_owned()
+}
+
+/// `head` merged on `trunk` with `message`, as `just merge` words its merge.
+fn merged_saying(workspace: &Workspace, head: &str, message: &str) -> String {
+    workspace.git(&["switch", "--quiet", "trunk"]);
+    workspace.git(&["merge", "--quiet", "--no-ff", "--message", message, head]);
+    workspace.git(&["rev-parse", "HEAD"]).trim().to_owned()
+}
+
+/// The runs the comparison says have no record, `""` for the whole folder.
+fn missing_in(compared: &Outcome) -> Vec<String> {
+    assert_eq!(compared.code, 0, "{}", compared.stderr);
+    found_in(compared)
+        .iter()
+        .filter(|found| found["kind"] == "missing")
+        .map(|found| found["run"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+/// A full gate leaves a record that may hold earned passes, so a merge it passed
+/// since the last green run must have one: without it, the day could not say what
+/// the merge earned. A quick or docs gate leaves none, and a merge the last green
+/// run holds is done with. With no green run there is no range to hold them to:
+/// history holds merges whose records went long ago.
+#[test]
+fn a_full_gates_merge_since_the_last_green_run_needs_its_record() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let before = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    let earlier = change_from(&workspace, &before, "earlier");
+    let kept = change_from(&workspace, &before, "kept");
+    let lost = change_from(&workspace, &before, "lost");
+    let quick = change_from(&workspace, &before, "quick");
+    std::fs::create_dir_all(&records).unwrap();
+    std::fs::write(records.join(format!("{kept}.tsv")), "base\tb\nhost\th\n").unwrap();
+    workspace.git(&["switch", "--quiet", "--create", "trunk", &before]);
+    let last_green = merged_saying(&workspace, &earlier, FULL_GATE_MERGE);
+    merged_saying(&workspace, &kept, FULL_GATE_MERGE);
+    merged_saying(&workspace, &lost, FULL_GATE_MERGE);
+    merged_saying(&workspace, &quick, QUICK_GATE_MERGE);
+    let backstop = records.with_file_name("backstop-runs");
+    let full = plan_with(&workspace, &backstop, "CI=", &["--full"]);
+    record_plan(&workspace, &backstop, &full, &[]);
+
+    let since = compare_since(
+        &workspace,
+        &backstop,
+        &records,
+        &full.head,
+        Some(&last_green),
+    );
+    let first_run = compare_since(&workspace, &backstop, &records, &full.head, None);
+
+    assert_eq!(missing_in(&since), [lost]);
+    assert_eq!(missing_in(&first_run), Vec::<String>::new());
+}
+
+/// With `just merge`'s records gone, nothing can say what the merges since the
+/// last green run earned, and no green run says so for any merge at all. With
+/// nothing merged since the last green run, nothing rests on them.
+#[rstest::rstest]
+#[case::merges_since_the_last_green_run("before", true)]
+#[case::no_green_run_yet("none", true)]
+#[case::nothing_merged_since("head", false)]
+fn a_records_folder_that_is_gone_is_missing(#[case] since: &str, #[case] is_missing: bool) {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let before = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    let change = change_from(&workspace, &before, "a-change");
+    workspace.git(&["switch", "--quiet", "--create", "trunk", &before]);
+    let head = merged_saying(&workspace, &change, QUICK_GATE_MERGE);
+    let backstop = records.with_file_name("backstop-runs");
+    let full = plan_with(&workspace, &backstop, "CI=", &["--full"]);
+    record_plan(&workspace, &backstop, &full, &[]);
+    let gone = records.with_file_name("no-such-folder");
+    let since = match since {
+        "before" => Some(before.as_str()),
+        "head" => Some(head.as_str()),
+        _ => None,
+    };
+
+    let compared = compare_since(&workspace, &backstop, &gone, &full.head, since);
+
+    let expected: &[&str] = if is_missing { &[""] } else { &[] };
+    assert_eq!(missing_in(&compared), expected);
 }
 
 /// A merged head whose record cannot be read may have counted earned passes, so

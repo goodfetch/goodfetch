@@ -92,7 +92,32 @@ fn origin_repository() -> Workspace {
         "runner-temp/goodfetch-os-services/env",
         b"DBUS_SESSION_BUS_ADDRESS=unix:path=/stand-in/bus\nXDG_RUNTIME_DIR=/stand-in/runtime\n",
     );
+    let repository_ci = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci");
+    commit_to_main(
+        &workspace,
+        &[
+            (
+                "ci/test-health/scheduled.sh",
+                &std::fs::read(repository_ci.join("test-health/scheduled.sh")).unwrap(),
+            ),
+            (
+                "ci/gate-worktree.sh",
+                &std::fs::read(repository_ci.join("gate-worktree.sh")).unwrap(),
+            ),
+        ],
+    );
     workspace
+}
+
+/// Commits `files` to the fixture's `main` and goes back to its other branch.
+fn commit_to_main(workspace: &Workspace, files: &[(&str, &[u8])]) {
+    workspace.git(&["switch", "--quiet", "main"]);
+    for (file, contents) in files {
+        workspace.write(file, contents);
+        workspace.git(&["add", file]);
+    }
+    workspace.git(&["commit", "--quiet", "--message", "Change the scripts"]);
+    workspace.git(&["switch", "--quiet", "change"]);
 }
 
 /// The repository's `ci/test-health/constrained.sh`.
@@ -162,6 +187,74 @@ fn scheduled(workspace: &Workspace, stand_in: &Path, run: &str) -> Run {
 /// Leaves `just merge`'s lock as a gate holds it, naming `holder`.
 fn hold_the_merge_gate(workspace: &Workspace, holder: &str) {
     workspace.write(".claude/worktrees/merge-gate.lock/pid", holder.as_bytes());
+}
+
+/// A checkout nothing fast-forwards holds an old script. A run is the commit's
+/// own, whichever script started it.
+#[test]
+fn a_run_uses_the_script_of_the_commit_it_tests() {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+    let marker = workspace.path().join("the-commits-script-ran");
+    commit_to_main(
+        &workspace,
+        &[(
+            "ci/test-health/scheduled.sh",
+            format!("#!/bin/bash\necho \"$*\" >>\"{}\"\n", marker.display()).as_bytes(),
+        )],
+    );
+
+    let outcome = scheduled(&workspace, &stand_in, "mutants");
+
+    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
+    assert!(outcome.calls.is_empty(), "{:?}", outcome.calls);
+    let commit = workspace.git(&["rev-parse", "main"]);
+    assert_eq!(
+        std::fs::read_to_string(marker).unwrap().trim(),
+        format!("mutants {}", commit.trim())
+    );
+}
+
+/// Cron's lines start from `origin/main`'s script, not the checkout's, which on
+/// the day this came in may predate it.
+#[test]
+fn the_crontab_lines_run_the_script_of_origin_main() {
+    let crontab = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/test-health.crontab"),
+    )
+    .unwrap();
+    let lines: Vec<&str> = crontab
+        .lines()
+        .filter_map(|line| line.split_once(" bash -lc '"))
+        .filter_map(|(_, line)| line.strip_suffix('\''))
+        .collect();
+    assert_eq!(lines.len(), 2, "{crontab}");
+    for (index, line) in lines.into_iter().enumerate() {
+        let workspace = origin_repository();
+        let stand_in = stand_in_just(&workspace);
+        let marker = workspace.path().join(format!("ran-{index}"));
+        commit_to_main(
+            &workspace,
+            &[(
+                "ci/test-health/scheduled.sh",
+                format!("#!/bin/bash\necho \"$*\" >>\"{}\"\n", marker.display()).as_bytes(),
+            )],
+        );
+
+        let output = workspace
+            .command("bash")
+            .args(["-c", line])
+            .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
+            .env("GOODFETCH_CHECKOUT", workspace.path())
+            .env("GOODFETCH_TEST_HEALTH_LOG", workspace.path().join("logs"))
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .output()
+            .unwrap();
+
+        assert!(output.status.success(), "{line}: {output:?}");
+        assert!(marker.is_file(), "{line}: {output:?}");
+    }
 }
 
 /// On 2026-11-08 the daily mutation run ran beside a gate, and the load it

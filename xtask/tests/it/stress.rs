@@ -6,6 +6,8 @@
 //! This spec's stories stay outside the Feature inventory (#325, Out of
 //! Scope), so the module declares no Feature.
 
+use std::path::Path;
+
 use rstest::rstest;
 
 use crate::workspace::{Workspace, finding};
@@ -558,8 +560,38 @@ fn a_test_the_change_since_the_earlier_run_changes_runs_20_times() {
 fn earned_file(workspace: &Workspace, passes: u32, test: &str) -> String {
     let file = workspace.path().join("target/run.earned");
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-    std::fs::write(&file, format!("stressed\tearlier\t10\t{passes}\t{test}\n")).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    write_earned_file(&file, now, passes, test);
     file.display().to_string()
+}
+
+fn write_earned_file(file: &Path, at: u64, passes: u32, test: &str) {
+    std::fs::write(file, format!("stressed\tearlier\t{at}\t{passes}\t{test}\n")).unwrap();
+}
+
+/// The plan checks the age of the passes it keeps; a day can pass before the
+/// stress run reads them, so the selection checks it too, and a test whose
+/// passes have aged runs its whole count.
+#[test]
+fn earned_passes_older_than_a_day_when_the_selection_reads_them_count_for_nothing() {
+    let (workspace, base) = base();
+    change(&workspace);
+    let kept = "stressed changed::tests::added";
+    let earned = earned_file(&workspace, 7, kept);
+    write_earned_file(Path::new(&earned), 10, 7, kept);
+
+    let selection = select(
+        &workspace,
+        &["--base", &base, "--within", "stressed", "--earned", &earned],
+    );
+
+    assert!(
+        selection.contains(&selected("20", "nextest", kept)),
+        "{selection:?}"
+    );
 }
 
 /// The incremental gate's earned passes (#2233): a test with earlier clean

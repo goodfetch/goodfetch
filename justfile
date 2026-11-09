@@ -733,7 +733,8 @@ _repeat count *selection:
     # runs its iterations one a command, each of its batches once, and after
     # a red one no other iteration or runner runs. It lists each command that
     # goes red, `<runner>\t<status>`, which `xtask gate record` judges the run
-    # by: nextest exits 100 for a failing test and for nothing else.
+    # by: nextest exits 100 for a failed test run, which a cancelled run also is,
+    # so only a failing test in its files accounts for it.
     iterations=1
     until_red=false
     if [[ "${1:-}" == --until-red ]]; then iterations={{ count }} until_red=true; fi
@@ -1696,11 +1697,13 @@ _gate-record head step status *evidence:
       --now "$(date +%s)" --step {{ step }} --status {{ status }} {{ evidence }}
 
 # The incremental gate's backstop (ADR 0135), daily from the gate host's
-# cron on `main`'s head: in a gate worktree of its own, `just pre-merge all`
-# in full (`GOODFETCH_GATE_FULL=1`), then each result an incremental run of
-# `just merge` on the same tree reused and the full run found red, a
-# selection miss to fix, and a whole-count stress run of each crate whose result
-# in a merge since its last green run counted earned passes (ci/gate-backstop.sh).
+# cron on `main`'s head, each run with that commit's own scripts: in a gate
+# worktree of its own, `just pre-merge all` in full (`GOODFETCH_GATE_FULL=1`), then
+# each result an incremental run of `just merge` on the same tree reused and the
+# full run found red, a selection miss to fix, and a whole-count stress run of
+# each crate whose result in a merge since its last green run counted earned
+# passes (ci/gate-backstop.sh). It needs GOODFETCH_LAZYFS on Linux, and its way
+# past a miss nothing can clear is TESTING.md's, never an edit of its results.
 # Its log and results go to ~/gate-backstop/ (GOODFETCH_GATE_BACKSTOP_LOG). Run
 # from the main checkout.
 gate-backstop ref="origin/main":

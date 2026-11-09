@@ -27,7 +27,9 @@ struct Found {
     /// as its base, so its stress run stresses nothing, and only a stress run
     /// against this run's base can say; `unreadable` for a run merged since
     /// the last green backstop run whose record cannot be read, which may
-    /// have counted such passes, with only its `run` set.
+    /// have counted such passes, with only its `run` set; `missing` for a full
+    /// gate's merge since then whose record is gone, the same, or with an empty
+    /// `run` for a records folder that is gone with commits merged since.
     kind: &'static str,
     /// The unit, `<step>` or `<step>:<member>`.
     unit: String,
@@ -44,12 +46,57 @@ struct Found {
     base: String,
 }
 
+impl Found {
+    /// What a run's record, or `others`' whole folder, cannot say.
+    fn of_record(kind: &'static str, run: &str) -> Self {
+        Self {
+            kind,
+            unit: String::new(),
+            step: String::new(),
+            member: None,
+            run: run.to_owned(),
+            origin: String::new(),
+            base: String::new(),
+        }
+    }
+}
+
+/// How `ci/merge-pr.sh` opens the message of a merge a full gate passed, the one
+/// gate that leaves a record: a quick or docs gate's words differ.
+const FULL_GATE_MERGE: &str = "Merged on the local gate: `just pre-merge all`";
+
+/// The gated head, second parent, of each merge on `full`'s first-parent line
+/// since `since` that a full gate passed.
+fn full_gates_since(root: &Path, full: &str, since: &str) -> Result<Vec<String>> {
+    let merges = git::text(
+        root,
+        &[
+            "rev-list",
+            "--first-parent",
+            "--merges",
+            "--parents",
+            "--fixed-strings",
+            &format!("--grep={FULL_GATE_MERGE}"),
+            full,
+            &format!("^{since}"),
+        ],
+    )?;
+    Ok(merges
+        .lines()
+        .filter_map(|merge| merge.split(' ').nth(2).map(str::to_owned))
+        .collect())
+}
+
 /// For the full run on `full`, whose record is in `records`, each result
 /// that another run in `others` on the same tree reused from an earlier head
 /// and the full run did not find green; and each result that counted earned
 /// passes of a run `full` holds and `since`, the backstop's last green run,
 /// does not, whatever its tree, so a day checks every merge that day and those
-/// before it left unchecked. Printed as one JSON array of [`Found`] objects.
+/// before it left unchecked. A record that should be there and is not counts as
+/// well: a green line over it would move the next day past that merge for good.
+/// With no `since`, the first run or a lost results file, there is no range to
+/// hold merges to, and history holds merges whose records went long ago, so only
+/// the whole folder is judged. Printed as one JSON array of [`Found`] objects.
 /// Fails when the run on `full` reused anything, so it is no full run.
 pub(super) fn compare(
     root: &Path,
@@ -85,6 +132,17 @@ pub(super) fn compare(
         .lines()
         .map(str::to_owned)
         .collect();
+    if !others.is_dir() {
+        if !unchecked.is_empty() {
+            found.push(Found::of_record("missing", ""));
+        }
+    } else if let Some(since) = since {
+        for head in full_gates_since(root, &full, since)? {
+            if !runs::file(others, &head).exists() {
+                found.push(Found::of_record("missing", &head));
+            }
+        }
+    }
     for head in runs::heads(others)? {
         if head == full {
             continue;
@@ -105,15 +163,7 @@ pub(super) fn compare(
                     "Gate: the run on {head} is not compared: {error:#}"
                 ));
                 if merged {
-                    found.push(Found {
-                        kind: "unreadable",
-                        unit: String::new(),
-                        step: String::new(),
-                        member: None,
-                        run: head.clone(),
-                        origin: String::new(),
-                        base: String::new(),
-                    });
+                    found.push(Found::of_record("unreadable", &head));
                 }
                 continue;
             }

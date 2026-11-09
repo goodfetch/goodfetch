@@ -343,6 +343,11 @@ pub(crate) use crate::affected::UNOWNED;
 /// own drift (packages, browsers, an expiring fixture) reaches the gate.
 pub(crate) const MAX_AGE: u64 = 24 * 60 * 60;
 
+/// Whether a result or earned pass of time `at` is past [`MAX_AGE`] at `now`.
+pub(super) fn past_max_age(now: u64, at: u64) -> bool {
+    now.saturating_sub(at) > MAX_AGE
+}
+
 /// What a change since a recorded head reaches, as the plan reads it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Touched {
@@ -653,7 +658,7 @@ fn still_holds(
             short(&previous.head)
         ));
     }
-    if head.now.saturating_sub(at) > MAX_AGE {
+    if past_max_age(head.now, at) {
         return Err(format!("its result on {origin} is older than a day"));
     }
     if step.reads_the_base() && previous.base != head.base {

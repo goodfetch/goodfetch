@@ -594,6 +594,40 @@ fn a_gate_the_script_does_not_know_merges_nothing() {
     assert!(!gate_lock(&workspace).exists());
 }
 
+/// The backstop tells a merge a full gate passed, which leaves a record, from a
+/// quick gate's, which leaves none, by these words (`xtask gate compare`): it
+/// holds them to the merge's message, as `gate::FULL_GATE_MERGE` quotes them.
+#[rstest]
+#[case::full(true, "Merged on the local gate: `just pre-merge all`")]
+#[case::quick(false, "Merged on the local gate: `just pre-merge quick`")]
+fn a_merge_says_which_gate_passed_it(#[case] full: bool, #[case] words: &str) {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let lazyfs = full_gate_with_lazyfs(&stand_in);
+    if !full {
+        std::fs::remove_file(stand_in.join("gate")).unwrap();
+    }
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[
+            ("GOODFETCH_GATE_MIN_FREE_GB", "0"),
+            ("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()),
+        ],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    assert!(
+        run.calls
+            .iter()
+            .any(|call| call.starts_with("gh pr merge ")
+                && call.contains(&format!("--body {words}"))),
+        "{:?}",
+        run.calls
+    );
+}
+
 #[test]
 fn a_full_gate_with_a_lazyfs_build_runs_its_steps() {
     let (workspace, head) = pull_request();

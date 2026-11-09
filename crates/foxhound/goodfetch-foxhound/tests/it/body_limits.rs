@@ -241,11 +241,11 @@ fn a_browsers_navigation_to_a_host_whose_tdmrep_file_is_too_deep_is_refused() {
         "{answer}"
     );
     let observations = proving_ground.observations().unwrap();
-    let asked: Vec<&str> = ReceivedRequests::of(&observations)
+    let asked: Vec<String> = ReceivedRequests::of(&observations)
         .every()
         .filter(|request| request.host.starts_with("4.body-limits.test"))
-        .map(|request| request.target.as_str())
-        .filter(|target| *target != "/robots.txt")
+        .map(|request| request.target.clone())
+        .filter(|target| target != "/robots.txt")
         .collect();
     assert_eq!(asked, ["/.well-known/tdmrep.json"]);
 }

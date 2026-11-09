@@ -33,15 +33,16 @@ use tokio::sync::watch;
 use super::lifecycle::{
     self, Attributes, PageEffect, PageEvent, PageState, SessionEffect, SessionEvent, SessionState,
 };
+use crate::driver::ENDING_KNOWN_WITHIN;
 use crate::errors::{
     browser_crashed, cancelled, invalid_transition, page_memory_exceeded, renderer_crashed,
 };
 
 /// How long a call that failed as its page went waits for the page's end
 /// to be known, so it raises what ended the page rather than its own
-/// command's failure: a destroyed target waits up to 2 s for a quit, and a
-/// lost browser up to 2 s more for its exit status.
-const ENDING_WAIT: Duration = Duration::from_secs(5);
+/// command's failure: the driver's [`ENDING_KNOWN_WITHIN`], and a second
+/// more for the Session's own tasks to take the end.
+const ENDING_WAIT: Duration = Duration::from_secs(ENDING_KNOWN_WITHIN.as_secs() + 1);
 
 /// How a page ended, as its table's event names it.
 #[derive(Clone, Debug)]
@@ -194,6 +195,11 @@ impl PageLife {
             self.end(&Ending::Closed(ClosedValue::Page))?;
         }
         self.end(&Ending::Destroyed)
+    }
+
+    /// Whether a navigation call on the page is pending now.
+    pub(crate) fn navigating(&self) -> bool {
+        *self.shared.state.borrow() == PageState::Navigating
     }
 
     /// Whether the page is found past its memory cap for the first time:

@@ -27,7 +27,9 @@ impl Site {
             return self.refused_method(&["POST"]);
         }
         if let Some(refusal) = self.foreign(request.headers()) {
-            return self.refused(refusal.reason(), StatusCode::FORBIDDEN).await;
+            return self
+                .refused(refusal.reason().as_str(), StatusCode::FORBIDDEN)
+                .await;
         }
         let Some(cookie) = self.cookie_of(request.headers()).map(str::to_owned) else {
             return self

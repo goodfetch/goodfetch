@@ -30,21 +30,10 @@ use rusqlite::{Connection, OptionalExtension as _, Row, Transaction, Transaction
 
 use crate::lowest_minor::{self, Opener};
 use crate::run_state::RunStateError;
-use crate::sqlite_store::{
-    Access, Durability, File, Folder, FullFsync, Opening, Synchronous, Wait, WalOnClose,
-};
+use crate::sqlite_store::{Access, Durability, File, Folder, Opening, Wait};
 
 /// How long a write waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// How its commits reach the disk: each synced, without `F_FULLFSYNC` on
-/// macOS, its WAL copied into the file as its last connection closes.
-const DURABILITY: Durability = Durability {
-    synchronous: Synchronous::Full,
-    opening: Synchronous::Full,
-    full_fsync: FullFsync::Off,
-    wal_on_close: WalOnClose::Checkpointed,
-};
 
 const SCHEMA: &[&str] = &[
     lowest_minor::FORMAT_TABLE,
@@ -101,14 +90,15 @@ fn opener(engine: &ProductVersion) -> Opener {
 
 /// Opens the index at `path`, its tables made outside a transaction, as
 /// its lowest-minor marker is checked in each transaction instead (ADR
-/// 0098).
+/// 0098). Only a first open writes: a marker already there takes no write
+/// lock, so a read never waits behind another engine's write.
 fn open(path: &Path, opener: &Opener) -> Result<Connection, RunStateError> {
     let connection = File::new(path, None)
         .open(&Opening {
             folder: Folder::Make,
             access: Access::Create,
             wait: Wait::Busy(BUSY_TIMEOUT),
-            durability: DURABILITY,
+            durability: Durability::SYNCED,
             counting: None,
             schema: None,
         })
@@ -117,6 +107,11 @@ fn open(path: &Path, opener: &Opener) -> Result<Connection, RunStateError> {
         connection
             .execute(statement, [])
             .map_err(|error| failed(path, &error))?;
+    }
+    let marked = lowest_minor::read_sqlite(&connection, RUN_INDEX.name)
+        .map_err(|error| failed(path, &error))?;
+    if marked.is_some() {
+        return Ok(connection);
     }
     let created = opener.created();
     connection

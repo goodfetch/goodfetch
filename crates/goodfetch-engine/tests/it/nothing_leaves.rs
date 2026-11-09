@@ -19,6 +19,7 @@ use goodfetch_engine::browser_cache::{
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, InstallOutcome, PinnedBy};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -50,6 +51,13 @@ const README: &str = "juniper keystone annual budget delta orbit northern orchar
 /// A host name only the `resolve` mapping knows, mapped to the Proving
 /// ground's watched target.
 const UNSERVED_HOST: &str = "builds.goodfetch.test";
+
+fn cache_in(home: &std::path::Path) -> BrowserCache {
+    BrowserCache::new(
+        &CacheLocation::new(home, None),
+        TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
+    )
+}
 
 fn pinned_by() -> PinnedBy {
     PinnedBy {
@@ -114,11 +122,11 @@ fn requests(observations: &Value) -> Vec<Value> {
         .every()
         .map(|request| {
             json!({
-                "host": request["host"],
-                "method": request["method"],
-                "target": request["target"],
-                "headers": request["headers"],
-                "cookies": request["cookies"],
+                "host": request.host,
+                "method": request.method,
+                "target": request.target,
+                "headers": request.headers,
+                "cookies": request.cookies,
             })
         })
         .collect()
@@ -159,7 +167,7 @@ fn connections_to(observations: &Value, name: &str) -> Vec<Value> {
 fn a_first_use_download_sends_one_plain_get_naming_nothing_about_the_install() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let cache = BrowserCache::new(&CacheLocation::new(env.home(), None));
+    let cache = cache_in(env.home());
     let pinned = archive_pin(&proving_ground);
 
     let prepared = goodfetch_test_support::runtime()
@@ -188,7 +196,7 @@ fn a_first_use_download_sends_one_plain_get_naming_nothing_about_the_install() {
 fn browsers_install_sends_the_same_plain_get_for_each_pinned_build() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let cache = BrowserCache::new(&CacheLocation::new(env.home(), None));
+    let cache = cache_in(env.home());
     let pins = Pins {
         pinned_by: pinned_by(),
         artifacts: vec![archive_pin(&proving_ground)],
@@ -225,10 +233,10 @@ fn under_egress_offline_a_missing_build_is_refused_before_any_connection() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let runtime = goodfetch_test_support::runtime();
-    let copy = BrowserCache::new(&CacheLocation::new(
-        env.home(),
-        Some(env.folder().join("prepared copy")),
-    ));
+    let copy = BrowserCache::new(
+        &CacheLocation::new(env.home(), Some(env.folder().join("prepared copy"))),
+        TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
+    );
     let prepared = archive_pin(&proving_ground);
     runtime
         .block_on(copy.install(
@@ -242,7 +250,7 @@ fn under_egress_offline_a_missing_build_is_refused_before_any_connection() {
             &mut |_| {},
         ))
         .unwrap();
-    let cache = BrowserCache::new(&CacheLocation::new(env.home(), None));
+    let cache = cache_in(env.home());
     let missing = pin(
         "missing",
         format!(
@@ -318,7 +326,7 @@ fn with_spans_exported_a_download_in_a_requests_span_sends_no_trace_header() {
 
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let cache = BrowserCache::new(&CacheLocation::new(env.home(), None));
+    let cache = cache_in(env.home());
     let pinned = archive_pin(&proving_ground);
     let collector = Collector::default();
     let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()

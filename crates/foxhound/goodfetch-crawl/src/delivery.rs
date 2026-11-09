@@ -246,8 +246,7 @@ pub(crate) async fn drive(
         run_tier,
         run_encoding: settings
             .resolved()
-            .value(&FETCH_ENCODING)
-            .as_str()
+            .get::<Option<&str>>(&FETCH_ENCODING)
             .map(str::to_owned),
         // Its shape was checked when the crawl started.
         run_content_types: ContentTypes::of(settings.resolved().value(&CRAWL_CONTENT_TYPES))
@@ -266,7 +265,7 @@ pub(crate) async fn drive(
         }
     }
     // What every attempt hands over alike, built once (ADR 0138).
-    let handing = run_hand_over(&run, fetching.http, &arrivals.egress).await;
+    let handing = run_hand_over(&run, settings.resolved(), fetching.http, &arrivals.egress).await;
     let fetching = (&fetching, &handing);
     deliver(&run, &mut servers, &mut arrivals, &settings, fetching).await;
     crawls.close(run.id()).await;
@@ -319,11 +318,7 @@ fn sampling(resolved: &Resolved) -> Sampling {
     let built_in = Sampling::default();
     let refresh = SampleRefresh::read(resolved.value(&FETCH_SAMPLE_REFRESH_AFTER)).ok();
     Sampling {
-        count: resolved
-            .value(&FETCH_SAMPLE_COUNT)
-            .as_u64()
-            .and_then(|count| usize::try_from(count).ok())
-            .unwrap_or(built_in.count),
+        count: usize::try_from(resolved.get::<u64>(&FETCH_SAMPLE_COUNT)).unwrap_or(built_in.count),
         requests: refresh.map_or(built_in.requests, |refresh| refresh.requests),
         after_ms: refresh.map_or(built_in.after_ms, |refresh| refresh.after),
     }
@@ -1810,10 +1805,14 @@ async fn queue_outcome(
             message: Some(skip.message),
         },
         Answer::Refused(reason) => refused(reason),
-        Answer::RobotsTxtUnreachable(message) if policy.may_retry(leased.tries) => {
+        Answer::RobotsTxtUnreachable(message) | Answer::HopsRobotsTxtUnreachable(message)
+            if policy.may_retry(leased.tries) =>
+        {
             Unsuccessful::Retried(Failure::new(SITE_PREFERENCES_REFUSED.name, &message))
         }
-        Answer::RobotsTxtUnreachable(_) => refused(SkipReason::RobotsTxt),
+        Answer::RobotsTxtUnreachable(_) | Answer::HopsRobotsTxtUnreachable(_) => {
+            refused(SkipReason::RobotsTxt)
+        }
         Answer::SitemapRead(document) => {
             let work = run.metrics().counted_work().clone();
             work.count(Row::SitemapTransactions);

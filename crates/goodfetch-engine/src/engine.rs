@@ -40,7 +40,7 @@ use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
 use crate::governor::{Governor, System};
-use crate::home::{Home, RunStateLocation, major_name};
+use crate::home::{Home, RunStateLocation};
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
 use crate::log::LogEvents;
@@ -54,7 +54,7 @@ use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
 use crate::runs::{CleanUpVersions, ProgressPart, ReportPart, Runs, RunsSetup};
-use crate::sandbox_probe;
+use crate::sandbox_probe::{self, SandboxProbe};
 use crate::secrets::{self, Carried, Keychain, ProviderFactory, Secrets};
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
@@ -146,14 +146,7 @@ impl Engine {
     /// The same, recording the runtime's metrics on `metrics` (ADR 0050).
     #[must_use]
     pub fn with_metrics(mut self, metrics: Metrics) -> Self {
-        self.dispatch = Arc::new(Dispatch {
-            identity: Arc::clone(&self.dispatch.identity),
-            handlers: self.dispatch.handlers.clone(),
-            drivers: Arc::clone(&self.dispatch.drivers),
-            log_events: self.dispatch.log_events.clone(),
-            masks: self.dispatch.masks.clone(),
-            work: metrics.counted_work().clone(),
-        });
+        Arc::make_mut(&mut self.dispatch).work = metrics.counted_work().clone();
         self.metrics = metrics;
         self
     }
@@ -172,14 +165,7 @@ impl Engine {
     /// at the level the Connection asks for.
     #[must_use]
     pub fn with_log_events(mut self, log_events: LogEvents) -> Self {
-        self.dispatch = Arc::new(Dispatch {
-            identity: Arc::clone(&self.dispatch.identity),
-            handlers: self.dispatch.handlers.clone(),
-            drivers: Arc::clone(&self.dispatch.drivers),
-            log_events: Some(log_events),
-            masks: self.dispatch.masks.clone(),
-            work: self.dispatch.work.clone(),
-        });
+        Arc::make_mut(&mut self.dispatch).log_events = Some(log_events);
         self
     }
 
@@ -188,14 +174,7 @@ impl Engine {
     /// (spec #564); without it the engine masks with its own.
     #[must_use]
     pub fn with_masks(mut self, masks: Masks) -> Self {
-        self.dispatch = Arc::new(Dispatch {
-            identity: Arc::clone(&self.dispatch.identity),
-            handlers: self.dispatch.handlers.clone(),
-            drivers: Arc::clone(&self.dispatch.drivers),
-            log_events: self.dispatch.log_events.clone(),
-            masks,
-            work: self.dispatch.work.clone(),
-        });
+        Arc::make_mut(&mut self.dispatch).masks = masks;
         self
     }
 
@@ -370,11 +349,14 @@ impl Engine {
             owner,
             self.metrics.counted_work().clone(),
         );
+        let sandbox_probe =
+            SandboxProbe::of(sandbox_probe::this_host, dependencies.environment.clone());
         let settings = host_settings(
             SettingsFiles::of(&dependencies.home, &self.identity().product_version),
             self.identity().product,
             owner,
-            &dependencies,
+            (dependencies.keychain.clone(), sandbox_probe.clone()),
+            self.metrics.counted_work().clone(),
         );
         let governor = self.governor(&settings, dependencies.clock, owner, &events);
         let needs_you = NeedsYou::start(
@@ -404,8 +386,14 @@ impl Engine {
             home: dependencies.home.clone(),
             version: self.identity().product_version.clone(),
             clock: dependencies.clock,
+            settings: settings.clone(),
         });
-        let (context, secrets) = self.engine_context(&mut dependencies, settings, needs_you, owner);
+        let (context, secrets) = self.engine_context(
+            &mut dependencies,
+            settings,
+            (needs_you, sandbox_probe),
+            owner,
+        );
         let runs = Runs::start_registry(
             RunsSetup {
                 engine: context.clone(),
@@ -457,7 +445,7 @@ impl Engine {
         &self,
         dependencies: &mut Dependencies,
         settings: Settings,
-        needs_you: NeedsYou,
+        (needs_you, sandbox_probe): (NeedsYou, SandboxProbe),
         owner: &TaskOwner,
     ) -> (EngineContext, Secrets) {
         let audit = Arc::new(
@@ -473,6 +461,7 @@ impl Engine {
             Arc::clone(&audit),
             Arc::new(owner.child()),
             needs_you,
+            sandbox_probe,
             os_user(&dependencies.environment),
             dependencies.run_state.vfs.clone(),
         );
@@ -781,7 +770,7 @@ impl Engine {
                         sign_ins: sign_ins.clone(),
                         cookie: format!(
                             "goodfetch_console_{}",
-                            major_name(&self.identity().product_version)
+                            self.identity().product_version.line()
                         ),
                         connections: opened_connections,
                         runs: runs.clone(),
@@ -862,7 +851,7 @@ async fn write_managed(context: EngineContext, version: ProductVersion) {
     let machine = match context.settings().machine().await {
         Ok(machine) => machine,
         Err(error) => {
-            tracing::warn!(%error, "the Operator policy could not be read to write its managed Limits");
+            tracing::warn!(%error, "the machine's settings files could not be read, so no managed Limit was written");
             return;
         }
     };
@@ -874,7 +863,7 @@ async fn write_managed(context: EngineContext, version: ProductVersion) {
         .map(goodfetch_protocol::usage::ManagedLimit::limit)
         .collect();
     let ledger = context.ledger().clone();
-    let major = major_name(&version);
+    let major = version.line().to_string();
     let now = context.now();
     let written = context
         .owner()
@@ -885,45 +874,41 @@ async fn write_managed(context: EngineContext, version: ProductVersion) {
     }
 }
 
-/// Sends each of the Resource governor's samples as `engine.system_info`
-/// to the subscriptions that take it, and records it in the runtime's
-/// metrics, until `token` is cancelled.
-/// The engine's settings, whose host defaults are the keychain's and
-/// Chromium's sandbox probe's. The probe starts now, at startup, once for
-/// the process (ADR 0049); the host's defaults wait for its answer, which
-/// each browser launch reads.
+/// The engine's settings, whose host defaults are `keychain`'s and those of
+/// `probe`, Chromium's sandbox's, their reads counted on `work`. The probe
+/// starts now, at startup (ADR 0049); the host's defaults wait for its
+/// answer, which each browser launch reads.
 fn host_settings(
     files: SettingsFiles,
     product: goodfetch_protocol::catalog::Product,
     owner: &TaskOwner,
-    dependencies: &Dependencies,
+    (keychain, probe): (Keychain, SandboxProbe),
+    work: CountedWork,
 ) -> Settings {
     let probing = Arc::new(owner.child());
-    let environment = Arc::new(dependencies.environment.clone());
     {
-        let (probing, environment) = (Arc::clone(&probing), Arc::clone(&environment));
+        let (probing, probe) = (Arc::clone(&probing), probe.clone());
         owner.spawn(async move {
             probing
                 .blocking(move || {
-                    sandbox_probe::probed_in(&environment);
+                    probe.probed();
                 })
                 .await;
         });
     }
-    let keychain = dependencies.keychain.clone();
-    let work = dependencies.run_state.work.clone();
     Settings::with_host(files, product, owner.child(), work, move || {
         let keychain = keychain.clone();
-        let (probing, environment) = (Arc::clone(&probing), Arc::clone(&environment));
+        let (probing, probe) = (Arc::clone(&probing), probe.clone());
         Box::pin(async move {
-            let probed = probing
-                .blocking(move || sandbox_probe::probed_in(&environment))
-                .await;
-            sandbox_probe::host_defaults(secrets::host_defaults(&keychain).await, probed)
+            let probed = probing.blocking(move || probe.probed().clone()).await;
+            sandbox_probe::host_defaults(secrets::host_defaults(&keychain).await, &probed)
         })
     })
 }
 
+/// Sends each of the Resource governor's samples as `engine.system_info`
+/// to the subscriptions that take it, and records it in the runtime's
+/// metrics, until `token` is cancelled.
 async fn report_samples(
     mut samples: watch::Receiver<Option<SystemInfo>>,
     events: Events,

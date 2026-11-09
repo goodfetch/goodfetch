@@ -15,7 +15,7 @@ use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 
 /// A seed of the crawl, on a host no request reaches: the handler answers
 /// each page without fetching it.
@@ -66,7 +66,7 @@ fn left_at(cause: &str, count: u64) -> Value {
 /// as an engine started afterwards reads them.
 fn finished(run_id: &str, seeds: &[Value], settings: &Value) -> (Value, Value, Value) {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     engine.call(
         "start",
         "crawl.start",
@@ -79,16 +79,16 @@ fn finished(run_id: &str, seeds: &[Value], settings: &Value) -> (Value, Value, V
         &json!({ "run_id": run_id }),
         &mut |params| Some(answer(params)),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let again = engine.call(
         "again",
         "run.finish",
         &json!({ "run_id": run_id }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     let axis = |report: &Value| {
         (
             report["result"]["completeness"].clone(),
@@ -151,7 +151,7 @@ fn each_reason_gives_its_completeness_with_its_count(
 #[test]
 fn a_stopped_crawl_is_incomplete_counting_the_requests_it_left() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     engine.call(
         "start",
         "crawl.start",
@@ -164,7 +164,7 @@ fn a_stopped_crawl_is_incomplete_counting_the_requests_it_left() {
         &json!({ "run_id": "stopped" }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (

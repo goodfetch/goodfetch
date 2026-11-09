@@ -46,6 +46,7 @@ use serde_json::{Map, Value, json};
 
 use crate::env::{TestEnv, command};
 use crate::proving_ground::{ProvingGround, ProvingGroundError};
+use crate::proving_ground_format::ROUTES;
 use crate::variables::{ENGINE_VARIABLE, RESULT_DOCUMENTS_VARIABLE, Variables};
 
 /// The runtime a Rust variant records.
@@ -607,7 +608,7 @@ impl<C> JourneyRun<C> {
         let mut body = Map::new();
         body.insert("task".to_owned(), json!(task));
         body.extend(fields.clone());
-        let url = format!("http://{}/oracle", proving_ground.address());
+        let url = format!("http://{}{}", proving_ground.address(), ROUTES.oracle);
         let mut response = self
             .agent
             .post(&url)

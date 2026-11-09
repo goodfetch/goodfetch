@@ -8,7 +8,7 @@ use regex::Regex;
 use serde_json::{Map, Value, json};
 
 use crate::crawler::{Crawler, Fetched, field};
-use crate::proving_ground::ProvingGround;
+use crate::proving_ground::{ProvingGround, submission};
 
 const SEED: u64 = 1538;
 const TASK: &str = "fields/1";
@@ -63,18 +63,12 @@ fn crawl(proving_ground: &ProvingGround) -> Vec<Value> {
     records(&Crawler::new(proving_ground).crawl(&start))
 }
 
-fn judge(proving_ground: &ProvingGround, records: &[Value]) -> Value {
-    proving_ground
-        .judge(&json!({ "task": TASK, "status": "success", "records": records }))
-        .json()
-}
-
 #[test]
 fn a_crawl_that_keeps_every_field_of_every_record_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let records = crawl(&proving_ground);
 
-    let answer = judge(&proving_ground, &records);
+    let answer = proving_ground.judge(&submission(TASK, "success", &records));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
     assert_eq!(records.len(), 24, "{answer}");
@@ -96,7 +90,7 @@ fn a_crawl_whose_columns_are_its_first_records_is_a_false_success_naming_each_dr
     let proving_ground = ProvingGround::start(SEED);
     let records = columns_of_the_first(&crawl(&proving_ground));
 
-    let answer = judge(&proving_ground, &records);
+    let answer = proving_ground.judge(&submission(TASK, "success", &records));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["missing"], json!([]), "{answer}");

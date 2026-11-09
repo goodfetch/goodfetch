@@ -9,12 +9,12 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, TestEnv};
-use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
 use crate::frontier::{Inside, added, crawl_declaring, crawl_under};
+use crate::{attached, run_file};
 
 /// The crawl's one seed.
 const SEED: &str = "https://shop.test/a";
@@ -98,17 +98,6 @@ pub(crate) fn keys(env: &TestEnv, run_id: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-pub(crate) fn run_file(env: &TestEnv, run_id: &str) -> Connection {
-    Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap()
-}
-
 /// The handler's answer that commits one Record naming its page.
 fn record_the_page(handle: &Value) -> Value {
     json!({ "result": { "records": [{ "dataset": "pages", "data": { "page": handle["crawl_request"]["url"] } }] } })
@@ -124,7 +113,7 @@ fn record_the_page(handle: &Value) -> Value {
 #[test]
 fn a_failed_attempts_enqueues_seeds_and_keys_are_discarded_and_its_retry_commits_its_own() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let mut staged = Vec::new();
     let mut handled = Vec::new();
 
@@ -146,7 +135,7 @@ fn a_failed_attempts_enqueues_seeds_and_keys_are_discarded_and_its_retry_commits
             }
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let deleted = json!({ "existed": true });
     assert_eq!(
@@ -205,7 +194,7 @@ fn kept_bytes() -> String {
 #[test]
 fn a_failed_attempts_bytes_inline_or_kept_are_discarded_and_its_retry_commits_its_own() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let mut read = Vec::new();
 
     crawl_under(
@@ -242,7 +231,7 @@ fn a_failed_attempts_bytes_inline_or_kept_are_discarded_and_its_retry_commits_it
             }
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let rows: Vec<(String, Option<Vec<u8>>, Option<i64>)> = run_file(&env, "bytes")
         .prepare("SELECT key, content, file FROM key_values ORDER BY key")
@@ -251,12 +240,7 @@ fn a_failed_attempts_bytes_inline_or_kept_are_discarded_and_its_retry_commits_it
         .unwrap()
         .map(Result::unwrap)
         .collect();
-    let kept = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join("bytes")
-        .join("files");
+    let kept = HomeLayout::of(env.home()).run_folder("bytes").join("files");
     #[expect(
         clippy::disallowed_methods,
         reason = "the test lists the run folder's kept files on its own thread, never an async worker"
@@ -280,7 +264,7 @@ fn a_failed_attempts_bytes_inline_or_kept_are_discarded_and_its_retry_commits_it
 #[test]
 fn an_attempt_that_fails_for_good_leaves_no_link_seed_or_key() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let mut handled = 0;
 
     crawl_under(
@@ -294,7 +278,7 @@ fn an_attempt_that_fails_for_good_leaves_no_link_seed_or_key() {
             json!({ "error": { "code": -32003, "message": "my bug", "data": { "code": "handler_failed", "retryable": false } } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (handled, work_items(&env, "failed"), keys(&env, "failed")),
@@ -343,7 +327,7 @@ fn an_escalated_attempts_first_run_leaves_none_of_what_it_staged() {
             }
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let from = |tier: &str| proving_ground.url("rendered.test", &format!("/feed?from={tier}"));
     assert_eq!(

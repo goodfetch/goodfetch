@@ -42,10 +42,13 @@
 //! recorded for every run sharing the domain, the lease renewed through
 //! the wait as through a handler page's wait for a permit (ADR 0093). While
 //! `site_preferences.respect_robots_txt` is on, a request robots.txt
-//! disallows is never sent and ends `skipped` with `robots_txt`; one whose
-//! robots.txt cannot be read, with no earlier copy, is not sent either, the
+//! disallows is never sent and ends `skipped` with `robots_txt`, before
+//! any wait for its domain's delay; one whose robots.txt, or a redirect
+//! hop's, cannot be read, with no earlier copy, is not sent either, the
 //! failed fetch counting as one of its attempts and backing its domain
-//! off, and it ends `skipped` with `robots_txt` once its retries ran out.
+//! off, unless it is a hop's on another domain key, which says nothing of
+//! the request's own; and it ends `skipped` with `robots_txt` once its
+//! retries ran out.
 //! While it is off, robots.txt is read only while
 //! `site_preferences.mark_robots_txt_ignored` marks the Records taken
 //! against it or the AI-use signals are honoured; otherwise it is neither
@@ -77,10 +80,11 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::{RunSettings, get_or_default};
+use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
-    Capture, Chosen, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL, PooledSession,
-    ReplayPlan, Requester, RunHandOver, SignalFiles, Stop, TierChoice, infer_plan, tier_serves,
+    Capture, Chosen, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL, PageFacts,
+    PooledSession, ReplayPlan, Request, Requester, RunHandOver, SitePreferences, Stop, TierChoice,
+    infer_plan, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -95,8 +99,7 @@ use goodfetch_protocol::foxhound::progress::InFlightPhase;
 use goodfetch_protocol::foxhound::provenance::{CertificateExceptionMark, EncodingProvenance};
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::foxhound::settings::{
-    POLITENESS_DOMAIN_ADAPTIVE_DELAY, POLITENESS_DOMAIN_DELAY, SITE_PREFERENCES_MAX_CRAWL_DELAY,
-    SITE_PREFERENCES_RESPECT_ROBOTS_TXT, SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT,
+    POLITENESS_DOMAIN_ADAPTIVE_DELAY, POLITENESS_DOMAIN_DELAY,
 };
 use goodfetch_protocol::page::{NAVIGATION_FAILED, PageId, PageResponse};
 use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
@@ -122,20 +125,16 @@ mod sitemap_fetch;
 
 use learning::learn;
 pub(super) use learning::{Taught, learns};
-use site_preferences::{
-    escaped_refusal, honoured_purpose, read_robots_txt, reads_robots_txt, respects_robots_txt,
-    robots_txt_ignored, robots_txt_refusal, share_robots_txt, use_signals_declared,
-    use_signals_refusal,
-};
+use site_preferences::{escaped_refusal, share_robots_txt};
 
 /// The Error code of a page the site refused, which Collie's page raises
-/// with the Block cause in its details (ADRs 0035 and 0079); declared with
-/// the page's errors (#711).
-const BLOCKED: &str = "blocked";
+/// with the Block cause in its details (ADRs 0035 and 0079), and the call
+/// that moves a request to the browser when a Challenge escalates it.
+const BLOCKED: &str = goodfetch_protocol::page::BLOCKED.name;
 
 /// The Error code of a page that failed its Page check (ADR 0006), which
-/// scores its Session down; declared with the Page check (area 5).
-const PAGE_CHECK_FAILED: &str = "page_check_failed";
+/// scores its Session down.
+const PAGE_CHECK_FAILED: &str = goodfetch_protocol::page::PAGE_CHECK_FAILED.name;
 
 /// How an attempt ended, before its outcome is committed.
 pub(super) enum Answer {
@@ -158,6 +157,9 @@ pub(super) enum Answer {
     /// earlier copy to apply, for the reason given: the request was not
     /// sent, and the failed fetch counts as one of its attempts (ADR 0086).
     RobotsTxtUnreachable(String),
+    /// The same of a redirect hop on another domain key than the request's:
+    /// counted alike, but it says nothing of the request's own domain.
+    HopsRobotsTxtUnreachable(String),
     /// A sitemap's fetch read what its sitemap lists (ADR 0093): no
     /// handler ran.
     SitemapRead(sitemap::Document),
@@ -244,47 +246,42 @@ const BROWSER: TierChoice = TierChoice {
 };
 
 /// What every attempt of `run` hands over alike with its pages, built once
-/// as its delivery opens, never per attempt (ADR 0138): its settings as
-/// the navigation gate reads them, the Politeness it shares, robots.txt
-/// and the AI-use signal files fetched on `http`, the Run's HTTP tier,
-/// whose address check judges each redirect hop, and `egress`, its domain
-/// policy.
+/// as its delivery opens, never per attempt (ADR 0138): its `settings` as
+/// the navigation gate and the site's preferences read them, the
+/// Politeness it shares, robots.txt and the AI-use signal files fetched on
+/// `http`, the Run's HTTP tier, whose address check judges each redirect
+/// hop, and `egress`, its domain policy.
 pub(super) async fn run_hand_over(
     run: &Run,
+    settings: &Resolved,
     http: Option<&HttpTier>,
     egress: &Arc<Policy>,
 ) -> Arc<RunHandOver> {
-    let settings = run.settings().map(RunSettings::resolved);
-    // A crawl whose Politeness paces nothing records no start, send or
-    // latency in it (ADR 0138).
-    let politeness = if settings.is_none_or(goodfetch_frontier::paces) {
-        share_robots_txt(run).await
+    let site_preferences = SitePreferences::of(settings);
+    // The Run reads robots.txt from the copy its user's runs share in the
+    // Politeness file (ADR 0086); a crawl whose Politeness paces nothing
+    // records no start, send or latency in it (ADR 0138).
+    let paces = goodfetch_frontier::paces(settings);
+    let shared = if paces
+        || site_preferences.reads_robots_txt(Request::CrawlRequest)
+        || site_preferences.reads_robots_txt(Request::Navigation)
+    {
+        share_robots_txt(run, settings).await
     } else {
         None
     };
     Arc::new(RunHandOver {
         run: run.clone(),
-        keys: settings.map(DomainKeys::of).unwrap_or_default(),
-        politeness,
+        keys: DomainKeys::of(settings),
+        politeness: shared.clone().filter(|_| paces),
+        shared_politeness: shared,
         robots: http.map(HttpTier::robots_txt_fetch),
-        operator_token: settings.and_then(|settings| {
-            settings
-                .value(&SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT)
-                .as_str()
-                .map(str::to_owned)
-        }),
         domain_delay: settings
-            .and_then(|settings| settings.get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY))
+            .get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY)
             .unwrap_or_default(),
-        adaptive_delay: get_or_default(settings, &POLITENESS_DOMAIN_ADAPTIVE_DELAY),
-        pace: settings
-            .map(goodfetch_frontier::Pace::of)
-            .unwrap_or_default(),
-        respect_robots_txt: get_or_default(settings, &SITE_PREFERENCES_RESPECT_ROBOTS_TXT),
-        max_crawl_delay: settings
-            .map(|settings| settings.get::<Duration>(&SITE_PREFERENCES_MAX_CRAWL_DELAY)),
-        use_signals: settings.and_then(honoured_purpose),
-        signal_files: SignalFiles::default(),
+        adaptive_delay: settings.get(&POLITENESS_DOMAIN_ADAPTIVE_DELAY),
+        pace: goodfetch_frontier::Pace::of(settings),
+        site_preferences,
         egress: Arc::clone(egress),
         addresses: http.map(HttpTier::address_check),
     })
@@ -468,7 +465,7 @@ pub(super) async fn attempt(
             answer
         }
         (AttemptPlan::Sample(sample), Some(http)) => {
-            let (answer, learned, weighed) = on.sample(&tiering, http).await;
+            let (answer, learned, weighed) = Box::pin(on.sample(&tiering, http)).await;
             merged = learned;
             sampled = weighed.map(|weighed| (sample.clone(), weighed));
             answer
@@ -507,6 +504,24 @@ pub(super) async fn attempt(
         sampled,
         raced,
     }
+}
+
+/// What a run on a document tier finds of its served page before the
+/// Frontier learns from it or its handler runs, in the one order every
+/// run checks it: a document only a guess could read first (ADR 0119), then
+/// a Challenge the Block classification finds; each caller then runs the
+/// Page check on a page that is neither ([`judged`]).
+enum Found {
+    /// The document declares no encoding and is not UTF-8: the call that
+    /// escalates it to the browser, which reads it, under `auto`.
+    Unreadable(&'static str),
+    /// A Challenge of this cause, which checks the browser: under `auto`
+    /// the request moves there, and under a forced tier it ends with this
+    /// `blocked` (`escalation`). Other Block causes still reach the handler
+    /// until the proxy-tier escalation ends them (#1137).
+    Challenge(BlockCause, CallError),
+    /// Neither: the Page check comes next.
+    Readable,
 }
 
 /// A page a tier served for an attempt, held until it is handed out
@@ -614,13 +629,13 @@ impl On<'_> {
         action
     }
 
-    /// The call that escalated the served page `page_id` once its handler
-    /// answered, if one did: `blocked` names a Challenge or a captcha the
-    /// handler's own navigation met under `auto`, which moved the request
-    /// to the browser, a move noted as [`On::on_block`] notes one, for its
-    /// domain to learn (spec #600).
-    fn escalated(&self, tiers: &FetchTiers, page_id: &PageId) -> Option<&'static str> {
-        let escalated = tiers.escalated(page_id);
+    /// The call that escalated a served page, as it closed once its
+    /// handler answered (`closed`), if one did: `blocked` names a Challenge
+    /// or a captcha the handler's own navigation met under `auto`, which
+    /// moved the request to the browser, a move noted as [`On::on_block`]
+    /// notes one, for its domain to learn (spec #600).
+    fn escalated(&self, closed: Option<PageFacts>) -> Option<&'static str> {
+        let escalated = closed.and_then(|facts| facts.escalated);
         if escalated == Some(BLOCKED) {
             // Set once: a second move says nothing more.
             let _ = self.moved.set(());
@@ -878,73 +893,35 @@ impl On<'_> {
         } else {
             http
         };
-        let page_id = self
+        let (served, facts) = self
             .document(tiering, http, choice, hand_over)
             .await
-            .map_err(|answer| (answer, Taught::default()))?
-            .keep();
-        *self.document.lock().await = tiers.response(&page_id);
+            .map_err(|answer| (answer, Taught::default()))?;
+        let page_id = served.keep();
+        *self.document.lock().await = facts.response.clone();
         // A `discovered_api` page replays its Label's calls (ADR 0020).
         if let Some(plan) = plan {
             tiers.replay_on(&page_id, plan.clone());
         }
-        // A document only a guess could read escalates at once under
-        // `auto`, before the Frontier learns from it or its handler runs
-        // (ADR 0119).
-        if let Some(call) = tiers.escalated(&page_id) {
-            tiers.close(&page_id);
-            record_tier(run, leased, lease, choice, how, None, None).await;
-            let message =
-                "The document declares no encoding and is not UTF-8: only the browser reads it.";
-            return Ok((
-                escalated_unhandled(ATTEMPT_ENDED.name, message, call),
-                Taught::default(),
-            ));
-        }
-        if let Some(challenged) = self.challenged(tiers, &page_id, choice, how).await {
-            return challenged;
-        }
-        let encoding = tiers.encoding(&page_id);
-        let certificate_exception = tiers.certificate_exception(&page_id);
-        record_tier(
-            run,
-            leased,
-            lease,
-            choice,
-            how,
-            encoding.clone(),
-            certificate_exception,
-        )
-        .await;
-        match judged(run, tiering, &page_id).await {
-            Some(Judged::Passed) | None => {}
-            Some(Judged::Failed(error)) => {
-                tiers.close(&page_id);
-                return Err((failed(&error), Taught::default()));
-            }
-            Some(Judged::Escalated) => {
-                tiers.close(&page_id);
-                // Its handler never ran: the run escalates at the Page
-                // check, and the caller runs the request in the browser.
-                let message = "The page failed its expected page on a tier short of the browser.";
-                return Ok((
-                    escalated_unhandled(PAGE_CHECK_FAILED, message, PAGE_CHECK_CALL),
-                    Taught::default(),
-                ));
-            }
+        if let Some(ended) = self
+            .ended_unhandled(tiering, &page_id, &facts, (choice, how))
+            .await
+        {
+            return ended;
         }
         let merged = self.taught(tiers, &page_id, how).await;
         self.in_flight
             .lock()
             .await
             .went_on(run, &leased.crawl_request.id, InFlightPhase::Handling);
-        let document = tiers.not_document(&page_id).is_none();
-        let url = tiers.response(&page_id).map(|response| response.url);
-        let params = self.params(
-            Some(choice.tier),
-            Some(page_id.clone()),
-            tiers.response(&page_id),
-        );
+        let PageFacts {
+            response,
+            not_document,
+            encoding,
+            ..
+        } = facts;
+        let url = response.as_ref().map(|response| response.url.clone());
+        let params = self.params(Some(choice.tier), Some(page_id.clone()), response);
         let handed_over = tiers.hand_over(Arc::clone(hand_over));
         let answer = handled(
             run,
@@ -955,13 +932,12 @@ impl On<'_> {
         )
         .await;
         drop(handed_over);
-        let escalated = self.escalated(tiers, &page_id);
-        tiers.close(&page_id);
+        let escalated = self.escalated(tiers.close(&page_id));
         Ok((
             HttpRun {
                 answer,
                 escalated,
-                document,
+                document: not_document.is_none(),
                 encoding: encoding.map(|encoding| encoding.encoding),
                 url,
             },
@@ -989,36 +965,92 @@ impl On<'_> {
         .await
     }
 
-    /// How the run on `choice`, its page `page_id` served, ends when the
-    /// Block classification finds a Challenge on it: under `auto` it moves
-    /// to the browser, before the Frontier learns from its page or its
-    /// handler runs, and under a forced tier it ends `blocked`
-    /// (`escalation`); `None` for any other page. Other Block causes still
-    /// reach the handler until the proxy-tier escalation ends them (#1137).
-    async fn challenged(
+    /// How the run `how` names on `choice` ends before its handler runs,
+    /// its page `page_id` served with `facts`, by what it found of the page
+    /// ([`Found`]), the page closed; `None` when its handler runs. Records
+    /// the tier the run took either way.
+    async fn ended_unhandled(
         &self,
-        tiers: &FetchTiers,
+        tiering: &Tiering,
         page_id: &PageId,
-        choice: &TierChoice,
-        how: Chosen,
+        facts: &PageFacts,
+        (choice, how): (&TierChoice, Chosen),
     ) -> Option<Result<(HttpRun, Taught), (Answer, Taught)>> {
-        let (block, error) = tiers
+        let (run, leased, lease) = (self.run, self.leased, self.lease);
+        let tiers = &tiering.tiers;
+        match self.found(tiering, page_id, facts).await {
+            Found::Unreadable(call) => {
+                tiers.close(page_id);
+                record_tier(run, leased, lease, choice, how, None, None).await;
+                let message = "The document declares no encoding and is not UTF-8: only the browser reads it.";
+                return Some(Ok((
+                    escalated_unhandled(ATTEMPT_ENDED.name, message, call),
+                    Taught::default(),
+                )));
+            }
+            Found::Challenge(cause, error) => {
+                tiers.close(page_id);
+                record_tier(run, leased, lease, choice, how, None, None).await;
+                return Some(match self.on_block(cause, choice) {
+                    Action::MoveToBrowser => Ok((
+                        escalated_unhandled(
+                            BLOCKED,
+                            "A Challenge met on a tier short of the browser moved the request there.",
+                            BLOCKED,
+                        ),
+                        Taught::default(),
+                    )),
+                    Action::Blocked => Err((failed(&error), Taught::default())),
+                });
+            }
+            Found::Readable => {}
+        }
+        record_tier(
+            run,
+            leased,
+            lease,
+            choice,
+            how,
+            facts.encoding.clone(),
+            facts.certificate_exception.clone(),
+        )
+        .await;
+        match judged(run, tiering, page_id).await {
+            Some(Judged::Passed) | None => None,
+            Some(Judged::Failed(error)) => {
+                tiers.close(page_id);
+                Some(Err((failed(&error), Taught::default())))
+            }
+            Some(Judged::Escalated) => {
+                tiers.close(page_id);
+                // Its handler never ran: the run escalates at the Page
+                // check, and the caller runs the request in the browser.
+                let message = "The page failed its expected page on a tier short of the browser.";
+                Some(Ok((
+                    escalated_unhandled(PAGE_CHECK_FAILED, message, PAGE_CHECK_CALL),
+                    Taught::default(),
+                )))
+            }
+        }
+    }
+
+    /// What a run finds of its served page `page_id`, whose `facts` it
+    /// read as it was served, before the Frontier learns from it or its
+    /// handler runs, checked in one order on every document tier, a tier
+    /// race's browser-fetch included ([`Found`]).
+    async fn found(&self, tiering: &Tiering, page_id: &PageId, facts: &PageFacts) -> Found {
+        if let Some(call) = facts.escalated {
+            return Found::Unreadable(call);
+        }
+        if let Some((block, error)) = tiering
+            .tiers
             .block(page_id)
             .await
-            .filter(|(block, _)| block.checks_the_browser())?;
-        tiers.close(page_id);
-        record_tier(self.run, self.leased, self.lease, choice, how, None, None).await;
-        Some(match self.on_block(block.cause, choice) {
-            Action::MoveToBrowser => Ok((
-                escalated_unhandled(
-                    BLOCKED,
-                    "A Challenge met on a tier short of the browser moved the request there.",
-                    BLOCKED,
-                ),
-                Taught::default(),
-            )),
-            Action::Blocked => Err((failed(&error), Taught::default())),
-        })
+            .filter(|(block, _)| block.checks_the_browser())
+        {
+            return Found::Challenge(block.cause, error);
+        }
+        Found::Readable
     }
 
     /// The document of the attempt's request fetched on `http` under the
@@ -1026,15 +1058,15 @@ impl On<'_> {
     /// read, and opened as a served page, its pages gated with
     /// `hand_over`; one whose AI-use signals refuse the Run's Purpose is
     /// closed unhandled. Answers the page, held from the moment it was
-    /// served so that dropping the future closes it, or how the attempt
-    /// ended.
+    /// served so that dropping the future closes it, with what it holds of
+    /// its document, read once, or how the attempt ended.
     async fn document<'t>(
         &self,
         tiering: &'t Tiering,
         http: &HttpTier,
         choice: &TierChoice,
         hand_over: &Arc<HandOver>,
-    ) -> Result<Served<'t>, Answer> {
+    ) -> Result<(Served<'t>, PageFacts), Answer> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let requester = Requester {
             request_id: &leased.crawl_request.id,
@@ -1053,27 +1085,9 @@ impl On<'_> {
             biased;
             document = async {
                 address_check(run, http, leased).await?;
-                let read = if reads_robots_txt(run) {
-                    read_robots_txt(run, http, leased, &*hand_over.lease).await
-                } else {
-                    None
-                };
-                if let Some(refused) = robots_txt_refusal(run, leased, read.as_deref()) {
-                    return Err(refused);
-                }
-                if robots_txt_ignored(run, leased, read.as_deref()) {
-                    lease.robots_txt_ignored();
-                }
-                if let Some(refused) = use_signals_declared(
-                    run,
-                    http,
-                    leased,
-                    read.as_deref(),
-                    &hand_over.of_run.signal_files,
-                )
-                .await
-                {
-                    return Err(refused);
+                if let Ok(url) = goodfetch_frontier::Url::parse(&leased.crawl_request.url) {
+                    self.site_preferences_judged(http, Request::CrawlRequest, &url)
+                        .await?;
                 }
                 let served = if choice.tier == FetchTier::LightBrowser {
                     let identity = self.context.identity();
@@ -1099,6 +1113,14 @@ impl On<'_> {
                 served
                     .map_err(|stop| match stop {
                         Stop::Failed(error) => failed(&error),
+                        Stop::RobotsTxtUnreachable {
+                            message,
+                            on_own_domain: true,
+                        } => Answer::RobotsTxtUnreachable(message),
+                        Stop::RobotsTxtUnreachable {
+                            message,
+                            on_own_domain: false,
+                        } => Answer::HopsRobotsTxtUnreachable(message),
                         Stop::Skipped(skip) => {
                             tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, reason = ?skip.reason, message = skip.message, "a redirect hop ended its request skipped");
                             Answer::Refused(skip.reason)
@@ -1111,17 +1133,13 @@ impl On<'_> {
             tiers,
             page_id: Some(fetched?),
         };
-        if let Some(refused) = use_signals_refusal(
-            run,
-            (tiers, http),
-            served.page_id(),
-            &hand_over.of_run.signal_files,
-        )
-        .await
-        {
+        let facts = tiers
+            .facts(served.page_id())
+            .expect("invariant: a served page is open while it is held");
+        if let Some(refused) = self.document_refusal(http, &facts.use_signals).await {
             return Err(refused);
         }
-        Ok(served)
+        Ok((served, facts))
     }
 
     /// The handler request of the attempt on `tier`, given the page
@@ -1576,6 +1594,7 @@ pub(super) fn effect(answer: &Answer) -> Effect {
         })
         | Answer::Refused(_)
         | Answer::RobotsTxtUnreachable(_)
+        | Answer::HopsRobotsTxtUnreachable(_)
         | Answer::SitemapRead(_)
         | Answer::LeaseEnded
         | Answer::ClientGone => Effect::Neutral,

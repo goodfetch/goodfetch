@@ -86,7 +86,7 @@ fn config_explain_names_a_flags_origin() {
         .run()
         .unwrap();
 
-    assert_cli_snapshot!(output, @r"
+    assert_cli_snapshot!(output.without_dispatch_records(), @r"
     exit: 0
     ----- stdout -----
     timeout.navigation = 120000  (run from flag)

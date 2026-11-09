@@ -211,6 +211,111 @@ fn quarantined_test_is_not_stressed() {
     assert_eq!(selection, expected);
 }
 
+/// `steady.rs`'s `flaky` test on the quarantine list, alone.
+const FLAKY_ON_THE_LIST: &[u8] = b"[[test]]\nrunner = \"nextest\"\nid = \"stressed steady::tests::flaky\"\nissue = 1601\ndate = 2026-10-18\n";
+
+/// A base whose quarantine list holds no test.
+fn base_with_an_empty_list() -> (Workspace, String) {
+    let workspace = Workspace::from_fixture("stress");
+    workspace.install_runners();
+    workspace.write("quarantine.toml", b"");
+    let base = workspace.commit_all();
+    (workspace, base)
+}
+
+/// Commits `flaky` onto the quarantine list, then commits it off.
+fn quarantine_and_lift_flaky(workspace: &Workspace) {
+    workspace.write("quarantine.toml", FLAKY_ON_THE_LIST);
+    workspace.commit_all();
+    workspace.write("quarantine.toml", b"");
+    workspace.commit_all();
+}
+
+/// The base's list never held it and its file is as the base has it, so
+/// nothing but the branch's commits say it was ever quarantined.
+#[test]
+fn a_test_quarantined_and_lifted_on_the_branch_runs_200_times_with_its_file_untouched() {
+    let (workspace, base) = base_with_an_empty_list();
+    quarantine_and_lift_flaky(&workspace);
+
+    let selection = select(&workspace, &["--base", &base, "--within", "stressed"]);
+
+    assert_eq!(
+        selection,
+        [selected(
+            UNQUARANTINED,
+            "nextest",
+            "stressed steady::tests::flaky"
+        )]
+    );
+}
+
+/// Its changed file would give it 20 runs: the larger count holds. The
+/// file's other test is only changed.
+#[test]
+fn a_test_quarantined_and_lifted_on_the_branch_runs_200_times_with_its_file_changed() {
+    let (workspace, base) = base_with_an_empty_list();
+    quarantine_and_lift_flaky(&workspace);
+    workspace.edit(
+        "src/steady.rs",
+        "fn flaky() {}",
+        "fn flaky() { let _ = 1; }",
+    );
+    workspace.commit_all();
+
+    let selection = select(&workspace, &["--base", &base, "--within", "stressed"]);
+
+    assert_eq!(
+        selection,
+        [
+            selected(CHANGED, "nextest", "stressed steady::tests::unchanged"),
+            selected(UNQUARANTINED, "nextest", "stressed steady::tests::flaky"),
+        ]
+    );
+}
+
+/// The merge leaves the list as both its parents have it, so Git's default
+/// history of the file leaves out the side branch that held the entry.
+#[test]
+fn a_test_quarantined_and_lifted_on_a_merged_branch_runs_200_times() {
+    let (workspace, base) = base_with_an_empty_list();
+    workspace.git(&["switch", "--quiet", "--create", "side"]);
+    quarantine_and_lift_flaky(&workspace);
+    workspace.git(&["switch", "--quiet", "--detach", &base]);
+    workspace.write("notes.txt", b"a commit the side branch lacks\n");
+    workspace.commit_all();
+    workspace.git(&["merge", "--quiet", "--no-ff", "--no-edit", "side"]);
+
+    let selection = select(&workspace, &["--base", &base, "--within", "stressed"]);
+
+    assert_eq!(
+        selection,
+        [selected(
+            UNQUARANTINED,
+            "nextest",
+            "stressed steady::tests::flaky"
+        )]
+    );
+}
+
+/// The other workspace builds a test of its own after this one is copied and
+/// frees its target folder first. Were this one to take that folder then, its
+/// older sources would read as already built, and its listing would hold the
+/// other's test.
+#[test]
+fn a_workspace_lists_its_own_tests_whatever_another_built_since_its_copy() {
+    let (workspace, base) = base_with_an_empty_list();
+    let (other, other_base) = base_with_an_empty_list();
+    other.edit("src/changed.rs", "fn kept() {}", &rstest_cases(&["case_1"]));
+    other.commit_all();
+    select(&other, &["--base", &other_base, "--within", "stressed"]);
+    drop(other);
+
+    let selection = select(&workspace, &["--base", &base, "--within", "stressed"]);
+
+    assert!(selection.is_empty(), "{selection:?}");
+}
+
 /// A runner may hold no test, as Playwright before the first Playwright
 /// test exists: it lists none, and the others' tests are still chosen.
 #[test]
@@ -771,6 +876,60 @@ fn a_red_stress_run_stops_at_the_end_of_its_first_red_iteration() {
         "{:?}",
         ran.calls
     );
+}
+
+/// How many times a run built the test tool manifest.
+#[cfg(unix)]
+fn test_tools_builds(ran: &Ran) -> usize {
+    ran.calls
+        .iter()
+        .filter(|call| call.contains(" -- test-tools "))
+        .count()
+}
+
+/// A stress run builds the test tool manifest once, for its listings and
+/// every count's runs alike.
+#[cfg(unix)]
+#[test]
+fn a_stress_run_builds_the_test_tools_once() {
+    let recipes =
+        recipes("20\tnextest\tsample tests::steady\n200\tnextest\tsample tests::steady\n");
+
+    let ran = recipes.just(&["stress", "HEAD"]);
+
+    assert_eq!(ran.code, Some(0), "{}", ran.output);
+    assert_eq!(test_tools_builds(&ran), 1, "{:?}", ran.calls);
+}
+
+/// A test taken off the quarantine list runs its 200 times: the recipe keeps
+/// only the selection lines of a count `xtask stress counts` lists, so a
+/// count it stopped listing would run nothing, in a green job.
+#[cfg(unix)]
+#[test]
+fn a_test_taken_off_the_quarantine_list_runs_its_200_times() {
+    let recipes = recipes("200\tnextest\tsample tests::steady\n");
+
+    let ran = recipes.just(&["stress", "HEAD"]);
+
+    assert_eq!(ran.code, Some(0), "{}", ran.output);
+    assert_eq!(
+        recipes.junit("target/junit/repeat-200"),
+        [("tests::steady".to_owned(), 200, 0)],
+        "{}",
+        ran.output
+    );
+}
+
+/// `just repeat` builds the test tool manifest once before its runs.
+#[cfg(unix)]
+#[test]
+fn a_repeat_run_builds_the_test_tools_once() {
+    let recipes = recipes("");
+
+    let ran = recipes.just(&["repeat", "1", "--test", "nextest=sample tests::steady"]);
+
+    assert_eq!(ran.code, Some(0), "{}", ran.output);
+    assert_eq!(test_tools_builds(&ran), 1, "{:?}", ran.calls);
 }
 
 /// A green stress run still runs each selected test its 20 times.

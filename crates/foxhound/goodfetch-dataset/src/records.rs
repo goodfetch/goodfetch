@@ -189,8 +189,9 @@ const PAGE: usize = 256;
 
 /// A cursor over one Dataset's committed Records that a [`Query`] takes,
 /// read a page of at most 256 at a time in number order, each page after
-/// the last Record the one before held: the one paging every reader of a
-/// Dataset's Records goes through.
+/// the last Record the one before held: the paging of `run.records` and of
+/// an Export; `dataset.page` and the rejected Records' read run their own
+/// SQL.
 #[derive(Clone, Debug)]
 pub(crate) struct Pages {
     dataset: String,
@@ -347,7 +348,7 @@ pub(crate) fn read_values(
 ) -> rusqlite::Result<Vec<CommittedText>> {
     selected(
         connection,
-        "number, data, json_extract(provenance, '$.wall'), committed_at",
+        &format!("number, data, {WALL_MARKER}, committed_at"),
         query,
         most,
         |row| {
@@ -361,6 +362,19 @@ pub(crate) fn read_values(
     )
 }
 
+/// A committed Record's Wall marker, as SQL reads it from its Provenance:
+/// null for a Record read with no Wall in its way (ADR 0052). The one place
+/// that says where the marker is stored.
+const WALL_MARKER: &str = "json_extract(provenance, '$.wall')";
+
+/// The condition that keeps the committed Records the Wall filter bound as
+/// `?{at}` asks for: those with a Wall marker when it is true, those
+/// without one when false, every Record when it is null. Every reader of
+/// a Dataset filters by it: a page of Records and an Export alike.
+pub(crate) fn wall_condition(at: usize) -> String {
+    format!("(?{at} IS NULL OR ({WALL_MARKER} IS NOT NULL) = ?{at})")
+}
+
 /// The rows of `columns` of the committed Records `query` takes, each read
 /// by `row`: the one query every reader of a Dataset filters through.
 fn selected<T>(
@@ -371,11 +385,12 @@ fn selected<T>(
     row: impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
 ) -> rusqlite::Result<Vec<T>> {
     let number = |value: u64| i64::try_from(value).unwrap_or(i64::MAX);
+    let wall = wall_condition(5);
     connection
         .prepare_cached(&format!(
             "SELECT {columns} FROM records
              WHERE dataset = ?1 AND number > ?2 AND number <= ?3
-               AND (?5 IS NULL OR (json_extract(provenance, '$.wall') IS NOT NULL) = ?5)
+               AND {wall}
              ORDER BY number LIMIT ?4"
         ))?
         .query_map(

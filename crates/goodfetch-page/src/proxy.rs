@@ -21,9 +21,10 @@ mod limits;
 mod party;
 mod relay;
 
+pub use relay::accepting;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use data_encoding::BASE64;
 
@@ -244,8 +245,7 @@ fn fits_socks5(
 fn wanted(settings: &Resolved) -> Wanted {
     Wanted {
         kind: settings
-            .value(&PROXY_KIND)
-            .as_str()
+            .get::<Option<&str>>(&PROXY_KIND)
             .and_then(ProxyKind::named),
         country: settings
             .value(&PROXY_COUNTRY)
@@ -253,10 +253,7 @@ fn wanted(settings: &Resolved) -> Wanted {
             .map(CountryCode::parse)
             .transpose()
             .expect("invariant: `proxy.country`'s value was checked against its kind"),
-        sticky_lifetime: settings
-            .value(&PROXY_STICKY_LIFETIME)
-            .as_u64()
-            .map(Duration::from_millis),
+        sticky_lifetime: settings.get(&PROXY_STICKY_LIFETIME),
     }
 }
 
@@ -541,7 +538,9 @@ impl SessionProxy {
         Ok(Self {
             limits,
             server: chosen.server.clone(),
-            bypass: settings.value(&PROXY_BYPASS).as_str().map(str::to_owned),
+            bypass: settings
+                .get::<Option<&str>>(&PROXY_BYPASS)
+                .map(str::to_owned),
             username: chosen.username.clone(),
             password,
             relay: Some(relay),
@@ -603,15 +602,13 @@ impl SessionProxy {
     }
 
     /// The `proxyBypassList` the browser context takes, as Playwright builds
-    /// it from `proxy.bypass`: each entry trimmed, a leading dot made a
-    /// wildcard, and loopback sent through the proxy too.
+    /// it from `proxy.bypass`: each of [`bypass::rules`], a leading dot made
+    /// a wildcard, and loopback sent through the proxy too.
     pub(crate) fn browser_bypass(&self) -> String {
         let mut rules: Vec<String> = self
             .bypass
             .iter()
-            .flat_map(|bypass| bypass.split(','))
-            .map(str::trim)
-            .filter(|rule| !rule.is_empty())
+            .flat_map(|bypass| bypass::rules(bypass))
             .map(|rule| {
                 if rule.starts_with('.') {
                     format!("*{rule}")

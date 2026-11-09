@@ -9,18 +9,17 @@
     reason = "xtask is synchronous; the blocking-process ban targets async crates (STYLE.md)"
 )]
 
-use std::fmt;
 use std::path::Path;
 use std::process::Command;
 
 /// The variables that name a repository or a part of one, which Git itself
 /// clears before it enters another repository (`git rev-parse
-/// --local-env-vars`, Git 2.53).
-const REPOSITORY_VARIABLES: [&str; 15] = [
+/// --local-env-vars`, Git 2.53). That list's `GIT_CONFIG_PARAMETERS` and
+/// `GIT_CONFIG_COUNT` stay set: they carry settings, not a repository, and
+/// are how a container's script names its workspace `safe.directory`.
+const REPOSITORY_VARIABLES: [&str; 13] = [
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_CONFIG",
-    "GIT_CONFIG_PARAMETERS",
-    "GIT_CONFIG_COUNT",
     "GIT_OBJECT_DIRECTORY",
     "GIT_DIR",
     "GIT_WORK_TREE",
@@ -35,40 +34,20 @@ const REPOSITORY_VARIABLES: [&str; 15] = [
 ];
 
 /// Why a Git command gave no output.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub(crate) enum Error {
     /// Git could not be started.
+    #[error("running git {arguments}")]
     Start {
         arguments: String,
         source: std::io::Error,
     },
     /// Git ran and exited unsuccessfully, saying why on its standard error.
+    #[error("git {arguments} failed: {stderr}")]
     Refused { arguments: String, stderr: String },
     /// Git's output is no UTF-8 text.
+    #[error("git {arguments}'s output is no UTF-8 text")]
     NotText { arguments: String },
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Start { arguments, .. } => write!(formatter, "running git {arguments}"),
-            Self::Refused { arguments, stderr } => {
-                write!(formatter, "git {arguments} failed: {stderr}")
-            }
-            Self::NotText { arguments } => {
-                write!(formatter, "git {arguments}'s output is no UTF-8 text")
-            }
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::Start { source, .. } => Some(source),
-            Self::Refused { .. } | Self::NotText { .. } => None,
-        }
-    }
 }
 
 /// `git` as a command run in `folder`, without the repository variables:
@@ -113,6 +92,20 @@ pub(crate) fn text(folder: &Path, arguments: &[&str]) -> Result<String, Error> {
 /// end: an object name, a path.
 pub(crate) fn line(folder: &Path, arguments: &[&str]) -> Result<String, Error> {
     Ok(text(folder, arguments)?.trim().to_owned())
+}
+
+/// The commit `revision` names in `folder`'s repository, which Git reads as
+/// a revision whatever it starts with.
+pub(crate) fn commit(folder: &Path, revision: &str) -> Result<String, Error> {
+    line(
+        folder,
+        &[
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            &format!("{revision}^{{commit}}"),
+        ],
+    )
 }
 
 /// Whether `git <arguments>` in `folder` succeeds, for a question Git

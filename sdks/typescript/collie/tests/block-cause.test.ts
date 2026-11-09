@@ -3,27 +3,19 @@
 // such as Foxhound's `decoy` or a cause a later minor adds, kept as received.
 import type { BlockCause } from "@goodfetch/collie";
 import { test } from "@goodfetch/test-support";
-import { describe, expect, expectTypeOf } from "vitest";
+import { describe, expectTypeOf } from "vitest";
 
-/** A Block cause as an engine's reply carries it, parsed and never checked. */
-function received(wire: string): BlockCause {
-  const parsed: { readonly block_cause: BlockCause } = JSON.parse(
-    JSON.stringify({ block_cause: wire }),
-  );
-  return parsed.block_cause;
-}
+/** The values a generated open type names: its members but the bare string. */
+type Named<Open> = Open extends string ? (string extends Open ? never : Open) : never;
 
 describe("a Block cause", () => {
   test("names each cause Collie produces", () => {
-    expectTypeOf<
+    expectTypeOf<Named<BlockCause>>().toEqualTypeOf<
       "challenge" | "captcha" | "rate_limit" | "ip_block" | "payment_required" | "consent_required"
-    >().toExtend<BlockCause>();
+    >();
   });
 
   test("keeps a cause the package does not know as received", () => {
-    const cause = received("tarpit");
-
     expectTypeOf<"decoy" | "tarpit">().toExtend<BlockCause>();
-    expect(cause).toBe("tarpit");
   });
 });

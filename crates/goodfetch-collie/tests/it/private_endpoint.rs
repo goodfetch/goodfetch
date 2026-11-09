@@ -13,7 +13,9 @@
 
 use std::path::{Path, PathBuf};
 
-use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_protocol::catalog::Product;
+use goodfetch_test_client::DaemonClient;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress, ListenerKind,
     RuntimeFile, TestEnv,
@@ -21,9 +23,9 @@ use goodfetch_test_support::{
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
-use crate::daemon::{RawClient, StopsTheDaemon, json_of, short_idle};
-use crate::run::call;
+use crate::daemon::{StopsTheDaemon, json_of, short_idle};
+use crate::{daemon_client, daemon_hello};
+use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -37,7 +39,7 @@ struct PrivateEndpoint {
 
 /// The private endpoint the engine reports to the Client of its stdio.
 fn reported(engine: &mut Attached) -> PrivateEndpoint {
-    engine.send(&hello("collie", "0.1"));
+    engine.send(&hello(Product::Collie));
     let reply = engine.next().unwrap();
     let reported = reply["result"]["private_endpoint"].clone();
     PrivateEndpoint {
@@ -76,9 +78,9 @@ fn socket_mode(private: &PrivateEndpoint) -> u32 {
 fn an_attached_engine_reports_its_private_endpoint_where_a_second_connection_with_its_token_is_accepted()
  {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = Attached::start(&env, COLLIE);
     let private = reported(&mut engine);
-    let mut second = RawClient::opened_at(&private.address, &token(&private), "collie");
+    let mut second = DaemonClient::opened(&private.address, &daemon_hello(&token(&private)));
 
     let info = second.call(1, "engine.info", &json!({}));
 
@@ -103,10 +105,10 @@ fn an_attached_engine_reports_its_private_endpoint_where_a_second_connection_wit
 #[test]
 fn the_private_endpoint_passes_its_endpoint_table_rows() {
     let env = TestEnv::new();
-    let mut earlier = Attached::start(&env);
+    let mut earlier = Attached::start(&env, COLLIE);
     let expired = token(&reported(&mut earlier));
     let _ = earlier.finish();
-    let mut engine = Attached::start(&env);
+    let mut engine = Attached::start(&env, COLLIE);
     let private = reported(&mut engine);
     let address = match &private.address {
         #[cfg(unix)]
@@ -115,12 +117,7 @@ fn the_private_endpoint_passes_its_endpoint_table_rows() {
         DaemonEndpoint::Unix(_) => unreachable!("a private endpoint listens on TCP here"),
         DaemonEndpoint::Tcp(address) => ListenerAddress::Tcp(*address),
     };
-    let hello = json!({
-        "protocol_version": PROTOCOL_VERSION.to_string(),
-        "surface": "sdk_python",
-        "needs": "collie",
-        "product_version": env!("CARGO_PKG_VERSION"),
-    });
+    let hello = goodfetch_test_client::Hello::needing(Product::Collie).params();
     let listener = Listener::new(
         ListenerKind::PrivateEndpoint,
         Endpoint::JsonRpc {
@@ -141,7 +138,7 @@ fn the_private_endpoint_passes_its_endpoint_table_rows() {
 
 /// The owner the Run index names for `run_id`.
 fn owner(env: &TestEnv, run_id: &str) -> Value {
-    let owner: Option<String> = Connection::open(env.home().join("0.0").join("run-index.sqlite"))
+    let owner: Option<String> = Connection::open(HomeLayout::of(env.home()).run_index())
         .unwrap()
         .query_row(
             "SELECT owner FROM runs WHERE run_id = ?1",
@@ -158,19 +155,14 @@ fn the_daemon_forwards_an_abort_of_an_attached_engines_run_to_its_private_endpoi
     let env = TestEnv::new();
     short_idle(&env, 60_000);
     let _stops = StopsTheDaemon::of(&env, COLLIE);
-    let mut engine = Attached::start(&env);
+    let mut engine = Attached::start(&env, COLLIE);
     let private = reported(&mut engine);
-    call(
-        &mut engine,
-        1,
-        "run.start",
-        &json!({ "run_id": "attached" }),
-    );
+    engine.ask(1, "run.start", &json!({ "run_id": "attached" }));
     let owned = owner(&env, "attached");
     json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
     let found =
         RuntimeFile::read(&RuntimeFile::path(env.home(), env!("CARGO_PKG_VERSION"))).unwrap();
-    let mut client = RawClient::opened(&found, "collie");
+    let mut client = daemon_client(&found);
 
     let aborted = client.call(2, "run.abort", &json!({ "run_id": "attached" }));
 

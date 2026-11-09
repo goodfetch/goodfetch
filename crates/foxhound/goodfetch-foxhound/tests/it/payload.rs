@@ -15,7 +15,7 @@
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::frontier::{Inside, added, crawl_from, not_added};
 
 /// A book's Payload schema: its ISBN, a text, and nothing else.
@@ -74,7 +74,7 @@ fn a_payload_reaches_its_handler_as_given_apart_from_its_identity_and_one_that_d
  {
     let env = TestEnv::new();
     let shelf_payload = json!({ "note": "Ünïcødé ✓", "nested": [1, { "a": null }, 2.5, true] });
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut received = Vec::new();
     let mut answers = Vec::new();
@@ -101,7 +101,7 @@ fn a_payload_reaches_its_handler_as_given_apart_from_its_identity_and_one_that_d
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let invalid = |path: &str| json!({ "code": "payload_invalid", "details": { "label": "book", "issues": [{ "path": path }] } });
     assert_eq!(
@@ -158,7 +158,7 @@ fn holding(handled: &mut Vec<Value>) -> impl FnMut(&Value) -> Option<Value> + '_
 fn a_start_under_its_run_id_after_a_payload_schema_changed_is_refused_when_a_pending_payload_fails_it()
  {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let mut handled = Vec::new();
 
     let started = engine.call(
@@ -199,7 +199,7 @@ fn a_start_under_its_run_id_after_a_payload_schema_changed_is_refused_when_a_pen
         &json!({ "run_id": "changed" }),
         &mut holding(&mut handled),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -242,7 +242,7 @@ fn too_long(size: u64, max_size: u64) -> Value {
 #[test]
 fn a_payload_longer_than_crawl_payload_max_size_is_refused_at_enqueue_naming_the_setting() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut answers = Vec::new();
     let report = crawl_from(
@@ -267,7 +267,7 @@ fn a_payload_longer_than_crawl_payload_max_size_is_refused_at_enqueue_naming_the
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (&report["result"]["lifecycle"], answers),
@@ -286,7 +286,7 @@ fn a_payload_longer_than_crawl_payload_max_size_is_refused_at_enqueue_naming_the
 #[test]
 fn a_seed_past_the_default_64_kib_is_refused_before_its_run_begins() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let refused = engine.call(
         "start",
@@ -301,7 +301,7 @@ fn a_seed_past_the_default_64_kib_is_refused_before_its_run_begins() {
         &mut |_| None,
     );
     let listed = engine.call("list", "run.list", &json!({}), &mut |_| None);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (answer(&refused), &listed["result"]["runs"]),

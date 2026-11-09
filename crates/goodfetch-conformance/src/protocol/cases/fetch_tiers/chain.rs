@@ -17,19 +17,15 @@
 
 use serde_json::{Value, json};
 
-use super::{CRAWL_REQUEST_HANDLE, CRAWL_START, Checks, Connection, Gone, Site};
+use super::{Checks, Connection, Gone, Site};
+use crate::protocol::foxhound::{CRAWL_REQUEST_HANDLE, CRAWL_START, RUN_ADD_SEED, RUN_OUTCOMES};
 use crate::protocol::target::DEADLINE;
+use crate::proving_ground::ObservedRequest;
 use goodfetch_protocol::page::PAGE_FORMATS;
 use goodfetch_protocol::run::RUN_FINISH;
 
 /// The fetch edge pages' host.
 const HOST: &str = "fetch-edge.test";
-
-/// `run.outcomes`, Foxhound's.
-const RUN_OUTCOMES: &str = "run.outcomes";
-
-/// `run.add_seed`, Foxhound's.
-const RUN_ADD_SEED: &str = "run.add_seed";
 
 /// A domain's delay between request starts, which every hop waits out.
 const DOMAIN_DELAY_MS: u64 = 1_500;
@@ -59,14 +55,13 @@ impl Crawled {
 }
 
 /// A seed of `path` on `host`: a `GET`, or `method` with `body` (Base64).
-fn seed(site: &Site, host: &str, path: &str, method: Option<(&str, &str)>) -> Option<Value> {
-    let url = site.named_url(host, path)?;
-    let mut seed = json!({ "url": url, "label": "page" });
+fn seed(site: &Site, host: &str, path: &str, method: Option<(&str, &str)>) -> Value {
+    let mut seed = json!({ "url": site.named_url(host, path), "label": "page" });
     if let Some((method, body)) = method {
         seed["method"] = json!(method);
         seed["body"] = json!(body);
     }
-    Some(seed)
+    seed
 }
 
 /// Crawls `seeds` under `run_id` with `settings` beside `fetch.tier: http`
@@ -77,18 +72,11 @@ fn crawl(
     connection: &mut Connection,
     site: &Site,
     run_id: &str,
-    seeds: Option<Vec<Value>>,
+    seeds: &[Value],
     handlers: usize,
     mut settings: Value,
     checks: &mut Checks,
 ) -> Result<Option<Crawled>, Gone> {
-    checks.check(
-        "the Proving ground serves the fetch edge pages",
-        seeds.is_some(),
-    );
-    let Some(seeds) = seeds else {
-        return Ok(None);
-    };
     settings["fetch"]["tier"] = json!("http");
     let settings = site.mapped(&settings, connection.acts_for_model());
     let id = connection.request(
@@ -164,38 +152,26 @@ fn crawl(
 
 /// The requests the Proving ground received on `host`, in arrival order,
 /// since `serve` started: earlier cases' included.
-fn host_requests(site: &Site, host: &str) -> Vec<Value> {
-    site.proving_ground
-        .received_requests()
-        .unwrap_or_default()
+fn host_requests(site: &Site, host: &str) -> Vec<ObservedRequest> {
+    site.received_requests()
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|seen| seen.split(':').next() == Some(host))
-        })
+        .filter(|request| request.host == host)
         .cloned()
         .collect()
 }
 
 /// The requests the Proving ground received on `host` for `path`, in
 /// arrival order, since `serve` started: earlier cases' included.
-fn requests_for(site: &Site, host: &str, path: &str) -> Vec<Value> {
+fn requests_for(site: &Site, host: &str, path: &str) -> Vec<ObservedRequest> {
     host_requests(site, host)
         .into_iter()
-        .filter(|request| request["target"] == json!(path))
+        .filter(|request| request.target == path)
         .collect()
 }
 
 /// Whether `request` carries the header `name`.
-fn has_header(request: &Value, name: &str) -> bool {
-    request["headers"].as_array().is_some_and(|headers| {
-        headers.iter().any(|pair| {
-            pair[0]
-                .as_str()
-                .is_some_and(|header| header.eq_ignore_ascii_case(name))
-        })
-    })
+fn has_header(request: &ObservedRequest, name: &str) -> bool {
+    request.header(name).is_some()
 }
 
 /// Whether `outcome` ended `kind` with the error or skip reason `code`
@@ -211,9 +187,9 @@ fn ended(outcome: Option<&Value>, kind: &str, code: &str) -> bool {
 /// hop's own request, and the host's request just before that one.
 #[derive(Debug, PartialEq)]
 struct Hop<'a> {
-    from: &'a Value,
-    next: &'a Value,
-    before: &'a Value,
+    from: &'a ObservedRequest,
+    next: &'a ObservedRequest,
+    before: &'a ObservedRequest,
 }
 
 impl Hop<'_> {
@@ -221,34 +197,32 @@ impl Hop<'_> {
     /// the hop's, in microseconds: what the domain's delay spaces, since it
     /// counts between request starts (ADR 0086).
     fn after_the_request_before(&self) -> Option<u64> {
-        arrived(self.next)?.checked_sub(arrived(self.before)?)
+        arrived(self.next).checked_sub(arrived(self.before))
     }
 
     /// The time from the answer that sent the hop to the hop's arrival, in
     /// microseconds: what a `Retry-After` delays, since it counts from the
     /// answer.
     fn after_the_answer(&self) -> Option<u64> {
-        arrived(self.next)?.checked_sub(self.from["timing"]["answered_microseconds"].as_u64()?)
+        arrived(self.next).checked_sub(self.from.timing.answered_microseconds?)
     }
 }
 
 /// When `request` arrived, in microseconds since `serve` started.
-fn arrived(request: &Value) -> Option<u64> {
-    request["timing"]["arrived_microseconds"].as_u64()
+fn arrived(request: &ObservedRequest) -> u64 {
+    request.timing.arrived_microseconds
 }
 
 /// The hop the first request for `from` among `requests`, a host's in
 /// arrival order, led to: the first request for `to` after it. The host's
 /// next request is not always the hop: another seed of the crawl may come
 /// between them.
-fn hop<'a>(requests: &'a [Value], from: &str, to: &str) -> Option<Hop<'a>> {
-    let start = requests
-        .iter()
-        .position(|request| request["target"] == json!(from))?;
+fn hop<'a>(requests: &'a [ObservedRequest], from: &str, to: &str) -> Option<Hop<'a>> {
+    let start = requests.iter().position(|request| request.target == from)?;
     let at = start
         + requests[start..]
             .iter()
-            .position(|request| request["target"] == json!(to))?;
+            .position(|request| request.target == to)?;
     Some(Hop {
         from: &requests[start],
         next: &requests[at],
@@ -264,7 +238,7 @@ pub(super) fn redirect_loop(
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let seeds = [
+    let seeds: Vec<Value> = [
         seed(site, HOST, "/redirect/loop", None),
         seed(site, HOST, "/redirect/hops/5", None),
     ]
@@ -275,7 +249,7 @@ pub(super) fn redirect_loop(
         connection,
         site,
         "conformance-fetch-edge-redirect-loop",
-        seeds,
+        &seeds,
         1,
         settings,
         checks,
@@ -283,7 +257,7 @@ pub(super) fn redirect_loop(
     else {
         return Ok(());
     };
-    let loop_url = site.named_url(HOST, "/redirect/loop").unwrap_or_default();
+    let loop_url = site.named_url(HOST, "/redirect/loop");
     let outcome = crawled.of(&loop_url);
     checks.check(
         "the loop ends `failed` with `too_many_redirects`, not retried",
@@ -303,7 +277,7 @@ pub(super) fn redirect_loop(
         "the loop cost the site `fetch.redirect.max` + 1 requests",
         requests_for(site, HOST, "/redirect/loop").len() == 6,
     );
-    let chain = site.named_url(HOST, "/redirect/hops/5").unwrap_or_default();
+    let chain = site.named_url(HOST, "/redirect/hops/5");
     checks.check(
         "a chain of 5 redirects hands its handler the page it ends on",
         crawled
@@ -323,7 +297,7 @@ pub(super) fn redirect_methods(
     // "q=1", in Base64.
     let body = Some(("POST", "cT0x"));
     let earlier = requests_for(site, HOST, "/target").len();
-    let seeds = [
+    let seeds: Vec<Value> = [
         seed(site, HOST, "/redirect/302", body),
         seed(site, HOST, "/redirect/308", body),
     ]
@@ -333,7 +307,7 @@ pub(super) fn redirect_methods(
         connection,
         site,
         "conformance-fetch-edge-redirect-methods",
-        seeds,
+        &seeds,
         2,
         json!({}),
         checks,
@@ -352,11 +326,11 @@ pub(super) fn redirect_methods(
     let target = requests_for(site, HOST, "/target").split_off(earlier);
     let as_get = target
         .iter()
-        .filter(|request| request["method"] == json!("GET"))
+        .filter(|request| request.method == "GET")
         .collect::<Vec<_>>();
     let as_post = target
         .iter()
-        .filter(|request| request["method"] == json!("POST"))
+        .filter(|request| request.method == "POST")
         .collect::<Vec<_>>();
     checks.check(
         "the 302's hop arrives as a `GET` with no body",
@@ -390,7 +364,7 @@ pub(super) fn not_followed(
         "/redirect/gopher",
         "/redirect/data",
     ];
-    let seeds = failing
+    let seeds: Vec<Value> = failing
         .iter()
         .chain(&["/redirect/301/untyped", "/redirect/301"])
         .map(|path| seed(site, HOST, path, None))
@@ -401,7 +375,7 @@ pub(super) fn not_followed(
         connection,
         site,
         "conformance-fetch-edge-not-followed",
-        seeds,
+        &seeds,
         1,
         settings,
         checks,
@@ -410,7 +384,7 @@ pub(super) fn not_followed(
         return Ok(());
     };
     for path in failing {
-        let url = site.named_url(HOST, path).unwrap_or_default();
+        let url = site.named_url(HOST, path);
         let outcome = crawled.of(&url);
         checks.check(
             format!("{path} ends `failed` with `response_not_ok` at once"),
@@ -418,14 +392,12 @@ pub(super) fn not_followed(
                 && outcome.is_some_and(|outcome| outcome["attempts"] == json!(1)),
         );
     }
-    let listed = site
-        .named_url(HOST, "/redirect/301/untyped")
-        .unwrap_or_default();
+    let listed = site.named_url(HOST, "/redirect/301/untyped");
     checks.check(
         "the listed 301 with neither a type nor a body reaches its handler unfollowed",
         crawled.page_of(&listed) == Some(listed.as_str()),
     );
-    let typed = site.named_url(HOST, "/redirect/301").unwrap_or_default();
+    let typed = site.named_url(HOST, "/redirect/301");
     let outcome = crawled.of(&typed);
     checks.check(
         "the listed 301 typed `text/plain` ends `skipped` with `content_type` at once",
@@ -447,7 +419,7 @@ pub(super) fn gated_hops(
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let seeds = [
+    let seeds: Vec<Value> = [
         seed(site, HOST, "/redirect/robots", None),
         seed(site, HOST, "/redirect/307", None),
     ]
@@ -458,7 +430,7 @@ pub(super) fn gated_hops(
         connection,
         site,
         "conformance-fetch-edge-gated-hops",
-        seeds,
+        &seeds,
         1,
         settings,
         checks,
@@ -466,7 +438,7 @@ pub(super) fn gated_hops(
     else {
         return Ok(());
     };
-    let robots = site.named_url(HOST, "/redirect/robots").unwrap_or_default();
+    let robots = site.named_url(HOST, "/redirect/robots");
     checks.check(
         "a hop robots.txt disallows ends its request `skipped` with `robots_txt`",
         ended(crawled.of(&robots), "skipped", "robots_txt"),
@@ -496,7 +468,7 @@ pub(super) fn frontier_hops(
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let seeds = [
+    let seeds: Vec<Value> = [
         seed(site, HOST, "/target", None),
         seed(site, HOST, "/redirect/302", None),
         seed(site, "scope.test", "/moved", None),
@@ -508,7 +480,7 @@ pub(super) fn frontier_hops(
         connection,
         site,
         "conformance-fetch-edge-frontier-hops",
-        seeds,
+        &seeds,
         1,
         json!({}),
         checks,
@@ -516,7 +488,7 @@ pub(super) fn frontier_hops(
     else {
         return Ok(());
     };
-    let redirect = site.named_url(HOST, "/redirect/302").unwrap_or_default();
+    let redirect = site.named_url(HOST, "/redirect/302");
     checks.check(
         "a redirect to a page admitted for another request ends `skipped` with `duplicate`",
         ended(crawled.of(&redirect), "skipped", "duplicate"),
@@ -525,7 +497,7 @@ pub(super) fn frontier_hops(
         "the admitted page is requested once",
         requests_for(site, HOST, "/target").len() == earlier + 1,
     );
-    let moved = site.named_url("scope.test", "/moved").unwrap_or_default();
+    let moved = site.named_url("scope.test", "/moved");
     checks.check(
         "a redirect leaving the scope ends `skipped` with `out_of_scope`",
         ended(crawled.of(&moved), "skipped", "out_of_scope"),
@@ -555,7 +527,7 @@ pub(super) fn refused_hops(
 ) -> Result<(), Gone> {
     let run_id = "conformance-fetch-edge-refused-hops";
     let control = site.named_url(HOST, "/redirect/hops/1");
-    let refused: Vec<(Option<String>, &str)> = vec![
+    let refused: Vec<(String, &str)> = vec![
         (site.named_url("scope.test", "/moved"), "out_of_scope"),
         (site.named_url(HOST, "/redirect/punycode"), "domain_policy"),
         (site.named_url(HOST, "/redirect/address"), "domain_policy"),
@@ -564,13 +536,6 @@ pub(super) fn refused_hops(
             "domain_policy",
         ),
     ];
-    checks.check(
-        "the Proving ground serves the fetch edge pages",
-        control.is_some() && refused.iter().all(|(url, _)| url.is_some()),
-    );
-    let Some(control) = control else {
-        return Ok(());
-    };
     let earlier_offsite = requests_for(site, "elsewhere.test", "/offsite").len();
     let earlier_target = requests_for(site, "xn--bcher-kva.test", "/target").len();
     let settings = site.mapped(
@@ -585,20 +550,14 @@ pub(super) fn refused_hops(
         connection.acts_for_model(),
     );
     handled_page(connection, run_id, &control, &settings, checks)?;
-    let urls: Vec<&str> = refused
-        .iter()
-        .filter_map(|(url, _)| url.as_deref())
-        .collect();
+    let urls: Vec<&str> = refused.iter().map(|(url, _)| url.as_str()).collect();
     let outcomes = added_live(connection, run_id, &urls)?;
     for (url, reason) in &refused {
         let outcome = outcomes
             .iter()
             .find(|outcome| outcome["request"]["url"] == json!(url));
         checks.check(
-            format!(
-                "`run.outcomes` after `now` yields {} `skipped` with `{reason}`",
-                url.as_deref().unwrap_or_default()
-            ),
+            format!("`run.outcomes` after `now` yields {url} `skipped` with `{reason}`"),
             ended(outcome, "skipped", reason),
         );
     }
@@ -724,11 +683,9 @@ fn added_live(
 /// The requests the Proving ground received for `/address/target`, on any
 /// host.
 fn addressed(site: &Site) -> usize {
-    site.proving_ground
-        .received_requests()
-        .unwrap_or_default()
+    site.received_requests()
         .of_the_case()
-        .filter(|request| request["target"] == json!("/address/target"))
+        .filter(|request| request.target == "/address/target")
         .count()
 }
 
@@ -740,7 +697,7 @@ pub(super) fn redirect_retry_after(
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let seeds = [
+    let seeds: Vec<Value> = [
         seed(site, HOST, "/retry-after/302/seconds", None),
         seed(site, HOST, "/retry-after/302/imf-fixdate/long", None),
     ]
@@ -753,7 +710,7 @@ pub(super) fn redirect_retry_after(
         connection,
         site,
         "conformance-fetch-edge-redirect-retry-after",
-        seeds,
+        &seeds,
         1,
         settings,
         checks,
@@ -761,9 +718,7 @@ pub(super) fn redirect_retry_after(
     else {
         return Ok(());
     };
-    let waited = site
-        .named_url(HOST, "/retry-after/302/seconds")
-        .unwrap_or_default();
+    let waited = site.named_url(HOST, "/retry-after/302/seconds");
     checks.check(
         "the 302's handler is handed its target",
         crawled
@@ -781,9 +736,7 @@ pub(super) fn redirect_retry_after(
         .and_then(Hop::after_the_answer)
         .is_some_and(|gap| gap >= 1_800_000),
     );
-    let long = site
-        .named_url(HOST, "/retry-after/302/imf-fixdate/long")
-        .unwrap_or_default();
+    let long = site.named_url(HOST, "/retry-after/302/imf-fixdate/long");
     let outcome = crawled.of(&long);
     checks.check(
         "one past the bound ends `failed` with `response_unavailable`, not retried",
@@ -837,7 +790,7 @@ pub(super) fn refresh_stubs(
         ),
     ];
     for (name, settings, followed, unfollowed) in runs {
-        let seeds = followed
+        let seeds: Vec<Value> = followed
             .iter()
             .chain(unfollowed)
             .map(|path| seed(site, HOST, path, None))
@@ -846,7 +799,7 @@ pub(super) fn refresh_stubs(
             connection,
             site,
             &format!("conformance-fetch-edge-refresh-{name}"),
-            seeds,
+            &seeds,
             followed.len() + unfollowed.len(),
             settings,
             checks,
@@ -855,7 +808,7 @@ pub(super) fn refresh_stubs(
             return Ok(());
         };
         for path in followed {
-            let url = site.named_url(HOST, path).unwrap_or_default();
+            let url = site.named_url(HOST, path);
             checks.check(
                 format!("under `{name}`, {path}'s handler is handed its target"),
                 crawled
@@ -864,7 +817,7 @@ pub(super) fn refresh_stubs(
             );
         }
         for path in unfollowed {
-            let url = site.named_url(HOST, path).unwrap_or_default();
+            let url = site.named_url(HOST, path);
             checks.check(
                 format!("under `{name}`, {path}'s handler is handed the stub"),
                 crawled.page_of(&url) == Some(url.as_str()),

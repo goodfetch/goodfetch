@@ -26,10 +26,10 @@
 //! since the URL parser reads no host from it.
 //!
 //! Operator-configured endpoints are the second egress class (ADR 0017),
-//! judged through [`Gate::Endpoint`] under an [`EndpointPolicy`]: no run's domain policy applies, and an endpoint
-//! reaches private addresses, so a model on localhost works, unless
-//! `egress.no_private_endpoints`, set in the Operator policy alone, holds
-//! it to globally reachable ones.
+//! judged through [`Gate::Endpoint`] under an [`EndpointPolicy`]: no run's
+//! domain policy applies, and an endpoint reaches private addresses, so a
+//! model on localhost works, unless `egress.no_private_endpoints`, set in the
+//! Operator policy alone, holds it to globally reachable ones.
 
 use std::collections::HashSet;
 use std::hash::{BuildHasherDefault, DefaultHasher};
@@ -52,13 +52,16 @@ use crate::settings::{HostEntry, Resolved};
 
 mod address;
 mod cdp_url;
+mod configured_kinds;
 mod gate;
 mod proxy_script;
+pub mod special_purpose;
 
 pub use address::{AddressClass, classify, classify_socket};
 pub use cdp_url::{
     BrowserLocation, CdpUrlOrigin, CdpUrlRefused, cdp_url_address, judge_cdp_url, judge_unresolved,
 };
+pub use configured_kinds::{CONFIGURED_KINDS, ConfiguredKind, ConfiguredKindClass, EgressClass};
 pub use gate::{Gate, Judged, Passed, Stopped};
 
 #[cfg(test)]

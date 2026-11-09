@@ -61,14 +61,18 @@ pub enum Class {
     ProxyRefusal,
 }
 
-/// The network errors of a site that failed for now: a refused or
-/// timed-out connection, and an HTTP/2 reset such as `ENHANCE_YOUR_CALM`.
-const BACKS_OFF: [&str; 4] = [
-    "ERR_CONNECTION_REFUSED",
-    "ERR_CONNECTION_TIMED_OUT",
-    "ERR_TIMED_OUT",
-    "ERR_HTTP2_PROTOCOL_ERROR",
-];
+/// Whether `error` is a site's that failed for now: a refused or timed-out
+/// connection, an answer that timed out, and an HTTP/2 reset such as
+/// `ENHANCE_YOUR_CALM`.
+fn backs_off(error: &NetError) -> bool {
+    matches!(
+        error,
+        NetError::ConnectionRefused
+            | NetError::ConnectionTimedOut
+            | NetError::TimedOut
+            | NetError::Http2ProtocolError
+    )
+}
 
 /// Who gave `met`: the proxy or the site.
 pub fn party_of(met: Met<'_>) -> Party {
@@ -96,7 +100,9 @@ pub fn class(met: Met<'_>) -> Class {
                 status: 429 | 502, ..
             },
         ) => Class::ProxyRefusal,
-        (Party::Proxy, Met::Failure { error }) if name(error) == "ERR_TUNNEL_CONNECTION_FAILED" => {
+        (Party::Proxy, Met::Failure { error })
+            if NetError::of(error) == NetError::TunnelRefused =>
+        {
             Class::ProxyRefusal
         }
         (Party::Site, Met::Response { status: 429, .. }) => Class::TooManyRequests,
@@ -106,14 +112,9 @@ pub fn class(met: Met<'_>) -> Class {
                 status: 502..=504, ..
             },
         ) => Class::BackOff,
-        (Party::Site, Met::Failure { error }) if BACKS_OFF.contains(&name(error)) => Class::BackOff,
+        (Party::Site, Met::Failure { error }) if backs_off(&NetError::of(error)) => Class::BackOff,
         (Party::Proxy | Party::Site, _) => Class::Done,
     }
-}
-
-/// A network error's name without Chrome's `net::` prefix.
-fn name(error: &str) -> &str {
-    error.strip_prefix("net::").unwrap_or(error)
 }
 
 #[cfg(test)]

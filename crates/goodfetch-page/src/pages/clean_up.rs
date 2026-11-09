@@ -60,10 +60,7 @@ impl ShareMeasure {
     /// The measure the Run's resolved settings `run` choose; the estimate
     /// without any.
     pub(super) fn of(run: Option<&Resolved>) -> Self {
-        match run
-            .map(|run| run.value(&EXTRACTION_REMOVAL_SHARE))
-            .and_then(Value::as_str)
-        {
+        match run.map(|run| run.get::<&str>(&EXTRACTION_REMOVAL_SHARE)) {
             Some("exact") => Self::Exact,
             _ => Self::Estimate,
         }
@@ -160,11 +157,7 @@ pub(super) fn extractor(
     named(page)
         .or(label)
         .or_else(|| named(session))
-        .or_else(|| {
-            run.map(|run| run.value(&CONTENT_EXTRACTOR))
-                .and_then(Value::as_str)
-                .and_then(BuiltIn::named)
-        })
+        .or_else(|| run.and_then(|run| BuiltIn::named(run.get(&CONTENT_EXTRACTOR))))
         .unwrap_or_default()
 }
 

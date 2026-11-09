@@ -1,0 +1,54 @@
+{
+  "$defs": {
+    "ToolStatus": {
+      "description": "What a tool said of its own result, as it submits it to the oracle.",
+      "oneOf": [
+        {
+          "const": "success",
+          "description": "It claims success.",
+          "type": "string"
+        },
+        {
+          "const": "needs-review",
+          "description": "Done, with its success left to a person's review (ADR 0013).",
+          "type": "string"
+        },
+        {
+          "const": "failure",
+          "description": "It claims failure.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "What a test submits to `POST /oracle` for one task: the tool's status\nand the Records it returned. The Proving ground's oracle reads more\nfields, the files a tool downloaded, the Access dimensions and a failing\ntool's error, which a tool that reports them adds.",
+  "properties": {
+    "files": {
+      "default": [],
+      "description": "The files the tool downloaded.",
+      "items": true,
+      "type": "array"
+    },
+    "records": {
+      "default": [],
+      "description": "The Records the tool returned, each with its fields by name.",
+      "items": true,
+      "type": "array"
+    },
+    "status": {
+      "$ref": "#/$defs/ToolStatus",
+      "description": "What the tool said of its result."
+    },
+    "task": {
+      "description": "The task's ID, such as `catalog/2`.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task",
+    "status"
+  ],
+  "title": "OracleSubmission",
+  "type": "object"
+}

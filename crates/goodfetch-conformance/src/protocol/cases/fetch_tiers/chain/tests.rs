@@ -1,17 +1,23 @@
 //! How the redirect chain cases find and time a hop among the requests a
 //! host received.
 
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::hop;
+use crate::proving_ground::ObservedRequest;
 
-/// A request for `target` that arrived at `arrived` µs and was answered
-/// at `answered` µs.
-fn request(target: &str, arrived: u64, answered: u64) -> Value {
-    json!({
-        "target": target,
+/// A `GET` for `target` that arrived at `arrived` µs and was answered at
+/// `answered` µs, as the Proving ground lists it.
+fn request(target: &str, arrived: u64, answered: u64) -> ObservedRequest {
+    serde_json::from_value(json!({
+        "sequence": 0, "connection": 0, "task": null, "host": "fetch-edge.test",
+        "protocol": "http/1.1", "kind": "request", "method": "GET", "target": target,
+        "pseudo_header_order": null, "headers": [], "cookies": [], "message_signature": null,
+        "tls": null, "http2": null, "status": 200,
         "timing": { "arrived_microseconds": arrived, "answered_microseconds": answered },
-    })
+        "bytes": { "received": 0, "sent": 0 },
+    }))
+    .unwrap()
 }
 
 /// Another seed arriving between a redirect and its hop is not the hop:

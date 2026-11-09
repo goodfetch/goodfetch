@@ -16,10 +16,11 @@ use goodfetch_protocol::journey::Journey;
 use goodfetch_protocol::result_document::{
     LoadedDocument, ResultDocument, read, read_journey_document,
 };
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{JourneyRun, ProvingGround, ReceivedRequests, pty};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached_spawned;
 use crate::fetch_tiers::settings;
 use crate::frontier::crawl_from;
 use crate::provenance::{push, records};
@@ -103,7 +104,7 @@ fn crawl(engine: &mut Attached, proving_ground: &ProvingGround, run_id: &str) ->
 fn requests_to_the_site(proving_ground: &ProvingGround) -> usize {
     ReceivedRequests::of(&proving_ground.observations().unwrap())
         .every()
-        .filter(|request| request["host"].as_str() == Some(HOST))
+        .filter(|request| request.host == HOST)
         .count()
 }
 
@@ -129,7 +130,7 @@ fn cli() {
     let mut engine = {
         let mut command = run.env().process_command(run.engine());
         command.arg("attached-engine");
-        Attached::spawned(run.env(), None, &mut command)
+        attached_spawned(run.env(), None, &mut command)
     };
     let mut changed_server: Option<ProvingGround> = None;
     let mut first = Crawled::default();
@@ -209,7 +210,7 @@ fn cli() {
             );
         },
     );
-    assert!(engine.finish(), "the Attached engine ends cleanly");
+    assert!(engine.finished(), "the Attached engine ends cleanly");
     drop(changed_server);
 
     let finished = run.finish().expect("J-032's document is written");

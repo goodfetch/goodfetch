@@ -50,9 +50,7 @@ pub(crate) fn judged(
     options: Value,
 ) -> Value {
     let result = run(id, program, &start_url(proving_ground, id), options);
-    let answer = proving_ground.judge(&result);
-    assert_eq!(answer.status, 200, "{}", answer.body);
-    answer.json()
+    proving_ground.judge(&result)
 }
 
 /// Runs `program` on `url` with its `options` (`context` holds the

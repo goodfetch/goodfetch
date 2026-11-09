@@ -14,7 +14,7 @@
 //! again with the calling Connection as its server; with nothing to retry
 //! the Run stays as it is and the answer is 0.
 
-use goodfetch_engine::run::{checkpoint_interval, run_error_of, settings_error, through_owner};
+use goodfetch_engine::run::{checkpoint_interval, run_error, settings_error, through_owner};
 use goodfetch_engine::runs::{Resume, Resumed, Run, RunError};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Handler};
@@ -66,7 +66,7 @@ async fn retry_failed(
     {
         return Ok(answer);
     }
-    let failed = |error: RunError| run_error_of(error, context.identity(), RUN_RETRY_FAILED.name);
+    let failed = |error: RunError| run_error(error, &context);
     let blocked = params.blocked;
     let waiting = context
         .runs()
@@ -119,7 +119,7 @@ async fn reopened(
             retry_failed: true,
         })
         .await
-        .map_err(|error| run_error_of(error, context.identity(), RUN_RETRY_FAILED.name))?;
+        .map_err(|error| run_error(error, &context))?;
     match resumed {
         Resumed::New { run, kind, .. } => {
             let readmitted = readmit(&run, blocked, None).await;

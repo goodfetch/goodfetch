@@ -20,23 +20,14 @@ use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_test_client::hello;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
 /// What the Client sends; each request waits for its reply.
 fn scenario() -> Vec<Value> {
     vec![
-        json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "method": "hello",
-            "params": {
-                "protocol_version": "0.1",
-                "surface": "sdk_python",
-                "needs": "collie",
-                "product_version": "0.0.0",
-            },
-        }),
+        hello(Product::Collie),
         json!({ "jsonrpc": "2.0", "id": 1, "method": "engine.info", "params": {} }),
         json!({ "jsonrpc": "2.0", "method": "$/cancel", "params": { "id": 1 } }),
         json!({ "jsonrpc": "2.0", "id": "echo", "method": "sample.echo", "params": { "text": "é" } }),

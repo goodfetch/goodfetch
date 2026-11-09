@@ -36,6 +36,12 @@ const MOUNT: &str = "set -e; folder=\"$1\"; size=\"$2\"; kept=\"$3\"; shift 3; \
     mount --move \"$folder.kept\" \"$folder/$kept\"; rmdir \"$folder.kept\"; fi; \
     exec \"$@\"";
 
+/// Mounts an empty read-only tmpfs over the folder `$1`, then runs the rest
+/// of the arguments.
+const READ_ONLY_MOUNT: &str = "set -e; folder=\"$1\"; shift; \
+    mount -t tmpfs -o ro tmpfs \"$folder\"; \
+    exec \"$@\"";
+
 /// The Goodfetch home's folder of the engine's JSON log, which the test's
 /// teardown copies into its exercise record (TESTING.md, Feature coverage).
 const LOG_FOLDER: &str = "logs";
@@ -65,7 +71,34 @@ pub fn tmpfs_mounted_home(env: &TestEnv, size: u64, program: &str) -> Command {
     mounted_keeping(env, env.home(), size, program, LOG_FOLDER)
 }
 
-fn mounted_keeping(env: &TestEnv, folder: &Path, size: u64, program: &str, kept: &str) -> Command {
+/// A command that runs `program` with an empty read-only filesystem over
+/// `folder`, in a user and mount namespace of its own, as [`tmpfs_mounted`]
+/// does.
+///
+/// # Panics
+///
+/// As [`tmpfs_mounted`].
+pub fn read_only_mounted(env: &TestEnv, folder: &Path, program: &str) -> Command {
+    let unshare = allowed_unshare(env);
+    std::fs::create_dir_all(folder).expect("the folder to mount over is made");
+    let mut command = env.process_command(unshare);
+    command
+        .args([
+            "--user",
+            "--map-root-user",
+            "--mount",
+            "sh",
+            "-c",
+            READ_ONLY_MOUNT,
+            "sh",
+        ])
+        .arg(folder)
+        .arg(program);
+    command
+}
+
+/// The `unshare` that maps the test's user to root.
+fn allowed_unshare(env: &TestEnv) -> &'static str {
     let unshare = if Path::new(TEST_UNSHARE).exists() {
         TEST_UNSHARE
     } else {
@@ -84,6 +117,11 @@ fn mounted_keeping(env: &TestEnv, folder: &Path, size: u64, program: &str, kept:
          allows it",
         String::from_utf8_lossy(&probe.stderr).trim()
     );
+    unshare
+}
+
+fn mounted_keeping(env: &TestEnv, folder: &Path, size: u64, program: &str, kept: &str) -> Command {
+    let unshare = allowed_unshare(env);
     std::fs::create_dir_all(folder).expect("the folder to mount over is made");
     let mut command = env.process_command(unshare);
     command

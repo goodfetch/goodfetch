@@ -10,6 +10,10 @@ crate = "goodfetch-test-support"
 reason = "test-only: tests take it, no Product ships it (ADR 0062)"
 
 [[bans.deny]]
+crate = "goodfetch-test-client"
+reason = "test-only: the protocol-aware test helpers, which tests take and no Product ships (ADR 0062)"
+
+[[bans.deny]]
 crate = "goodfetch-simulation"
 reason = "test-only: turmoil's network adapter (ADRs 0087 and 0125)"
 

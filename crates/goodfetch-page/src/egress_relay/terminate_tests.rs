@@ -306,6 +306,14 @@ fn through_sending(
 ) -> (Through, Shown, Vec<u8>, Arc<Authority>) {
     let terminating = terminating(stores, trusted);
     let certificate = site_certificate(host, made, trusted);
+    let presented = KeyHash::of_public_key(
+        &X509::from_der(&certificate.0)
+            .unwrap()
+            .public_key()
+            .unwrap()
+            .public_key_to_der()
+            .unwrap(),
+    );
     let received = Received::default();
     let used = Mutex::new(Passed::Not);
     let told = Mutex::new(None);
@@ -337,6 +345,7 @@ fn through_sending(
             terminated,
             passed,
             stopped,
+            presented,
         },
         shown,
         received,
@@ -359,6 +368,8 @@ struct Through {
     passed: Passed,
     /// Why the relay said it stopped it, if it did.
     stopped: Option<Stop>,
+    /// The key of the certificate the site presented.
+    presented: KeyHash,
 }
 
 /// What the relay said of a connection's certificate.
@@ -385,6 +396,7 @@ fn a_listed_hosts_invalid_certificate_passes_under_its_exception_and_the_bytes_g
         terminated: Terminated::Relayed { .. },
         passed: Passed::Through(used),
         stopped: None,
+        ..
     } = through
     else {
         panic!("the connection was not relayed through the exception: {through:?}");
@@ -491,6 +503,7 @@ fn a_listed_host_whose_certificate_verifies_passes_with_no_exception() {
                 terminated: Terminated::Relayed { .. },
                 passed: Passed::Verified,
                 stopped: None,
+                ..
             }
         ),
         "{through:?}"
@@ -574,11 +587,21 @@ fn a_damaged_pin_row_stops_the_host_as_a_changed_key() {
         (
             changed.host.as_str(),
             changed.pinned,
+            changed.presented,
             matches!(through.passed, Passed::Not),
             shown.answer.len(),
             received.len()
         ),
-        ("expired.listed.test", None, true, 0, 0)
+        ("expired.listed.test", None, through.presented, true, 0, 0)
+    );
+    // The wire form names no pin it could not read.
+    assert_eq!(
+        serde_json::to_value(changed.details()).unwrap(),
+        json!({
+            "host": "expired.listed.test",
+            "presented_spki_sha256": through.presented.to_string(),
+            "fix": "A person accepts the new key of expired.listed.test with `certs accept expired.listed.test` in a terminal or the Console, or removes its pin with `certs forget expired.listed.test`; no agent, Recipe or `--json` command can.",
+        })
     );
 }
 

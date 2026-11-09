@@ -16,7 +16,8 @@
 
 use std::net::{SocketAddr, TcpStream};
 
-use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_test_support::{
     AuditUnreadable, DaemonEndpoint, Endpoint, EndpointRunner, Hello, Listener, ListenerAddress,
     ListenerKind, Rule, TestEnv,
@@ -28,9 +29,6 @@ use tungstenite::{Message, WebSocket};
 use crate::daemon_run::{ANY_PORT, Foreground, token};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
-
-/// This commit's Product version.
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// A `daemon run` listening at a free loopback address, once it serves.
 fn exposed(env: &TestEnv) -> (Foreground, SocketAddr) {
@@ -44,12 +42,9 @@ fn exposed(env: &TestEnv) -> (Foreground, SocketAddr) {
 
 /// A `hello`'s params, without its token.
 fn hello_params() -> Value {
-    json!({
-        "protocol_version": PROTOCOL_VERSION.to_string(),
-        "surface": "sdk_typescript",
-        "needs": "collie",
-        "product_version": VERSION,
-    })
+    goodfetch_test_client::Hello::needing(Product::Collie)
+        .surface(Surface::SdkTypescript)
+        .params()
 }
 
 /// The endpoint table's reason each rule's refusal is logged with.

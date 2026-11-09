@@ -2,3 +2,15 @@
 
 /** The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066). */
 export const PROTOCOL_VERSION = "0.1";
+
+/** The Product version this package carries, `hello`'s `product_version`, which each Product's package pins exactly (ADRs 0090 and 0095). */
+export const PRODUCT_VERSION = "0.0.0";
+
+/** The executable's hidden command that serves one Connection over stdio. */
+export const ATTACHED_ENGINE_COMMAND = "attached-engine";
+
+/** The variable naming Collie's executable (ADR 0090). */
+export const COLLIE_ENGINE_PATH_VARIABLE = "GOODFETCH_COLLIE_ENGINE_PATH";
+
+/** The name of Collie's executable (ADR 0090). */
+export const COLLIE_EXECUTABLE = "goodfetch-collie";

@@ -92,13 +92,11 @@ fn a_crawl_while_the_time_step_rises_is_verified_and_one_missing_an_article_is_i
         })
         .collect();
 
-    let verified = proving_ground
-        .judge(&json!({ "task": TASK, "status": "success", "records": records }))
-        .json();
+    let verified =
+        proving_ground.judge(&json!({ "task": TASK, "status": "success", "records": records }));
     let dropped = records.pop().unwrap();
     let incomplete = proving_ground
-        .judge(&json!({ "task": TASK, "status": "needs-review", "records": records }))
-        .json();
+        .judge(&json!({ "task": TASK, "status": "needs-review", "records": records }));
 
     assert_eq!(verified["outcome"], "verified", "{verified}");
     assert_eq!(incomplete["outcome"], "incomplete", "{incomplete}");

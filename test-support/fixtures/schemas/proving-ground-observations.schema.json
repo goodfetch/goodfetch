@@ -1,0 +1,197 @@
+{
+  "$defs": {
+    "ObservedRequest": {
+      "additionalProperties": false,
+      "description": "One request a page host received, as `GET /observations` lists it.",
+      "properties": {
+        "bytes": {
+          "description": "The bytes received and sent for it."
+        },
+        "connection": {
+          "description": "The connection it came on.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cookies": {
+          "description": "Its cookies, in the order sent.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "delivery": {
+          "description": "What the raw server sent of the answer, for the hosts it answers."
+        },
+        "headers": {
+          "description": "Every other header, in the order sent, names as sent.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "host": {
+          "description": "The host name it named, without the port.",
+          "type": "string"
+        },
+        "http2": {
+          "description": "Its HTTP/2 connection's settings and its stream, over HTTP/2."
+        },
+        "kind": {
+          "description": "What it opens: `websocket`, `event_stream` or `request`.",
+          "type": "string"
+        },
+        "message_signature": {
+          "description": "Its HTTP Message Signatures headers (RFC 9421), when signed."
+        },
+        "method": {
+          "description": "Its method.",
+          "type": "string"
+        },
+        "next_request": {
+          "description": "The next request the same host received, and how long after."
+        },
+        "protocol": {
+          "description": "`http/1.1` or `h2`.",
+          "type": "string"
+        },
+        "pseudo_header_order": {
+          "description": "HTTP/2's pseudo-header names in the order sent.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "repeats": {
+          "description": "The latest earlier request of the same host, method and target\nthis one repeats.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "sequence": {
+          "description": "Its place among every request, from 0.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "description": "Its answer's status, once the answer's head left.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "target": {
+          "description": "Its target: the path and query.",
+          "type": "string"
+        },
+        "task": {
+          "description": "The task of the host it came to, if the host has one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timing": {
+          "$ref": "#/$defs/RequestTiming",
+          "description": "When it arrived and was answered."
+        },
+        "tls": {
+          "description": "The TLS `ClientHello` of its connection, over TLS."
+        }
+      },
+      "required": [
+        "sequence",
+        "connection",
+        "host",
+        "protocol",
+        "kind",
+        "method",
+        "target",
+        "headers",
+        "cookies",
+        "timing",
+        "bytes"
+      ],
+      "type": "object"
+    },
+    "RequestTiming": {
+      "additionalProperties": false,
+      "description": "When a request's head arrived and its answer's head left, in\nmicroseconds since `serve` started.",
+      "properties": {
+        "answered_microseconds": {
+          "description": "When its answer's head left; none while it has not.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "arrived_microseconds": {
+          "description": "When its head arrived.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "arrived_microseconds"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "description": "What `GET /observations` serves: the requests, typed, and the rest of\nthe record (the Effects, the reports, the findings, the bytes per task\nand per host, the TLS handshakes and the connection record) by name.",
+  "properties": {
+    "requests": {
+      "description": "Every request its page hosts received, in arrival order.",
+      "items": {
+        "$ref": "#/$defs/ObservedRequest"
+      },
+      "type": "array"
+    },
+    "unrecorded_requests": {
+      "description": "How many requests came past the record's bound.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "requests",
+    "unrecorded_requests"
+  ],
+  "title": "Observations",
+  "type": "object"
+}

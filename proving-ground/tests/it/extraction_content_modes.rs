@@ -8,8 +8,8 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::proving_ground::ProvingGround;
-use crate::reading::{every, judge, origin, start_url, task};
+use crate::proving_ground::{ProvingGround, submission};
+use crate::reading::{every, origin, start_url, task};
 
 const SEED: u64 = 785;
 const TASK: &str = "extraction/8";
@@ -90,34 +90,30 @@ fn the_hand_written_forms_as_another_serializer_writes_them_are_verified() {
     let proving_ground = ProvingGround::start(SEED);
     let origin = origin(start_url(&task(&proving_ground, TASK))).to_owned();
 
-    let answer = judge(
-        &proving_ground,
-        TASK,
-        "success",
-        &records(|_, record| {
-            let main = record["html_main"]
+    let rewritten = records(|_, record| {
+        let main = record["html_main"]
+            .as_str()
+            .unwrap()
+            .replace("href=\"/", &format!("href=\"{origin}/"));
+        record["html_main"] = json!(format!(
+            "<div id=\"readability-page-1\" class=\"page\"><div>\n<article>{main}</article></div></div>"
+        ));
+        record["text"] = json!(
+            record["text"]
                 .as_str()
                 .unwrap()
-                .replace("href=\"/", &format!("href=\"{origin}/"));
-            record["html_main"] = json!(format!(
-                "<div id=\"readability-page-1\" class=\"page\"><div>\n<article>{main}</article></div></div>"
-            ));
-            record["text"] = json!(
-                record["text"]
-                    .as_str()
-                    .unwrap()
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            );
-            record["markdown_full"] = json!(
-                record["markdown_full"]
-                    .as_str()
-                    .unwrap()
-                    .replace("\n- ", "\n* ")
-            );
-        }),
-    );
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        record["markdown_full"] = json!(
+            record["markdown_full"]
+                .as_str()
+                .unwrap()
+                .replace("\n- ", "\n* ")
+        );
+    });
+    let answer = proving_ground.judge(&submission(TASK, "success", &rewritten));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -128,12 +124,11 @@ fn the_hand_written_forms_as_another_serializer_writes_them_are_verified() {
 fn fit_markdown_that_keeps_a_link_dense_block_is_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = judge(
-        &proving_ground,
+    let answer = proving_ground.judge(&submission(
         TASK,
         "success",
         &records(|_, record| record["markdown_fit"] = record["markdown"].clone()),
-    );
+    ));
 
     assert_eq!(
         (&answer["outcome"], &answer["wrong"][0]["field"]),
@@ -148,8 +143,7 @@ fn fit_markdown_that_keeps_a_link_dense_block_is_a_false_success() {
 fn html_with_a_block_lost_or_added_is_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = judge(
-        &proving_ground,
+    let answer = proving_ground.judge(&submission(
         TASK,
         "success",
         &records(|id, record| {
@@ -163,7 +157,7 @@ fn html_with_a_block_lost_or_added_is_a_false_success() {
                 ));
             }
         }),
-    );
+    ));
 
     let wrong: Vec<&Value> = answer["wrong"]
         .as_array()
@@ -186,8 +180,7 @@ fn html_with_a_block_lost_or_added_is_a_false_success() {
 fn text_with_a_word_lost_is_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = judge(
-        &proving_ground,
+    let answer = proving_ground.judge(&submission(
         TASK,
         "success",
         &records(|id, record| {
@@ -200,7 +193,7 @@ fn text_with_a_word_lost_is_a_false_success() {
                 );
             }
         }),
-    );
+    ));
 
     assert_eq!(
         (&answer["outcome"], &answer["wrong"][0]["field"]),

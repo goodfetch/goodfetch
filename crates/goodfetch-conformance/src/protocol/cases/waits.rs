@@ -276,9 +276,7 @@ fn network_idle(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -
             );
         }
     }
-    let framing = site
-        .named_url(clean_up::HOST, "/cross-site")
-        .unwrap_or_default();
+    let framing = site.named_url(clean_up::HOST, "/cross-site");
     exchange.go(&page, &framing, false, checks)?;
     let idle = exchange.call(
         PAGE_WAIT_FOR_LOAD_STATE.name,
@@ -532,7 +530,9 @@ fn deadlines(exchange: &mut Exchange<'_>, site: &Site, checks: &mut Checks) -> R
 
 /// Each wait, with what it waits for on `page`, the live board, where none
 /// passes: its operation, its params and the `waited_for` its deadline
-/// names.
+/// names, spelled here as the wire has it: the engine sends
+/// `goodfetch_protocol`'s constants, so a check that read them could never
+/// disagree with what it sends, and no schema lists the values.
 fn never_passing(page: &Value) -> [(&'static str, Value, &'static str); 9] {
     let never = json!({ "kind": "glob", "pattern": "**/never" });
     let locator = |selector: &str| json!({ "page_id": page, "selector": selector });

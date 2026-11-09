@@ -11,10 +11,11 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 
 use goodfetch_protocol::result_document::ResultDocument;
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{JourneyRun, ReceivedRequests};
 use serde_json::{Map, Value, json};
 
-use crate::crawl::Attached;
+use crate::attached_spawned;
 use crate::frontier::crawl_with;
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
@@ -33,16 +34,12 @@ fn sources(observations: &Value) -> Vec<IpAddr> {
     let connections = observations["connections"].as_array().unwrap();
     ReceivedRequests::of(observations)
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|host| host.starts_with("access.test"))
-        })
+        .filter(|request| request.host.starts_with("access.test"))
         .map(|request| {
             let connection = connections
                 .iter()
-                .find(|connection| connection["id"] == request["connection"])
-                .unwrap_or_else(|| panic!("no connection for {request}"));
+                .find(|connection| connection["id"] == request.connection)
+                .unwrap_or_else(|| panic!("no connection for {request:?}"));
             connection["source"]
                 .as_str()
                 .unwrap()
@@ -65,7 +62,7 @@ fn cli() {
     run.step("Start Foxhound's executable as a program's engine", |run| {
         let mut command = run.env().process_command(run.engine());
         command.arg("attached-engine");
-        engine = Some(Attached::spawned(run.env(), None, &mut command));
+        engine = Some(attached_spawned(run.env(), None, &mut command));
     });
     run.step(
         "Crawl three pages of a site over HTTP, choosing two of the machine's local addresses for the Crawl's traffic",
@@ -102,7 +99,7 @@ fn cli() {
     );
     run.step("Let the Crawl finish and read its report", |_| {
         let engine = engine.take().expect("the engine runs");
-        assert!(engine.finish());
+        assert!(engine.finished());
     });
 
     run.check("The Crawl finished", |_| {

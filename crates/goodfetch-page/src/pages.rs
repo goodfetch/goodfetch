@@ -45,9 +45,11 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use goodfetch_counted_work::ParsedHtml;
 use goodfetch_engine::browser_cache::PinnedArtifact;
+use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::{self, Navigator};
 use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::response_limits::Limits;
@@ -55,7 +57,7 @@ use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{RunSettings, Values};
 use goodfetch_engine::{CallContext, CallError, Contribution, Guard, Handler};
 use goodfetch_extractor::Serialization;
-use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::connection::{Surface, WaitedFor};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::dialog::{
     DIALOG_ACCEPT, DIALOG_DISMISS, DialogAcceptParams, DialogAnswered, DialogDismissParams,
@@ -108,7 +110,7 @@ use crate::page_value::{
 };
 use crate::proxy;
 use crate::recovery;
-use crate::sessions::{self, OpenPage, PageEvent, Sessions};
+use crate::sessions::{self, EngineWork, OpenPage, PageEvent, Sessions};
 use crate::trace;
 use crate::url_pattern::UrlPattern;
 
@@ -312,8 +314,7 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
                         .get(&params.page_id)
                         .map(|events| events.listen(params.event));
                     async move {
-                        let (armed, runtime) = listened?;
-                        armed.serve(context.stream(), runtime).await?;
+                        listened?.serve(context.stream()).await?;
                         Ok::<PageOnEnded, CallError>(PageOnEnded {})
                     }
                 },
@@ -908,9 +909,7 @@ impl BrowserPages for Opener {
                 .interception
                 .engine_requests_of(&run, &own)
                 .await?;
-            let limits = run
-                .settings()
-                .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
+            let limits = Limits::of_run(run.settings());
             let headers: BTreeMap<String, String> = request.headers.iter().cloned().collect();
             let post_data = request
                 .body
@@ -927,7 +926,11 @@ impl BrowserPages for Opener {
                 read: browser_fetch::BodyRead::Whole,
             };
             // A cancelled fetch closes the engine's page as it drops.
-            let engine_page = self.pages.sessions.engine_page(&session, &value).await?;
+            let engine_page = self
+                .pages
+                .sessions
+                .engine_page(&session, &value, EngineWork::Request)
+                .await?;
             let fetched = browser_fetch::send(engine_page.driver(), &steps, &sent).await;
             engine_page.close().await;
             let fetched = fetched?;
@@ -1058,7 +1061,9 @@ impl Pages {
         if let Destination::Url(url) = destination {
             span.record("url.origin", goodfetch_engine::log::origin(url));
         }
-        let page = self.open(page_id).await?;
+        let (page, spent) = self
+            .open(page_id, |page| page.driver.navigation_deadline(timeout))
+            .await?;
         span.record("run_id", page.run.id().as_str());
         let navigator = Navigator {
             acting_for_model: context.surface().acts_for_model(),
@@ -1088,8 +1093,11 @@ impl Pages {
             .life
             .call(
                 PageEvent::Goto,
-                page.driver
-                    .navigate(destination, wait_until, deadline.as_ref()),
+                page.driver.having_spent(spent).navigate(
+                    destination,
+                    wait_until,
+                    deadline.as_ref(),
+                ),
             )
             .await;
         // A failure the interception left while the navigation ran, such
@@ -1158,14 +1166,22 @@ impl Pages {
         context: &CallContext,
     ) -> Result<Acted, CallError> {
         let action = action?;
-        let page = self.open(&locator.page_id).await?;
+        let (page, spent) = self
+            .open(&locator.page_id, |page| {
+                Ok(Some(page.driver.action_deadline().clone()))
+            })
+            .await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
         let (limit, duration) = page.action_timeout.clone();
         let request = Request {
             operation,
             selector: &locator.selector,
             action,
-            window: Window { limit, duration },
+            window: Window {
+                limit,
+                duration,
+                spent,
+            },
             surface: context.surface(),
             hiding: Hidden {
                 live: page.hiding.as_deref(),
@@ -1204,14 +1220,15 @@ impl Pages {
     ) -> Result<PageResponse, CallError> {
         let max_redirects = redirect_count(params.max_redirects, surface)?;
         headers_sent(params.headers.as_ref())?;
-        let page = self.open(&params.page_id).await?;
+        let (page, spent) = self
+            .open(&params.page_id, |page| {
+                page.driver.navigation_deadline(None)
+            })
+            .await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
         let steps = self.interception.engine_requests(&params.page_id)?;
         let events = self.events.get(&params.page_id)?;
-        let limits = page
-            .run
-            .settings()
-            .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
+        let limits = Limits::of_run(page.run.settings());
         let request = browser_fetch::Request {
             url: &params.url,
             method: params.method.as_deref(),
@@ -1226,10 +1243,11 @@ impl Pages {
         // A command its lease check withheld ends the page (P31).
         let engine_page = self
             .sessions
-            .engine_page(&page.session, page.driver.value())
+            .engine_page(&page.session, page.driver.value(), EngineWork::Request)
             .await
             .map_err(|error| page.life.withheld(error))?;
-        let fetched = browser_fetch::send(engine_page.driver(), &steps, &request).await;
+        let fetched =
+            browser_fetch::send(&engine_page.driver().having_spent(spent), &steps, &request).await;
         engine_page.close().await;
         let fetched = fetched.map_err(|error| page.life.withheld(error))?;
         // A page a program opened records what the response's robots.txt
@@ -1276,7 +1294,11 @@ impl Pages {
         (injection, operation): (Injection, &'static str),
         surface: Surface,
     ) -> Result<Evaluated, CallError> {
-        let page = self.open(page_id).await?;
+        let (page, _) = self
+            .open(page_id, |page| {
+                Ok(Some(page.driver.action_deadline().clone()))
+            })
+            .await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
         let world = world.unwrap_or_default();
         if world == World::Main {
@@ -1363,10 +1385,34 @@ impl Pages {
     /// The open page `page_id` once no init script of its is on its way in
     /// or out, so that a call sent after `page.add_init_script`, a gesture
     /// or a navigation, meets the script registered, and one sent after its
-    /// call was cancelled meets it removed; as [`Self::opened`] says.
-    async fn open(&self, page_id: &PageId) -> Result<OpenPage, CallError> {
+    /// call was cancelled meets it removed, and once `Runtime` a `page.on` sent
+    /// before the call asked for is on, so that what the call makes the page
+    /// log is read live (ADR 0019); as [`Self::opened`] says. That wait counts
+    /// inside the call's own limit, the deadline `limit` reads off the page,
+    /// if it has one: past it the call raises `deadline_exceeded`, and what it
+    /// spent is answered beside the page, for the call's work to take off
+    /// what it allows.
+    async fn open(
+        &self,
+        page_id: &PageId,
+        limit: impl FnOnce(&OpenPage) -> Result<Option<Deadline>, CallError>,
+    ) -> Result<(OpenPage, Duration), CallError> {
         self.init_scripts.settled(page_id).await;
-        self.opened(page_id).await
+        let mut spent = Duration::ZERO;
+        if let Some(arming) = self.events.arming(page_id) {
+            let page = self.sessions.page(page_id).await?;
+            let started = page.clock.now();
+            match limit(&page)? {
+                Some(limit) => {
+                    limit
+                        .within(&page.clock, WaitedFor::BROWSER_ANSWER, arming)
+                        .await?;
+                }
+                None => arming.await,
+            }
+            spent = page.clock.now() - started;
+        }
+        Ok((self.opened(page_id).await?, spent))
     }
 
     /// The open page `page_id`, or `closed`; a failure a route's or a
@@ -1528,7 +1574,11 @@ impl Pages {
             }
             return Ok(formats);
         }
-        let page = self.open(&params.page_id).await?;
+        let (page, _) = self
+            .open(&params.page_id, |page| {
+                page.driver.navigation_deadline(None)
+            })
+            .await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
         let document = page
             .life

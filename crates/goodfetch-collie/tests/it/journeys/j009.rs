@@ -12,6 +12,7 @@
 
 use std::fs;
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{TestEnv, command, journey_engine};
 use serde_json::{Value, json};
 
@@ -23,10 +24,10 @@ fn cli() {
     let env = TestEnv::new();
     // Set one setting in the user configuration, and set it and a second
     // setting in the project configuration.
-    let major = env.home().join("0.0");
-    fs::create_dir_all(&major).unwrap();
+    let layout = HomeLayout::of(env.home());
+    fs::create_dir_all(layout.per_major()).unwrap();
     fs::write(
-        major.join("configuration.toml"),
+        layout.user_configuration(),
         "version = \"0.1\"\n\n[settings.timeout]\nnavigation = 45000\n",
     )
     .unwrap();

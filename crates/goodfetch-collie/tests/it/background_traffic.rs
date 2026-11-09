@@ -22,14 +22,16 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use goodfetch_engine::pinned_download::chromium_background_traffic_off;
-use goodfetch_test_support::{CHROME_FOR_TESTING_BUILD, ProvingGround, TestEnv, browser_cache};
+use goodfetch_test_client::HomeLayout;
+use goodfetch_test_support::{
+    ProvingGround, TestEnv, browser_cache, chrome_for_testing, reported_debugging_port,
+};
 use serde_json::{Value, json};
 
 use crate::page::{opened, started, started_with};
-use crate::run::call;
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 639;
@@ -39,15 +41,10 @@ const SEED: u64 = 639;
 /// component installs.
 const IDLE: Duration = Duration::from_secs(10);
 
-/// How long the test's own browser has to report its debugging port.
-const PORT_DEADLINE: Duration = Duration::from_secs(30);
-
 /// The Browser data folder the engine launches the Run's browser on.
 fn launch_data_folder(env: &TestEnv, run_id: &str) -> PathBuf {
-    env.home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
+    HomeLayout::of(env.home())
+        .run_folder(run_id)
         .join("browser-data")
         .join("1")
 }
@@ -113,26 +110,17 @@ fn a_launched_browser_calls_no_vendor_host_through_navigation_and_idle_time() {
         &proving_ground.description().fixtures.proxies["open"],
     );
 
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "quiet" }),
-    ));
-    let first = call(
-        &mut engine,
-        3,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "quiet" })));
+    let first = engine.ask(3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("catalog.test", "/catalog/1") }),
     );
-    let second = call(
-        &mut engine,
-        4,
+    let second = engine.ask(4,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("catalog.test", "/catalog/2") }),
     );
     std::thread::sleep(IDLE);
-    let _ = call(&mut engine, 5, "run.finish", &json!({ "run_id": "quiet" }));
+    let _ = engine.ask(5, "run.finish", &json!({ "run_id": "quiet" }));
     let _ = engine.finish();
     let hosts = relayed_hosts(&proving_ground.observations().unwrap());
 
@@ -152,47 +140,6 @@ fn a_launched_browser_calls_no_vendor_host_through_navigation_and_idle_time() {
         (&json!(200), &json!(200), true, true, Vec::<&String>::new()),
         "{hosts:?}"
     );
-}
-
-/// The executable of the pinned build in the test's Browser cache.
-pub(crate) fn chrome_for_testing(cache: &Path) -> PathBuf {
-    let files = cache
-        .join("browser")
-        .join("chrome-for-testing")
-        .join(CHROME_FOR_TESTING_BUILD)
-        .join("files");
-    if cfg!(target_os = "linux") {
-        return files.join("chrome-linux64").join("chrome");
-    }
-    let platform = if cfg!(target_arch = "aarch64") {
-        "chrome-mac-arm64"
-    } else {
-        "chrome-mac-x64"
-    };
-    files
-        .join(platform)
-        .join("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
-}
-
-/// The port a browser launched with `--remote-debugging-port=0` on
-/// `profile` reports in its `DevToolsActivePort` file.
-pub(crate) fn reported_debugging_port(profile: &Path) -> u16 {
-    let file = profile.join("DevToolsActivePort");
-    let started = Instant::now();
-    loop {
-        if let Some(port) = std::fs::read_to_string(&file)
-            .ok()
-            .and_then(|text| text.lines().next()?.parse().ok())
-        {
-            return port;
-        }
-        assert!(
-            started.elapsed() < PORT_DEADLINE,
-            "{} reported no port",
-            file.display()
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
 }
 
 /// The IDs of the processes whose command line names a profile folder
@@ -257,15 +204,8 @@ fn an_engine_launched_browser_opens_no_port_while_a_debugging_port_launch_does()
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let mut engine = started(&env, &cache, &proving_ground, "piped");
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "piped" }),
-    ));
-    let went = call(
-        &mut engine,
-        3,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "piped" })));
+    let went = engine.ask(3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("catalog.test", "/catalog/1") }),
     );
@@ -293,7 +233,7 @@ fn an_engine_launched_browser_opens_no_port_while_a_debugging_port_launch_does()
     let tests = processes_on(&env, "debugging-port-profile");
     debugging.interrupt().unwrap();
     let _ = debugging.child().wait();
-    let _ = call(&mut engine, 4, "run.finish", &json!({ "run_id": "piped" }));
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "piped" }));
     let _ = engine.finish();
     assert_eq!(
         (

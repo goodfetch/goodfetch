@@ -12,19 +12,26 @@
     clippy::disallowed_methods,
     reason = "the tests read the user's session from their own process, and the service's files themselves"
 )]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 #[cfg(unix)]
 use std::path::Path;
 use std::path::PathBuf;
 
+use goodfetch_protocol::home::DaemonFile;
+use goodfetch_test_client::DaemonClient;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{Cli, TestEnv, cli};
 #[cfg(unix)]
 use goodfetch_test_support::{ConsoleState, DaemonEndpoint, RuntimeFile};
 use serde_json::{Value, json};
 
-#[cfg(unix)]
-use crate::daemon::RawClient;
 use crate::daemon::{short_idle, validate};
+#[cfg(unix)]
+use crate::{daemon_client, daemon_hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -87,7 +94,8 @@ impl Drop for RemovesTheService<'_> {
 /// the persistent token.
 #[cfg(unix)]
 pub(crate) fn service_reach(env: &TestEnv, service: &Value) -> RuntimeFile {
-    let token = std::fs::read_to_string(env.home().join("0.0").join("daemon.token")).unwrap();
+    let token =
+        std::fs::read_to_string(HomeLayout::of(env.home()).daemon_file(DaemonFile::Token)).unwrap();
     RuntimeFile {
         endpoint: DaemonEndpoint::Unix(PathBuf::from(service["socket"].as_str().unwrap())),
         token,
@@ -120,11 +128,14 @@ fn the_first_connection_to_the_installed_services_socket_starts_the_daemon() {
     let installed = json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
     let service = installed["service"].clone();
     let before = json_in_session(&env, COLLIE, &["daemon", "status", "--json"]);
-    let mut client = RawClient::opened(&service_reach(&env, &service), "collie");
+    let mut client = {
+        let found = service_reach(&env, &service);
+        daemon_client(&found)
+    };
     let status = client.call(1, "daemon.status", &json!({}));
     let found = RuntimeFile::read(&RuntimeFile::path(env.home(), VERSION)).unwrap();
     drop(client);
-    let token_mode = mode(&env.home().join("0.0").join("daemon.token"));
+    let token_mode = mode(&HomeLayout::of(env.home()).daemon_file(DaemonFile::Token));
     let uninstalled = json_in_session(&env, COLLIE, &["daemon", "uninstall", "--json"]);
     let after = json_in_session(&env, COLLIE, &["daemon", "status", "--json"]);
 
@@ -150,7 +161,9 @@ fn the_first_connection_to_the_installed_services_socket_starts_the_daemon() {
             files,
             after["service"].clone(),
             after["pid"].clone(),
-            env.home().join("0.0").join("daemon.token").exists(),
+            HomeLayout::of(env.home())
+                .daemon_file(DaemonFile::Token)
+                .exists(),
         ),
         (
             Value::Null,
@@ -243,7 +256,10 @@ fn a_reload_of_the_users_systemd_keeps_both_of_the_services_sockets() {
         .args(["--user", "daemon-reload"])
         .status()
         .unwrap();
-    let mut client = RawClient::opened(&service_reach(&env, &installed["service"]), "collie");
+    let mut client = {
+        let found = service_reach(&env, &installed["service"]);
+        daemon_client(&found)
+    };
     let status = client.call(1, "daemon.status", &json!({}));
     let page = crate::sign_in::agent()
         .get(format!("http://{console}/"))
@@ -341,12 +357,15 @@ fn after_a_rotation_only_the_new_token_opens_a_connection() {
     let _removes = RemovesTheService(&env);
     let installed = json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
     let old = service_reach(&env, &installed["service"]);
-    drop(RawClient::opened(&old, "collie"));
+    drop(DaemonClient::opened(
+        &old.endpoint,
+        &daemon_hello(&old.token),
+    ));
 
     let rotated = json_in_session(&env, COLLIE, &["daemon", "rotate-token", "--json"]);
-    let refused = RawClient::refused(&old);
+    let refused = DaemonClient::refuses(&old.endpoint, &daemon_hello(&old.token));
     let new = service_reach(&env, &installed["service"]);
-    let mut client = RawClient::opened(&new, "collie");
+    let mut client = DaemonClient::opened(&new.endpoint, &daemon_hello(&new.token));
     let status = client.call(1, "daemon.status", &json!({}));
 
     validate(&rotated, "TokenRotated");
@@ -357,6 +376,43 @@ fn after_a_rotation_only_the_new_token_opens_a_connection() {
             status["result"]["product"].clone(),
         ),
         (true, false, json!("collie"))
+    );
+}
+
+/// The installed service starts no Daemon on machine settings it cannot
+/// read: a command that would start it through its socket fails first,
+/// with their Error code's row and what it says of the fault, and
+/// connects to nothing.
+///
+/// Covers: story:3-21, command:daemon.start, error:setting_unknown
+#[cfg(unix)]
+#[test]
+fn a_command_that_would_start_the_installed_service_fails_on_unreadable_settings() {
+    let env = TestEnv::new();
+    let _removes = RemovesTheService(&env);
+    json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
+    env.user_configuration("crawl.max_deepth = 3\n");
+
+    let output = in_session(&env, COLLIE)
+        .args(["daemon", "start", "--json"])
+        .run()
+        .unwrap();
+    let printed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (
+            output.exit,
+            printed["error"]["code"].clone(),
+            printed["error"]["closest"].clone(),
+            RuntimeFile::path(env.home(), VERSION).exists(),
+        ),
+        (
+            Some(3),
+            json!("setting_unknown"),
+            json!("crawl.max_depth"),
+            false
+        ),
+        "{output}"
     );
 }
 

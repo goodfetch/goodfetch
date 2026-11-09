@@ -10,7 +10,8 @@
 
 use std::process::ExitCode;
 
-use super::engine_choice::{Choice, Daemons, EngineChoice};
+use super::daemon::Machine;
+use super::engine_choice::{Choice, EngineChoice};
 use super::exit_codes;
 use super::operation::run_operation;
 use super::output::{self, Human};
@@ -20,14 +21,14 @@ use goodfetch_protocol::run::Period;
 use goodfetch_protocol::usage::{USAGE_RAISE, UsageRaiseParams};
 
 /// Asks the person at the terminal to raise the Limit `params` names, and
-/// raises it when they answer yes: on the engine `choice` and the
-/// executable's Daemon, `daemons`, choose, a command whose value does not
-/// outlive it ([`engine_choice`]), or else an Attached engine, `engine` on
-/// `dependencies`.
+/// raises it when they answer yes: on the engine that `choice` and the
+/// Daemon `machine` reaches choose for a command whose value does not
+/// outlive it ([`engine_choice`]), which is the Daemon or an Attached
+/// engine, `engine` on `dependencies`.
 pub(super) fn raise(
     engine: &Engine,
     dependencies: Dependencies,
-    (daemons, choice): (&dyn Daemons, Choice),
+    (machine, choice): (&Machine<'_>, Choice),
     params: &UsageRaiseParams,
     human: &Human,
 ) -> ExitCode {
@@ -49,7 +50,7 @@ pub(super) fn raise(
         return ExitCode::from(exit_codes::SUCCESS);
     }
     let warn = |text: &str| human.warning(text);
-    let reach = EngineChoice::passing(choice, daemons, &warn);
+    let reach = EngineChoice::passing(choice, machine, &warn);
     let params = serde_json::to_value(params).expect("invariant: the params serialize");
     // A person-only command takes no `--json`: its failure prints on
     // stderr, as every command's does.

@@ -24,8 +24,8 @@ use goodfetch_protocol::page::waits::PAGE_WAIT_FOR_FUNCTION;
 use goodfetch_protocol::page::{PAGE_GOTO, PAGE_RELOAD};
 use serde_json::{Value, json};
 
-use super::clean_up::{FRAME_HOST, provenance};
-use super::{Checks, Site, finish_run, new_page, start_run};
+use super::clean_up::FRAME_HOST;
+use super::{Checks, Site, finish_run, new_page, run_trace, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::EngineTarget;
 
@@ -111,11 +111,10 @@ fn on_the_page(
     };
     let page_id = json!(page.page_id);
     let registered = before(connection, &page_id)?;
-    let id = connection.request(
+    let went = connection.call(
         PAGE_GOTO.name,
         &json!({ "page_id": page_id, "url": format!("{origin}{PAGE_FUNCTIONS}") }),
     )?;
-    let went = connection.browser_answer(id)?.message;
     checks.check(
         "the page functions page loads",
         went["result"]["response"]["status"] == json!(200),
@@ -361,12 +360,15 @@ fn thrown(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
 
 /// The Provenance entries of the Run `run_id` that mark a main-world
 /// injection, each as `(by, session_id)`.
-fn injections(target: &EngineTarget, run_id: &str) -> Vec<(Value, Value)> {
-    provenance(target, run_id)
+fn injections(
+    target: &EngineTarget,
+    run_id: &str,
+) -> Result<Vec<(Value, Value)>, run_trace::Unread> {
+    Ok(run_trace::provenance(target, run_id)?
         .into_iter()
         .filter(|line| line["action"] == json!(MAIN_WORLD_INJECTION))
         .map(|line| (line["by"].clone(), line["session_id"].clone()))
-        .collect()
+        .collect())
 }
 
 /// An init script registered before a navigation runs before the page's
@@ -429,9 +431,7 @@ fn init_script(
         connection,
         &page,
         "async (src) => { const marked = new Promise((resolve) => { window.addEventListener('message', (event) => { if (event.data && event.data.initScriptMark !== undefined) { resolve(event.data.initScriptMark); } }); setTimeout(() => resolve(null), 5000); }); const frame = document.createElement('iframe'); frame.src = src; document.body.append(frame); return await marked; }",
-        Some(json!(
-            site.named_url(FRAME_HOST, "/framed").unwrap_or_default()
-        )),
+        Some(json!(site.named_url(FRAME_HOST, "/framed"))),
         "main",
     )?;
     checks.check(
@@ -460,7 +460,7 @@ fn init_script(
     registered_or_not(connection, &page, checks)?;
     let plain = plain_session(connection, site, run_id, checks)?;
     finish_run(connection, run_id)?;
-    let marked = injections(target, run_id);
+    let marked = checks.run_trace(injections(target, run_id));
     checks.check(
         "the Session's Provenance marks the init script and the main-world calls as main-world injections",
         marked.iter().any(|(by, _)| *by == json!(PAGE_ADD_INIT_SCRIPT.name))
@@ -514,14 +514,13 @@ fn registered_or_not(
         None,
         "main",
     )?;
-    let id = connection.request(
+    let seen = connection.call(
         PAGE_WAIT_FOR_FUNCTION.name,
         &json!({
             "page_id": page,
             "function": "() => window.beforeTheReload === undefined && document.readyState === 'complete' && (window.initScriptSeenByPage ?? 'none')",
         }),
     )?;
-    let seen = connection.browser_answer(id)?.message;
     checks.check(
         "a page function sent right after an init script's call meets the script registered",
         reloaded["result"] == json!({ "value": true })
@@ -679,9 +678,10 @@ fn evaluate_all(
         answer["error"]["code"] == json!(-32602),
     );
     finish_run(connection, run_id)?;
+    let marked = checks.run_trace(injections(target, run_id));
     checks.check(
         "the Session's Provenance marks the main-world `locator.evaluate_all`",
-        injections(target, run_id)
+        marked
             .iter()
             .any(|(by, _)| *by == json!(LOCATOR_EVALUATE_ALL.name)),
     );

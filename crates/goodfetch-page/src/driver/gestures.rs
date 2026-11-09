@@ -20,6 +20,7 @@
 
 use goodfetch_cdp::Subscription;
 use goodfetch_cdp::generated::runtime;
+use goodfetch_protocol::connection::WaitedFor;
 
 use super::PageDriver;
 use super::navigation::Navigation;
@@ -102,7 +103,7 @@ impl PageDriver {
             }
         };
         if self
-            .within_navigation_deadline("navigation", Box::pin(settled))
+            .within_navigation_deadline(WaitedFor::NAVIGATION, Box::pin(settled))
             .await
             .is_err()
         {

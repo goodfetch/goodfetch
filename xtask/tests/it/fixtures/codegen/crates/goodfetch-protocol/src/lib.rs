@@ -16,3 +16,5 @@ pub mod foxhound_names;
 pub mod journey;
 pub mod result_document;
 pub mod sample;
+pub mod secret_reference;
+pub mod wire_name;

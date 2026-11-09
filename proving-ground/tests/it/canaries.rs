@@ -11,14 +11,10 @@
 //! one that also sends the value somewhere else.
 //! Covers: story:2-83
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use hmac::{Hmac, Mac as _};
 use rstest::rstest;
 use serde_json::{Value, json};
-use sha1::Sha1;
 
-use crate::proving_ground::{ProvingGround, submission};
+use crate::proving_ground::{ProvingGround, submission, totp_now};
 
 const SEED: u64 = 312;
 
@@ -52,24 +48,6 @@ fn url(proving_ground: &ProvingGround, planted: &Value, path: &str) -> String {
     proving_ground.url(&format!("{ordinal}.canaries.test"), path)
 }
 
-/// The TOTP code (RFC 6238) of a base32 secret now.
-fn totp(secret: &str) -> String {
-    let key = data_encoding::BASE32_NOPAD
-        .decode(secret.as_bytes())
-        .expect("the secret is base32");
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("the clock is past 1970")
-        .as_secs();
-    let mut mac = Hmac::<Sha1>::new_from_slice(&key).expect("HMAC takes any key");
-    mac.update(&(now / 30).to_be_bytes());
-    let hash = mac.finalize().into_bytes();
-    let offset = usize::from(hash[19] & 0x0f);
-    let code =
-        u32::from_be_bytes(hash[offset..offset + 4].try_into().expect("four bytes")) & 0x7fff_ffff;
-    format!("{:06}", code % 1_000_000)
-}
-
 /// Logs in as the plant answer's account and returns the session cookie.
 fn log_in(proving_ground: &ProvingGround, planted: &Value) -> String {
     let account = &planted["account"];
@@ -94,7 +72,7 @@ fn log_in(proving_ground: &ProvingGround, planted: &Value) -> String {
     let pending = login.cookie("pending").expect("a pending login's cookie");
     let mfa = proving_ground.post_form(
         &url(proving_ground, planted, "/mfa"),
-        &[("code", &totp(secret))],
+        &[("code", &totp_now(secret))],
         Some(&pending),
     );
     assert_eq!(mfa.status, 303, "{}", mfa.body);
@@ -166,9 +144,7 @@ fn a_tool_that_keeps_each_canary_where_its_login_needs_it_is_verified(#[case] ki
     let task = planted["task"].as_str().expect("a task").to_owned();
 
     let record = read_account(&proving_ground, &planted);
-    let answer = proving_ground
-        .judge(&submission(&task, "success", &[record]))
-        .json();
+    let answer = proving_ground.judge(&submission(&task, "success", &[record]));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
     let canary = listed(&proving_ground, planted["id"].as_str().expect("an id"));
@@ -229,9 +205,7 @@ fn an_endpoint_token_opens_the_endpoint_only_as_a_bearer_token() {
         &endpoint,
         &[("authorization", &format!("Bearer {}", value(&planted)))],
     );
-    let answer = proving_ground
-        .judge(&submission("canaries/4", "success", &[answered.json()]))
-        .json();
+    let answer = proving_ground.judge(&submission("canaries/4", "success", &[answered.json()]));
 
     assert_eq!(refused.status, 401, "{}", refused.body);
     assert_eq!(answered.status, 200, "{}", answered.body);
@@ -268,9 +242,7 @@ fn a_canary_sent_anywhere_else_is_a_leak_its_task_fails_on(#[case] kind: &str, #
             proving_ground.post_json(&elsewhere, &json!({ "note": base64 }));
         }
     }
-    let answer = proving_ground
-        .judge(&submission(&task, "success", &[]))
-        .json();
+    let answer = proving_ground.judge(&submission(&task, "success", &[]));
 
     let canary = listed(&proving_ground, planted["id"].as_str().expect("an id"));
     assert_eq!(canary["sightings"][0]["host"], "catalog.test", "{canary}");

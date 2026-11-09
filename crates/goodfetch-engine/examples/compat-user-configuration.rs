@@ -15,9 +15,10 @@ mod settings_corpus;
 
 use std::path::PathBuf;
 
-use goodfetch_engine::settings::{USER_CONFIGURATION_FILE, user_configuration};
+use goodfetch_engine::settings::user_configuration;
 use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::home::USER_CONFIGURATION_FILE;
 use goodfetch_protocol::settings::SettingsLayer;
 
 fn any_key(_: &Setting) -> bool {

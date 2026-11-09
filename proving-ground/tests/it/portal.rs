@@ -25,6 +25,11 @@ fn task(proving_ground: &ProvingGround, id: &str) -> Value {
         .clone()
 }
 
+/// What a tool reports for `task`: its status and its Records.
+fn result(task: &Value, status: &str, records: &[Value]) -> Value {
+    json!({ "task": task["id"], "status": status, "records": records })
+}
+
 fn start_url(task: &Value) -> &str {
     task["start_url"].as_str().expect("a start URL")
 }
@@ -51,16 +56,6 @@ fn next_link(origin: &str, html: &str) -> Option<String> {
         .expect("a valid pattern")
         .captures(html)
         .map(|link| format!("{origin}{}", link[1].replace("&amp;", "&")))
-}
-
-fn judge(proving_ground: &ProvingGround, task: &Value, status: &str, records: &[Value]) -> Value {
-    let answer = proving_ground.judge(&json!({
-        "task": task["id"],
-        "status": status,
-        "records": records,
-    }));
-    assert_eq!(answer.status, 200, "{}", answer.body);
-    answer.json()
 }
 
 /// Signs in with the task's account through the login form, as the lab's
@@ -157,7 +152,7 @@ fn a_crawl_behind_the_csrf_login_that_signs_in_once_is_verified() {
         Some(start_url(&task).to_owned()),
         usize::MAX,
     );
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
     assert_eq!(found.len(), 100);
@@ -217,7 +212,7 @@ fn a_portal_that_answers_an_expired_session_with_a_200_login_page_fools_a_status
     let mut client = Client::new(&proving_ground);
 
     let found = crawl_all(&mut client, &task, Policy::StatusOnly);
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(found.len(), 80);
@@ -241,7 +236,7 @@ fn a_crawl_that_signs_in_again_when_the_session_expires_is_verified() {
     let mut client = Client::new(&proving_ground);
 
     let found = crawl_all(&mut client, &task, Policy::Contract);
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -254,7 +249,7 @@ fn the_refresh_token_avoids_a_second_sign_in() {
     let mut client = Client::new(&proving_ground);
 
     let found = crawl_all(&mut client, &task, Policy::Contract);
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -267,7 +262,7 @@ fn a_crawl_that_signs_in_again_instead_of_refreshing_carries_out_an_extra_sign_i
     let mut client = Client::new(&proving_ground);
 
     let found = crawl_all(&mut client, &task, Policy::ContractWithoutRefresh);
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["missing"], json!([]), "{answer}");
@@ -285,7 +280,7 @@ fn a_resumed_crawl_reuses_its_journaled_session() {
     let task = task(&proving_ground, "portal/4");
 
     let found = resumed_crawl(&proving_ground, &task, true, || {});
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -297,7 +292,7 @@ fn a_resumed_crawl_that_signs_in_at_every_run_carries_out_an_extra_sign_in() {
     let task = task(&proving_ground, "portal/4");
 
     let found = resumed_crawl(&proving_ground, &task, false, || {});
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(
@@ -320,7 +315,7 @@ fn a_resumed_crawl_whose_session_was_revoked_signs_in_again() {
         ));
         assert_eq!(revoked.status, 204);
     });
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -345,7 +340,7 @@ fn a_sign_in_without_the_forms_csrf_token_is_forbidden_and_signs_nobody_in() {
 
     assert_eq!(refused.status, 403);
     assert_eq!(client.cookie("sid"), None);
-    let answer = judge(&proving_ground, &task, "failure", &[]);
+    let answer = proving_ground.judge(&result(&task, "failure", &[]));
     assert_eq!(
         answer["missing_effects"],
         json!([{ "kind": "sign_in" }]),
@@ -433,7 +428,7 @@ fn a_static_listing_read_from_its_html_is_verified() {
     let mut client = Client::new(&proving_ground);
 
     let found = crawl_html(&mut client, &task);
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -446,12 +441,7 @@ fn a_script_shells_html_holds_no_records_and_its_api_holds_them_all() {
     let mut client = Client::new(&proving_ground);
 
     let from_html = crawl_html(&mut client, &task);
-    let answer = judge(
-        &proving_ground,
-        &task,
-        "success",
-        &crawl_api(&mut client, &task, 0),
-    );
+    let answer = proving_ground.judge(&result(&task, "success", &crawl_api(&mut client, &task, 0)));
 
     assert_eq!(from_html, Vec::<Value>::new());
     assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -465,7 +455,7 @@ fn a_partly_hydrated_listing_read_from_its_html_alone_is_a_false_success() {
     let mut client = Client::new(&proving_ground);
 
     let found = crawl_html(&mut client, &task);
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(found.len(), 40);
     assert_eq!(answer["outcome"], "false_success", "{answer}");
@@ -485,7 +475,7 @@ fn a_partly_hydrated_listing_read_with_the_api_its_script_calls_is_verified() {
 
     let mut found = crawl_html(&mut client, &task);
     found.extend(crawl_api(&mut client, &task, 8));
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -498,7 +488,7 @@ fn stale_html_prices_are_wrong_until_the_script_corrects_them() {
     let mut client = Client::new(&proving_ground);
 
     let found = crawl_html(&mut client, &task);
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["missing"], json!([]), "{answer}");
@@ -533,7 +523,7 @@ fn stale_html_with_the_prices_its_script_reads_is_verified() {
                 .collect::<Vec<_>>()
         })
         .collect();
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -570,7 +560,7 @@ fn a_graphql_listing_paged_by_its_cursor_is_verified() {
         }
         after = products["pageInfo"]["endCursor"].clone();
     }
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert!(
         shell.contains(r#"<button class="more" hidden>Load more</button>"#),
@@ -587,7 +577,7 @@ fn an_infinite_feed_read_without_scrolling_is_a_false_success() {
     let mut client = Client::new(&proving_ground);
 
     let found = records(&client.get(start_url(&task)).text());
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(found.len(), 20);
     assert_eq!(answer["outcome"], "false_success", "{answer}");
@@ -624,7 +614,7 @@ fn an_infinite_feed_read_through_its_cursors_is_verified() {
             None => break,
         }
     }
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -721,7 +711,7 @@ fn the_canonical_frontier_ends_a_crawl_through_session_ids_sort_orders_and_an_en
     let mut client = Client::new(&proving_ground);
 
     let (found, finished) = crawl_shop(&mut client, &task, true, 300);
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert!(finished, "the canonical frontier did not empty");
     assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -784,7 +774,7 @@ fn offset_pagination_over_a_table_that_changes_while_it_is_paged_is_a_false_succ
     let mut client = Client::new(&proving_ground);
 
     let found = crawl_table(&mut client, &task, false);
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
 }
@@ -797,7 +787,7 @@ fn cursor_pagination_over_a_table_that_changes_while_it_is_paged_is_verified() {
     let mut client = Client::new(&proving_ground);
 
     let found = crawl_table(&mut client, &task, true);
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -811,7 +801,7 @@ fn the_table_oracle_counts_a_row_submitted_twice_as_extra() {
     let mut found = crawl_table(&mut client, &task, true);
     found.push(found[0].clone());
 
-    let answer = judge(&proving_ground, &task, "success", &found);
+    let answer = proving_ground.judge(&result(&task, "success", &found));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["extra"], json!([found[0]]), "{answer}");
@@ -825,7 +815,7 @@ fn the_table_oracle_requires_the_rows_that_lived_through_the_whole_crawl() {
     let mut client = Client::new(&proving_ground);
     let first = records(&client.get(start_url(&task)).text());
 
-    let answer = judge(&proving_ground, &task, "needs-review", &first);
+    let answer = proving_ground.judge(&result(&task, "needs-review", &first));
 
     assert_eq!(first.len(), 50);
     assert_eq!(answer["outcome"], "incomplete", "{answer}");

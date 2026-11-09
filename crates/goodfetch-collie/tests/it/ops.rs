@@ -28,6 +28,8 @@ use std::time::{Duration, Instant};
 
 use goodfetch_protocol::catalog::Metric;
 use goodfetch_protocol::entries::MODULES;
+use goodfetch_protocol::home::DaemonFile;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     Canaries, DaemonEndpoint, Endpoint, EndpointRunner, Listener, ListenerKind, TestEnv,
     browser_cache, cli,
@@ -49,7 +51,7 @@ const EXPORT_DEADLINE: Duration = Duration::from_secs(60);
 
 /// The ops token the Daemon of `env` made.
 fn ops_token(env: &TestEnv) -> String {
-    std::fs::read_to_string(env.home().join("0.0").join("ops.token")).unwrap()
+    std::fs::read_to_string(HomeLayout::of(env.home()).daemon_file(DaemonFile::OpsToken)).unwrap()
 }
 
 /// Whether the Browser cache holds the pinned build, or is an empty one.
@@ -234,10 +236,9 @@ fn metrics_answer_the_ops_token_with_the_runtimes_metrics_under_bounded_labels()
         .filter(|(name, labels, _)| {
             declared(name).is_none_or(|metric| {
                 labels.iter().any(|(key, value)| {
-                    !metric
-                        .labels
-                        .iter()
-                        .any(|label| label.name == key && label.values.contains(&value.as_str()))
+                    !metric.labels.iter().any(|label| {
+                        label.name == key && (label.values)().contains(&value.as_str())
+                    })
                 })
             })
         })

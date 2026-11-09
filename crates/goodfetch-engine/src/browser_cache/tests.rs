@@ -19,6 +19,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crate::tasks::{BlockingPolicy, BlockingThreads, TaskOwner};
+
 use goodfetch_protocol::browser_cache::{
     ArtifactId, ArtifactKind, ChromeChannel, DownloadProgress, MissingBrowser, PinnedBy,
 };
@@ -89,8 +91,12 @@ fn pin(id: ArtifactId) -> PinnedArtifact {
     }
 }
 
+fn inline() -> BlockingThreads {
+    TaskOwner::root(BlockingPolicy::Inline).blocking_threads()
+}
+
 fn cache_in(env: &TestEnv) -> BrowserCache {
-    BrowserCache::new(&CacheLocation::new(env.home(), None))
+    BrowserCache::new(&CacheLocation::new(env.home(), None), inline())
 }
 
 /// Lays out `id`'s entry as `browser install` leaves it, used at `used_at`.
@@ -335,7 +341,10 @@ fn a_missing_build_in_a_cache_the_engine_cannot_write_is_not_installed() {
     let root = env.folder().join("read-only cache");
     fs::create_dir_all(&root).unwrap();
     make_read_only(&root);
-    let cache = BrowserCache::new(&CacheLocation::new(env.home(), Some(root.clone())));
+    let cache = BrowserCache::new(
+        &CacheLocation::new(env.home(), Some(root.clone())),
+        inline(),
+    );
     let id = browser("141.0.7390.54-linux64");
 
     let refused = goodfetch_test_support::runtime()
@@ -375,6 +384,7 @@ fn a_chrome_channel_that_is_not_installed_names_where_it_was_looked_for() {
 
     let refused = goodfetch_test_support::runtime()
         .block_on(installed_browser(
+            &inline(),
             &BrowserChoice::Channel(ChromeChannel::Beta),
             &candidates,
             Product::Collie,
@@ -402,6 +412,7 @@ fn a_browser_named_by_its_path_is_used_when_it_is_there() {
 
     let found = goodfetch_test_support::runtime()
         .block_on(installed_browser(
+            &inline(),
             &BrowserChoice::Path(path.clone()),
             std::slice::from_ref(&path),
             Product::Collie,
@@ -723,7 +734,10 @@ fn a_cache_the_engine_cannot_write_is_never_cleaned() {
 
     let env = TestEnv::new();
     let root = env.folder().join("read-only cache");
-    let cache = BrowserCache::new(&CacheLocation::new(env.home(), Some(root.clone())));
+    let cache = BrowserCache::new(
+        &CacheLocation::new(env.home(), Some(root.clone())),
+        inline(),
+    );
     let old = browser("unpinned-and-unused");
     lay_out(&cache, &old, days_before(&env, 31));
     make_read_only(&root);

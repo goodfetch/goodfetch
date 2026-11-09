@@ -115,3 +115,58 @@ fn commits_are_read_from_the_workspace_whatever_repository_git_dir_names() {
         outcome.stderr
     );
 }
+
+/// `ci/perf.sh`, `ci/linux.sh` and `ci/vm/in-container.sh` run in a container
+/// whose workspace another user owns, and name it `safe.directory` through
+/// the environment, which is the only place Git reads it from there beside
+/// the command line. Git hands on `git -c` the second way shown here.
+#[rstest::rstest]
+#[case::count_and_key(&[
+    ("GIT_CONFIG_COUNT", "1"),
+    ("GIT_CONFIG_KEY_0", "safe.directory"),
+    ("GIT_CONFIG_VALUE_0", "*"),
+])]
+#[case::command_line_parameters(&[("GIT_CONFIG_PARAMETERS", "'safe.directory=*'")])]
+fn a_workspace_another_user_owns_is_read_when_the_environment_trusts_it(
+    #[case] trust: &[(&str, &str)],
+) {
+    let workspace = Workspace::from_fixture("empty");
+    let base = workspace.commit_all();
+    let head = commit(&workspace, &["Add a page", SIGNED]);
+    let mut variables = vec![("GIT_TEST_ASSUME_DIFFERENT_OWNER", std::ffi::OsStr::new("1"))];
+    variables.extend(
+        trust
+            .iter()
+            .map(|(name, value)| (*name, std::ffi::OsStr::new(value))),
+    );
+
+    let outcome = workspace.xtask_with_env(&["dco", "--base", &base, "--head", &head], &variables);
+
+    assert_eq!(
+        (outcome.code, outcome.findings()),
+        (0, vec![]),
+        "{}",
+        outcome.stderr
+    );
+}
+
+/// The other half of the test above: without the trust, Git refuses the same
+/// workspace, so that test proves the variables reach it.
+#[test]
+fn a_workspace_another_user_owns_is_refused_when_nothing_trusts_it() {
+    let workspace = Workspace::from_fixture("empty");
+    let base = workspace.commit_all();
+    let head = commit(&workspace, &["Add a page", SIGNED]);
+
+    let outcome = workspace.xtask_with_env(
+        &["dco", "--base", &base, "--head", &head],
+        &[("GIT_TEST_ASSUME_DIFFERENT_OWNER", std::ffi::OsStr::new("1"))],
+    );
+
+    assert_ne!(outcome.code, 0);
+    assert!(
+        outcome.stderr.contains("dubious ownership"),
+        "{}",
+        outcome.stderr
+    );
+}

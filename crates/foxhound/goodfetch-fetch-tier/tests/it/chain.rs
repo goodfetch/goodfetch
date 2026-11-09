@@ -39,7 +39,7 @@ use rstest::rstest;
 use serde_json::Value;
 use url::Url;
 
-use crate::{Stack, reqwest, running_clock_runtime, transport};
+use crate::{Stack, requests_for, reqwest, running_clock_runtime, transport};
 
 const SEED: u64 = 762;
 const HOST: &str = "fetch-edge.test";
@@ -170,22 +170,6 @@ fn followed(
 
 fn hop(proving_ground: &ProvingGround, path: &str) -> Hop {
     Hop::get(Url::parse(&proving_ground.url(HOST, path)).unwrap())
-}
-
-/// The requests the Proving ground received on `host` for `path`.
-fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<Value> {
-    proving_ground
-        .received_requests()
-        .unwrap()
-        .of_the_case()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|seen| seen.split(':').next() == Some(host))
-                && request["target"] == path
-        })
-        .cloned()
-        .collect()
 }
 
 /// The value of a request's header `name`, if it has one.
@@ -595,7 +579,7 @@ fn a_hop_to_a_private_address_ends_skipped_with_domain_policy_and_never_connects
     let requests = ReceivedRequests::of(&observations);
     let addressed = requests
         .of_the_case()
-        .filter(|request| request["target"] == "/address/target")
+        .filter(|request| request.target == "/address/target")
         .count();
     // The observations' own read is the one connection with no request.
     let connections = observations["connections"].as_array().unwrap().len() - 1;

@@ -569,6 +569,71 @@ fn position(form: Form, name: &str) -> usize {
         .unwrap_or_else(|| panic!("{name} is not in the list"))
 }
 
+/// The full gate's steps, in order. Each form's list is spelled here, never
+/// read from the predicates that choose it: a step dropped from a form takes
+/// a check off a gate that merges on its verdict, so it has to fail a test.
+const FULL_STEPS: [&str; 22] = [
+    "dco",
+    "commit-messages",
+    "floor-guard",
+    "commit-leaks",
+    "audit",
+    "notices",
+    "perf",
+    "linux",
+    "visual",
+    "lint",
+    "feature-combinations",
+    "fuzz-check",
+    "proofs",
+    "quick",
+    "pre-merge",
+    "stress",
+    "journeys-tasks",
+    "features-tests",
+    "tlc",
+    "kennel",
+    "msrv",
+    "miri",
+];
+
+/// The steps that judge the whole change in seconds.
+const WHOLE_CHANGE_STEPS: [&str; 6] = [
+    "dco",
+    "commit-messages",
+    "floor-guard",
+    "commit-leaks",
+    "audit",
+    "notices",
+];
+
+/// The steps that run beside the host's, in a container of their own.
+const BESIDE_STEPS: [&str; 3] = ["perf", "linux", "visual"];
+
+/// The quick form's steps, in order: those that judge every change, never a
+/// test of the Pre-merge suite or a step beside the host's.
+const QUICK_STEPS: [&str; 9] = [
+    "dco",
+    "commit-messages",
+    "floor-guard",
+    "commit-leaks",
+    "audit",
+    "notices",
+    "lint",
+    "quick",
+    "journeys-tasks",
+];
+
+/// The docs form's entries, in order: the checks that read the change's
+/// commits and the bar, then the checks of `just lint` that read documents.
+const DOCS_ENTRIES: [&str; 5] = [
+    "dco",
+    "commit-messages",
+    "floor-guard",
+    "commit-leaks",
+    "lint-documents",
+];
+
 #[test]
 fn the_full_gate_runs_every_step_once_in_the_order_the_plan_lists_them() {
     let names: Vec<&str> = entries(Form::All)
@@ -577,7 +642,7 @@ fn the_full_gate_runs_every_step_once_in_the_order_the_plan_lists_them() {
         .map(|entry| entry.name)
         .collect();
 
-    assert_eq!(names, Step::ALL.map(Step::name));
+    assert_eq!(names, FULL_STEPS);
 }
 
 #[rstest]
@@ -588,13 +653,11 @@ fn the_whole_changes_checks_end_the_full_gate_before_the_console_build_and_any_s
 ) {
     let console = position(form, "console-build");
 
-    for step in Step::ALL {
-        if step.judges_the_whole_change() {
-            assert!(position(form, step.name()) < console, "{}", step.name());
-        }
-        if step.beside() {
-            assert!(position(form, step.name()) > console, "{}", step.name());
-        }
+    for step in WHOLE_CHANGE_STEPS {
+        assert!(position(form, step) < console, "{step}");
+    }
+    for step in BESIDE_STEPS {
+        assert!(position(form, step) > console, "{step}");
     }
 }
 
@@ -603,41 +666,21 @@ fn the_quick_gate_runs_no_step_beside_and_no_suite_but_the_quick_one() {
     let list = entries(Form::Quick);
 
     assert!(list.iter().all(|entry| entry.kind == Kind::Step));
-    for step in [
-        Step::PreMerge,
-        Step::Stress,
-        Step::Tlc,
-        Step::Msrv,
-        Step::Miri,
-    ] {
-        assert!(!list.iter().any(|entry| entry.name == step.name()));
-    }
-    for step in Step::ALL
-        .into_iter()
-        .filter(|step| step.judges_the_whole_change())
-    {
-        assert!(position(Form::Quick, step.name()) < position(Form::Quick, "lint"));
-    }
-    assert!(list.iter().any(|entry| entry.name == "quick"));
+    assert_eq!(
+        list.iter().map(|entry| entry.name).collect::<Vec<_>>(),
+        QUICK_STEPS
+    );
 }
 
 #[test]
 fn the_docs_gate_runs_the_checks_of_the_commits_then_the_document_checks() {
     let list = entries(Form::Docs);
 
-    let (documents, commits_checks) = list.split_last().expect("the docs gate runs something");
+    let (documents, _) = list.split_last().expect("the docs gate runs something");
     assert_eq!(documents.just, ["lint-documents"]);
-    let commits: Vec<&str> = Step::ALL
-        .into_iter()
-        .filter(|step| step.reads_the_commits())
-        .map(Step::name)
-        .collect();
     assert_eq!(
-        commits_checks
-            .iter()
-            .map(|entry| entry.name)
-            .collect::<Vec<_>>(),
-        commits
+        list.iter().map(|entry| entry.name).collect::<Vec<_>>(),
+        DOCS_ENTRIES
     );
 }
 

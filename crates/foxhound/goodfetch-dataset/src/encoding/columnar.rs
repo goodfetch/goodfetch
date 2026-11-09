@@ -24,7 +24,7 @@ const BATCH: usize = 8192;
 
 /// A Parquet file's codec, `export.parquet.compression`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ParquetCodec {
+pub(crate) enum ParquetCodec {
     /// Zstandard.
     Zstd,
     /// Snappy.
@@ -35,7 +35,7 @@ pub enum ParquetCodec {
 
 impl ParquetCodec {
     /// The codec `choice`, one of `PARQUET_COMPRESSION_VALUES`, names.
-    pub fn of(choice: &str) -> Option<Self> {
+    pub(crate) fn of(choice: &str) -> Option<Self> {
         match choice {
             "zstd" => Some(Self::Zstd),
             "snappy" => Some(Self::Snappy),

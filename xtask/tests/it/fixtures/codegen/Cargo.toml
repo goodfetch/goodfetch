@@ -5,6 +5,13 @@ members = [
   "crates/foxhound/goodfetch-*",
   "crates/foxhound/sinks/goodfetch-*",
 ]
+# The sources of the facts `xtask codegen` writes for the tests (its
+# `facts`), which it reads as files and never builds.
+exclude = [
+  "crates/goodfetch-collie",
+  "crates/goodfetch-engine",
+  "crates/foxhound/goodfetch-fetch-tier",
+]
 
 [workspace.package]
 version = "0.0.0"
@@ -15,3 +22,4 @@ publish = false
 schemars = { version = "1.2.3", default-features = false, features = ["std", "derive"] }
 serde = { version = "1.0.229", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "1.0.154", default-features = false, features = ["std"] }
+thiserror = { version = "2.0.21", default-features = false, features = ["std"] }

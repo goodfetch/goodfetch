@@ -48,16 +48,7 @@ use serde_json::Value;
 use super::scan::{Declaration, Level, Source};
 use crate::check::Finding;
 use crate::junit;
-
-/// The `tracing` target of `rpc`'s dispatch records.
-pub(crate) const DISPATCH_TARGET: &str = "goodfetch::rpc::dispatch";
-
-/// The target of test support's command records.
-pub(crate) const COMMAND_TARGET: &str = "goodfetch::test::command";
-
-/// The `tracing` target of the engine's records of an Error code a Run
-/// recorded and no reply carries, such as a work item's `handler_lost`.
-pub(crate) const OUTCOME_TARGET: &str = "goodfetch::run::outcome";
+use crate::test_facts::{COMMAND_TARGET, DISPATCH_TARGET, OUTCOME_TARGET};
 
 /// The catalog file `xtask codegen` emits, whose `exit_codes` name each
 /// exit code.

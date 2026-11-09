@@ -2,11 +2,12 @@
 //! own copy of an older major's per-user and per-install files in Goodfetch
 //! home (its folder of that major: the Operator policy, user configuration,
 //! the Run index and the run folders), and never changes the older major's
-//! files, so that a person can go back. Its own Daemon's runtime files are
-//! no state, and are not copied. Shared files outside the per-major folders
-//! (the Browser cache, the Usage ledger's family, the list of installed
-//! executables) need no copy; the Usage ledger's managed rows of older
-//! majors are replaced with the new major's (ADR 0041).
+//! files, so that a person can go back. Its own Daemon's files, each
+//! `DaemonFile`, its tokens among them, are no state, and are not copied.
+//! Shared files outside the per-major folders (the Browser cache, the Usage
+//! ledger's family, the list of installed executables) need no copy; the
+//! Usage ledger's managed rows of older majors are replaced with the new
+//! major's (ADR 0041).
 //!
 //! It upgrades only from a major `compat/upgrade-paths.toml` lists: another
 //! older major is refused, naming the release to upgrade through first, and
@@ -28,25 +29,15 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::connection::{ProductVersion, VersionLine};
+use goodfetch_protocol::home::DaemonFile;
 use toml_edit::DocumentMut;
 
-use crate::home::{Home, major_name, major_order};
+use crate::home::Home;
 use crate::ledger::Ledger;
 
 /// The committed table of the majors `upgrade-files` upgrades from.
 const COMMITTED: &str = include_str!("../../../compat/upgrade-paths.toml");
-
-/// The files of a per-major folder that are its Daemon's while it runs, not
-/// state: its runtime file, socket, locks, token and service record.
-const DAEMON_FILES: &[&str] = &[
-    "daemon.json",
-    "daemon.sock",
-    "daemon.lock",
-    "daemon-start.lock",
-    "daemon.token",
-    "daemon-service.json",
-];
 
 /// The majors `upgrade-files` upgrades from, as `compat/upgrade-paths.toml`
 /// lists them.
@@ -84,7 +75,7 @@ impl UpgradePaths {
                 let major = table
                     .get("major")
                     .and_then(|major| major.as_str())
-                    .filter(|major| major_order(major).is_some())
+                    .filter(|major| VersionLine::parse(major).is_some())
                     .ok_or("a `source` names no `major`, such as \"1\" or \"0.4\"")?;
                 sources.push(major.to_owned());
             }
@@ -187,30 +178,30 @@ pub fn upgrade_files(
     from: Option<&str>,
     paths: &UpgradePaths,
 ) -> Result<Upgraded, UpgradeError> {
-    let current = major_name(version);
-    let current_order = major_order(&current).unwrap_or((0, 0));
+    let current_line = version.line();
+    let current = current_line.to_string();
     let source = match from {
         Some(source) => {
-            let order = major_order(source).ok_or_else(|| UpgradeError::NotAMajor {
+            let line = VersionLine::parse(source).ok_or_else(|| UpgradeError::NotAMajor {
                 major: source.to_owned(),
             })?;
-            Some((order, source.to_owned()))
+            Some((line, source.to_owned()))
         }
-        None => newest_older_major(home.root(), current_order)?,
+        None => newest_older_major(home.root(), current_line)?,
     };
-    let Some((order, source)) = source else {
+    let Some((line, source)) = source else {
         return Ok(Upgraded {
             to: current,
             ..Upgraded::default()
         });
     };
-    if order > current_order {
+    if line > current_line {
         return Err(UpgradeError::NewerMajor {
             major: source,
             current,
         });
     }
-    if order == current_order {
+    if line == current_line {
         return Ok(Upgraded {
             from: Some(source),
             to: current,
@@ -218,8 +209,10 @@ pub fn upgrade_files(
         });
     }
     if !paths.sources.contains(&source) {
-        let through = next_major(order)
-            .filter(|through| major_order(through).is_some_and(|through| through < current_order));
+        let through = line
+            .next()
+            .filter(|through| *through < current_line)
+            .map(|through| through.to_string());
         return Err(UpgradeError::NotListed {
             major: source,
             current,
@@ -253,7 +246,7 @@ pub fn upgrade_files(
     if ledger.exists() {
         Ledger::at(ledger.clone(), None)
             .upgrade_managed(&source, &current, |major| {
-                major_order(major).is_some_and(|order| order < current_order)
+                VersionLine::parse(major).is_some_and(|line| line < current_line)
             })
             .map_err(|error| UpgradeError::Io {
                 path: ledger,
@@ -263,12 +256,12 @@ pub fn upgrade_files(
     Ok(upgraded)
 }
 
-/// A major's order and its folder's name.
-type Major = ((u64, u64), String);
+/// A major's version line and its folder's name.
+type Major = (VersionLine, String);
 
 /// The newest major older than `current` whose folder Goodfetch home at
 /// `root` holds; none when there is no Goodfetch home yet.
-fn newest_older_major(root: &Path, current: (u64, u64)) -> Result<Option<Major>, UpgradeError> {
+fn newest_older_major(root: &Path, current: VersionLine) -> Result<Option<Major>, UpgradeError> {
     let entries = match std::fs::read_dir(root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -279,21 +272,12 @@ fn newest_older_major(root: &Path, current: (u64, u64)) -> Result<Option<Major>,
         let entry = entry.map_err(|error| io_error(root, &error))?;
         let name = entry.file_name().to_string_lossy().into_owned();
         if entry.path().is_dir()
-            && let Some(order) = major_order(&name).filter(|order| *order < current)
+            && let Some(line) = VersionLine::parse(&name).filter(|line| *line < current)
         {
-            newest = newest.max(Some((order, name)));
+            newest = newest.max(Some((line, name)));
         }
     }
     Ok(newest)
-}
-
-/// The major after the one of `order`: the next `0.y` during previews.
-fn next_major((major, minor): (u64, u64)) -> Option<String> {
-    if major == 0 {
-        Some(format!("0.{}", minor.checked_add(1)?))
-    } else {
-        Some(major.checked_add(1)?.to_string())
-    }
 }
 
 /// Every regular file under `folder` but its Daemon's, in path order.
@@ -311,10 +295,7 @@ fn files_of(folder: &Path) -> Result<Vec<PathBuf>, UpgradeError> {
             if kind.is_dir() {
                 folders.push(entry.path());
             } else if kind.is_file()
-                && !(current == folder
-                    && DAEMON_FILES
-                        .iter()
-                        .any(|daemon| name == std::ffi::OsStr::new(daemon)))
+                && !(current == folder && name.to_str().and_then(DaemonFile::named).is_some())
             {
                 files.push(entry.path());
             }

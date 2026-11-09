@@ -34,6 +34,10 @@ use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::home::DaemonFile;
+use goodfetch_test_client::HomeLayout;
+use goodfetch_test_support::MESSAGE_DEADLINE;
 use goodfetch_test_support::{
     Canaries, Output, ProvingGround, SecretKind, TestEnv, browser_cache, chrome_for_testing_files,
 };
@@ -42,9 +46,9 @@ use prost::Message as _;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
+use crate::COLLIE;
 use crate::page::{opened, started};
-use crate::run::call;
+use goodfetch_test_client::{Attached, hello};
 
 /// Where a kind of secret is planted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -400,8 +404,8 @@ fn a_key_read_through_each_provider_and_an_endpoint_token_are_in_no_output(
     let key_id = canaries.iter().last().unwrap().id().to_owned();
     let token = canaries.plant(SecretKind::EndpointToken);
     let (token_id, token) = (token.id().to_owned(), token.value().to_owned());
-    let ops_token = env.home().join("0.0").join("ops.token");
-    std::fs::create_dir_all(env.home().join("0.0")).unwrap();
+    let ops_token = HomeLayout::of(env.home()).daemon_file(DaemonFile::OpsToken);
+    std::fs::create_dir_all(HomeLayout::of(env.home()).per_major()).unwrap();
     std::fs::write(&ops_token, &token).unwrap();
     canaries.record_planted(&token_id, &ops_token.display().to_string());
     let server = stand_in(key.clone());
@@ -413,23 +417,22 @@ fn a_key_read_through_each_provider_and_an_endpoint_token_are_in_no_output(
         configured.configuration
     ));
 
-    let mut engine = Attached::start_with(&env, |command| {
+    let mut engine = Attached::start_with(&env, COLLIE, MESSAGE_DEADLINE, |command| {
         for (name, value) in &configured.variables {
             command.env(name, value);
         }
     });
-    engine.send(&hello("collie", "0.1"));
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     let run = json!({ "run_id": "swept" });
     let mut replies = vec![
-        call(&mut engine, 1, "run.start", &run),
-        call(
-            &mut engine,
+        engine.ask(1, "run.start", &run),
+        engine.ask(
             2,
             "run.set_progress_message",
             &json!({ "run_id": "absent", "message": "Reading page 1" }),
         ),
-        call(&mut engine, 3, "run.finish", &run),
+        engine.ask(3, "run.finish", &run),
     ];
     let (rest, stderr) = engine.finish_with_stderr();
     replies.extend(rest);
@@ -483,14 +486,14 @@ const SEED: u64 = 649;
 /// An Attached engine's calls, matched to their answers by ID in whatever
 /// order those come, and the requests a route's handler is asked about,
 /// held until the test lets them go on.
-struct Calls<'env> {
-    engine: Attached<'env>,
+struct Calls {
+    engine: Attached,
     answers: BTreeMap<i64, Value>,
     held: Vec<Value>,
 }
 
-impl<'env> Calls<'env> {
-    fn new(engine: Attached<'env>) -> Self {
+impl Calls {
+    fn new(engine: Attached) -> Self {
         Self {
             engine,
             answers: BTreeMap::new(),

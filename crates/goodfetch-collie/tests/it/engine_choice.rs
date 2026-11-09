@@ -14,11 +14,12 @@
 )]
 
 use goodfetch_test_support::{
-    RuntimeFile, SnapshotValues, TestEnv, cli, redact, snapshot_settings,
+    DISPATCH_TARGET, RuntimeFile, SnapshotValues, TestEnv, cli, redact, snapshot_settings,
 };
 use serde_json::{Value, json};
 
 use crate::daemon::{StopsTheDaemon, json_of, runtime_file, scripted_daemon, short_idle};
+use crate::daemon_client;
 #[cfg(unix)]
 use crate::daemon_run::{ANY_PORT, Foreground, token};
 
@@ -37,9 +38,7 @@ fn daemon(env: &TestEnv) -> Value {
         return Value::Null;
     }
     let found = RuntimeFile::read(&runtime_file(env)).unwrap();
-    crate::daemon::RawClient::opened(&found, "collie").call(1, "daemon.status", &json!({}))
-        ["result"]
-        .clone()
+    daemon_client(&found).call(1, "daemon.status", &json!({}))["result"].clone()
 }
 
 /// The engine a hand-written command's flag chooses, for its `attached` and
@@ -75,10 +74,7 @@ pub(crate) fn daemon_dispatched(env: &TestEnv, method: &str) -> bool {
                 .unwrap()
                 .lines()
                 .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-                .any(|line| {
-                    line["target"] == "goodfetch::rpc::dispatch"
-                        && line["fields"]["method"] == method
-                })
+                .any(|line| line["target"] == DISPATCH_TARGET && line["fields"]["method"] == method)
         })
 }
 

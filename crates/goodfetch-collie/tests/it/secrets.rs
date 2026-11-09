@@ -17,12 +17,14 @@
     reason = "the tests write the encrypted local files of the test's Goodfetch home themselves"
 )]
 
+use goodfetch_protocol::catalog::Product;
+use goodfetch_test_client::HomeLayout;
+use goodfetch_test_support::MESSAGE_DEADLINE;
 use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv, cli};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
-use crate::run::call;
+use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -45,26 +47,16 @@ fn planted(env: &TestEnv) -> (Canaries, String, String) {
 /// The replies of an Attached engine started with `variables`, to a `run.start`
 /// of `run_id` and, when it started, its `run.finish`.
 fn started(env: &TestEnv, variables: &[(&str, &str)], run_id: &str) -> Vec<Value> {
-    let mut engine = Attached::start_with(env, |command| {
+    let mut engine = Attached::start_with(env, COLLIE, MESSAGE_DEADLINE, |command| {
         for (name, value) in variables {
             command.env(name, value);
         }
     });
-    engine.send(&hello("collie", "0.1"));
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    let mut replies = vec![call(
-        &mut engine,
-        1,
-        "run.start",
-        &json!({ "run_id": run_id }),
-    )];
+    let mut replies = vec![engine.ask(1, "run.start", &json!({ "run_id": run_id }))];
     if replies[0].get("result").is_some() {
-        replies.push(call(
-            &mut engine,
-            2,
-            "run.finish",
-            &json!({ "run_id": run_id }),
-        ));
+        replies.push(engine.ask(2, "run.finish", &json!({ "run_id": run_id })));
     }
     let (rest, _) = engine.finish();
     replies.extend(rest);
@@ -95,7 +87,7 @@ fn a_raw_value_as_the_key_reference_is_refused_with_setting_invalid_naming_no_va
     let env = TestEnv::new();
     let (mut canaries, id, value) = planted(&env);
     env.user_configuration(&format!("run_state.key_reference = \"{value}\"\n"));
-    let configuration = env.home().join("0.0").join("configuration.toml");
+    let configuration = HomeLayout::of(env.home()).user_configuration();
     canaries.record_planted(&id, &configuration.display().to_string());
 
     let replies = started(&env, &[], "raw");
@@ -124,12 +116,11 @@ fn a_raw_client_certificate_key_is_refused_with_setting_invalid_naming_no_value(
     let env = TestEnv::new();
     let mut canaries = Canaries::new(env.seed());
     let value = canaries.plant(SecretKind::EndpointToken).value().to_owned();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
 
-    let mut replies = vec![call(
-        &mut engine,
+    let mut replies = vec![engine.ask(
         1,
         "run.start",
         &json!({
@@ -250,7 +241,7 @@ fn a_run_whose_key_variable_is_unset_is_refused_with_secret_unavailable_before_i
         (
             data,
             fix.is_some_and(|fix| fix.is_string()),
-            env.home().join("0.0").join("runs").join("unkeyed").exists()
+            HomeLayout::of(env.home()).run_folder("unkeyed").exists()
         ),
         (
             json!({
@@ -320,54 +311,44 @@ fn encrypted(value: &str, identity: &age::x25519::Identity) -> Vec<u8> {
     encrypted
 }
 
-/// How long the encrypted local file of the waiting Run's proxy holds back
-/// its value: far longer than another Run's navigation takes.
-#[cfg(unix)]
-const HELD_SECRET: std::time::Duration = std::time::Duration::from_secs(15);
-
 /// A Session opening on a proxy whose password's Secret has not resolved
 /// yet holds up no other Run's calls: while one Run's first `run.new_page`
 /// waits on the encrypted local file of its `proxy.password`, a named pipe
-/// that gives its value only later, another Run's page goes on.
+/// that gives its value only once the other Run's navigation answered,
+/// another Run's page goes on. A navigation held up by the wait never
+/// answers, and fails past the engine's message deadline.
 /// Covers: operation:run.new_page, operation:page.goto, setting:proxy.password
 #[cfg(unix)]
 #[test]
-#[expect(
-    clippy::disallowed_types,
-    reason = "the test's own writer thread tells it when the Secret was released, outside any async worker"
-)]
 fn a_session_waiting_on_its_proxy_secret_holds_up_no_other_runs_page() {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::io::Write as _;
+    use std::sync::mpsc;
+    use std::time::Duration;
 
     let env = TestEnv::new();
     let proving_ground = goodfetch_test_support::ProvingGround::start(&env, 697).unwrap();
     let cache = goodfetch_test_support::browser_cache(&env).unwrap();
     let mut engine = crate::page::started(&env, &cache, &proving_ground, "going-on");
-    let page = crate::page::opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "going-on" }),
-    ));
+    let page =
+        crate::page::opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "going-on" })));
     let identity = identity(&env);
     let pipe = secret_files(&env).join("proxy-password.age");
     let made = std::process::Command::new("mkfifo")
         .arg(&pipe)
         .status()
         .unwrap();
-    let released = Arc::new(AtomicBool::new(false));
     let value = encrypted("proxy-password", &identity);
-    let writer = {
-        let released = Arc::clone(&released);
-        std::thread::spawn(move || {
-            std::thread::sleep(HELD_SECRET);
-            released.store(true, Ordering::SeqCst);
-            std::fs::write(pipe, value).unwrap();
-        })
-    };
-    let started = call(
-        &mut engine,
+    let (read_begun, reader_waits) = mpsc::channel();
+    let (release, released) = mpsc::channel();
+    let writer = std::thread::spawn(move || {
+        // A pipe opens for writing only once its reader opened it: the
+        // waiting Run's Session, reading its Secret.
+        let mut secret = std::fs::OpenOptions::new().write(true).open(pipe).unwrap();
+        read_begun.send(()).unwrap();
+        released.recv().unwrap();
+        secret.write_all(&value).unwrap();
+    });
+    let started = engine.ask(
         3,
         "run.start",
         &json!({ "run_id": "waiting", "settings": { "proxy": {
@@ -377,7 +358,9 @@ fn a_session_waiting_on_its_proxy_secret_holds_up_no_other_runs_page() {
         } } }),
     );
     engine.send(&json!({ "jsonrpc": "2.0", "id": 4, "method": "run.new_page", "params": { "run_id": "waiting" } }));
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    reader_waits
+        .recv_timeout(Duration::from_secs(60))
+        .expect("the waiting Run's Session reads its Secret");
     engine.send(
         &json!({ "jsonrpc": "2.0", "id": 5, "method": "page.goto", "params": {
         "page_id": page.page_id,
@@ -390,7 +373,7 @@ fn a_session_waiting_on_its_proxy_secret_holds_up_no_other_runs_page() {
             break message;
         }
     };
-    let held_up = released.load(Ordering::SeqCst);
+    release.send(()).unwrap();
     writer.join().unwrap();
     let _ = engine.finish();
 
@@ -399,9 +382,8 @@ fn a_session_waiting_on_its_proxy_secret_holds_up_no_other_runs_page() {
             made.success(),
             started.get("result").is_some(),
             &went["result"]["response"]["status"],
-            held_up,
         ),
-        (true, true, &json!(200), false),
+        (true, true, &json!(200)),
         "{went}"
     );
 }
@@ -701,6 +683,7 @@ mod keychain {
 pub(crate) mod external_providers {
     use std::os::unix::fs::PermissionsExt as _;
 
+    use goodfetch_test_client::HomeLayout;
     use goodfetch_test_support::TestEnv;
     use rstest::rstest;
     use serde_json::json;
@@ -821,10 +804,8 @@ pub(crate) mod external_providers {
                     .as_str()
                     .is_some_and(|fix| fix
                         .contains(&format!("secret_providers.{}.command", vendor.scheme()))),
-                env.home()
-                    .join("0.0")
-                    .join("runs")
-                    .join("unconfigured")
+                HomeLayout::of(env.home())
+                    .run_folder("unconfigured")
                     .exists()
             ),
             (

@@ -19,7 +19,9 @@
 //! bytes; a name not in Unicode's composed form, which APFS would open as
 //! the composed name it equals. A [`PathShape::Name`] takes one name, a
 //! [`PathShape::RelativePath`] a path to a subfolder, its parts split on
-//! `/` and `\` alike.
+//! `/` and `\` alike. ADR 0067's note for #644 puts the check in each
+//! module that makes a file of such a name (a screenshot, Run trace, Plan
+//! or download name); none calls it yet.
 
 use goodfetch_protocol::hostile_input::{
     HEADER_VALUE_INVALID, HeaderCharacter, HeaderValueInvalidDetails, PATH_UNSAFE, PathHazard,

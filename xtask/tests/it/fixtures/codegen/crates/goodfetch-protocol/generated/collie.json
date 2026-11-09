@@ -77,6 +77,7 @@
     {
       "arrived_in": "0.1",
       "description": "The sample operation refused the text.",
+      "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "sample_refused",
@@ -131,6 +132,7 @@
   "events": [
     {
       "arrived_in": "0.1",
+      "class": "telemetry",
       "deprecated": null,
       "description": "A text was repeated.",
       "name": "sample.echoed",
@@ -141,11 +143,15 @@
       "stability": "experimental"
     }
   ],
+  "exit_codes": [],
+  "handler_requests": [],
+  "hook_stages": [],
   "metrics": [
     {
       "arrived_in": "0.1",
       "description": "Texts the sample operation repeated.",
       "instrument": "counter",
+      "labels": [],
       "name": "goodfetch.sample.echoes",
       "product": "collie",
       "stability": "stable",
@@ -165,11 +171,13 @@
       "events": [
         "sample.echoed"
       ],
+      "kind": "round_trip",
       "name": "sample.echo",
       "params": {
         "$ref": "#/$defs/SampleEchoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleEchoResult"
       },
@@ -197,5 +205,7 @@
       "stability": "experimental"
     }
   ],
-  "protocol_version": "0.1"
+  "protocol_version": "0.1",
+  "settings": [],
+  "shared_type_values": []
 }

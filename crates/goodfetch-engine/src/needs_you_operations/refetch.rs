@@ -6,8 +6,8 @@
 //! the domain to the Operator policy's `wall.denied_domains` with its
 //! reason. Each writes one file in one call, an edit of the settings
 //! editor (`settings_editor`), every other byte kept, once the resolver
-//! accepts the file so changed, refuses a managed Operator
-//! policy with `setting_locked`, and records the answer in the Audit log.
+//! accepts the file so changed, refuses a managed Operator policy with
+//! `setting_locked`, and records the answer in the Audit log.
 //! A domain only project configuration lists is changed in its file: the
 //! engine never writes a project's file. On a Daemon with accounts both
 //! need the operator role, and denial step-up (the accounts and step-up
@@ -29,7 +29,8 @@ use serde_json::{Value, json};
 use super::{Refused, consent_domain, unrecorded};
 use crate::call_error::CallError;
 use crate::composition::CallContext;
-use crate::needs_you::refetch::{coverage, machine_listing, normalized};
+use crate::host_name::lookup_key;
+use crate::needs_you::refetch::{coverage, machine_listing};
 use crate::run::settings_error;
 use crate::settings::SettingsError;
 use crate::settings_editor::{Change, Draft, SettingsEditor};
@@ -137,7 +138,7 @@ fn remove(
         Some(false) => listing
             .domains
             .iter()
-            .filter(|listed| normalized(listed) != domain)
+            .filter(|listed| lookup_key(listed) != domain)
             .cloned()
             .collect(),
         Some(true) => {
@@ -230,7 +231,7 @@ fn deny(
                 .collect()
         })
         .unwrap_or_default();
-    if domains.iter().any(|listed| normalized(listed) == domain) {
+    if domains.iter().any(|listed| lookup_key(listed) == domain) {
         return Ok(Change::Kept(WallDomainDenied {
             domain,
             added: false,

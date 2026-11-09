@@ -25,7 +25,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_engine::audit::AuditLog;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::endpoint::{self, Refusals, new_token};
+use goodfetch_engine::endpoint::{Refusals, new_token};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_test_support::{Endpoint, EndpointRunner, Listener, ListenerKind, Rule, TestEnv};
@@ -33,19 +33,21 @@ use rstest::rstest;
 use secrecy::SecretString;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 use tokio_util::sync::CancellationToken;
 
-use super::{ACCEPT_BACKOFF, Credentials, Mode, USERNAME, Upstream, accepting, basic, relay};
+use super::{ACCEPT_BACKOFF, Credentials, Mode, Upstream, accepting, basic, relay};
+use crate::egress_relay::answers::USERNAME;
 use crate::egress_relay::deadlines::HEAD_DEADLINE;
 use crate::egress_relay::{ByAuthority, Outcomes};
 
-/// What a fake SOCKS5 proxy met: the connections it accepted, and the
-/// first bytes each tunnel it opened carried.
+/// What a fake SOCKS5 proxy met: the connections it accepted, the first
+/// bytes each tunnel it opened carried, and a wake-up for each of those.
 #[derive(Default)]
 struct Met {
     connections: AtomicUsize,
     carried: Mutex<Vec<Vec<u8>>>,
+    carried_more: Notify,
 }
 
 /// A fake SOCKS5 proxy on loopback that asks for credentials and answers
@@ -86,6 +88,7 @@ async fn fake_proxy(owner: &TaskOwner, statuses: Vec<u8>) -> (SocketAddr, Arc<Me
             let read = stream.read(&mut carried).await.unwrap_or(0);
             carried.truncate(read);
             meeting.carried.lock().await.push(carried);
+            meeting.carried_more.notify_one();
         }
     });
     (address, met)
@@ -110,7 +113,7 @@ fn refused_tokens(log: &AuditLog) -> usize {
             .filter(|exported| {
                 exported.entry.kind == "endpoint_authentication_failed"
                     && exported.entry.details
-                        == serde_json::json!({ "listener": endpoint::Listener::ProxyRelay.name(), "reason": "token_wrong" })
+                        == serde_json::json!({ "listener": "proxy_relay", "reason": "token_wrong" })
             })
             .count()
     })
@@ -248,16 +251,11 @@ async fn a_client_with_the_relays_credentials_reaches_the_site_through_the_socks
 
     let answer = through(&upstream, &request, after).await;
     // The fake proxy reads the tunnel's first bytes once the relay passed
-    // them on.
-    let mut seen = Vec::new();
-    for _ in 0..200 {
-        seen.clone_from(&*met.carried.lock().await);
-        if !seen.is_empty() {
-            break;
-        }
-        tokio::task::yield_now().await;
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
+    // them on; a relay that passes none fails at this deadline.
+    tokio::time::timeout(Duration::from_secs(60), met.carried_more.notified())
+        .await
+        .expect("the tunnel carries the client's first bytes");
+    let seen = met.carried.lock().await.clone();
 
     owner.cancel();
     assert_eq!(

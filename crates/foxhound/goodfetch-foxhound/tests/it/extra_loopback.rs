@@ -18,12 +18,14 @@ use std::collections::BTreeSet;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
+use goodfetch_test_support::ObservedRequest;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
 };
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
+use crate::attached_with;
 use crate::frontier::{crawl_declaring, crawl_with};
 
 /// The Proving ground's seed.
@@ -47,7 +49,7 @@ fn settings(proving_ground: &ProvingGround, addresses: &[&str]) -> Value {
 /// on, in arrival order. Every request, robots.txt's included: the tests
 /// claim where it leaves from, and read the observations once the crawl
 /// finished, so after its robots.txt reading, which its pages waited on.
-fn sources(observations: &Value, chosen: impl Fn(&Value) -> bool) -> Vec<IpAddr> {
+fn sources(observations: &Value, chosen: impl Fn(&ObservedRequest) -> bool) -> Vec<IpAddr> {
     let connections = observations["connections"].as_array().unwrap();
     ReceivedRequests::of(observations)
         .every()
@@ -55,8 +57,8 @@ fn sources(observations: &Value, chosen: impl Fn(&Value) -> bool) -> Vec<IpAddr>
         .map(|request| {
             let connection = connections
                 .iter()
-                .find(|connection| connection["id"] == request["connection"])
-                .unwrap_or_else(|| panic!("no connection for {request}"));
+                .find(|connection| connection["id"] == request.connection)
+                .unwrap_or_else(|| panic!("no connection for {request:?}"));
             connection["source"]
                 .as_str()
                 .unwrap()
@@ -70,7 +72,7 @@ fn sources(observations: &Value, chosen: impl Fn(&Value) -> bool) -> Vec<IpAddr>
 /// The source address of the connection each request for the target
 /// `target` came on, in arrival order.
 fn sources_of(observations: &Value, target: &str) -> Vec<IpAddr> {
-    sources(observations, |request| request["target"] == target)
+    sources(observations, |request| request.target == target)
 }
 
 /// Every source address a request to the crawled site came from: the
@@ -78,9 +80,7 @@ fn sources_of(observations: &Value, target: &str) -> Vec<IpAddr> {
 /// request to it.
 fn every_source(observations: &Value) -> BTreeSet<IpAddr> {
     sources(observations, |request| {
-        request["host"]
-            .as_str()
-            .is_some_and(|host| host.starts_with("access.test"))
+        request.host.starts_with("access.test")
     })
     .into_iter()
     .collect()
@@ -119,7 +119,7 @@ fn a_crawl_reaches_the_site_from_its_sessions_local_addresses() {
         .iter()
         .map(|path| json!({ "url": proving_ground.url("access.test", path), "label": "page" }))
         .collect();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let report = crawl_with(
         &mut engine,
@@ -129,7 +129,7 @@ fn a_crawl_reaches_the_site_from_its_sessions_local_addresses() {
         &mut |_, handle| answer(handle, &[]),
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -168,7 +168,7 @@ fn a_replacement_after_a_block_reaches_the_site_from_an_unblocked_block() {
             .map(|path| json!({ "url": proving_ground.url("access.test", path), "label": "page" }))
             .collect()
     };
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let outside = crawl_with(
         &mut engine,
@@ -186,7 +186,7 @@ fn a_replacement_after_a_block_reaches_the_site_from_an_unblocked_block() {
         &mut |_, handle| answer(handle, &["/probe", "/cdp-probe"]),
     );
     let second = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let warnings: Vec<Value> = within["result"]["warnings"]
         .as_array()
@@ -245,7 +245,7 @@ fn a_replacement_after_a_block_on_the_http_tier_leaves_an_unblocked_block_though
     settings["proxy"] = json!({
         "server": format!("http://{}", proving_ground.description().fixtures.proxies["datacenter"]),
     });
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let report = crawl_with(
         &mut engine,
@@ -255,7 +255,7 @@ fn a_replacement_after_a_block_on_the_http_tier_leaves_an_unblocked_block_though
         &mut |_, handle| answer(handle, &["/consistency/1"]),
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         ["/consistency/1", "/consistency/2", "/version"]
@@ -280,7 +280,7 @@ fn a_replacement_on_the_browser_tier_reaches_the_site_from_the_pools_unblocked_a
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
-    let mut engine = Attached::start_with(&env, Some(Duration::from_secs(60)), |command| {
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
         command.env(BROWSERS_PATH_VARIABLE, &cache);
     });
     let seeds = [
@@ -303,7 +303,7 @@ fn a_replacement_on_the_browser_tier_reaches_the_site_from_the_pools_unblocked_a
         &mut |_, handle| answer(handle, &["/consistency/1"]),
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (

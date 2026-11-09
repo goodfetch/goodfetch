@@ -157,7 +157,10 @@ pub(crate) const FIXED_CEILINGS: [Ceiling; 6] = [
     },
     Ceiling::PerBodyByte {
         subject: "goodfetch-foxhound/heap::crawl::in_memory_pages",
-        fixture: "crates/foxhound/goodfetch-foxhound/benches/pages.source.toml",
+        fixture: concat!(
+            crate::products::foxhound_folder!(),
+            "/benches/pages.source.toml"
+        ),
         max_multiple: PAGE_BYTES_PER_BODY_BYTE,
     },
 ];

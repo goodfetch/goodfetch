@@ -41,6 +41,7 @@ use serde_json::{Value, json};
 use crate::daemon::{DAEMON_DEADLINE, Daemon, DaemonError};
 use crate::env::TestEnv;
 use crate::exercise::{COMMAND_TARGET, command_record};
+use crate::facts::DISPATCH_TARGET;
 use crate::locales::{table_lang, table_zone};
 use crate::snapshot::{SnapshotValues, snapshot_settings};
 
@@ -523,6 +524,23 @@ impl CliOutput {
     /// insta settings with the shared filters for the test's folder.
     pub fn settings(&self) -> insta::Settings {
         snapshot_settings(&self.values)
+    }
+
+    /// This output without the engine's dispatch records, which an Attached
+    /// engine writes on the command's stderr and a Daemon in its own log, so
+    /// that both modes share one snapshot of what the command itself prints.
+    #[must_use]
+    pub fn without_dispatch_records(mut self) -> Self {
+        self.stderr = self
+            .stderr
+            .lines()
+            .filter(|line| !line.contains(DISPATCH_TARGET))
+            .fold(String::new(), |mut kept, line| {
+                kept.push_str(line);
+                kept.push('\n');
+                kept
+            });
+        self
     }
 }
 

@@ -1,11 +1,13 @@
 //! The composition (ADR 0087): each domain crate exports one
 //! [`Contribution`] listing what it adds to the engine, and each Product's
 //! executable crate passes the ones it links to the engine at start, a list
-//! in its `main`. Nothing registers itself by being linked. Today a
-//! contribution adds operation handlers and the tables it keeps in every
-//! run file, and an executable crate adds its Console build; settings keys, Plugin kinds and Hook stages, Usage kinds and
-//! Limit scopes, Notifications and gates in admission join it with the
-//! tickets that build them.
+//! in its `main`. Nothing registers itself by being linked. A contribution
+//! adds operation handlers and the drivers of its kinds of Run, the tables
+//! it keeps in every run file and the Politeness file, its gates in
+//! admission, its parts of a Run's report and progress, its Clean-up
+//! versions, its "Needs you" sources, its Secret providers and the
+//! controls and weakenings it records; an executable crate adds its
+//! Console build.
 //!
 //! A handler answers a value or a [`CallError`], which only the RPC layer
 //! turns into the wire's error object.
@@ -32,7 +34,7 @@ use tokio_util::sync::CancellationToken;
 use crate::admission::Gates;
 use crate::call_error::CallError;
 use crate::client::Client;
-use crate::controls::Controls;
+use crate::controls::{Controls, Recorded};
 use crate::engine_context::EngineContext;
 use crate::events::Events;
 use crate::log::ConnectionLog;
@@ -58,10 +60,18 @@ pub(crate) use call_streams::{CallNotifier, InputSender};
 #[derive(Clone)]
 pub struct CallContext {
     connection: Arc<ConnectionContext>,
+    operation: &'static Operation,
     id: RequestId,
     token: CancellationToken,
-    stream: Option<Arc<CallStream>>,
-    input: Option<Arc<CallInput>>,
+    channels: Option<Arc<CallChannels>>,
+}
+
+/// What only a streaming handler's or an input-taking handler's calls
+/// carry, behind one handle, so every other call's context stays the size
+/// it was with neither.
+struct CallChannels {
+    stream: Option<CallStream>,
+    input: Option<CallInput>,
 }
 
 /// What every call of one Connection is given: the engine's identity, the
@@ -128,22 +138,31 @@ pub(crate) trait DaemonSide: Send + Sync {
 }
 
 impl CallContext {
-    /// The call `id` on `connection`, cancelled through `token`, with
-    /// `stream` when its handler streams, and `input` when it takes input.
+    /// The call `id` of `operation` on `connection`, cancelled through
+    /// `token`, with `stream` when its handler streams, and `input` when it
+    /// takes input.
     pub(crate) fn new(
         connection: Arc<ConnectionContext>,
+        operation: &'static Operation,
         id: RequestId,
         token: CancellationToken,
         stream: Option<CallStream>,
         input: Option<CallInput>,
     ) -> Self {
+        let channels =
+            (stream.is_some() || input.is_some()).then(|| Arc::new(CallChannels { stream, input }));
         Self {
             connection,
+            operation,
             id,
             token,
-            stream: stream.map(Arc::new),
-            input: input.map(Arc::new),
+            channels,
         }
+    }
+
+    /// The operation called, which an error of the call names.
+    pub fn operation(&self) -> &'static Operation {
+        self.operation
     }
 
     /// The call's id, which the handler requests it sends its Client may
@@ -159,8 +178,9 @@ impl CallContext {
     ///
     /// When the handler takes no input: its calls carry none.
     pub fn input(&self) -> &CallInput {
-        self.input
+        self.channels
             .as_deref()
+            .and_then(|channels| channels.input.as_ref())
             .expect("invariant: a handler taking input gets its calls' input")
     }
 
@@ -176,8 +196,9 @@ impl CallContext {
     ///
     /// When the handler does not stream: its calls carry no stream.
     pub fn stream(&self) -> &CallStream {
-        self.stream
+        self.channels
             .as_deref()
+            .and_then(|channels| channels.stream.as_ref())
             .expect("invariant: a streaming handler's calls carry their stream")
     }
 
@@ -262,10 +283,6 @@ impl CallContext {
 }
 
 type Answer = Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
-
-/// How a control's weakening is recorded: the Audit kind it records and
-/// the built-in value it names as the default.
-type Recorded = (&'static SharedTypeValue, fn() -> Value);
 
 /// What drives a kind of Run, such as Foxhound's crawl's delivery, given
 /// the Run, the context of the call that resumed it, whose Connection's
@@ -389,7 +406,7 @@ pub struct Contribution {
     progress_parts: Vec<Arc<dyn ProgressPart>>,
     clean_up_versions: Option<Arc<dyn CleanUpVersions>>,
     needs_you_sources: Vec<NeedsYouSource>,
-    controls: Vec<(&'static Setting, Option<Recorded>)>,
+    controls: Vec<(&'static Setting, Recorded)>,
     secret_providers: Vec<(Provider, ProviderFactory)>,
 }
 
@@ -418,7 +435,7 @@ impl Contribution {
     /// it in its report's `weakened`, as the `security.*` keys are.
     #[must_use]
     pub fn with_control(mut self, setting: &'static Setting) -> Self {
-        self.controls.push((setting, None));
+        self.controls.push((setting, Recorded::Switch));
         self
     }
 
@@ -435,7 +452,25 @@ impl Contribution {
         kind: &'static SharedTypeValue,
         built_in: fn() -> Value,
     ) -> Self {
-        self.controls.push((setting, Some((kind, built_in))));
+        self.controls
+            .push((setting, Recorded::As { kind, built_in }));
+        self
+    }
+
+    /// The same, recording a Run's value of `setting` that lists anything
+    /// as the Audit log kind `kind`, once per Run, always chained, with
+    /// what it lists under `field` and the layer that set it, and listed in
+    /// its report's `weakened`: an allowance of what the engine refuses by
+    /// default, such as `egress.private_ranges` (ADR 0016).
+    #[must_use]
+    pub fn with_recorded_listing(
+        mut self,
+        setting: &'static Setting,
+        kind: &'static SharedTypeValue,
+        field: &'static str,
+    ) -> Self {
+        self.controls
+            .push((setting, Recorded::Listing { kind, field }));
         self
     }
 
@@ -735,13 +770,9 @@ impl Composition {
         self.contributions
             .iter()
             .flat_map(|contribution| contribution.controls.iter().copied())
-            .fold(
-                Controls::default(),
-                |controls, (setting, kind)| match kind {
-                    Some((kind, built_in)) => controls.with_recorded(setting, kind, built_in),
-                    None => controls.with(setting),
-                },
-            )
+            .fold(Controls::default(), |controls, (setting, recorded)| {
+                controls.with(setting, recorded)
+            })
     }
 
     /// Every contribution's Secret providers built for each Run, in order:

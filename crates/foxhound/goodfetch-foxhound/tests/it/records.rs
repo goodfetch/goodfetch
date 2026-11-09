@@ -17,10 +17,11 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 
 /// An Attached engine and what it sent, sorted: each reader's Records by
 /// its call's id, each reply by its id, and the crawl requests not yet
@@ -185,7 +186,7 @@ fn page(number: u64, n: u64) -> Value {
 #[test]
 fn a_reader_reads_from_the_first_record_and_follows_the_live_run_to_its_end() {
     let env = TestEnv::new();
-    let mut session = Session::new(Attached::start(&env));
+    let mut session = Session::new(attached(&env));
 
     session.crawl("followed", 3);
     session.answer_next();
@@ -201,7 +202,7 @@ fn a_reader_reads_from_the_first_record_and_follows_the_live_run_to_its_end() {
     let finished = session.finish("followed", &["reader"]);
     let read = session.records_of("reader");
     let reply = session.replies["reader"]["result"].clone();
-    assert!(session.engine.finish());
+    assert!(session.engine.finished());
 
     assert_eq!(
         (
@@ -230,7 +231,7 @@ fn a_reader_reads_from_the_first_record_and_follows_the_live_run_to_its_end() {
 #[test]
 fn a_reader_that_reconnects_after_a_number_reads_each_record_once() {
     let env = TestEnv::new();
-    let mut session = Session::new(Attached::start(&env));
+    let mut session = Session::new(attached(&env));
 
     session.crawl("resumed", 4);
     session.read("first", "resumed", None);
@@ -249,9 +250,9 @@ fn a_reader_that_reconnects_after_a_number_reads_each_record_once() {
     let mut read = session.records_of("first");
     read.extend(session.records_of("again"));
     let again = session.replies["again"]["result"].clone();
-    assert!(session.engine.finish());
+    assert!(session.engine.finished());
 
-    let mut later = Session::new(Attached::start(&env));
+    let mut later = Session::new(attached(&env));
     later.read("ended", "resumed", Some(2));
     later.credit("ended", 10);
     later.until(|session| session.replies.contains_key("ended"));
@@ -259,7 +260,7 @@ fn a_reader_that_reconnects_after_a_number_reads_each_record_once() {
         later.records_of("ended"),
         later.replies["ended"]["result"].clone(),
     );
-    assert!(later.engine.finish());
+    assert!(later.engine.finished());
 
     assert_eq!(
         (&finished["result"]["lifecycle"], read, again, ended),
@@ -284,7 +285,7 @@ fn a_reader_that_reconnects_after_a_number_reads_each_record_once() {
 #[test]
 fn a_reader_given_through_answers_once_it_read_through_that_number_while_the_run_is_live() {
     let env = TestEnv::new();
-    let mut session = Session::new(Attached::start(&env));
+    let mut session = Session::new(attached(&env));
 
     session.crawl("bounded", 4);
     session.answer_next();
@@ -312,7 +313,7 @@ fn a_reader_given_through_answers_once_it_read_through_that_number_while_the_run
         session.replies["committed"]["result"].clone(),
         session.replies["ahead"]["result"].clone(),
     );
-    assert!(session.engine.finish());
+    assert!(session.engine.finished());
 
     assert_eq!(
         (&finished["result"]["lifecycle"], read, replies),
@@ -336,7 +337,7 @@ fn a_reader_given_through_answers_once_it_read_through_that_number_while_the_run
 fn a_reader_that_grants_no_credit_never_holds_the_crawl_back() {
     const PAGES: u64 = 20;
     let env = TestEnv::new();
-    let mut session = Session::new(Attached::start(&env));
+    let mut session = Session::new(attached(&env));
 
     session.crawl("lagged", 20);
     session.read("stalled", "lagged", None);
@@ -354,7 +355,7 @@ fn a_reader_that_grants_no_credit_never_holds_the_crawl_back() {
     session.until(|session| session.replies.contains_key("stalled"));
     let read = session.records_of("stalled");
     let reply = session.replies["stalled"]["result"].clone();
-    assert!(session.engine.finish());
+    assert!(session.engine.finished());
 
     assert_eq!(
         (while_stalled, read, reply),
@@ -373,7 +374,7 @@ fn a_reader_that_grants_no_credit_never_holds_the_crawl_back() {
 #[test]
 fn a_reader_of_a_dataset_the_crawl_does_not_declare_fails_with_dataset_unknown() {
     let env = TestEnv::new();
-    let mut session = Session::new(Attached::start(&env));
+    let mut session = Session::new(attached(&env));
 
     session.crawl("declared", 1);
     session.answer_next();
@@ -385,7 +386,7 @@ fn a_reader_of_a_dataset_the_crawl_does_not_declare_fails_with_dataset_unknown()
     );
     session.until(|session| session.replies.contains_key("unknown"));
     let error = session.replies["unknown"]["error"]["data"].clone();
-    assert!(session.engine.finish());
+    assert!(session.engine.finished());
 
     assert_eq!(
         (&error["code"], &error["dataset"], &error["declared"]),
@@ -407,8 +408,8 @@ fn a_reader_of_a_dataset_the_crawl_does_not_declare_fails_with_dataset_unknown()
 #[test]
 fn a_reader_on_another_engine_follows_the_live_run_its_writer_works() {
     let env = TestEnv::new();
-    let mut writer = Session::new(Attached::start(&env));
-    let mut reader = Session::new(Attached::start(&env));
+    let mut writer = Session::new(attached(&env));
+    let mut reader = Session::new(attached(&env));
 
     writer.crawl("elsewhere", 3);
     writer.answer_next();
@@ -425,8 +426,8 @@ fn a_reader_on_another_engine_follows_the_live_run_its_writer_works() {
     reader.until(|session| session.replies.contains_key("reader"));
     let read = reader.records_of("reader");
     let reply = reader.replies["reader"]["result"].clone();
-    assert!(writer.engine.finish());
-    assert!(reader.engine.finish());
+    assert!(writer.engine.finished());
+    assert!(reader.engine.finished());
 
     assert_eq!(
         (

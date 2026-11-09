@@ -253,7 +253,7 @@ pub enum SecretError {
     },
     /// The receiving host may not get a value at all, such as one reached
     /// through an invalid-certificate exception: `secret_input_refused`.
-    #[error("`{placeholder}` may not be sent to `{domain}` ({})", reason_name(*reason))]
+    #[error("`{placeholder}` may not be sent to `{domain}` ({})", reason.as_str())]
     InputRefused {
         /// The placeholder.
         placeholder: String,
@@ -309,7 +309,7 @@ struct Shared {
     /// driver made it or found it made: the first caller makes it, and
     /// every later or concurrent one waits for that making, so the engine
     /// makes one.
-    made: Arc<[tokio::sync::OnceCell<()>; 2]>,
+    made: Arc<[tokio::sync::OnceCell<()>; ENGINE_KEYS.len()]>,
     /// Every live Run's resolved values, which each Run's own join.
     masks: Masks,
     /// Where the waits before a busy provider is asked again draw from.
@@ -993,13 +993,6 @@ pub fn is_engine_key(reference: &SecretReference) -> bool {
 /// The items the engine makes its own key-encryption key in, the defaults of
 /// `run_state.key_reference`.
 const ENGINE_KEYS: [&str; 2] = [KEY_REFERENCE_IN_KEYCHAIN, KEY_REFERENCE_IN_FILE];
-
-/// A refusal's reason as the wire names it.
-fn reason_name(reason: SecretInputRefusedReason) -> &'static str {
-    match reason {
-        SecretInputRefusedReason::InvalidCertificateException => "invalid_certificate_exception",
-    }
-}
 
 /// Whether `domain` is one of `domains` or a subdomain of one, ignoring
 /// ASCII case.

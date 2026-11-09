@@ -14,7 +14,8 @@
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 
-use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::{Form, Surface};
 use goodfetch_test_support::{
     AuditUnreadable, ConsoleState, Endpoint, EndpointRunner, Listener, ListenerKind, Rule,
     RuntimeFile, TestEnv, cli,
@@ -220,13 +221,10 @@ fn the_consoles_websocket_passes_its_endpoint_table_rows() {
         .map(|(_, value)| value.to_owned())
         .unwrap();
     let address: SocketAddr = origin(&url).trim_start_matches("http://").parse().unwrap();
-    let hello = json!({
-        "protocol_version": PROTOCOL_VERSION.to_string(),
-        "surface": "console",
-        "form": "catalog",
-        "needs": "collie",
-        "product_version": VERSION,
-    });
+    let hello = goodfetch_test_client::Hello::needing(Product::Collie)
+        .surface(Surface::Console)
+        .with(|params| params.form = Some(Form::Catalog))
+        .params();
     let Value::Object(hello) = hello else {
         unreachable!("the hello is an object")
     };

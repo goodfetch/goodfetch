@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The paths of the Proving ground's own routes, served on its bound\naddress rather than on a page family's host.",
+  "properties": {
+    "client_certificate": {
+      "description": "`GET`: the client certificate its mutual-TLS hosts accept.",
+      "type": "string"
+    },
+    "client_key": {
+      "description": "`GET`: that certificate's private key.",
+      "type": "string"
+    },
+    "observations": {
+      "description": "`GET`: every request its page hosts received, and the connection\nrecord.",
+      "type": "string"
+    },
+    "oracle": {
+      "description": "`POST`: judges a tool's result for one task.",
+      "type": "string"
+    },
+    "tasks": {
+      "description": "`GET`: the task list.",
+      "type": "string"
+    },
+    "time_step": {
+      "description": "`PUT`: the time step its pages answer at from now on.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "tasks",
+    "oracle",
+    "time_step",
+    "observations",
+    "client_certificate",
+    "client_key"
+  ],
+  "title": "Routes",
+  "type": "object"
+}

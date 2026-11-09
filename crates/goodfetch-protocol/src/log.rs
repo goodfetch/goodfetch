@@ -50,16 +50,19 @@ pub enum LogLevel {
 }
 
 impl LogLevel {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 6] = [
+        Self::Off,
+        Self::Error,
+        Self::Warn,
+        Self::Info,
+        Self::Debug,
+        Self::Trace,
+    ];
+
     /// Its `snake_case` name.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Off => "off",
-            Self::Error => "error",
-            Self::Warn => "warn",
-            Self::Info => "info",
-            Self::Debug => "debug",
-            Self::Trace => "trace",
-        }
+        crate::wire_name::of(&self)
     }
 }
 

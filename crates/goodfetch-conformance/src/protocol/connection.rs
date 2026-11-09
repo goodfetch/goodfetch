@@ -8,7 +8,14 @@ use std::fmt;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::ErrorGroup;
-use serde_json::{Value, json};
+use goodfetch_protocol::connection::{HelloParams, ProductVersion, Surface};
+use goodfetch_protocol::jsonrpc::{
+    ErrorData, ErrorObject, ErrorResponse, Notification, Request, RequestId, Response, Version,
+};
+use goodfetch_protocol::page::{PAGE_GOTO, PageOpened};
+use goodfetch_protocol::result_document::CaseCheck;
+use serde::Serialize;
+use serde_json::{Map, Value, json};
 
 use super::target::{
     BROWSER_DEADLINE, DEADLINE, EngineTarget, Next, START_DEADLINE, StartError, Started,
@@ -62,6 +69,16 @@ impl fmt::Display for Gone {
     }
 }
 
+/// The Error code a failure answer names; `null` for a result.
+pub(crate) fn code_of(answer: &Value) -> &Value {
+    &answer["error"]["data"]["code"]
+}
+
+/// Whether `answer` is a navigation's document response with `status`.
+pub(crate) fn responded_with(answer: &Value, status: u16) -> bool {
+    answer["result"]["response"]["status"] == json!(status)
+}
+
 /// An answer, and what came before it that answered something else.
 pub(crate) struct Answer {
     /// The response carrying the request's ID.
@@ -77,6 +94,8 @@ pub(crate) struct Connection {
     exchanged: Vec<Value>,
     /// Whether its `hello` named a surface that acts for a model.
     for_model: bool,
+    /// The IDs a reply could not carry back since the suite last took them.
+    unanswered: Vec<Value>,
 }
 
 impl Connection {
@@ -86,6 +105,7 @@ impl Connection {
             next_id: 1,
             exchanged: Vec::new(),
             for_model: false,
+            unanswered: Vec::new(),
         }
     }
 
@@ -104,23 +124,48 @@ impl Connection {
         self.started.token.as_deref()
     }
 
+    /// The `hello` this Connection's Client sends from `surface`: the
+    /// protocol version the harness speaks, its own Product version and the
+    /// token of the Daemon reached, every other field at its default, which
+    /// a case sets by struct update.
+    pub(crate) fn hello_params(&self, surface: Surface) -> HelloParams {
+        HelloParams {
+            token: self.token().map(ToOwned::to_owned),
+            ..HelloParams::new(
+                surface,
+                ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+                    .expect("invariant: the workspace's version is a Product version"),
+            )
+        }
+    }
+
     /// Sends a request and returns its ID.
     pub(crate) fn request(&mut self, method: &str, params: &Value) -> Result<i64, Gone> {
         let id = self.next_id;
         self.next_id += 1;
-        self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))?;
+        self.send(&Request {
+            jsonrpc: Version,
+            id: RequestId::Number(id),
+            method: method.to_owned(),
+            params: Some(params.clone()),
+        })?;
         Ok(id)
     }
 
     /// Sends a notification.
     pub(crate) fn notify(&mut self, method: &str, params: &Value) -> Result<(), Gone> {
-        self.send(&json!({ "jsonrpc": "2.0", "method": method, "params": params }))
+        self.send(&Notification {
+            jsonrpc: Version,
+            method: method.to_owned(),
+            params: Some(params.clone()),
+        })
     }
 
-    fn send(&mut self, message: &Value) -> Result<(), Gone> {
-        let line = serde_json::to_vec(message).expect("invariant: a JSON value serializes");
+    fn send(&mut self, message: &impl Serialize) -> Result<(), Gone> {
+        let message = serde_json::to_value(message).expect("invariant: a message serializes");
+        let line = serde_json::to_vec(&message).expect("invariant: a JSON value serializes");
         let kept = match &self.started.token {
-            Some(token) => redacted(message, token),
+            Some(token) => redacted(&message, token),
             None => message.clone(),
         };
         self.exchanged
@@ -128,6 +173,35 @@ impl Connection {
         self.started
             .write_line(&line)
             .map_err(|error| Gone::Failed(error.to_string()))
+    }
+
+    /// The engine's whole answer to `method` with `params`, waiting as long
+    /// as a browser's launch may take.
+    pub(crate) fn call(&mut self, method: &str, params: &Value) -> Result<Value, Gone> {
+        let id = self.request(method, params)?;
+        Ok(self.browser_answer(id)?.message)
+    }
+
+    /// `page.goto` of `page` to `url`, and the engine's whole answer.
+    pub(crate) fn goto(&mut self, page: &PageOpened, url: &str) -> Result<Value, Gone> {
+        self.call(
+            PAGE_GOTO.name,
+            &json!({ "page_id": page.page_id, "url": url }),
+        )
+    }
+
+    /// The answers to the requests `first` and `second`, in whichever order
+    /// they come, each within a browser's deadline.
+    pub(crate) fn both(&mut self, first: i64, second: i64) -> Result<(Value, Value), Gone> {
+        let answer = self.browser_answer(first)?;
+        if let Some(early) = answer
+            .others
+            .into_iter()
+            .find(|message| message.get("method").is_none() && message["id"] == json!(second))
+        {
+            return Ok((answer.message, early));
+        }
+        Ok((answer.message, self.browser_answer(second)?.message))
     }
 
     /// The response to the request `id`: the next message that carries the
@@ -193,45 +267,80 @@ impl Connection {
         matches!(self.started.next_line(DEADLINE), Next::Closed)
     }
 
-    /// Answers the engine's request `id` with `result`.
+    /// Answers the engine's request `id` with `result`. A message with no ID
+    /// to answer takes no reply and fails the case ([`Self::take_unanswered`]),
+    /// which goes on over a Connection that is still fine.
     pub(crate) fn reply(&mut self, id: &Value, result: &Value) -> Result<(), Gone> {
-        self.send(&json!({ "jsonrpc": "2.0", "id": id, "result": result }))
+        let Some(id) = self.id_of(id) else {
+            return Ok(());
+        };
+        self.send(&Response {
+            jsonrpc: Version,
+            id,
+            result: result.clone(),
+        })
     }
 
     /// Answers the engine's request `id` with a failure of the Error code
-    /// `code`, of the `program` group, as a handler that threw does.
+    /// `code`, of the `program` group and not retryable, as a handler that
+    /// threw does.
     pub(crate) fn fail(&mut self, id: &Value, code: &str, message: &str) -> Result<(), Gone> {
-        self.send(&json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "error": {
-                "code": ErrorGroup::Program.json_rpc_class(),
-                "message": message,
-                "data": { "code": code, "retryable": false },
+        self.fail_with(
+            id,
+            ErrorGroup::Program,
+            ErrorData {
+                code: code.to_owned(),
+                retryable: false,
+                details: Map::new(),
             },
-        }))
+            message,
+        )
     }
 
-    /// Answers the engine's request `id` with a failure of the Error code
-    /// `code` in `group`, retryable as `group` is, carrying `details`, as a
-    /// handler that raised an engine error does.
+    /// Answers the engine's request `id` with a failure of `data`'s Error
+    /// code in `group`, as a handler that raised an engine error does; a
+    /// message with no ID to answer is taken as [`Self::reply`] takes it.
     pub(crate) fn fail_with(
         &mut self,
         id: &Value,
         group: ErrorGroup,
-        code: &str,
+        data: ErrorData,
         message: &str,
-        details: &Value,
     ) -> Result<(), Gone> {
-        let mut data = json!({ "code": code, "retryable": true });
-        if let (Some(data), Some(details)) = (data.as_object_mut(), details.as_object()) {
-            data.extend(details.clone());
+        let Some(id) = self.id_of(id) else {
+            return Ok(());
+        };
+        self.send(&ErrorResponse {
+            jsonrpc: Version,
+            id: Some(id),
+            error: ErrorObject {
+                code: group.json_rpc_class(),
+                message: message.to_owned(),
+                data,
+            },
+        })
+    }
+
+    /// The ID of an engine's request, which a reply carries back; none, noted
+    /// for the case's result, for a message that has no such ID.
+    fn id_of(&mut self, id: &Value) -> Option<RequestId> {
+        let read = serde_json::from_value(id.clone()).ok();
+        if read.is_none() {
+            self.unanswered.push(id.clone());
         }
-        self.send(&json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "error": { "code": group.json_rpc_class(), "message": message, "data": data },
-        }))
+        read
+    }
+
+    /// A failed check for each message the case just run had to answer and
+    /// could not, for want of an ID.
+    pub(crate) fn take_unanswered(&mut self) -> Vec<CaseCheck> {
+        std::mem::take(&mut self.unanswered)
+            .into_iter()
+            .map(|id| CaseCheck {
+                name: format!("the message the case answers carries a request's ID, not {id}"),
+                passed: false,
+            })
+            .collect()
     }
 
     /// Opens a further Connection to the same target, before any `hello`,

@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 
 use crate::env::TestEnv;
 use crate::process::{Process, ReportedAddressError, first_line_within};
-use crate::runtime_file::{ConsoleState, RuntimeFile, RuntimeFileError};
+use crate::runtime_file::{ConsoleState, DaemonEndpoint, RuntimeFile, RuntimeFileError};
 use crate::tools::{Product, ToolsError, tools};
 
 /// How long the Daemon has to print its runtime file once started.
@@ -62,6 +62,8 @@ pub struct Daemon {
     stop_command: std::process::Command,
     runtime_file: PathBuf,
     description: DaemonDescription,
+    /// Where it listens, as its runtime file names it.
+    endpoint: DaemonEndpoint,
 }
 
 impl Daemon {
@@ -85,11 +87,12 @@ impl Daemon {
         // On any failure the process is stopped, so the test's teardown
         // finds none alive.
         match Self::read(env, &process, deadline) {
-            Ok((runtime_file, description)) => Ok(Self {
+            Ok((runtime_file, description, endpoint)) => Ok(Self {
                 process,
                 stop_command: stop_command(env, program),
                 runtime_file,
                 description,
+                endpoint,
             }),
             Err(error) => {
                 kill(&process);
@@ -102,7 +105,7 @@ impl Daemon {
         env: &TestEnv,
         process: &Process,
         deadline: Duration,
-    ) -> Result<(PathBuf, DaemonDescription), DaemonError> {
+    ) -> Result<(PathBuf, DaemonDescription, DaemonEndpoint), DaemonError> {
         let mut child = process.child();
         let line = match first_line_within(&mut child, deadline) {
             Ok(line) => line,
@@ -132,7 +135,7 @@ impl Daemon {
             token: published.token,
             console,
         };
-        Ok((path, description))
+        Ok((path, description, published.endpoint))
     }
 
     /// What a Client reads of it, and what `goodfetch-test-env` describes.
@@ -140,8 +143,13 @@ impl Daemon {
         &self.description
     }
 
-    /// Its process ID, such as for reading its peak resident memory while it
-    /// runs.
+    /// Where it listens: the endpoint a Client connects to.
+    pub fn endpoint(&self) -> &DaemonEndpoint {
+        &self.endpoint
+    }
+
+    /// Its process ID, such as for reading its private resident memory while
+    /// it runs.
     pub fn pid(&self) -> u32 {
         self.process.child().id()
     }

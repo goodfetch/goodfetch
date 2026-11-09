@@ -20,13 +20,15 @@
 use std::collections::BTreeMap;
 use std::process::Command;
 
+use goodfetch_protocol::home::RUN_TRACE_REQUESTS;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     Canaries, Canary, Output, ProvingGround, SecretKind, TestEnv, browser_cache,
 };
 use serde_json::{Map, Value, json};
 
-use crate::attached::Attached;
 use crate::page::{opened, started_with};
+use goodfetch_test_client::Attached;
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 703;
@@ -41,8 +43,8 @@ const LISTENER_LIMIT: usize = 1_024;
 /// An Attached engine, the events its calls carried so far, every call's
 /// and each call's apart, and the answers read before their call was
 /// waited for, by its ID, as a Client matches each answer to its call.
-pub(crate) struct Exchange<'env> {
-    pub(crate) engine: Attached<'env>,
+pub(crate) struct Exchange {
+    pub(crate) engine: Attached,
     events: Vec<Value>,
     /// The events of each call, by its ID: a `page.on` call's, or the
     /// subscription's to the event stream.
@@ -51,8 +53,8 @@ pub(crate) struct Exchange<'env> {
     next_id: i64,
 }
 
-impl<'env> Exchange<'env> {
-    pub(crate) fn new(engine: Attached<'env>) -> Self {
+impl Exchange {
+    pub(crate) fn new(engine: Attached) -> Self {
         Self {
             engine,
             events: Vec::new(),
@@ -189,23 +191,23 @@ impl<'env> Exchange<'env> {
 }
 
 /// Starts an engine and its Run `run_id` with `settings`, and opens a page.
-fn page_of<'env>(
-    env: &'env TestEnv,
+fn page_of(
+    env: &TestEnv,
     proving_ground: &ProvingGround,
     run_id: &str,
     settings: &Map<String, Value>,
-) -> (Exchange<'env>, String) {
+) -> (Exchange, String) {
     page_started(env, proving_ground, run_id, settings, |_| {})
 }
 
 /// As [`page_of`], the engine's command changed by `change` first.
-fn page_started<'env>(
-    env: &'env TestEnv,
+fn page_started(
+    env: &TestEnv,
     proving_ground: &ProvingGround,
     run_id: &str,
     settings: &Map<String, Value>,
     change: impl FnOnce(&mut Command),
-) -> (Exchange<'env>, String) {
+) -> (Exchange, String) {
     let cache = browser_cache(env).unwrap();
     let engine = started_with(env, &cache, proving_ground, run_id, settings, change);
     let mut exchange = Exchange::new(engine);
@@ -262,7 +264,7 @@ fn every_post_data(value: &Value, into: &mut Vec<u8>) {
 }
 
 /// Fills `value` into the field `selector` of `page`.
-fn fill(exchange: &mut Exchange<'_>, page: &str, selector: &str, value: &str) -> Value {
+fn fill(exchange: &mut Exchange, page: &str, selector: &str, value: &str) -> Value {
     exchange.call(
         "locator.fill",
         &json!({ "locator": { "page_id": page, "selector": selector }, "value": value }),
@@ -270,7 +272,7 @@ fn fill(exchange: &mut Exchange<'_>, page: &str, selector: &str, value: &str) ->
 }
 
 /// Clicks the element `selector` of `page`.
-fn click(exchange: &mut Exchange<'_>, page: &str, selector: &str) -> Value {
+fn click(exchange: &mut Exchange, page: &str, selector: &str) -> Value {
     exchange.call(
         "locator.click",
         &json!({ "locator": { "page_id": page, "selector": selector } }),
@@ -279,7 +281,7 @@ fn click(exchange: &mut Exchange<'_>, page: &str, selector: &str) -> Value {
 
 /// Arms a `page.wait_for_request_finished` of `page` for the URLs `glob`
 /// matches, answering the waiter's call ID.
-fn finished_waiter(exchange: &mut Exchange<'_>, page: &str, glob: &str) -> i64 {
+fn finished_waiter(exchange: &mut Exchange, page: &str, glob: &str) -> i64 {
     exchange.request(
         "page.wait_for_request_finished",
         &json!({ "page_id": page, "url": { "kind": "glob", "pattern": glob } }),
@@ -335,12 +337,7 @@ const NETWORK_AND_LOAD: [&str; 7] = [
 /// reloads the page: answers the cancelled call and the `page.request`
 /// events of the reload, none once the listener is gone, while its
 /// responses still come.
-fn cancelled(
-    exchange: &mut Exchange<'_>,
-    listener: i64,
-    page: &str,
-    url: &str,
-) -> (Value, Vec<Value>) {
+fn cancelled(exchange: &mut Exchange, listener: i64, page: &str, url: &str) -> (Value, Vec<Value>) {
     exchange.notify("$/cancel", &json!({ "id": listener }));
     let cancelled = exchange.answer(listener);
     exchange.events.clear();
@@ -771,13 +768,7 @@ fn a_body_past_network_max_body_size_raises_response_limit_exceeded() {
 
 /// The lines of the Run trace's request log.
 fn request_log(env: &TestEnv, run_id: &str) -> Vec<Value> {
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
-        .join("trace")
-        .join("requests.jsonl");
+    let file = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_REQUESTS);
     std::fs::read_to_string(file)
         .unwrap_or_default()
         .lines()

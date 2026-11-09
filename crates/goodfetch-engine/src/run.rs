@@ -25,7 +25,7 @@ use goodfetch_protocol::checkpoint::{
     RunCheckpointParams, RunResumeParams, SESSION_BOUND_TO_MACHINE, SessionBoundToMachineDetails,
     WriteSide,
 };
-use goodfetch_protocol::connection::StoppedBy;
+use goodfetch_protocol::connection::{StoppedBy, WaitedFor};
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::formats::{Compatibility, Format};
 use goodfetch_protocol::run::{
@@ -500,13 +500,8 @@ fn stopped() -> CallError {
     )
 }
 
-/// The Error code of a Run's failure to be finished, aborted or read.
-pub fn run_error(error: RunError, identity: &Identity) -> CallError {
-    run_error_of(error, identity, RUN_ABORT.name)
-}
-
-/// The Error code a Run's failure answers with, for a call of `operation`.
-pub fn run_error_of(error: RunError, identity: &Identity, operation: &'static str) -> CallError {
+/// The Error code a Run's failure answers `context`'s call with.
+pub fn run_error(error: RunError, context: &CallContext) -> CallError {
     match error {
         RunError::NotFound(run_id) => CallError::new(
             &RUN_NOT_FOUND,
@@ -516,7 +511,7 @@ pub fn run_error_of(error: RunError, identity: &Identity, operation: &'static st
         RunError::Busy { run_id, folder } => CallError::new(
             &RUN_BUSY,
             format!(
-                "Another engine writes the Run `{run_id}`, and the owner the Run index names did not take the action; try again later."
+                "Another engine writes the Run `{run_id}`, and the owner the Run index names did not answer that it took the action, which it may still be taking; try again later."
             ),
             &RunDetails {
                 run_id,
@@ -529,8 +524,11 @@ pub fn run_error_of(error: RunError, identity: &Identity, operation: &'static st
             &RunDetails { run_id, path: None },
         ),
         RunError::NotInProduct { needs, .. } => {
-            let (message, details) =
-                identity.not_in_product(Requested::Name(operation), needs, false);
+            let (message, details) = context.identity().not_in_product(
+                Requested::Name(context.operation().name),
+                needs,
+                false,
+            );
             CallError::new(&NOT_IN_PRODUCT, message, &details)
         }
         RunError::InUse { run_id, folder } => CallError::new(
@@ -681,7 +679,7 @@ pub async fn through_owner<R: DeserializeOwned>(
         .runs()
         .through_owner(run_id, needs, operation.name, params)
         .await
-        .map_err(|error| run_error_of(error, context.identity(), operation.name))?;
+        .map_err(|error| run_error(error, context))?;
     answer
         .map(|answer| {
             serde_json::from_value(answer).map_err(|error| {
@@ -707,7 +705,7 @@ async fn progress(
         .runs()
         .progress(params.run_id, params.after)
         .await
-        .map_err(|error| run_error_of(error, context.identity(), RUN_PROGRESS_READ.name))
+        .map_err(|error| run_error(error, &context))
 }
 
 async fn list(params: RunListParams, context: CallContext) -> Result<RunList, CallError> {
@@ -742,7 +740,7 @@ async fn report(params: RunParams, context: CallContext) -> Result<RunReport, Ca
         .runs()
         .report(params.run_id)
         .await
-        .map_err(|error| run_error_of(error, context.identity(), RUN_REPORT.name))
+        .map_err(|error| run_error(error, &context))
 }
 
 /// `run_live`: this engine still runs `run_id`, so it is not discarded.
@@ -828,12 +826,12 @@ async fn finish(params: RunWaitParams, context: CallContext) -> Result<RunReport
     let report = match params.timeout {
         Some(millis) => {
             Deadline::given(&TIMEOUT_RUN, millis, SettingsLayer::Run)
-                .within(&context.engine().clock(), "Run's end", finishing)
+                .within(&context.engine().clock(), WaitedFor::RUN_END, finishing)
                 .await?
         }
         None => finishing.await,
     };
-    ending(report.map_err(|error| run_error_of(error, context.identity(), RUN_FINISH.name))?)
+    ending(report.map_err(|error| run_error(error, &context))?)
 }
 
 /// `run.stop`: the Run stops at its next safe point as an abort by its
@@ -850,9 +848,13 @@ async fn stop(params: RunWaitParams, context: CallContext) -> Result<RunReport, 
         None => close_deadline(&context, &params.run_id).await,
     };
     let report = deadline
-        .within(&context.engine().clock(), "Run's next safe point", stopping)
+        .within(
+            &context.engine().clock(),
+            WaitedFor::RUN_SAFE_POINT,
+            stopping,
+        )
         .await?;
-    ending(report.map_err(|error| run_error_of(error, context.identity(), RUN_STOP.name))?)
+    ending(report.map_err(|error| run_error(error, &context))?)
 }
 
 /// The `timeout.close` the live Run `run_id` resolved, or its default.
@@ -861,12 +863,7 @@ async fn close_deadline(context: &CallContext, run_id: &RunId) -> Deadline {
         Ok(run) => run.settings().map(|settings| settings.resolved().clone()),
         Err(_) => None,
     };
-    resolved
-        .and_then(|resolved| Deadline::of(&resolved, &TIMEOUT_CLOSE))
-        .unwrap_or_else(|| {
-            let default = (TIMEOUT_CLOSE.default)().as_u64().unwrap_or(30_000);
-            Deadline::given(&TIMEOUT_CLOSE, default, SettingsLayer::Default)
-        })
+    Deadline::of_resolved(resolved.as_ref(), &TIMEOUT_CLOSE)
 }
 
 /// What a call that ends a Run answers once it ended: its report, or the
@@ -887,7 +884,7 @@ async fn usage(params: RunParams, context: CallContext) -> Result<RunUsage, Call
         .runs()
         .usage(params.run_id)
         .await
-        .map_err(|error| run_error_of(error, context.identity(), RUN_USAGE.name))
+        .map_err(|error| run_error(error, &context))
 }
 
 async fn discard(params: RunParams, context: CallContext) -> Result<RunDiscarded, CallError> {
@@ -896,7 +893,7 @@ async fn discard(params: RunParams, context: CallContext) -> Result<RunDiscarded
         .runs()
         .discard(run_id.clone())
         .await
-        .map_err(|error| run_error_of(error, context.identity(), RUN_DISCARD.name))?;
+        .map_err(|error| run_error(error, &context))?;
     Ok(RunDiscarded { run_id })
 }
 
@@ -908,7 +905,7 @@ async fn set_progress_message(
         .runs()
         .set_progress_message(params.run_id, params.message)
         .await
-        .map_err(|error| run_error_of(error, context.identity(), RUN_SET_PROGRESS_MESSAGE.name))
+        .map_err(|error| run_error(error, &context))
 }
 
 async fn checkpoint(
@@ -919,7 +916,7 @@ async fn checkpoint(
         .runs()
         .checkpoint(params.run_id, params.location.map(PathBuf::from))
         .await
-        .map_err(|error| run_error_of(error, context.identity(), RUN_CHECKPOINT.name))
+        .map_err(|error| run_error(error, &context))
 }
 
 async fn pause(params: RunParams, context: CallContext) -> Result<RunReport, CallError> {
@@ -927,7 +924,7 @@ async fn pause(params: RunParams, context: CallContext) -> Result<RunReport, Cal
         .runs()
         .stop(params.run_id, StopReason::Pause, None)
         .await
-        .map_err(|error| run_error_of(error, context.identity(), RUN_PAUSE.name))
+        .map_err(|error| run_error(error, &context))
 }
 
 async fn migrate(
@@ -942,7 +939,7 @@ async fn migrate(
             params.location.map(PathBuf::from),
         )
         .await
-        .map_err(|error| run_error_of(error, context.identity(), RUN_MIGRATE.name))
+        .map_err(|error| run_error(error, &context))
 }
 
 async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStarted, CallError> {
@@ -970,7 +967,7 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
             retry_failed: false,
         })
         .await
-        .map_err(|error| run_error_of(error, context.identity(), RUN_RESUME.name))?;
+        .map_err(|error| run_error(error, &context))?;
     Ok(match resumed {
         Resumed::New {
             run, kind, needs, ..
@@ -1000,5 +997,5 @@ async fn abort(params: RunAbortParams, context: CallContext) -> Result<RunReport
         .runs()
         .abort(params.run_id, StoppedBy::Client, forwarded)
         .await
-        .map_err(|error| run_error(error, context.identity()))
+        .map_err(|error| run_error(error, &context))
 }

@@ -1,6 +1,6 @@
 //! The resolved-address classification's table (ADRs 0017 and 0067): every
 //! block of IANA's IPv4 and IPv6 special-purpose address registries, which
-//! `goodfetch-protocol` commits in `iana/` with their date, written as Rust
+//! `goodfetch-engine` commits in `iana/` with their date, written as Rust
 //! constants beside them in `generated/special_purpose.rs`. A registry that
 //! changes without the table being regenerated is drift.
 
@@ -13,10 +13,13 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 /// Where the registries are committed, relative to the root.
-const FOLDER: &str = "crates/goodfetch-protocol/iana";
+const FOLDER: &str = "crates/goodfetch-engine/iana";
+
+/// The folder `xtask codegen` writes the table in, relative to the root.
+pub(super) const OUTPUT_FOLDER: &str = "crates/goodfetch-engine/generated";
 
 /// The table, relative to the root.
-const TABLE: &str = "crates/goodfetch-protocol/generated/special_purpose.rs";
+const TABLE: &str = "crates/goodfetch-engine/generated/special_purpose.rs";
 
 /// Each registry's constant and file stem, IPv4's first.
 const REGISTRIES: [(&str, &str); 2] = [

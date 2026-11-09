@@ -45,12 +45,13 @@
     reason = "the egress relay opens its own loopback listener and its connections out, in this module only (ADR 0060)"
 )]
 
+pub(crate) mod answers;
 pub(crate) mod application_settings;
 pub(crate) mod authority;
 pub(crate) mod capture;
 pub(crate) mod client_hello;
 pub(crate) mod cookies;
-pub(crate) mod deadlines;
+pub mod deadlines;
 pub(crate) mod head;
 pub(crate) mod serve;
 pub(crate) mod terminate;
@@ -71,7 +72,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::dns::{Dns, HostMapping};
 use goodfetch_engine::egress::{EndpointPolicy, Gate, Policy, Refused};
-use goodfetch_engine::endpoint::{Listener, REFUSAL_TARGET, new_token};
+use goodfetch_engine::endpoint::{REFUSAL_TARGET, new_token};
 use goodfetch_engine::http_client::{self, LocalBinding};
 use goodfetch_engine::known_certificates::ExceptionKind;
 use goodfetch_engine::local_addresses::SessionAddresses;
@@ -81,6 +82,7 @@ use goodfetch_engine::settings::{Resolved as ResolvedSettings, RunSettings};
 use goodfetch_engine::tls::{
     CertificateExceptions, CertificateInvalid, Examiner, ExceptionUsed, Trust,
 };
+use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::page::RequestFailed;
 use goodfetch_protocol::security::SECURITY_RAW_CDP_EGRESS_PROXY;
@@ -90,15 +92,12 @@ use tokio::io::AsyncWriteExt as _;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
+use self::answers::USERNAME;
 use self::application_settings::ApplicationSettings;
 use self::authority::Authority;
 use self::client_hello::ClientHello;
 use self::serve::{Met, Network, Observe, ProxyRefused, Relaying, Resolved, Unreached, Upstream};
 use self::terminate::{Stop, Terminating};
-
-/// The user name of every Session's relay credentials; the password is the
-/// Session's own.
-const USERNAME: &str = "goodfetch";
 
 /// The most refusals a relay keeps for the calls that wait on them.
 const KEPT_REFUSALS: usize = 64;
@@ -332,10 +331,7 @@ fn session_policy(settings: Option<&ResolvedSettings>) -> io::Result<Policy> {
 /// Whether `settings`, a Session's, send its browser through the relay:
 /// `security.raw_cdp_egress_proxy` on, its default.
 pub(crate) fn relayed(settings: &ResolvedSettings) -> bool {
-    settings
-        .value(&SECURITY_RAW_CDP_EGRESS_PROXY)
-        .as_bool()
-        .unwrap_or(true)
+    settings.get(&SECURITY_RAW_CDP_EGRESS_PROXY)
 }
 
 impl EgressRelay {
@@ -586,14 +582,9 @@ impl EgressRelay {
         error: &NetError,
         mark: Option<u64>,
     ) -> Option<NetError> {
-        // An error the browser does not name is reported as its generic
-        // one, which the relay's answer can be.
         let relayed = matches!(
             error,
-            NetError::TunnelRefused
-                | NetError::EmptyResponse
-                | NetError::Failed
-                | NetError::Unrecognized(_)
+            NetError::TunnelRefused | NetError::EmptyResponse | NetError::Failed
         );
         if !relayed {
             return None;
@@ -726,14 +717,16 @@ impl Observe for Record {
         if !given {
             tracing::debug!(
                 target: REFUSAL_TARGET,
-                listener = Listener::EgressRelay.name(),
+                listener = Listener::EgressRelay.as_str(),
                 "a connection to a Session's egress relay gave no credentials and was asked for them"
             );
             return;
         }
         let refusals = self.run.refusals();
         self.run.spawn(async move {
-            refusals.refused(Listener::EgressRelay, "token_wrong").await;
+            refusals
+                .refused(Listener::EgressRelay, RefusalReason::TokenWrong)
+                .await;
         });
     }
 }

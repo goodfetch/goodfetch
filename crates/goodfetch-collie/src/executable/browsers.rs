@@ -6,78 +6,34 @@
 //! lists it. Their `--json` output is `goodfetch-protocol`'s type. Both
 //! read the machine's settings (ADR 0098): `egress.offline`,
 //! `network.resolve` and `browser_cache.max_unused_age`, from the Operator
-//! policy and user configuration of Goodfetch home.
+//! policy and user configuration of the Goodfetch home `main` found, and
+//! fail with their Error code when they cannot be read.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::ffi::{OsStr, OsString};
-use std::path::{Path, PathBuf};
+use std::collections::BTreeSet;
+use std::path::Path;
 use std::process::ExitCode;
 
 use goodfetch_engine::Identity;
 use goodfetch_engine::browser_cache::{
-    BROWSERS_PATH_VARIABLE, BrowserCache, CacheError, CacheLocation, CleanUp, MaxUnusedAge, Pins,
-    Platform, kept_artifacts,
+    BrowserCache, CacheError, CleanUp, MaxUnusedAge, Pins, Platform, kept_artifacts,
 };
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::installed::{InstalledList, Seen, kept_inputs};
 use goodfetch_engine::pinned_download::Fetching;
-use goodfetch_engine::run::local_settings_error;
-use goodfetch_engine::settings::{Resolved, SettingsError, SettingsFiles};
+use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::browser_cache::{
     ArtifactId, BrowserCleaned, BrowserInstalled, InstallOutcome, InstalledBuild, MAX_UNUSED_AGE,
     NotCleaned, PinnedBy, RemovedBuild,
 };
-use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::ProductVersion;
 
+use super::daemon::Machine;
 use super::output::{self, Human};
-
-/// The variable that roots Goodfetch home (ADR 0059).
-const HOME_VARIABLE: &str = "GOODFETCH_HOME";
-
-/// The Goodfetch home and the Browser cache this executable uses:
-/// `GOODFETCH_BROWSERS_PATH`, else `browsers` in `GOODFETCH_HOME`, else in
-/// the OS's data folder.
-fn location(environment: &BTreeMap<OsString, OsString>) -> Option<(Home, CacheLocation)> {
-    let variable = |name: &str| {
-        environment
-            .get(OsStr::new(name))
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
-    };
-    let home =
-        variable(HOME_VARIABLE).or_else(|| dirs::data_dir().map(|data| data.join("goodfetch")))?;
-    let location = CacheLocation::new(&home, variable(BROWSERS_PATH_VARIABLE));
-    Some((Home::new(home), location))
-}
-
-/// The machine's settings: the Operator policy and user configuration of
-/// the major of `version` in `home`, as the engine resolves them before
-/// any Run.
-pub(super) fn machine_settings(
-    home: &Home,
-    product: Product,
-    version: &ProductVersion,
-) -> Result<Resolved, SettingsError> {
-    SettingsFiles::of(home, version).machine_settings(product)
-}
 
 /// `browser_cache.max_unused_age` under `settings`.
 fn max_unused_age(settings: &Resolved) -> MaxUnusedAge {
     MaxUnusedAge::new(settings.get(&MAX_UNUSED_AGE))
-}
-
-/// Prints the refusal of the machine's settings, `error`, on the
-/// executable that runs as `identity`, as every command's failure prints,
-/// and answers its exit code.
-fn refused(error: &SettingsError, identity: &Identity, json: bool, human: &Human) -> ExitCode {
-    output::fail(
-        local_settings_error(error, identity).to_error_object(),
-        None,
-        json,
-        human,
-    )
 }
 
 /// The time the command runs at, on the engine's Clock.
@@ -102,27 +58,6 @@ fn failed(error: &CacheError, json: bool, human: &Human) -> ExitCode {
     output::fail(error.to_call_error().to_error_object(), None, json, human)
 }
 
-/// The Goodfetch home and the Browser cache the executable that runs as
-/// `identity` uses, or the failure it printed when the OS knows no home
-/// for it: `setting_invalid` for `GOODFETCH_HOME`.
-fn located(
-    identity: &Identity,
-    environment: &BTreeMap<OsString, OsString>,
-    json: bool,
-    human: &Human,
-) -> Result<(Home, CacheLocation), ExitCode> {
-    location(environment).ok_or_else(|| {
-        let error = SettingsError::Invalid {
-            key: HOME_VARIABLE.to_owned(),
-            layer: None,
-            reason: format!(
-                "the OS knows no data folder for Goodfetch home: set {HOME_VARIABLE}, or {BROWSERS_PATH_VARIABLE} for the Browser cache alone"
-            ),
-        };
-        refused(&error, identity, json, human)
-    })
-}
-
 /// What a Browser cache command's builds are pinned by: the executable
 /// that runs as `identity`.
 fn pinned_by(identity: &Identity) -> PinnedBy {
@@ -132,31 +67,24 @@ fn pinned_by(identity: &Identity) -> PinnedBy {
     }
 }
 
-/// `browser install`.
-pub(super) fn install(
-    identity: &Identity,
-    environment: &BTreeMap<OsString, OsString>,
-    clock: Clock,
-    json: bool,
-    human: &Human,
-) -> ExitCode {
-    let (home, location) = match located(identity, environment, json, human) {
-        Ok(located) => located,
-        Err(exit) => return exit,
+/// `browser install`, into the Browser cache of `machine`'s Goodfetch
+/// home.
+pub(super) fn install(machine: &Machine<'_>, json: bool, human: &Human) -> ExitCode {
+    let (identity, home, clock) = (machine.identity, machine.home, machine.clock);
+    let settings = match machine.settings() {
+        Ok(settings) => settings,
+        Err(failure) => return failure.print(json, human),
     };
     let pinned_by = pinned_by(identity);
-    let settings = match machine_settings(&home, pinned_by.product, &pinned_by.product_version) {
-        Ok(settings) => settings,
-        Err(error) => return refused(&error, identity, json, human),
-    };
-    let cache = BrowserCache::new(&location);
+    let owner = TaskOwner::root(BlockingPolicy::Threads);
+    let cache = BrowserCache::new(&machine.cache_location(), owner.blocking_threads());
     let pins = Pins {
         pinned_by,
         artifacts: crate::pinned_artifacts(),
     };
     let now = now(clock);
-    let fetching = Fetching::of(&settings, clock);
-    let max_unused_age = max_unused_age(&settings);
+    let fetching = Fetching::of(settings, clock);
+    let max_unused_age = max_unused_age(settings);
     let installed = runtime().block_on(async {
         let outcomes = cache
             .install(
@@ -180,7 +108,7 @@ pub(super) fn install(
         {
             cache
                 .clean_up_daily(
-                    kept(&pins, &home, cache.root(), now, max_unused_age),
+                    kept(&pins, home, cache.root(), now, max_unused_age),
                     now,
                     max_unused_age,
                 )
@@ -222,32 +150,28 @@ pub(super) fn install(
     ExitCode::SUCCESS
 }
 
-/// `browser clean`.
+/// `browser clean`, in the Browser cache of `machine`'s Goodfetch home.
 pub(super) fn clean(
-    identity: &Identity,
-    environment: &BTreeMap<OsString, OsString>,
-    clock: Clock,
+    machine: &Machine<'_>,
     (dry_run, json): (bool, bool),
     human: &Human,
 ) -> ExitCode {
-    let (home, location) = match located(identity, environment, json, human) {
-        Ok(located) => located,
-        Err(exit) => return exit,
+    let (identity, home, clock) = (machine.identity, machine.home, machine.clock);
+    let settings = match machine.settings() {
+        Ok(settings) => settings,
+        Err(failure) => return failure.print(json, human),
     };
     let pinned_by = pinned_by(identity);
-    let settings = match machine_settings(&home, pinned_by.product, &pinned_by.product_version) {
-        Ok(settings) => settings,
-        Err(error) => return refused(&error, identity, json, human),
-    };
-    let cache = BrowserCache::new(&location);
+    let owner = TaskOwner::root(BlockingPolicy::Threads);
+    let cache = BrowserCache::new(&machine.cache_location(), owner.blocking_threads());
     let pins = Pins {
         pinned_by,
         artifacts: crate::pinned_artifacts(),
     };
     let now = now(clock);
-    let max_unused_age = max_unused_age(&settings);
+    let max_unused_age = max_unused_age(settings);
     let request = CleanUp {
-        kept: kept(&pins, &home, cache.root(), now, max_unused_age),
+        kept: kept(&pins, home, cache.root(), now, max_unused_age),
         now,
         // `browser clean` uses the default while the setting is `null`.
         max_unused_age: max_unused_age.counting(),

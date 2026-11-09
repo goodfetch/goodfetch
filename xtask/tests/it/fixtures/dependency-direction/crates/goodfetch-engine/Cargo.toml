@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [dev-dependencies]
+goodfetch-test-client = { path = "../goodfetch-test-client" }
 goodfetch-test-support = { path = "../goodfetch-test-support" }
 
 [dependencies]

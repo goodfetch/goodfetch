@@ -1,6 +1,6 @@
-//! `xtask codegen` (ADRs 0038, 0087, 0094 and 0095): builds `goodfetch-protocol`'s
-//! `emit` example, which writes the JSON Schema bundle and catalog file
-//! through schemars, and writes from them every generated file: each
+//! `xtask codegen` (ADRs 0038, 0087, 0094 and 0095): emits the JSON Schema
+//! bundle and catalog file from `goodfetch-protocol`'s types through
+//! schemars (`emit`), and writes from them every generated file: each
 //! Product's projection, the names only Foxhound carries, the namespaces of
 //! the commands Collie's executable generates, the cargo-deny
 //! `wrappers` list of Foxhound's crates and Collie's ban of them, cargo-deny's
@@ -15,10 +15,15 @@
 //! the JSON Schemas of `goodfetch-test-support`'s file types, which
 //! `goodfetch-test-env --print-schemas` prints (ADR 0062), the script
 //! format's among the engine scripts (ADR 0069), and `goodfetch-cdp`'s CDP
-//! bindings, from the pinned Chromium's protocol file (spec #577).
+//! bindings, from the pinned Chromium's protocol file (spec #577), and the
+//! facts tests read across crates and languages (`facts`): the Secret
+//! canary kinds, the pinned browser builds and the `tracing` targets, each
+//! written from its one source in Rust for test support, `xtask` and the
+//! TypeScript and Python helpers.
 //! It writes the resolved-address classification's table into
-//! `goodfetch-protocol`, from IANA's special-purpose registries committed
-//! beside it with their date (ADR 0067).
+//! `goodfetch-engine`, from IANA's special-purpose registries committed
+//! beside it with their date (ADR 0067), and the label values of
+//! `goodfetch.counted_work`, from `goodfetch-counted-work`'s rows (ADR 0140).
 //!
 //! `--check` regenerates in memory what `xtask codegen` writes itself and
 //! fails on any difference. It runs neither outside generator: the output of
@@ -35,10 +40,13 @@
 
 mod cdp;
 mod console;
+mod counted_work;
 mod deny;
 mod digest;
+mod emit;
 mod emitter;
 mod executables;
+mod facts;
 mod helpers;
 mod layer;
 mod names;
@@ -61,8 +69,8 @@ use crate::check::Finding;
 use crate::compat;
 use crate::environment::Environment;
 use crate::features;
+use emit::JOURNEY_FILES;
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::emit::JOURNEY_FILES;
 use layer::Layer;
 
 /// Where `goodfetch-protocol`'s committed outputs live.
@@ -83,6 +91,16 @@ const DENY: &str = "deny.toml";
 enum Language {
     TypeScript,
     Python,
+}
+
+impl Language {
+    /// The outside generator that writes its layer's types.
+    fn generator(self) -> Generator {
+        match self {
+            Self::TypeScript => Generator::Json2ts,
+            Self::Python => Generator::DatamodelCodegen,
+        }
+    }
 }
 
 /// One SDK package's generated layer (ADR 0095): each language's Collie
@@ -277,9 +295,12 @@ impl Plan {
     fn owned_folders() -> impl Iterator<Item = &'static str> {
         [
             PROTOCOL_GENERATED,
+            special_purpose::OUTPUT_FOLDER,
             executables::COLLIE_FOLDER,
             cdp::FOLDER,
             test_support::FOLDER,
+            facts::TEST_SUPPORT_FOLDER,
+            facts::XTASK_FOLDER,
             helpers::TYPESCRIPT_FOLDER,
             helpers::PYTHON_FOLDER,
             console::FOLDER,
@@ -337,6 +358,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         names::render(&foxhound_names).into_bytes(),
     );
     files.extend(special_purpose::generate(root)?);
+    files.extend(counted_work::generate(root)?);
     files.extend(executables.into_files());
     let sources = features::Sources {
         root,
@@ -382,14 +404,16 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         test_support::CANARY_RULE.to_owned(),
         test_support::canary_rule(cargo, root)?,
     );
+    files.extend(facts::files(cargo, root)?);
     files.extend(cdp::generate(root)?);
     for (path, text) in console::all_files(root, &collie, &foxhound, &foxhound_names)? {
         files.insert(path, text.into_bytes());
     }
 
+    let version = product_version(root)?;
     let mut externals = Vec::new();
     for package in &PACKAGES {
-        let layer = Layer::new(&bundle, &collie, &foxhound, package.product)?;
+        let layer = Layer::new(&bundle, &collie, &foxhound, package.product, &version)?;
         let generated = match package.language {
             Language::TypeScript => typescript::generate(&layer),
             Language::Python => python::generate(&layer),
@@ -399,10 +423,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         }
         externals.push(External {
             output: format!("{}/{}", package.folder, generated.types.output),
-            generator: match package.language {
-                Language::TypeScript => Generator::Json2ts,
-                Language::Python => Generator::DatamodelCodegen,
-            },
+            generator: package.language.generator(),
             input_name: layer::input_name(package.product),
             input: json_text(&generated.types.input)?,
             prefix: generated.types.prefix,
@@ -704,4 +725,21 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<Exi
         write(cargo, &generators, root)?;
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// The Product version the workspace carries: the root manifest's
+/// `[workspace.package] version`, which every crate takes (ADR 0030).
+fn product_version(root: &Path) -> Result<String> {
+    let path = root.join("Cargo.toml");
+    let manifest: toml::Table = toml::from_str(
+        &std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?,
+    )
+    .with_context(|| format!("reading {}", path.display()))?;
+    manifest
+        .get("workspace")
+        .and_then(|workspace| workspace.get("package"))
+        .and_then(|package| package.get("version"))
+        .and_then(toml::Value::as_str)
+        .map(str::to_owned)
+        .with_context(|| format!("{} has no `[workspace.package] version`", path.display()))
 }

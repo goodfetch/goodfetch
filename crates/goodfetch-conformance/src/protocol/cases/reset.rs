@@ -16,12 +16,12 @@ use goodfetch_protocol::key_value_store::{KEY_VALUE_STORE_GET, KEY_VALUE_STORE_S
 use goodfetch_protocol::page::events::PAGE_WAIT_FOR_REQUEST_FINISHED;
 use goodfetch_protocol::page::{LOCATOR_CLICK, LOCATOR_FILL, LOGGED_OUT, PAGE_GOTO};
 use goodfetch_protocol::run::{RUN_DISCARD, RUN_SET_PROGRESS_MESSAGE, RUN_START};
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::canaries::held_under;
 use crate::protocol::connection::{Connection, Gone};
-use crate::protocol::target::{BROWSER_DEADLINE, EngineTarget};
+use crate::protocol::target::EngineTarget;
 use crate::proving_ground::PlantedCanary;
 
 /// The Proving ground's task whose login sets a Session cookie canary.
@@ -73,25 +73,22 @@ fn planted(site: &Site, kinds: &[&str], checks: &mut Checks) -> Option<Vec<Plant
         .iter()
         .map(|kind| site.proving_ground.plant_canary(kind))
         .collect();
-    checks.check(
+    checks.read(
         "the Proving ground plants the case's Secret canaries",
-        planted.is_ok(),
-    );
-    planted.ok()
+        planted,
+    )
 }
 
 /// Each file of `home` holding one of `canaries`, in any encoding, named
 /// by its path below the home and the encoding, never by the value.
-fn holders(home: &Path, canaries: &[(&str, &str)]) -> Option<Vec<String>> {
-    let held = held_under(home, canaries).ok()?;
-    Some(
-        held.into_iter()
-            .map(|held| {
-                let file = held.file.strip_prefix(home).unwrap_or(&held.file);
-                format!("{} in {} ({})", held.canary, file.display(), held.encoding)
-            })
-            .collect(),
-    )
+fn holders(home: &Path, canaries: &[(&str, &str)]) -> std::io::Result<Vec<String>> {
+    Ok(held_under(home, canaries)?
+        .into_iter()
+        .map(|held| {
+            let file = held.file.strip_prefix(home).unwrap_or(&held.file);
+            format!("{} in {} ({})", held.canary, file.display(), held.encoding)
+        })
+        .collect())
 }
 
 /// Discards the Run `run_id`, checking the answer names it.
@@ -111,10 +108,12 @@ fn none_left(home: &Path, canaries: &[(&str, &str)], checks: &mut Checks) {
     checks.check(
         format!(
             "after the discard no file of the Goodfetch home holds a planted canary, in any encoding (found: {})",
-            left.as_ref()
-                .map_or_else(|| "the home could not be read".to_owned(), |left| left.join(", "))
+            left.as_ref().map_or_else(
+                |error| format!("the home could not be read: {error}"),
+                |left| left.join(", ")
+            )
         ),
-        left.is_some_and(|left| left.is_empty()),
+        left.is_ok_and(|left| left.is_empty()),
     );
 }
 
@@ -208,17 +207,12 @@ fn session_cookie(
         return Ok(());
     };
     let page = json!(page.page_id);
-    call(
-        connection,
-        PAGE_GOTO.name,
-        &json!({ "page_id": page, "url": login }),
-    )?;
+    connection.call(PAGE_GOTO.name, &json!({ "page_id": page, "url": login }))?;
     for (selector, value) in [
         ("input[name=username]", account.username.as_str()),
         ("input[name=password]", account.password.as_str()),
     ] {
-        call(
-            connection,
+        connection.call(
             LOCATOR_FILL.name,
             &json!({ "locator": { "page_id": page, "selector": selector }, "value": value }),
         )?;
@@ -231,7 +225,7 @@ fn session_cookie(
         LOCATOR_CLICK.name,
         &json!({ "locator": { "page_id": page, "selector": "button[type=submit]" } }),
     )?;
-    let (_, finished) = both(connection, clicked, waiting)?;
+    let (_, finished) = connection.both(clicked, waiting)?;
     checks.check(
         "the login sets the Session cookie, which the account page takes",
         finished["result"]["response"]["status"] == json!(200),
@@ -241,8 +235,7 @@ fn session_cookie(
     none_left(home, &canaries, checks);
     start_run(connection, site, run_id, &json!({}), checks)?;
     if let Some(later) = new_page(connection, run_id, checks)? {
-        let went = call(
-            connection,
+        let went = connection.call(
             PAGE_GOTO.name,
             &json!({ "page_id": later.page_id, "url": account_url }),
         )?;
@@ -258,32 +251,4 @@ fn session_cookie(
     }
     finish_run(connection, run_id)?;
     discard(connection, run_id, checks)
-}
-
-/// The engine's answer to `method` with `params`, which may launch a
-/// browser.
-fn call(connection: &mut Connection, method: &str, params: &Value) -> Result<Value, Gone> {
-    let id = connection.request(method, params)?;
-    Ok(connection.browser_answer(id)?.message)
-}
-
-/// The answers to the requests `first` and `second`, in whichever order
-/// they come.
-fn both(connection: &mut Connection, first: i64, second: i64) -> Result<(Value, Value), Gone> {
-    let (mut one, mut two) = (None, None);
-    while one.is_none() || two.is_none() {
-        let message = connection.next_within(BROWSER_DEADLINE)?;
-        if message.get("method").is_some() {
-            continue;
-        }
-        if message.get("id") == Some(&json!(first)) {
-            one = Some(message);
-        } else if message.get("id") == Some(&json!(second)) {
-            two = Some(message);
-        }
-    }
-    Ok((
-        one.expect("invariant: the loop ends with both"),
-        two.expect("invariant: the loop ends with both"),
-    ))
 }

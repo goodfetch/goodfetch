@@ -20,6 +20,7 @@ use goodfetch_engine::console::{build_file, content_security_policy, production_
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_engine::transport::ConsoleListener;
+use goodfetch_protocol::audit::{Listener, RefusalReason};
 use http_body_util::{BodyExt as _, Full, Limited};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{self, HeaderMap, HeaderValue};
@@ -209,8 +210,8 @@ impl Site {
         let body = body.to_bytes();
         if std::str::from_utf8(&body).unwrap_or_default().trim() != self.token {
             tracing::warn!(
-                listener = "console",
-                reason = "token_wrong",
+                listener = Listener::Console.as_str(),
+                reason = RefusalReason::TokenWrong.as_str(),
                 "the gateway refused a sign-in"
             );
             return self.plain(StatusCode::UNAUTHORIZED);

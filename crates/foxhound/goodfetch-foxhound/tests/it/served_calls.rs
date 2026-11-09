@@ -17,10 +17,11 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::Attached;
+use goodfetch_test_support::ToolStatus;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
 use crate::fetch_tiers::{engine, provenance, settings, tiers};
 use crate::frontier::{Inside, crawl_declaring};
 
@@ -271,7 +272,7 @@ fn under_a_forced_tier_each_row_is_served_as_the_table_says_or_refused(
         &mut the_tables_calls(&mut runs),
     );
     let ended = ended(&mut engine, &run_id);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (runs, ended, tiers(&env, &run_id)),
@@ -306,7 +307,7 @@ fn under_auto_the_first_call_a_document_tier_cannot_serve_escalates_the_request_
         &mut the_tables_calls(&mut runs),
     );
     let ended = ended(&mut engine, "table-auto");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (runs, ended, tiers(&env, "table-auto")),
@@ -375,7 +376,7 @@ fn a_script_rendered_page_never_ends_as_an_empty_success_on_http(
         },
     );
     let ended = ended(&mut engine, &run_id);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let expected: Vec<(String, String)> = expected
         .iter()
@@ -437,10 +438,10 @@ fn every_page_formats_the_same_markdown_on_its_tier_as_the_oracle_holds(#[case] 
         },
     );
     let ended = ended(&mut engine, &run_id);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let verdict = proving_ground
-        .judge_records(MARKDOWN_TASK, "success", &records)
+        .judge_records(MARKDOWN_TASK, ToolStatus::Success, &records)
         .unwrap();
     assert_eq!(
         (
@@ -502,7 +503,7 @@ fn a_cosmetic_rule_takes_an_ad_out_of_a_handlers_formats_on_its_tier(#[case] tie
         },
     );
     let ended = ended(&mut engine, &run_id);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let recorded: Vec<(bool, bool)> = provenance(&env, &run_id, "formats")
         .iter()
@@ -584,7 +585,7 @@ fn a_labels_content_extractor_reads_its_pages_main_content(#[case] tier: &str) {
         },
     );
     let ended = ended(&mut engine, &run_id);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     read.sort();
     assert_eq!(
@@ -735,10 +736,10 @@ fn every_format_of_a_handlers_page_matches_the_oracle_on_its_tier(
         },
     );
     let ended = ended(&mut engine, &run_id);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let verdict = proving_ground
-        .judge_records(task, "success", &records)
+        .judge_records(task, ToolStatus::Success, &records)
         .unwrap();
     assert_eq!(
         (

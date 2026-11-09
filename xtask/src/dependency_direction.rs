@@ -1,11 +1,17 @@
 //! The dependency-direction check over the Cargo workspace's manifests: the
 //! directions STYLE.md's crate rules make the compiler enforce.
 //! - `goodfetch-test-support` depends on no Goodfetch crate, and every other
-//!   crate takes it only as a dev-dependency (ADR 0062).
+//!   crate but `goodfetch-test-client` takes it only as a dev-dependency
+//!   (ADR 0062).
+//! - `goodfetch-test-client` depends on no Goodfetch crate but
+//!   `goodfetch-protocol` and `goodfetch-test-support`, every other crate
+//!   takes it only as a dev-dependency, and `goodfetch-protocol` never takes
+//!   it, so its tests never see two copies of its types (ADR 0062's note of
+//!   2026-11-07).
 //! - The Proving ground depends on no Goodfetch crate but
 //!   `goodfetch-test-support`, so on no engine crate, nor on
-//!   `goodfetch-conformance` or `goodfetch-protocol` (ADR 0032): the oracle
-//!   stays independent of what it judges.
+//!   `goodfetch-conformance`, `goodfetch-protocol` or `goodfetch-test-client`
+//!   (ADR 0032): the oracle stays independent of what it judges.
 //! - `goodfetch-conformance` depends on no Goodfetch crate but
 //!   `goodfetch-protocol` (and `goodfetch-test-support` for its tests): the
 //!   harness tests only through the interface.
@@ -29,6 +35,7 @@ use crate::check::Finding;
 use crate::metadata::{self, Dependency, Package};
 
 const TEST_SUPPORT: &str = "goodfetch-test-support";
+const TEST_CLIENT: &str = "goodfetch-test-client";
 const CONFORMANCE: &str = "goodfetch-conformance";
 const PROTOCOL: &str = "goodfetch-protocol";
 const WORKSPACE_HACK: &str = "goodfetch-workspace-hack";
@@ -58,13 +65,40 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
                     format!("it depends on the workspace crate `{}`", dependency.name),
                 ));
             }
-        } else if package.dependencies.iter().any(|dependency| {
-            dependency.name == TEST_SUPPORT && dependency.kind.as_deref() != Some("dev")
-        }) {
+        } else if package.name != TEST_CLIENT && takes_outside_dev(package, TEST_SUPPORT) {
             findings.push(Finding::new(
                 "test-support-not-dev-only",
                 &package.name,
                 format!("it takes `{TEST_SUPPORT}` outside `[dev-dependencies]`"),
+            ));
+        }
+        if package.name == TEST_CLIENT
+            && let Some(dependency) =
+                members().find(|d| d.name != PROTOCOL && d.name != TEST_SUPPORT)
+        {
+            findings.push(Finding::new(
+                "test-client-depends-on-more-than-protocol",
+                &package.name,
+                format!(
+                    "it depends on `{}`; it takes no Goodfetch crate but `{PROTOCOL}` and `{TEST_SUPPORT}`",
+                    dependency.name
+                ),
+            ));
+        } else if package.name == PROTOCOL
+            && package.dependencies.iter().any(|d| d.name == TEST_CLIENT)
+        {
+            findings.push(Finding::new(
+                "protocol-takes-test-client",
+                &package.name,
+                format!(
+                    "it takes `{TEST_CLIENT}`, which would give its tests two copies of its types"
+                ),
+            ));
+        } else if takes_outside_dev(package, TEST_CLIENT) {
+            findings.push(Finding::new(
+                "test-client-not-dev-only",
+                &package.name,
+                format!("it takes `{TEST_CLIENT}` outside `[dev-dependencies]`"),
             ));
         }
         if is_proving_ground(package, &root)
@@ -107,6 +141,15 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
         }
     }
     Ok(findings)
+}
+
+/// Whether `package` takes the workspace crate `name` as a normal or build
+/// dependency.
+fn takes_outside_dev(package: &Package, name: &str) -> bool {
+    package
+        .dependencies
+        .iter()
+        .any(|dependency| dependency.name == name && dependency.kind.as_deref() != Some("dev"))
 }
 
 fn is_proving_ground(package: &Package, root: &Path) -> bool {

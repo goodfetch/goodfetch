@@ -100,7 +100,9 @@ pub(crate) struct StoppedParts;
 
 impl ReportPart for StoppedParts {
     fn fill(&self, connection: &Connection, report: &mut RunReport) -> rusqlite::Result<()> {
-        if run_row::kind(connection)? != RunKind::Crawl || report.lifecycle != Lifecycle::Stopped {
+        if !run_row::is_of_kind(connection, RunKind::Crawl)?
+            || report.lifecycle != Lifecycle::Stopped
+        {
             return Ok(());
         }
         let left = work_items::left(connection)?;

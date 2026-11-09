@@ -15,4 +15,5 @@ mod login;
 mod real_daemon;
 mod settings;
 mod support;
+mod tools;
 mod window;

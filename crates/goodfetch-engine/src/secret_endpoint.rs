@@ -12,12 +12,11 @@
 
 use std::time::Duration;
 
-use goodfetch_protocol::egress::ConfiguredKind;
 use hyper::body::Bytes;
 use hyper::{Request, Response};
 
 use crate::clock::Clock;
-use crate::egress::Refused;
+use crate::egress::{ConfiguredKind, Refused};
 use crate::http_client::{EndpointSettings, WholeFailure};
 use crate::retry_after::{self, RetryAfter};
 use crate::settings::Resolved;

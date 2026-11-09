@@ -18,7 +18,7 @@ use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, bro
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached_with;
 use crate::fetch_tiers::settings;
 use crate::frontier::crawl_declaring;
 use crate::url_fragments::refused_start;
@@ -87,7 +87,7 @@ fn every_session_of_a_runs_pools_leaves_from_a_proxy_of_the_runs_kind_and_provid
         .password
         .clone();
     let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
-    let mut engine = Attached::start_with(&env, Some(Duration::from_secs(60)), |command| {
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
         command.env(BROWSERS_PATH_VARIABLE, &cache);
         command.env(PASSWORD_VARIABLE, &password);
     });
@@ -124,7 +124,7 @@ fn every_session_of_a_runs_pools_leaves_from_a_proxy_of_the_runs_kind_and_provid
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     // The handled pages ran in the Label's own pool's Session and in the
     // replacement of the Run's pool Session the 403 retired (and in the

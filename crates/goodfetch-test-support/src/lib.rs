@@ -44,6 +44,7 @@ pub mod callgrind;
 mod canaries;
 mod cli;
 mod colour;
+mod command_tree;
 mod counting_vfs;
 mod crash_dumps;
 mod crash_vfs;
@@ -54,6 +55,7 @@ mod dns_namespace;
 mod endpoints;
 mod env;
 mod exercise;
+mod facts;
 mod fuzz;
 mod hostile;
 mod invariants;
@@ -72,6 +74,8 @@ mod player;
 mod process;
 mod protocol_fuzz;
 mod proving_ground;
+mod proving_ground_format;
+mod proxy_in_front;
 mod pty;
 mod received_requests;
 mod resident;
@@ -83,6 +87,7 @@ mod seeded;
 mod snapshot;
 mod special_purpose;
 mod sql_dump;
+mod sqlite_files;
 mod ssrf;
 mod strict_stdout;
 mod tmpfs;
@@ -98,10 +103,9 @@ mod user_namespaces;
 mod variables;
 
 pub use browsers::{
-    BROWSERS_PATH_VARIABLE, BrowserCacheError, CHROME_FOR_TESTING_BUILD, LIGHTPANDA_BUILD,
-    LIGHTPANDA_DOWNLOADS_VARIABLE, browser_cache, browser_cache_in_home,
-    browser_cache_with_lightpanda, chrome_for_testing_files, lay_out_browser_entry,
-    lightpanda_copy,
+    BROWSERS_PATH_VARIABLE, BrowserCacheError, LIGHTPANDA_DOWNLOADS_VARIABLE, browser_cache,
+    browser_cache_in_home, browser_cache_with_lightpanda, chrome_for_testing,
+    chrome_for_testing_files, lay_out_browser_entry, lightpanda_copy, reported_debugging_port,
 };
 pub use canaries::{
     Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SHORT_VALUE,
@@ -111,6 +115,9 @@ pub use cli::{
     Cli, CliError, CliJson, CliOutput, Mode, Stream, cli, record_command, record_command_in,
 };
 pub use colour::{ColourError, ColourProperty};
+pub use command_tree::{
+    certificate_verification_switches, command_help, command_paths, long_flags,
+};
 pub use counting_vfs::CountingVfs;
 pub use crash_dumps::{CRASH_DUMP_VARIABLE, CrashDumps};
 pub use crash_vfs::{
@@ -129,9 +136,8 @@ pub use endpoints::{
     Hello, Listener, ListenerAddress, ListenerKind, Observed, RowFailure, Rule,
 };
 pub use env::{START_TIME, TEST_SETTINGS, TestEnv, TestEnvError, command};
-pub use exercise::{
-    ANSWER_RECORD, AnsweredCalls, COMMAND_RECORD, COMMAND_TARGET, DISPATCH_TARGET, OUTCOME_TARGET,
-};
+pub use exercise::{ANSWER_RECORD, AnsweredCalls, COMMAND_RECORD, COMMAND_TARGET};
+pub use facts::{CHROME_FOR_TESTING_BUILD, DISPATCH_TARGET, LIGHTPANDA_BUILD, OUTCOME_TARGET};
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
 pub use hostile::{
     BodyFraming, ExpectedError, HeaderSource, HeaderValue, HostileCase, HostileTable,
@@ -169,12 +175,17 @@ pub use protocol_fuzz::{
     ProtocolTransport, SchemaUnreadable, TransportFailure,
 };
 pub use proving_ground::{
-    ClientCertificate, PROVING_GROUND_DEADLINE, ProvingGround, ProvingGroundDescription,
-    ProvingGroundError, ProvingGroundFixtures, ProxyCredentials,
+    ClientCertificate, LOOPBACK_PORT_0, PROVING_GROUND_DEADLINE, ProvingGround,
+    ProvingGroundDescription, ProvingGroundError, ProvingGroundFixtures, UNSHAPED, path_of,
+    serve_arguments,
 };
+pub use proving_ground_format::{
+    FixtureAddresses, OWN_TARGETS, Observations, ObservedRequest, OracleSubmission,
+    ProxyCredentials, ROUTES, ReceivedRequests, RequestTiming, Routes, ServeLine, ToolStatus,
+};
+pub use proxy_in_front::proxy_in_front;
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
-pub use received_requests::{OWN_TARGETS, ReceivedRequests, robots_txt_read, robots_txt_readings};
-pub use resident::{peak_resident_bytes, peak_resident_bytes_of, private_resident_bytes_of};
+pub use resident::{peak_resident_bytes, private_resident_bytes_of};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
 pub use runtime_file::{
@@ -190,6 +201,7 @@ pub use special_purpose::{
     Cidr, Reachability, RegistryError, SpecialPurposeBlock, SpecialPurposeRegistries,
 };
 pub use sql_dump::sql_dump;
+pub use sqlite_files::{DamageTableError, damage_table, wal_of};
 pub use ssrf::{
     Answer, CaseDomains, CaseLookup, CoverageGap, CoverageGaps, EgressRule, Family, Layer,
     LayerGap, LayerGaps, LayerRunner, LetThrough, Miss, Outcome, Pending, Redirect, Refusal, Route,
@@ -200,7 +212,8 @@ pub use strict_stdout::{
     StrictStdoutErrorKind,
 };
 pub use tmpfs::{
-    fill_filesystem, free_filesystem, inside_mount, tmpfs_mounted, tmpfs_mounted_home,
+    fill_filesystem, free_filesystem, inside_mount, read_only_mounted, tmpfs_mounted,
+    tmpfs_mounted_home,
 };
 pub use tools::{Product, Tool, Tools, ToolsError, tools};
 pub use trace::{CapturedLog, logged, subscriber, subscriber_writing_to};

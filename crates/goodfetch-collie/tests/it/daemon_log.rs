@@ -16,16 +16,24 @@
 
 use std::path::Path;
 
+use goodfetch_test_client::{DaemonClient, product_version};
 use goodfetch_test_support::{RuntimeFile, TestEnv};
 use serde_json::{Value, json};
 
-use crate::daemon::{RawClient, StopsTheDaemon, json_of};
+use crate::daemon::{StopsTheDaemon, json_of};
+use crate::daemon_client;
 use crate::daemon_run::{ANY_PORT, Foreground, opened};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
-/// This commit's Product version, whose major folder is `0.0`.
+/// This commit's Product version.
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The name of the Daemon's log file of this commit's version line, with
+/// `rotated`, such as `.1`, before its extension.
+fn daemon_log(rotated: &str) -> String {
+    format!("daemon-{}{rotated}.jsonl", product_version().line())
+}
 
 /// The Daemon's log files in `folder`, by name, with their lines.
 fn daemon_files(folder: &Path) -> Vec<(String, Vec<String>)> {
@@ -54,10 +62,10 @@ fn daemon_files(folder: &Path) -> Vec<(String, Vec<String>)> {
 
 /// Starts the test home's Daemon with `daemon start`, and opens a Client of
 /// it.
-fn started(env: &TestEnv) -> RawClient {
+fn started(env: &TestEnv) -> DaemonClient {
     json_of(COLLIE.as_ref(), env, &["daemon", "start", "--json"]);
     let found = RuntimeFile::read(&RuntimeFile::path(env.home(), VERSION)).unwrap();
-    RawClient::opened(&found, "collie")
+    daemon_client(&found)
 }
 
 /// `daemon run` keeps ADR 0049's JSON lines on stdout, for its platform to
@@ -116,7 +124,7 @@ fn a_started_daemon_rotates_its_log_files_at_their_size_and_keeps_their_count() 
     json_of(COLLIE.as_ref(), &env, &["daemon", "stop", "--json"]);
 
     let files = daemon_files(&env.home().join("logs"));
-    let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
+    let names: Vec<String> = files.iter().map(|(name, _)| name.clone()).collect();
     let oversized: Vec<&str> = files
         .iter()
         .filter(|(_, lines)| {
@@ -134,11 +142,7 @@ fn a_started_daemon_rotates_its_log_files_at_their_size_and_keeps_their_count() 
     assert_eq!(
         (names, oversized, not_json),
         (
-            vec![
-                "daemon-0.0.1.jsonl",
-                "daemon-0.0.2.jsonl",
-                "daemon-0.0.jsonl"
-            ],
+            vec![daemon_log(".1"), daemon_log(".2"), daemon_log("")],
             Vec::<&str>::new(),
             0
         )
@@ -208,32 +212,50 @@ fn on_a_full_filesystem_the_daemon_keeps_serving_and_then_says_how_many_lines_it
     let served: Vec<Value> = (2..=21)
         .map(|id| client.call(id, "engine.info", &json!({}))["result"]["product"].clone())
         .collect();
-    // The log writer's thread takes the lines the full disk refused.
+    // Nothing outside the log writer's thread says when it took the lines the
+    // full disk refused: what it counted shows only on a line written later.
     std::thread::sleep(Duration::from_millis(500));
     free_filesystem(&filler);
     client.call(22, "engine.info", &json!({}));
-    std::thread::sleep(Duration::from_millis(500));
-    let written =
-        std::fs::read_to_string(inside_mount(pid, &logs.join("daemon-0.0.jsonl"))).unwrap();
+    // Each `engine.info` request logs two lines at `trace`: the dispatch's
+    // "request answered" and its span's "close".
+    let every_request_told = |lines: &[Value]| {
+        let told = lines
+            .iter()
+            .filter(|line| {
+                line["fields"]["method"] == "engine.info"
+                    || line["span"]["rpc.method"] == "engine.info"
+            })
+            .count();
+        let dropped = lines
+            .iter()
+            .filter_map(|line| line["fields"]["dropped"].as_u64())
+            .sum::<u64>();
+        u64::try_from(told).unwrap() + dropped >= 2 * 22
+    };
+    let parsed = |written: &str| -> Vec<Value> {
+        written
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .collect()
+    };
+    let log = inside_mount(pid, &logs.join(daemon_log("")));
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let written = loop {
+        let written = std::fs::read_to_string(&log).unwrap();
+        if every_request_told(&parsed(&written)) || std::time::Instant::now() >= deadline {
+            break written;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
     drop(client);
     let exited = daemon.terminate();
 
-    let lines: Vec<Value> = written
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .collect();
+    let lines = parsed(&written);
     let dropped: Vec<u64> = lines
         .iter()
         .filter_map(|line| line["fields"]["dropped"].as_u64())
         .collect();
-    // Each `engine.info` request logs two lines at `trace`: the dispatch's
-    // "request answered" and its span's "close".
-    let request_lines = lines
-        .iter()
-        .filter(|line| {
-            line["fields"]["method"] == "engine.info" || line["span"]["rpc.method"] == "engine.info"
-        })
-        .count();
     let last_count = lines
         .iter()
         .rposition(|line| line["fields"]["dropped"].is_u64());
@@ -244,7 +266,7 @@ fn on_a_full_filesystem_the_daemon_keeps_serving_and_then_says_how_many_lines_it
         (
             served.iter().all(|product| product == "collie"),
             !dropped.is_empty() && dropped.iter().all(|count| *count > 0),
-            u64::try_from(request_lines).unwrap() + dropped.iter().sum::<u64>() >= 2 * 22,
+            every_request_told(&lines),
             matches!((last_count, after_space_returned), (Some(count), Some(line)) if count < line),
             exited
         ),

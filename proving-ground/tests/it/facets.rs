@@ -8,7 +8,7 @@
 use serde_json::{Value, json};
 
 use crate::crawler::{Crawler, Fetched, field, finding_kinds, links};
-use crate::proving_ground::ProvingGround;
+use crate::proving_ground::{ProvingGround, submission};
 
 const SEED: u64 = 1538;
 const TASK: &str = "facets/1";
@@ -33,12 +33,6 @@ fn start_url(proving_ground: &ProvingGround) -> String {
         .to_owned()
 }
 
-fn judge(proving_ground: &ProvingGround, records: &[Value]) -> Value {
-    proving_ground
-        .judge(&json!({ "task": TASK, "status": "success", "records": records }))
-        .json()
-}
-
 #[test]
 fn a_crawl_that_excludes_the_facet_parameters_is_verified() {
     let proving_ground = ProvingGround::start(SEED);
@@ -46,7 +40,7 @@ fn a_crawl_that_excludes_the_facet_parameters_is_verified() {
     crawler.closes = vec![("/shop?", 0)];
     let pages = crawler.crawl(&start_url(&proving_ground));
 
-    let answer = judge(&proving_ground, &records(&pages));
+    let answer = proving_ground.judge(&submission(TASK, "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
     assert_eq!(answer["findings"], json!([]));
@@ -60,7 +54,7 @@ fn a_crawl_within_a_path_budget_is_verified() {
     crawler.closes = vec![("/shop?", 20)];
     let pages = crawler.crawl(&start_url(&proving_ground));
 
-    let answer = judge(&proving_ground, &records(&pages));
+    let answer = proving_ground.judge(&submission(TASK, "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
     assert_eq!(answer["findings"], json!([]));
@@ -73,7 +67,7 @@ fn a_crawl_that_follows_every_facet_is_a_false_success_with_trap_findings() {
     crawler.limit = 300;
     let pages = crawler.crawl(&start_url(&proving_ground));
 
-    let answer = judge(&proving_ground, &records(&pages));
+    let answer = proving_ground.judge(&submission(TASK, "success", &records(&pages)));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["missing"], json!([]), "{answer}");

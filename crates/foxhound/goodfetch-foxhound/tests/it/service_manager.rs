@@ -11,21 +11,17 @@
     clippy::disallowed_methods,
     reason = "the tests read the user's session from their own process, and the service's token themselves"
 )]
-#![expect(
-    clippy::disallowed_types,
-    reason = "a test's own Client reaches the service's socket from outside the engine (ADR 0060)"
-)]
 
-use std::io::{BufRead as _, BufReader, Write as _};
 use std::path::{Path, PathBuf};
 
-use goodfetch_protocol::catalog::PROTOCOL_VERSION;
-use goodfetch_test_support::{Cli, TestEnv, Tool, cli, tools};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::home::DaemonFile;
+use goodfetch_test_client::{DaemonClient, Hello, HomeLayout};
+use goodfetch_test_support::{Cli, DaemonEndpoint, TestEnv, Tool, cli, tools};
 use serde_json::{Value, json};
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The variables through which a command reaches the user's own service
 /// manager, from the test's process, over the test's isolated ones.
@@ -78,39 +74,15 @@ impl Drop for RemovesTheService<'_> {
 /// Opens a Connection to the service's socket with its persistent token,
 /// which starts the Daemon, and asks it `daemon.status`.
 fn status_through(env: &TestEnv, socket: &Path) -> Value {
-    let token = std::fs::read_to_string(env.home().join("0.0").join("daemon.token")).unwrap();
-    let stream = std::os::unix::net::UnixStream::connect(socket).unwrap();
-    let mut writer = stream.try_clone().unwrap();
-    let mut reader = BufReader::new(stream);
-    let mut call = |id: i64, method: &str, params: Value| {
-        let request = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
-        writeln!(writer, "{request}").unwrap();
-        writer.flush().unwrap();
-        loop {
-            let mut line = String::new();
-            assert!(
-                reader.read_line(&mut line).unwrap() > 0,
-                "the Daemon closed the Connection"
-            );
-            let message: Value = serde_json::from_str(&line).unwrap();
-            if message["id"] == json!(id) {
-                return message;
-            }
-        }
-    };
-    let hello = call(
-        0,
-        "hello",
-        json!({
-            "protocol_version": PROTOCOL_VERSION.to_string(),
-            "surface": "sdk_typescript",
-            "token": token,
-            "needs": "collie",
-            "product_version": VERSION,
-        }),
+    let token =
+        std::fs::read_to_string(HomeLayout::of(env.home()).daemon_file(DaemonFile::Token)).unwrap();
+    let mut client = DaemonClient::opened(
+        &DaemonEndpoint::Unix(socket.to_owned()),
+        &Hello::needing(Product::Collie)
+            .surface(Surface::SdkTypescript)
+            .token(token),
     );
-    assert!(hello.get("result").is_some(), "{hello}");
-    call(1, "daemon.status", json!({}))["result"].clone()
+    client.call(1, "daemon.status", &json!({}))["result"].clone()
 }
 
 /// Covers: story:3-21, story:3-137, command:daemon.install

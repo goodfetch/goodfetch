@@ -14,10 +14,11 @@
 
 use std::collections::BTreeMap;
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 
 /// The Run ID of the crawl the cases retry.
 const RUN_ID: &str = "retried";
@@ -158,7 +159,7 @@ fn latest(outcomes: &Value) -> BTreeMap<String, Value> {
 )]
 fn retry_failed_re_admits_only_the_failures_with_their_identity_and_a_fresh_retry_budget() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let book = json!({ "isbn": "9780000000001" });
     let flaky = json!({ "note": "Ünïcødé ✓" });
     let mut first = Handed::default();
@@ -269,7 +270,7 @@ fn retry_failed_re_admits_only_the_failures_with_their_identity_and_a_fresh_retr
         &json!({ "run_id": RUN_ID, "blocked": true }),
         &mut |_, _| json!({}),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let first_of = |url: &str| {
         first
@@ -366,7 +367,7 @@ fn retry_failed_re_admits_only_the_failures_with_their_identity_and_a_fresh_retr
 #[test]
 fn retry_failed_re_admits_a_failure_into_a_crawl_still_running() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let mut handed = Handed::default();
     let mut handle = |_: &mut Attached, handle: &Value| {
         let request = &handle["crawl_request"];
@@ -412,7 +413,7 @@ fn retry_failed_re_admits_a_failure_into_a_crawl_still_running() {
         &json!({ "run_id": "live" }),
         &mut handle,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (

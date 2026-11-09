@@ -8,14 +8,14 @@
 )]
 
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use anyhow::{Context as _, Result, bail};
 use goodfetch_protocol::catalog::Product;
-use serde::Deserialize;
 
 use crate::output;
+use crate::test_tools::{Tool, ToolManifest};
 
 use super::crawl::{self, Site};
 use super::peak::{self, Resident};
@@ -23,36 +23,17 @@ use super::peaks::{self, Peak};
 use super::platform::Platform;
 use super::scenario::Scenario;
 
-/// The entries of the test tool manifest the scenarios run.
-#[derive(Deserialize)]
-struct Tools {
-    collie: Option<PathBuf>,
-    foxhound: Option<PathBuf>,
-    proving_ground: Option<PathBuf>,
-}
-
-impl Tools {
-    fn executable(&self, product: Product) -> Option<&Path> {
-        match product {
-            Product::Collie => self.collie.as_deref(),
-            Product::Foxhound => self.foxhound.as_deref(),
-        }
-    }
-}
-
 /// Runs each scenario `runs` times on each executable it runs on and
 /// appends each peak to `out`.
 pub(crate) fn measure(scenarios: &[Scenario], tools: &Path, out: &Path, runs: u32) -> Result<()> {
-    let text = std::fs::read(tools).with_context(|| format!("reading {}", tools.display()))?;
-    let tools: Tools =
-        serde_json::from_slice(&text).with_context(|| format!("parsing {}", tools.display()))?;
+    let tools = ToolManifest::read(tools)?;
     let platform = Platform::current()?;
     let probe = std::env::current_exe().context("finding xtask's own executable")?;
     // Every executable a scenario runs on is measured, or none is.
     let mut measured = Vec::new();
     for &scenario in scenarios {
         for &product in scenario.products() {
-            let Some(executable) = tools.executable(product) else {
+            let Some(executable) = tools.get(Tool::of_product(product)) else {
                 bail!(
                     "the test tool manifest names no executable of {}, which {} runs on",
                     product.name(),
@@ -63,7 +44,7 @@ pub(crate) fn measure(scenarios: &[Scenario], tools: &Path, out: &Path, runs: u3
         }
     }
     let serving = if scenarios.iter().any(|scenario| scenario.crawls()) {
-        let proving_ground = tools.proving_ground.as_deref().with_context(|| {
+        let proving_ground = tools.get(Tool::ProvingGround).with_context(|| {
             format!(
                 "the test tool manifest names no Proving ground, which {} crawls",
                 Scenario::Crawl.name()

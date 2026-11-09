@@ -12,10 +12,14 @@
 
 use std::fmt::Write as _;
 
+use goodfetch_protocol::home::DaemonFile;
+use goodfetch_test_client::DaemonClient;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{CliOutput, TestEnv, cli};
 use serde_json::{Value, json};
 
-use crate::daemon::{RawClient, StopsTheDaemon};
+use crate::daemon::StopsTheDaemon;
+use crate::daemon_hello;
 use crate::daemon_run::{ANY_PORT, Foreground, opened, token};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -83,6 +87,39 @@ fn each_daemon_command_prints_the_majors_daemon_status() {
     );
 }
 
+/// `daemon restart` fails on settings it could not start on before it stops
+/// anything: a typo in the file leaves the running Daemon serving, which never
+/// needed that file again.
+///
+/// Covers: story:11-214, command:daemon.restart
+#[test]
+fn a_restart_on_unreadable_settings_leaves_the_running_daemon_serving() {
+    let env = TestEnv::new();
+    let readable = "daemon.idle_timeout = 60000\nconsole.address = \"127.0.0.1:0\"\n";
+    env.user_configuration(readable);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let (_, first) = checked(&env, &["daemon", "start", "--json"], "DaemonStatus");
+
+    env.user_configuration("crawl.max_deepth = 3\n");
+    let refused = cli(&env, COLLIE)
+        .args(["daemon", "restart", "--json"])
+        .run()
+        .unwrap();
+    let printed: Value = serde_json::from_str(&refused.stdout).unwrap_or(Value::Null);
+    env.user_configuration(readable);
+    let (_, after) = checked(&env, &["daemon", "status", "--json"], "DaemonStatus");
+
+    assert_eq!(
+        (
+            refused.exit,
+            printed["error"]["code"].clone(),
+            after["pid"] == first["pid"],
+        ),
+        (Some(3), json!("setting_unknown"), true),
+        "{refused}"
+    );
+}
+
 /// `daemon run --json` prints the foreground Daemon's `DaemonStatus` as
 /// its first line once it listens, its logs following as JSON lines.
 ///
@@ -137,7 +174,10 @@ fn daemon_http_listener_token_prints_the_credential_on_stdout_and_nowhere_else()
         .unwrap();
 
     let token = printed["token"].as_str().unwrap().to_owned();
-    let file = std::fs::read_to_string(env.home().join("0.0").join("http-listener.token")).unwrap();
+    let file = std::fs::read_to_string(
+        HomeLayout::of(env.home()).daemon_file(DaemonFile::HttpListenerToken),
+    )
+    .unwrap();
     let logged = logs_holding(&env, &token);
     assert_eq!(
         (
@@ -190,7 +230,7 @@ fn daemon_rotate_token_makes_the_old_token_refuse() {
     assert!(first.exited(), "{:#?}", first.logged);
     let mut second = Foreground::start(&env, COLLIE, &[]);
     let endpoint = second.serving();
-    let refused = RawClient::refused_at(&endpoint, &old);
+    let refused = DaemonClient::refuses(&endpoint, &daemon_hello(&old));
     drop(opened(&env, &endpoint));
     let (_, new_listener) = checked(
         &env,

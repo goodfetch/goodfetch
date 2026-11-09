@@ -34,9 +34,9 @@ use url::Url;
 
 use super::super::{FetchTiers, History, Opened, ServedPage};
 use super::{answered, leased, page_response, refused};
-use crate::chain::{Following, Gating, HopGate, Stop, follow};
+use crate::chain::{Following, Gating, HopGate, Skip, Stop, follow};
 use crate::driver::{Fetched, Hop, fetch};
-use crate::gate::{Gate, HandOver};
+use crate::gate::{self, Gate, HandOver};
 use crate::untouched::UntouchedReaders;
 
 /// Which navigation a call asks of a served page.
@@ -243,7 +243,9 @@ impl HopGate for Navigating {
                 Gate::new(Arc::clone(&self.hand_over))
                     .admitted(&hop.url)
                     .await
-                    .map_err(|refusal| Stop::Failed(refused(hop.url.as_str(), &refusal)))?
+                    .map_err(|refusal| {
+                        Stop::Failed(refused(hop.url.as_str(), &gate::refusal(refusal)))
+                    })?
             };
             // The wait for the permit may outlast the lease.
             leased(&self.hand_over, self.operation).map_err(Stop::Failed)?;
@@ -283,14 +285,16 @@ fn stopped(stop: Stop) -> CallError {
         Stop::Failed(error) => error,
         // The navigation's gate refuses with an error, never a skip, and
         // the transport's egress refusal is answered as it is.
-        Stop::Skipped(skip) => CallError::new(
-            &NAVIGATION_FAILED,
-            skip.message,
-            &NavigationFailedDetails {
-                url: None,
-                error: None,
-            },
-        ),
+        Stop::Skipped(Skip { message, .. }) | Stop::RobotsTxtUnreachable { message, .. } => {
+            CallError::new(
+                &NAVIGATION_FAILED,
+                message,
+                &NavigationFailedDetails {
+                    url: None,
+                    error: None,
+                },
+            )
+        }
     }
 }
 

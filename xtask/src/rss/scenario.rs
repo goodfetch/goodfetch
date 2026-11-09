@@ -10,14 +10,16 @@
 
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
-use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface};
+use goodfetch_protocol::console::ConsoleState;
+use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile};
+use goodfetch_protocol::home::{USER_CONFIGURATION_FILE, per_major};
 use goodfetch_protocol::jsonrpc::{Message, Request, RequestId, Version};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -91,7 +93,7 @@ impl Scenario {
     /// before it is stopped.
     pub(crate) fn arguments(self) -> &'static [&'static str] {
         match self {
-            Self::IdleAttachedEngine | Self::Crawl => &["attached-engine"],
+            Self::IdleAttachedEngine | Self::Crawl => &[goodfetch_protocol::cli::ATTACHED_ENGINE],
             Self::IdleDaemon => &["daemon", "launched", "--keep-alive"],
         }
     }
@@ -135,11 +137,8 @@ pub(crate) fn as_shipped(command: &mut Command, home: &Path, goodfetch_variables
     for name in goodfetch_variables {
         command.env_remove(name);
     }
-    command.env("GOODFETCH_HOME", home);
+    command.env(goodfetch_protocol::settings::HOME_VARIABLE, home);
 }
-
-/// The user configuration's file in the per-major folder.
-const USER_CONFIGURATION: &str = "configuration.toml";
 
 /// The idle-Daemon scenario's user configuration: the Daemon's Console
 /// listens on a port the OS chooses, never on its major's fixed port
@@ -154,23 +153,13 @@ pub(crate) fn configure(scenario: Scenario, home: &Path) -> Result<()> {
     if scenario != Scenario::IdleDaemon {
         return Ok(());
     }
-    let major = home.join(major_folder(env!("CARGO_PKG_VERSION")));
+    let version = ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+        .context("reading the workspace's Product version")?;
+    let major = per_major(home, &version);
     std::fs::create_dir_all(&major).with_context(|| format!("creating {}", major.display()))?;
-    let configuration = major.join(USER_CONFIGURATION);
+    let configuration = major.join(USER_CONFIGURATION_FILE);
     std::fs::write(&configuration, DAEMON_CONFIGURATION)
         .with_context(|| format!("writing {}", configuration.display()))
-}
-
-/// The per-major folder's name of a Product version (ADR 0030): `1` for
-/// any `1.x.y`, `0.4` for any `0.4.y`, since during `0.y` each minor counts
-/// as a major.
-fn major_folder(product_version: &str) -> String {
-    let mut numbers = product_version.split(['.', '-']);
-    let major = numbers.next().unwrap_or("0");
-    match (major, numbers.next()) {
-        ("0", Some(minor)) => format!("0.{minor}"),
-        (major, _) => major.to_owned(),
-    }
 }
 
 /// The `hello` line a Client needing `needs` opens with, as the engine
@@ -187,16 +176,13 @@ fn hello_with(needs: Product, token: Option<String>) -> Result<Vec<u8>> {
         id: RequestId::Number(0),
         method: HELLO.to_owned(),
         params: Some(serde_json::to_value(HelloParams {
-            protocol_version: PROTOCOL_VERSION,
-            surface: Surface::Rust,
-            form: None,
             token,
             needs: Some(needs),
-            product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
-                .context("xtask's version is a Product version")?,
-            log_level: None,
-            client_surface: None,
-            keep_daemon_alive: false,
+            ..HelloParams::new(
+                Surface::Rust,
+                ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+                    .context("xtask's version is a Product version")?,
+            )
         })?),
     });
     let mut line = serde_json::to_vec(&hello)?;
@@ -227,26 +213,6 @@ fn idle_attached_engine(needs: Product, mut stdin: ChildStdin, stdout: ChildStdo
     Ok(())
 }
 
-/// Where a Daemon listens, as its runtime file names it (ADR 0024).
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum Endpoint {
-    Unix(PathBuf),
-    Tcp(SocketAddr),
-}
-
-/// The parts of the runtime file a Daemon prints once ready that a Client
-/// needs, and its Console's state.
-#[derive(Deserialize)]
-struct RuntimeFile {
-    endpoint: Endpoint,
-    token: String,
-    /// `{"serving": <url>}`, or `{"failed": <error>}` when the Console did
-    /// not start and the Daemon serves its Clients without it.
-    #[serde(default)]
-    console: Value,
-}
-
 /// Waits for the Daemon's runtime file, checks its Console serves, as a
 /// shipped Daemon's does, idles, then stops it over its own endpoint with
 /// `daemon.stop`, as `daemon stop` does, so no other process the probe
@@ -267,15 +233,15 @@ fn idle_daemon(
     {
         bail!("the Daemon ended before it printed its runtime file");
     }
-    let runtime: RuntimeFile = serde_json::from_str(&line).with_context(|| {
+    let runtime: DaemonRuntimeFile = serde_json::from_str(&line).with_context(|| {
         format!(
             "the Daemon's first line is no runtime file: {}",
             line.trim_end()
         )
     })?;
-    if !runtime.console["serving"].is_string() {
+    if !matches!(runtime.console, ConsoleState::Serving(_)) {
         bail!(
-            "the Daemon's Console does not serve, so it is not the Daemon as shipped: {}",
+            "the Daemon's Console does not serve, so it is not the Daemon as shipped: {:?}",
             runtime.console
         );
     }
@@ -283,7 +249,7 @@ fn idle_daemon(
     let (reader, mut writer) = connect(&runtime.endpoint)?;
     let mut reader = BufReader::new(reader);
     writer
-        .write_all(&hello_with(needs, Some(runtime.token))?)
+        .write_all(&hello_with(needs, Some(runtime.token.expose().to_owned()))?)
         .and_then(|()| writer.flush())
         .context("sending hello to the Daemon")?;
     reply(&mut reader, "hello")?;
@@ -350,21 +316,21 @@ fn reply(reader: &mut impl BufRead, method: &str) -> Result<()> {
     clippy::disallowed_types,
     reason = "xtask is synchronous and no engine: it reaches the measured Daemon's endpoint as a Client, as `daemon stop` does (ADR 0060 bans sockets in the engine's async crates)"
 )]
-fn connect(endpoint: &Endpoint) -> Result<(Box<dyn Read>, Box<dyn Write>)> {
+fn connect(endpoint: &DaemonEndpoint) -> Result<(Box<dyn Read>, Box<dyn Write>)> {
     match endpoint {
-        Endpoint::Tcp(address) => {
+        DaemonEndpoint::Tcp(address) => {
             let stream = std::net::TcpStream::connect(address)
                 .with_context(|| format!("connecting to the Daemon at {address}"))?;
             Ok((Box::new(stream.try_clone()?), Box::new(stream)))
         }
         #[cfg(unix)]
-        Endpoint::Unix(path) => {
+        DaemonEndpoint::Unix(path) => {
             let stream = std::os::unix::net::UnixStream::connect(path)
                 .with_context(|| format!("connecting to the Daemon at {}", path.display()))?;
             Ok((Box::new(stream.try_clone()?), Box::new(stream)))
         }
         #[cfg(not(unix))]
-        Endpoint::Unix(path) => bail!(
+        DaemonEndpoint::Unix(path) => bail!(
             "the Daemon listens on a Unix socket, {}, which this OS has none of",
             path.display()
         ),

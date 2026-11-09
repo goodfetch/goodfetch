@@ -19,7 +19,7 @@ use goodfetch_protocol::page::{
 };
 use serde_json::{Value, json};
 
-use super::navigation::{answered, call, failed_with, open, response, url_on};
+use super::navigation::{answered, call, failed_with, open, open_page, response, url_on};
 use super::{Checks, Site, finish_run};
 use crate::protocol::connection::{Connection, Gone};
 
@@ -79,12 +79,13 @@ impl Case {
 }
 
 /// The browser's redirect count (ADR 0118): a navigation's chain holds at
-/// most this many requests, its first included.
-const BROWSER_REDIRECTS: usize = 20;
+/// most this many requests, its first included. A fact of the pinned
+/// Chromium, which this case pins by its own figure.
+const BROWSER_REDIRECTS: u32 = 20;
 
 /// How many redirects the pinned Chromium follows before it fails a
-/// navigation: its chain's requests but the first.
-const FOLLOWED: usize = BROWSER_REDIRECTS - 1;
+/// navigation.
+const FOLLOWED: u32 = BROWSER_REDIRECTS - 1;
 
 /// The network error of a body whose listed coding does not decode.
 const DECODING_FAILED: &str = "net::ERR_CONTENT_DECODING_FAILED";
@@ -124,7 +125,7 @@ fn redirect_loop(
     checks.check("it names the first URL", data["url"] == json!(looping));
     checks.check(
         format!("it names the {FOLLOWED} hops followed"),
-        data["hops"].as_array().map(Vec::len) == Some(FOLLOWED),
+        data["hops"].as_array().map(Vec::len) == usize::try_from(FOLLOWED).ok(),
     );
     checks.check(
         "it names the browser's count as the limit",
@@ -144,10 +145,9 @@ fn retry_after_on_a_redirect(
     let run_id = "conformance-retry-after-on-a-redirect";
     let redirect = site.named_url("fetch-edge.test", "/retry-after/302/seconds/long");
     let target = site.named_url("fetch-edge.test", "/target");
-    let Some(page) = open(connection, site, run_id, &[&redirect, &target], checks)? else {
-        return finish_if(connection, run_id, &[&redirect, &target]);
+    let Some(page) = open_page(connection, site, run_id, checks)? else {
+        return finish_run(connection, run_id);
     };
-    let (redirect, target) = (redirect.unwrap_or_default(), target.unwrap_or_default());
     let answer = call(
         connection,
         PAGE_GOTO.name,
@@ -193,12 +193,10 @@ fn cut_documents(
         ),
     ]
     .map(|(what, path, declared)| (what, site.named_url("fetch-edge.test", path), declared));
-    let urls: Vec<&Option<String>> = cuts.iter().map(|(_, url, _)| url).collect();
-    let Some(page) = open(connection, site, run_id, &urls, checks)? else {
-        return finish_if(connection, run_id, &urls);
+    let Some(page) = open_page(connection, site, run_id, checks)? else {
+        return finish_run(connection, run_id);
     };
     for (what, url, declared) in &cuts {
-        let url = url.clone().unwrap_or_default();
         let loaded = call(connection, PAGE_GOTO.name, &page, &json!({ "url": url }))?;
         let data = &loaded["error"]["data"];
         checks.check(
@@ -235,13 +233,7 @@ fn cut_documents(
             &page,
             &json!({ "url": url, "wait_until": "commit" }),
         )?;
-        answered(
-            &committed,
-            &format!("{what} at `commit`"),
-            &url,
-            200,
-            checks,
-        );
+        answered(&committed, &format!("{what} at `commit`"), url, 200, checks);
     }
     finish_run(connection, run_id)
 }

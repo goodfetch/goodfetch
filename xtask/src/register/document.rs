@@ -22,6 +22,13 @@ pub(crate) const ENFORCED: &str = "### Enforced";
 /// The heading of the table of Exceptions.
 pub(crate) const EXCEPTIONS: &str = "### Exceptions";
 
+/// The heading of the table of measured rows.
+pub(crate) const MEASURED: &str = "### Measured, not yet enforced";
+
+/// The heading, inside the Enforced section, of the table of counted rows
+/// promoted there: the Measured table's columns, its limits gating.
+pub(crate) const COUNTED_WORK: &str = "#### Counted work";
+
 /// The register's own section of `testing`, a `TESTING.md`.
 pub(crate) struct Document<'a> {
     lines: Vec<&'a str>,
@@ -138,13 +145,6 @@ pub(crate) fn with_cell(
     *pieces.get_mut(position + 1)? = format!(" {value} ");
     Some(text.replacen(row.line, &pieces.join("|"), 1))
 }
-
-/// The heading of the table of measured rows.
-pub(crate) const MEASURED: &str = "### Measured, not yet enforced";
-
-/// The heading, inside the Enforced section, of the table of counted rows
-/// promoted there: the Measured table's columns, its limits gating.
-pub(crate) const COUNTED_WORK: &str = "#### Counted work";
 
 /// The columns a table of counted rows holds, measured or enforced.
 const ROW_COLUMNS: [&str; 5] = ["Row", "Metric, per unit", "Contract", "Today", "Benchmark"];

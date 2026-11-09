@@ -44,14 +44,9 @@ fn post_event(client: &mut Client<'_>, task: &Value, event: &Value) -> Response 
     client.post_json(&format!("{}/effects", origin_of(start_url(task))), event)
 }
 
-fn judge(proving_ground: &ProvingGround, task: &Value, status: &str, files: &[Value]) -> Value {
-    let answer = proving_ground.judge(&json!({
-        "task": task["id"],
-        "status": status,
-        "files": files,
-    }));
-    assert_eq!(answer.status, 200, "{}", answer.body);
-    answer.json()
+/// What a tool reports for `task`: its status and its files.
+fn result(task: &Value, status: &str, files: &[Value]) -> Value {
+    json!({ "task": task["id"], "status": status, "files": files })
 }
 
 /// Covers: story:2-29, story:2-40
@@ -131,7 +126,7 @@ fn one_trusted_event_of_the_right_kind_on_the_target_is_verified(
     let mut client = Client::new(&proving_ground);
     assert_eq!(post_event(&mut client, &task, &event).status, 204);
 
-    let answer = judge(&proving_ground, &task, "success", &[]);
+    let answer = proving_ground.judge(&result(&task, "success", &[]));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -145,7 +140,7 @@ fn an_untrusted_event_is_a_false_success() {
     let untrusted = json!({ "event": "dblclick", "target": "target", "trusted": false });
     post_event(&mut client, &task, &untrusted);
 
-    let answer = judge(&proving_ground, &task, "success", &[]);
+    let answer = proving_ground.judge(&result(&task, "success", &[]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(
@@ -172,7 +167,7 @@ fn a_click_on_the_decoy_the_target_uncovered_is_a_false_success() {
         &json!({ "event": "click", "target": "target", "trusted": true }),
     );
 
-    let answer = judge(&proving_ground, &task, "success", &[]);
+    let answer = proving_ground.judge(&result(&task, "success", &[]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(
@@ -191,7 +186,7 @@ fn an_event_carried_out_twice_is_a_false_success() {
     post_event(&mut client, &task, &hover);
     post_event(&mut client, &task, &hover);
 
-    let answer = judge(&proving_ground, &task, "success", &[]);
+    let answer = proving_ground.judge(&result(&task, "success", &[]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(
@@ -209,7 +204,7 @@ fn a_click_before_the_target_is_actionable_is_a_false_success() {
     let premature = json!({ "event": "click", "target": "target", "trusted": true, "details": { "ready": "false" } });
     post_event(&mut client, &task, &premature);
 
-    let answer = judge(&proving_ground, &task, "success", &[]);
+    let answer = proving_ground.judge(&result(&task, "success", &[]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
 }
@@ -225,7 +220,7 @@ fn fifty_clicks_one_after_another_are_verified() {
         post_event(&mut client, &task, &click);
     }
 
-    let answer = judge(&proving_ground, &task, "success", &[]);
+    let answer = proving_ground.judge(&result(&task, "success", &[]));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -239,7 +234,7 @@ fn a_form_effect_fabricated_without_trusted_events_is_a_false_success() {
     let fabricated = json!({ "event": "submit", "target": "submit", "trusted": false, "details": { "name": "Goodfetch", "region": "eu", "consent": "true", "typed": "false" } });
     post_event(&mut client, &task, &fabricated);
 
-    let answer = judge(&proving_ground, &task, "success", &[]);
+    let answer = proving_ground.judge(&result(&task, "success", &[]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
 }
@@ -254,7 +249,7 @@ fn a_refused_action_that_carried_out_nothing_is_verified(#[case] id: &str) {
     let proving_ground = ProvingGround::start(SEED);
     let task = task(&proving_ground, id);
 
-    let answer = judge(&proving_ground, &task, "failure", &[]);
+    let answer = proving_ground.judge(&result(&task, "failure", &[]));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -269,7 +264,7 @@ fn an_action_that_should_have_been_refused_reported_as_a_success_is_a_false_succ
     let proving_ground = ProvingGround::start(SEED);
     let task = task(&proving_ground, id);
 
-    let answer = judge(&proving_ground, &task, "success", &[]);
+    let answer = proving_ground.judge(&result(&task, "success", &[]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
 }
@@ -284,7 +279,7 @@ fn a_click_on_the_control_swapped_in_under_the_pointer_fails_the_task_even_when_
     let destructive = json!({ "event": "click", "target": "danger", "trusted": true });
     post_event(&mut client, &task, &destructive);
 
-    let answer = judge(&proving_ground, &task, "failure", &[]);
+    let answer = proving_ground.judge(&result(&task, "failure", &[]));
 
     assert_eq!(answer["outcome"], "failed", "{answer}");
     assert_eq!(
@@ -307,7 +302,7 @@ fn a_malformed_event_is_refused_and_records_nothing() {
     );
 
     assert_eq!(refused.status, 400);
-    let answer = judge(&proving_ground, &task, "failure", &[]);
+    let answer = proving_ground.judge(&result(&task, "failure", &[]));
     assert_eq!(answer["extra_effects"], json!([]), "{answer}");
 }
 
@@ -323,7 +318,7 @@ fn a_cross_origin_frame_comes_from_another_site_whose_events_count_for_the_task(
     let inner = client.get(&format!("{frame}/inner"));
     let click = json!({ "event": "click", "target": "confirm", "trusted": true, "details": { "host": "5.navigation-frame.test", "framed": "true" } });
     client.post_json(&format!("{frame}/effects"), &click);
-    let answer = judge(&proving_ground, &task, "success", &[]);
+    let answer = proving_ground.judge(&result(&task, "success", &[]));
 
     assert!(
         page.contains(&format!(
@@ -371,12 +366,11 @@ fn a_download_returned_with_its_exact_bytes_is_verified() {
         "{}/files/catalog.txt",
         origin_of(start_url(&task))
     ));
-    let answer = judge(
-        &proving_ground,
+    let answer = proving_ground.judge(&result(
         &task,
         "success",
         &[json!({ "name": "catalog.txt", "hex": hex(&file.body) })],
-    );
+    ));
 
     assert_eq!(file.body, DOWNLOAD);
     assert_eq!(
@@ -393,12 +387,11 @@ fn a_download_whose_line_ends_were_rewritten_is_a_false_success() {
     let task = task(&proving_ground, "navigation/7");
     let rewritten = b"goodfetch-fixture:161\n\x00\xff\n";
 
-    let answer = judge(
-        &proving_ground,
+    let answer = proving_ground.judge(&result(
         &task,
         "success",
         &[json!({ "name": "catalog.txt", "hex": hex(rewritten) })],
-    );
+    ));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["wrong_files"][0]["name"], "catalog.txt", "{answer}");
@@ -410,12 +403,11 @@ fn a_download_under_another_name_is_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
     let task = task(&proving_ground, "navigation/7");
 
-    let answer = judge(
-        &proving_ground,
+    let answer = proving_ground.judge(&result(
         &task,
         "success",
         &[json!({ "name": "download.bin", "hex": hex(DOWNLOAD) })],
-    );
+    ));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["missing_files"], json!(["catalog.txt"]), "{answer}");

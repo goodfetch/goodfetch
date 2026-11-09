@@ -29,9 +29,6 @@ pub(super) const RETRY_AFTER_FIX: &str = "The site asked for no request to its d
 /// engine's `blocked` spells it on the wire (ADRs 0038 and 0118).
 const RETRY_AFTER: &str = "retry_after";
 
-/// The statuses whose response backs a domain off (ADR 0086).
-const BACKS_OFF: [u64; 3] = [502, 503, 504];
-
 /// The header a proxy names its own errors in (RFC 9209), lower-cased as a
 /// response's headers are.
 const PROXY_STATUS: &str = "proxy-status";
@@ -79,6 +76,7 @@ fn failure_ending(answer: &Answer, now: Instant, wall: SystemTime) -> Ended {
         Answer::Failed { code, details, .. } => (code, details),
         // robots.txt is the whole origin's file: one that answers 429 or
         // 5xx, or no answer, backs off the domain as a 503 does (ADR 0086).
+        // A hop's on another domain key says nothing of this request's.
         Answer::RobotsTxtUnreachable(_) => return Ended::BackOff(None),
         _ => return Ended::Done,
     };
@@ -93,7 +91,8 @@ fn failure_ending(answer: &Answer, now: Instant, wall: SystemTime) -> Ended {
         && details
             .get("status")
             .and_then(Value::as_u64)
-            .is_some_and(|status| BACKS_OFF.contains(&status));
+            .and_then(|status| u16::try_from(status).ok())
+            .is_some_and(|status| class(site_response(status)) == Class::BackOff);
     if unavailable {
         return Ended::BackOff(asked);
     }
@@ -112,6 +111,15 @@ fn failure_ending(answer: &Answer, now: Instant, wall: SystemTime) -> Ended {
         Ended::BackOff(None)
     } else {
         Ended::Done
+    }
+}
+
+/// The site's own response of `status`, as the backoff classes read it.
+fn site_response(status: u16) -> Met<'static> {
+    Met::Response {
+        status,
+        proxy_status: None,
+        forwarded: false,
     }
 }
 

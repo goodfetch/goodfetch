@@ -10,43 +10,23 @@
 
 use std::path::Path;
 
+use goodfetch_protocol::catalog::Product;
+use goodfetch_test_client::HomeLayout;
+use goodfetch_test_support::MESSAGE_DEADLINE;
 use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
+use goodfetch_test_client::{Attached, hello};
 
-pub(crate) fn call(engine: &mut Attached, id: i64, method: &str, params: &Value) -> Value {
-    engine.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
-    engine.next().unwrap()
-}
-
-/// Sends each of `calls`, its ID, its method's name and its params, before
-/// reading any answer, so the engine runs them at the same time; answers
-/// each one's reply, in the order of `calls`.
-pub(crate) fn at_once(engine: &mut Attached, calls: &[(i64, &str, Value)]) -> Vec<Value> {
-    for (id, method, params) in calls {
-        engine.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
-    }
-    let mut replies = std::collections::BTreeMap::new();
-    while replies.len() < calls.len() {
-        let message = engine.next().expect("the engine answers every call");
-        if let Some(id) = message["id"].as_i64() {
-            replies.insert(id, message);
-        }
-    }
-    calls
-        .iter()
-        .map(|(id, ..)| replies.remove(id).expect("one reply per call"))
-        .collect()
-}
+use crate::COLLIE;
 
 /// Starts and finishes the Run `run_id`, and answers its report.
 fn start_and_finish(engine: &mut Attached, run_id: &str) -> Value {
-    engine.send(&hello("collie", "0.1"));
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    call(engine, 1, "run.start", &json!({ "run_id": run_id }));
-    call(engine, 2, "run.finish", &json!({ "run_id": run_id }))
+    engine.ask(1, "run.start", &json!({ "run_id": run_id }));
+    engine.ask(2, "run.finish", &json!({ "run_id": run_id }))
 }
 
 fn journal_mode(file: &Path) -> String {
@@ -60,14 +40,14 @@ fn journal_mode(file: &Path) -> String {
 #[test]
 fn a_run_on_collies_executable_keeps_its_own_wal_file_in_the_goodfetch_homes_per_major_folder() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = Attached::start(&env, COLLIE);
 
     let report = start_and_finish(&mut engine, "first");
     let (rest, exited) = engine.finish();
 
-    let per_major = env.home().join("0.0");
-    let file = per_major.join("runs").join("first").join("run.sqlite");
-    let listed: String = Connection::open(per_major.join("run-index.sqlite"))
+    let layout = HomeLayout::of(env.home());
+    let file = layout.run_file("first");
+    let listed: String = Connection::open(layout.run_index())
         .unwrap()
         .query_row(
             "SELECT lifecycle FROM runs WHERE run_id = 'first'",
@@ -82,11 +62,7 @@ fn a_run_on_collies_executable_keeps_its_own_wal_file_in_the_goodfetch_homes_per
                 &report["result"]["completeness"]
             ),
             journal_mode(&file),
-            per_major
-                .join("runs")
-                .join("first")
-                .join("run.lock")
-                .exists(),
+            layout.run_folder("first").join("run.lock").exists(),
             listed,
             (rest, exited),
         ),
@@ -109,7 +85,7 @@ fn a_run_on_collies_executable_keeps_its_own_wal_file_in_the_goodfetch_homes_per
 #[test]
 fn without_goodfetch_home_a_run_goes_to_the_oss_usual_data_folder() {
     let env = TestEnv::new();
-    let mut engine = Attached::start_with(&env, |command| {
+    let mut engine = Attached::start_with(&env, COLLIE, MESSAGE_DEADLINE, |command| {
         command.env_remove("GOODFETCH_HOME");
     });
 
@@ -123,14 +99,9 @@ fn without_goodfetch_home_a_run_goes_to_the_oss_usual_data_folder() {
     } else {
         Path::new(&env.env()["XDG_DATA_HOME"]).to_owned()
     };
-    let file = data
-        .join("goodfetch")
-        .join("0.0")
-        .join("runs")
-        .join("usual")
-        .join("run.sqlite");
+    let file = HomeLayout::of(&data.join("goodfetch")).run_file("usual");
     assert_eq!(
-        (file.exists(), env.home().join("0.0").join("runs").exists()),
+        (file.exists(), HomeLayout::of(env.home()).runs().exists()),
         (true, false)
     );
 }
@@ -144,8 +115,8 @@ fn without_goodfetch_home_a_run_goes_to_the_oss_usual_data_folder() {
 #[test]
 fn a_run_past_a_short_run_timeout_stops_with_the_stop_reason_timeout() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     engine.send(
         &json!({ "jsonrpc": "2.0", "id": "events", "method": "events.subscribe", "params": {} }),
@@ -215,8 +186,8 @@ fn settled(mut progress: Value) -> Value {
 #[test]
 fn a_progress_message_on_collies_executable_is_carried_on_progress_and_kept() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     engine.send(
         &json!({ "jsonrpc": "2.0", "id": "events", "method": "events.subscribe", "params": {} }),
@@ -251,8 +222,8 @@ fn a_progress_message_on_collies_executable_is_carried_on_progress_and_kept() {
     }
     let (_, exited) = engine.finish();
 
-    let per_major = env.home().join("0.0");
-    let in_index: Option<String> = Connection::open(per_major.join("run-index.sqlite"))
+    let layout = HomeLayout::of(env.home());
+    let in_index: Option<String> = Connection::open(layout.run_index())
         .unwrap()
         .query_row(
             "SELECT progress_message FROM runs WHERE run_id = 'noted'",
@@ -260,11 +231,10 @@ fn a_progress_message_on_collies_executable_is_carried_on_progress_and_kept() {
             |row| row.get(0),
         )
         .unwrap();
-    let in_state: Option<String> =
-        Connection::open(per_major.join("runs").join("noted").join("run.sqlite"))
-            .unwrap()
-            .query_row("SELECT progress_message FROM run", [], |row| row.get(0))
-            .unwrap();
+    let in_state: Option<String> = Connection::open(layout.run_file("noted"))
+        .unwrap()
+        .query_row("SELECT progress_message FROM run", [], |row| row.get(0))
+        .unwrap();
     let expected = json!({
         "run_id": "noted",
         "lifecycle": "running",
@@ -316,22 +286,16 @@ fn a_collie_run_leaves_the_politeness_files_domain_limits_untouched() {
         )
         .unwrap();
     let before = std::fs::read(&file).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = Attached::start(&env, COLLIE);
 
-    engine.send(&hello("collie", "0.1"));
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    call(
-        &mut engine,
+    engine.ask(
         1,
         "run.start",
         &json!({ "run_id": "program", "settings": { "politeness": { "sharing": "per_daemon" } } }),
     );
-    let report = call(
-        &mut engine,
-        2,
-        "run.finish",
-        &json!({ "run_id": "program" }),
-    );
+    let report = engine.ask(2, "run.finish", &json!({ "run_id": "program" }));
     let (_, exited) = engine.finish();
 
     assert_eq!(

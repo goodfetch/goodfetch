@@ -11,6 +11,7 @@
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
+use goodfetch_protocol::home::RUNS;
 use goodfetch_test_support::{
     CliOutput, Mode, SnapshotValues, TestEnv, assert_cli_snapshot, cli, snapshot_settings,
 };
@@ -33,23 +34,13 @@ pub(crate) fn start(env: &TestEnv, run_id: &str) {
     assert_eq!(output.exit, Some(0), "{output}");
 }
 
-/// `output` without the engine's dispatch records, which an Attached
-/// engine writes on the command's stderr and a Daemon in its own log, so
-/// that both modes share one snapshot of what the command itself prints;
-/// and, in a Run report it prints, without the warning that depends on the
-/// calendar ([`calendar_free`]).
+/// `output` without the engine's dispatch records, so that both modes share
+/// one snapshot of what the command itself prints; and, in a Run report it
+/// prints, without the warning that depends on the calendar
+/// ([`calendar_free`]).
 fn printed(mut output: CliOutput) -> CliOutput {
     output.stdout = calendar_free_report(&output.stdout);
-    output.stderr = output
-        .stderr
-        .lines()
-        .filter(|line| !line.contains("goodfetch::rpc::dispatch"))
-        .fold(String::new(), |mut kept, line| {
-            kept.push_str(line);
-            kept.push('\n');
-            kept
-        });
-    output
+    output.without_dispatch_records()
 }
 
 /// `stdout` without the calendar's warning in the Run report it prints,
@@ -109,7 +100,7 @@ fn calendar_free_report(stdout: &str) -> String {
 pub(crate) fn run_folder(env: &TestEnv, run_id: &str) -> PathBuf {
     std::fs::read_dir(env.home())
         .unwrap()
-        .map(|entry| entry.unwrap().path().join("runs").join(run_id))
+        .map(|entry| entry.unwrap().path().join(RUNS).join(run_id))
         .find(|folder| folder.is_dir())
         .unwrap()
 }

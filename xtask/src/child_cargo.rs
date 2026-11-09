@@ -1,4 +1,5 @@
-//! The Cargo that `xtask` starts to build or run the workspace's targets.
+//! The Cargo that `xtask` starts to build or run the workspace's targets,
+//! and the JSON messages its builds answer with.
 //! `cargo run` gives `xtask` its package's variables (`CARGO_MANIFEST_DIR`,
 //! `CARGO_PKG_NAME`, …), and a Cargo that inherits them sees each build
 //! script that names one in `rerun-if-env-changed`, as `ring`'s does, as
@@ -51,4 +52,67 @@ pub(crate) fn command(cargo: &OsStr) -> Command {
         command.env_remove(name);
     }
     command
+}
+
+/// One message of a Cargo build's JSON output (`--message-format json…`),
+/// the fields `xtask` reads.
+#[derive(serde::Deserialize)]
+pub(crate) struct Message {
+    pub(crate) reason: String,
+    pub(crate) target: Option<MessageTarget>,
+    /// The executable a `compiler-artifact` message's target built.
+    pub(crate) executable: Option<std::path::PathBuf>,
+}
+
+/// The target a [`Message`] is about.
+#[derive(serde::Deserialize)]
+pub(crate) struct MessageTarget {
+    pub(crate) name: String,
+    pub(crate) kind: Vec<String>,
+}
+
+/// Each message of a Cargo build's JSON output, one a line. Cargo passes on
+/// what a proc macro or a build's tool prints among them, so a line that opens
+/// no JSON object is none of its messages and is left out. A line that does
+/// and is no such message fails, so a change of Cargo's format reads as an
+/// error, never as a build that made nothing.
+pub(crate) fn messages(stdout: &[u8]) -> anyhow::Result<Vec<Message>> {
+    use anyhow::Context as _;
+
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .filter(|line| line.starts_with('{'))
+        .map(|line| {
+            serde_json::from_str(line)
+                .with_context(|| format!("reading cargo's JSON message: {line}"))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::messages;
+
+    const ARTIFACT: &str = r#"{"reason":"compiler-artifact","target":{"name":"collie","kind":["bin"]},"executable":"/target/collie"}"#;
+
+    #[test]
+    fn a_line_a_proc_macro_printed_among_the_messages_is_left_out() {
+        let output = format!("a line a macro printed\n{ARTIFACT}\n\n");
+
+        let read = messages(output.as_bytes()).unwrap();
+
+        assert_eq!(
+            read.iter()
+                .map(|message| message.reason.as_str())
+                .collect::<Vec<_>>(),
+            ["compiler-artifact"]
+        );
+    }
+
+    #[test]
+    fn a_line_that_opens_an_object_cargo_never_writes_is_an_error() {
+        let output = format!("{ARTIFACT}\n{{\"kind\":\"no reason\"}}\n");
+
+        assert!(messages(output.as_bytes()).is_err());
+    }
 }

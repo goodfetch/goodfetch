@@ -22,8 +22,9 @@ use std::fmt::Write as _;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
-use goodfetch_protocol::audit::{Actor, ENDPOINT_AUTHENTICATION_FAILED};
-use serde_json::json;
+use goodfetch_protocol::audit::{
+    Actor, ENDPOINT_AUTHENTICATION_FAILED, EndpointRefusal, Listener, RefusalReason,
+};
 use subtle::ConstantTimeEq as _;
 
 use crate::audit::{AuditLog, Origin};
@@ -56,51 +57,6 @@ pub fn new_token() -> Result<String, getrandom::Error> {
 /// byte at a time.
 pub fn same_token(given: &str, expected: &str) -> bool {
     bool::from(given.as_bytes().ct_eq(expected.as_bytes()))
-}
-
-/// A listener of the endpoint table (ADR 0067), by the name its refusals
-/// are logged and recorded under.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Listener {
-    /// An Attached engine's standard input and output.
-    Stdio,
-    /// The Daemon's socket.
-    DaemonSocket,
-    /// An Exposed Daemon's address, carrying newline-delimited JSON-RPC.
-    ExposedDaemon,
-    /// A Daemon's WebSocket, on an Exposed Daemon's address.
-    DaemonWebsocket,
-    /// A private endpoint.
-    PrivateEndpoint,
-    /// The ops listener (ADR 0050).
-    OpsListener,
-    /// The Console, its WebSocket and its reads.
-    Console,
-    /// The Console's content origin.
-    ContentOrigin,
-    /// A Session's proxy relay.
-    ProxyRelay,
-    /// A browser Session's egress relay.
-    EgressRelay,
-}
-
-impl Listener {
-    /// Its name in the endpoint table, which its refusals' log records and
-    /// Audit log entries carry.
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Stdio => "stdio",
-            Self::DaemonSocket => "daemon_socket",
-            Self::ExposedDaemon => "exposed_daemon",
-            Self::DaemonWebsocket => "daemon_websocket",
-            Self::PrivateEndpoint => "private_endpoint",
-            Self::OpsListener => "ops_listener",
-            Self::Console => "console",
-            Self::ContentOrigin => "content_origin",
-            Self::ProxyRelay => "proxy_relay",
-            Self::EgressRelay => "egress_relay",
-        }
-    }
 }
 
 /// The names a listener is reached at, as `host:port`, or `host` for a
@@ -194,12 +150,13 @@ pub(crate) enum Refusal {
 }
 
 impl Refusal {
-    /// The rule's name, which the refusal's log record carries.
-    pub(crate) fn reason(self) -> &'static str {
+    /// The rule, whose name the refusal's log record and Audit log entry
+    /// carry.
+    pub(crate) fn reason(self) -> RefusalReason {
         match self {
-            Self::HostForeign => "host_foreign",
-            Self::OriginMissing => "origin_missing",
-            Self::OriginForeign => "origin_foreign",
+            Self::HostForeign => RefusalReason::HostForeign,
+            Self::OriginMissing => RefusalReason::OriginMissing,
+            Self::OriginForeign => RefusalReason::OriginForeign,
         }
     }
 }
@@ -271,14 +228,19 @@ impl Refusals {
         }
     }
 
-    /// Logs and records that `listener` refused an attempt for `reason`, such as `token_wrong`.
+    /// Logs and records that `listener` refused an attempt for `reason`,
+    /// such as `token_wrong`.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future may leave the entry recorded.
-    pub async fn refused(&self, listener: Listener, reason: &'static str) {
-        let listener = listener.name();
-        tracing::warn!(target: REFUSAL_TARGET, listener, reason, "a listener refused an attempt");
+    pub async fn refused(&self, listener: Listener, reason: RefusalReason) {
+        tracing::warn!(
+            target: REFUSAL_TARGET,
+            listener = listener.as_str(),
+            reason = reason.as_str(),
+            "a listener refused an attempt"
+        );
         let audit = self.audit.clone();
         let now = self.clock.timestamp();
         self.owner
@@ -292,7 +254,8 @@ impl Refusals {
                 if let Err(error) = audit.record(
                     &origin,
                     &ENDPOINT_AUTHENTICATION_FAILED,
-                    json!({ "listener": listener, "reason": reason }),
+                    serde_json::to_value(EndpointRefusal { listener, reason })
+                        .expect("invariant: a refusal's details serialize"),
                     now,
                 ) {
                     tracing::error!(%error, "the Audit log did not record a listener's refusal");

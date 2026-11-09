@@ -127,6 +127,16 @@ fn workspace_whose_runners_never_retry_passes() {
 )]
 #[case::shell_until_loop_around_a_test("just/until-loop.justfile", "justfile", "retry-loop")]
 #[case::shell_while_loop_around_a_test("just/while-loop.justfile", "justfile", "retry-loop")]
+#[case::shell_until_loop_around_just_repeat(
+    "just/until-loop-around-repeat.justfile",
+    "justfile",
+    "retry-loop"
+)]
+#[case::shell_until_loop_around_a_recipes_own_just(
+    "just/until-loop-around-its-own-just.justfile",
+    "justfile",
+    "retry-loop"
+)]
 #[case::shell_for_loop_breaking_on_a_passing_test(
     "workflows/for-loop-with-break.yml",
     ".github/workflows/pull-request.yml",

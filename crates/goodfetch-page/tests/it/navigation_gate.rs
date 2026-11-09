@@ -17,6 +17,7 @@ use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_protocol::page::SitePreference;
 use goodfetch_protocol::settings::TIMEOUT_NAVIGATION;
 use goodfetch_recording_gate::RecordingGate;
+use goodfetch_test_support::path_of;
 use serde_json::{Map, Value, json};
 
 use crate::handler_page::{Program, RUN, settled, settled_or, with_handler_page};
@@ -60,9 +61,7 @@ fn admitted_since(gate: &RecordingGate, from: usize) -> Vec<(String, NavigationK
         .into_iter()
         .skip(from)
         .map(|navigation| {
-            let path = url::Url::parse(&navigation.url)
-                .map(|url| url.path().to_owned())
-                .unwrap_or(navigation.url);
+            let path = path_of(&navigation.url).map_or(navigation.url.clone(), str::to_owned);
             (path, navigation.kind)
         })
         .collect()
@@ -191,7 +190,7 @@ fn sent_since(gate: &RecordingGate, from: usize) -> Vec<String> {
     gate.sent()
         .iter()
         .skip(from)
-        .filter_map(|url| path_of(Some(url)))
+        .filter_map(|url| path_of(url).map(str::to_owned))
         .collect()
 }
 
@@ -230,19 +229,13 @@ fn the_gate_hears_each_request_it_admitted_as_it_leaves_the_browser() {
     });
 }
 
-/// The path of `url`, when it is a URL.
-fn path_of(url: Option<&str>) -> Option<String> {
-    url.and_then(|url| url::Url::parse(url).ok())
-        .map(|url| url.path().to_owned())
-}
-
 /// The Error code, the reason and the URL's path of a call's refusal.
 fn refusal(answer: &Value) -> (Value, Value, Option<String>) {
     let data = &answer["error"]["data"];
     (
         data["code"].clone(),
         data["reason"].clone(),
-        path_of(data["url"].as_str()),
+        data["url"].as_str().and_then(path_of).map(str::to_owned),
     )
 }
 
@@ -338,7 +331,7 @@ fn a_refused_navigation_no_call_waits_on_is_aborted_and_the_page_keeps_its_docum
             .await;
         program
             .until_event("page.request_failed", |request| {
-                path_of(request["url"].as_str()).as_deref() == Some("/b")
+                request["url"].as_str().and_then(path_of) == Some("/b")
             })
             .await;
         let aborted = ending_with(program.events("page.request_failed"), "/url", "/b");
@@ -353,7 +346,10 @@ fn a_refused_navigation_no_call_waits_on_is_aborted_and_the_page_keeps_its_docum
                 clicked.get("result").is_some(),
                 aborted["failure"]["error"]["code"].clone(),
                 aborted["failure"]["error"]["reason"].clone(),
-                path_of(kept["result"]["url"].as_str()),
+                kept["result"]["url"]
+                    .as_str()
+                    .and_then(path_of)
+                    .map(str::to_owned),
                 program.requested(HISTORY, "/b"),
                 recorded["data"]["failure"]["error"]["code"].clone(),
             ),
@@ -529,12 +525,12 @@ fn a_permit_wait_counts_against_no_timeout_and_holds_the_lease() {
         let waits: Vec<(Option<String>, bool)> = gate
             .waits()
             .into_iter()
-            .map(|wait| (path_of(Some(&wait.url)), wait.ended))
+            .map(|wait| (path_of(&wait.url).map(str::to_owned), wait.ended))
             .collect();
         let released: Vec<Option<String>> = gate
             .released()
             .iter()
-            .map(|url| path_of(Some(url)))
+            .map(|url| path_of(url).map(str::to_owned))
             .collect();
 
         assert_eq!(
@@ -595,7 +591,7 @@ fn the_response_observer_receives_each_kept_response_with_its_body_a_service_wor
             .into_iter()
             .map(|observed| {
                 (
-                    path_of(Some(&observed.url)),
+                    path_of(&observed.url).map(str::to_owned),
                     observed.status,
                     observed.from_service_worker,
                     observed.body.as_ref().map_or(0, Vec::len),
@@ -673,7 +669,7 @@ fn an_observed_response_past_network_max_body_size_is_passed_as_unavailable() {
             .into_iter()
             .map(|observed| {
                 (
-                    path_of(Some(&observed.url)),
+                    path_of(&observed.url).map(str::to_owned),
                     observed.body_length > 8,
                     observed.body.as_ref().map(Vec::len),
                 )
@@ -913,12 +909,12 @@ fn a_document_is_judged_with_its_body_only_by_a_gate_that_reads_it(
         assert!(went.get("result").is_some(), "{went}");
     });
 
-    let judged: Vec<(bool, bool)> = gate
+    let judged_with_a_body: Vec<bool> = gate
         .judged()
         .iter()
         .zip(gate.judged_bodies())
         .filter(|(url, _)| url.ends_with("/target"))
-        .map(|(_, length)| (reads, length > 0))
+        .map(|(_, length)| length > 0)
         .collect();
-    assert_eq!(judged, vec![(reads, reads)]);
+    assert_eq!(judged_with_a_body, vec![reads]);
 }

@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::rss::crawl::Site;
+use crate::test_facts::{CHROME_FOR_TESTING_BUILD, PLAYWRIGHT_REVISION};
 
 use super::foxhound::Engine;
 use super::matrix::{Cell, Config, Scenario, Site as SiteKind};
@@ -208,12 +209,10 @@ fn install_bytes(config: Config, executable: &Path, browser: Option<&Path>) -> u
         + browser_bytes
 }
 
-/// The Chrome for Testing build Foxhound pins (`goodfetch-collie`'s
-/// `pins.json`), which Playwright 1.64.1 runs as its revision 1248: every
-/// tool of the headless browser scenario runs this one browser
-/// (test-support's `browsers.rs` lays out the same build for the tests).
-pub(crate) const CHROME_FOR_TESTING_BUILD: &str = "156.0.8078.4";
-const PLAYWRIGHT_CHROMIUM: &str = "chromium-1248";
+// Every tool of the headless browser scenario runs one browser, the Chrome
+// for Testing build Collie pins (`CHROME_FOR_TESTING_BUILD`), from the
+// folder Playwright installs it in (`PLAYWRIGHT_REVISION`); test support's
+// `browsers.rs` lays out the same build for the tests.
 /// Chrome for Testing's folder and executable in it, on this platform.
 #[cfg(target_os = "macos")]
 const CHROME_FOLDER: &str = if cfg!(target_arch = "aarch64") {
@@ -242,7 +241,9 @@ pub(crate) fn chrome_folder() -> Option<PathBuf> {
             home.join(".cache/ms-playwright")
         }
     };
-    let folder = browsers.join(PLAYWRIGHT_CHROMIUM).join(CHROME_FOLDER);
+    let folder = browsers
+        .join(format!("chromium-{PLAYWRIGHT_REVISION}"))
+        .join(CHROME_FOLDER);
     folder.join(CHROME).is_file().then_some(folder)
 }
 
@@ -501,12 +502,12 @@ impl Plan<'_> {
             // The executable as shipped, with its own data folder and its
             // default logging, which it writes to stderr.
             command
-                .arg("attached-engine")
-                .env("GOODFETCH_HOME", home)
+                .arg(goodfetch_protocol::cli::ATTACHED_ENGINE)
+                .env(goodfetch_protocol::settings::HOME_VARIABLE, home)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped());
             if let Some(cache) = cache {
-                command.env("GOODFETCH_BROWSERS_PATH", cache);
+                command.env(goodfetch_protocol::settings::BROWSERS_PATH_VARIABLE, cache);
             }
         } else {
             // The other tools crawl from their arguments, in their data

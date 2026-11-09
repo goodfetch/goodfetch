@@ -27,7 +27,8 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::content_origin::Signed;
-use crate::daemon::{RawClient, StopsTheDaemon, validate};
+use crate::daemon::{StopsTheDaemon, validate};
+use crate::daemon_client;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -308,7 +309,7 @@ fn a_runs_report_names_its_page_in_the_console_its_daemon_serves() {
     assert_eq!(started.exit, Some(0), "{}", started.stderr);
 
     let found = RuntimeFile::read(&RuntimeFile::path(env.home(), VERSION)).unwrap();
-    let mut client = RawClient::opened(&found, "collie");
+    let mut client = daemon_client(&found);
 
     let started = client.call(1, "run.start", &serde_json::json!({ "run_id": "paged" }));
     let finished = client.call(2, "run.finish", &serde_json::json!({ "run_id": "paged" }));

@@ -20,11 +20,13 @@
 
 use std::io::{Read as _, Write as _};
 
+use goodfetch_test_client::Attached;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 
 /// The Proving ground's seed.
 const SEED: u64 = 828;
@@ -266,7 +268,7 @@ fn each_seed_is_answered_as_an_enqueue_is_and_run_seeds_lists_the_answers() {
     .into_iter()
     .map(|url| json!({ "url": url, "label": "shelf" }))
     .collect();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut enqueued = Vec::new();
     let report = crawl(&mut engine, "seeds", &seeds, &mut |inside, handle| {
@@ -286,7 +288,7 @@ fn each_seed_is_answered_as_an_enqueue_is_and_run_seeds_lists_the_answers() {
         &json!({ "run_id": "seeds" }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -340,7 +342,7 @@ fn a_crawl_whose_every_seed_is_refused_finishes_at_once_and_says_why() {
     .into_iter()
     .map(|url| json!({ "url": url, "label": "page" }))
     .collect();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut handled = 0;
     let report = crawl(&mut engine, "nothing", &seeds, &mut |_, _| {
@@ -354,7 +356,7 @@ fn a_crawl_whose_every_seed_is_refused_finishes_at_once_and_says_why() {
         &mut |_| None,
     );
     let requested = proving_ground.received_requests().unwrap().every().count();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -386,7 +388,7 @@ fn an_enqueue_resolves_against_its_documents_base_href_and_the_url_it_was_redire
         json!({ "url": proving_ground.url("1.links.test", "/guide/"), "label": "shelf" }),
         json!({ "url": proving_ground.url("2.links.test", "/old/shelf"), "label": "shelf" }),
     ];
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut enqueued = Vec::new();
     let report = crawl(&mut engine, "links", &seeds, &mut |inside, handle| {
@@ -409,22 +411,16 @@ fn an_enqueue_resolves_against_its_documents_base_href_and_the_url_it_was_redire
         json!({ "result": { "records": [] } })
     });
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
-    let books = Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join("links")
-            .join("run.sqlite"),
-    )
-    .unwrap()
-    .query_row(
-        "SELECT count(*) FROM records WHERE dataset = 'books' AND data ->> '$.status' = 200",
-        [],
-        |row| row.get::<_, i64>(0),
-    )
-    .unwrap();
+    let books = Connection::open(HomeLayout::of(env.home()).run_file("links"))
+        .unwrap()
+        .query_row(
+            "SELECT count(*) FROM records WHERE dataset = 'books' AND data ->> '$.status' = 200",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
     let expected: Vec<String> = (1..=8)
         .map(|book| proving_ground.url("1.links.test", &format!("/library/shelves/book/{book}")))
         .chain(
@@ -448,7 +444,7 @@ fn an_enqueue_resolves_against_its_documents_base_href_and_the_url_it_was_redire
 fn an_enqueue_from_an_attempt_that_ended_fails_with_attempt_ended() {
     let env = TestEnv::new();
     let seeds = [json!({ "url": "https://shop.test/a", "label": "page" })];
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut handles = Vec::new();
     let mut answers = Vec::new();
@@ -468,7 +464,7 @@ fn an_enqueue_from_an_attempt_that_ended_fails_with_attempt_ended() {
         }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (answers, &after["error"]["data"]["code"]),
@@ -500,7 +496,7 @@ fn tracking_parameters_order_sessions_and_fragments_never_split_a_page_fetched_a
         .map(|url| json!({ "url": url, "label": "guide" }))
         .collect();
     let linked = format!("{guide}?fbclid=y&a=1&b=2#reviews");
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut enqueued = Vec::new();
     let report = crawl(&mut engine, "keys", &seeds, &mut |inside, handle| {
@@ -521,9 +517,9 @@ fn tracking_parameters_order_sessions_and_fragments_never_split_a_page_fetched_a
         .received_requests()
         .unwrap()
         .every()
-        .map(|request| json!([request["host"], request["target"]]))
+        .map(|request| json!([request.host, request.target]))
         .collect();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -572,7 +568,7 @@ fn a_post_with_two_bodies_is_two_requests_and_a_declared_key_replaces_the_identi
         json!({ "url": "https://api.test/item/1?ref=home", "label": "item", "key": "item-1" }),
         json!({ "url": "https://api.test/item/1?ref=search", "label": "item", "key": "item-1" }),
     ];
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut handled = Vec::new();
     crawl(&mut engine, "bodies", &seeds, &mut |_, handle| {
@@ -586,7 +582,7 @@ fn a_post_with_two_bodies_is_two_requests_and_a_declared_key_replaces_the_identi
         &json!({ "run_id": "bodies" }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (&answers["result"]["seeds"], handled),
@@ -623,7 +619,7 @@ fn priority_and_forefront_order_a_domains_requests_and_never_the_domains_turns()
         json!({ "url": "https://a.test/start", "label": "page" }),
         json!({ "url": "https://b.test/start", "label": "page" }),
     ];
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut handled = Vec::new();
     let report = crawl(&mut engine, "ordered", &seeds, &mut |inside, handle| {
@@ -653,7 +649,7 @@ fn priority_and_forefront_order_a_domains_requests_and_never_the_domains_turns()
         handled.push(url);
         json!({ "result": { "records": [] } })
     });
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (&report["result"]["lifecycle"], handled),

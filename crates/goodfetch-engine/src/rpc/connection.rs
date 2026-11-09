@@ -37,6 +37,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{Product, Reach};
 use goodfetch_protocol::connection::{
     CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams,
@@ -69,7 +70,7 @@ use crate::composition::{
     CallContext, CallInput, CallNotifier, CallStream, ConnectionContext, DaemonSide, Driver,
     Handler, InputSender,
 };
-use crate::endpoint::{Authorities, Listener, REFUSAL_TARGET, same_token};
+use crate::endpoint::{Authorities, REFUSAL_TARGET, same_token};
 use crate::engine_context::EngineContext;
 use crate::events::{Credits, Events};
 use crate::log::{ConnectionLog, LogEvents};
@@ -103,6 +104,7 @@ const LINGER: Duration = Duration::from_secs(2);
 const UNKNOWN_METHOD: &str = "(unknown)";
 
 /// What every Connection of an engine dispatches to.
+#[derive(Clone)]
 pub(crate) struct Dispatch {
     pub(crate) identity: Arc<Identity>,
     pub(crate) handlers: BTreeMap<&'static str, Handler>,
@@ -701,41 +703,47 @@ impl Session<'_> {
             Frame::Line(line) => decode(&line, &self.dispatch.work),
         };
         let message = Message::of(incoming);
-        match self.transition(message.event()) {
-            Ok(
-                ConnectionEffect::Handshake
-                | ConnectionEffect::Serve
-                | ConnectionEffect::Answer
-                | ConnectionEffect::CancelCalls
-                | ConnectionEffect::Nothing,
-            ) => self.serve(message).await,
-            Ok(ConnectionEffect::Refuse) => self.refuse(message).await,
-            Err(refused) => self.refuse_transition(refused, message).await,
-        }
-    }
-
-    /// Serves a message the Connection's state lets through: checks its
-    /// `hello`, calls a request's handler, routes a reply, acts on a
-    /// notification, or answers a line it cannot read.
-    async fn serve(&mut self, message: Message) -> Flow {
-        match message {
-            Message::Hello(request) => self.open(request).await,
-            Message::Request(request) => self.request(request).await,
-            Message::Notification(notification) => {
+        let effect = match self.transition(message.event()) {
+            Ok(effect) => effect,
+            Err(refused) => return self.refuse_transition(refused, message).await,
+        };
+        match (effect, message) {
+            (ConnectionEffect::Handshake, Message::Hello(request)) => self.open(request).await,
+            (ConnectionEffect::Serve, Message::Request(request)) => self.request(request).await,
+            (ConnectionEffect::Serve, Message::Notification(notification)) => {
                 self.notification(&notification);
                 Flow::Continue
             }
-            Message::Reply { id, answer } => {
+            (ConnectionEffect::Serve, Message::Reply { id, answer }) => {
                 self.reply(&id, answer);
                 Flow::Continue
             }
-            Message::Unreadable(error) => {
+            (ConnectionEffect::Answer, Message::Unreadable(error)) => {
                 let failure = CallError::protocol(error.failure, error.detail);
                 if self.send(failure_line(error.id, &failure)).await {
                     Flow::Continue
                 } else {
                     Flow::Close
                 }
+            }
+            (ConnectionEffect::Refuse, message) => self.refuse(message).await,
+            (ConnectionEffect::CancelCalls, _) => {
+                self.cancel_in_flight();
+                Flow::Continue
+            }
+            (ConnectionEffect::Nothing, _) => Flow::Continue,
+            (
+                effect @ (ConnectionEffect::Handshake
+                | ConnectionEffect::Serve
+                | ConnectionEffect::Answer),
+                message,
+            ) => {
+                tracing::error!(
+                    ?effect,
+                    event = ?message.event(),
+                    "the Connection's table gave a message an effect that is not its own; the Connection closes"
+                );
+                Flow::Close
             }
         }
     }
@@ -744,7 +752,7 @@ impl Session<'_> {
     /// on a listener with a token, answered with its error otherwise.
     async fn refuse(&mut self, message: Message) -> Flow {
         if self.access.guarded() {
-            self.refused("hello_not_first").await;
+            self.refused(RefusalReason::HelloNotFirst).await;
             return Flow::Close;
         }
         match message {
@@ -863,11 +871,11 @@ impl Session<'_> {
             let token = hello.as_ref().ok().and_then(|hello| hello.token.as_deref());
             match token {
                 None => {
-                    self.refused("token_missing").await;
+                    self.refused(RefusalReason::TokenMissing).await;
                     return self.rejected();
                 }
                 Some(token) if !same_token(token, expected) => {
-                    self.refused("token_wrong").await;
+                    self.refused(RefusalReason::TokenWrong).await;
                     return self.rejected();
                 }
                 Some(_) => {}
@@ -1048,6 +1056,7 @@ impl Session<'_> {
         };
         let context = CallContext::new(
             Arc::clone(&self.connection),
+            operation,
             id.clone(),
             token.clone(),
             stream,
@@ -1202,11 +1211,11 @@ impl Session<'_> {
     /// Logs the listener's refusal of the Connection, with its reason, and
     /// records it in the Audit log: on the Console's WebSocket through its
     /// sign-in driver, as the Console's.
-    async fn refused(&self, reason: &'static str) {
+    async fn refused(&self, reason: RefusalReason) {
         let listener = self.listener;
         if let Access::Console(ConsoleSide { sign_ins, .. }) = &self.access {
-            tracing::warn!(target: REFUSAL_TARGET, listener = listener.name(), reason, "a Connection that did not open with `hello` was closed");
-            sign_ins.refused(listener, reason).await;
+            tracing::warn!(target: REFUSAL_TARGET, listener = listener.as_str(), reason = reason.as_str(), "a Connection that did not open with `hello` was closed");
+            sign_ins.refused(listener, reason.as_str()).await;
         } else {
             self.connection
                 .engine

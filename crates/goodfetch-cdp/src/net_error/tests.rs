@@ -24,6 +24,8 @@ use super::{CertificateError, NetError};
 #[case::connection_refused("net::ERR_CONNECTION_REFUSED", NetError::ConnectionRefused)]
 #[case::connection_timed_out("net::ERR_CONNECTION_TIMED_OUT", NetError::ConnectionTimedOut)]
 #[case::connection_failed("net::ERR_CONNECTION_FAILED", NetError::ConnectionFailed)]
+#[case::timed_out("net::ERR_TIMED_OUT", NetError::TimedOut)]
+#[case::http2_protocol_error("net::ERR_HTTP2_PROTOCOL_ERROR", NetError::Http2ProtocolError)]
 #[case::tunnel_refused("net::ERR_TUNNEL_CONNECTION_FAILED", NetError::TunnelRefused)]
 #[case::name_mismatch(
     "net::ERR_CERT_COMMON_NAME_INVALID",
@@ -45,7 +47,7 @@ fn each_network_error_the_engine_tells_apart_becomes_its_variant(
 }
 
 #[rstest]
-#[case::http2_stream("net::ERR_HTTP2_PROTOCOL_ERROR")]
+#[case::connection_closed("net::ERR_CONNECTION_CLOSED")]
 #[case::connection_reset("net::ERR_CONNECTION_RESET")]
 fn any_other_named_network_error_keeps_its_name(#[case] text: &str) {
     let error = NetError::of(text);

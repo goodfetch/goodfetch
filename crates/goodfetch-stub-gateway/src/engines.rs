@@ -26,21 +26,17 @@ use std::time::Duration;
 use goodfetch_engine::children::Children;
 use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_engine::transport;
-use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::cli::ATTACHED_ENGINE;
 use goodfetch_protocol::connection::{
     Form, HELLO, HelloParams, HelloResult, PrivateEndpoint, ProductVersion, Surface,
 };
 use goodfetch_protocol::log::LogLevel;
+use goodfetch_protocol::settings::HOME_VARIABLE;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt as _, AsyncWrite, AsyncWriteExt as _, BufReader};
 use tokio::process::Command;
 use tokio::sync::{Mutex, mpsc, oneshot};
-
-/// The command that runs a Product's executable as an Attached engine.
-const ATTACHED_ENGINE: &str = "attached-engine";
-
-/// The variable that names an engine's Goodfetch home.
-const HOME_VARIABLE: &str = "GOODFETCH_HOME";
 
 /// How long the gateway waits for an engine to answer its `hello`: a
 /// loaded machine's first start of a fresh build can take this long, as
@@ -79,15 +75,12 @@ pub(crate) fn hello(
     relayed: Option<Relayed>,
 ) -> HelloParams {
     HelloParams {
-        protocol_version: PROTOCOL_VERSION,
-        surface: Surface::Cloud,
         form: relayed.and_then(|relayed| relayed.form),
         token,
         needs: Some(product),
-        product_version: version(),
         log_level: relayed.and_then(|relayed| relayed.log_level),
         client_surface: relayed.map(|relayed| relayed.surface),
-        keep_daemon_alive: false,
+        ..HelloParams::new(Surface::Cloud, version())
     }
 }
 

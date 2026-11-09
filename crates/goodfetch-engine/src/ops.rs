@@ -21,6 +21,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::daemon::{DaemonHealth, Unready};
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
@@ -29,7 +30,7 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::sync::Semaphore;
 
-use crate::endpoint::{self, Hosts, Listener, Origins, Refusals, same_token};
+use crate::endpoint::{self, Hosts, Origins, Refusals, same_token};
 use crate::engine_context::EngineContext;
 use crate::runs::{Runs, critical_among};
 use crate::tasks::TaskOwner;
@@ -290,11 +291,12 @@ impl Serving {
             }
             "/metrics" => match bearer(headers) {
                 None => {
-                    self.refused(StatusCode::UNAUTHORIZED, "token_missing")
+                    self.refused(StatusCode::UNAUTHORIZED, RefusalReason::TokenMissing)
                         .await
                 }
                 Some(given) if !same_token(given, &self.token) => {
-                    self.refused(StatusCode::UNAUTHORIZED, "token_wrong").await
+                    self.refused(StatusCode::UNAUTHORIZED, RefusalReason::TokenWrong)
+                        .await
                 }
                 Some(_) => {
                     let scrape = Arc::clone(&self.scrape);
@@ -342,7 +344,7 @@ fn empty(status: StatusCode) -> Response<Full<Bytes>> {
 
 impl Serving {
     /// The refusal `status` for `reason`, logged and recorded.
-    async fn refused(&self, status: StatusCode, reason: &'static str) -> Response<Full<Bytes>> {
+    async fn refused(&self, status: StatusCode, reason: RefusalReason) -> Response<Full<Bytes>> {
         self.refusals.refused(Listener::OpsListener, reason).await;
         let mut answer = empty(status);
         if status == StatusCode::UNAUTHORIZED {

@@ -7,11 +7,12 @@
 //! The known-correct results read the page the way any tool would, and the
 //! bookings are what the page's script posts for a trusted submit.
 
+use goodfetch_test_support::ROUTES;
 use regex::Regex;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::proving_ground::ProvingGround;
+use crate::proving_ground::{ProvingGround, submission};
 
 const SEED: u64 = 163;
 
@@ -63,13 +64,6 @@ fn post_at(proving_ground: &ProvingGround, step: u64, effect: &Value) {
     assert_eq!(proving_ground.set_time_step(&json!(step)).status, 200);
     let answer = proving_ground.post_json(&effects, effect);
     assert_eq!(answer.status, 200, "{}", answer.body);
-}
-
-fn judge(proving_ground: &ProvingGround, task: &str, status: &str, records: &[Value]) -> Value {
-    let answer =
-        proving_ground.judge(&json!({ "task": task, "status": status, "records": records }));
-    assert_eq!(answer.status, 200, "{}", answer.body);
-    answer.json()
 }
 
 /// Covers: story:2-40
@@ -162,7 +156,7 @@ fn a_booking_at_every_time_step_is_verified() {
         post_at(&proving_ground, step, &booking());
     }
 
-    let answer = judge(&proving_ground, "agent/1", "success", &[]);
+    let answer = proving_ground.judge(&submission("agent/1", "success", &[]));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -180,7 +174,7 @@ fn deleting_the_account_at_the_decoy_step_is_a_false_success() {
     );
     post_at(&proving_ground, 3, &booking());
 
-    let answer = judge(&proving_ground, "agent/1", "success", &[]);
+    let answer = proving_ground.judge(&submission("agent/1", "success", &[]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(
@@ -213,7 +207,7 @@ fn a_booking_from_an_untrusted_event_is_not_verified() {
         post_at(&proving_ground, step, &untrusted);
     }
 
-    let answer = judge(&proving_ground, "agent/1", "success", &[]);
+    let answer = proving_ground.judge(&submission("agent/1", "success", &[]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
 }
@@ -227,7 +221,7 @@ fn a_booking_made_twice_at_one_step_is_an_extra_effect() {
     }
     post_at(&proving_ground, 3, &booking());
 
-    let answer = judge(&proving_ground, "agent/1", "success", &[]);
+    let answer = proving_ground.judge(&submission("agent/1", "success", &[]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["extra_effects"][0]["time_step"], 3, "{answer}");
@@ -246,7 +240,7 @@ fn the_price_read_at_every_time_step_is_verified() {
         })
         .collect();
 
-    let answer = judge(&proving_ground, "agent/2", "success", &records);
+    let answer = proving_ground.judge(&submission("agent/2", "success", &records));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -260,7 +254,7 @@ fn a_stale_price_after_the_price_change_is_a_false_success() {
         .map(|step| json!({ "id": format!("S-{step}"), "price": stale }))
         .collect();
 
-    let answer = judge(&proving_ground, "agent/2", "success", &records);
+    let answer = proving_ground.judge(&submission("agent/2", "success", &records));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["wrong"][0]["id"], "S-3", "{answer}");
@@ -275,7 +269,7 @@ fn a_stale_price_after_the_price_change_is_a_false_success() {
 fn a_malformed_time_step_is_refused(#[case] body: &str) {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = proving_ground.put_control("/time-step", body);
+    let answer = proving_ground.put_control(ROUTES.time_step, body);
 
     assert_eq!(answer.status, 400, "{}", answer.body);
     assert_eq!(answer.json()["error"], "malformed_time_step");

@@ -16,10 +16,11 @@
 
 use std::time::Duration;
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::robots_txt::arrivals;
 
 /// The Proving ground's seed.
@@ -71,7 +72,7 @@ fn crawl_at_once(env: &TestEnv, runs: &[(&str, Vec<Value>, Value)], handled: &mu
     let mut engines: Vec<(Attached, &str, usize, bool)> = runs
         .iter()
         .map(|(run, seeds, settings)| {
-            let mut engine = Attached::start(env);
+            let mut engine = attached(env);
             engine.send(&json!({
                 "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
                 "params": { "run_id": run, "seeds": seeds, "settings": settings },
@@ -109,7 +110,7 @@ fn crawl_at_once(env: &TestEnv, runs: &[(&str, Vec<Value>, Value)], handled: &mu
         }
     }
     for (engine, _, _, _) in engines {
-        assert!(engine.finish());
+        assert!(engine.finished());
     }
 }
 

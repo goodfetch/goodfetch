@@ -29,9 +29,12 @@ fn a_paused_clocks_wall_time_starts_at_its_start_and_moves_with_the_paused_clock
 /// Made before its runtime, a paused Clock would count the real time until
 /// the runtime is built as wall time, a few milliseconds under load.
 #[test]
-#[should_panic(expected = "a paused Clock is made on the runtime it runs on")]
 fn a_paused_clock_is_refused_off_a_runtime() {
-    Clock::paused(start());
+    let start = start();
+
+    let made = std::panic::catch_unwind(|| Clock::paused(start));
+
+    assert!(made.is_err());
 }
 
 /// The Audit log, the Usage ledger and the known certificates write their

@@ -128,6 +128,7 @@
     {
       "arrived_in": "0.1",
       "description": "The sample crawl refused its pages.",
+      "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "sample_crawl_refused",
@@ -137,6 +138,7 @@
     {
       "arrived_in": "0.1",
       "description": "The sample operation refused the text.",
+      "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "sample_refused",
@@ -191,6 +193,7 @@
   "events": [
     {
       "arrived_in": "0.1",
+      "class": "telemetry",
       "deprecated": null,
       "description": "The sample crawl finished.",
       "name": "sample.crawled",
@@ -202,6 +205,7 @@
     },
     {
       "arrived_in": "0.1",
+      "class": "telemetry",
       "deprecated": null,
       "description": "A text was repeated.",
       "name": "sample.echoed",
@@ -212,11 +216,15 @@
       "stability": "experimental"
     }
   ],
+  "exit_codes": [],
+  "handler_requests": [],
+  "hook_stages": [],
   "metrics": [
     {
       "arrived_in": "0.1",
       "description": "Pages the sample crawl visited.",
       "instrument": "counter",
+      "labels": [],
       "name": "goodfetch.sample.crawled_pages",
       "product": "foxhound",
       "stability": "experimental",
@@ -226,6 +234,7 @@
       "arrived_in": "0.1",
       "description": "Texts the sample operation repeated.",
       "instrument": "counter",
+      "labels": [],
       "name": "goodfetch.sample.echoes",
       "product": "collie",
       "stability": "stable",
@@ -242,11 +251,13 @@
       "events": [
         "sample.crawled"
       ],
+      "kind": "round_trip",
       "name": "sample.crawl",
       "params": {
         "$ref": "#/$defs/SampleCrawlParams"
       },
       "product": "foxhound",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleCrawlResult"
       },
@@ -264,11 +275,13 @@
       "events": [
         "sample.echoed"
       ],
+      "kind": "round_trip",
       "name": "sample.echo",
       "params": {
         "$ref": "#/$defs/SampleEchoParams"
       },
       "product": "collie",
+      "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SampleEchoResult"
       },
@@ -296,5 +309,7 @@
       "stability": "experimental"
     }
   ],
-  "protocol_version": "0.1"
+  "protocol_version": "0.1",
+  "settings": [],
+  "shared_type_values": []
 }

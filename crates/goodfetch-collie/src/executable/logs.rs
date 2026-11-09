@@ -23,7 +23,7 @@ use std::io::Write;
 use goodfetch_engine::audit::AuditEvents;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
-use goodfetch_engine::home::{Home, major_name};
+use goodfetch_engine::home::Home;
 use goodfetch_engine::log::{ClockTime, LogEvents};
 use goodfetch_engine::mask::{Masks, Scope};
 use goodfetch_engine::settings::{Resolved, get_or_default};
@@ -180,7 +180,7 @@ pub(super) fn file_of(
     match process {
         Process::DaemonRun | Process::DaemonLaunched => LogFile::open(
             &folder,
-            &format!("daemon-{}", major_name(version)),
+            &format!("daemon-{}", version.line()),
             rotation,
             clock,
         ),
@@ -446,7 +446,7 @@ fn export(
         .build()
         .map_err(|error| error.to_string())?;
     let resource = opentelemetry_sdk::Resource::builder_empty()
-        .with_service_name(format!("goodfetch-{}", product.as_str()))
+        .with_service_name(product.executable_name())
         .build();
     let provider = SdkTracerProvider::builder()
         .with_batch_exporter(exporter)

@@ -23,6 +23,7 @@ use goodfetch_protocol::daemon::{DaemonHealth, DaemonRuntimeFile, DaemonToken, U
 use goodfetch_protocol::foxhound::crawl::{RequestSeed, Seed};
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::foxhound::sql_tab::DatasetQueryParams;
+use goodfetch_protocol::home::DaemonFile;
 use goodfetch_protocol::needs_you::{
     NeedsYouAllowConsentDomainParams, NeedsYouDenyWallDomainParams, NeedsYouDismissParams,
     NeedsYouRemoveRefetchDomainParams,
@@ -32,7 +33,8 @@ use goodfetch_protocol::usage::UsageRaiseParams;
 use tokio::runtime::Runtime;
 use tokio::sync::{mpsc, watch};
 
-use crate::support::{ScriptedDaemon, next, reports, runtime, script, scripted_engine};
+use crate::support::{ScriptedDaemon, next, reports, runtime, script};
+use crate::tools::scripted_engine;
 
 const TOKEN: &str = "kennel-test-token";
 
@@ -169,9 +171,7 @@ fn collie_0_4_2() -> ConnectionChange {
 
 #[test]
 fn with_the_keep_alive_setting_on_hello_asks_the_daemon_to_stay_alive() {
-    let Some(engine) = scripted_engine("with_the_keep_alive_setting_on_hello_asks") else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let daemon = ScriptedDaemon::start(
@@ -194,9 +194,7 @@ fn with_the_keep_alive_setting_on_hello_asks_the_daemon_to_stay_alive() {
 
 #[test]
 fn turning_the_keep_alive_setting_on_reconnects_with_the_flag() {
-    let Some(engine) = scripted_engine("turning_the_keep_alive_setting_on_reconnects") else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let observed = ScriptedDaemon::start_as(
@@ -234,9 +232,7 @@ fn turning_the_keep_alive_setting_on_reconnects_with_the_flag() {
 
 #[test]
 fn a_daemon_that_starts_while_none_runs_is_reached() {
-    let Some(engine) = scripted_engine("a_daemon_that_starts_while_none_runs_is_reached") else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let mut kennel = Following::start(&home, false, NEVER);
@@ -257,9 +253,7 @@ fn a_daemon_that_starts_while_none_runs_is_reached() {
 
 #[test]
 fn a_daemon_of_a_newer_major_that_starts_is_reached_in_place_of_the_one_reached() {
-    let Some(engine) = scripted_engine("a_daemon_of_a_newer_major_that_starts_is_reached") else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let older = ScriptedDaemon::start(
@@ -291,10 +285,7 @@ fn a_daemon_of_a_newer_major_that_starts_is_reached_in_place_of_the_one_reached(
 
 #[test]
 fn after_a_handover_refusal_the_kennel_reaches_the_pick_once_it_runs() {
-    let Some(engine) = scripted_engine("after_a_handover_refusal_the_kennel_reaches_the_pick")
-    else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let handing_over = ScriptedDaemon::start(
@@ -322,9 +313,7 @@ fn after_a_handover_refusal_the_kennel_reaches_the_pick_once_it_runs() {
 
 #[test]
 fn the_daemons_health_is_polled_and_reported() {
-    let Some(engine) = scripted_engine("the_daemons_health_is_polled_and_reported") else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let daemon = ScriptedDaemon::start(
@@ -360,7 +349,7 @@ fn a_runtime_file_written_while_no_daemon_runs_makes_the_client_look_again() {
     // A runtime file in a per-major folder that did not exist when the
     // Client started, whose serving lock nobody holds.
     let major = dead_daemons_runtime_file(folder.path(), "0.1");
-    File::create(major.join("daemon.lock")).unwrap();
+    File::create(major.join(DaemonFile::ServingLock.name())).unwrap();
 
     assert_eq!(before, [ConnectionChange::NoDaemon]);
     assert_eq!(kennel.next(1), [ConnectionChange::NoDaemon]);
@@ -368,9 +357,7 @@ fn a_runtime_file_written_while_no_daemon_runs_makes_the_client_look_again() {
 
 #[test]
 fn a_kennel_says_hello_as_the_kennel_surface_reads_the_daemons_product_and_subscribes() {
-    let Some(engine) = scripted_engine("a_kennel_says_hello_as_the_kennel_surface") else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let daemon = ScriptedDaemon::start(
@@ -391,9 +378,7 @@ fn a_kennel_says_hello_as_the_kennel_surface_reads_the_daemons_product_and_subsc
 
 #[test]
 fn the_subscriptions_resync_and_axes_reach_the_kennel_as_typed_events() {
-    let Some(engine) = scripted_engine("the_subscriptions_resync_and_axes_reach_the_kennel") else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let daemon = ScriptedDaemon::start(
@@ -424,9 +409,7 @@ fn the_subscriptions_resync_and_axes_reach_the_kennel_as_typed_events() {
 
 #[test]
 fn the_kennel_renews_half_its_credits_once_it_has_applied_the_events_they_took() {
-    let Some(engine) = scripted_engine("the_kennel_renews_half_its_credits") else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let daemon = ScriptedDaemon::start(
@@ -459,9 +442,7 @@ fn the_kennel_renews_half_its_credits_once_it_has_applied_the_events_they_took()
 
 #[test]
 fn asked_for_the_live_runs_rows_the_kennel_reads_the_running_runs_of_the_run_index() {
-    let Some(engine) = scripted_engine("asked_for_the_live_runs_rows") else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let daemon = ScriptedDaemon::start(&engine, &home, &script("live-runs-read.json"), TOKEN);
@@ -480,10 +461,7 @@ fn asked_for_the_live_runs_rows_the_kennel_reads_the_running_runs_of_the_run_ind
 
 #[test]
 fn a_runs_progress_is_followed_while_the_view_wants_it_and_its_read_cancelled_after() {
-    let Some(engine) = scripted_engine("a_runs_progress_is_followed_while_the_view_wants_it")
-    else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let daemon = ScriptedDaemon::start(
@@ -517,10 +495,7 @@ fn a_runs_progress_is_followed_while_the_view_wants_it_and_its_read_cancelled_af
 
 #[test]
 fn a_daemon_that_closes_the_connection_is_reported_gone() {
-    let Some(engine) = scripted_engine("a_daemon_that_closes_the_connection_is_reported_gone")
-    else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let _daemon = ScriptedDaemon::start(
@@ -541,9 +516,7 @@ fn a_daemon_that_closes_the_connection_is_reported_gone() {
 
 #[test]
 fn a_daemon_of_another_protocol_version_is_reported_with_the_version_the_kennel_needs() {
-    let Some(engine) = scripted_engine("a_daemon_of_another_protocol_version") else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let daemon = ScriptedDaemon::start(
@@ -580,14 +553,14 @@ fn dead_daemons_runtime_file(home: &Path, major: &str) -> std::path::PathBuf {
     let folder = home.join(major);
     fs::create_dir_all(&folder).unwrap();
     let runtime = DaemonRuntimeFile {
-        endpoint: DaemonEndpoint::Unix(folder.join("daemon.sock")),
+        endpoint: DaemonEndpoint::Unix(folder.join(DaemonFile::Socket.name())),
         token: DaemonToken::new(TOKEN),
         version: ProductVersion::parse("0.1.0").unwrap(),
         pid: 1,
         console: ConsoleState::Absent,
     };
     fs::write(
-        folder.join("daemon.json"),
+        folder.join(DaemonFile::RuntimeFile.name()),
         serde_json::to_vec(&runtime).unwrap(),
     )
     .unwrap();
@@ -598,7 +571,7 @@ fn dead_daemons_runtime_file(home: &Path, major: &str) -> std::path::PathBuf {
 fn a_runtime_file_whose_serving_lock_nobody_holds_is_no_daemon() {
     let folder = tempfile::tempdir().unwrap();
     let major = dead_daemons_runtime_file(folder.path(), "0.1");
-    File::create(major.join("daemon.lock")).unwrap();
+    File::create(major.join(DaemonFile::ServingLock.name())).unwrap();
 
     let seen = first_reports(&Home::new(folder.path()), 1);
 
@@ -609,7 +582,7 @@ fn a_runtime_file_whose_serving_lock_nobody_holds_is_no_daemon() {
 fn a_held_serving_lock_beside_a_socket_nothing_listens_on_is_no_daemon() {
     let folder = tempfile::tempdir().unwrap();
     let major = dead_daemons_runtime_file(folder.path(), "0.1");
-    let lock = File::create(major.join("daemon.lock")).unwrap();
+    let lock = File::create(major.join(DaemonFile::ServingLock.name())).unwrap();
     lock.try_lock().unwrap();
 
     let seen = first_reports(&Home::new(folder.path()), 1);
@@ -625,9 +598,7 @@ fn dismiss() -> Call {
 
 #[test]
 fn each_call_a_person_makes_is_sent_to_its_operation_and_its_answer_reported() {
-    let Some(engine) = scripted_engine("each_call_a_person_makes_is_sent_to_its_operation") else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let daemon = ScriptedDaemon::start(&engine, &home, &script("needs-you-actions.json"), TOKEN);
@@ -704,10 +675,7 @@ fn a_call_made_while_no_daemon_is_reached_is_not_sent_and_fails() {
 
 #[test]
 fn a_call_whose_connection_closes_before_its_answer_fails() {
-    let Some(engine) = scripted_engine("a_call_whose_connection_closes_before_its_answer_fails")
-    else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let daemon = ScriptedDaemon::start(
@@ -730,9 +698,7 @@ fn a_call_whose_connection_closes_before_its_answer_fails() {
 
 #[test]
 fn a_runs_controls_are_sent_to_their_operations_and_their_answers_reported() {
-    let Some(engine) = scripted_engine("a_runs_controls_are_sent_to_their_operations") else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let daemon = ScriptedDaemon::start(
@@ -773,9 +739,7 @@ fn a_runs_controls_are_sent_to_their_operations_and_their_answers_reported() {
 
 #[test]
 fn the_details_windows_listing_report_and_usage_reads_follow_what_it_wants() {
-    let Some(engine) = scripted_engine("the_details_windows_reads_follow_what_it_wants") else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let daemon = ScriptedDaemon::start(&engine, &home, &script("details-reads.json"), TOKEN);
@@ -853,9 +817,7 @@ fn the_details_windows_listing_report_and_usage_reads_follow_what_it_wants() {
 
 #[test]
 fn the_details_windows_records_and_settings_reads_follow_what_it_wants() {
-    let Some(engine) = scripted_engine("the_details_windows_records_and_settings_reads") else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let daemon = ScriptedDaemon::start(
@@ -940,11 +902,7 @@ fn the_details_windows_records_and_settings_reads_follow_what_it_wants() {
 
 #[test]
 fn the_governors_readings_are_subscribed_to_only_while_wanted() {
-    let Some(engine) =
-        scripted_engine("the_governors_readings_are_subscribed_to_only_while_wanted")
-    else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let daemon = ScriptedDaemon::start(
@@ -985,10 +943,7 @@ fn the_governors_readings_are_subscribed_to_only_while_wanted() {
 
 #[test]
 fn add_seeds_streams_the_seeds_within_the_calls_credits_and_reports_its_counts() {
-    let Some(engine) = scripted_engine("add_seeds_streams_the_seeds_within_the_calls_credits")
-    else {
-        return;
-    };
+    let engine = scripted_engine();
     let folder = tempfile::tempdir().unwrap();
     let home = Home::new(folder.path());
     let daemon = ScriptedDaemon::start(&engine, &home, &script("add-seeds-streamed.json"), TOKEN);

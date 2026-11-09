@@ -3,50 +3,17 @@
 //! that holds the run folders and the Run index. `main` resolves it, from
 //! `GOODFETCH_HOME` when it is set and the OS's usual data folder otherwise,
 //! and passes it to the engine as a value. During `0.y` previews each `0.y`
-//! minor counts as a major (ADR 0030).
+//! minor counts as a major (ADR 0030). The names of its files and folders,
+//! and the per-major folder's rule, are `goodfetch_protocol::home`'s, which
+//! every other reader of the home shares.
 
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::connection::ProductVersion;
-
-/// The per-major folder's own name for the run folders.
-const RUNS: &str = "runs";
-
-/// The Run index's file in the per-major folder.
-const RUN_INDEX: &str = "run-index.sqlite";
-
-/// The Usage ledger's file, outside the per-major folders (ADR 0041).
-const USAGE_LEDGER: &str = "usage-ledger.sqlite";
-
-/// The per-user Politeness file, outside the per-major folders.
-const POLITENESS_FILE: &str = "politeness.sqlite";
-
-/// The Audit log's store, outside the per-major folders (ADR 0016).
-const AUDIT_LOG: &str = "audit-log.sqlite";
-
-/// The Audit log's head file, beside its store.
-const AUDIT_LOG_HEAD: &str = "audit-log-head.json";
-
-/// The known-certificates store, beside the Usage ledger (ADR 0042).
-const KNOWN_CERTIFICATES: &str = "known-certificates.sqlite";
-
-/// The per-major accounts store, beside the Operator policy (spec #592).
-const ACCOUNTS_STORE: &str = "accounts-store.sqlite";
-
-/// The Console key, outside the per-major folders (ADR 0098).
-const CONSOLE_KEY: &str = "console-key";
-
-/// The log folder, outside the per-major folders, where every Daemon but
-/// `daemon run` writes its JSON lines (ADR 0122).
-const LOGS: &str = "logs";
-
-/// The encrypted local files' folder, outside the per-major folders
-/// (spec #564).
-const SECRET_FILES: &str = "secrets";
-
-/// The lock an engine holds while it makes its own key-encryption key,
-/// outside the per-major folders (spec #564).
-const ENGINE_KEY_LOCK: &str = "engine-key.lock";
+use goodfetch_protocol::home::{
+    ACCOUNTS_STORE, AUDIT_LOG, AUDIT_LOG_HEAD, CONSOLE_KEY, ENGINE_KEY_LOCK, KNOWN_CERTIFICATES,
+    LOGS, POLITENESS_FILE, RUN_INDEX, RUNS, SECRET_FILES, USAGE_LEDGER, per_major,
+};
 
 /// One user's Goodfetch data folder, and the copy of the Browser cache
 /// `GOODFETCH_BROWSERS_PATH` names in place of its own, if any.
@@ -88,7 +55,7 @@ impl Home {
     /// The per-major folder of the Product version `version`: `1` for any
     /// `1.x.y`, `0.4` for any `0.4.y`.
     pub fn per_major(&self, version: &ProductVersion) -> PathBuf {
-        self.root.join(major_name(version))
+        per_major(&self.root, version)
     }
 
     /// The per-major data folder's run folders, the default
@@ -166,34 +133,6 @@ impl Home {
     /// of any major and either Product, make one between them.
     pub fn engine_key_lock(&self) -> PathBuf {
         self.root.join(ENGINE_KEY_LOCK)
-    }
-}
-
-/// The name of a version's major, which names its per-major folder: `1`
-/// for any `1.x.y`, `0.4` for any `0.4.y`, since during `0.y` previews each
-/// minor counts as a major (ADR 0030).
-pub fn major_name(version: &ProductVersion) -> String {
-    let text = version.to_string();
-    let mut numbers = text.split(['.', '-']);
-    let major = numbers.next().unwrap_or("0");
-    match (major, numbers.next()) {
-        ("0", Some(minor)) => format!("0.{minor}"),
-        (major, _) => major.to_owned(),
-    }
-}
-
-/// The order of a per-major folder's name, `1` or `0.4`, by which majors
-/// compare: `None` for a name that is no major's.
-pub fn major_order(name: &str) -> Option<(u64, u64)> {
-    let canonical = |part: &str| {
-        !part.is_empty()
-            && part.bytes().all(|byte| byte.is_ascii_digit())
-            && (part == "0" || !part.starts_with('0'))
-    };
-    match name.split_once('.') {
-        Some(("0", minor)) if canonical(minor) => Some((0, minor.parse().ok()?)),
-        None if canonical(name) && name != "0" => Some((name.parse().ok()?, 0)),
-        Some(_) | None => None,
     }
 }
 

@@ -13,18 +13,19 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use super::engine_choice::{Daemons, EngineChoice, EngineFlags};
+use super::catalog_commands::{Joined, Joining};
+use super::daemon::Machine;
+use super::engine_choice::{EngineChoice, EngineFlags};
 use super::exit_codes;
-use super::generated::{Joined, Joining};
 use super::operation::run_operation;
 use super::output::{self, Human};
 use clap::Subcommand;
 use goodfetch_engine::audit::verify_exported;
-use goodfetch_engine::{Dependencies, Engine};
+use goodfetch_engine::{CallError, Dependencies, Engine};
 use goodfetch_protocol::audit::{AUDIT_EXPORT, AUDIT_VERIFY, AuditVerified};
 use goodfetch_protocol::cli::AUDIT_LOG_NOT_INTACT;
-use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject, ProtocolFailure};
-use serde_json::{Map, Value, json};
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use serde_json::{Value, json};
 
 // The `audit` group's commands: the catalog's `audit` commands this group
 // does not write itself, listed first, then its own. No doc comment: clap
@@ -79,19 +80,19 @@ pub(super) fn run(
     command: AuditCommand,
     engine: &Engine,
     dependencies: Dependencies,
-    daemons: &dyn Daemons,
+    machine: &Machine<'_>,
     human: &Human,
 ) -> ExitCode {
     match command {
         AuditCommand::Generated(joining) => {
-            joining.call().run(engine, dependencies, daemons, human)
+            joining.call().run(engine, dependencies, machine, human)
         }
         AuditCommand::Own(OwnAuditCommand::Export {
             json,
             engine: flags,
         }) => {
             let warn = |text: &str| human.warning(text);
-            let reach = EngineChoice::passing(flags.choice(), daemons, &warn);
+            let reach = EngineChoice::passing(flags.choice(), machine, &warn);
             export(engine, dependencies, &reach, json, human)
         }
         AuditCommand::Own(OwnAuditCommand::Verify {
@@ -100,7 +101,7 @@ pub(super) fn run(
             engine: flags,
         }) => {
             let warn = |text: &str| human.warning(text);
-            let reach = EngineChoice::passing(flags.choice(), daemons, &warn);
+            let reach = EngineChoice::passing(flags.choice(), machine, &warn);
             match run_operation(
                 engine,
                 dependencies,
@@ -159,16 +160,11 @@ fn verify_file(file: &Path, json: bool, human: &Human) -> ExitCode {
     match read {
         Ok(jsonl) => print(&json!(verify_exported(&jsonl)), json, human),
         Err(error) => {
-            let failure = ProtocolFailure::InvalidParams;
-            let unread = ErrorObject {
-                code: failure.code(),
-                message: format!("the export `{}` cannot be read: {error}", file.display()),
-                data: ErrorData {
-                    code: failure.name().to_owned(),
-                    retryable: false,
-                    details: Map::new(),
-                },
-            };
+            let unread = CallError::protocol(
+                ProtocolFailure::InvalidParams,
+                format!("the export `{}` cannot be read: {error}", file.display()),
+            )
+            .to_error_object();
             output::fail(unread, Some(AUDIT_VERIFY.name), json, human)
         }
     }

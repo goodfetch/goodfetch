@@ -2,7 +2,7 @@
 //! collects reports, and the Scripted engine as a Daemon of a test's home.
 #![expect(
     clippy::disallowed_methods,
-    reason = "test helpers build the runtime, read the test tool manifest's variable and start the Scripted engine (ADRs 0060 and 0069)"
+    reason = "test helpers build the runtime and start the Scripted engine (ADRs 0060 and 0069)"
 )]
 
 use std::io::{BufRead, BufReader};
@@ -12,15 +12,11 @@ use std::time::Duration;
 
 use goodfetch_kennel::home::Home;
 use goodfetch_kennel::tasks::Tasks;
-use serde::Deserialize;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 
 /// How long a test waits for a report before it fails.
 pub(crate) const PATIENCE: Duration = Duration::from_secs(20);
-
-/// The variable naming the test tool manifest (`just test`, ADR 0062).
-const TOOLS_VARIABLE: &str = "GOODFETCH_TEST_TOOLS";
 
 /// A multi-thread runtime with one worker, as the Kennel's `main` builds.
 pub(crate) fn runtime() -> Runtime {
@@ -57,59 +53,6 @@ pub(crate) fn script(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/scripts")
         .join(name)
-}
-
-#[derive(Deserialize)]
-struct Tools {
-    scripted_engine: Option<PathBuf>,
-    collie: Option<PathBuf>,
-}
-
-/// The Scripted engine the root workspace built, from the test tool
-/// manifest. Without a manifest, as when the Kennel's tests run on a Mac
-/// that has not built the root workspace, the caller skips with the reason
-/// printed; in CI, and in `just kennel-check`, which writes the manifest,
-/// its absence fails.
-pub(crate) fn scripted_engine(name: &str) -> Option<PathBuf> {
-    Some(
-        tools(name)?
-            .scripted_engine
-            .expect("the test tool manifest names goodfetch-scripted-engine"),
-    )
-}
-
-/// Collie's executable the root workspace built, from the test tool
-/// manifest, for the test against a real Daemon; skipped, or failed, as
-/// [`scripted_engine`] says.
-pub(crate) fn collie(name: &str) -> Option<PathBuf> {
-    Some(
-        tools(name)?
-            .collie
-            .expect("the test tool manifest names goodfetch-collie"),
-    )
-}
-
-/// The test tool manifest, or `None` after saying the test `name` is
-/// skipped.
-fn tools(name: &str) -> Option<Tools> {
-    let Some(manifest) = std::env::var_os(TOOLS_VARIABLE) else {
-        assert!(
-            std::env::var_os("CI").is_none(),
-            "{TOOLS_VARIABLE} is unset, and CI runs every test: run the Kennel's tests with `just kennel-check`"
-        );
-        #[expect(
-            clippy::print_stderr,
-            reason = "a test skipped on this host says why, as the suites' skips do"
-        )]
-        {
-            eprintln!(
-                "skipped: {name}, {TOOLS_VARIABLE} is unset, so the root workspace built no test tool (`just kennel-check` builds them)"
-            );
-        }
-        return None;
-    };
-    let text = std::fs::read_to_string(&manifest).unwrap();
-    Some(serde_json::from_str(&text).unwrap())
 }
 
 /// Writes an executable shell script at `path` holding `body` under its

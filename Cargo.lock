@@ -2311,6 +2311,7 @@ dependencies = [
  "goodfetch-page",
  "goodfetch-protocol",
  "goodfetch-secret-providers",
+ "goodfetch-test-client",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "gungraun",
@@ -2339,6 +2340,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-util",
  "toml 1.1.8+spec-1.1.0",
@@ -2364,6 +2366,7 @@ dependencies = [
  "rstest",
  "rusqlite",
  "rustls",
+ "schemars",
  "secrecy",
  "serde",
  "serde_json",
@@ -2450,6 +2453,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
  "zip",
@@ -2635,6 +2639,7 @@ dependencies = [
  "goodfetch-protocol",
  "goodfetch-session-pool",
  "goodfetch-sql-tab",
+ "goodfetch-test-client",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "gungraun",
@@ -2709,6 +2714,7 @@ dependencies = [
  "goodfetch-extractor",
  "goodfetch-protocol",
  "goodfetch-recording-gate",
+ "goodfetch-test-client",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "gungraun",
@@ -2787,6 +2793,7 @@ dependencies = [
  "regex",
  "rstest",
  "rustls",
+ "schemars",
  "serde",
  "serde_json",
  "serde_json_canonicalizer",
@@ -2896,6 +2903,17 @@ dependencies = [
  "tracing-subscriber",
  "tungstenite",
  "ureq",
+]
+
+[[package]]
+name = "goodfetch-test-client"
+version = "0.0.0"
+dependencies = [
+ "goodfetch-protocol",
+ "goodfetch-test-support",
+ "goodfetch-workspace-hack",
+ "rstest",
+ "serde_json",
 ]
 
 [[package]]
@@ -8110,6 +8128,7 @@ dependencies = [
  "syn 3.0.9",
  "tar",
  "tempfile",
+ "thiserror 2.0.21",
  "toml 1.1.8+spec-1.1.0",
  "unicode-ident",
  "ureq",

@@ -66,14 +66,12 @@ pub enum RunTrigger {
 }
 
 impl RunTrigger {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 4] = [Self::Time, Self::Watch, Self::AfterRun, Self::RunNow];
+
     /// Its name in the `goodfetch.trigger` tag.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Time => "time",
-            Self::Watch => "watch",
-            Self::AfterRun => "after_run",
-            Self::RunNow => "run_now",
-        }
+        crate::wire_name::of(&self)
     }
 
     /// The trigger `name` names, if it is one this version knows.

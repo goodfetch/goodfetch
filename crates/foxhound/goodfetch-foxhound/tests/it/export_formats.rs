@@ -16,13 +16,15 @@ use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray as _;
 use arrow_array::types::{Float64Type, Int64Type};
 use arrow_schema::DataType;
+use goodfetch_test_client::Attached;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::TestEnv;
 use quick_xml::Reader;
 use quick_xml::escape::resolve_predefined_entity;
 use quick_xml::events::Event;
 use serde_json::{Map, Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::exports::{
     book, crawl, csv_rows, export_under, finish, html_rows, markdown_rows, saved, table_of,
     third_book, unicode_value, xlsx_rows,
@@ -472,7 +474,7 @@ fn typed_columns(columns: &[&str]) -> Vec<Value> {
 #[test]
 fn every_format_plain_gzip_and_zstd_opens_in_a_reference_reader_and_gives_the_records_back() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     crawl(&mut engine, "formats", 3);
     let [first, second, third] = three();
     finish(&mut engine, "formats", |page| match page {
@@ -506,7 +508,7 @@ fn every_format_plain_gzip_and_zstd_opens_in_a_reference_reader_and_gives_the_re
             read_back(format, bytes),
         ));
     }
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     for (format, records, (got, expected)) in read {
         assert_eq!((format, records, got), (format, json!(3), expected));
@@ -521,14 +523,8 @@ fn every_format_plain_gzip_and_zstd_opens_in_a_reference_reader_and_gives_the_re
 /// writes its Provenance (ADR 0052): the engine sets no Wall marker in M1,
 /// so the test writes the Provenance a Record past a Wall carries.
 fn mark_wall(env: &TestEnv, run_id: &str, number: i64) {
-    let connection = rusqlite::Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap();
+    let connection =
+        rusqlite::Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap();
     let changed = connection
         .execute(
             "UPDATE records SET provenance = json_set(provenance, '$.wall', json(?1))
@@ -627,7 +623,7 @@ fn wall_in(format: &str, bytes: Vec<u8>) -> Value {
 #[test]
 fn a_record_read_past_a_wall_carries_its_marker_in_every_format_and_filters() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     crawl(&mut engine, "walls", 3);
     finish(&mut engine, "walls", book);
     mark_wall(&env, "walls", 2);
@@ -646,7 +642,7 @@ fn a_record_read_past_a_wall_carries_its_marker_in_every_format_and_filters() {
     }
     let others = exported(&mut engine, "walls", "jsonl", "none", Some(false));
     let others_bytes = saved(&mut engine, &env, &others, "others.jsonl");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let marker = json!({ "kind": "paywall", "vendor": "v" });
     assert_eq!(
@@ -677,7 +673,7 @@ fn a_record_read_past_a_wall_carries_its_marker_in_every_format_and_filters() {
 #[test]
 fn the_export_settings_shape_json_xml_parquet_and_the_feeds() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     crawl(&mut engine, "shapes", 2);
     finish(&mut engine, "shapes", |page| {
         json!({
@@ -737,7 +733,7 @@ fn the_export_settings_shape_json_xml_parquet_and_the_feeds() {
     let json_bytes = saved(&mut engine, &env, &json_reply, "books.json");
     let xml_bytes = saved(&mut engine, &env, &xml_reply, "books.xml");
     let atom_bytes = saved(&mut engine, &env, &atom_reply, "books.atom");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let values: Value = serde_json::from_slice(&json_bytes).unwrap();
     let (root, names, _) = xml_rows(&xml_bytes);

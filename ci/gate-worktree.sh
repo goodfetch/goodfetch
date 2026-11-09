@@ -15,14 +15,30 @@ root=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)
 worktree="$root/.claude/worktrees/${gate_worktree_name:-merge-gate}"
 lock="$worktree.lock"
 
+# Prints the process that holds the lock folder `$1`, when it still runs; a
+# lock whose holder ended holds nothing, and prints nothing.
+gate_worktree_holder() {
+  local holder
+  holder=$(cat "$1/pid" 2>/dev/null || true)
+  if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then echo "$holder"; fi
+}
+
+# Prints the test-health run that holds the backstop's worktree, when it still
+# runs: ci/test-health/scheduled.sh marks the lock it takes, which the
+# backstop's own run does not, and a run that died holds nothing.
+test_health_holder() {
+  local backstop="$root/.claude/worktrees/gate-backstop.lock"
+  if [[ -f $backstop/test-health ]]; then gate_worktree_holder "$backstop"; fi
+}
+
 # Takes the worktree's lock for this process, or fails while another run's
 # process holds it. The caller releases it (`rm -rf "$lock"`).
 gate_worktree_lock() {
   local holder
   mkdir -p "${lock%/*}"
   until mkdir "$lock" 2>/dev/null; do
-    holder=$(cat "$lock/pid" 2>/dev/null || true)
-    if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then
+    holder=$(gate_worktree_holder "$lock")
+    if [[ -n "$holder" ]]; then
       echo "error: another gate (process $holder) is running in $worktree; run the command again when it ends" >&2
       exit 1
     elif [[ -d $lock ]]; then

@@ -25,7 +25,8 @@ use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::FormatTime;
 use tracing_subscriber::layer::SubscriberExt as _;
 
-use crate::exercise::{DISPATCH_TARGET, ExerciseRecord, OUTCOME_TARGET};
+use crate::exercise::ExerciseRecord;
+use crate::facts::{DISPATCH_TARGET, OUTCOME_TARGET};
 use crate::variables::Variables;
 
 /// Writes each event's time as RFC 3339, read from the closure.

@@ -29,6 +29,7 @@ use rusqlite::backup::{Backup, StepResult};
 use rusqlite::{Connection, ErrorCode};
 use sha2::{Digest as _, Sha256};
 
+use crate::durable;
 use crate::run_files::{self, CarryError};
 use crate::run_key::{self, StoredKey};
 use crate::run_state::{RunStateError, open_reader};
@@ -360,7 +361,7 @@ impl Temporary {
         std::fs::rename(&self.path, destination)
             .map_err(|error| storage(&error, "rename it into place"))?;
         self.persisted = true;
-        sync_folder(destination);
+        durable::sync_folder(destination.parent().unwrap_or(Path::new(".")));
         Ok(())
     }
 }
@@ -374,18 +375,6 @@ impl Drop for Temporary {
             let _ = std::fs::remove_file(PathBuf::from(journal));
         }
     }
-}
-
-/// Syncs the folder of `path`, where the OS allows it.
-fn sync_folder(path: &Path) {
-    #[cfg(unix)]
-    if let Some(folder) = path.parent()
-        && let Ok(folder) = File::open(folder)
-    {
-        let _ = folder.sync_all();
-    }
-    #[cfg(not(unix))]
-    let _ = path;
 }
 
 fn storage(error: &io::Error, doing: &str) -> WriteError {

@@ -25,10 +25,14 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use goodfetch_protocol::home::RUN_TRACE_PROVENANCE;
+use goodfetch_test_client::Attached;
+use goodfetch_test_client::HomeLayout;
+use goodfetch_test_support::ObservedRequest;
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached_with;
 use crate::frontier::{Inside, crawl_declaring};
 
 /// The Proving ground's seed.
@@ -55,7 +59,7 @@ pub(crate) fn engine(env: &TestEnv) -> Attached {
 /// a test prepared once, so a second engine reuses it while the first's
 /// browser may still run.
 pub(crate) fn engine_on(env: &TestEnv, cache: &std::path::Path) -> Attached {
-    Attached::start_with(env, Some(Duration::from_secs(60)), |command| {
+    attached_with(env, Some(Duration::from_secs(60)), |command| {
         command.env(BROWSERS_PATH_VARIABLE, cache);
     })
 }
@@ -136,13 +140,7 @@ fn waited(handled: &Handled) -> Value {
     reason = "the test reads the Run's Provenance log from outside the engine, on no async worker"
 )]
 pub(crate) fn provenance(env: &TestEnv, run_id: &str, action: &str) -> Vec<Value> {
-    let file: PathBuf = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
-        .join("trace")
-        .join("provenance.jsonl");
+    let file: PathBuf = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_PROVENANCE);
     std::fs::read_to_string(file)
         .unwrap_or_default()
         .lines()
@@ -223,7 +221,7 @@ fn one_handler_runs_a_sample_of_a_static_page_and_of_a_scripted_one_on_both_tier
         &mut handler(&mut seen),
     );
     let ended = outcomes(&mut engine, "tiers-auto");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let seen: Vec<_> = seen
         .iter()
@@ -298,7 +296,7 @@ fn the_same_handler_under_a_forced_http_tier_fails_the_scripted_page_with_browse
         &mut handler(&mut seen),
     );
     let ended = outcomes(&mut engine, "tiers-forced");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let refused = seen
         .iter()
@@ -367,7 +365,7 @@ fn fetch_tier_on_a_label_forces_that_label_only_and_provenance_records_it_forced
         &mut handler(&mut seen),
     );
     let ended = outcomes(&mut engine, "tiers-label");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let refused = seen
         .iter()
@@ -439,15 +437,15 @@ fn page_request_on_a_document_tier_goes_through_the_gate_and_never_escalates() {
         },
     );
     let ended = outcomes(&mut engine, "tiers-request");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let (got, body, refused) = &answers[0];
     let requests = proving_ground
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request["host"] == ROBOTS_HOST)
-        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .filter(|request| request.host == ROBOTS_HOST)
+        .map(|request| request.target.as_str().to_owned())
         .collect::<Vec<_>>();
     assert_eq!(
         (
@@ -483,35 +481,23 @@ const EDGE_HOST: &str = "fetch-edge.test";
 const EDGE_OTHER_HOST: &str = "h1.fetch-edge.test";
 
 /// The requests `proving_ground` received for `path` on `host`.
-fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<Value> {
+fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<ObservedRequest> {
     proving_ground
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|seen| seen.split(':').next() == Some(host))
-                && request["target"] == path
-        })
+        .filter(|request| request.host.split(':').next() == Some(host) && request.target == path)
         .cloned()
         .collect()
 }
 
 /// The method of `request` and whether it carried each header of `names`.
-fn carried(request: &Value, names: &[&str]) -> (Value, Vec<bool>) {
-    let headers = request["headers"].as_array().cloned().unwrap_or_default();
+fn carried(request: &ObservedRequest, names: &[&str]) -> (Value, Vec<bool>) {
     (
-        request["method"].clone(),
+        json!(request.method),
         names
             .iter()
-            .map(|name| {
-                headers.iter().any(|pair| {
-                    pair[0]
-                        .as_str()
-                        .is_some_and(|seen| seen.eq_ignore_ascii_case(name))
-                })
-            })
+            .map(|name| request.header(name).is_some())
             .collect(),
     )
 }
@@ -574,7 +560,7 @@ fn page_request_on_a_document_tier_drops_authorization_across_origins_and_body_h
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let names = ["authorization", "content-type", "content-length"];
     let reached = |host: &str| {
@@ -640,7 +626,7 @@ fn a_served_pages_request_waiting_for_its_permit_holds_its_attempts_lease() {
         },
     );
     let ended = outcomes(&mut engine, "tiers-lease");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -769,7 +755,7 @@ fn a_label_of_static_pages_is_learned_onto_http_and_one_of_scripted_pages_onto_b
         &mut counting(&mut seen),
     );
     let ended = outcomes(&mut engine, "tiers-learned");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let both: &[&str] = &["http", "browser"];
     assert_eq!(
@@ -863,7 +849,7 @@ fn a_sample_compares_the_records_each_run_pushed() {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let both: &[&str] = &["http", "browser"];
     assert_eq!(
@@ -933,7 +919,7 @@ fn a_label_whose_segments_disagree_is_split_by_first_segment_and_a_segment_that_
         &mut counting(&mut seen),
     );
     let ended = outcomes(&mut engine, "tiers-split");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let both: &[&str] = &["http", "browser"];
     assert_eq!(
@@ -1059,7 +1045,7 @@ fn the_tier_a_label_learned_survives_a_resume() {
         &json!({ "run_id": "tiers-kept" }),
         &mut answer,
     );
-    assert!(resuming.finish());
+    assert!(resuming.finished());
 
     let both: &[&str] = &["http", "browser"];
     let provenance = chosen(&env, "tiers-kept");
@@ -1159,7 +1145,7 @@ fn a_page_failing_its_labels_expected_page_over_http_escalates_under_auto_and_pa
         &mut recording(&mut seen),
     );
     let ended = outcomes(&mut engine, "expected-auto");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     seen.sort_by(|left, right| left.0.cmp(&right.0));
     let mut chosen = tiers(&env, "expected-auto");
@@ -1219,7 +1205,7 @@ fn a_page_failing_its_expected_page_fails_with_page_check_failed_under_a_forced_
         &mut recording(&mut seen),
     );
     let ended = outcomes(&mut engine, "expected-forced");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (seen, ended, tiers(&env, "expected-forced")),

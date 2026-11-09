@@ -12,12 +12,12 @@
 )]
 
 mod case_log;
+mod harness_failures;
 mod journey_document;
 mod journey_run;
 mod keep;
 mod page;
 mod protocol;
-mod proving_ground;
 mod read_command;
 mod refusals;
 mod self_test;

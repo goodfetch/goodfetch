@@ -4,7 +4,7 @@
 //! `file_write_failed`, side `engine`, naming the OS's reason, returns no
 //! Checkpoint and leaves no file. Each filesystem is a real one, a small
 //! disk image `hdiutil` attaches for the test and detaches after it, so the
-//! case runs on macOS; Linux needs a mount it cannot make unprivileged.
+//! case runs on macOS; `storage` holds Linux's, each on a tmpfs.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -18,11 +18,15 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use goodfetch_protocol::catalog::Product;
+use goodfetch_test_client::HomeLayout;
+use goodfetch_test_support::MESSAGE_DEADLINE;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
-use crate::run::call;
+use goodfetch_test_client::{Attached, hello};
+
+use crate::COLLIE;
 
 /// A disk image attached at a folder of the test's, detached when dropped.
 struct DiskImage {
@@ -94,9 +98,9 @@ fn files(folder: &Path) -> Vec<String> {
 
 /// Opens the Connection and starts the Run `run_id`.
 fn started(engine: &mut Attached, run_id: &str) {
-    engine.send(&hello("collie", "0.1"));
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    let reply = call(engine, 1, "run.start", &json!({ "run_id": run_id }));
+    let reply = engine.ask(1, "run.start", &json!({ "run_id": run_id }));
     assert!(reply.get("result").is_some(), "{reply}");
 }
 
@@ -121,20 +125,15 @@ fn a_checkpoint_of_a_run_whose_folder_is_on_a_full_disk_fails_and_leaves_no_file
     let home = disk.mount.join("home");
     std::fs::create_dir_all(&home).unwrap();
     let home_for_engine = home.clone();
-    let mut engine = Attached::start_with(&env, |command| {
+    let mut engine = Attached::start_with(&env, COLLIE, MESSAGE_DEADLINE, |command| {
         command.env("GOODFETCH_HOME", &home_for_engine);
     });
     started(&mut engine, "filled");
-    let folder = home.join("0.0").join("runs").join("filled");
+    let folder = HomeLayout::of(&home).run_folder("filled");
     let before = files(&folder);
     fill(&disk.mount);
 
-    let failed = call(
-        &mut engine,
-        2,
-        "run.checkpoint",
-        &json!({ "run_id": "filled" }),
-    );
+    let failed = engine.ask(2, "run.checkpoint", &json!({ "run_id": "filled" }));
 
     let after = files(&folder);
     std::fs::remove_file(disk.mount.join("filler")).unwrap();
@@ -159,11 +158,10 @@ fn a_checkpoint_to_a_read_only_filesystem_fails_and_leaves_no_file() {
     let env = TestEnv::new();
     let disk = DiskImage::attach(&env, "read only", 2, true);
     let location = disk.mount.join("kept.sqlite").display().to_string();
-    let mut engine = Attached::start(&env);
+    let mut engine = Attached::start(&env, COLLIE);
     started(&mut engine, "refused");
 
-    let failed = call(
-        &mut engine,
+    let failed = engine.ask(
         2,
         "run.checkpoint",
         &json!({ "run_id": "refused", "location": location }),

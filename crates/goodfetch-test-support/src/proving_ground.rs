@@ -18,7 +18,9 @@ use std::time::Duration;
 
 use crate::env::TestEnv;
 use crate::process::{Process, ReportedAddressError, reported_address_within};
-use crate::received_requests::ReceivedRequests;
+use crate::proving_ground_format::{
+    OracleSubmission, ProxyCredentials, ROUTES, ReceivedRequests, ServeLine, ToolStatus,
+};
 use crate::tools::{Tool, ToolsError, tools};
 
 /// How long `serve` has to print its first line, which it writes once its
@@ -30,6 +32,45 @@ use crate::tools::{Tool, ToolsError, tools};
 /// as `serve` is ready, and a hang fails with this error well inside
 /// nextest's slow timeout rather than as an unnamed test timeout (ADR 0064).
 pub const PROVING_GROUND_DEADLINE: Duration = Duration::from_secs(30);
+
+/// The address a test's Proving ground binds: port 0 of loopback.
+pub const LOOPBACK_PORT_0: &str = "127.0.0.1:0";
+
+/// The network profile of a Proving ground that shapes nothing.
+pub const UNSHAPED: &str = "none";
+
+/// The arguments of `serve` for a test's Proving ground on `seed`: the
+/// local copy, bound to `address`, under the network profile
+/// `network_profile`. The Rust tests that start the Proving ground spell its
+/// command line through it, so a renamed flag fails there in one place. The
+/// TypeScript and Python Journey document tests, `xtask rss` and the scale
+/// measurement spell theirs.
+pub fn serve_arguments(seed: u64, address: &str, network_profile: &str) -> [String; 9] {
+    [
+        "serve".to_owned(),
+        "--seed".to_owned(),
+        seed.to_string(),
+        "--copy".to_owned(),
+        "local".to_owned(),
+        "--address".to_owned(),
+        address.to_owned(),
+        "--network-profile".to_owned(),
+        network_profile.to_owned(),
+    ]
+}
+
+/// The path of `url`, an absolute URL such as one of the Proving ground's
+/// pages, without its query or fragment, `/` for an origin, as the URL
+/// standard parses it: what a test compares of a URL the engine answers,
+/// whose port the Proving ground chose. `None` when `url` is not absolute.
+pub fn path_of(url: &str) -> Option<&str> {
+    let (_, rest) = url.split_once("://")?;
+    let path = rest[rest.find(['/', '?', '#']).unwrap_or(rest.len())..]
+        .split(['?', '#'])
+        .next()
+        .unwrap_or_default();
+    Some(if path.is_empty() { "/" } else { path })
+}
 
 /// How long a Proving ground has to exit once asked to stop: it closes its
 /// connections and undoes its network shaping first.
@@ -89,35 +130,6 @@ pub struct ProvingGroundFixtures {
     pub connections: String,
 }
 
-/// A forward proxy's Basic credentials, derived from the seed.
-#[derive(
-    Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
-)]
-#[serde(deny_unknown_fields)]
-pub struct ProxyCredentials {
-    /// The username.
-    pub username: String,
-    /// The password.
-    pub password: String,
-}
-
-/// `serve`'s first line, the fields test support reads.
-#[derive(serde::Deserialize)]
-struct ServeLine {
-    address: SocketAddr,
-    version: String,
-    seed: u64,
-    hosts: Vec<String>,
-    certificate_authority: String,
-    proxies: BTreeMap<String, String>,
-    proxy_credentials: ProxyCredentials,
-    dns: String,
-    target: String,
-    /// Absent from an older tag's line, which has no UDP fixture.
-    #[serde(default)]
-    udp: String,
-}
-
 /// The commit's Proving ground, serving one seed for one test. Its process
 /// joins the test's record, and it is stopped when dropped: with `SIGINT`,
 /// as [`ProvingGround::stop`] does, and killed only when it outlasts the
@@ -149,17 +161,7 @@ impl ProvingGround {
         deadline: Duration,
     ) -> Result<Self, ProvingGroundError> {
         let mut command = env.process_command(program);
-        command.args([
-            "serve",
-            "--seed",
-            &seed.to_string(),
-            "--copy",
-            "local",
-            "--address",
-            "127.0.0.1:0",
-            "--network-profile",
-            "none",
-        ]);
+        command.args(serve_arguments(seed, LOOPBACK_PORT_0, UNSHAPED));
         let process = env.spawn(&mut command).map_err(ProvingGroundError::Start)?;
         // On any failure the process is stopped, so the test's teardown finds
         // none alive.
@@ -206,12 +208,12 @@ impl ProvingGround {
                 .collect(),
             ca,
             fixtures: ProvingGroundFixtures {
-                proxies: line.proxies,
-                proxy_credentials: line.proxy_credentials,
-                dns: line.dns,
-                target: line.target,
-                udp: line.udp,
-                connections: format!("http://{}/observations", line.address),
+                proxies: line.fixtures.proxies,
+                proxy_credentials: line.fixtures.proxy_credentials,
+                dns: line.fixtures.dns,
+                target: line.fixtures.target,
+                udp: line.fixtures.udp,
+                connections: format!("http://{}{}", line.address, ROUTES.observations),
             },
         };
         Ok((line.address, description))
@@ -280,7 +282,7 @@ impl ProvingGround {
     ///
     /// `Oracle` when it gave no answer.
     pub fn set_time_step(&self, step: u64) -> Result<(), ProvingGroundError> {
-        ureq::put(format!("http://{}/time-step", self.address))
+        ureq::put(format!("http://{}{}", self.address, ROUTES.time_step))
             .send_json(serde_json::json!({ "step": step }))
             .map(drop)
             .map_err(|error| ProvingGroundError::Oracle(error.to_string()))
@@ -297,7 +299,7 @@ impl ProvingGround {
                 .and_then(|mut response| response.body_mut().read_to_string())
                 .map_err(|error| ProvingGroundError::ClientCertificate(error.to_string()))
         };
-        let (certificate, key) = (read("/client-certificate")?, read("/client-key")?);
+        let (certificate, key) = (read(ROUTES.client_certificate)?, read(ROUTES.client_key)?);
         let file = self.description.ca.with_file_name(CLIENT_CERTIFICATE_FILE);
         std::fs::write(&file, certificate)
             .map_err(|error| ProvingGroundError::ClientCertificate(error.to_string()))?;
@@ -310,10 +312,11 @@ impl ProvingGround {
     /// The start URL of the task `id` of its task list, such as
     /// `actionability/2`.
     pub fn start_url(&self, id: &str) -> Result<String, ProvingGroundError> {
-        let tasks: serde_json::Value = ureq::get(format!("http://{}/tasks", self.address))
-            .call()
-            .and_then(|mut response| response.body_mut().read_json())
-            .map_err(|error| ProvingGroundError::Oracle(error.to_string()))?;
+        let tasks: serde_json::Value =
+            ureq::get(format!("http://{}{}", self.address, ROUTES.tasks))
+                .call()
+                .and_then(|mut response| response.body_mut().read_json())
+                .map_err(|error| ProvingGroundError::Oracle(error.to_string()))?;
         tasks["tasks"]
             .as_array()
             .into_iter()
@@ -325,14 +328,14 @@ impl ProvingGround {
     }
 
     /// The oracle's verdict on the task `id`, which the tool under test
-    /// reports as `status` (`success` or `failure`), from the Effects the
-    /// task's pages recorded: its `outcome`, such as `verified`, and what
-    /// it found.
-    pub fn judge(&self, id: &str, status: &str) -> Result<serde_json::Value, ProvingGroundError> {
-        ureq::post(format!("http://{}/oracle", self.address))
-            .send_json(serde_json::json!({ "task": id, "status": status, "files": [] }))
-            .and_then(|mut response| response.body_mut().read_json())
-            .map_err(|error| ProvingGroundError::Oracle(error.to_string()))
+    /// reports as `status`, from the Effects the task's pages recorded: its
+    /// `outcome`, such as `verified`, and what it found.
+    pub fn judge(
+        &self,
+        id: &str,
+        status: ToolStatus,
+    ) -> Result<serde_json::Value, ProvingGroundError> {
+        self.judge_records(id, status, &[])
     }
 
     /// The oracle's verdict on the task `id`, which the tool under test
@@ -346,11 +349,16 @@ impl ProvingGround {
     pub fn judge_records(
         &self,
         id: &str,
-        status: &str,
+        status: ToolStatus,
         records: &[serde_json::Value],
     ) -> Result<serde_json::Value, ProvingGroundError> {
-        ureq::post(format!("http://{}/oracle", self.address))
-            .send_json(serde_json::json!({ "task": id, "status": status, "records": records }))
+        ureq::post(format!("http://{}{}", self.address, ROUTES.oracle))
+            .send_json(OracleSubmission {
+                task: id.to_owned(),
+                status,
+                records: records.to_vec(),
+                files: Vec::new(),
+            })
             .and_then(|mut response| response.body_mut().read_json())
             .map_err(|error| ProvingGroundError::Oracle(error.to_string()))
     }
@@ -429,3 +437,6 @@ pub struct ClientCertificate {
     /// Its PKCS #8 private key, as PEM.
     pub key: String,
 }
+
+#[cfg(test)]
+mod tests;

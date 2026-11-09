@@ -47,12 +47,12 @@ mod kennel;
 mod lazyfs;
 mod license_allowlist;
 mod markdown;
+mod mask_writers;
 mod metadata;
 mod mocking_lockfile;
 mod modules;
 mod no_retry;
 mod notices;
-mod order_seed;
 mod os_services;
 mod output;
 mod output_scans;
@@ -77,6 +77,7 @@ mod stress;
 mod sweep_target;
 mod targets;
 mod telemetry;
+mod test_facts;
 mod test_tools;
 mod tlc;
 mod tree;
@@ -243,6 +244,9 @@ enum Command {
         #[command(subcommand)]
         command: lazyfs::Command,
     },
+    /// Fails on a writer in a Product's crates that the Mask's list of writers
+    /// does not hold as it is found (spec #564).
+    MaskWriters,
     /// Fails when `uv.lock` holds a mocking library such as pytest-mock (ADR 0062).
     MockingLockfile,
     /// Fails on an import between top-level modules that a crate's
@@ -262,10 +266,6 @@ enum Command {
     /// with its license and where its source is; fails on a license ADR
     /// 0018's allowlist refuses for its use (ADRs 0018, 0043 and 0047).
     Notices(notices::Arguments),
-    /// Prints the order seed of a tree, which every suite orders its tests
-    /// by: the first 8 bytes of its hash, read as an unsigned integer (ADR
-    /// 0064).
-    OrderSeed(order_seed::Arguments),
     /// Fails on an upload of a job's outputs that does not follow a passing
     /// `gitleaks` scan of what it uploads (ADR 0067).
     OutputScans,
@@ -359,8 +359,12 @@ enum Command {
     Telemetry,
     /// Builds the commit's executables that tests run with the tests' own
     /// Cargo profile and writes the test tool manifest of their paths, which
-    /// `just test` puts in `GOODFETCH_TEST_TOOLS` (ADRs 0062 and 0094).
-    TestTools(test_tools::Arguments),
+    /// `just test` puts in `GOODFETCH_TEST_TOOLS` (ADRs 0062 and 0094), and
+    /// reads a tool's path in one.
+    TestTools {
+        #[command(subcommand)]
+        command: test_tools::Command,
+    },
     /// The TLA+ models' model checking with TLC, on the pinned pair of TLA+
     /// tools (ADR 0060).
     Tlc {
@@ -532,6 +536,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::JunitSummary(arguments) => junit_summary::run(&arguments, environment),
         Command::KennelManifest => Ok(check::report(&kennel::check(root)?)),
         Command::Lazyfs { command } => lazyfs::run(&command, environment),
+        Command::MaskWriters => Ok(check::report(&mask_writers::check(root)?)),
         Command::MockingLockfile => Ok(check::report(&mocking_lockfile::check(root)?)),
         Command::Modules { workspace } => {
             let workspace =
@@ -549,7 +554,6 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Register { command } => register::run(&command, environment, &Cli::command()),
         Command::ReleaseSuite { command } => release_suite::run(command, environment),
         Command::Repeat(arguments) => repeat::run(arguments, environment),
-        Command::OrderSeed(arguments) => order_seed::run(&arguments, environment),
         Command::Results { command } => run_results(command, environment),
         Command::Compare { command } => compare::run(command, environment),
         Command::Rss { command } => rss::run(command, environment),
@@ -560,7 +564,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::SweepTarget(arguments) => sweep_target::run(&arguments, environment),
         Command::Targets { command } => targets::run(command, environment),
         Command::Telemetry => Ok(check::report(&telemetry::check(root)?)),
-        Command::TestTools(arguments) => test_tools::run(&arguments, environment),
+        Command::TestTools { command } => test_tools::run(command, environment),
         Command::Tlc { command } => tlc::run(command, environment),
         Command::Watchlist(arguments) => watchlist::run(&arguments, environment),
         Command::Wording => Ok(check::report(&wording::check(root)?)),

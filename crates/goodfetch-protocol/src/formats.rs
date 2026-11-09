@@ -7,7 +7,7 @@
 
 use std::cmp::Ordering;
 
-use schemars::{Schema, SchemaGenerator};
+use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
@@ -52,7 +52,7 @@ impl Storage {
 /// A rule of ADR 0030 by which a reader treats another version of its
 /// format. Each later rule (the Response cache's) joins with the first
 /// format that follows it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Rule {
     /// A reader reads its own major up to its own minor.
@@ -79,15 +79,18 @@ pub enum Rule {
 }
 
 impl Rule {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 5] = [
+        Self::Default,
+        Self::FrozenMajor,
+        Self::SharedStore,
+        Self::LowerMinor,
+        Self::NewestReadable,
+    ];
+
     /// Its name in the bundle.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Default => "default",
-            Self::FrozenMajor => "frozen_major",
-            Self::SharedStore => "shared_store",
-            Self::LowerMinor => "lower_minor",
-            Self::NewestReadable => "newest_readable",
-        }
+        crate::wire_name::of(&self)
     }
 
     /// What a reader at `reader` makes of a file, or a peer's `hello`, at
@@ -181,7 +184,7 @@ pub enum Compatibility {
 
 /// Who opens a protocol with `hello`, which decides the handshake's checks
 /// (ADRs 0066, 0095 and 0096).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum HelloFrom {
     /// A Client, which names the Product it needs: the engine checks it
@@ -195,13 +198,12 @@ pub enum HelloFrom {
 }
 
 impl HelloFrom {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 3] = [Self::Client, Self::BrowserHost, Self::GroupMember];
+
     /// Its name in the bundle.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Client => "client",
-            Self::BrowserHost => "browser_host",
-            Self::GroupMember => "group_member",
-        }
+        crate::wire_name::of(&self)
     }
 }
 

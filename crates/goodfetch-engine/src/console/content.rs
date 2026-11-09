@@ -81,7 +81,7 @@ impl Content {
             Origins::Allowed(&[&self.authorities, console]),
         ) {
             return Asked::Refused {
-                reason: refusal.reason(),
+                reason: refusal.reason().as_str(),
                 status: StatusCode::FORBIDDEN,
             };
         }

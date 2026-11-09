@@ -26,7 +26,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_protocol::audit::{Actor, ENDPOINT_AUTHENTICATION_FAILED};
+use goodfetch_protocol::audit::{Actor, ENDPOINT_AUTHENTICATION_FAILED, Listener};
 use goodfetch_protocol::catalog::SharedTypeValue;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::people::{
@@ -43,7 +43,7 @@ use tokio::time::Instant;
 
 use crate::audit::{AuditError, AuditLog, Origin};
 use crate::clock::Clock;
-use crate::endpoint::{Listener, same_token};
+use crate::endpoint::same_token;
 use crate::tasks::TaskOwner;
 
 pub use key::{ConsoleKey, KeyError};
@@ -122,16 +122,6 @@ pub struct SignInPolicy {
     pub idle_expiry: Duration,
     /// How many sign-in attempts one address may make in a minute.
     pub rate: u64,
-}
-
-impl Default for SignInPolicy {
-    /// The settings' defaults: 30 days, 10 attempts a minute.
-    fn default() -> Self {
-        Self {
-            idle_expiry: Duration::from_hours(30 * 24),
-            rate: 10,
-        }
-    }
 }
 
 /// A sign-in just created: the cookie that carries it.
@@ -559,7 +549,7 @@ impl SignInDriver {
     ///
     /// Dropping the future may leave the entry recorded.
     pub async fn refused(&self, listener: Listener, reason: &'static str) {
-        let listener = listener.name();
+        let listener = listener.as_str();
         let inner = Arc::clone(&self.inner);
         self.blocking(move || {
             let origin = Origin {

@@ -13,13 +13,18 @@
 use std::collections::BTreeSet;
 use std::time::Duration;
 
+use goodfetch_protocol::home::RUN_TRACE_PROVENANCE;
+use goodfetch_test_client::Attached;
+use goodfetch_test_client::HomeLayout;
+use goodfetch_test_support::ToolStatus;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
+use crate::attached_with;
 use crate::fetch_tiers::settings;
 
 /// The Proving ground's seed.
@@ -144,7 +149,7 @@ fn paths(records: &[Value]) -> Vec<String> {
 fn a_crawl_with_no_code_fills_pages_keyed_by_url_with_each_pages_markdown() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
 
     let (started, records) = crawl(
@@ -154,7 +159,7 @@ fn a_crawl_with_no_code_fills_pages_keyed_by_url_with_each_pages_markdown() {
         &json!({ "formats": { "markdown": true } }),
         &json!({ "fetch": { "tier": "http" }, "crawl": { "max_depth": 1 } }),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let index_path = path_of(&index);
     let judged: Vec<Value> = records
@@ -165,7 +170,7 @@ fn a_crawl_with_no_code_fills_pages_keyed_by_url_with_each_pages_markdown() {
         })
         .collect();
     let verdict = proving_ground
-        .judge_records(MARKDOWN_TASK, "success", &judged)
+        .judge_records(MARKDOWN_TASK, ToolStatus::Success, &judged)
         .unwrap();
     let urls: BTreeSet<&str> = records
         .iter()
@@ -216,7 +221,7 @@ fn a_crawl_with_no_code_fills_pages_keyed_by_url_with_each_pages_markdown() {
 fn follow_none_fetches_only_the_seeds() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
     let page = format!("{index}/headings/levels");
 
@@ -233,13 +238,13 @@ fn follow_none_fetches_only_the_seeds() {
         &json!({ "formats": { "markdown": true }, "follow": "none" }),
         &json!({ "fetch": { "tier": "http" } }),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let observations = proving_ground.observations().unwrap();
     let mut received: Vec<String> = ReceivedRequests::of(&observations)
         .every()
-        .filter(|request| request["target"] != "/robots.txt")
-        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .filter(|request| request.target != "/robots.txt")
+        .map(|request| request.target.as_str().to_owned())
         .collect();
     received.sort();
     let mut seeds = vec![path_of(&index), path_of(&page)];
@@ -257,7 +262,7 @@ fn follow_none_fetches_only_the_seeds() {
 fn follow_sitemap_reads_the_sitemap_the_sites_robots_txt_names() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let about = proving_ground.url(SITEMAP_SITE, "/about");
 
     let (_, records) = crawl(
@@ -267,7 +272,7 @@ fn follow_sitemap_reads_the_sitemap_the_sites_robots_txt_names() {
         &json!({ "formats": { "markdown": true }, "follow": "sitemap" }),
         &json!({ "fetch": { "tier": "http" } }),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let hosts: BTreeSet<String> = records
         .iter()
@@ -298,7 +303,7 @@ fn follow_sitemap_reads_the_sitemap_the_sites_robots_txt_names() {
 #[test]
 fn a_code_free_start_that_declares_a_dataset_is_refused() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let refused = engine.call(
         "start",
         "crawl.start",
@@ -310,7 +315,7 @@ fn a_code_free_start_that_declares_a_dataset_is_refused() {
         }),
         &mut |handle| panic!("a refused crawl sent its program {handle}"),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(
         refused["error"]["data"]["code"],
         json!("invalid_params"),
@@ -405,7 +410,7 @@ fn fields_of(records: &[Value]) -> (Value, Value, Value) {
 fn a_crawl_with_fields_fills_each_by_its_value_transform_and_provenance_names_it() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let page = proving_ground.url("extraction.test", "/values");
     let origin = proving_ground.url("extraction.test", "");
 
@@ -416,7 +421,7 @@ fn a_crawl_with_fields_fills_each_by_its_value_transform_and_provenance_names_it
         &json!({ "formats": { "markdown": true }, "follow": "none", "fields": value_fields() }),
         &json!({ "fetch": { "tier": "http" } }),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert!(started.get("result").is_some(), "{started}");
     assert_eq!(fields_of(&records), value_record(&origin));
@@ -439,7 +444,7 @@ fn an_xpath_field_reads_alike_on_every_tier(#[case] tier: &str, #[case] read_on:
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
-    let mut engine = Attached::start_with(&env, Some(Duration::from_secs(60)), |command| {
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
         command.env(BROWSERS_PATH_VARIABLE, &cache);
     });
     let page = proving_ground.url("extraction.test", "/values");
@@ -456,7 +461,7 @@ fn an_xpath_field_reads_alike_on_every_tier(#[case] tier: &str, #[case] read_on:
         &json!({ "formats": { "markdown": true }, "follow": "none", "fields": fields }),
         &json!({ "fetch": { "tier": tier } }),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert!(started.get("result").is_some(), "{started}");
     assert_eq!(
@@ -484,7 +489,7 @@ fn concurrent_browser_attempts_each_keep_their_own_lease() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
-    let mut engine = Attached::start_with(&env, Some(Duration::from_secs(60)), |command| {
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
         command.env(BROWSERS_PATH_VARIABLE, &cache);
     });
     let mut pages = vec!["/products/1?hold=3000".to_owned()];
@@ -505,12 +510,12 @@ fn concurrent_browser_attempts_each_keep_their_own_lease() {
             "crawl": { "handler": { "concurrency": 16 } },
         }),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let observations = proving_ground.observations().unwrap();
     let mut received: Vec<String> = ReceivedRequests::of(&observations)
         .every()
-        .filter_map(|request| request["target"].as_str())
+        .map(|request| request.target.as_str())
         .filter(|target| target.starts_with("/products/"))
         .map(str::to_owned)
         .collect();
@@ -527,7 +532,7 @@ fn concurrent_browser_attempts_each_keep_their_own_lease() {
 #[test]
 fn a_code_free_start_with_an_xpath_the_engine_refuses_is_refused() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let refused = engine.call(
         "start",
         "crawl.start",
@@ -542,7 +547,7 @@ fn a_code_free_start_with_an_xpath_the_engine_refuses_is_refused() {
         }),
         &mut |handle| panic!("a refused crawl sent its program {handle}"),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(
         refused["error"]["data"]["code"],
         json!("invalid_params"),
@@ -568,7 +573,7 @@ fn a_code_free_start_with_an_xpath_the_engine_refuses_is_refused() {
 fn with_every_per_page_feature_off_the_crawl_fetches_and_follows_and_keeps_nothing_else() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
     let switched_off = json!({
         "fetch": { "tier": "http", "block_classification": false },
@@ -597,13 +602,13 @@ fn with_every_per_page_feature_off_the_crawl_fetches_and_follows_and_keeps_nothi
         &json!({ "run_id": "throughput" }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let observations = proving_ground.observations().unwrap();
     let received: BTreeSet<String> = ReceivedRequests::of(&observations)
         .every()
-        .filter(|request| request["target"] != "/robots.txt")
-        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .filter(|request| request.target != "/robots.txt")
+        .map(|request| request.target.as_str().to_owned())
         .collect();
     let marks: BTreeSet<String> = outcomes["result"]["outcomes"]
         .as_array()
@@ -612,13 +617,7 @@ fn with_every_per_page_feature_off_the_crawl_fetches_and_follows_and_keeps_nothi
         .map(|outcome| outcome["nothing_committed"].to_string())
         .collect();
     let codes = |field: &str, key: &str| strings(&report["result"][field], key);
-    let log = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join("throughput")
-        .join("trace")
-        .join("provenance.jsonl");
+    let log = HomeLayout::of(env.home()).run_trace("throughput", RUN_TRACE_PROVENANCE);
     assert_eq!(
         (
             started["result"]["run_id"].clone(),

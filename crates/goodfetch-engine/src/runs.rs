@@ -123,7 +123,7 @@ use crate::events::Events;
 use crate::governor::{
     Filesystem, Governor, Held, LastResort, RunShare, StorageSample, last_resort_run,
 };
-use crate::home::{RunStateLocation, major_name};
+use crate::home::RunStateLocation;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::{Charged, Charging, Counted, LedgerError, Refusal, Reservation, SliceId};
 use crate::local_addresses::{self, Rotation};
@@ -139,6 +139,7 @@ use crate::run_state::{
     self, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions, RunStateTables, Syncing,
 };
 use crate::run_trace;
+use crate::sandbox_probe::SandboxProbe;
 use crate::secrets::{Purpose, RunSecrets, SecretError, Secrets, is_engine_key};
 use crate::settings::{Resolved, RunSettings, get_or_default};
 use crate::staging::AttemptWrites;
@@ -1407,6 +1408,11 @@ impl Run {
         self.clock
     }
 
+    /// The engine's sandbox probe, whose answer each browser launch reads.
+    pub fn sandbox_probe(&self) -> &SandboxProbe {
+        self.runs.engine.sandbox_probe()
+    }
+
     /// Shows `pause`, a Human pause waiting on one of its pages (ADR 0092),
     /// in its progress until the handle answered ends or is dropped: its
     /// beginning and its end each give a new value.
@@ -2590,7 +2596,7 @@ impl Runs {
             product: setup.product,
             instance: setup.events.instance().as_str().to_owned(),
             daemon: matches!(setup.reached_at, Some(RunOwner::Daemon(_)))
-                .then(|| major_name(&setup.version)),
+                .then(|| setup.version.line().to_string()),
         };
         let runs = Self {
             commands,
@@ -6550,7 +6556,7 @@ fn durability_of(settings: Option<&RunSettings>) -> Durability {
     settings.map_or(Durability::Full, |settings| {
         let resolved = settings.resolved();
         let interval = resolved.get(&RUN_STATE_COMMIT_INTERVAL);
-        Durability::named(resolved.value(&RUN_STATE_DURABILITY), interval).expect(
+        Durability::named(resolved.get(&RUN_STATE_DURABILITY), interval).expect(
             "invariant: the settings resolver lets only `run_state.durability`'s choices through",
         )
     })

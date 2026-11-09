@@ -17,7 +17,6 @@ use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Map, Value, json};
 
 use crate::page::{browser_command_lines, opened, started_with};
-use crate::run::call;
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 696;
@@ -109,15 +108,8 @@ pub(crate) fn identity_seen(
     let mut settings = Map::new();
     settings.insert("browser".to_owned(), browser.clone());
     let mut engine = started_with(env, cache, &proving_ground, "identity", &settings, change);
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "identity" }),
-    ));
-    let went = call(
-        &mut engine,
-        3,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "identity" })));
+    let went = engine.ask(3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("access.localhost", "/identity") }),
     );
@@ -128,12 +120,7 @@ pub(crate) fn identity_seen(
             .all(|check| seen.iter().any(|(reported, _)| reported == check))
     });
     let browsers = launched(env);
-    let _ = call(
-        &mut engine,
-        4,
-        "run.finish",
-        &json!({ "run_id": "identity" }),
-    );
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "identity" }));
     let _ = engine.finish();
 
     let mut headers: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -141,19 +128,12 @@ pub(crate) fn identity_seen(
         .received_requests()
         .unwrap()
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|host| host.starts_with("access.localhost"))
-        })
+        .filter(|request| request.host.starts_with("access.localhost"))
     {
-        for header in request["headers"].as_array().unwrap() {
-            let name = header[0].as_str().unwrap().to_ascii_lowercase();
+        for (name, value) in &request.headers {
+            let name = name.to_ascii_lowercase();
             if name == "user-agent" || name.starts_with("sec-ch-ua") {
-                headers
-                    .entry(name)
-                    .or_default()
-                    .insert(header[1].as_str().unwrap().to_owned());
+                headers.entry(name).or_default().insert(value.clone());
             }
         }
     }

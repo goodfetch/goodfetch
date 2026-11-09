@@ -40,7 +40,7 @@ fi
 # changes nothing), and a Daemon of Collie's executable in a home of its own.
 just _test-tools
 export GOODFETCH_TEST_TOOLS="$root/target/test-tools.json"
-test_env=$(jq -r '.test_env' "$GOODFETCH_TEST_TOOLS")
+test_env=$(cargo run --quiet --bin xtask -- test-tools path test_env --manifest "$GOODFETCH_TEST_TOOLS")
 work=$(mktemp -d)
 mkfifo "$work/stdin"
 "$test_env" --daemon --test-name zap-baseline < "$work/stdin" > "$work/description" &

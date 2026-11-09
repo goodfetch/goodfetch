@@ -12,7 +12,7 @@
 )]
 
 use std::collections::BTreeSet;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use data_encoding::BASE64;
 use goodfetch_cdp::Subscription;
@@ -20,6 +20,7 @@ use goodfetch_cdp::generated::{browser, fetch, network, page, storage, target};
 use goodfetch_cdp::{Failure, SessionId as TargetSession};
 use goodfetch_engine::CallError;
 use serde_json::{Value, json};
+use tokio::sync::{mpsc, oneshot};
 
 use super::{Browser, Connect, SessionDriver, isolated_world, world};
 use crate::errors::Call;
@@ -27,31 +28,75 @@ use crate::errors::Call;
 /// The origins whose documents a Session's pages loaded, which its pages'
 /// watchers add to.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct Origins(Arc<Mutex<BTreeSet<String>>>);
+pub(crate) struct Origins(Arc<Mutex<Watched>>);
+
+#[derive(Debug, Default)]
+struct Watched {
+    origins: BTreeSet<String>,
+    /// How to ask each watcher still going whether it read what it was
+    /// handed: [`Origins::caught_up`].
+    watchers: Vec<mpsc::Sender<oneshot::Sender<()>>>,
+}
+
+/// How many asks a watcher holds unread: its Session captures one at a time.
+const WATCHER_ASKS: usize = 1;
 
 impl Origins {
-    fn list(&self) -> Vec<String> {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .cloned()
-            .collect()
+    fn watched(&self) -> MutexGuard<'_, Watched> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Adds the origin of every document a page's `events` show it
-    /// navigated to, until they end: its main frame's and its frames'.
-    pub(crate) async fn watch(self, mut events: Subscription) {
-        while let Some(event) = events.next().await {
-            let Some(navigated) = event.read::<page::FrameNavigatedEvent>() else {
-                continue;
-            };
-            let origin = navigated.frame.security_origin;
-            if origin.starts_with("http://") || origin.starts_with("https://") {
-                self.0
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .insert(origin);
+    fn list(&self) -> Vec<String> {
+        self.watched().origins.iter().cloned().collect()
+    }
+
+    /// Waits until each watcher read every event the connection handed it
+    /// so far, so an origin the browser reported before an answer the caller
+    /// already holds is listed, however far its watcher's task lagged. A
+    /// watcher that went has nothing more to add.
+    async fn caught_up(&self) {
+        let watchers = self.watched().watchers.clone();
+        for watcher in watchers {
+            let (answer, answered) = oneshot::channel();
+            if watcher.send(answer).await.is_ok() {
+                let _ = answered.await;
+            }
+        }
+    }
+
+    /// What adds the origin of every document a page's `events` show it
+    /// navigated to, until they end: its main frame's and its frames'. A
+    /// capture waits for it from now on, whether or not it started running.
+    pub(crate) fn watch(self, events: Subscription) -> impl Future<Output = ()> + Send + 'static {
+        let (asks, asked) = mpsc::channel(WATCHER_ASKS);
+        {
+            let mut watched = self.watched();
+            watched.watchers.retain(|watcher| !watcher.is_closed());
+            watched.watchers.push(asks);
+        }
+        self.read(events, asked)
+    }
+
+    /// Reads `events`, answering each of `asked` once none is left to read.
+    async fn read(self, mut events: Subscription, mut asked: mpsc::Receiver<oneshot::Sender<()>>) {
+        loop {
+            tokio::select! {
+                biased;
+                event = events.next() => {
+                    let Some(event) = event else {
+                        return;
+                    };
+                    let Some(navigated) = event.read::<page::FrameNavigatedEvent>() else {
+                        continue;
+                    };
+                    let origin = navigated.frame.security_origin;
+                    if origin.starts_with("http://") || origin.starts_with("https://") {
+                        self.watched().origins.insert(origin);
+                    }
+                }
+                Some(answer) = asked.recv() => {
+                    let _ = answer.send(());
+                }
             }
         }
     }
@@ -116,6 +161,9 @@ impl<B: Connect> SessionDriver<B> {
             .into_iter()
             .map(cookie_param)
             .collect();
+        // The browser's answer came after every commit it reported before it,
+        // on the one connection: its watchers have those events to read.
+        origins.caught_up().await;
         let mut stored = Vec::new();
         for origin in origins.list() {
             let read = on_origin(&browser, context, &origin, READ_STORAGE, Value::Null).await?;

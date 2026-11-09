@@ -44,6 +44,7 @@ mod service_workers;
 mod targets;
 mod world;
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -63,6 +64,7 @@ use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::tls::CertificateInvalid;
+use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::functions::World;
 use goodfetch_protocol::page::{
@@ -75,7 +77,7 @@ use tokio_util::sync::CancellationToken;
 pub(crate) use self::carry::{Carried, Origins};
 pub(crate) use self::children::{Child, ChildKind, OnChild};
 use self::encoding::{encoding_of, encoding_read, isolated_world};
-pub(crate) use self::ending::Lost;
+pub(crate) use self::ending::{ENDING_KNOWN_WITHIN, Lost};
 use self::functions::{evaluation, page_function_world};
 pub(crate) use self::navigation::{Arrived, browser_id, hop_id};
 use self::navigation::{Ended, Expected, Followed, Navigation};
@@ -927,6 +929,7 @@ impl<B: Connect> SessionDriver<B> {
             frame,
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
+            spent: Duration::ZERO,
             turn: Arc::new(Mutex::new(None)),
             gesture: Arc::new(Mutex::new(())),
             value: PageValue::empty(),
@@ -1018,6 +1021,9 @@ pub(crate) struct PageDriver {
     /// How many navigation calls wait on the page now: a request the
     /// navigation gate refuses raises from them, or else is recorded.
     navigating: Arc<watch::Sender<u32>>,
+    /// What the call driving it spent of its own deadline before its work
+    /// began ([`Self::having_spent`]).
+    spent: Duration,
     /// What it carries for Foxhound: its navigation gate and lease check,
     /// the latter asked before each command its `browser` sends.
     value: PageValue,
@@ -1357,6 +1363,23 @@ impl PageDriver {
         *self.navigating.borrow() > 0
     }
 
+    /// This page's driver for a call that spent `spent` of its own deadline
+    /// before its work began, waiting for the page's `Runtime` (ADR 0019),
+    /// which its navigation deadlines count.
+    pub(crate) fn having_spent(&self, spent: Duration) -> Cow<'_, Self> {
+        if spent.is_zero() {
+            return Cow::Borrowed(self);
+        }
+        let mut page = self.clone();
+        page.spent = spent;
+        Cow::Owned(page)
+    }
+
+    /// The page's action deadline, its Run's `timeout.action`.
+    pub(crate) fn action_deadline(&self) -> &Deadline {
+        &self.browser.deadlines.action
+    }
+
     /// Runs `future` within the page's navigation deadline, its Run's
     /// `timeout.navigation`, the page's waits for its gate's and its
     /// proxy's permits not counted.
@@ -1368,7 +1391,7 @@ impl PageDriver {
     /// deadline counted, its permit waits left out (ADRs 0080 and 0093).
     pub(crate) async fn within_navigation_deadline<F: Future>(
         &self,
-        waited_for: &str,
+        waited_for: WaitedFor,
         future: F,
     ) -> Result<F::Output, CallError> {
         Box::pin(self.within(Some(&self.browser.deadlines.navigation), waited_for, future)).await
@@ -1407,16 +1430,17 @@ impl PageDriver {
     async fn within<F: Future>(
         &self,
         deadline: Option<&Deadline>,
-        waited_for: &str,
+        waited_for: WaitedFor,
         future: F,
     ) -> Result<F::Output, CallError> {
         let Some(deadline) = deadline else {
             return Ok(future.await);
         };
         let limit = deadline.duration();
+        let left = limit.saturating_sub(self.spent);
         let done = match &self.waits {
-            Some(waits) => waits.within(limit, future).await.ok(),
-            None => tokio::time::timeout(limit, future).await.ok(),
+            Some(waits) => waits.within(left, future).await.ok(),
+            None => tokio::time::timeout(left, future).await.ok(),
         };
         done.ok_or_else(|| deadline.exceeded(waited_for, limit))
     }
@@ -2080,10 +2104,10 @@ pub(crate) fn detached(events: &mut Subscription) -> bool {
 
 /// What a navigation that answers at `wait_until` waits for, as its
 /// `deadline_exceeded` names it: the state, as the call spells it.
-fn waited_for(wait_until: WaitUntil) -> &'static str {
+fn waited_for(wait_until: WaitUntil) -> WaitedFor {
     match wait_until {
-        WaitUntil::Commit => "commit",
-        WaitUntil::DomContentLoaded => "domcontentloaded",
-        WaitUntil::Load => "load",
+        WaitUntil::Commit => WaitedFor::COMMIT,
+        WaitUntil::DomContentLoaded => WaitedFor::DOM_CONTENT_LOADED,
+        WaitUntil::Load => WaitedFor::LOAD,
     }
 }

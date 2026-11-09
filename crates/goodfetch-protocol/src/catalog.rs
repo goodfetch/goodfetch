@@ -11,6 +11,7 @@ use std::str::FromStr;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
+pub mod sections;
 mod setting;
 
 pub use setting::{Authority, HostList, PriceValue, ValueKind, ValueShape};
@@ -102,6 +103,9 @@ pub enum Product {
 }
 
 impl Product {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 2] = [Self::Collie, Self::Foxhound];
+
     /// The smallest Product that carries an entry defined in `module`, a
     /// `module_path!()`: Foxhound for an item of the `foxhound` module, Collie
     /// for any other (ADR 0099).
@@ -124,10 +128,7 @@ impl Product {
 
     /// The mark as the catalog writes it.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Collie => "collie",
-            Self::Foxhound => "foxhound",
-        }
+        crate::wire_name::of(&self)
     }
 
     /// Its name, as prose and type names write it.
@@ -135,6 +136,16 @@ impl Product {
         match self {
             Self::Collie => "Collie",
             Self::Foxhound => "Foxhound",
+        }
+    }
+
+    /// The name of its executable, its crate's (ADR 0090): the binary's
+    /// name, the service name of what it exports and the name of its
+    /// versioned copy in the Browser cache.
+    pub fn executable_name(self) -> &'static str {
+        match self {
+            Self::Collie => "goodfetch-collie",
+            Self::Foxhound => "goodfetch-foxhound",
         }
     }
 }
@@ -409,15 +420,7 @@ impl ErrorGroup {
 
     /// Its `snake_case` name.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Program => "program",
-            Self::Refused => "refused",
-            Self::Page => "page",
-            Self::Model => "model",
-            Self::DeadlineExceeded => "deadline_exceeded",
-            Self::Unavailable => "unavailable",
-            Self::Internal => "internal",
-        }
+        crate::wire_name::of(&self)
     }
 
     /// Its JSON-RPC numeric class, in the range JSON-RPC 2.0 leaves to
@@ -562,10 +565,11 @@ pub struct Metric {
 /// A label of a metric and every value it takes: a bounded set, never a
 /// URL, a domain or a Run ID (ADR 0050).
 pub struct MetricLabel {
-    /// Its `snake_case` name.
+    /// Its `snake_case` name, the key a recorded value is put under.
     pub name: &'static str,
-    /// Every value it takes.
-    pub values: &'static [&'static str],
+    /// Every value it takes, derived from the wire enum it labels where
+    /// there is one, so a value the engine records is always declared.
+    pub values: fn() -> Vec<&'static str>,
 }
 
 /// A Setting (ADR 0028), named by its key, which ADR 0087 refuses on a

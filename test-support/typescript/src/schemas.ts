@@ -22,6 +22,11 @@ ajv.addFormat("uint8", {
   type: "number",
   validate: (value: number) => Number.isInteger(value) && value >= 0 && value <= 255,
 });
+// And Rust's `u16`, such as a status in the Proving ground's observations.
+ajv.addFormat("uint16", {
+  type: "number",
+  validate: (value: number) => Number.isInteger(value) && value >= 0 && value <= 65_535,
+});
 
 /** A committed schema of `test-support/fixtures/schemas/`, which Ajv checks as it compiles it. */
 export function committedSchema(file: string): SchemaObject {

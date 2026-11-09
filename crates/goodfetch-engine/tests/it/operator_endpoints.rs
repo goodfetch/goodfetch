@@ -336,7 +336,7 @@ fn every_operator_endpoint_case_of_the_ssrf_table_is_refused_before_it_connects(
 fn requested_hosts(observations: &Value) -> Vec<String> {
     ReceivedRequests::of(observations)
         .every()
-        .map(|request| request["host"].as_str().unwrap().to_owned())
+        .map(|request| request.host.as_str().to_owned())
         .collect()
 }
 

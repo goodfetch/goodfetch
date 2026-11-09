@@ -17,7 +17,6 @@ use rusqlite::Connection;
 use serde_json::{Map, Value, json};
 
 use crate::page::opened;
-use crate::run::call;
 
 const SEED: u64 = 709;
 
@@ -89,31 +88,21 @@ fn a_sites_429_through_a_proxy_writes_no_domain_limit_and_no_proxy_ceiling_where
     );
     let mut engine =
         crate::page::started_with(&env, &cache, &proving_ground, "program", &settings, |_| {});
-    let site = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "program" }),
-    ));
-    let opened_session = call(
-        &mut engine,
-        3,
+    let site = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "program" })));
+    let opened_session = engine.ask(3,
         "run.new_session",
         &json!({ "run_id": "program", "settings": { "proxy": { "server": limited, "username": "own" } } }),
     );
     let mut own = Vec::new();
     for id in [4, 5] {
-        own.push(opened(&call(
-            &mut engine,
+        own.push(opened(&engine.ask(
             id,
             "session.new_page",
             &json!({ "session_id": opened_session["result"]["session_id"] }),
         )));
     }
 
-    let sites = call(
-        &mut engine,
-        6,
+    let sites = engine.ask(6,
         "page.goto",
         &json!({ "page_id": site.page_id, "url": proving_ground.url("scope.test", "/quiet?mark=site&status=429") }),
     );
@@ -132,12 +121,7 @@ fn a_sites_429_through_a_proxy_writes_no_domain_limit_and_no_proxy_ceiling_where
             answered.push(message);
         }
     }
-    let _ = call(
-        &mut engine,
-        9,
-        "run.finish",
-        &json!({ "run_id": "program" }),
-    );
+    let _ = engine.ask(9, "run.finish", &json!({ "run_id": "program" }));
     let _ = engine.finish();
 
     let mut codes = answered
@@ -185,26 +169,19 @@ fn a_provider_proxy_that_is_down_raises_proxy_unavailable_and_lowers_no_ceiling(
     settings.insert("proxy".to_owned(), json!({ "provider": "list" }));
     let mut engine =
         crate::page::started_with(&env, &cache, &proving_ground, "down", &settings, |_| {});
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "down" }),
-    ));
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "down" })));
 
-    let plain = call(
-        &mut engine,
+    let plain = engine.ask(
         3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": "http://scope.test/quiet?mark=plain" }),
     );
-    let tunnelled = call(
-        &mut engine,
+    let tunnelled = engine.ask(
         4,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": "https://scope.test/quiet?mark=tunnelled" }),
     );
-    let _ = call(&mut engine, 5, "run.finish", &json!({ "run_id": "down" }));
+    let _ = engine.ask(5, "run.finish", &json!({ "run_id": "down" }));
     let _ = engine.finish();
 
     assert_eq!(
@@ -250,25 +227,13 @@ fn a_navigation_proxy_bypass_sends_around_the_proxy_takes_none_of_its_permits() 
         &settings,
         |_| {},
     );
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "bypassing" }),
-    ));
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "bypassing" })));
 
-    let navigated = call(
-        &mut engine,
-        3,
+    let navigated = engine.ask(3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("scope.test", "/quiet?mark=bypassed") }),
     );
-    let _ = call(
-        &mut engine,
-        4,
-        "run.finish",
-        &json!({ "run_id": "bypassing" }),
-    );
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "bypassing" }));
     let _ = engine.finish();
 
     assert_eq!(

@@ -5,8 +5,8 @@
 //! files of the two layers kept in Goodfetch home (Operator policy and user
 //! configuration, per major, shared by both Products), the Recipe
 //! manifest's Product and settings, the closed list of deployment
-//! variables, and the keys of areas whose own modules do not exist yet,
-//! each with its area first (ADR 0083). Each later area moves its keys into
+//! variables (kept in `deployment`), and the keys of areas whose own modules
+//! do not exist yet, each with its area first (ADR 0083). Each later area moves its keys into
 //! its own module.
 
 use std::collections::BTreeMap;
@@ -20,9 +20,17 @@ use crate::catalog::{
     Product, ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
 
+mod deployment;
 pub mod edit;
 pub mod page_check;
 pub mod session_source;
+
+pub use deployment::{
+    BROWSERS_PATH_VARIABLE, CHANNEL_VARIABLE, COLLIE_ENGINE_PATH_VARIABLE, DAEMON_ADDRESS_VARIABLE,
+    DAEMON_DRAIN_GRACE_VARIABLE, DEPLOYMENT_PREFIX, DEPLOYMENT_VARIABLES,
+    FOXHOUND_ENGINE_PATH_VARIABLE, HOME_VARIABLE, OPS_ADDRESS_VARIABLE, TEST_SEED_VARIABLE,
+    TOKEN_VARIABLE, URL_VARIABLE,
+};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -48,16 +56,19 @@ pub enum SettingsLayer {
 }
 
 impl SettingsLayer {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 6] = [
+        Self::Default,
+        Self::OperatorPolicy,
+        Self::UserConfiguration,
+        Self::ProjectConfiguration,
+        Self::Recipe,
+        Self::Run,
+    ];
+
     /// Its name as the catalog and messages write it.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Default => "default",
-            Self::OperatorPolicy => "operator_policy",
-            Self::UserConfiguration => "user_configuration",
-            Self::ProjectConfiguration => "project_configuration",
-            Self::Recipe => "recipe",
-            Self::Run => "run",
-        }
+        crate::wire_name::of(&self)
     }
 
     /// Whether it is one of the configuration layers: Operator policy, user
@@ -85,14 +96,12 @@ pub enum RunOrigin {
 }
 
 impl RunOrigin {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 4] = [Self::Argument, Self::Settings, Self::Flag, Self::Form];
+
     /// Its name as the wire and messages write it.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Argument => "argument",
-            Self::Settings => "settings",
-            Self::Flag => "flag",
-            Self::Form => "form",
-        }
+        crate::wire_name::of(&self)
     }
 }
 
@@ -379,6 +388,12 @@ pub struct ConfigExplainParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub project: Option<ProjectSettings>,
+    /// The path of the project configuration the Client was named, in place
+    /// of `project`, when no file is there: it sets nothing, and the answer
+    /// lists it as not found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub missing_project: Option<String>,
     /// Run-layer values to explain with, as a Run's `settings` would give
     /// them.
     #[serde(default, skip_serializing_if = "Map::is_empty")]
@@ -446,33 +461,6 @@ pub struct RecipeManifest {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub expose: BTreeMap<String, Exposure>,
 }
-
-/// The deployment variables (ADRs 0059, 0083 and 0090): the closed list of
-/// `GOODFETCH_` variables, each a value that differs by machine, read from
-/// the environment map and never a setting. Both engine-path variables are
-/// on it, so neither is unknown to either Product; each SDK and crate reads
-/// only its own Product's. `GOODFETCH_DAEMON_ADDRESS`,
-/// `GOODFETCH_DAEMON_DRAIN_GRACE` and `GOODFETCH_OPS_ADDRESS` are the
-/// foreground Daemon's own process configuration (ADRs 0049, 0050 and
-/// 0083), which only `daemon run` reads. `GOODFETCH_CHANNEL` is the channel
-/// an executable came from, which that channel's launcher or image sets
-/// (ADRs 0087 and 0090).
-pub const DEPLOYMENT_VARIABLES: &[&str] = &[
-    "GOODFETCH_BROWSERS_PATH",
-    "GOODFETCH_CHANNEL",
-    "GOODFETCH_COLLIE_ENGINE_PATH",
-    "GOODFETCH_DAEMON_ADDRESS",
-    "GOODFETCH_DAEMON_DRAIN_GRACE",
-    "GOODFETCH_FOXHOUND_ENGINE_PATH",
-    "GOODFETCH_HOME",
-    "GOODFETCH_OPS_ADDRESS",
-    "GOODFETCH_TEST_SEED",
-    "GOODFETCH_TOKEN",
-    "GOODFETCH_URL",
-];
-
-/// The prefix every deployment variable has, which ADR 0034 reserves.
-pub const DEPLOYMENT_PREFIX: &str = "GOODFETCH_";
 
 /// A user configuration or project configuration file: its format version
 /// and its settings, nested by key (ADRs 0028 and 0083).

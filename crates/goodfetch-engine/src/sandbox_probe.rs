@@ -1,8 +1,9 @@
 //! Chromium's sandbox, probed at startup (ADRs 0017, 0033 and 0049; spec
 //! #564's `sandbox_probe`): whether this host lets a process create the
 //! user namespace Chromium's Linux sandbox starts in, which ADR 0033's
-//! Plugin confinement reads too. The probe runs once per process, in a
-//! child of its own, and its answer decides each browser launch:
+//! Plugin confinement reads too. What the host allows is read once per
+//! process, in a child of its own; each engine judges it against its own
+//! environment map, and its answer decides each of its browser launches:
 //!
 //! - the namespace starts, or the OS is not Linux, whose sandboxes need
 //!   none: the browser launches sandboxed;
@@ -25,8 +26,8 @@
 mod linux;
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
-use std::sync::OnceLock;
+use std::ffi::{OsStr, OsString};
+use std::sync::{Arc, OnceLock};
 
 use goodfetch_protocol::security::{
     BROWSER_SANDBOX_UNAVAILABLE, BrowserSandboxUnavailableDetails, SECURITY_BROWSER_SANDBOX,
@@ -70,6 +71,18 @@ impl NoSandboxPlatform {
             Self::AzureContainerApps => "Azure Container Apps",
         }
     }
+}
+
+/// What this process's host allows, alike for every engine in it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Host {
+    /// The user namespace a child of this process tried to make.
+    pub(crate) user_namespace: UserNamespace,
+    /// Whether this process runs under a seccomp filter (`Seccomp: 2`).
+    pub(crate) seccomp_filtered: bool,
+    /// Whether AppArmor restricts unprivileged user namespaces
+    /// (`kernel.apparmor_restrict_unprivileged_userns=1`).
+    pub(crate) apparmor_restricts: bool,
 }
 
 /// What the probe read of the host.
@@ -147,25 +160,95 @@ pub fn judge(facts: &Facts) -> Probed {
     Probed::Unknown { failure }
 }
 
-/// The probe's answer for this process, found once: by the engine at
-/// startup, in its `environment` map, which `main` read (ADR 0083). The
-/// first call blocks while a child tries the user namespace.
-pub fn probed_in(environment: &BTreeMap<OsString, OsString>) -> &'static Probed {
-    PROBED.get_or_init(|| {
-        let probed = probe(environment);
-        log(&probed);
-        probed
-    })
+/// One engine's probe, which its settings' host defaults and its browser
+/// launches read: its answer is found once, from what the host allows and
+/// the engine's `environment` map, which `main` read (ADR 0083). Clones
+/// share it.
+#[derive(Clone)]
+pub struct SandboxProbe(Arc<Probing>);
+
+struct Probing {
+    environment: BTreeMap<OsString, OsString>,
+    host: fn() -> Host,
+    answer: OnceLock<Probed>,
 }
 
-/// The probe's answer for this process: the engine's, found at its
-/// startup; probed now, in an empty environment, where no engine of this
-/// process has.
-pub fn probed() -> &'static Probed {
-    PROBED.get().unwrap_or_else(|| probed_in(&BTreeMap::new()))
+impl SandboxProbe {
+    /// The probe of an engine started with `environment`, on the host
+    /// `host` reads: [`this_host`], for a real engine.
+    pub(crate) fn of(host: fn() -> Host, environment: BTreeMap<OsString, OsString>) -> Self {
+        Self(Arc::new(Probing {
+            environment,
+            host,
+            answer: OnceLock::new(),
+        }))
+    }
+
+    /// The engine's answer. The process's first call blocks while a child
+    /// tries the user namespace, so it runs on the blocking policy.
+    pub fn probed(&self) -> &Probed {
+        self.0.answer.get_or_init(|| {
+            let probed = judge(&facts((self.0.host)(), &self.0.environment));
+            log(&probed);
+            probed
+        })
+    }
 }
 
-static PROBED: OnceLock<Probed> = OnceLock::new();
+/// What this process's host allows, read once: no engine's environment
+/// changes it, and the child's fork costs each read.
+pub(crate) fn this_host() -> Host {
+    static HOST: OnceLock<Host> = OnceLock::new();
+    *HOST.get_or_init(read_host)
+}
+
+#[cfg(target_os = "linux")]
+fn read_host() -> Host {
+    linux::host()
+}
+
+/// Outside Linux, Chromium's sandboxes need no user namespace.
+#[cfg(not(target_os = "linux"))]
+fn read_host() -> Host {
+    Host {
+        user_namespace: UserNamespace::Created,
+        seccomp_filtered: false,
+        apparmor_restricts: false,
+    }
+}
+
+/// What the probe judges: what `host` allows, and where `environment`, an
+/// engine's map, says it runs.
+fn facts(host: Host, environment: &BTreeMap<OsString, OsString>) -> Facts {
+    let variable = |name: &str| {
+        environment
+            .get(OsStr::new(name))
+            .and_then(|value| value.to_str())
+            .map(str::to_owned)
+    };
+    Facts {
+        user_namespace: host.user_namespace,
+        seccomp_filtered: host.seccomp_filtered,
+        apparmor_restricts: host.apparmor_restricts,
+        kubernetes: variable("KUBERNETES_SERVICE_HOST").is_some(),
+        platform: platform(variable),
+    }
+}
+
+/// The platform that allows no sandbox, from the variables `variable`
+/// reads, as each platform sets them.
+fn platform(variable: impl Fn(&str) -> Option<String>) -> Option<NoSandboxPlatform> {
+    if variable("AWS_LAMBDA_FUNCTION_NAME").is_some() {
+        return Some(NoSandboxPlatform::AwsLambda);
+    }
+    if variable("AWS_EXECUTION_ENV").is_some_and(|value| value == "AWS_ECS_FARGATE") {
+        return Some(NoSandboxPlatform::Fargate);
+    }
+    if variable("CONTAINER_APP_NAME").is_some() {
+        return Some(NoSandboxPlatform::AzureContainerApps);
+    }
+    None
+}
 
 fn log(probed: &Probed) {
     match probed {
@@ -192,17 +275,6 @@ fn log(probed: &Probed) {
             "Chromium's sandbox cannot start on this host, for a reason the probe does not recognise, so browser runs are refused: {failure}"
         ),
     }
-}
-
-#[cfg(target_os = "linux")]
-fn probe(environment: &BTreeMap<OsString, OsString>) -> Probed {
-    judge(&linux::facts(environment))
-}
-
-/// Outside Linux, Chromium's sandboxes need no user namespace.
-#[cfg(not(target_os = "linux"))]
-fn probe(_environment: &BTreeMap<OsString, OsString>) -> Probed {
-    Probed::Starts
 }
 
 /// `defaults`, with `security.browser_sandbox` off where `probed` found a

@@ -13,7 +13,7 @@ use goodfetch_protocol::formats::{Compatibility, Format, RUN_INDEX};
 use goodfetch_protocol::run::{
     Lifecycle, PointInTime, Presence, RunId, RunIndexRow, RunKind, Tags,
 };
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{TestEnv, wal_of};
 use rusqlite::Connection;
 
 use super::{rows_as, write_as};
@@ -236,4 +236,49 @@ fn engines_that_open_a_new_index_at_once_each_open_it() {
         );
     }
     assert_eq!(refused, Vec::<String>::new());
+}
+
+/// A read takes no write lock, so it answers while another engine holds it,
+/// where it would otherwise wait out the busy timeout and fail.
+///
+/// Covers: format:run-index
+#[test]
+fn a_read_answers_while_another_engine_holds_the_write_lock() {
+    let (_folder, path) = index();
+    write_as(&path, &older(), &row("written")).unwrap();
+    let other_engine = Connection::open(&path).unwrap();
+    other_engine.execute_batch("BEGIN IMMEDIATE").unwrap();
+
+    assert_eq!(rows_as(&path, &older()).unwrap(), vec![row("written")]);
+}
+
+/// A first open records the marker, whether a read or a write makes it.
+///
+/// Covers: format:run-index
+#[test]
+fn a_read_that_opens_a_new_index_records_its_marker() {
+    let (_folder, path) = index();
+
+    assert_eq!(
+        (rows_as(&path, &older()).unwrap(), marker(&path)),
+        (
+            Vec::new(),
+            Some(Marker {
+                version: version(1, 2),
+                lowest_minor: 0,
+            })
+        )
+    );
+}
+
+/// The index holds to the synced per-user store's durability: its WAL stays
+/// beside it as a write's connection closes (#2110).
+#[test]
+fn the_wal_stays_beside_the_index_once_a_write_closed_its_connection() {
+    let env = TestEnv::in_memory();
+    let path = env.folder().join("run-index.sqlite");
+
+    write_as(&path, &older(), &row("first")).unwrap();
+
+    assert!(wal_of(&path).exists());
 }

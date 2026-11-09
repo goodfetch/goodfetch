@@ -14,13 +14,17 @@ use std::collections::BTreeMap;
 use std::hash::{DefaultHasher, Hash as _, Hasher as _};
 use std::path::{Path, PathBuf};
 
+use goodfetch_protocol::catalog::Product;
+use goodfetch_test_support::MESSAGE_DEADLINE;
 use goodfetch_test_support::{
     ProtocolFuzz, ProtocolSchema, ProtocolTransport, TestEnv, TransportFailure, proptest_config,
     sql_dump,
 };
 use serde_json::Value;
 
-use crate::attached::{Attached, hello};
+use goodfetch_test_client::{Attached, hello};
+
+use crate::COLLIE;
 
 /// The operations whose valid calls answer at once: `events.subscribe`
 /// and `page.body` stay in flight until cancelled or credited.
@@ -35,18 +39,18 @@ const ANSWERING_AT_ONCE: [&str; 6] = [
 
 /// An Attached engine that answered `hello` and finished its startup
 /// writes, with its Goodfetch home.
-struct Fuzzed<'env> {
-    engine: Option<Attached<'env>>,
+struct Fuzzed {
+    engine: Option<Attached>,
     home: PathBuf,
 }
 
-impl<'env> Fuzzed<'env> {
-    fn start(env: &'env TestEnv) -> Self {
+impl Fuzzed {
+    fn start(env: &TestEnv) -> Self {
         let home = env.folder().join(env.unique_name("home"));
-        let mut engine = Attached::start_with(env, |command| {
+        let mut engine = Attached::start_with(env, COLLIE, MESSAGE_DEADLINE, |command| {
             command.env("GOODFETCH_HOME", &home);
         });
-        engine.send(&hello("collie", "0.1"));
+        engine.send(&hello(Product::Collie));
         let accepted = engine.next().unwrap();
         assert!(accepted.get("result").is_some(), "{accepted}");
         let mut fuzzed = Self {
@@ -75,7 +79,7 @@ impl<'env> Fuzzed<'env> {
     }
 }
 
-impl ProtocolTransport for Fuzzed<'_> {
+impl ProtocolTransport for Fuzzed {
     fn call(&mut self, request: &Value) -> Result<Value, TransportFailure> {
         let engine = self.engine.as_mut().unwrap();
         engine.send(request);
@@ -90,7 +94,7 @@ impl ProtocolTransport for Fuzzed<'_> {
     }
 }
 
-impl Drop for Fuzzed<'_> {
+impl Drop for Fuzzed {
     fn drop(&mut self) {
         if let Some(engine) = self.engine.take() {
             let _ = engine.finish();

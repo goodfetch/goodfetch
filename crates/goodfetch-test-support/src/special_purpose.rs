@@ -50,11 +50,11 @@ pub enum RegistryError {
 }
 
 /// The committed registries' text, IPv4's then IPv6's, as IANA publishes
-/// them; `crates/goodfetch-protocol/iana/` holds them with their date,
+/// them; `crates/goodfetch-engine/iana/` holds them with their date,
 /// beside the classification table `xtask codegen` writes from them.
 const COMMITTED: [&str; 2] = [
-    include_str!("../../goodfetch-protocol/iana/iana-ipv4-special-registry-1.csv"),
-    include_str!("../../goodfetch-protocol/iana/iana-ipv6-special-registry-1.csv"),
+    include_str!("../../goodfetch-engine/iana/iana-ipv4-special-registry-1.csv"),
+    include_str!("../../goodfetch-engine/iana/iana-ipv6-special-registry-1.csv"),
 ];
 
 impl SpecialPurposeRegistries {

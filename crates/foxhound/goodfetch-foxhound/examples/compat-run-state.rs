@@ -79,8 +79,11 @@ use goodfetch_protocol::catalog::{
 };
 use goodfetch_protocol::checkpoint::RunBinding;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
+use goodfetch_protocol::home::{OPERATOR_POLICY_FILE, RUN_FILE, RUNS, per_major};
 use goodfetch_protocol::run::{NothingDone, RunId, RunKind, RunWarning, Tags};
+use goodfetch_test_client::Hello;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
@@ -91,7 +94,9 @@ fn scenario() -> Vec<Value> {
         call(
             0,
             "hello",
-            json!({ "protocol_version": "0.1", "surface": "rust", "needs": "foxhound", "product_version": "0.0.0" }),
+            Hello::needing(Product::Foxhound)
+                .surface(Surface::Rust)
+                .params(),
         ),
         call(
             10,
@@ -706,7 +711,7 @@ async fn leave_unclean(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
 /// Writes each Run's file in `runs`, as SQL text, into `folder`.
 fn dump_run_files(runs: &Path, folder: &Path) -> Result<(), Box<dyn std::error::Error>> {
     for run_id in ["crawl", "code-free", "aborted", "paused", "unclean"] {
-        let connection = rusqlite::Connection::open(runs.join(run_id).join("run.sqlite"))?;
+        let connection = rusqlite::Connection::open(runs.join(run_id).join(RUN_FILE))?;
         std::fs::write(
             folder.join(format!("{run_id}.sql")),
             goodfetch_test_support::sql_dump(&connection)?,
@@ -721,16 +726,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .nth(1)
             .ok_or("usage: compat-run-state <folder>")?,
     );
+    let version = ProductVersion::parse("0.0.0")?;
     let identity = Identity {
         product: Product::Foxhound,
-        product_version: ProductVersion::parse("0.0.0")?,
+        product_version: version.clone(),
         channel: Channel::CratesIo,
     };
     let engine = Engine::new(identity, &goodfetch_foxhound::composition().with(bound()))?;
     let home = tempfile::tempdir()?;
-    std::fs::create_dir_all(home.path().join("0.0"))?;
+    // The folder of the engine's own pinned version, not of the workspace's.
+    let engine_folder = per_major(home.path(), &version);
+    std::fs::create_dir_all(&engine_folder)?;
     std::fs::write(
-        home.path().join("0.0").join("operator-policy.toml"),
+        engine_folder.join(OPERATOR_POLICY_FILE),
         "version = \"0.1\"\n",
     )?;
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -795,8 +803,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         served?;
         talked
     })?;
-    let runs = home.path().join("0.0").join("runs");
-    runtime.block_on(leave_unclean(&runs.join("unclean").join("run.sqlite")))?;
+    let runs = engine_folder.join(RUNS);
+    runtime.block_on(leave_unclean(&runs.join("unclean").join(RUN_FILE)))?;
     dump_run_files(&runs, &folder)?;
     std::fs::copy(
         runs.join("paused").join("checkpoint.sqlite"),

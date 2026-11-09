@@ -1,0 +1,8 @@
+{
+  "client_certificate": "/client-certificate",
+  "client_key": "/client-key",
+  "observations": "/observations",
+  "oracle": "/oracle",
+  "tasks": "/tasks",
+  "time_step": "/time-step"
+}

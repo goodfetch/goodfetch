@@ -4,13 +4,16 @@ It holds what a test needs to reach the Proving ground with no setup of its
 own (ADR 0059): its address, version and seed, the `resolve` mapping of every
 host name it serves to loopback, the file of its certificate authority, and
 its network fixtures. Python reads what the Rust setup started, and starts
-nothing.
+nothing. Its routes come from `test-support/fixtures/proving-ground/routes.json`,
+which `xtask codegen` writes from the Proving ground's own interface.
 """
 
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Self, cast
+
+from goodfetch_test_support.schemas import shared_fixture
 
 
 class ProvingGroundUnseeded(Exception):
@@ -83,3 +86,35 @@ class ProvingGround:
                 connections=cast("str", fixtures["connections"]),
             ),
         )
+
+
+@dataclass(frozen=True)
+class ProvingGroundRoutes:
+    """The paths of the Proving ground's own routes.
+
+    They are served on its bound address rather than on a page family's host.
+    """
+
+    tasks: str
+    """`GET`: the task list."""
+    oracle: str
+    """`POST`: judges a tool's result for one task."""
+    time_step: str
+    """`PUT`: the time step its pages answer at from now on."""
+    observations: str
+    """`GET`: every request its page hosts received, and the connection record."""
+    client_certificate: str
+    """`GET`: the client certificate its mutual-TLS hosts accept."""
+    client_key: str
+    """`GET`: that certificate's private key."""
+
+
+def proving_ground_routes() -> ProvingGroundRoutes:
+    """The Proving ground's routes, read from the committed shared fixture."""
+    routes = cast(
+        "dict[str, str]",
+        shared_fixture(
+            "proving-ground/routes.json", "proving-ground-routes.schema.json"
+        ),
+    )
+    return ProvingGroundRoutes(**routes)

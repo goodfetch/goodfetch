@@ -9,6 +9,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_protocol::catalog::Product;
 #[cfg(unix)]
 use goodfetch_protocol::page::{PageOpened, SessionId};
 use goodfetch_test_support::{Mode, TestEnv};
@@ -17,12 +18,12 @@ use goodfetch_test_support::{ProvingGround, browser_cache};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::attached::Attached;
+use crate::COLLIE;
 #[cfg(unix)]
 use crate::page::{opened, started, started_with};
 #[cfg(unix)]
 use crate::page_events::Exchange;
-use crate::run::call;
+use goodfetch_test_client::Attached;
 
 /// The Proving ground's own seed for these tests.
 #[cfg(unix)]
@@ -38,12 +39,7 @@ fn session_of(answer: &Value) -> SessionId {
 /// Opens a page in the Session `session`.
 #[cfg(unix)]
 fn page_in(engine: &mut Attached, id: i64, session: &SessionId) -> PageOpened {
-    opened(&call(
-        engine,
-        id,
-        "session.new_page",
-        &json!({ "session_id": session }),
-    ))
+    opened(&engine.ask(id, "session.new_page", &json!({ "session_id": session })))
 }
 
 /// Loads the storage page on `page` with `mark`, and answers its status.
@@ -56,8 +52,7 @@ fn store(
     mark: &str,
 ) -> Value {
     let url = proving_ground.url("scope.test", &format!("/storage?mark={mark}"));
-    call(
-        engine,
+    engine.ask(
         id,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": url }),
@@ -74,18 +69,8 @@ fn storage_requests(proving_ground: &ProvingGround, prefix: &str) -> Vec<(String
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| {
-            request["host"] == json!("scope.test")
-                && request["target"]
-                    .as_str()
-                    .is_some_and(|target| target.starts_with(prefix))
-        })
-        .map(|request| {
-            (
-                request["target"].as_str().unwrap().to_owned(),
-                request["cookies"].clone(),
-            )
-        })
+        .filter(|request| request.host == "scope.test" && request.target.starts_with(prefix))
+        .map(|request| (request.target.clone(), json!(request.cookies)))
         .collect()
 }
 
@@ -98,18 +83,8 @@ fn two_sessions_of_one_run_keep_their_own_cookies_and_storage_in_one_browser_pro
     let cache = browser_cache(&env).unwrap();
     let mut engine = started(&env, &cache, &proving_ground, "isolated");
 
-    let first = session_of(&call(
-        &mut engine,
-        2,
-        "run.new_session",
-        &json!({ "run_id": "isolated" }),
-    ));
-    let second = session_of(&call(
-        &mut engine,
-        3,
-        "run.new_session",
-        &json!({ "run_id": "isolated" }),
-    ));
+    let first = session_of(&engine.ask(2, "run.new_session", &json!({ "run_id": "isolated" })));
+    let second = session_of(&engine.ask(3, "run.new_session", &json!({ "run_id": "isolated" })));
     let first_page = page_in(&mut engine, 4, &first);
     let second_page = page_in(&mut engine, 5, &second);
     let statuses = [
@@ -124,12 +99,7 @@ fn two_sessions_of_one_run_keep_their_own_cookies_and_storage_in_one_browser_pro
         .iter()
         .filter(|line| !line.contains("--type="))
         .count();
-    let finished = call(
-        &mut engine,
-        10,
-        "run.finish",
-        &json!({ "run_id": "isolated" }),
-    );
+    let finished = engine.ask(10, "run.finish", &json!({ "run_id": "isolated" }));
     let _ = engine.finish();
 
     assert_eq!(
@@ -190,28 +160,12 @@ fn a_closed_session_closes_its_pages_gives_their_admissions_back_and_closes_agai
     let cache = browser_cache(&env).unwrap();
     let mut engine = started(&env, &cache, &proving_ground, "closing");
 
-    let first = session_of(&call(
-        &mut engine,
-        2,
-        "run.new_session",
-        &json!({ "run_id": "closing" }),
-    ));
+    let first = session_of(&engine.ask(2, "run.new_session", &json!({ "run_id": "closing" })));
     let first_page = page_in(&mut engine, 3, &first);
     let stored = store(&mut engine, 4, &proving_ground, &first_page, "first");
-    let closed = call(
-        &mut engine,
-        5,
-        "session.close",
-        &json!({ "session_id": first }),
-    );
-    let closed_again = call(
-        &mut engine,
-        6,
-        "session.close",
-        &json!({ "session_id": first }),
-    );
-    let gone_page = call(
-        &mut engine,
+    let closed = engine.ask(5, "session.close", &json!({ "session_id": first }));
+    let closed_again = engine.ask(6, "session.close", &json!({ "session_id": first }));
+    let gone_page = engine.ask(
         7,
         "page.goto",
         &json!({
@@ -219,37 +173,16 @@ fn a_closed_session_closes_its_pages_gives_their_admissions_back_and_closes_agai
             "url": proving_ground.url("scope.test", "/about"),
         }),
     );
-    let no_new_page = call(
-        &mut engine,
-        8,
-        "session.new_page",
-        &json!({ "session_id": first }),
-    );
-    let default_page = opened(&call(
-        &mut engine,
-        9,
-        "run.new_page",
-        &json!({ "run_id": "closing" }),
-    ));
+    let no_new_page = engine.ask(8, "session.new_page", &json!({ "session_id": first }));
+    let default_page = opened(&engine.ask(9, "run.new_page", &json!({ "run_id": "closing" })));
     let fresh = store(&mut engine, 10, &proving_ground, &default_page, "default");
-    let default_closed = call(
-        &mut engine,
+    let default_closed = engine.ask(
         11,
         "session.close",
         &json!({ "session_id": default_page.session_id }),
     );
-    let no_default_page = call(
-        &mut engine,
-        12,
-        "run.new_page",
-        &json!({ "run_id": "closing" }),
-    );
-    let finished = call(
-        &mut engine,
-        13,
-        "run.finish",
-        &json!({ "run_id": "closing" }),
-    );
+    let no_default_page = engine.ask(12, "run.new_page", &json!({ "run_id": "closing" }));
+    let finished = engine.ask(13, "run.finish", &json!({ "run_id": "closing" }));
     let _ = engine.finish();
 
     assert_eq!(
@@ -361,8 +294,7 @@ fn session_source_is_refused_in_a_sessions_own_settings_and_the_runs_is_the_defa
     let mut engine =
         crate::page::started_with(&env, &cache, &proving_ground, "sourced", &settings, |_| {});
 
-    let in_settings = call(
-        &mut engine,
+    let in_settings = engine.ask(
         2,
         "run.new_session",
         &json!({
@@ -370,26 +302,14 @@ fn session_source_is_refused_in_a_sessions_own_settings_and_the_runs_is_the_defa
             "settings": { "session": { "source": { "kind": "saved_identity", "name": "other" } } },
         }),
     );
-    let other_setting = call(
-        &mut engine,
+    let other_setting = engine.ask(
         3,
         "run.new_session",
         &json!({ "run_id": "sourced", "settings": { "browser": { "headless": true } } }),
     );
-    let inherited = call(
-        &mut engine,
-        4,
-        "run.new_session",
-        &json!({ "run_id": "sourced" }),
-    );
-    let default_inherited = call(
-        &mut engine,
-        5,
-        "run.new_page",
-        &json!({ "run_id": "sourced" }),
-    );
-    let own = call(
-        &mut engine,
+    let inherited = engine.ask(4, "run.new_session", &json!({ "run_id": "sourced" }));
+    let default_inherited = engine.ask(5, "run.new_page", &json!({ "run_id": "sourced" }));
+    let own = engine.ask(
         6,
         "run.new_session",
         &json!({
@@ -397,20 +317,14 @@ fn session_source_is_refused_in_a_sessions_own_settings_and_the_runs_is_the_defa
             "source": { "kind": "cookie_header", "header": "mark=own", "domain": "scope.test" },
         }),
     );
-    let fresh = session_of(&call(
-        &mut engine,
+    let fresh = session_of(&engine.ask(
         7,
         "run.new_session",
         &json!({ "run_id": "sourced", "source": null }),
     ));
     let page = page_in(&mut engine, 8, &fresh);
     let stored = store(&mut engine, 9, &proving_ground, &page, "fresh");
-    let _ = call(
-        &mut engine,
-        10,
-        "run.finish",
-        &json!({ "run_id": "sourced" }),
-    );
+    let _ = engine.ask(10, "run.finish", &json!({ "run_id": "sourced" }));
     let _ = engine.finish();
 
     let refused =
@@ -451,30 +365,15 @@ fn session_source_is_refused_in_a_sessions_own_settings_and_the_runs_is_the_defa
 #[test]
 fn new_work_on_a_finished_run_raises_run_ended() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&crate::attached::hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&goodfetch_test_client::hello(Product::Collie));
     let _ = engine.next();
-    let _ = call(&mut engine, 1, "run.start", &json!({ "run_id": "ended" }));
-    let _ = call(&mut engine, 2, "run.finish", &json!({ "run_id": "ended" }));
+    let _ = engine.ask(1, "run.start", &json!({ "run_id": "ended" }));
+    let _ = engine.ask(2, "run.finish", &json!({ "run_id": "ended" }));
 
-    let session = call(
-        &mut engine,
-        3,
-        "run.new_session",
-        &json!({ "run_id": "ended" }),
-    );
-    let page = call(
-        &mut engine,
-        4,
-        "run.new_page",
-        &json!({ "run_id": "ended" }),
-    );
-    let never_started = call(
-        &mut engine,
-        5,
-        "run.new_session",
-        &json!({ "run_id": "never-started" }),
-    );
+    let session = engine.ask(3, "run.new_session", &json!({ "run_id": "ended" }));
+    let page = engine.ask(4, "run.new_page", &json!({ "run_id": "ended" }));
+    let never_started = engine.ask(5, "run.new_session", &json!({ "run_id": "never-started" }));
     let _ = engine.finish();
 
     assert_eq!(
@@ -518,37 +417,18 @@ fn a_run_resumed_after_its_engine_was_killed_reopens_its_sessions_from_run_state
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let mut engine = started(&env, &cache, &proving_ground, "resumed");
-    let default_page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "resumed" }),
-    ));
-    let own = session_of(&call(
-        &mut engine,
-        3,
-        "run.new_session",
-        &json!({ "run_id": "resumed" }),
-    ));
-    let closed = session_of(&call(
-        &mut engine,
-        4,
-        "run.new_session",
-        &json!({ "run_id": "resumed" }),
-    ));
-    let _ = call(
-        &mut engine,
-        5,
-        "session.close",
-        &json!({ "session_id": closed }),
-    );
+    let default_page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "resumed" })));
+    let own = session_of(&engine.ask(3, "run.new_session", &json!({ "run_id": "resumed" })));
+    let closed = session_of(&engine.ask(4, "run.new_session", &json!({ "run_id": "resumed" })));
+    let _ = engine.ask(5, "session.close", &json!({ "session_id": closed }));
     engine.kill();
     let left = browsers_left(&env);
 
-    let mut resumed = Attached::start_waiting(&env, crate::page::BROWSER_DEADLINE, |command| {
-        command.env(goodfetch_test_support::BROWSERS_PATH_VARIABLE, &cache);
-    });
-    resumed.send(&crate::attached::hello("collie", "0.1"));
+    let mut resumed =
+        Attached::start_with(&env, COLLIE, crate::page::BROWSER_DEADLINE, |command| {
+            command.env(goodfetch_test_support::BROWSERS_PATH_VARIABLE, &cache);
+        });
+    resumed.send(&goodfetch_test_client::hello(Product::Collie));
     let _ = resumed.next();
     let resolve: serde_json::Map<String, Value> = proving_ground
         .description()
@@ -556,8 +436,7 @@ fn a_run_resumed_after_its_engine_was_killed_reopens_its_sessions_from_run_state
         .iter()
         .map(|(host, address)| (host.clone(), json!([address])))
         .collect();
-    let resume = call(
-        &mut resumed,
+    let resume = resumed.ask(
         1,
         "run.resume",
         &json!({
@@ -570,30 +449,10 @@ fn a_run_resumed_after_its_engine_was_killed_reopens_its_sessions_from_run_state
     );
     let own_page = page_in(&mut resumed, 2, &own);
     let stored = store(&mut resumed, 3, &proving_ground, &own_page, "own");
-    let default_again = opened(&call(
-        &mut resumed,
-        4,
-        "run.new_page",
-        &json!({ "run_id": "resumed" }),
-    ));
-    let still_closed = call(
-        &mut resumed,
-        5,
-        "session.new_page",
-        &json!({ "session_id": closed }),
-    );
-    let closed_again = call(
-        &mut resumed,
-        6,
-        "session.close",
-        &json!({ "session_id": closed }),
-    );
-    let finished = call(
-        &mut resumed,
-        7,
-        "run.finish",
-        &json!({ "run_id": "resumed" }),
-    );
+    let default_again = opened(&resumed.ask(4, "run.new_page", &json!({ "run_id": "resumed" })));
+    let still_closed = resumed.ask(5, "session.new_page", &json!({ "session_id": closed }));
+    let closed_again = resumed.ask(6, "session.close", &json!({ "session_id": closed }));
+    let finished = resumed.ask(7, "run.finish", &json!({ "run_id": "resumed" }));
     let _ = resumed.finish();
 
     assert_eq!(
@@ -630,8 +489,7 @@ fn ads_loaded(
     page: &PageOpened,
 ) -> usize {
     let url = proving_ground.url("clean-up.test", "/ads");
-    let loaded = call(
-        engine,
+    let loaded = engine.ask(
         id,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": url }),
@@ -645,9 +503,7 @@ fn ads_loaded(
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| {
-            request["host"] == json!("clean-up.test") && request["target"] == json!(AD)
-        })
+        .filter(|request| request.host == "clean-up.test" && request.target == AD)
         .count()
 }
 
@@ -660,27 +516,22 @@ fn a_sessions_own_filter_list_settings_choose_its_pages_clean_up_over_the_runs_a
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let mut engine = started(&env, &cache, &proving_ground, "cleaned");
-    let own = session_of(&call(
-        &mut engine,
+    let own = session_of(&engine.ask(
         2,
         "run.new_session",
         &json!({ "run_id": "cleaned", "settings": { "filter_lists": { "ads": false } } }),
     ));
-    let default_page = opened(&call(
-        &mut engine,
-        3,
-        "run.new_page",
-        &json!({ "run_id": "cleaned" }),
-    ));
+    let default_page = opened(&engine.ask(3, "run.new_page", &json!({ "run_id": "cleaned" })));
     let by_the_run = ads_loaded(&mut engine, 4, &proving_ground, &default_page);
     let own_page = page_in(&mut engine, 5, &own);
     let by_the_session = ads_loaded(&mut engine, 6, &proving_ground, &own_page);
     engine.kill();
 
-    let mut resumed = Attached::start_waiting(&env, crate::page::BROWSER_DEADLINE, |command| {
-        command.env(goodfetch_test_support::BROWSERS_PATH_VARIABLE, &cache);
-    });
-    resumed.send(&crate::attached::hello("collie", "0.1"));
+    let mut resumed =
+        Attached::start_with(&env, COLLIE, crate::page::BROWSER_DEADLINE, |command| {
+            command.env(goodfetch_test_support::BROWSERS_PATH_VARIABLE, &cache);
+        });
+    resumed.send(&goodfetch_test_client::hello(Product::Collie));
     let _ = resumed.next();
     let resolve: serde_json::Map<String, Value> = proving_ground
         .description()
@@ -688,8 +539,7 @@ fn a_sessions_own_filter_list_settings_choose_its_pages_clean_up_over_the_runs_a
         .iter()
         .map(|(host, address)| (host.clone(), json!([address])))
         .collect();
-    let _ = call(
-        &mut resumed,
+    let _ = resumed.ask(
         1,
         "run.resume",
         &json!({
@@ -702,12 +552,7 @@ fn a_sessions_own_filter_list_settings_choose_its_pages_clean_up_over_the_runs_a
     );
     let own_page = page_in(&mut resumed, 2, &own);
     let after_the_resume = ads_loaded(&mut resumed, 3, &proving_ground, &own_page);
-    let _ = call(
-        &mut resumed,
-        4,
-        "run.finish",
-        &json!({ "run_id": "cleaned" }),
-    );
+    let _ = resumed.ask(4, "run.finish", &json!({ "run_id": "cleaned" }));
     let _ = resumed.finish();
 
     assert_eq!((by_the_run, by_the_session, after_the_resume), (0, 1, 2));

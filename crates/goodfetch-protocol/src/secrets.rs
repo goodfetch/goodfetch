@@ -33,15 +33,18 @@ pub enum SecretFailure {
 }
 
 impl SecretFailure {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 5] = [
+        Self::Missing,
+        Self::NotConfigured,
+        Self::ProviderFailed,
+        Self::ResolverFailed,
+        Self::TimedOut,
+    ];
+
     /// Its name as the wire writes it.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Missing => "missing",
-            Self::NotConfigured => "not_configured",
-            Self::ProviderFailed => "provider_failed",
-            Self::ResolverFailed => "resolver_failed",
-            Self::TimedOut => "timed_out",
-        }
+        crate::wire_name::of(&self)
     }
 }
 
@@ -85,17 +88,6 @@ pub const SECRET_UNBOUND: ErrorCodeDefinition = ErrorCodeDefinition {
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
-
-/// What `secret_unbound` details.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct SecretUnboundDetails {
-    /// The placeholder no scope binds.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub placeholder: String,
-    /// The placeholders bound where it was named.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub bound: Vec<String>,
-}
 
 /// The receiving domain is outside the binding's (ADR 0092).
 pub const SECRET_DOMAIN_NOT_ALLOWED: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -141,6 +133,16 @@ pub enum SecretInputRefusedReason {
     /// The receiving host was reached through an invalid-certificate
     /// exception (ADR 0042), so whoever holds its key may not be the site.
     InvalidCertificateException,
+}
+
+impl SecretInputRefusedReason {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 1] = [Self::InvalidCertificateException];
+
+    /// Its name on the wire.
+    pub fn as_str(self) -> &'static str {
+        crate::wire_name::of(&self)
+    }
 }
 
 /// What `secret_input_refused` details.

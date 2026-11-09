@@ -21,16 +21,19 @@ use goodfetch_protocol::page::request::PAGE_REQUEST;
 use goodfetch_protocol::page::route::{
     PAGE_ROUTE, ROUTE_CONTINUE, ROUTE_FALLBACK, ROUTE_FETCH, ROUTE_FULFILL,
 };
-use goodfetch_protocol::response_limits::RESPONSE_LIMIT_EXCEEDED;
+use goodfetch_protocol::response_limits::{
+    NETWORK_MAX_BODY_SIZE, NETWORK_MAX_DECOMPRESSION_RATIO, RESPONSE_LIMIT_EXCEEDED,
+};
 use serde_json::{Value, json};
 
 use super::consent::walls;
 use super::navigation::{call, failed_with};
 use super::robots_txt::PAST_THE_SIZE_HOST;
 use super::routes::{Act, Routes, glob, goto};
-use super::{Checks, Site, finish_run, new_page, start_run};
-use crate::protocol::connection::{Connection, Gone};
+use super::{Checks, Site, finish_run, new_page, start_run, user_configuration};
+use crate::protocol::connection::{Connection, Gone, code_of};
 use crate::protocol::target::EngineTarget;
+use crate::proving_ground::ObservedRequest;
 
 /// The `bombs` family's own host, which serves the zstd frame whose window
 /// is past 8 MB at [`PAST_THE_WINDOW`] and belongs to no task.
@@ -107,40 +110,23 @@ const HOSTILE_VALUES: [(&str, &str); 4] = [
 const HEADER: &str = "X-Note";
 const PLAIN: &str = "a plain note";
 
-/// The Error code a failure answer names.
-fn code_of(answer: &Value) -> &Value {
-    &answer["error"]["data"]["code"]
-}
-
 /// The requests to `host` whose target starts with `prefix` the Proving
 /// ground received.
-fn received(site: &Site, host: &str, prefix: &str) -> Vec<Value> {
-    site.proving_ground
-        .received_requests()
-        .unwrap_or_default()
+fn received(site: &Site, host: &str, prefix: &str) -> Vec<ObservedRequest> {
+    site.received_requests()
         .of_the_case()
-        .filter(|request| {
-            request["host"] == json!(host)
-                && request["target"]
-                    .as_str()
-                    .is_some_and(|target| target.starts_with(prefix))
-        })
+        .filter(|request| request.host == host && request.target.starts_with(prefix))
         .cloned()
         .collect()
 }
 
 /// The values of the header `name` the request `request` carried.
-fn header_values(request: &Value, name: &str) -> Vec<Value> {
-    request["headers"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|header| {
-            header[0]
-                .as_str()
-                .is_some_and(|sent| sent.eq_ignore_ascii_case(name))
-        })
-        .map(|header| header[1].clone())
+fn header_values<'a>(request: &'a ObservedRequest, name: &str) -> Vec<&'a str> {
+    request
+        .headers
+        .iter()
+        .filter(|(sent, _)| sent.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.as_str())
         .collect()
 }
 
@@ -153,9 +139,7 @@ fn request_headers(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-hostile-request-headers";
-    let Some(target) = site.named_url("fetch-edge.test", "/target") else {
-        return Ok(());
-    };
+    let target = site.named_url("fetch-edge.test", "/target");
     start_run(connection, site, run_id, &json!({}), checks)?;
     let Some(page) = new_page(connection, run_id, checks)?.map(|page| json!(page.page_id)) else {
         return finish_run(connection, run_id);
@@ -198,7 +182,7 @@ fn request_headers(
     let plain = received(site, "fetch-edge.test", "/target?header=plain");
     checks.check(
         "the site received the plain value",
-        plain.len() == 1 && header_values(&plain[0], HEADER) == [json!(PLAIN)],
+        plain.len() == 1 && header_values(&plain[0], HEADER) == [PLAIN],
     );
     finish_run(connection, run_id)
 }
@@ -213,9 +197,7 @@ fn route_headers(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-hostile-route-headers";
-    let Some(url) = site.named_url("scope.test", "/about?route=hostile-headers") else {
-        return Ok(());
-    };
+    let url = site.named_url("scope.test", "/about?route=hostile-headers");
     start_run(connection, site, run_id, &json!({}), checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
@@ -273,7 +255,7 @@ fn route_headers(
     checks.check(
         "the site received the request once, with the plain value alone",
         reached.len() == 1
-            && header_values(&reached[0], HEADER) == [json!(PLAIN)]
+            && header_values(&reached[0], HEADER) == [PLAIN]
             && header_values(&reached[0], "X-Injected").is_empty(),
     );
     finish_run(connection, run_id)
@@ -289,20 +271,18 @@ fn request_limits(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-hostile-request-limits";
-    let (Some(bomb), Some(safe), Some(past_the_size)) = (
+    let (bomb, safe, past_the_size) = (
         site.named_url("1.bombs.test", "/"),
         site.named_url("6.bombs.test", "/"),
         site.named_url("1.body-limits.test", "/"),
-    ) else {
-        return Ok(());
-    };
+    );
     start_run(connection, site, run_id, &json!({}), checks)?;
     let Some(page) = new_page(connection, run_id, checks)?.map(|page| json!(page.page_id)) else {
         return finish_run(connection, run_id);
     };
     for (url, setting, limit) in [
-        (&bomb, "network.max_decompression_ratio", 100),
-        (&past_the_size, "network.max_body_size", 67_108_864),
+        (&bomb, NETWORK_MAX_DECOMPRESSION_RATIO.name, 100),
+        (&past_the_size, NETWORK_MAX_BODY_SIZE.name, 67_108_864),
     ] {
         let refused = call(connection, PAGE_REQUEST.name, &page, &json!({ "url": url }))?;
         checks.check(
@@ -337,7 +317,7 @@ const MAX_BODY_SIZE: u64 = 1024 * 1024;
 /// `network.max_body_size` and [`MAX_BODY_SIZE`].
 fn past_the_size(answer: &Value) -> bool {
     code_of(answer) == &json!(RESPONSE_LIMIT_EXCEEDED.name)
-        && answer["error"]["data"]["setting"] == json!("network.max_body_size")
+        && answer["error"]["data"]["setting"] == NETWORK_MAX_BODY_SIZE.name
         && answer["error"]["data"]["limit"] == json!(MAX_BODY_SIZE)
 }
 
@@ -360,13 +340,10 @@ fn coded_past_the_frame(
 ) -> Result<(), Gone> {
     let run_id = "conformance-hostile-coded-past-the-frame";
     let settings = json!({ "network": { "max_body_size": MAX_BODY_SIZE } });
-    let (Some(coded), Some(small)) = (
+    let (coded, small) = (
         site.named_url("6.body-limits.test", "/"),
         site.named_url(PAST_THE_SIZE_HOST, "/page"),
-    ) else {
-        checks.check("the Proving ground serves the case's pages", false);
-        return Ok(());
-    };
+    );
     start_run(connection, site, run_id, &settings, checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
@@ -427,10 +404,10 @@ const AUTHORITY_FILE: &str = "conformance-bombs-authority.pem";
     clippy::disallowed_methods,
     reason = "the harness is synchronous and runs no async worker"
 )]
-fn place(file: &Path, pem: Option<&str>) -> bool {
+fn place(file: &Path, pem: Option<&str>) -> std::io::Result<()> {
     match pem {
-        Some(pem) => std::fs::write(file, pem).is_ok(),
-        None => std::fs::remove_file(file).is_ok(),
+        Some(pem) => std::fs::write(file, pem),
+        None => std::fs::remove_file(file),
     }
 }
 
@@ -450,7 +427,7 @@ fn coded_bombs_over_tls(
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let (Some(brotli), Some(zstd), Some(past_the_window)) = (
+    let (Some(brotli), Some(zstd), past_the_window) = (
         site.start_url("bombs/3").map(str::to_owned),
         site.start_url("bombs/4").map(str::to_owned),
         site.named_secure_url(BOMBS_HOST, PAST_THE_WINDOW),
@@ -469,7 +446,10 @@ fn coded_bombs_over_tls(
         .environment
         .get("GOODFETCH_HOME")
         .and_then(|home| walls::major_of(home, first));
-    let authority = site.proving_ground.certificate_authority().ok();
+    let authority = checks.needs(
+        "the Proving ground serves its certificate authority",
+        site.proving_ground.certificate_authority(),
+    );
     let (Some(major), Some(authority)) = (major, authority) else {
         checks.check(
             "the engine's per-major folder and the Proving ground's authority are found",
@@ -478,20 +458,29 @@ fn coded_bombs_over_tls(
         return Ok(());
     };
     let file = major.join(AUTHORITY_FILE);
-    checks.check(
+    checks.read(
         "the Proving ground's authority is written beside the user configuration",
         place(&file, Some(&authority)),
     );
-    let before = walls::configure(
-        &major,
-        Some(&format!(
-            "version = \"0.1\"\n\n[settings.tls.trusted_cas]\n\"{BOMBS_HOST}\" = [{}]\n",
-            json!(file.display().to_string())
-        )),
-    );
+    let Some(before) = checks.needs(
+        "user configuration trusts the Proving ground's authority for `bombs.test`",
+        walls::configure(
+            &major,
+            Some(&user_configuration(&format!(
+                "[settings.tls.trusted_cas]\n\"{BOMBS_HOST}\" = [{}]\n",
+                json!(file.display().to_string())
+            ))),
+        ),
+    ) else {
+        checks.needs("the authority's copy is removed", place(&file, None));
+        return Ok(());
+    };
     let outcome = coded_bombs_on(connection, site, [&brotli, &zstd], &past_the_window, checks);
-    walls::configure(&major, before.as_deref());
-    place(&file, None);
+    checks.needs(
+        "user configuration is put back",
+        walls::configure(&major, before.as_deref()),
+    );
+    checks.needs("the authority's copy is removed", place(&file, None));
     outcome
 }
 
@@ -513,11 +502,11 @@ fn coded_bombs_on(
         let refused = call(connection, PAGE_REQUEST.name, &page, &json!({ "url": url }))?;
         checks.check(
             format!(
-                "`page.request` to {url} raises `{}` naming `network.max_decompression_ratio`",
-                RESPONSE_LIMIT_EXCEEDED.name
+                "`page.request` to {url} raises `{}` naming `{}`",
+                RESPONSE_LIMIT_EXCEEDED.name, NETWORK_MAX_DECOMPRESSION_RATIO.name
             ),
             code_of(&refused) == &json!(RESPONSE_LIMIT_EXCEEDED.name)
-                && refused["error"]["data"]["setting"] == json!("network.max_decompression_ratio")
+                && refused["error"]["data"]["setting"] == NETWORK_MAX_DECOMPRESSION_RATIO.name
                 && refused["error"]["data"]["limit"] == json!(100),
         );
     }

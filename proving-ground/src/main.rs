@@ -32,6 +32,12 @@ mod generator;
 mod handmade;
 mod hostile;
 mod html;
+#[expect(
+    unreachable_pub,
+    dead_code,
+    reason = "the same source is test support's public interface (`proving_ground_format`) and the conformance harness's reader of the observations' requests, which the Proving ground writes through `observation`"
+)]
+mod interface;
 mod languages;
 mod login;
 mod markdown;
@@ -62,9 +68,9 @@ use std::net::{Ipv4Addr, SocketAddr};
 
 use anyhow::{Context as _, Result, bail};
 use clap::Parser as _;
-use serde_json::Value;
 
 use crate::command::{Command, NetworkProfile, Serve, Shaper, Tasks};
+use crate::interface::ServeLine;
 use crate::network::{Loss, Network, Profile};
 use crate::network_fixture::NetworkFixtures;
 use crate::server::{Server, StopSignal};
@@ -163,23 +169,19 @@ async fn serve(
     let upstream = server.address();
     let reached = network.proxy_address().unwrap_or(upstream);
     let fixtures = NetworkFixtures::bind(reached.ip(), seed, server.observations()).await?;
-    let mut line = fixtures.report()?;
-    server
-        .observations()
-        .set_network_fixtures(Value::Object(line.clone()));
-    line.insert("address".to_owned(), reached.to_string().into());
-    line.insert("version".to_owned(), version::VERSION.into());
-    line.insert("seed".to_owned(), seed.into());
-    let hosts: Vec<_> = server.site().host_names().map(Value::from).collect();
-    line.insert("hosts".to_owned(), hosts.into());
-    line.insert(
-        "certificate_authority".to_owned(),
-        server.site().certificate_authority().into(),
+    let addresses = fixtures.report()?;
+    server.observations().set_network_fixtures(
+        serde_json::to_value(&addresses).context("reporting the network fixtures")?,
     );
-    line.insert(
-        "network".to_owned(),
-        serde_json::to_value(network.report()).context("reporting the network profile")?,
-    );
+    let line = ServeLine {
+        address: reached,
+        version: version::VERSION.to_owned(),
+        seed,
+        hosts: server.site().host_names().map(str::to_owned).collect(),
+        certificate_authority: server.site().certificate_authority().to_owned(),
+        fixtures: addresses,
+        network: serde_json::to_value(network.report()).context("reporting the network profile")?,
+    };
     output::line(&line)?;
     tokio::select! {
         () = server.run(stop_signal) => {}

@@ -727,8 +727,7 @@ fn a_wrong_answer_fault_answers_a_plausible_price_the_oracle_refutes(#[case] for
     let records = text["records"].clone();
 
     let verdict = proving_ground
-        .judge(&json!({ "task": WRONG_ANSWER, "status": "success", "records": records }))
-        .json();
+        .judge(&json!({ "task": WRONG_ANSWER, "status": "success", "records": records }));
 
     assert_ne!(
         records[0]["price"],
@@ -749,13 +748,11 @@ fn a_fault_task_is_answered_normally_by_the_oracle() {
     let proving_ground = ProvingGround::start(SEED);
     let price = page_price(&proving_ground, RATE_LIMIT);
 
-    let verdict = proving_ground
-        .judge(&json!({
-            "task": RATE_LIMIT,
-            "status": "success",
-            "records": [{ "id": "pro", "price": price }],
-        }))
-        .json();
+    let verdict = proving_ground.judge(&json!({
+        "task": RATE_LIMIT,
+        "status": "success",
+        "records": [{ "id": "pro", "price": price }],
+    }));
 
     assert_eq!(verdict["outcome"], "verified", "{verdict}");
 }

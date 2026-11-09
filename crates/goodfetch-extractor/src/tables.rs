@@ -7,6 +7,8 @@ use dom_query::NodeRef;
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use goodfetch_protocol::page::Table;
 
+use crate::whitespace::collapsed;
+
 /// The tables of `tree`, in document order.
 pub(crate) fn tables(tree: &ParsedHtml, work: &CountedWork) -> Vec<Table> {
     tree.select_matcher(&work.literal_selector(Row::PageSelectorCompilations, "table"))
@@ -95,5 +97,5 @@ fn text(element: &NodeRef<'_>) -> String {
             }
         }
     }
-    text.split_ascii_whitespace().collect::<Vec<_>>().join(" ")
+    collapsed(&text)
 }

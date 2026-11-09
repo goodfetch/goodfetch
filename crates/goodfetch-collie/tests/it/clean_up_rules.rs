@@ -26,18 +26,21 @@ mod stand_in;
 use std::path::{Path, PathBuf};
 
 use goodfetch_engine::run_state::run_row;
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::CLEAN_UP_RULES;
+use goodfetch_protocol::home::{RUN_FILE, RUN_TRACE_PROVENANCE};
 use goodfetch_protocol::page::PageOpened;
 use goodfetch_protocol::run::warning::CLEAN_UP_RULES_STALE;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use rusqlite::Connection;
 use serde_json::{Map, Value, json};
 use sha2::Digest as _;
 
 use self::stand_in::{StandIn, channel, manifest_path};
-use crate::attached::{Attached, hello};
+use crate::COLLIE;
 use crate::page::{BROWSER_DEADLINE, opened};
-use crate::run::call;
+use goodfetch_test_client::{Attached, hello};
 
 /// The digest of the embedded part, as the clean-up crate's build gives it.
 const EMBEDDED: &str = goodfetch_clean_up_rules::rules::EMBEDDED_DIGEST;
@@ -60,20 +63,18 @@ pub(crate) fn calendar_free(warnings: &[Value]) -> Vec<Value> {
 
 /// The folder of the Run `run_id` in the Goodfetch home `home`.
 fn run_folder(home: &Path, run_id: &str) -> PathBuf {
-    home.join("0.0").join("runs").join(run_id)
+    HomeLayout::of(home).run_folder(run_id)
 }
 
 /// The Clean-up rules digest the run state of `run_id` records.
 fn recorded_digest(home: &Path, run_id: &str) -> Option<String> {
-    run_row::clean_up_digest(
-        &Connection::open(run_folder(home, run_id).join("run.sqlite")).unwrap(),
-    )
-    .unwrap()
+    run_row::clean_up_digest(&Connection::open(run_folder(home, run_id).join(RUN_FILE)).unwrap())
+        .unwrap()
 }
 
 /// The Provenance entries of the Run `run_id` that name its Clean-up rules.
 fn rules_provenance(home: &Path, run_id: &str) -> Vec<Value> {
-    std::fs::read_to_string(run_folder(home, run_id).join("trace/provenance.jsonl"))
+    std::fs::read_to_string(run_folder(home, run_id).join(RUN_TRACE_PROVENANCE))
         .unwrap_or_default()
         .lines()
         .map(|line| serde_json::from_str::<Value>(line).unwrap())
@@ -84,17 +85,16 @@ fn rules_provenance(home: &Path, run_id: &str) -> Vec<Value> {
 /// Starts and finishes the Run `run_id` on a new Attached engine with
 /// `settings`, and answers its Run report.
 fn start_and_finish(env: &TestEnv, run_id: &str, settings: &Value) -> Value {
-    let mut engine = Attached::start(env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    let started = call(
-        &mut engine,
+    let started = engine.ask(
         1,
         "run.start",
         &json!({ "run_id": run_id, "settings": settings }),
     );
     assert!(started.get("result").is_some(), "{started}");
-    let report = call(&mut engine, 2, "run.finish", &json!({ "run_id": run_id }));
+    let report = engine.ask(2, "run.finish", &json!({ "run_id": run_id }));
     let _ = engine.finish();
     report["result"].clone()
 }
@@ -283,11 +283,11 @@ fn settings(proving_ground: Option<&ProvingGround>, clean_up: Value) -> Map<Stri
 }
 
 /// Starts an Attached engine on `env` whose Browser cache is `cache`.
-fn engine_with_browser<'env>(env: &'env TestEnv, cache: &Path) -> Attached<'env> {
-    let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
+fn engine_with_browser(env: &TestEnv, cache: &Path) -> Attached {
+    let mut engine = Attached::start_with(env, COLLIE, BROWSER_DEADLINE, |command| {
         command.env(goodfetch_test_support::BROWSERS_PATH_VARIABLE, cache);
     });
-    engine.send(&hello("collie", "0.1"));
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     engine
 }
@@ -309,16 +309,10 @@ fn loads(
     proving_ground: &ProvingGround,
     run_id: &str,
 ) -> (bool, bool) {
-    let page: PageOpened = opened(&call(
-        engine,
-        id,
-        "run.new_page",
-        &json!({ "run_id": run_id }),
-    ));
+    let page: PageOpened = opened(&engine.ask(id, "run.new_page", &json!({ "run_id": run_id })));
     let before = requests(proving_ground);
     let url = proving_ground.url("clean-up.test", "/ads");
-    let loaded = call(
-        engine,
+    let loaded = engine.ask(
         id + 1,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": url }),
@@ -342,8 +336,8 @@ fn requests(proving_ground: &ProvingGround) -> Vec<String> {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request["host"] == json!("clean-up.test"))
-        .filter_map(|request| request["target"].as_str().map(str::to_owned))
+        .filter(|request| request.host == "clean-up.test")
+        .map(|request| request.target.clone())
         .collect()
 }
 
@@ -396,55 +390,34 @@ fn runs_pinned_to_two_days_versions_keep_their_own_and_a_resume_in_another_home_
 
     let first_cache = browser_cache(&first_home).unwrap();
     let mut first = engine_with_browser(&first_home, &first_cache);
-    result(call(
-        &mut first,
+    result(first.ask(
         1,
         "run.start",
         &json!({ "run_id": "first", "settings": pinned(&first_day) }),
     ));
     let first_before = loads(&mut first, 2, &proving_ground, "first");
-    result(call(
-        &mut first,
-        4,
-        "run.pause",
-        &json!({ "run_id": "first" }),
-    ));
+    result(first.ask(4, "run.pause", &json!({ "run_id": "first" })));
     let _ = first.finish();
-    let checkpoint = first_home
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join("first")
+    let checkpoint = HomeLayout::of(first_home.home())
+        .run_folder("first")
         .join("checkpoint.sqlite");
 
     let second_cache = browser_cache(&second_home).unwrap();
     let mut second = engine_with_browser(&second_home, &second_cache);
-    result(call(
-        &mut second,
+    result(second.ask(
         1,
         "run.start",
         &json!({ "run_id": "second", "settings": pinned(&second_day) }),
     ));
     let second_loads = loads(&mut second, 2, &proving_ground, "second");
-    result(call(
-        &mut second,
+    result(second.ask(
         4,
         "run.resume",
         &json!({ "run_id": "first", "checkpoint": checkpoint, "settings": pinned(&first_day) }),
     ));
     let first_after = loads(&mut second, 5, &proving_ground, "first");
-    result(call(
-        &mut second,
-        7,
-        "run.finish",
-        &json!({ "run_id": "first" }),
-    ));
-    result(call(
-        &mut second,
-        8,
-        "run.finish",
-        &json!({ "run_id": "second" }),
-    ));
+    result(second.ask(7, "run.finish", &json!({ "run_id": "first" })));
+    result(second.ask(8, "run.finish", &json!({ "run_id": "second" })));
     let _ = second.finish();
 
     assert_eq!(
@@ -520,8 +493,7 @@ fn upstream_lists_are_fetched_from_their_urls_without_their_cookie_sections() {
     let cache = browser_cache(&env).unwrap();
     let mut engine = engine_with_browser(&env, &cache);
 
-    result(call(
-        &mut engine,
+    result(engine.ask(
         1,
         "run.start",
         &json!({
@@ -530,12 +502,7 @@ fn upstream_lists_are_fetched_from_their_urls_without_their_cookie_sections() {
         }),
     ));
     let loaded = loads(&mut engine, 2, &proving_ground, "upstream");
-    result(call(
-        &mut engine,
-        4,
-        "run.finish",
-        &json!({ "run_id": "upstream" }),
-    ));
+    result(engine.ask(4, "run.finish", &json!({ "run_id": "upstream" })));
     let _ = engine.finish();
 
     let recorded = recorded_digest(env.home(), "upstream");
@@ -588,11 +555,10 @@ fn a_run_pinned_to_a_version_older_than_14_days_holds_to_it_with_a_stale_warning
 /// Starts the Run `run_id` with `settings` on a new Attached engine of
 /// `env`, and answers `run.start`'s whole answer.
 fn start(env: &TestEnv, run_id: &str, settings: &Value) -> Value {
-    let mut engine = Attached::start(env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    let answer = call(
-        &mut engine,
+    let answer = engine.ask(
         1,
         "run.start",
         &json!({ "run_id": run_id, "settings": settings }),
@@ -886,8 +852,7 @@ fn a_version_whose_files_went_before_the_first_page_falls_back_with_a_warning() 
     stand_in.publish("pinned", &pinned, &files);
     let cache = browser_cache(&env).unwrap();
     let mut engine = engine_with_browser(&env, &cache);
-    result(call(
-        &mut engine,
+    result(engine.ask(
         1,
         "run.start",
         &json!({
@@ -898,12 +863,7 @@ fn a_version_whose_files_went_before_the_first_page_falls_back_with_a_warning() 
     std::fs::remove_dir_all(cache.join("clean_up_rules")).unwrap();
 
     let loaded = loads(&mut engine, 2, &proving_ground, "gone");
-    let report = result(call(
-        &mut engine,
-        4,
-        "run.finish",
-        &json!({ "run_id": "gone" }),
-    ));
+    let report = result(engine.ask(4, "run.finish", &json!({ "run_id": "gone" })));
     let _ = engine.finish();
 
     let entries = rules_provenance(env.home(), "gone");

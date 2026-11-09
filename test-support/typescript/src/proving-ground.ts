@@ -4,7 +4,11 @@
 // certificate authority, and its network fixtures, so a test reaches its
 // pages, its forward proxies and its connection record with no setup of its
 // own. TypeScript reads what the Rust setup started, and starts nothing.
+// Its routes come from `test-support/fixtures/proving-ground/routes.json`,
+// which `xtask codegen` writes from the Proving ground's own interface.
+import type { ValidateFunction } from "ajv/dist/2020.js";
 import { TestSupportError } from "./errors.ts";
+import { ajv, committedSchema, sharedFixture } from "./schemas.ts";
 import type { TestEnvDescription } from "./test-env.ts";
 
 /** A forward proxy's Basic credentials, derived from the seed. */
@@ -52,4 +56,28 @@ export function provingGroundOf(description: TestEnvDescription): ProvingGroundD
     );
   }
   return description.proving_ground;
+}
+
+/** The paths of the Proving ground's own routes, served on its bound address rather than on a page family's host. */
+export interface ProvingGroundRoutes {
+  /** `GET`: the task list. */
+  readonly tasks: string;
+  /** `POST`: judges a tool's result for one task. */
+  readonly oracle: string;
+  /** `PUT`: the time step its pages answer at from now on. */
+  readonly time_step: string;
+  /** `GET`: every request its page hosts received, and the connection record. */
+  readonly observations: string;
+  /** `GET`: the client certificate its mutual-TLS hosts accept. */
+  readonly client_certificate: string;
+  /** `GET`: that certificate's private key. */
+  readonly client_key: string;
+}
+
+const isProvingGroundRoutes: ValidateFunction<ProvingGroundRoutes> =
+  ajv.compile<ProvingGroundRoutes>(committedSchema("proving-ground-routes.schema.json"));
+
+/** The Proving ground's routes, read from the committed shared fixture. */
+export function provingGroundRoutes(): ProvingGroundRoutes {
+  return sharedFixture("proving-ground/routes.json", isProvingGroundRoutes);
 }

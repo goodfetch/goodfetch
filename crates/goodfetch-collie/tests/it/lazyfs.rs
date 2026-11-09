@@ -11,34 +11,33 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{LazyFs, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
-use crate::run::call;
+use goodfetch_test_client::{Attached, Hello, hello};
+
+use crate::COLLIE;
 
 #[test]
 fn a_run_acknowledged_before_a_power_cut_is_intact_and_taken_back_after_it() {
     let env = TestEnv::for_lazyfs();
     let home = LazyFs::mount(&env, env.home()).unwrap();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     let start = json!({ "run_id": "cut", "tags": ["acknowledged"] });
-    let started = call(&mut engine, 1, "run.start", &start);
+    let started = engine.ask(1, "run.start", &start);
 
     engine.kill();
     home.clear_cache().unwrap();
     drop(home);
     let _home = LazyFs::mount(&env, env.home()).unwrap();
 
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join("cut")
-        .join("run.sqlite");
+    let file = HomeLayout::of(env.home()).run_file("cut");
     let (integrity, run, tags) = {
         let connection = Connection::open(&file).unwrap();
         let integrity: String = connection
@@ -58,10 +57,10 @@ fn a_run_acknowledged_before_a_power_cut_is_intact_and_taken_back_after_it() {
             .unwrap();
         (integrity, run, tags)
     };
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    let again = call(&mut engine, 2, "run.start", &start);
+    let again = engine.ask(2, "run.start", &start);
     let _ = engine.finish();
 
     assert_eq!(
@@ -93,11 +92,10 @@ fn a_power_cut_in_fast_durability_leaves_a_run_file_that_passes_its_integrity_ch
     let env = TestEnv::for_lazyfs();
     env.user_configuration("run_state.durability = \"fast\"\n");
     let home = LazyFs::mount(&env, env.home()).unwrap();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    let started = call(
-        &mut engine,
+    let started = engine.ask(
         1,
         "run.start",
         &json!({ "run_id": "fast", "tags": ["maybe"] }),
@@ -108,12 +106,7 @@ fn a_power_cut_in_fast_durability_leaves_a_run_file_that_passes_its_integrity_ch
     drop(home);
     let _home = LazyFs::mount(&env, env.home()).unwrap();
 
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join("fast")
-        .join("run.sqlite");
+    let file = HomeLayout::of(env.home()).run_file("fast");
     let integrity: String = Connection::open(&file)
         .unwrap()
         .pragma_query_value(None, "integrity_check", |row| row.get(0))
@@ -134,13 +127,12 @@ fn a_power_cut_in_fast_durability_leaves_a_run_file_that_passes_its_integrity_ch
 )]
 fn a_consent_domain_allowed_before_a_power_cut_is_still_allowed_after_it() {
     let env = TestEnv::for_lazyfs();
-    let file = env.home().join("0.0").join("configuration.toml");
+    let file = HomeLayout::of(env.home()).user_configuration();
     let home = LazyFs::mount(&env, env.home()).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = Attached::start(&env, COLLIE);
     engine.send(&from_the_cli());
     let _ = engine.next();
-    let allowed = call(
-        &mut engine,
+    let allowed = engine.ask(
         1,
         "needs_you.allow_consent_domain",
         &json!({ "domain": "walled.test" }),
@@ -153,11 +145,10 @@ fn a_consent_domain_allowed_before_a_power_cut_is_still_allowed_after_it() {
     let _home = LazyFs::mount(&env, env.home()).unwrap();
 
     let kept = std::fs::read_to_string(&file).unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = Attached::start(&env, COLLIE);
     engine.send(&from_the_cli());
     let _ = engine.next();
-    let again = call(
-        &mut engine,
+    let again = engine.ask(
         2,
         "needs_you.allow_consent_domain",
         &json!({ "domain": "walled.test" }),
@@ -173,7 +164,7 @@ fn a_consent_domain_allowed_before_a_power_cut_is_still_allowed_after_it() {
 /// A `hello` from the CLI, a person's surface, which may answer a consent
 /// wall.
 fn from_the_cli() -> Value {
-    let mut hello = hello("collie", "0.1");
-    hello["params"]["surface"] = json!("cli");
-    hello
+    Hello::needing(Product::Collie)
+        .surface(Surface::Cli)
+        .message()
 }

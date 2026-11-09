@@ -33,10 +33,9 @@ use serde_json::{Map, Value};
 pub use environment::{check_environment, deployment_variable};
 pub use error::SettingsError;
 pub use files::{
-    LOWEST_MINOR_KEY, MachineLayers, OPERATOR_POLICY_FILE, PROJECT_CONFIGURATION_FILE,
-    SettingsFiles, USER_CONFIGURATION_FILE, configuration, find_project, fuzz_settings_file,
-    load_project, operator_policy, policy_version, project_settings, rewrite, set,
-    user_configuration,
+    LOWEST_MINOR_KEY, MachineLayers, PROJECT_CONFIGURATION_FILE, SettingsFiles, configuration,
+    find_project, fuzz_settings_file, load_project, operator_policy, policy_version,
+    project_settings, rewrite, set, user_configuration,
 };
 pub use hosts::HostEntry;
 pub use resolve::{

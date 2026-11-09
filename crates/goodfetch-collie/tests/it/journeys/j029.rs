@@ -10,12 +10,12 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use goodfetch_protocol::result_document::ResultDocument;
+use goodfetch_test_client::DaemonClient;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, DaemonEndpoint, JourneyRun, ProvingGround, browser_cache,
 };
 use serde_json::{Map, Value, json};
 
-use crate::daemon::RawClient;
 use crate::daemon_run::{ANY_PORT, Foreground, opened};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -84,7 +84,7 @@ fn cli() {
     ];
     let mut daemon: Option<Foreground> = None;
     let mut endpoint: Option<DaemonEndpoint> = None;
-    let mut client: Option<RawClient> = None;
+    let mut client: Option<DaemonClient> = None;
     let mut next_id = 0;
     let mut pages: Vec<(String, Value)> = Vec::new();
     let mut report = Value::Null;

@@ -8,26 +8,10 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Final, Literal
 
+from goodfetch_collie_client.goodfetch_error import GoodfetchError
+
 ErrorGroup = Literal["program", "refused", "page", "model", "deadline_exceeded", "unavailable", "internal"]
 """The seven groups of Error codes, named for their remedy."""
-
-
-class GoodfetchError(Exception):
-    """The base of every error a Goodfetch SDK raises (ADR 0079)."""
-
-    code: str
-    """The Error code, as the engine sent it."""
-    group: ErrorGroup
-    """The code's group, named for its remedy."""
-    retryable: bool
-    """Whether the same call may succeed when made again."""
-
-    def __init__(self, message: str, *, code: str, group: ErrorGroup, retryable: bool) -> None:
-        """Takes the message and the code's fields."""
-        super().__init__(message)
-        self.code = code
-        self.group = group
-        self.retryable = retryable
 
 
 class ProgramError(GoodfetchError):
@@ -539,7 +523,7 @@ class RouteAlreadyHandledError(ProgramError):
 
 
 class RunBusyError(RefusedError):
-    """Another engine holds the Run's writer lock, and the owner the Run index names did not take the action: it did not answer, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later."""
+    """Another engine holds the Run's writer lock, and the owner the Run index names did not say it took the action: it did not answer, and may still be taking it, or does not own the Run. The engine retried the lock 5 times over about a second; the writer may end, so try again later."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""

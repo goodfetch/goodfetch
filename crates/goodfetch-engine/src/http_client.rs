@@ -26,7 +26,7 @@
 //! `pinned_download`, the one path for every connection nobody configured,
 //! and the module of each kind of Operator-configured endpoint. Which
 //! modules call it is `modules.toml`'s list, which a test holds to those
-//! kinds, each a row of `goodfetch-protocol`'s `CONFIGURED_KINDS`. An
+//! kinds, each a row of `egress`'s `CONFIGURED_KINDS`. An
 //! Operator-configured endpoint goes through `ConfiguredEndpoint`, the
 //! second egress class (ADR 0017): its URL and every address it resolves
 //! to are judged under the Operator policy's `egress.no_private_endpoints`,
@@ -43,7 +43,6 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 
-use goodfetch_protocol::egress::ConfiguredKind;
 use http_body_util::BodyExt as _;
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
@@ -54,7 +53,7 @@ use url::Host;
 
 use crate::clock::Clock;
 use crate::dns::{Dns, HostMapping, IpFamily, LookupError, Resolution, Route, family_of};
-use crate::egress::{EndpointPolicy, Gate, Refused, Stopped};
+use crate::egress::{ConfiguredKind, EndpointPolicy, Gate, Refused, Stopped};
 use crate::happy_eyeballs::{Delays, Families, Race, RaceError};
 use crate::local_addresses::SessionAddresses;
 use crate::response_limits::Limits;
@@ -303,7 +302,7 @@ pub(crate) struct Server<'a> {
 /// An Operator-configured endpoint the engine connects to on its own
 /// behalf, the second egress class (ADR 0017): no run's domain policy,
 /// private ranges, certificate exception or client certificate applies to
-/// it. Its kind is a row of `goodfetch-protocol`'s `CONFIGURED_KINDS`.
+/// it. Its kind is a row of `egress`'s `CONFIGURED_KINDS`.
 pub(crate) struct ConfiguredEndpoint<'a> {
     /// Its kind.
     pub(crate) kind: ConfiguredKind,

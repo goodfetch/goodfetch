@@ -45,6 +45,7 @@ use goodfetch_cdp::generated::{emulation, fetch, network, page};
 use goodfetch_cdp::{NetError, Subscription};
 use goodfetch_engine::CallError;
 use goodfetch_engine::response_limits::Limits;
+use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::page::{
     PageResponse, RedirectLimit, TOO_MANY_REDIRECTS, TooManyRedirectsDetails,
 };
@@ -52,10 +53,10 @@ use goodfetch_protocol::page::{
 use crate::driver::PageDriver;
 use crate::driver::cdp_response::{
     bodiless, coded, cut_after_sent_on, cut_though_finished, declared_length, encoded_bytes,
-    from_the_network, paused_headers, paused_status, whole_body,
+    from_the_network, paused_headers, paused_status, redirects, whole_body,
 };
 use crate::errors::{network_error, site_preferences_refused};
-use crate::interception::{EngineRequests, Overrides};
+use crate::interception::{EngineRequests, Overrides, authentication};
 use crate::page_value::{Navigation, NavigationKind, Permit};
 use crate::paused_body::{declared_within_limits, streamed};
 
@@ -183,7 +184,7 @@ pub(crate) async fn send(
     // A wait for the navigation gate's permits counts against no timeout.
     driver
         .within_navigation_deadline(
-            "response",
+            WaitedFor::RESPONSE,
             Load::new(driver, sender, request).follow(events),
         )
         .await?
@@ -198,7 +199,7 @@ struct Load<'a> {
     network_id: Option<String>,
     /// The URL of each hop, the first included.
     chain: Vec<String>,
-    /// Whether the Session's proxy was given its credentials already.
+    /// Whether the Session's proxy was asked for its credentials already.
     authenticated: bool,
     /// Where the Session's egress relay's refusals stood as the load
     /// began, if it has a relay.
@@ -275,7 +276,9 @@ impl<'a> Load<'a> {
                             return ended;
                         }
                     } else if let Some(required) = event.read::<fetch::AuthRequiredEvent>() {
-                        self.authenticate(required).await;
+                        if let Some(refused) = self.authenticate(required).await {
+                            return Err(refused);
+                        }
                     } else if let Some(received) = event.read::<network::ResponseReceivedEvent>() {
                         if self.ours(&received.request_id) {
                             self.from_the_network = from_the_network(&received.response);
@@ -426,7 +429,7 @@ impl<'a> Load<'a> {
         }
         let status = paused_status(&paused);
         let response = self.response_of(&paused, status);
-        let redirect = (300..400).contains(&status) && response.headers.contains_key("location");
+        let redirect = redirects(status) && response.headers.contains_key("location");
         if redirect {
             let followed = u32::try_from(self.chain.len().saturating_sub(1)).unwrap_or(u32::MAX);
             if self.request.max_redirects == 0 {
@@ -634,44 +637,25 @@ impl<'a> Load<'a> {
         )
     }
 
-    /// Answers a 407 or 401: the Session's proxy's with its credentials,
-    /// once; a site's as the browser would with none.
-    async fn authenticate(&mut self, required: fetch::AuthRequiredEvent) {
-        let proxied = required.auth_challenge.source == Some(fetch::AuthChallengeSource::Proxy)
-            && (self.driver.proxy().is_some() || self.driver.relay().is_some());
-        let credentials = self.driver.proxy_credentials().filter(|_| proxied);
-        let mut credentials_given = false;
-        let response = match credentials {
-            Some((username, password)) if !self.authenticated => {
-                self.authenticated = true;
-                credentials_given = true;
-                fetch::AuthChallengeResponse {
-                    response: fetch::AuthChallengeResponseResponse::ProvideCredentials,
-                    username: Some(username.to_owned()),
-                    password: Some(password.to_owned()),
-                }
-            }
-            _ if proxied => fetch::AuthChallengeResponse {
-                response: fetch::AuthChallengeResponseResponse::CancelAuth,
-                username: None,
-                password: None,
-            },
-            _ => fetch::AuthChallengeResponse {
-                response: fetch::AuthChallengeResponseResponse::Default,
-                username: None,
-                password: None,
-            },
-        };
+    /// Answers a 407 or 401 as [`authentication`] says, the Session's
+    /// credentials given once for the whole load; answers
+    /// `proxy_auth_failed`, which ends the load, when the Session's proxy
+    /// refused them or asked for some it does not have (ADR 0053).
+    async fn authenticate(&mut self, required: fetch::AuthRequiredEvent) -> Option<CallError> {
+        let challenged = authentication::answer(self.driver, &required, || {
+            std::mem::replace(&mut self.authenticated, true)
+        });
         self.send(&fetch::ContinueWithAuthParams {
             request_id: required.request_id,
-            auth_challenge_response: response,
+            auth_challenge_response: challenged.response,
         })
         .await;
         // The load's hop leaves only now, with the credentials: its gate
         // hears that send too (ADR 0086).
-        if credentials_given {
+        if challenged.credentials_given {
             self.driver.sent(&required.request.url).await;
         }
+        challenged.refused
     }
 
     /// Sends `command` for a paused request, which may be gone.

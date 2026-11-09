@@ -198,6 +198,17 @@ pub enum ProtocolFailure {
 }
 
 impl ProtocolFailure {
+    /// Every failure of the protocol itself, in declaration order.
+    pub const ALL: [Self; 7] = [
+        Self::ParseError,
+        Self::InvalidRequest,
+        Self::MessageTooLarge,
+        Self::MessageTooDeep,
+        Self::MethodNotFound,
+        Self::InvalidParams,
+        Self::InternalError,
+    ];
+
     /// Its name, which the error's `data.code` carries.
     pub fn name(self) -> &'static str {
         match self {

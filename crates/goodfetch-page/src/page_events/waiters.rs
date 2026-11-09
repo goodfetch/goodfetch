@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use goodfetch_engine::CallError;
+use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::page::events::{PageExchange, PageRequest};
 use tokio::sync::oneshot;
 
@@ -53,7 +54,7 @@ impl PageEvents {
         self.arm(
             |state| &mut state.request_waiters,
             pattern,
-            (deadline, "request"),
+            (deadline, WaitedFor::REQUEST),
         )
     }
 
@@ -76,7 +77,7 @@ impl PageEvents {
         let responded = self.arm(
             |state| &mut state.response_waiters,
             pattern,
-            (deadline, "response"),
+            (deadline, WaitedFor::RESPONSE),
         );
         async move {
             tokio::select! {
@@ -92,7 +93,7 @@ impl PageEvents {
         &self,
         waiters: fn(&mut State) -> &mut Vec<Armed<T>>,
         pattern: Option<UrlPattern>,
-        (deadline, waited_for): (WaitDeadline, &'static str),
+        (deadline, waited_for): (WaitDeadline, WaitedFor),
     ) -> impl Future<Output = Result<T, CallError>> + use<T> {
         let (answer, answered) = oneshot::channel();
         {

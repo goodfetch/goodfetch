@@ -28,11 +28,10 @@ use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv, browser_c
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use crate::attached::Attached;
 use crate::egress_relay::{Program, provenance, started};
 use crate::page::{opened, resumed_with, started_with};
 use crate::proxy::{PASSWORD_VARIABLE, adapter_configuration, sticky_relays, visit_marked};
-use crate::run::{at_once, call};
+use goodfetch_test_client::Attached;
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 638;
@@ -60,12 +59,8 @@ fn bound(more: &Value) -> Value {
 fn site_sources(observations: &Value) -> BTreeSet<String> {
     let carried: BTreeSet<u64> = ReceivedRequests::of(observations)
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|host| PAGE_HOSTS.contains(&host))
-        })
-        .filter_map(|request| request["connection"].as_u64())
+        .filter(|request| PAGE_HOSTS.contains(&request.host.as_str()))
+        .map(|request| request.connection)
         .collect();
     observations["connections"]
         .as_array()
@@ -90,22 +85,13 @@ const PAGE_HOSTS: [&str; 2] = ["catalog.test", "access.test"];
 fn request_kinds(observations: &Value) -> BTreeSet<(String, String)> {
     ReceivedRequests::of(observations)
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|host| PAGE_HOSTS.contains(&host))
-        })
-        .map(|request| {
-            (
-                request["protocol"].as_str().unwrap_or_default().to_owned(),
-                request["kind"].as_str().unwrap_or_default().to_owned(),
-            )
-        })
+        .filter(|request| PAGE_HOSTS.contains(&request.host.as_str()))
+        .map(|request| (request.protocol.clone(), request.kind.clone()))
         .collect()
 }
 
 /// Waits until the page `page`'s title is `done`.
-fn settle(program: &mut Program<'_>, page: &str) {
+fn settle(program: &mut Program, page: &str) {
     let _ = program.call(
         "page.wait_for_function",
         &json!({
@@ -320,13 +306,8 @@ fn two_sessions_opened_at_once_keep_their_own_proxy_exit_and_local_address_acros
     .as_object()
     .cloned()
     .unwrap_or_default();
-    let visit = |engine: &mut Attached<'_>, id: i64, session: &Value, mark: &str| {
-        let page = opened(&call(
-            engine,
-            id,
-            "session.new_page",
-            &json!({ "session_id": session }),
-        ));
+    let visit = |engine: &mut Attached, id: i64, session: &Value, mark: &str| {
+        let page = opened(&engine.ask(id, "session.new_page", &json!({ "session_id": session })));
         visit_marked(
             engine,
             &proving_ground,
@@ -344,16 +325,14 @@ fn two_sessions_opened_at_once_keep_their_own_proxy_exit_and_local_address_acros
         &settings,
         with_password,
     );
-    let sessions: Vec<Value> = at_once(
-        &mut engine,
-        &[
+    let sessions: Vec<Value> = engine
+        .at_once(&[
             (2, "run.new_session", json!({ "run_id": run_id })),
             (3, "run.new_session", json!({ "run_id": run_id })),
-        ],
-    )
-    .into_iter()
-    .map(|opened| opened["result"]["session_id"].clone())
-    .collect();
+        ])
+        .into_iter()
+        .map(|opened| opened["result"]["session_id"].clone())
+        .collect();
     for (id, session) in (10..).step_by(2).zip(&sessions) {
         let mark = format!("{}-before", session_mark(session));
         visit(&mut engine, id, session, &mark);
@@ -371,7 +350,7 @@ fn two_sessions_opened_at_once_keep_their_own_proxy_exit_and_local_address_acros
         let mark = format!("{}-after", session_mark(session));
         visit(&mut resumed, id, session, &mark);
     }
-    let _ = call(&mut resumed, 50, "run.finish", &json!({ "run_id": run_id }));
+    let _ = resumed.ask(50, "run.finish", &json!({ "run_id": run_id }));
     let _ = resumed.finish();
 
     let exits = |session: &str| -> BTreeSet<String> {

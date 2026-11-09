@@ -10,196 +10,15 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::io::Write as _;
-use std::path::PathBuf;
-use std::process::{ChildStdin, Command, Stdio};
 use std::time::Duration;
 
-use goodfetch_protocol::jsonrpc::Message;
-use goodfetch_test_support::{AnsweredCalls, Process, StrictStdout, TestEnv};
+use goodfetch_test_client::Attached;
+use goodfetch_test_client::HomeLayout;
+use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-/// The Datasets a crawl these tests start declares when its `crawl.start`
-/// names none (ADR 0103): those their handlers push Records into, with no
-/// schema or key.
-const PUSHED_INTO: [&str; 4] = ["pages", "books", "items", "links"];
-
-/// A running Attached engine of Foxhound's executable. When it ends
-/// without exiting by itself, killed or left to the test's teardown, it
-/// records the calls it read answered in the test's answer record: the
-/// killed engine's log loses the dispatch records its writer's thread had
-/// not written yet (ADR 0122), which the exercise audit reads (#1779).
-pub(crate) struct Attached {
-    process: Process,
-    stdin: Option<ChildStdin>,
-    stdout: StrictStdout,
-    /// The engine instance its `hello` named.
-    engine_instance: Value,
-    /// The test's folder, which holds its answer record.
-    folder: PathBuf,
-    answered: AnsweredCalls,
-    /// Whether the engine exited by itself, its log written whole.
-    exited: bool,
-}
-
-impl Attached {
-    pub(crate) fn start(env: &TestEnv) -> Self {
-        Self::start_with(env, None, |_| {})
-    }
-
-    /// [`Attached::start`], `prepare` setting the engine's command first,
-    /// such as the browsers' folder its pages launch from, and each wait
-    /// for its output bounded by `deadline` when given.
-    pub(crate) fn start_with(
-        env: &TestEnv,
-        deadline: Option<Duration>,
-        prepare: impl FnOnce(&mut Command),
-    ) -> Self {
-        env.log_level("trace");
-        let mut command = env.process_command(env!("CARGO_BIN_EXE_goodfetch-foxhound"));
-        command.arg("attached-engine");
-        prepare(&mut command);
-        Self::spawned(env, deadline, &mut command)
-    }
-
-    /// An Attached engine `command` starts, such as Foxhound's executable
-    /// run in a mount namespace of its own, each wait for its output
-    /// bounded by `deadline` when given.
-    pub(crate) fn spawned(
-        env: &TestEnv,
-        deadline: Option<Duration>,
-        command: &mut Command,
-    ) -> Self {
-        env.log_level("trace");
-        command.stderr(Stdio::piped());
-        let process = env.spawn(command).unwrap();
-        let stdin = process.child().stdin.take();
-        let stdout = StrictStdout::of(&process).unwrap();
-        let stdout = match deadline {
-            Some(deadline) => stdout.within(deadline),
-            None => stdout,
-        };
-        let mut engine = Self {
-            process,
-            stdin,
-            stdout,
-            engine_instance: Value::Null,
-            folder: env.folder().to_owned(),
-            answered: AnsweredCalls::default(),
-            exited: false,
-        };
-        engine.send(&json!({
-            "jsonrpc": "2.0", "id": "hello", "method": "hello",
-            "params": { "protocol_version": "0.1", "surface": "sdk_python", "needs": "foxhound", "product_version": "0.0.0" },
-        }));
-        let opened = engine.next().unwrap();
-        assert_eq!(opened["result"]["product"], "foxhound");
-        engine.engine_instance = opened["result"]["engine_instance"].clone();
-        engine
-    }
-
-    /// Sends `message`; a `crawl.start` that declares no Dataset declares
-    /// [`PUSHED_INTO`], those the tests' handlers push their Records into.
-    pub(crate) fn send(&mut self, message: &Value) {
-        let mut message = message.clone();
-        if message["method"] == "crawl.start" && message["params"].get("datasets").is_none() {
-            message["params"]["datasets"] = PUSHED_INTO
-                .iter()
-                .map(|name| json!({ "name": name }))
-                .collect();
-        }
-        self.answered.sent(&message);
-        let stdin = self.stdin.as_mut().unwrap();
-        let mut line = serde_json::to_vec(&message).unwrap();
-        line.push(b'\n');
-        stdin.write_all(&line).unwrap();
-        stdin.flush().unwrap();
-    }
-
-    pub(crate) fn next(&mut self) -> Option<Value> {
-        let message = self.stdout.try_next().unwrap()?;
-        serde_json::from_value::<Message>(message.clone()).unwrap();
-        self.answered.read(&message);
-        Some(message)
-    }
-
-    /// Sends the call `id`, answers each handler request with `handler`
-    /// until its reply comes, and answers that reply.
-    pub(crate) fn call(
-        &mut self,
-        id: &str,
-        method: &str,
-        params: &Value,
-        handler: &mut impl FnMut(&Value) -> Option<Value>,
-    ) -> Value {
-        self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }));
-        loop {
-            let message = self.next().expect("the engine closed before replying");
-            if message["method"] == "crawl_request.handle" {
-                if let Some(answer) = handler(&message["params"]) {
-                    let mut reply = answer;
-                    reply["jsonrpc"] = json!("2.0");
-                    reply["id"] = message["id"].clone();
-                    self.send(&reply);
-                }
-            } else if message["id"] == id {
-                return message;
-            }
-        }
-    }
-
-    /// Whether the engine writes nothing on its stdout for `quiet`; a
-    /// message written meanwhile is kept for the next read.
-    pub(crate) fn is_quiet_for(&mut self, quiet: Duration) -> bool {
-        self.stdout.is_quiet_for(quiet)
-    }
-
-    /// Subscribes to the event stream as the call `id`, from the start of
-    /// the engine instance its `hello` named: it reads every event, even
-    /// those of calls that answered before it was armed.
-    pub(crate) fn subscribe_from_start(&mut self, id: &str) {
-        let after = json!({ "engine_instance": self.engine_instance, "position": 0 });
-        self.send(&json!({
-            "jsonrpc": "2.0", "id": id, "method": "events.subscribe", "params": { "after": after },
-        }));
-    }
-
-    /// The engine's process ID.
-    pub(crate) fn pid(&self) -> u32 {
-        self.process.child().id()
-    }
-
-    /// Kills the engine (`kill -9`, `TerminateProcess` on Windows) and
-    /// waits for it to exit; the calls it answered go to the test's answer
-    /// record.
-    pub(crate) fn kill(self) {
-        self.process.stop().unwrap();
-    }
-
-    /// Ends the input and waits for the engine to exit.
-    pub(crate) fn finish(mut self) -> bool {
-        drop(self.stdin.take());
-        while self.next().is_some() {}
-        self.exited = self.process.child().wait().unwrap().success();
-        self.exited
-    }
-}
-
-impl Drop for Attached {
-    fn drop(&mut self) {
-        // A folder already gone means the test's teardown ran, copying the
-        // record that nothing can add to any more.
-        if self.exited || !self.folder.is_dir() {
-            return;
-        }
-        if let Err(error) = self.answered.record_in(&self.folder)
-            && !std::thread::panicking()
-        {
-            panic!("the test's answer record cannot be written: {error}");
-        }
-    }
-}
+use crate::attached;
 
 fn seeds() -> Value {
     json!([
@@ -212,7 +31,7 @@ fn seeds() -> Value {
 #[test]
 fn a_crawl_on_foxhounds_executable_commits_its_handlers_records_once_in_its_own_run_file() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let started = engine.call(
         "start",
@@ -234,16 +53,9 @@ fn a_crawl_on_foxhounds_executable_commits_its_handlers_records_once_in_its_own_
         &json!({ "run_id": "shop" }),
         &mut handler,
     );
-    let exited = engine.finish();
+    let exited = engine.finished();
 
-    let file = Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join("shop")
-            .join("run.sqlite"),
-    )
-    .unwrap();
+    let file = Connection::open(HomeLayout::of(env.home()).run_file("shop")).unwrap();
     let records: Vec<String> = file
         .prepare("SELECT data FROM records ORDER BY number")
         .unwrap()
@@ -285,7 +97,7 @@ fn a_crawl_on_foxhounds_executable_commits_its_handlers_records_once_in_its_own_
 #[test]
 fn cancel_of_run_finish_in_flight_answers_call_cancelled() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     engine.call(
         "start",
         "crawl.start",
@@ -312,7 +124,7 @@ fn cancel_of_run_finish_in_flight_answers_call_cancelled() {
         (
             &cancelled["error"]["data"]["code"],
             &aborted["result"]["lifecycle"],
-            engine.finish(),
+            engine.finished(),
         ),
         (&json!("call_cancelled"), &json!("stopped"), true)
     );
@@ -338,7 +150,7 @@ fn a_slow_handler_holds_the_crawl_back_and_a_slow_subscriber_loses_no_record_or_
     const SEEDS: usize = HANDLER_CONCURRENCY + 4;
     let seed_count = i64::try_from(SEEDS).unwrap();
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let seeds: Vec<Value> = (0..SEEDS)
         .map(|index| json!({ "url": format!("https://shop.test/{index}"), "label": "page" }))
         .collect();
@@ -397,16 +209,9 @@ fn a_slow_handler_holds_the_crawl_back_and_a_slow_subscriber_loses_no_record_or_
             );
         }
     }
-    let exited = engine.finish();
+    let exited = engine.finished();
 
-    let file = Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join("held")
-            .join("run.sqlite"),
-    )
-    .unwrap();
+    let file = Connection::open(HomeLayout::of(env.home()).run_file("held")).unwrap();
     let (records, work_items): (i64, i64) = file
         .query_row(
             "SELECT count(*), count(DISTINCT work_item) FROM records",
@@ -447,7 +252,7 @@ fn a_slow_handler_holds_the_crawl_back_and_a_slow_subscriber_loses_no_record_or_
 #[test]
 fn a_crawls_outcomes_and_failed_requests_are_read_on_foxhounds_executable() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let seeds = json!([
         { "url": "https://shop.test/kept", "label": "page" },
         { "url": "https://shop.test/skipped", "label": "page" },
@@ -498,7 +303,7 @@ fn a_crawls_outcomes_and_failed_requests_are_read_on_foxhounds_executable() {
         &json!({ "run_id": "endings", "blocked": true }),
         &mut |_| None,
     );
-    let exited = engine.finish();
+    let exited = engine.finished();
 
     // The handler takes the four at once, so their commit order is the
     // runtime's: the in-process tests name it, this one sorts by URL.
@@ -573,7 +378,7 @@ fn start_keep_alive(engine: &mut Attached, run_id: &str, timeout: Option<u64>) {
 #[test]
 fn a_keep_alive_crawl_on_foxhounds_executable_waits_for_new_work_until_its_run_timeout() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     start_keep_alive(&mut engine, "waiting", Some(1_000));
 
     let report = engine.call(
@@ -582,7 +387,7 @@ fn a_keep_alive_crawl_on_foxhounds_executable_waits_for_new_work_until_its_run_t
         &json!({ "run_id": "waiting" }),
         &mut |params| Some(record_the_page(params)),
     );
-    let exited = engine.finish();
+    let exited = engine.finished();
 
     assert_eq!(
         (
@@ -607,7 +412,7 @@ fn a_keep_alive_crawl_on_foxhounds_executable_waits_for_new_work_until_its_run_t
 #[test]
 fn run_finish_ends_a_keep_alive_crawl_on_foxhounds_executable_once_drained() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     start_keep_alive(&mut engine, "served", None);
     let outcomes = engine.call(
         "outcomes",
@@ -622,7 +427,7 @@ fn run_finish_ends_a_keep_alive_crawl_on_foxhounds_executable_once_drained() {
         &json!({ "run_id": "served" }),
         &mut |params| Some(record_the_page(params)),
     );
-    let exited = engine.finish();
+    let exited = engine.finished();
 
     assert_eq!(
         (

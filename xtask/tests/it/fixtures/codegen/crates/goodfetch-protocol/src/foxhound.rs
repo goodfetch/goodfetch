@@ -6,8 +6,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, ErrorGroup, Event, Instrument, Metric, Operation, OperationClass,
-    ProtocolVersion, Stability, schema_of,
+    Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Instrument, Metric, Operation,
+    OperationClass, OperationKind, ProtocolVersion, Reach, Stability, schema_of,
 };
 use crate::sample::SampleEchoParams;
 
@@ -41,6 +41,7 @@ pub struct SampleCrawled {
 const SAMPLE_CRAWLED: Event = Event {
     name: "sample.crawled",
     description: "The sample crawl finished.",
+    class: EventClass::Telemetry,
     payload: schema_of::<SampleCrawled>,
     stability: Stability::Stable,
     deprecated: None,
@@ -54,6 +55,8 @@ pub const ENTRIES: Entries = Entries {
         name: "sample.crawl",
         description: "Visits sample pages, each repeating a text.",
         class: OperationClass::Effect,
+        kind: OperationKind::RoundTrip,
+        reach: Reach::AllSurfaces,
         params: schema_of::<SampleCrawlParams>,
         result: schema_of::<SampleCrawlResult>,
         events: &[&SAMPLE_CRAWLED],
@@ -63,11 +66,13 @@ pub const ENTRIES: Entries = Entries {
         arrived_in: ARRIVED_IN,
     }],
     events: &[SAMPLE_CRAWLED],
+    handler_requests: &[],
     error_codes: &[ErrorCodeDefinition {
         name: "sample_crawl_refused",
         description: "The sample crawl refused its pages.",
         group: ErrorGroup::Refused,
         retryable: true,
+        exit_code: None,
         arrived_in: ARRIVED_IN,
     }],
     plugin_kinds: &[],
@@ -76,7 +81,11 @@ pub const ENTRIES: Entries = Entries {
         description: "Pages the sample crawl visited.",
         instrument: Instrument::Counter,
         unit: "{page}",
+        labels: &[],
         stability: Stability::Experimental,
         arrived_in: ARRIVED_IN,
     }],
+    settings: &[],
+    hook_stages: &[],
+    shared_type_values: &[],
 };

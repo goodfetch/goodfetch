@@ -13,7 +13,7 @@
 
 use std::num::NonZeroU64;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use jiff::Timestamp;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -93,12 +93,18 @@ struct ReadLabel {
 
 /// Issue `number` of `repository`; `None` when the number is no issue of the
 /// repository (GitHub answers 404, or it is a pull request's) or the token
-/// cannot read it.
+/// cannot read it. Without a token it fails: a private repository answers
+/// 404 for every issue then, which would read as each one missing.
 pub(crate) fn find(
     api: &Api<'_>,
     repository: &str,
     number: NonZeroU64,
 ) -> Result<Option<NamedIssue>> {
+    if api.token.is_none() {
+        bail!(
+            "no GitHub token to read issue #{number} of {repository} with: set GITHUB_TOKEN, or log the GitHub CLI in (`gh auth login`)"
+        );
+    }
     let issue: Option<ReadIssue> = api.find(&format!("/repos/{repository}/issues/{number}"))?;
     Ok(issue
         .filter(|issue| issue.pull_request.is_none())

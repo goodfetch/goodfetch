@@ -28,25 +28,29 @@ mod navigation;
 mod page_check;
 mod page_functions;
 mod page_request;
+mod poll;
 mod popups;
 mod proxies;
 mod proxy_limits;
 mod reset;
 mod robots_txt;
 mod routes;
+mod run_trace;
 mod service_workers;
 mod sessions;
 mod waits;
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::fmt;
 
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, ProtocolVersion};
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CANCEL, HELLO, HelloParams, HelloResult, PROTOCOL_VERSION_UNSUPPORTED,
-    ProductVersion, Surface,
+    CALL_CANCELLED, CANCEL, HelloParams, HelloResult, PROTOCOL_VERSION_UNSUPPORTED, Surface,
 };
 use goodfetch_protocol::engine::{ENGINE_INFO, EngineInfo};
 use goodfetch_protocol::events::EVENTS_SUBSCRIBE;
+use goodfetch_protocol::formats::USER_CONFIGURATION;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{Navigated, PAGE_GOTO, PageOpened, RUN_NEW_PAGE};
 use goodfetch_protocol::result_document::{CaseCheck, OracleAnswer};
@@ -54,9 +58,12 @@ use goodfetch_protocol::run::{RUN_FINISH, RUN_START};
 use serde_json::{Value, json};
 
 use self::guard::Step;
-use super::connection::{Connection, Gone};
-use super::target::{DEADLINE, EngineTarget, START_DEADLINE};
-use crate::proving_ground::{ProvingGround, ProxyCredentials, TaskAccount, TaskList};
+use super::connection::{Connection, Gone, code_of};
+use super::fabricated;
+use super::target::{DEADLINE, EngineTarget};
+use crate::proving_ground::{
+    ProvingGround, ProvingGroundError, ProxyCredentials, ReceivedRequests, TaskAccount, TaskList,
+};
 
 /// A method no Product carries, which every target must refuse.
 const UNKNOWN_METHOD: &str = "conformance.unknown_method";
@@ -161,12 +168,23 @@ pub(crate) struct Site {
     /// any.
     proxy_credentials: Option<ProxyCredentials>,
     proving_ground: ProvingGround,
+    /// What a case expected of the Proving ground and could not read, with
+    /// why, since the suite last took it: each fails the case.
+    unread: RefCell<Vec<String>>,
 }
 
 impl Site {
     /// The site of `task_list`, served by `proving_ground`.
-    pub(crate) fn of(task_list: &TaskList, proving_ground: &ProvingGround) -> Self {
-        let fixtures = proving_ground.network_fixtures().ok().flatten();
+    ///
+    /// # Errors
+    ///
+    /// When the Proving ground cannot say which network fixtures it
+    /// serves.
+    pub(crate) fn of(
+        task_list: &TaskList,
+        proving_ground: &ProvingGround,
+    ) -> Result<Self, ProvingGroundError> {
+        let fixtures = proving_ground.network_fixtures()?;
         let address = proving_ground.address();
         let ip = address
             .rsplit_once(':')
@@ -204,7 +222,7 @@ impl Site {
         // would resolve it to every loopback address, the Proving ground's
         // among them, and this keeps it on that one.
         resolve.insert(launch::IDENTITY_HOST.to_owned(), json!([ip]));
-        Self {
+        Ok(Self {
             page_url,
             start_urls: task_list
                 .tasks
@@ -225,7 +243,56 @@ impl Site {
                 .unwrap_or_default(),
             proxy_credentials: fixtures.and_then(|fixtures| fixtures.proxy_credentials),
             proving_ground: proving_ground.clone(),
+            unread: RefCell::new(Vec::new()),
+        })
+    }
+
+    /// The requests the Proving ground's page hosts received; none when it
+    /// cannot list them, which fails the case naming why.
+    pub(crate) fn received_requests(&self) -> ReceivedRequests {
+        self.proving_ground
+            .received_requests()
+            .unwrap_or_else(|why| {
+                self.unread(format!(
+                    "the Proving ground lists the requests its page hosts received ({why})"
+                ));
+                ReceivedRequests::default()
+            })
+    }
+
+    /// The Proving ground's own observations; none when it cannot serve
+    /// them, which fails the case naming why.
+    pub(crate) fn observations(&self) -> Option<Value> {
+        self.proving_ground
+            .observations()
+            .map_err(|why| {
+                self.unread(format!(
+                    "the Proving ground's observations can be read ({why})"
+                ));
+            })
+            .ok()
+    }
+
+    /// Notes, once, that the case could not read `what` of the Proving
+    /// ground.
+    fn unread(&self, what: String) {
+        let mut unread = self.unread.borrow_mut();
+        if !unread.contains(&what) {
+            unread.push(what);
         }
+    }
+
+    /// What the case just run expected of the Proving ground and could not
+    /// read, each a failed check naming why.
+    pub(crate) fn take_unread(&self) -> Vec<CaseCheck> {
+        self.unread
+            .take()
+            .into_iter()
+            .map(|name| CaseCheck {
+                name,
+                passed: false,
+            })
+            .collect()
     }
 
     /// `settings` with the site's `network.resolve` mapping, and, unless
@@ -276,10 +343,10 @@ impl Site {
             .iter()
             .map(|host| format!("\"{host}\""))
             .collect();
-        format!(
-            "version = \"0.1\"\n\n[settings.egress]\nprivate_ranges = [{}]\n",
+        user_configuration(&format!(
+            "[settings.egress]\nprivate_ranges = [{}]\n",
             hosts.join(", ")
-        )
+        ))
     }
 
     /// The credentials the Proving ground's proxies that ask for them
@@ -306,16 +373,20 @@ impl Site {
 
     /// The plain HTTP URL of `path` on `host`, one of the Proving ground's
     /// host names that belong to no task, on its port.
-    fn named_url(&self, host: &str, path: &str) -> Option<String> {
-        let (_, port) = self.proving_ground.address().rsplit_once(':')?;
-        Some(format!("http://{host}:{port}{path}"))
+    fn named_url(&self, host: &str, path: &str) -> String {
+        format!("http://{host}:{}{path}", self.port)
     }
 
     /// [`Site::named_url`] over TLS, which the same port serves.
-    fn named_secure_url(&self, host: &str, path: &str) -> Option<String> {
-        let (_, port) = self.proving_ground.address().rsplit_once(':')?;
-        Some(format!("https://{host}:{port}{path}"))
+    fn named_secure_url(&self, host: &str, path: &str) -> String {
+        format!("https://{host}:{}{path}", self.port)
     }
+}
+
+/// A user configuration file, at the format's version, that sets
+/// `settings`, its TOML tables.
+pub(crate) fn user_configuration(settings: &str) -> String {
+    format!("version = \"{}\"\n\n{settings}", USER_CONFIGURATION.version)
 }
 
 /// The Proving ground's host names that belong to no task and that a case
@@ -366,6 +437,42 @@ impl Checks {
             name: name.into(),
             passed,
         });
+    }
+
+    /// `found`, checked to be read: a check named `expected`, which fails
+    /// naming why when the case could not read it.
+    fn read<T>(&mut self, expected: &str, found: Result<T, impl fmt::Display>) -> Option<T> {
+        match found {
+            Ok(found) => {
+                self.check(expected, true);
+                Some(found)
+            }
+            Err(why) => {
+                self.check(format!("{expected} ({why})"), false);
+                None
+            }
+        }
+    }
+
+    /// Checks that `answer`, to a call the case makes on its way to what it
+    /// claims, is a result: a failed check naming `call` and the failure
+    /// when it is not, and none when it is.
+    fn answered(&mut self, call: &str, answer: &Value) {
+        if let Some(error) = answer.get("error") {
+            self.check(format!("`{call}` answers with a result ({error})"), false);
+        }
+    }
+
+    /// `found`, or, when the case could not read what it needs, a failed
+    /// check that names what it expected and why it has none.
+    fn needs<T>(&mut self, expected: &str, found: Result<T, impl fmt::Display>) -> Option<T> {
+        match found {
+            Ok(found) => Some(found),
+            Err(why) => {
+                self.check(format!("{expected} ({why})"), false);
+                None
+            }
+        }
     }
 }
 
@@ -769,30 +876,18 @@ fn fabricated_hello(
             major: PROTOCOL_VERSION.major + 1,
             minor: 0,
         },
-        surface: Surface::Rust,
-        form: None,
-        token: other.token().map(ToOwned::to_owned),
         needs: Some(hello.product),
-        product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
-            .expect("invariant: the workspace's version is a Product version"),
-        log_level: None,
-        client_surface: None,
-        keep_daemon_alive: false,
+        ..other.hello_params(Surface::Rust)
     };
     let refused = (|| {
-        let id = other.request(
-            HELLO,
-            &serde_json::to_value(params).expect("invariant: `hello` serializes"),
-        )?;
-        other.request(ENGINE_INFO.name, &json!({}))?;
-        let first = other.next_within(START_DEADLINE)?;
+        let (id, first) = fabricated::with_a_call_behind(&mut other, &params)?;
         checks.check(
             "the first message answers the `hello`",
             first.get("method").is_none() && first["id"] == json!(id),
         );
         checks.check(
             format!("it refuses it with `{}`", PROTOCOL_VERSION_UNSUPPORTED.name),
-            first["error"]["data"]["code"] == json!(PROTOCOL_VERSION_UNSUPPORTED.name),
+            code_of(&first) == PROTOCOL_VERSION_UNSUPPORTED.name,
         );
         checks.check(
             "nothing else is answered and the engine closes the Connection",
@@ -830,8 +925,7 @@ pub(crate) fn new_page(
     run_id: &str,
     checks: &mut Checks,
 ) -> Result<Option<PageOpened>, Gone> {
-    let id = connection.request(RUN_NEW_PAGE.name, &json!({ "run_id": run_id }))?;
-    let answer = connection.browser_answer(id)?.message;
+    let answer = connection.call(RUN_NEW_PAGE.name, &json!({ "run_id": run_id }))?;
     let opened = answer
         .get("result")
         .and_then(|result| serde_json::from_value::<PageOpened>(result.clone()).ok());
@@ -883,11 +977,10 @@ fn goto(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result
     };
     start_run(connection, site, run_id, &json!({}), checks)?;
     if let Some(page) = new_page(connection, run_id, checks)? {
-        let id = connection.request(
+        let answer = connection.call(
             PAGE_GOTO.name,
             &json!({ "page_id": page.page_id, "url": url }),
         )?;
-        let answer = connection.browser_answer(id)?.message;
         let response = answer
             .get("result")
             .and_then(|result| serde_json::from_value::<Navigated>(result.clone()).ok())

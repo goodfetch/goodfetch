@@ -5,6 +5,9 @@
 import { encodeMessage, readLines, type Message, type MessageId } from "./framing.ts";
 import type { GoodfetchError } from "./generated/index.ts";
 
+/** The notification that cancels a call in flight (ADR 0038), `goodfetch-protocol`'s `connection::CANCEL`. */
+const CANCEL = "$/cancel";
+
 /**
  * The bytes a Connection runs over: the engine's to read and the Client's
  * to write, newline-delimited JSON-RPC each way. An Attached engine's stdio
@@ -105,7 +108,7 @@ export class Channel {
       const waiting = this.#waiting.get(id);
       if (waiting !== undefined && signal !== undefined) {
         this.#waiting.delete(id);
-        this.#send({ method: "$/cancel", params: { id } });
+        this.#send({ method: CANCEL, params: { id } });
         waiting.reject(signal.reason);
       }
     };
@@ -125,7 +128,7 @@ export class Channel {
   /** Fails every waiting call with `error`, sending each its `$/cancel`. */
   cancelAll(error: GoodfetchError): void {
     for (const [id, waiting] of this.#waiting) {
-      this.#send({ method: "$/cancel", params: { id } });
+      this.#send({ method: CANCEL, params: { id } });
       waiting.reject(error);
     }
     this.#waiting.clear();

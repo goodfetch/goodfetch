@@ -17,11 +17,13 @@
 //! trace the engine writes, its Provenance log included. The retries with
 //! blocking off (ticket #716) are `blocking_off`'s.
 
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use goodfetch_protocol::page::NAVIGATION_FAILED;
+use goodfetch_protocol::page::events as page_events;
 use goodfetch_protocol::page::route::{PAGE_ROUTE, ROUTE_CONTINUE};
 use goodfetch_protocol::page::{LOCATOR_CLICK, PAGE_FORMATS, PAGE_GOTO, PageOpened};
+use goodfetch_protocol::run::warning::BLOCK_RESOURCES_VISIBLE;
 use goodfetch_protocol::run::{RUN_FINISH, RUN_START};
 use goodfetch_protocol::settings::SETTING_INVALID;
 use serde_json::{Value, json};
@@ -29,7 +31,7 @@ use serde_json::{Value, json};
 use super::blocking_off;
 use super::navigation::{answered, call, failed_with};
 use super::routes::{Act, Routes, glob, goto};
-use super::{Checks, Site, new_page, start_run};
+use super::{Checks, Site, new_page, poll, run_trace, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::EngineTarget;
 
@@ -155,11 +157,9 @@ pub(super) fn received(site: &Site, target: &str) -> usize {
 
 /// How many requests for `target` of `host` the Proving ground received.
 fn received_on(site: &Site, host: &str, target: &str) -> usize {
-    site.proving_ground
-        .received_requests()
-        .unwrap_or_default()
+    site.received_requests()
         .of_the_case()
-        .filter(|request| request["host"] == json!(host) && request["target"] == json!(target))
+        .filter(|request| request.host == host && request.target == target)
         .count()
 }
 
@@ -187,7 +187,7 @@ pub(super) fn visit(
     page: &PageOpened,
     path: &str,
 ) -> Result<(String, Value), Gone> {
-    let url = site.named_url(HOST, path).unwrap_or_default();
+    let url = site.named_url(HOST, path);
     let answer = call(
         connection,
         PAGE_GOTO.name,
@@ -201,49 +201,6 @@ pub(super) fn visit(
 pub(super) fn finish(connection: &mut Connection, run_id: &str) -> Result<Value, Gone> {
     let id = connection.request(RUN_FINISH.name, &json!({ "run_id": run_id }))?;
     Ok(connection.browser_answer(id)?.message)
-}
-
-/// The lines of the Run `run_id`'s request log in the Run trace, under the
-/// Goodfetch home `target` names: `<home>/<major>/runs/<run_id>/trace/`.
-pub(super) fn run_trace(target: &EngineTarget, run_id: &str) -> Vec<Value> {
-    trace_lines(target, run_id, "trace/requests.jsonl")
-}
-
-/// The lines of the Run `run_id`'s Provenance log in the Run trace.
-pub(super) fn provenance(target: &EngineTarget, run_id: &str) -> Vec<Value> {
-    trace_lines(target, run_id, "trace/provenance.jsonl")
-}
-
-/// The lines of the Run trace's file `file` of the Run `run_id`.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the harness is synchronous and runs no async worker"
-)]
-pub(super) fn trace_lines(target: &EngineTarget, run_id: &str, file: &str) -> Vec<Value> {
-    let Some(home) = target.environment.get("GOODFETCH_HOME") else {
-        return Vec::new();
-    };
-    std::fs::read_dir(home)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|major| major.path().join("runs").join(run_id).join(file))
-        .filter(|file| file.is_file())
-        .flat_map(|file: PathBuf| lines(&file))
-        .collect()
-}
-
-/// The JSON lines of `file`.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the harness is synchronous and runs no async worker"
-)]
-fn lines(file: &Path) -> Vec<Value> {
-    std::fs::read_to_string(file)
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|line| serde_json::from_str(line).ok())
-        .collect()
 }
 
 /// By default the `/ads` page's own style sheet, script and photo load and
@@ -289,17 +246,17 @@ fn blocked(
         received(site, BLOCKED_DOCUMENT) == 0,
     );
     finish(connection, run_id)?;
-    let trace = run_trace(target, run_id);
+    let trace = checks.run_trace(run_trace::requests(target, run_id));
     for path in [AD, TRACKER, ANNOYANCE] {
         checks.check(
             format!("the Run trace records {path} failed as `{BLOCKED_BY_CLIENT}`"),
             trace.iter().any(|line| {
-                line["event"] == json!("page.request_failed")
+                line["event"] == json!(page_events::PAGE_REQUEST_FAILED.name)
                     && line["data"]["url"]
                         .as_str()
                         .is_some_and(|url| url.ends_with(path))
                     && line["data"]["failure"]["error_text"] == json!(BLOCKED_BY_CLIENT)
-                    && line["data"]["failure"]["error"]["code"] == json!("navigation_failed")
+                    && line["data"]["failure"]["error"]["code"] == NAVIGATION_FAILED.name
             }),
         );
     }
@@ -455,7 +412,7 @@ fn block_resources(
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|warning| warning["code"] == json!("block_resources_visible"))
+        .filter(|warning| warning["code"] == BLOCK_RESOURCES_VISIBLE)
         .count();
     checks.check(
         "the Run report warns once that the site can see the missing loads",
@@ -483,13 +440,9 @@ fn block_resources(
 /// How many requests for `target` on `/cross-site`'s frame's host the
 /// Proving ground received.
 fn received_in_frame(site: &Site, target: &str) -> usize {
-    site.proving_ground
-        .received_requests()
-        .unwrap_or_default()
+    site.received_requests()
         .of_the_case()
-        .filter(|request| {
-            request["host"] == json!(FRAME_HOST) && request["target"] == json!(target)
-        })
+        .filter(|request| request.host == FRAME_HOST && request.target == target)
         .count()
 }
 
@@ -560,12 +513,10 @@ fn route_sends_on(
     let Some(page) = open(connection, site, run_id, &json!({}), checks)? else {
         return finish(connection, run_id).map(drop);
     };
-    let (Some(ads), Some(tracker)) = (
+    let (ads, tracker) = (
         site.named_url(HOST, "/ads?route=tracker"),
         site.named_url(HOST, TRACKER),
-    ) else {
-        return finish(connection, run_id).map(drop);
-    };
+    );
     let before = counts(site, ["/js/site.js", TRACKER]);
     let mut routes = Routes::new(move |_| {
         vec![
@@ -611,33 +562,23 @@ pub(super) const AD_TEXT: &str = "An ad's text";
 /// The targets of the requests the Proving ground received on the pages'
 /// host that start with `prefix`, in the order received.
 fn targets(site: &Site, prefix: &str) -> Vec<String> {
-    site.proving_ground
-        .received_requests()
-        .unwrap_or_default()
+    site.received_requests()
         .of_the_case()
-        .filter(|request| request["host"] == json!(HOST))
-        .filter_map(|request| request["target"].as_str().map(str::to_owned))
+        .filter(|request| request.host == HOST)
+        .map(|request| request.target.clone())
         .filter(|target| target.starts_with(prefix))
         .collect()
 }
 
 /// The report starting with `prefix` the Proving ground receives after the
 /// `before` it had, waited for up to [`REPORT_WAIT`].
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the synchronous harness polls the Proving ground on its own thread, outside any async worker"
-)]
 fn next_report(site: &Site, prefix: &str, before: usize) -> Option<String> {
-    let started = Instant::now();
-    loop {
-        if let Some(report) = targets(site, prefix).get(before) {
-            return Some(report.clone());
-        }
-        if started.elapsed() > REPORT_WAIT {
-            return None;
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    poll::until(
+        REPORT_WAIT,
+        Duration::from_millis(100),
+        || targets(site, prefix).get(before).cloned(),
+        Option::is_some,
+    )
 }
 
 /// The Markdown `page.formats` answers for `page`.
@@ -706,7 +647,7 @@ fn hidden_text_removed(
         read[1].contains("The article's own text") && !read[1].contains("A light ad"),
     );
     finish(connection, run_id)?;
-    let lines = provenance(target, run_id);
+    let lines = checks.run_trace(run_trace::provenance(target, run_id));
     let hiding = removals_of(&lines, "/hiding");
     checks.check(
         "Provenance records `/hiding`'s ad removed by `.ad-slot`, unflagged",
@@ -767,7 +708,7 @@ fn removal_share_measures(
             markdown(connection, &page)?;
         }
         finish(connection, &run_id)?;
-        let lines = provenance(target, &run_id);
+        let lines = checks.run_trace(run_trace::provenance(target, &run_id));
         let [hiding, removal] = ["/hiding", "/removal"].map(|path| {
             removals_of(&lines, path).first().map(|line| {
                 (
@@ -834,7 +775,7 @@ fn hiding_sheet_unseen(
         frame.as_deref() == Some(FRAME_HIDDEN_UNSEEN),
     );
     finish(connection, run_id)?;
-    let lines = provenance(target, run_id);
+    let lines = checks.run_trace(run_trace::provenance(target, run_id));
     checks.check(
         "Provenance records live hiding as `auto` on the page",
         lines
@@ -867,11 +808,10 @@ fn hidden_target_lifted(
         seen.as_deref() == Some(HIDDEN_UNSEEN),
     );
     let clicks = received(site, "/hiding/clicked");
-    let id = connection.request(
+    let clicked = connection.call(
         LOCATOR_CLICK.name,
         &json!({ "locator": { "page_id": page.page_id, "selector": "#inside" } }),
     )?;
-    let clicked = connection.browser_answer(id)?.message;
     checks.check(
         format!(
             "`{}` on the button inside the hidden ad is answered ({clicked})",
@@ -895,7 +835,7 @@ fn hidden_target_lifted(
         seen.as_deref() == Some(SHOWN),
     );
     finish(connection, run_id)?;
-    let lines = provenance(target, run_id);
+    let lines = checks.run_trace(run_trace::provenance(target, run_id));
     checks.check(
         "Provenance records the rule lifted for the click",
         lines.iter().any(|line| {
@@ -942,7 +882,7 @@ fn live_hiding_modes(
             read.contains(ARTICLE_TEXT) && !read.contains(AD_TEXT),
         );
         finish(connection, &run_id)?;
-        let lines = provenance(target, &run_id);
+        let lines = checks.run_trace(run_trace::provenance(target, &run_id));
         checks.check(
             format!("Provenance records live hiding as `{mode}`"),
             lines

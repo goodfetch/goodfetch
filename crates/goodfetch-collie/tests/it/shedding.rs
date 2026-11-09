@@ -24,9 +24,8 @@ use goodfetch_protocol::page::PageOpened;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use serde_json::{Map, Value, json};
 
-use crate::attached::Attached;
 use crate::page::{browser_command_lines, opened, started_with};
-use crate::run::call;
+use goodfetch_test_client::Attached;
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 236;
@@ -76,8 +75,7 @@ fn heavy(
     mib: u64,
 ) -> Value {
     let url = proving_ground.url("scope.test", &format!("/heavy?mib={mib}"));
-    call(
-        engine,
+    engine.ask(
         id,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": url }),
@@ -107,18 +105,13 @@ fn at_critical_an_idle_browser_closes() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let mut engine = started_with(&env, &cache, &proving_ground, "idle", &Map::new(), |_| {});
-    let session = call(
-        &mut engine,
-        2,
-        "run.new_session",
-        &json!({ "run_id": "idle" }),
-    );
+    let session = engine.ask(2, "run.new_session", &json!({ "run_id": "idle" }));
 
     let launched = browsers_once(&env, 1);
     configure(&env, CRITICAL);
     let critical = browsers_once(&env, 0);
     configure(&env, "");
-    let _ = call(&mut engine, 3, "run.finish", &json!({ "run_id": "idle" }));
+    let _ = engine.ask(3, "run.finish", &json!({ "run_id": "idle" }));
     let _ = engine.finish();
 
     assert_eq!(
@@ -145,20 +138,14 @@ fn at_critical_a_page_past_its_memory_cap_ends_with_page_memory_exceeded() {
         json!({ "browser": { "page_memory_cap": 32 * MIB } }),
     );
     let mut engine = started_with(&env, &cache, &proving_ground, "heavy", &settings, |_| {});
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "heavy" }),
-    ));
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "heavy" })));
     let loaded = heavy(&mut engine, 3, &proving_ground, &page, 64);
 
     configure(&env, CRITICAL);
     let deadline = Instant::now() + SETTLE;
     let mut id = 4;
     let ended = loop {
-        let read = call(
-            &mut engine,
+        let read = engine.ask(
             id,
             "page.formats",
             &json!({ "page_id": page.page_id, "formats": {} }),
@@ -170,18 +157,8 @@ fn at_critical_a_page_past_its_memory_cap_ends_with_page_memory_exceeded() {
         std::thread::sleep(Duration::from_millis(100));
     };
     configure(&env, "");
-    let again = call(
-        &mut engine,
-        1000,
-        "run.new_page",
-        &json!({ "run_id": "heavy" }),
-    );
-    let _ = call(
-        &mut engine,
-        1001,
-        "run.finish",
-        &json!({ "run_id": "heavy" }),
-    );
+    let again = engine.ask(1000, "run.new_page", &json!({ "run_id": "heavy" }));
+    let _ = engine.ask(1001, "run.finish", &json!({ "run_id": "heavy" }));
     let _ = engine.finish();
 
     let data = &ended["error"]["data"];
@@ -224,19 +201,9 @@ fn at_the_last_resort_the_run_with_the_largest_footprint_stops_and_another_goes_
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let mut engine = started_with(&env, &cache, &proving_ground, "heavy", &Map::new(), |_| {});
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "heavy" }),
-    ));
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "heavy" })));
     let loaded = heavy(&mut engine, 3, &proving_ground, &page, 128);
-    let light = call(
-        &mut engine,
-        4,
-        "run.start",
-        &json!({ "run_id": "fetching" }),
-    );
+    let light = engine.ask(4, "run.start", &json!({ "run_id": "fetching" }));
     engine.send(
         &json!({ "jsonrpc": "2.0", "id": "events", "method": "events.subscribe", "params": {} }),
     );

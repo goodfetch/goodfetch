@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use goodfetch_test_support::{ProvingGround, TestEnv, cli};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::frontier::{Inside, crawl_with};
 
 /// The Proving ground's seed.
@@ -83,7 +83,7 @@ fn crawl_under(
     if let (Some(settings), Value::Object(own)) = (settings.as_object_mut(), own) {
         settings.extend(own);
     }
-    let mut engine = Attached::start(env);
+    let mut engine = attached(env);
 
     let mut answers = BTreeMap::new();
     let mut fetched: BTreeMap<String, usize> = BTreeMap::new();
@@ -116,7 +116,7 @@ fn crawl_under(
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
     Crawled {
         answers,

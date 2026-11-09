@@ -11,7 +11,11 @@
 //! its out-of-process frames' too, come from the `Runtime` domain, a known
 //! automation signal (ADR 0019): the engine enables it only once a call
 //! listens to `console` or `page_error`, and passes over what the browser
-//! replays from before that call.
+//! replays from before that call. A call on the page sent after such a
+//! `page.on` waits until the browser answered it, so what that call makes the
+//! page log is read live, never from the 1,000 messages V8 keeps while
+//! `Runtime` is off; the wait is on the browser, never on a Client, and its
+//! `opening` limit bounds it.
 //!
 //! Each hop of a redirect chain is its own request, Playwright's
 //! `redirectedFrom()`: the browser's ID names a request's first hop, and
@@ -89,7 +93,7 @@ use goodfetch_engine::run_trace::RequestLog;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallError, CallStream};
 use goodfetch_protocol::catalog::Event;
-use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::connection::{Surface, WaitedFor};
 use goodfetch_protocol::events::{EventEnvelope, Position};
 use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::page::events::{
@@ -214,6 +218,24 @@ impl Table {
         })
     }
 
+    /// The wait until no `page.on` of the page `page_id` sent before now is
+    /// still turning `Runtime` on; none while none is, or for a page that is
+    /// not open.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future gives up the wait.
+    pub(crate) fn arming(
+        &self,
+        page_id: &PageId,
+    ) -> Option<impl Future<Output = ()> + Send + use<>> {
+        let mut arming = lock(&self.0).get(page_id)?.shared.arming.subscribe();
+        let on = *arming.borrow_and_update();
+        on.then_some(async move {
+            let _ = arming.wait_for(|arming| !*arming).await;
+        })
+    }
+
     /// Takes the pages `pages` out, as they go: their calls answer.
     pub(crate) fn close(&self, pages: &[PageId]) {
         let taken: Vec<PageEvents> = {
@@ -253,6 +275,9 @@ struct Shared {
     /// Whether the page left the engine, closed or with its Run: its
     /// listeners' calls answer then, and a crash leaves them listening.
     closed: watch::Sender<bool>,
+    /// Whether a `page.on` asked for `Runtime` and the browser has not
+    /// answered yet: the page's calls wait while it is.
+    arming: watch::Sender<bool>,
     /// Whether its reader fell too far behind its target's events and
     /// stopped while the page was open: its calls on events then raise
     /// `page_events_lost`.
@@ -394,6 +419,9 @@ pub(crate) struct Listening {
     /// Its events, until the page goes or its queue overflowed.
     events: mpsc::Receiver<Published>,
     overflowed: oneshot::Receiver<()>,
+    /// The browser's answer to `Runtime.enable`, when this listener asked
+    /// for it.
+    armed: Option<oneshot::Receiver<Result<(), CallError>>>,
 }
 
 impl Drop for Listening {
@@ -410,25 +438,17 @@ impl Drop for Listening {
 
 impl Listening {
     /// Sends its events on `stream`, its call's, until the page goes, once
-    /// `Runtime` is on when the event needs it, on the page and its
-    /// out-of-process frames.
+    /// the `Runtime` it asked for, if any, is on.
     ///
     /// # Errors
     ///
     /// The code of the page's failure when the browser refused `Runtime`,
     /// and `page_events_lost` once the page's reader lost its events or the
     /// call's Client took too few of them.
-    pub(crate) async fn serve(
-        mut self,
-        stream: &CallStream,
-        runtime: bool,
-    ) -> Result<(), CallError> {
-        if runtime {
-            self.shared
-                .driver
-                .opening_command(&runtime::EnableParams {})
-                .await?;
-            enable_runtime_on_frames(&self.shared).await;
+    pub(crate) async fn serve(mut self, stream: &CallStream) -> Result<(), CallError> {
+        if let Some(armed) = self.armed.take() {
+            // None only as the Run stops, which stops this call too.
+            armed.await.unwrap_or(Ok(()))?;
         }
         let mut position = 0;
         while let Some(first) = self.events.recv().await {
@@ -466,9 +486,40 @@ impl Listening {
     }
 }
 
+/// Turns `Runtime` on, on the page and then its out-of-process frames, as a
+/// task of the Run's, so a `page.on` cancelled meanwhile neither leaves it off
+/// nor keeps the page's calls waiting: the answer goes to the call that asked,
+/// if it is still there, and the page's calls wait no more.
+fn arm_runtime(shared: &Arc<Shared>) -> oneshot::Receiver<Result<(), CallError>> {
+    /// Ends the arming however the task ends.
+    struct ArmingEnds(Arc<Shared>);
+    impl Drop for ArmingEnds {
+        fn drop(&mut self) {
+            self.0.arming.send_replace(false);
+        }
+    }
+    let (answer, answered) = oneshot::channel();
+    let ending = ArmingEnds(Arc::clone(shared));
+    shared.run.spawn(async move {
+        let shared = &ending.0;
+        let enabled = shared
+            .driver
+            .opening_command(&runtime::EnableParams {})
+            .await
+            .map(drop);
+        if enabled.is_ok() {
+            enable_runtime_on_frames(shared).await;
+        }
+        drop(ending);
+        let _ = answer.send(enabled);
+    });
+    answered
+}
+
 /// Turns `Runtime` on in each of the page's out-of-process frames, once a
 /// call listens to `console` or `page_error`; a frame gone meanwhile has
-/// nothing more to report.
+/// nothing more to report, and one that does not answer holds the page's
+/// calls no longer than a command of the page's opening.
 async fn enable_runtime_on_frames(shared: &Shared) {
     let frames: Vec<TargetSession> = {
         let mut state = lock(&shared.state);
@@ -480,12 +531,12 @@ async fn enable_runtime_on_frames(shared: &Shared) {
             .collect()
     };
     for session in frames {
-        if let Err(failure) = shared
+        if let Err(error) = shared
             .driver
-            .command_on(&session, &runtime::EnableParams {})
+            .opening_command_on(&session, &runtime::EnableParams {})
             .await
         {
-            tracing::debug!(%failure, "an out-of-process frame went before its console was read");
+            tracing::debug!(%error, "an out-of-process frame went before its console was read");
         }
     }
 }
@@ -530,6 +581,7 @@ impl PageEvents {
             changed: Notify::new(),
             gone: watch::Sender::new(false),
             closed: watch::Sender::new(false),
+            arming: watch::Sender::new(false),
             lost: watch::Sender::new(false),
             document: watch::Sender::new(Document::blank()),
             observing: observer.map(|observer| {
@@ -645,9 +697,9 @@ impl PageEvents {
     }
 
     /// Arms a listener for `event` now: the event is published while it
-    /// listens. The second value says the listener must first turn
-    /// `Runtime` on, which the Run's clock dates.
-    pub(crate) fn listen(&self, event: PageEventName) -> (Listening, bool) {
+    /// listens. When the event needs `Runtime` and no listener asked for it
+    /// yet, it is asked for now, which the Run's clock dates.
+    pub(crate) fn listen(&self, event: PageEventName) -> Listening {
         let (queue, events) = mpsc::channel(LISTENER_LIMIT);
         let (overflowed, overflow) = oneshot::channel();
         let mut state = lock(&self.shared.state);
@@ -665,18 +717,17 @@ impl PageEvents {
             && state.runtime_since.is_none();
         if runtime {
             state.runtime_since = Some(millis_since_epoch(self.shared.clock.wall()));
+            self.shared.arming.send_replace(true);
         }
         drop(state);
-        (
-            Listening {
-                shared: Arc::clone(&self.shared),
-                event,
-                id,
-                events,
-                overflowed: overflow,
-            },
-            runtime,
-        )
+        Listening {
+            shared: Arc::clone(&self.shared),
+            event,
+            id,
+            events,
+            overflowed: overflow,
+            armed: runtime.then(|| arm_runtime(&self.shared)),
+        }
     }
 
     /// Sends `event`, the page's `page.crash` or `page.close`, to each call
@@ -734,7 +785,10 @@ impl PageEvents {
         drop(state);
         let shared = Arc::clone(&self.shared);
         async move {
-            match deadline.within("finished request", answered).await? {
+            match deadline
+                .within(WaitedFor::FINISHED_REQUEST, answered)
+                .await?
+            {
                 Ok(answer) => answer,
                 Err(_) => Err(gone(&shared)),
             }
@@ -771,7 +825,10 @@ impl PageEvents {
         deadline: WaitDeadline,
     ) -> Result<BodyHandle, CallError> {
         deadline
-            .within("response body", self.ended_body(request_id, surface))
+            .within(
+                WaitedFor::RESPONSE_BODY,
+                self.ended_body(request_id, surface),
+            )
             .await?
     }
 
@@ -903,10 +960,7 @@ async fn judged_body(
     url: &str,
     (received, declared): (u64, Option<u64>),
 ) -> Result<Vec<u8>, Unread> {
-    let limits = shared
-        .run
-        .settings()
-        .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
+    let limits = Limits::of_run(shared.run.settings());
     let past = |exceeded: LimitExceeded| Unread::PastLimit(exceeded.error());
     limits
         .judge_decoded(url, received, declared)

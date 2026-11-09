@@ -13,7 +13,7 @@
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::run::{PointInTime, RunId};
 use goodfetch_protocol::tls::CertificatePin;
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{TestEnv, wal_of};
 use jiff::Timestamp;
 use rstest::rstest;
 use rusqlite::Connection;
@@ -543,4 +543,24 @@ fn the_head_sets_store_opens_and_takes_another_pin() {
         .accept("os_user", "expired.certificates.test", &changed, now())
         .unwrap();
     assert_eq!(accepted.pin.spki_sha256, Some(changed.to_string()));
+}
+
+/// The store holds to the synced per-user store's durability: its WAL stays
+/// beside it as a write's connection closes (#2110).
+#[test]
+fn the_wal_stays_beside_the_store_once_a_write_closed_its_connection() {
+    let env = TestEnv::in_memory();
+    let store = store(&env);
+
+    store
+        .pin(
+            "ada",
+            "intranet.example",
+            &key(1),
+            Some(&run("first")),
+            now(),
+        )
+        .unwrap();
+
+    assert!(wal_of(store.path()).exists());
 }

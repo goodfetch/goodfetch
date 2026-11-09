@@ -9,8 +9,8 @@ use encoding_rs::Encoding;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::proving_ground::ProvingGround;
-use crate::reading::{every, first, judge, origin, start_url, task};
+use crate::proving_ground::{ProvingGround, submission};
+use crate::reading::{every, first, origin, start_url, task};
 
 const SEED: u64 = 165;
 
@@ -138,7 +138,7 @@ fn each_page_read_by_its_declared_encoding_is_verified(#[case] id: &str, #[case]
     let task = task(&proving_ground, id);
     let records = known_right(&proving_ground, &task, provenance);
 
-    let answer = judge(&proving_ground, id, "success", &records);
+    let answer = proving_ground.judge(&submission(id, "success", &records));
 
     assert_eq!(records.len(), PAGES.len());
     assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -151,7 +151,7 @@ fn a_crawl_missing_a_page_is_incomplete_naming_it() {
     let mut records = known_right(&proving_ground, &task, false);
     records.retain(|record| record["id"] != "big5");
 
-    let answer = judge(&proving_ground, "encodings/1", "failure", &records);
+    let answer = proving_ground.judge(&submission("encodings/1", "failure", &records));
 
     assert_eq!(answer["outcome"], "incomplete", "{answer}");
     assert_eq!(answer["missing"], json!(["big5"]));
@@ -165,7 +165,7 @@ fn a_success_that_reads_every_page_as_utf_8_is_a_false_success_naming_the_charac
         read_page(url, body, "UTF-8", "utf8", false)
     });
 
-    let answer = judge(&proving_ground, "encodings/1", "success", &records);
+    let answer = proving_ground.judge(&submission("encodings/1", "success", &records));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     let wrong = answer["wrong"].as_array().expect("`wrong` is an array");
@@ -195,7 +195,7 @@ fn a_success_that_names_the_wrong_source_is_a_false_success() {
         .expect("the page with a contradicting meta");
     late["encoding_source"] = json!("meta");
 
-    let answer = judge(&proving_ground, "encodings/2", "success", &records);
+    let answer = proving_ground.judge(&submission("encodings/2", "success", &records));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["wrong"][0]["field"], "encoding_source", "{answer}");

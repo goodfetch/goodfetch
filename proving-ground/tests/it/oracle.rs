@@ -74,10 +74,8 @@ fn a_correct_result_is_verified(#[case] index: usize) {
     let proving_ground = ProvingGround::start(SEED);
     let (task, records) = correct_result(&proving_ground, index);
 
-    let answer = proving_ground.judge(&submission(&task, "success", &records));
+    let mut answer = proving_ground.judge(&submission(&task, "success", &records));
 
-    assert_eq!(answer.status, 200, "{}", answer.body);
-    let mut answer = answer.json();
     let oracle_time = answer
         .as_object_mut()
         .and_then(|answer| answer.remove("oracle_time_microseconds"));
@@ -111,9 +109,7 @@ fn a_correct_result_is_verified_whatever_the_tools_status(#[case] status: &str) 
     let proving_ground = ProvingGround::start(SEED);
     let (task, records) = correct_result(&proving_ground, 0);
 
-    let answer = proving_ground
-        .judge(&submission(&task, status, &records))
-        .json();
+    let answer = proving_ground.judge(&submission(&task, status, &records));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
     assert_eq!(answer["tool_status"], status, "{answer}");
@@ -126,9 +122,7 @@ fn a_result_missing_one_record_is_incomplete() {
     let (task, mut records) = correct_result(&proving_ground, 0);
     let dropped = records.pop().unwrap();
 
-    let answer = proving_ground
-        .judge(&submission(&task, "failure", &records))
-        .json();
+    let answer = proving_ground.judge(&submission(&task, "failure", &records));
 
     assert_eq!(answer["task"], task.as_str());
     assert_eq!(answer["outcome"], "incomplete", "{answer}");
@@ -144,9 +138,7 @@ fn a_success_missing_one_record_is_a_false_success() {
     let (task, mut records) = correct_result(&proving_ground, 0);
     let dropped = records.remove(3);
 
-    let answer = proving_ground
-        .judge(&submission(&task, "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission(&task, "success", &records));
 
     assert_eq!(answer["task"], task.as_str());
     assert_eq!(answer["outcome"], "false_success", "{answer}");
@@ -169,9 +161,7 @@ fn a_success_with_a_wrong_price_is_a_false_success_naming_the_price() {
         "submitted": "U+0030",
     });
 
-    let answer = proving_ground
-        .judge(&submission(&task, "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission(&task, "success", &records));
 
     assert_eq!(answer["task"], task.as_str());
     assert_eq!(answer["outcome"], "false_success", "{answer}");
@@ -196,9 +186,7 @@ fn a_failure_with_an_extra_record_is_failed_naming_the_record() {
     let extra = json!({ "id": "P-9999", "name": "Unlisted", "price": "1.00" });
     records.push(extra.clone());
 
-    let answer = proving_ground
-        .judge(&submission(&task, "failure", &records))
-        .json();
+    let answer = proving_ground.judge(&submission(&task, "failure", &records));
 
     assert_eq!(answer["outcome"], "failed", "{answer}");
     assert_eq!(answer["extra"], json!([extra]));
@@ -211,9 +199,7 @@ fn a_record_submitted_twice_is_extra() {
     let (task, mut records) = correct_result(&proving_ground, 1);
     records.push(records[0].clone());
 
-    let answer = proving_ground
-        .judge(&submission(&task, "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission(&task, "success", &records));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["extra"], json!([records[0]]));
@@ -226,9 +212,7 @@ fn a_price_submitted_as_a_number_is_the_price_the_page_shows() {
     let shown: f64 = records[0]["price"].as_str().unwrap().parse().unwrap();
     records[0]["price"] = json!(shown);
 
-    let answer = proving_ground
-        .judge(&submission(&task, "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission(&task, "success", &records));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -237,7 +221,7 @@ fn a_price_submitted_as_a_number_is_the_price_the_page_shows() {
 fn an_unknown_task_is_refused() {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = proving_ground.judge(&submission("catalog/999", "success", &[]));
+    let answer = proving_ground.submit(&submission("catalog/999", "success", &[]));
 
     assert_eq!(answer.status, 404);
     assert_eq!(answer.json()["error"], "unknown_task");
@@ -247,7 +231,7 @@ fn an_unknown_task_is_refused() {
 fn a_malformed_submission_is_refused() {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = proving_ground.judge(&json!({ "task": "catalog/1", "status": "done" }));
+    let answer = proving_ground.submit(&json!({ "task": "catalog/1", "status": "done" }));
 
     assert_eq!(answer.status, 400);
     assert_eq!(answer.json()["error"], "malformed_submission");
@@ -299,9 +283,7 @@ fn an_order_placed_once_is_verified_from_the_proving_grounds_own_record() {
     let (task, host, product) = order_form(&proving_ground);
     place_order(&proving_ground, &host, &product, 1);
 
-    let answer = proving_ground
-        .judge(&submission(&task, "success", &[]))
-        .json();
+    let answer = proving_ground.judge(&submission(&task, "success", &[]));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -317,7 +299,7 @@ fn an_order_placed_twice_is_judged_a_failure_from_the_proving_grounds_own_record
     let (task, host, product) = order_form(&proving_ground);
     place_order(&proving_ground, &host, &product, 2);
 
-    let answer = proving_ground.judge(&submission(&task, status, &[])).json();
+    let answer = proving_ground.judge(&submission(&task, status, &[]));
 
     assert_eq!(answer["outcome"], outcome, "{answer}");
     assert_eq!(
@@ -332,9 +314,7 @@ fn an_order_the_tool_reports_but_never_placed_is_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
     let (task, _, product) = order_form(&proving_ground);
 
-    let answer = proving_ground
-        .judge(&submission(&task, "success", &[]))
-        .json();
+    let answer = proving_ground.judge(&submission(&task, "success", &[]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(
@@ -349,9 +329,7 @@ fn an_order_placed_on_another_tasks_host_is_not_the_order_tasks() {
     let (task, _, product) = order_form(&proving_ground);
     place_order(&proving_ground, "1.catalog.test", &product, 1);
 
-    let answer = proving_ground
-        .judge(&submission(&task, "failure", &[]))
-        .json();
+    let answer = proving_ground.judge(&submission(&task, "failure", &[]));
 
     assert_eq!(answer["outcome"], "failed", "{answer}");
 }
@@ -363,9 +341,7 @@ fn the_oracle_scores_each_field_against_the_ground_truth() {
     records.pop();
     records[0]["price"] = json!("0.01");
 
-    let answer = proving_ground
-        .judge(&submission(&task, "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission(&task, "success", &records));
 
     assert_eq!(
         answer["quality"],

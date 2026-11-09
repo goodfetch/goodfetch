@@ -1,9 +1,8 @@
 //! Reading the Extraction families' pages the way any tool would, for their
-//! known-right results: the task a test judges, the pieces a page shows, and
-//! the submission the oracle reads.
+//! known-right results: the task a test judges and the pieces a page shows.
 
 use regex::Regex;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::proving_ground::ProvingGround;
 
@@ -48,21 +47,4 @@ pub(crate) fn every(pattern: &str, text: &str) -> Vec<String> {
         .captures_iter(text)
         .map(|found| found[1].to_owned())
         .collect()
-}
-
-/// A submission to the oracle.
-pub(crate) fn submission(task: &str, status: &str, records: &[Value]) -> Value {
-    json!({ "task": task, "status": status, "records": records })
-}
-
-/// The oracle's answer to a submission.
-pub(crate) fn judge(
-    proving_ground: &ProvingGround,
-    task: &str,
-    status: &str,
-    records: &[Value],
-) -> Value {
-    let answer = proving_ground.judge(&submission(task, status, records));
-    assert_eq!(answer.status, 200, "{}", answer.body);
-    answer.json()
 }

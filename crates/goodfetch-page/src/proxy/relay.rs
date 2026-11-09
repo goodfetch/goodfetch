@@ -58,24 +58,22 @@ use std::time::Duration;
 
 use data_encoding::BASE64;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::endpoint::{Listener, Refusals, new_token, same_token};
+use goodfetch_engine::endpoint::{Refusals, new_token, same_token};
 use goodfetch_engine::runs::Run;
+use goodfetch_protocol::audit::{Listener, RefusalReason};
 use secrecy::{ExposeSecret as _, SecretString};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-use super::party::{RELAY, relay_unreachable};
+use super::party::relay_unreachable;
+use crate::egress_relay::answers::{AUTHENTICATE, ESTABLISHED, USERNAME, failed};
 use crate::egress_relay::deadlines::{HEAD_DEADLINE, within, within_or_none};
 use crate::egress_relay::head::{self, HEAD_LIMIT, Head, Target, Unread};
 use crate::egress_relay::serve::{Met, socks5_request};
 use crate::egress_relay::{ByAuthority, Outcomes, authority_of, connect_deadline};
 use crate::proxy_provider::failure::ProviderAnswer;
 use crate::proxy_provider::{Ahead, ProxyUsage};
-
-/// The username of every relay's client credentials; the password is the
-/// Session's relay's own.
-pub(crate) const USERNAME: &str = "goodfetch";
 
 /// How long the relay waits before it accepts again after an error that is
 /// not one connection's own, such as too many open files.
@@ -88,12 +86,6 @@ const CHUNK: usize = 16 * 1024;
 /// the request take: two bytes, two bytes, and a reply naming a domain
 /// of at most 255 bytes (RFC 1928, RFC 1929).
 const SOCKS5_ANSWERS: u64 = 2 + 2 + 4 + 1 + 255 + 2;
-
-/// The answer to a client without the relay's credentials.
-const AUTHENTICATE: &[u8] = b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"goodfetch\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-
-/// The answer to a tunnel that opened.
-const ESTABLISHED: &[u8] = b"HTTP/1.1 200 Connection Established\r\n\r\n";
 
 /// SOCKS's version 5.
 const VERSION: u8 = 5;
@@ -298,7 +290,11 @@ async fn accept(listener: TcpListener, upstream: Arc<Upstream>, run: Run, stop: 
 /// the browser, and the next is accepted at once; any other error, such as
 /// too many open files, would fail every accept for a while, so the next
 /// waits [`ACCEPT_BACKOFF`] on `clock` rather than spin.
-async fn accepting<T, A, F, S>(
+///
+/// # Cancel safety
+///
+/// Dropping the future stops accepting; what `serve` took stays its own.
+pub async fn accepting<T, A, F, S>(
     mut accept: A,
     clock: &Clock,
     stop: &CancellationToken,
@@ -319,7 +315,7 @@ async fn accepting<T, A, F, S>(
             Ok(accepted) => serve(accepted),
             Err(error) if one_connections(&error) => {}
             Err(error) => {
-                tracing::warn!(%error, "the Session's relay could not accept a connection: it waits before the next");
+                tracing::warn!(%error, "a relay could not accept a connection: it waits before the next");
                 tokio::select! {
                     () = stop.cancelled() => return,
                     () = ending.cancelled() => return,
@@ -342,14 +338,6 @@ fn one_connections(error: &std::io::Error) -> bool {
     )
 }
 
-/// The relay's own answer to a request it could not take on, with
-/// `status` and the `Proxy-Status` member naming `error` (RFC 9209).
-fn failed(status: &str, error: &str) -> String {
-    format!(
-        "HTTP/1.1 {status}\r\nProxy-Status: {RELAY}; error={error}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-    )
-}
-
 /// Relays one of its client's connections through the proxy, once the
 /// client gave the relay's credentials; a client that sends no whole
 /// request head within [`HEAD_DEADLINE`] is dropped.
@@ -363,7 +351,7 @@ async fn relay(mut client: TcpStream, upstream: &Upstream) {
         Err(Unread::Closed) => return,
         Err(Unread::Malformed) => {
             let _ = client
-                .write_all(failed("400 Bad Request", "http_request_error").as_bytes())
+                .write_all(&failed("400 Bad Request", "http_request_error"))
                 .await;
             return;
         }
@@ -377,7 +365,7 @@ async fn relay(mut client: TcpStream, upstream: &Upstream) {
             if given.is_some() {
                 upstream
                     .refusals
-                    .refused(Listener::ProxyRelay, "token_wrong")
+                    .refused(Listener::ProxyRelay, RefusalReason::TokenWrong)
                     .await;
             }
             let _ = client.write_all(AUTHENTICATE).await;
@@ -412,7 +400,7 @@ async fn http(
     let met = |met| upstream.outcomes.record(&authority, met);
     let Some(proxy) = upstream.connect().await else {
         met(Met::Unreachable);
-        let _ = client.write_all(relay_unreachable().as_bytes()).await;
+        let _ = client.write_all(&relay_unreachable()).await;
         return;
     };
     let mut proxy = Tallied::new(proxy, upstream.usage.as_ref());
@@ -444,7 +432,7 @@ async fn http(
     let Ok(answer) = head::answer(&mut proxy).await else {
         met(Met::Reached);
         let _ = client
-            .write_all(failed("502 Bad Gateway", "http_response_incomplete").as_bytes())
+            .write_all(&failed("502 Bad Gateway", "http_response_incomplete"))
             .await;
         return;
     };
@@ -505,7 +493,7 @@ async fn socks5(
 ) {
     let Ok(request) = socks5_request(head.target.host(), head.target.port()) else {
         let _ = client
-            .write_all(failed("400 Bad Request", "http_request_error").as_bytes())
+            .write_all(&failed("400 Bad Request", "http_request_error"))
             .await;
         return;
     };
@@ -515,7 +503,7 @@ async fn socks5(
     let met = |met| upstream.outcomes.record(&authority, met);
     let Some(proxy) = upstream.connect().await else {
         met(Met::Unreachable);
-        let _ = client.write_all(relay_unreachable().as_bytes()).await;
+        let _ = client.write_all(&relay_unreachable()).await;
         return;
     };
     let mut proxy = Tallied::new(proxy, upstream.usage.as_ref());
@@ -530,7 +518,7 @@ async fn socks5(
             Met::Refused
         });
         let _ = client
-            .write_all(failed("502 Bad Gateway", "proxy_internal_error").as_bytes())
+            .write_all(&failed("502 Bad Gateway", "proxy_internal_error"))
             .await;
         return;
     }
@@ -541,7 +529,7 @@ async fn socks5(
     if !matches!(opened, Ok(true)) {
         met(Met::Refused);
         let _ = client
-            .write_all(failed("502 Bad Gateway", "connection_refused").as_bytes())
+            .write_all(&failed("502 Bad Gateway", "connection_refused"))
             .await;
         return;
     }

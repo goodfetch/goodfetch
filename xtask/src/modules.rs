@@ -5,8 +5,9 @@
 //! `[submodules.<module>]` table holds its direct submodules to the same
 //! rules among themselves. A file past 1,000
 //! lines must state why it is still one concern in a `Size:` line of its `//!`
-//! header. Source is parsed with `syn`, so nothing is built; `#[cfg(test)]`
-//! code, the crate root and generated code are not checked.
+//! header. Source is parsed with `syn`, so nothing is built; a module's file
+//! is found as `rustc` finds it, through its `#[path]` when it has one, and
+//! `#[cfg(test)]` code, the crate root and generated code are not checked.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -16,7 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use quote::ToTokens as _;
 use serde::Deserialize;
@@ -96,7 +97,7 @@ fn check_crate(
         oversized(root, &source, findings);
         for item in non_test_items(&source.syntax.items) {
             if let syn::Item::Mod(module) = item {
-                let files = module_files(module, &roots_children, 1)?;
+                let files = module_files(module, &roots_children, &roots_children, 1)?;
                 modules
                     .entry(module.ident.to_string())
                     .or_default()
@@ -188,7 +189,15 @@ fn check_submodules(
         if let syn::Item::Mod(child) = item {
             children.insert(
                 child.ident.to_string(),
-                module_files(child, &source.children, 2)?,
+                module_files(
+                    child,
+                    &source.children,
+                    source
+                        .path
+                        .parent()
+                        .context("a module file sits in a folder")?,
+                    2,
+                )?,
             );
         }
     }
@@ -280,10 +289,13 @@ fn parse(path: &Path, folder: &Path) -> Result<Source> {
 }
 
 /// The files of a module declared in a file, with their depth below the crate
-/// root; an inline module's items stay in its declaring file.
+/// root; an inline module's items stay in its declaring file. `folder` holds
+/// the declared modules' files, and `declaring` is the declaring file's own
+/// folder, which a `#[path]` is relative to, as `rustc` reads it.
 fn module_files(
     module: &syn::ItemMod,
     folder: &Path,
+    declaring: &Path,
     depth: usize,
 ) -> Result<Vec<(Source, usize)>> {
     if module.content.is_some() {
@@ -291,31 +303,64 @@ fn module_files(
         return Ok(Vec::new());
     }
     let name = module.ident.to_string();
-    let path = [
-        folder.join(format!("{name}.rs")),
-        folder.join(&name).join("mod.rs"),
-    ]
-    .into_iter()
-    .find(|path| path.is_file())
-    .with_context(|| format!("module `{name}` has no file in {}", folder.display()))?;
+    let path = if let Some(path) = path_attribute(&module.attrs) {
+        let path = declaring.join(path);
+        if !path.is_file() {
+            bail!(
+                "module `{name}`'s #[path] names no file: {}",
+                path.display()
+            );
+        }
+        path
+    } else {
+        [
+            folder.join(format!("{name}.rs")),
+            folder.join(&name).join("mod.rs"),
+        ]
+        .into_iter()
+        .find(|path| path.is_file())
+        .with_context(|| format!("module `{name}` has no file in {}", folder.display()))?
+    };
     if path
         .components()
         .any(|component| component.as_os_str() == "generated")
     {
         return Ok(Vec::new());
     }
-    let source = parse(
-        &path,
-        path.parent().context("a module file sits in a folder")?,
-    )?;
+    let declaring = path.parent().context("a module file sits in a folder")?;
+    let mut source = parse(&path, declaring)?;
+    // `rustc` reads a `#[path]` file as it reads a `mod.rs`: the modules it
+    // declares sit beside it, not in a folder named after it.
+    if path_attribute(&module.attrs).is_some() {
+        source.children = declaring.to_path_buf();
+    }
     let mut files = Vec::new();
     for item in non_test_items(&source.syntax.items) {
         if let syn::Item::Mod(child) = item {
-            files.extend(module_files(child, &source.children, depth + 1)?);
+            files.extend(module_files(child, &source.children, declaring, depth + 1)?);
         }
     }
     files.insert(0, (source, depth));
     Ok(files)
+}
+
+/// The file a `#[path = "…"]` attribute names, if the module has one.
+fn path_attribute(attributes: &[syn::Attribute]) -> Option<String> {
+    attributes.iter().find_map(|attribute| {
+        let syn::Meta::NameValue(pair) = &attribute.meta else {
+            return None;
+        };
+        if !pair.path.is_ident("path") {
+            return None;
+        }
+        match &pair.value {
+            syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(path),
+                ..
+            }) => Some(path.value()),
+            _ => None,
+        }
+    })
 }
 
 fn is_test_only(attributes: &[syn::Attribute]) -> bool {

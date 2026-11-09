@@ -94,9 +94,8 @@ fn engine_flag(mode: Mode) -> &'static str {
 /// outputs as `name`, a snapshot each mode's case shares. Beside the
 /// shared filters, it masks the Proving ground's port, an Export's size
 /// and each SHA-256 digest, since an Export holds its Records' commit
-/// times, whose written length varies, and the dispatch
-/// records an Attached engine logs on the command's stderr, which a
-/// Daemon logs in its own log instead. Answers the `--json` run.
+/// times, whose written length varies, and leaves out the dispatch records.
+/// Answers the `--json` run.
 fn read_snapshotted(
     env: &TestEnv,
     flag: &str,
@@ -107,12 +106,12 @@ fn read_snapshotted(
     let checked = check(cli(env, FOXHOUND).args(arguments).args(["--json", flag]))
         .unwrap_or_else(|error| panic!("{arguments:?}: {error}"));
     let human = cli(env, FOXHOUND).args(arguments).arg(flag).run().unwrap();
-    for (form, output) in [("json", &checked.output), ("human", &human)] {
+    for (form, output) in [("json", checked.output.clone()), ("human", human)] {
+        let output = output.without_dispatch_records();
         let mut settings = output.settings();
         settings.add_filter(r"\.test:[0-9]+\b", ".test:[PORT]");
         settings.add_filter(r"\b[0-9a-f]{64}\b", "[SHA256]");
         settings.add_filter(r#"\b(size"?: )[0-9]+"#, "${1}[SIZE]");
-        settings.add_filter(r"(?m)^[^\n]* goodfetch::rpc::dispatch: [^\n]*\n", "");
         settings.bind(|| assert_cli_snapshot!(format!("{name}_{form}"), output));
     }
     checked

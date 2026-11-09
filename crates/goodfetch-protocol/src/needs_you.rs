@@ -173,19 +173,6 @@ pub struct ConsentDomainAllowed {
     pub warning: String,
 }
 
-/// What a person takes on by adding `domain`, or `*`, to `consent.domains`
-/// (ADRs 0048 and 0052), in the words the Console shows beside the answer
-/// and the Audit log records with it.
-pub fn consent_domain_warning(domain: &str) -> String {
-    if domain == "*" {
-        "Accepting consent walls on every domain gives consent in your name on every site that shows one: those sites may load their trackers and set their cookies, and under the GDPR that consent is yours. An Agent also no longer asks you before accepting a consent prompt on any domain. Every later run accepts them until you remove `*` from `consent.domains`.".to_owned()
-    } else {
-        format!(
-            "Accepting the consent walls of {domain} gives consent in your name: the site may load its trackers and set their cookies, and under the GDPR that consent is yours. Every later run accepts them until you remove {domain} from `consent.domains`."
-        )
-    }
-}
-
 /// What `needs_you.remove_refetch_domain` takes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]

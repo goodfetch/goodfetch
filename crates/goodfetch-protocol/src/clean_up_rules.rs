@@ -34,14 +34,12 @@ pub enum RulesSource {
 }
 
 impl RulesSource {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 4] = [Self::Embedded, Self::Release, Self::Daily, Self::Upstream];
+
     /// Its name on the wire and on disk.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Embedded => "embedded",
-            Self::Release => "release",
-            Self::Daily => "daily",
-            Self::Upstream => "upstream",
-        }
+        crate::wire_name::of(&self)
     }
 }
 

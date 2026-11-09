@@ -19,12 +19,13 @@
 mod cases;
 mod connection;
 mod fabricated;
+mod foxhound;
 mod gateway;
 mod target;
 
 use goodfetch_protocol::case_log::CaseLogEntry;
-use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
-use goodfetch_protocol::connection::{HELLO, HelloParams, HelloResult, ProductVersion, Surface};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::{HELLO, HelloParams, HelloResult, Surface};
 use goodfetch_protocol::daemon::STOP;
 use goodfetch_protocol::result_document::{
     CaseCheck, ConformanceDocument, ConformanceHeader, Evidence, Suite, Target, TargetIdentity,
@@ -247,6 +248,13 @@ pub enum ProtocolSuiteError {
     /// The Proving ground gave no usable answer.
     #[error(transparent)]
     ProvingGround(#[from] ProvingGroundError),
+    /// The Daemon answered every case but did not take the harness's
+    /// `daemon.stop`.
+    #[error("the Daemon did not take the harness's stop: {reason}")]
+    NotStopped {
+        /// Why.
+        reason: String,
+    },
     /// The case log did not become a document.
     #[error(transparent)]
     Write(#[from] WriteError),
@@ -266,15 +274,17 @@ pub const PROXY_PASSWORD_VARIABLE: &str = "PROVING_GROUND_PROXY_PASSWORD";
 /// # Errors
 ///
 /// When the target cannot be reached, refuses or misreads `hello`, or runs
-/// as another Product than the suite's, and when the Proving ground cannot
-/// serve its task list.
+/// as another Product than the suite's, when the Proving ground cannot serve
+/// its task list or say which network fixtures it serves, and when a Daemon
+/// the harness started does not take its stop, which gives up the suite's
+/// document.
 pub fn run_protocol_suite(
     suite: &ProtocolSuite,
     target: &EngineTarget,
     proving_ground: &ProvingGround,
 ) -> Result<ConformanceDocument, ProtocolSuiteError> {
     let task_list = proving_ground.task_list()?;
-    let reached = Site::of(&task_list, proving_ground);
+    let reached = Site::of(&task_list, proving_ground)?;
     // The harness gives the target the password of the Proving ground's
     // proxies, which a case's Session reads through the `env:` Secret
     // provider, as a program's own environment would hold it.
@@ -291,7 +301,9 @@ pub fn run_protocol_suite(
         Ok(hello) => hello,
         Err(refused) => {
             if matches!(refused, ProtocolSuiteError::OtherProduct { .. }) {
-                stop(&mut connection, target.mode);
+                // The refusal is the failure reported; closing the target
+                // stops a Daemon that does not take the stop either.
+                drop(stop(&mut connection, target.mode));
             }
             connection.close();
             return Err(refused);
@@ -307,7 +319,10 @@ pub fn run_protocol_suite(
             }
             let case = Case::of(&declared.id).expect("invariant: a read suite names known cases");
             let mut checks = Checks::default();
-            if let Err(why) = case.run(&mut connection, target, &hello, &reached, &mut checks) {
+            let ran = case.run(&mut connection, target, &hello, &reached, &mut checks);
+            checks.checks.extend(reached.take_unread());
+            checks.checks.extend(connection.take_unanswered());
+            if let Err(why) = ran {
                 checks.checks.push(CaseCheck {
                     name: format!("the target answers the case's calls ({why})"),
                     passed: false,
@@ -333,11 +348,19 @@ pub fn run_protocol_suite(
             });
         }
     }
-    // A Connection that only fell silent may still take the stop.
-    if matches!(gone, None | Some(Gone::Silent(_))) {
-        stop(&mut connection, target.mode);
-    }
+    // A Connection that only fell silent may still take the stop, which its
+    // failed case already reports when it does not; a Daemon that answered
+    // every case must take it.
+    let stopped = match gone {
+        None => stop(&mut connection, target.mode),
+        Some(Gone::Silent(_)) => {
+            drop(stop(&mut connection, target.mode));
+            Ok(())
+        }
+        Some(_) => Ok(()),
+    };
     connection.close();
+    stopped.map_err(|reason| ProtocolSuiteError::NotStopped { reason })?;
     let header = ConformanceHeader {
         suite: suite.cases.suite.clone(),
         target: Target {
@@ -358,13 +381,24 @@ pub fn run_protocol_suite(
 }
 
 /// Stops a Daemon the harness started, over its open Connection, so it
-/// removes its runtime file and socket; one that cannot answer is stopped
-/// when the harness closes.
-fn stop(connection: &mut Connection, mode: EngineMode) {
-    if mode == EngineMode::Daemon
-        && let Ok(id) = connection.request(STOP.name, &json!({}))
-    {
-        let _ = connection.answer(id);
+/// removes its runtime file and socket.
+///
+/// # Errors
+///
+/// Why the Daemon did not take the stop: the Connection failed, or the
+/// Daemon answered it with a failure. Closing the target stops a Daemon the
+/// harness started either way.
+fn stop(connection: &mut Connection, mode: EngineMode) -> Result<(), String> {
+    if mode != EngineMode::Daemon {
+        return Ok(());
+    }
+    let answer = connection
+        .request(STOP.name, &json!({}))
+        .and_then(|id| connection.answer(id))
+        .map_err(|why| why.to_string())?;
+    match answer.message.get("error") {
+        Some(error) => Err(format!("it answered `{}` with {error}", STOP.name)),
+        None => Ok(()),
     }
 }
 
@@ -383,16 +417,8 @@ pub(crate) fn hello_as(
     surface: Surface,
 ) -> Result<HelloResult, ProtocolSuiteError> {
     let params = HelloParams {
-        protocol_version: PROTOCOL_VERSION,
-        surface,
-        form: None,
-        token: connection.token().map(ToOwned::to_owned),
         needs: Some(product),
-        product_version: ProductVersion::parse(env!("CARGO_PKG_VERSION"))
-            .expect("invariant: the workspace's version is a Product version"),
-        log_level: None,
-        client_surface: None,
-        keep_daemon_alive: false,
+        ..connection.hello_params(surface)
     };
     let params = serde_json::to_value(params).expect("invariant: `hello` serializes");
     let unanswered = |why: Gone| ProtocolSuiteError::HelloUnanswered {

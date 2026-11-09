@@ -151,12 +151,22 @@ fn engine(product: Product) -> Engine {
     engine_with(product, None)
 }
 
+/// The Product version [`engine_with`]'s engines run as.
+fn version() -> ProductVersion {
+    ProductVersion::parse("1.4.0").unwrap()
+}
+
+/// `env`'s per-major folder of [`engine_with`]'s engines.
+fn per_major(env: &TestEnv) -> std::path::PathBuf {
+    goodfetch_protocol::home::per_major(env.home(), &version())
+}
+
 /// An engine of `product` with the engine's own operations, the tests' and
 /// `more`.
 fn engine_with(product: Product, more: Option<Contribution>) -> Engine {
     let identity = Identity {
         product,
-        product_version: ProductVersion::parse("1.4.0").unwrap(),
+        product_version: version(),
         channel: Channel::CratesIo,
     };
     let mut composition = Composition::default()

@@ -5,10 +5,9 @@
 //! answer to a `consent_wall` item (ADRs 0048 and 0052): it adds the
 //! domain, or `*`, to `consent.domains` in user configuration in one call,
 //! an edit of the settings editor (`settings_editor`), every other byte of
-//! the file kept, after the resolver confirmed that no
-//! Operator policy locks the key, and records the answer in the Audit log
-//! with the warning the person was shown; the item then leaves the list at
-//! the source's next read. The catalog marks it person only, so the RPC
+//! the file kept, after the resolver confirmed that no Operator policy locks
+//! the key, and records the answer in the Audit log with the warning the
+//! person was shown; the item then leaves the list at the source's next read. The catalog marks it person only, so the RPC
 //! layer refuses it to every surface but the Console's and the CLI's.
 //! The answers to a `wall_refetch_stopped` item, which write
 //! `wall.refetch_domains` and `wall.denied_domains`, are in [`refetch`].
@@ -21,7 +20,7 @@ use goodfetch_protocol::needs_you::{
     CONSENT_DOMAIN_ALLOWED, ConsentDomainAllowed, NEEDS_YOU_ALLOW_CONSENT_DOMAIN,
     NEEDS_YOU_DENY_WALL_DOMAIN, NEEDS_YOU_DISMISS, NEEDS_YOU_LIST, NEEDS_YOU_REMOVE_REFETCH_DOMAIN,
     NeedsYouAllowConsentDomainParams, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList,
-    NeedsYouListParams, consent_domain_warning,
+    NeedsYouListParams,
 };
 use goodfetch_protocol::settings::{CONSENT_DOMAINS, SettingsLayer};
 use serde_json::{Value, json};
@@ -29,6 +28,7 @@ use serde_json::{Value, json};
 use crate::audit::AuditError;
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
+use crate::host_name;
 use crate::needs_you::NeedsYouError;
 use crate::run::settings_error;
 use crate::settings::SettingsError;
@@ -95,7 +95,7 @@ fn consent_domain(domain: &str) -> Result<String, CallError> {
         )
     };
     let host = match url::Host::parse(domain) {
-        Ok(url::Host::Domain(host)) => host.trim_end_matches('.').to_owned(),
+        Ok(url::Host::Domain(host)) => host_name::without_root(&host).to_owned(),
         _ => return Err(refused("names no domain")),
     };
     let registrable = psl::domain_str(&host).unwrap_or(&host);
@@ -191,7 +191,11 @@ fn allow(editor: &SettingsEditor, domain: &str, warning: &str) -> Result<bool, R
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        if domains.iter().any(|listed| listed.as_str() == Some(domain)) {
+        if domains
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|listed| host_name::lookup_key(listed) == domain)
+        {
             return Ok(Change::Kept(false));
         }
         domains.push(json!(domain));
@@ -208,4 +212,17 @@ fn allow(editor: &SettingsEditor, domain: &str, warning: &str) -> Result<bool, R
             details: json!({ "domain": domain, "warning": warning }),
         })
     })
+}
+
+/// What a person takes on by adding `domain`, or `*`, to `consent.domains`
+/// (ADRs 0048 and 0052), in the words the Console shows beside the answer
+/// and the Audit log records with it.
+fn consent_domain_warning(domain: &str) -> String {
+    if domain == "*" {
+        "Accepting consent walls on every domain gives consent in your name on every site that shows one: those sites may load their trackers and set their cookies, and under the GDPR that consent is yours. An Agent also no longer asks you before accepting a consent prompt on any domain. Every later run accepts them until you remove `*` from `consent.domains`.".to_owned()
+    } else {
+        format!(
+            "Accepting the consent walls of {domain} gives consent in your name: the site may load its trackers and set their cookies, and under the GDPR that consent is yours. Every later run accepts them until you remove {domain} from `consent.domains`."
+        )
+    }
 }

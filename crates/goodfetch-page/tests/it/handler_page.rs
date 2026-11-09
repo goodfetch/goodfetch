@@ -24,8 +24,11 @@ use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
 use goodfetch_page::blocks::NoBlocks;
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::connection::{HELLO, ProductVersion, Surface};
+use goodfetch_protocol::home::{RUN_TRACE_CDP_COMMANDS, RUN_TRACE_REQUESTS};
 use goodfetch_recording_gate::RecordingGate;
+use goodfetch_test_client::Hello;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{CHROME_FOR_TESTING_BUILD, ProvingGround, TestEnv, browser_cache};
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
@@ -257,7 +260,7 @@ impl Program {
             .received_requests()
             .expect("the Proving ground answers")
             .of_the_case()
-            .any(|request| request["host"] == json!(host) && request["target"] == json!(path))
+            .any(|request| request.host == host && request.target == path)
     }
 
     /// What the scripts of the page at `page` (its path and query) last
@@ -274,21 +277,17 @@ impl Program {
     }
 
     /// The method of each CDP command the Run trace's command log holds so
-    /// far, in order.
+    /// far, in order. The log is there from the Run's browser on, so a log
+    /// that is not fails the read: an absence a test counts would otherwise
+    /// hold whatever the engine did.
     #[expect(
         clippy::disallowed_methods,
         reason = "a small Run trace file read between calls, which only the engine's own actor appends to"
     )]
     pub(crate) fn cdp_commands(&self) -> Vec<String> {
-        let file = self
-            .home
-            .join("0.0")
-            .join("runs")
-            .join(RUN)
-            .join("trace")
-            .join("cdp-commands.jsonl");
-        std::fs::read_to_string(file)
-            .unwrap_or_default()
+        let file = HomeLayout::of(&self.home).run_trace(RUN, RUN_TRACE_CDP_COMMANDS);
+        std::fs::read_to_string(&file)
+            .unwrap_or_else(|error| panic!("the command log {} is read: {error}", file.display()))
             .lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
             .filter_map(|line| line["method"].as_str().map(str::to_owned))
@@ -301,13 +300,7 @@ impl Program {
         reason = "a small Run trace file read between calls, which only the engine's own actor appends to"
     )]
     pub(crate) fn request_log(&self) -> Vec<Value> {
-        let file = self
-            .home
-            .join("0.0")
-            .join("runs")
-            .join(RUN)
-            .join("trace")
-            .join("requests.jsonl");
+        let file = HomeLayout::of(&self.home).run_trace(RUN, RUN_TRACE_REQUESTS);
         std::fs::read_to_string(file)
             .unwrap_or_default()
             .lines()
@@ -342,17 +335,28 @@ pub(crate) async fn settled_or(mut holds: impl FnMut() -> bool, seen: impl Fn() 
 /// `gate`, once its Run started with `settings` beside `network.resolve`,
 /// which maps the Proving ground's hosts to it, and its first page opened;
 /// the engine stops its Run, closing its browser, once `test` ends.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the tests build their own runtime with real time, since a real browser answers in real time (ADR 0060)"
-)]
 pub(crate) fn with_handler_page(
     gate: &RecordingGate,
     settings: Map<String, Value>,
     test: impl AsyncFnOnce(&mut Program),
 ) {
+    with_handler_page_of(gate, |_| settings, test);
+}
+
+/// As [`with_handler_page`], with the settings `settings_of` the test's
+/// Proving ground, such as one naming its proxies' addresses.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the tests build their own runtime with real time, since a real browser answers in real time (ADR 0060)"
+)]
+pub(crate) fn with_handler_page_of(
+    gate: &RecordingGate,
+    settings_of: impl FnOnce(&ProvingGround) -> Map<String, Value>,
+    test: impl AsyncFnOnce(&mut Program),
+) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, 720).expect("the Proving ground starts");
+    let settings = settings_of(&proving_ground);
     let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
     let composition = Composition::default()
         .with(goodfetch_engine::contribution())
@@ -398,8 +402,10 @@ pub(crate) fn with_handler_page(
             };
             program
                 .call(
-                    "hello",
-                    &json!({ "protocol_version": "0.1", "surface": "rust", "needs": "collie", "product_version": "0.0.0" }),
+                    HELLO,
+                    &Hello::needing(Product::Collie)
+                        .surface(Surface::Rust)
+                        .params(),
                 )
                 .await;
             let resolve: Map<String, Value> = program
@@ -437,7 +443,11 @@ pub(crate) fn with_handler_page(
             // A failed test still closes its Connection, so the engine
             // stops its Run and its browser before the panic goes on.
             let tested = Unwinding(Box::pin(test(&mut program))).await;
-            program.writer.shutdown().await.expect("invariant: in memory");
+            program
+                .writer
+                .shutdown()
+                .await
+                .expect("invariant: in memory");
             drop(program);
             tested
         };

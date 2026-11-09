@@ -118,8 +118,20 @@ pub(crate) struct Input {
 /// The Valgrind targets' setup: their home, and their plant when
 /// [`PLANT_VARIABLE`] asks for it: the call's params copied and encoded and a
 /// few KiB encoded, enough to pass the 0.5 % a figure may vary by.
+///
+/// It first runs what opens every run, on a home of its own, so the work
+/// done once per process stays out of what each scenario measures, alike in
+/// every scenario, and cancels in the difference `xtask counts` takes:
+/// - the sandbox probe's fork (`sandbox_probe`'s `this_host`): the child's
+///   profile carries every count the parent made before the fork, which
+///   happens later in a run with more messages, so each scenario counted
+///   its own share of the run twice (about 11,550 instructions and 18
+///   allocations per small message);
+/// - where the one-time zeroed buffers land (the Connection's read buffer,
+///   the Client's): on pages fresh from the OS the allocator skips their
+///   zeroing, and one run of a pair skipping it while the other paid it
+///   moved the figure per message by about 330 instructions.
 pub(crate) fn input(traffic: Traffic, logs: Logs) -> Input {
-    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let plant = std::env::var_os(PLANT_VARIABLE).map(|_| {
         let document = json!({ "text": "x".repeat(PLANT_BYTES) });
         Arc::new(move |params: &Value| {
@@ -128,6 +140,16 @@ pub(crate) fn input(traffic: Traffic, logs: Logs) -> Input {
             drop(serde_json::to_vec(&document));
         }) as Plant
     });
+    let warming = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    run(
+        NO_MESSAGES,
+        logs,
+        Metrics::none(),
+        plant.clone(),
+        warming.path(),
+    );
+    drop(warming);
+    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     Input {
         traffic,
         logs,

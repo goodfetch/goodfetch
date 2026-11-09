@@ -165,8 +165,12 @@ beside_step() {
 # records nothing, so the next run reruns it. `kill` signals each group it
 # is given, even past one that has ended.
 lock=""
+# A stop reaches this script twice under `just merge`'s stop, through its
+# process group and again from the `just` above it, and the second must not
+# end it before it has done this.
 # shellcheck disable=SC2329 # called through the EXIT trap
 on_exit() {
+  trap '' TERM
   if [[ ${#beside_pids[@]} -gt 0 ]]; then
     kill -TERM -- "${beside_pids[@]/#/-}" 2>/dev/null || true
     local name

@@ -71,6 +71,7 @@
 )]
 
 mod answers;
+pub(crate) mod authentication;
 mod clean_up;
 mod hops;
 mod navigations;
@@ -996,6 +997,15 @@ impl Interception {
         let requests = self.engine_requests(page_id)?;
         egress::judge_javascript(url, document_url, &requests.policy)
             .map_err(|refused| refused.error())
+    }
+
+    /// Whether a page of the Session `session` started a main-frame
+    /// navigation, whoever started it, that its `load` has not ended.
+    pub(crate) fn navigation_pending(&self, session: &SessionId) -> bool {
+        lock(&self.shared.tables)
+            .pending
+            .get(session)
+            .is_some_and(|pending| pending.any())
     }
 
     /// The failure a handler left on the page `page_id` for its next call,

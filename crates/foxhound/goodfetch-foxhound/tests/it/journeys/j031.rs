@@ -11,10 +11,11 @@
 use std::path::Path;
 
 use goodfetch_protocol::result_document::ResultDocument;
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::JourneyRun;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached_spawned;
 use crate::politeness_records::{crawl, marks, records, settings};
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
@@ -38,7 +39,7 @@ fn cli() {
             let proving_ground = run.proving_ground().expect("J-031 has a Proving ground");
             let mut command = run.env().process_command(run.engine());
             command.arg("attached-engine");
-            let mut program = Attached::spawned(run.env(), None, &mut command);
+            let mut program = attached_spawned(run.env(), None, &mut command);
             report = crawl(
                 &mut program,
                 proving_ground,
@@ -70,7 +71,7 @@ fn cli() {
     run.step("Read the crawl's Records", |_| {
         let mut program = engine.take().expect("the program is connected");
         read = records(&mut program, RUN_ID);
-        assert!(program.finish());
+        assert!(program.finished());
     });
 
     run.check(

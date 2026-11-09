@@ -23,16 +23,19 @@ use std::net::IpAddr;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
+use goodfetch_test_client::robots_txt_read;
 use goodfetch_test_support::{
     Answer, BROWSERS_PATH_VARIABLE, Outcome, ProvingGround, Refusal, Route, Runner, SsrfCase,
-    SsrfTable, TestEnv, browser_cache, robots_txt_read,
+    SsrfTable, TestEnv, browser_cache,
 };
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use crate::attached::{Attached, hello};
+use crate::COLLIE;
 use crate::page::{BROWSER_DEADLINE, opened};
-use crate::run::call;
+use goodfetch_test_client::{Attached, Hello};
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 631;
@@ -53,27 +56,25 @@ const HOP_DEADLINE: Duration = Duration::from_secs(10);
 /// which a program's Run lists in `egress.private_ranges`, since the relay
 /// judges a mapping's answers as any other; a Client acting for a model
 /// lists none.
-struct Program<'env> {
-    engine: Attached<'env>,
+struct Program {
+    engine: Attached,
     next_id: i64,
     resolve: Map<String, Value>,
     private_ranges: Vec<String>,
     for_model: bool,
 }
 
-impl<'env> Program<'env> {
+impl Program {
     fn start(
-        env: &'env TestEnv,
+        env: &TestEnv,
         cache: &Path,
         proving_ground: &ProvingGround,
-        surface: &str,
+        surface: Surface,
     ) -> Self {
-        let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
+        let mut engine = Attached::start_with(env, COLLIE, BROWSER_DEADLINE, |command| {
             command.env(BROWSERS_PATH_VARIABLE, cache);
         });
-        let mut greeting = hello("collie", "0.1");
-        greeting["params"]["surface"] = json!(surface);
-        engine.send(&greeting);
+        engine.send(&Hello::needing(Product::Collie).surface(surface).message());
         let _ = engine.next();
         let resolve = proving_ground
             .description()
@@ -91,7 +92,7 @@ impl<'env> Program<'env> {
                 .cloned()
                 .collect(),
             resolve,
-            for_model: surface == "mcp",
+            for_model: surface == Surface::Mcp,
         }
     }
 
@@ -103,7 +104,7 @@ impl<'env> Program<'env> {
 
     fn call(&mut self, method: &str, params: &Value) -> Value {
         self.next_id += 1;
-        call(&mut self.engine, self.next_id, method, params)
+        self.engine.ask(self.next_id, method, params)
     }
 
     /// Starts the Run `run_id` whose domain policy allows `allowed`.
@@ -174,12 +175,7 @@ fn requests(proving_ground: &ProvingGround) -> Vec<(String, String)> {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .map(|request| {
-            (
-                request["host"].as_str().unwrap_or_default().to_owned(),
-                request["target"].as_str().unwrap_or_default().to_owned(),
-            )
-        })
+        .map(|request| (request.host.clone(), request.target.clone()))
         .collect()
 }
 
@@ -191,7 +187,7 @@ fn pages_requested(proving_ground: &ProvingGround) -> usize {
         .received_requests()
         .unwrap()
         .every()
-        .filter(|request| request["target"] != "/favicon.ico")
+        .filter(|request| request.target != "/favicon.ico")
         .count()
 }
 
@@ -201,7 +197,7 @@ fn a_chain_whose_third_hop_leaves_the_policy_is_refused_at_that_hop() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    let mut program = Program::start(&env, &cache, &proving_ground, Surface::SdkPython);
     let start = proving_ground.url(STAND_INS, "/leaves/3");
     let target = proving_ground.url("catalog.test", "/catalog/1");
     program.run("held", &["redirects.test"]);
@@ -256,7 +252,7 @@ fn host_and_path(url: &str) -> (String, String) {
 /// but the case's own page, which a hop reached, by the Proving ground's
 /// address.
 fn run_case(
-    program: &mut Program<'_>,
+    program: &mut Program,
     proving_ground: &ProvingGround,
     run_id: &str,
     case: &SsrfCase,
@@ -361,7 +357,7 @@ fn every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_chromium() {
         "#,
     )
     .unwrap();
-    let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    let mut program = Program::start(&env, &cache, &proving_ground, Surface::SdkPython);
     // A hop to a name the table resolves privately reaches the relay with
     // the name's answer from the Run's mapping, which no range lists.
     for case in cases {
@@ -379,7 +375,7 @@ fn every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_chromium() {
     }
     // One Run per domain policy, which its pages share.
     let mut runs: Vec<Vec<String>> = Vec::new();
-    let mut run_for = |program: &mut Program<'_>, case: &SsrfCase| -> String {
+    let mut run_for = |program: &mut Program, case: &SsrfCase| -> String {
         let allowed = case
             .domains
             .as_ref()
@@ -438,7 +434,7 @@ fn navigated_url(case: &SsrfCase, port: u16) -> String {
 /// `egress.private_ranges`, and the Proving ground's open proxy for an
 /// upstream proxy case.
 fn case_settings(
-    program: &Program<'_>,
+    program: &Program,
     proving_ground: &ProvingGround,
     case: &SsrfCase,
     listed: &[String],
@@ -485,7 +481,7 @@ fn case_settings(
 /// to the case's target for each connection its open proxy accepted, which
 /// the proxy would pass on.
 fn navigation(
-    program: &mut Program<'_>,
+    program: &mut Program,
     proving_ground: &ProvingGround,
     run_id: &str,
     case: &SsrfCase,
@@ -555,7 +551,7 @@ fn navigations_are_refused_on_chromium(test: &str) -> Runner {
     )
     .unwrap();
     let listed = ["proxied.ssrf.test".to_owned()];
-    let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    let mut program = Program::start(&env, &cache, &proving_ground, Surface::SdkPython);
     let mut groups: Vec<(Value, Vec<&SsrfCase>)> = Vec::new();
     for case in controls.cases.iter().chain(runner.cases()) {
         let settings = case_settings(&program, &proving_ground, case, &listed);
@@ -663,7 +659,7 @@ fn the_programs_own_code_loads_a_file_url_on_a_local_engine() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let file = local_file(&env, REPORT);
-    let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    let mut program = Program::start(&env, &cache, &proving_ground, Surface::SdkPython);
     program.run("files", &["*"]);
     let page = program.new_page("files");
 
@@ -688,7 +684,7 @@ fn a_client_acting_for_a_model_is_refused_a_file_url() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
     let file = local_file(&env, REPORT);
-    let mut program = Program::start(&env, &cache, &proving_ground, "mcp");
+    let mut program = Program::start(&env, &cache, &proving_ground, Surface::Mcp);
     program.run("files", &["*"]);
     let page = program.new_page("files");
 
@@ -722,7 +718,7 @@ fn a_refused_navigation_answers_once_the_browsers_error_page_for_it_loaded() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    let mut program = Program::start(&env, &cache, &proving_ground, Surface::SdkPython);
     program.run("refused", &["catalog.test"]);
     let page = program.new_page("refused");
 
@@ -764,7 +760,7 @@ fn a_javascript_url_runs_in_a_frame_the_policy_allows_and_opens_no_connection(
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    let mut program = Program::start(&env, &cache, &proving_ground, Surface::SdkPython);
     program.run("scripts", &["catalog.test"]);
     let page = program.new_page("scripts");
     let went = program.goto(&page, &proving_ground.url("catalog.test", "/catalog/1"));
@@ -797,7 +793,7 @@ fn a_javascript_url_in_a_frame_whose_origin_the_policy_refuses_does_not_run() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut program = Program::start(&env, &cache, &proving_ground, "sdk_python");
+    let mut program = Program::start(&env, &cache, &proving_ground, Surface::SdkPython);
     program.run("scripts", &["catalog.test"]);
     let page = program.new_page("scripts");
     let went = program.goto(&page, &proving_ground.url("elsewhere.test", "/offsite"));

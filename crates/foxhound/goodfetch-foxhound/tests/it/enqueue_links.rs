@@ -13,11 +13,12 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 use crate::frontier::{Inside, crawl_with};
 
 /// The Proving ground's seed.
@@ -66,14 +67,7 @@ fn enqueue_links(inside: &mut Inside<'_>, handle: &Value, selector: &str, fields
 
 /// The Records of the Dataset `pages` in the Run `run_id`, in order.
 fn pages(env: &TestEnv, run_id: &str) -> Vec<Value> {
-    let connection = Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap();
+    let connection = Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap();
     let mut statement = connection
         .prepare("SELECT data FROM records WHERE dataset = 'pages' ORDER BY rowid")
         .unwrap();
@@ -89,8 +83,8 @@ fn pages(env: &TestEnv, run_id: &str) -> Vec<Value> {
 fn targets(observations: &Value, host: &str) -> Vec<String> {
     ReceivedRequests::of(observations)
         .of_the_case()
-        .filter(|request| request["host"] == host)
-        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .filter(|request| request.host == host)
+        .map(|request| request.target.as_str().to_owned())
         .collect()
 }
 
@@ -110,7 +104,7 @@ fn enqueue_links_reports_each_matched_element_and_gives_each_link_its_payload() 
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let seeds = [json!({ "url": proving_ground.url("links.test", "/answers/"), "label": "index" })];
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut read = Value::Null;
     let mut answered = Value::Null;
@@ -149,7 +143,7 @@ fn enqueue_links_reports_each_matched_element_and_gives_each_link_its_payload() 
         },
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let url = |path: &str| proving_ground.url("links.test", path);
     let link = |href: Option<&str>, url: Option<String>, text: &str, attributes: Value| {
@@ -221,7 +215,7 @@ fn one_payload_takes_every_link_include_narrows_and_a_bad_call_adds_nothing() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let seeds = [json!({ "url": proving_ground.url("links.test", "/answers/"), "label": "index" })];
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut refused = Vec::new();
     let mut answered = Value::Null;
@@ -259,7 +253,7 @@ fn one_payload_takes_every_link_include_narrows_and_a_bad_call_adds_nothing() {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let url = |path: &str| proving_ground.url("links.test", path);
     let kinds: Vec<Value> = answered["links"]
@@ -311,7 +305,7 @@ fn limit_adds_at_most_that_many_links_and_answers_each_link_past_it() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let seeds = [json!({ "url": proving_ground.url("links.test", "/answers/"), "label": "index" })];
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut answered = Vec::new();
     let report = crawl_with(
@@ -336,7 +330,7 @@ fn limit_adds_at_most_that_many_links_and_answers_each_link_past_it() {
         },
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let past = |url: &str| json!({ "kind": "not_added", "reason": "link_limit", "url": url });
     assert_eq!(
@@ -385,7 +379,7 @@ fn a_shift_jis_pages_link_is_fetched_with_its_query_in_shift_jis() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let seeds =
         [json!({ "url": proving_ground.url("links.test", "/shift-jis/"), "label": "index" })];
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut answered = Value::Null;
     let report = crawl_with(
@@ -401,7 +395,7 @@ fn a_shift_jis_pages_link_is_fetched_with_its_query_in_shift_jis() {
         },
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let sent = "/shift-jis/search?q=%93%FA%96{&k=%26%2354620%3B";
     assert_eq!(
@@ -437,7 +431,7 @@ fn enqueue_links_resolves_against_the_documents_base_url(
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let seeds = [json!({ "url": proving_ground.url(host, shelf), "label": "shelf" })];
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut answered = Value::Null;
     let report = crawl_with(
@@ -453,7 +447,7 @@ fn enqueue_links_resolves_against_the_documents_base_url(
         },
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let urls: Vec<Value> = answered["links"]
         .as_array()

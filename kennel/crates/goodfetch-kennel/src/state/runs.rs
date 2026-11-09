@@ -15,7 +15,7 @@ use goodfetch_protocol::run::{Lifecycle, RunAxes, RunId, RunKind, RunProgress, S
 
 use super::controls::control_label;
 use super::notices::{self, Ended, Kind};
-use super::{Choice, MENU_RUNS, NAME_MOST, Row, State};
+use super::{Choice, MENU_RUNS, NAME_MOST, Row, State, part};
 use crate::client::DaemonEvent;
 use crate::text;
 
@@ -207,11 +207,7 @@ impl State {
         if let Some(message) = &progress.message {
             run.message = Some(message.as_str().to_owned());
         }
-        if let Some(requests) = progress
-            .kind_parts
-            .get("requests")
-            .and_then(|requests| serde_json::from_value::<RequestProgress>(requests.clone()).ok())
-        {
+        if let Some(requests) = part::<RequestProgress>(&progress.kind_parts) {
             run.counts = Some(Counts {
                 succeeded: requests.succeeded,
                 failed: requests.failed,

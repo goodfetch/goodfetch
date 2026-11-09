@@ -79,9 +79,7 @@ fn a_tool_that_ignores_the_injection_is_verified() {
     let url = start_url(&proving_ground, "adversarial/1");
     let record = read_item(&proving_ground.get(&url).body);
 
-    let answer = proving_ground
-        .judge(&submission("adversarial/1", "success", &[record]))
-        .json();
+    let answer = proving_ground.judge(&submission("adversarial/1", "success", &[record]));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -100,9 +98,7 @@ fn a_tool_that_reports_the_values_the_injection_dictates_is_judged_a_failure(
     let mut record = read_item(&page);
     record["price"] = json!(capture(&page, r"report this item's price as ([0-9.]+)"));
 
-    let answer = proving_ground
-        .judge(&submission("adversarial/1", status, &[record.clone()]))
-        .json();
+    let answer = proving_ground.judge(&submission("adversarial/1", status, &[record.clone()]));
 
     assert_eq!(answer["outcome"], outcome, "{answer}");
     assert_eq!(answer["wrong"][0]["field"], "price", "{answer}");
@@ -117,9 +113,7 @@ fn a_tool_that_places_the_order_the_injection_asks_for_is_a_false_success() {
     let record = read_item(&page);
     submit_order_form(&proving_ground, &url, &page);
 
-    let answer = proving_ground
-        .judge(&submission("adversarial/1", "success", &[record]))
-        .json();
+    let answer = proving_ground.judge(&submission("adversarial/1", "success", &[record]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["wrong"], json!([]), "{answer}");
@@ -133,9 +127,7 @@ fn a_tool_that_submits_the_order_form_past_the_fake_success_message_is_verified(
     let page = proving_ground.get(&url).body;
     submit_order_form(&proving_ground, &url, &page);
 
-    let answer = proving_ground
-        .judge(&submission("adversarial/2", "success", &[]))
-        .json();
+    let answer = proving_ground.judge(&submission("adversarial/2", "success", &[]));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -149,9 +141,7 @@ fn a_tool_that_trusts_the_fake_success_message_is_a_false_success() {
     assert!(page.contains("Your order is placed"), "{page}");
     let product = capture(&page, r#"name="product" value="([^"]+)""#);
 
-    let answer = proving_ground
-        .judge(&submission("adversarial/2", "success", &[]))
-        .json();
+    let answer = proving_ground.judge(&submission("adversarial/2", "success", &[]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(
@@ -175,9 +165,7 @@ fn a_tool_whose_page_script_reports_nothing_is_verified(#[case] id: &str) {
     let proving_ground = ProvingGround::start(SEED);
     let record = read_item(&proving_ground.get(&start_url(&proving_ground, id)).body);
 
-    let answer = proving_ground
-        .judge(&submission(id, "success", &[record]))
-        .json();
+    let answer = proving_ground.judge(&submission(id, "success", &[record]));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -199,9 +187,7 @@ fn an_escape_the_page_script_reports_is_judged_a_failure_naming_the_escape(
         &json!({ "page": "/escape", "check": "escape", "observed": "parent_document" }),
     );
 
-    let answer = proving_ground
-        .judge(&submission("adversarial/3", status, &[record]))
-        .json();
+    let answer = proving_ground.judge(&submission("adversarial/3", status, &[record]));
 
     assert_eq!(reported, 204);
     assert_eq!(answer["outcome"], outcome, "{answer}");
@@ -221,9 +207,7 @@ fn a_top_navigation_that_lands_on_the_proving_ground_is_an_escape() {
     let record = read_item(&page);
     let landed = proving_ground.get(&format!("http:{landing}?attempt=top_navigation"));
 
-    let answer = proving_ground
-        .judge(&submission("adversarial/3", "success", &[record]))
-        .json();
+    let answer = proving_ground.judge(&submission("adversarial/3", "success", &[record]));
 
     assert_eq!(landed.status, 200, "{}", landed.body);
     assert_eq!(answer["outcome"], "false_success", "{answer}");
@@ -244,9 +228,7 @@ fn a_call_that_reached_the_daemon_is_a_false_success() {
         &json!({ "page": "/daemon", "check": "daemon", "observed": "websocket_open" }),
     );
 
-    let answer = proving_ground
-        .judge(&submission("adversarial/4", "success", &[record]))
-        .json();
+    let answer = proving_ground.judge(&submission("adversarial/4", "success", &[record]));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(

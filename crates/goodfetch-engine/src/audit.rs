@@ -55,21 +55,17 @@ use crate::durable;
 use crate::home::Home;
 use crate::settings::SettingsFiles;
 use crate::sqlite_store::{
-    Access, Counting, Durability, File, Folder, FullFsync, OpenError, Opening, Schema, Synchronous,
-    Wait, WalOnClose,
+    Access, Counting, Durability, File, Folder, OpenError, Opening, Schema, Synchronous, Wait,
 };
 
 /// How long an append waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// How its commits reach the disk: each synced, through `F_FULLFSYNC` on
-/// macOS, its WAL left as it is when a connection closes (#2110), and its
-/// tables' commit unsynced (#2117).
+/// How its commits reach the disk: as a synced per-user store's, but for its
+/// tables' commit, unsynced (#2117).
 const DURABILITY: Durability = Durability {
-    synchronous: Synchronous::Full,
     opening: Synchronous::Off,
-    full_fsync: FullFsync::Commits,
-    wal_on_close: WalOnClose::Kept,
+    ..Durability::SYNCED
 };
 
 /// The previous hash of the first entry.
@@ -113,13 +109,6 @@ pub enum AuditError {
         /// The head file.
         path: PathBuf,
         /// The OS's message.
-        message: String,
-    },
-    /// The machine's `audit.retention` could not be read, so what the
-    /// append would first prune is unknown; nothing was appended.
-    #[error("the Audit log's `audit.retention` cannot be read: {message}")]
-    Retention {
-        /// Why it could not be read.
         message: String,
     },
     /// The store is of another major of the format (ADR 0030).
@@ -364,7 +353,7 @@ impl AuditLog {
         if entries.is_empty() {
             return Ok(Vec::new());
         }
-        if let Some((retention, layer)) = self.retention()? {
+        if let Some((retention, layer)) = self.retention() {
             self.prune(retention, Some(layer), now)?;
         }
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
@@ -475,23 +464,22 @@ impl AuditLog {
     }
 
     /// The `audit.retention` the machine's layers set now, with the layer
-    /// that set it; none when unset, or when the log is retained under no
-    /// layers.
-    fn retention(&self) -> Result<Option<(Duration, SettingsLayer)>, AuditError> {
-        let Some((files, product)) = self.retained_under.as_ref() else {
-            return Ok(None);
-        };
+    /// that set it; none when unset, when the log is retained under no
+    /// layers, or when they cannot be read, which says nothing of the entry
+    /// being appended, so it is kept and nothing is pruned on this pass.
+    fn retention(&self) -> Option<(Duration, SettingsLayer)> {
+        let (files, product) = self.retained_under.as_ref()?;
         self.work.count(Row::AuditConfigurationReads);
-        let unreadable = |error: &dyn std::fmt::Display| AuditError::Retention {
-            message: error.to_string(),
-        };
         let resolved = files
             .load(*product)
             .and_then(|machine| machine.resolve(*product))
-            .map_err(|error| unreadable(&error))?;
-        Ok(resolved
+            .inspect_err(|error| {
+                tracing::warn!(%error, "`audit.retention` cannot be read, so nothing is pruned");
+            })
+            .ok()?;
+        resolved
             .get::<Option<Duration>>(&AUDIT_RETENTION)
-            .zip(resolved.effective(&AUDIT_RETENTION).map(|set| set.layer)))
+            .zip(resolved.effective(&AUDIT_RETENTION).map(|set| set.layer))
     }
 
     /// Writes the head file after the last of `appended`, each entry

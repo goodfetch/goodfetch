@@ -21,10 +21,18 @@
 
 use std::time::{Duration, Instant};
 
+use goodfetch_protocol::home::POLITENESS_FILE;
+use goodfetch_test_client::Attached;
+use goodfetch_test_client::HomeLayout;
+use goodfetch_test_support::ObservedRequest;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
+use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
+use crate::attached_with;
+use crate::backoff_classes::held_for;
+use crate::before_their_turn;
 use crate::frontier::crawl_with;
 
 /// The Proving ground's seed.
@@ -65,7 +73,7 @@ fn crawl(
         .iter()
         .map(|path| json!({ "url": proving_ground.url(host, path), "label": "page" }))
         .collect();
-    let mut engine = Attached::start(env);
+    let mut engine = attached(env);
     let report = crawl_with(
         &mut engine,
         run_id,
@@ -73,7 +81,7 @@ fn crawl(
         &settings(proving_ground, host, &json!({})),
         &mut |_, _| json!({ "result": { "records": [] } }),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
     report
 }
@@ -83,13 +91,13 @@ fn crawl(
 fn received(proving_ground: &ProvingGround, host: &str) -> (usize, usize) {
     let observations = proving_ground.observations().unwrap();
     let received = ReceivedRequests::of(&observations);
-    let requests: Vec<&Value> = received
+    let requests: Vec<&ObservedRequest> = received
         .every()
-        .filter(|request| request["host"] == host)
+        .filter(|request| request.host == host)
         .collect();
     let robots = requests
         .iter()
-        .filter(|request| request["target"] == "/robots.txt")
+        .filter(|request| request.target == "/robots.txt")
         .count();
     (robots, requests.len() - robots)
 }
@@ -136,6 +144,9 @@ fn a_crawl_reads_robots_txt_once_a_day_from_the_copy_its_users_runs_share() {
 /// The `access-policy` family's second task's host, whose robots.txt
 /// answers `503`.
 const UNREACHABLE_HOST: &str = "2.access-policy.test";
+
+/// The fetch edge pages' host.
+const EDGE_HOST: &str = "fetch-edge.test";
 
 /// The named host whose robots.txt has groups for `Goodfetch-Foxhound`
 /// (`/foxhound/`), the operator token `operator-bot` (`/operator/`), a bare
@@ -191,7 +202,7 @@ fn crawl_seeds(
         .iter()
         .map(|(host, path)| json!({ "url": proving_ground.url(host, path), "label": "page" }))
         .collect();
-    let mut engine = Attached::start(env);
+    let mut engine = attached(env);
     let mut handled = Vec::new();
     let report = crawl_with(
         &mut engine,
@@ -213,7 +224,7 @@ fn crawl_seeds(
         &json!({ "run_id": run_id }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     let outcomes = read["result"]["outcomes"]
         .as_array()
         .unwrap_or_else(|| panic!("{read}"))
@@ -238,8 +249,8 @@ fn pages_received(proving_ground: &ProvingGround, host: &str) -> Vec<String> {
     let observations = proving_ground.observations().unwrap();
     ReceivedRequests::of(&observations)
         .of_the_case()
-        .filter(|request| request["host"] == host)
-        .map(|request| request["target"].as_str().unwrap().to_owned())
+        .filter(|request| request.host == host)
+        .map(|request| request.target.as_str().to_owned())
         .collect()
 }
 
@@ -378,6 +389,140 @@ fn a_request_whose_robots_txt_keeps_failing_ends_skipped_after_its_retries() {
     );
 }
 
+/// The `fetch-edge.test` page that redirects to a page of
+/// [`UNREACHABLE_HOST`].
+const REDIRECT_TO_UNREACHABLE: &str = "/redirect/unreachable-robots";
+
+/// A redirect hop whose host's robots.txt keeps answering `503`, with no
+/// earlier copy, is never sent, and its crawl request is retried as one
+/// whose own robots.txt failed: each failed robots.txt fetch counts as one
+/// of its attempts, and once its retries ran out it ends `skipped` with
+/// `robots_txt`. The crawl's scope takes every host, so the hop leaves the
+/// seed's domain.
+///
+/// Covers: story:6-242, setting:crawl.retry.max, setting:crawl.scope.strategy
+#[test]
+fn a_request_whose_redirect_hops_robots_txt_keeps_failing_ends_skipped_after_its_retries() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let ip = proving_ground.address().ip().to_string();
+
+    let crawled = crawl_seeds(
+        &env,
+        &proving_ground,
+        "unreachable-hop",
+        &[(EDGE_HOST, REDIRECT_TO_UNREACHABLE)],
+        &json!({
+            "crawl": { "retry": { "max": 1 }, "scope": { "strategy": "all" } },
+            "politeness": { "backoff": { "initial": 100, "max": 200 } },
+            "network": { "resolve": { EDGE_HOST: [&ip], UNREACHABLE_HOST: [&ip] } },
+            "egress": { "private_ranges": [EDGE_HOST, UNREACHABLE_HOST] },
+        }),
+        &|_| Vec::new(),
+    );
+
+    assert_eq!(
+        (
+            crawled.handled.len(),
+            crawled.outcomes,
+            received(&proving_ground, UNREACHABLE_HOST),
+        ),
+        (
+            0,
+            vec![ended(
+                REDIRECT_TO_UNREACHABLE,
+                "skipped",
+                Some("robots_txt")
+            )],
+            (2, 0),
+        )
+    );
+}
+
+/// A robots.txt that answers `503`, with no earlier copy, backs off the
+/// domain whose file it is when that is the request's own: a redirect hop's
+/// says nothing of the healthy domain that redirected there, which the
+/// crawl may go on asking.
+///
+/// Covers: story:6-242, setting:politeness.backoff.initial, format:politeness-file
+#[rstest]
+#[case::its_own(UNREACHABLE_HOST, "/catalog/1", "access-policy.test", true)]
+#[case::a_redirect_hops(EDGE_HOST, REDIRECT_TO_UNREACHABLE, EDGE_HOST, false)]
+fn only_a_requests_own_unreachable_robots_txt_backs_its_domain_off(
+    #[case] host: &str,
+    #[case] path: &str,
+    #[case] domain_key: &str,
+    #[case] backs_off: bool,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let ip = proving_ground.address().ip().to_string();
+
+    let crawled = crawl_seeds(
+        &env,
+        &proving_ground,
+        "unreachable-domain",
+        &[(host, path)],
+        &json!({
+            "crawl": { "retry": { "max": 0 }, "scope": { "strategy": "all" } },
+            "politeness": { "backoff": { "initial": 3_600_000, "max": 3_600_000 } },
+            "network": { "resolve": { EDGE_HOST: [&ip], UNREACHABLE_HOST: [&ip] } },
+            "egress": { "private_ranges": [EDGE_HOST, UNREACHABLE_HOST] },
+        }),
+        &|_| Vec::new(),
+    );
+
+    assert_eq!(
+        (
+            crawled.outcomes,
+            held_for(
+                &env.home().join(POLITENESS_FILE),
+                domain_key,
+                Duration::from_mins(30)
+            ),
+        ),
+        (vec![ended(path, "skipped", Some("robots_txt"))], backs_off)
+    );
+}
+
+/// A request robots.txt disallows is refused as soon as its robots.txt is
+/// read, before any wait for its domain's delay after that robots.txt: it
+/// takes no start of its domain, so a request it never sent holds back no
+/// other.
+///
+/// Covers: story:6-239, story:6-241, setting:politeness.domain.delay, format:politeness-file
+#[test]
+fn a_request_robots_txt_disallows_takes_no_start_of_its_domain() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+
+    let crawled = crawl_seeds(
+        &env,
+        &proving_ground,
+        "disallowed-unstarted",
+        &[(FILE_HOST, "/private/catalog/1")],
+        &json!({ "politeness": { "domain": { "delay": 2_000 } } }),
+        &|_| Vec::new(),
+    );
+    let file = rusqlite::Connection::open(env.home().join(POLITENESS_FILE)).unwrap();
+    let (last_start, fetched_at): (i64, i64) = file
+        .query_row(
+            "SELECT (SELECT MAX(last_start) FROM domain_limits), (SELECT MAX(fetched_at) FROM robots_txt)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+
+    assert_eq!(
+        (crawled.outcomes, last_start <= fetched_at),
+        (
+            vec![ended("/private/catalog/1", "skipped", Some("robots_txt"))],
+            true
+        ),
+        "the domain's last start {last_start}, its robots.txt fetched at {fetched_at}"
+    );
+}
+
 /// With `site_preferences.respect_robots_txt` off, a request robots.txt
 /// disallows is fetched and handled, and robots.txt itself is never
 /// fetched: off costs nothing (ADR 0138).
@@ -422,14 +567,14 @@ fn with_robots_txt_not_respected_a_disallowed_request_is_fetched() {
 fn an_operator_policy_lock_keeps_robots_txt_respected() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let folder = env.home().join("0.0");
-    std::fs::create_dir_all(&folder).unwrap();
+    let layout = HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
     std::fs::write(
-        folder.join("operator-policy.toml"),
+        layout.operator_policy(),
         "version = \"0.1\"\n\n[lock.site_preferences]\nrespect_robots_txt = true\n",
     )
     .unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let started = engine.call(
         "start",
@@ -445,7 +590,7 @@ fn an_operator_policy_lock_keeps_robots_txt_respected() {
         }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -468,7 +613,7 @@ fn the_robots_txt_fetch_counts_in_its_domains_politeness() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let delay = Duration::from_secs(2);
     let more = json!({ "politeness": { "domain": { "delay": 2_000 } } });
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let started = Instant::now();
     let mut first_page = None;
@@ -482,7 +627,7 @@ fn the_robots_txt_fetch_counts_in_its_domains_politeness() {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -507,7 +652,7 @@ fn a_document_waiting_for_its_delay_after_robots_txt_keeps_its_lease() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     // The document waits out the delay with nothing to say.
-    let mut engine = Attached::start_with(&env, Some(Duration::from_secs(60)), |_| {});
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |_| {});
     // A lease of 1 s plus the 10 s margin, shorter than the delay.
     let more = json!({
         "timeout": { "handler": 1_000 },
@@ -532,7 +677,7 @@ fn a_document_waiting_for_its_delay_after_robots_txt_keeps_its_lease() {
         &json!({ "run_id": "waits" }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let outcome = &outcomes["result"]["outcomes"][0];
     assert_eq!(
@@ -565,11 +710,11 @@ pub(crate) fn arrivals(proving_ground: &ProvingGround, host: &str) -> Vec<(Strin
     let observations = proving_ground.observations().unwrap();
     let mut arrivals: Vec<(String, u64)> = ReceivedRequests::of(&observations)
         .every()
-        .filter(|request| request["host"] == host)
+        .filter(|request| request.host == host)
         .map(|request| {
             (
-                request["target"].as_str().unwrap().to_owned(),
-                request["timing"]["arrived_microseconds"].as_u64().unwrap(),
+                request.target.as_str().to_owned(),
+                request.timing.arrived_microseconds,
             )
         })
         .collect();
@@ -584,7 +729,7 @@ fn crawl_at_once(env: &TestEnv, proving_ground: &ProvingGround, host: &str, runs
     let mut engines: Vec<(Attached, &str, bool)> = runs
         .iter()
         .map(|run| {
-            let mut engine = Attached::start(env);
+            let mut engine = attached(env);
             let mut settings = settings(proving_ground, host, &json!({}));
             settings["crawl"]["handler"] = json!({ "concurrency": 1 });
             let seeds: Vec<Value> = [1, 2]
@@ -625,22 +770,16 @@ fn crawl_at_once(env: &TestEnv, proving_ground: &ProvingGround, host: &str, runs
         }
     }
     for (engine, _, _) in engines {
-        assert!(engine.finish());
+        assert!(engine.finished());
     }
 }
 
 /// Two runs crawling one domain key at once, each in an engine of its own
 /// under one Goodfetch home and with no `politeness.domain.delay` of their
 /// own, keep to its host's Crawl-delay of 5 s: the site receives no page,
-/// by either run, sooner than 5 s after the page before it, and the first
-/// no sooner than 5 s after the first robots.txt request. (Each run's
-/// robots.txt fetch, sent before the Crawl-delay is known, may go beside
-/// the other's.) A page's delay counts from the start of the page before
-/// it, which the site sees only once its request arrived: the pages may
-/// arrive a little closer than their starts went, never 9/10 of the delay
-/// closer. The first page's delay counts from the robots.txt response's
-/// arrival, so the site never receives it sooner than 5 s after the
-/// robots.txt request.
+/// by either run, before its turn after the first robots.txt request. (Each
+/// run's robots.txt fetch, sent before the Crawl-delay is known, may go beside
+/// the other's, so only the first counts.)
 ///
 /// Covers: story:6-243, setting:site_preferences.max_crawl_delay, format:politeness-file
 #[test]
@@ -655,26 +794,66 @@ fn a_crawl_delay_spaces_two_concurrent_runs_on_one_domain_key() {
         &["first", "second"],
     );
     let arrivals = arrivals(&proving_ground, CRAWL_DELAY_HOST);
-    let first_robots_txt = arrivals
+    let pages: Vec<(String, u64)> = arrivals
         .iter()
-        .find(|(target, _)| target == "/robots.txt")
-        .map(|(_, at)| *at);
-    let pages: Vec<u64> = arrivals
-        .iter()
-        .filter(|(target, _)| target != "/robots.txt")
-        .map(|(_, at)| *at)
+        .take(1)
+        .chain(
+            arrivals
+                .iter()
+                .filter(|(target, _)| target != "/robots.txt"),
+        )
+        .cloned()
         .collect();
-    let spaced = pages
-        .windows(2)
-        .all(|pair| pair[1].saturating_sub(pair[0]) >= CRAWL_DELAY * 9 / 10);
-    let after_robots_txt = matches!(
-        (first_robots_txt, pages.first()),
-        (Some(robots), Some(page)) if page.saturating_sub(robots) >= CRAWL_DELAY
-    );
 
-    assert!(
-        pages.len() == 4 && spaced && after_robots_txt,
+    assert_eq!(
+        (
+            arrivals.first().map(|(target, _)| target.as_str()),
+            pages.len(),
+            before_their_turn(&pages, CRAWL_DELAY),
+        ),
+        (Some("/robots.txt"), 5, Vec::<String>::new()),
         "{arrivals:?}"
+    );
+}
+
+/// A crawl that waits out no Crawl-delay itself, under a
+/// `site_preferences.max_crawl_delay` of 0 with nothing else pacing it,
+/// still records the one a robots.txt it respects asks for, for every run
+/// that shares the Politeness file (ADR 0086). Its request is refused all
+/// the same.
+///
+/// Covers: story:6-243, setting:site_preferences.max_crawl_delay, format:politeness-file
+#[test]
+fn a_crawl_that_paces_nothing_records_a_crawl_delay_for_the_runs_that_share_it() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+
+    let crawled = crawl_seeds(
+        &env,
+        &proving_ground,
+        "records-only",
+        &[(CRAWL_DELAY_HOST, "/catalog/1")],
+        &json!({ "site_preferences": { "max_crawl_delay": 0 } }),
+        &|_| Vec::new(),
+    );
+    let file = rusqlite::Connection::open(env.home().join(POLITENESS_FILE)).unwrap();
+    let recorded: Vec<(String, i64)> = file
+        .prepare("SELECT location, delay FROM crawl_delays")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+
+    assert_eq!(
+        (crawled.outcomes, recorded),
+        (
+            vec![ended("/catalog/1", "skipped", Some("crawl_delay"))],
+            vec![(
+                proving_ground.url(CRAWL_DELAY_HOST, "/robots.txt"),
+                i64::try_from(CRAWL_DELAY / 1_000).unwrap()
+            )],
+        )
     );
 }
 

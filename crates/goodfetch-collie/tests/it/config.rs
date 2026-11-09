@@ -1,9 +1,10 @@
 //! Settings through Collie's executable (spec #213's Seam 1): `config
 //! explain` from the test's Goodfetch home, the project configuration of
 //! its folder and the CLI's flags, in human and `--json` output; the
-//! strict environment map; and every key only Foxhound honours refused with
-//! `not_in_product` when given explicitly, table-driven from the generated
-//! table of Foxhound's names (ADRs 0028, 0083 and 0087).
+//! strict environment map; machine settings that cannot be read, which
+//! fail every command that needs them; and every key only Foxhound honours
+//! refused with `not_in_product` when given explicitly, table-driven from
+//! the generated table of Foxhound's names (ADRs 0028, 0083 and 0087).
 #![expect(
     clippy::disallowed_methods,
     reason = "the tests write the Goodfetch home's and the project's settings files themselves"
@@ -15,15 +16,46 @@
 
 use std::fs;
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound_names;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{SnapshotValues, TestEnv, cli, command, snapshot_settings};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
 use crate::daemon::StopsTheDaemon;
+use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
+
+/// On machine settings it cannot read, `config explain` fails before any
+/// engine starts: it prints its failure as a settings file's refusal prints,
+/// naming no operation, and nothing an engine's start logs or writes reaches
+/// the person looking for that fault.
+///
+/// Covers: story:11-217, command:config.explain, error:setting_unknown
+#[test]
+fn config_explain_on_unreadable_settings_starts_no_engine() {
+    let env = TestEnv::new();
+    env.user_configuration("crawl.max_deepth = 3\n");
+
+    let output = cli(&env, COLLIE)
+        .args(["config", "explain", "--json"])
+        .run()
+        .unwrap();
+    let printed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+
+    assert_eq!(
+        (
+            output.exit,
+            printed["error"]["code"].clone(),
+            printed["error"].get("operation"),
+            output.stderr.as_str(),
+        ),
+        (Some(3), json!("setting_unknown"), None, ""),
+        "{output}"
+    );
+}
 
 /// The committed JSON Schema bundle, whose `config.explain` result is
 /// `config explain --json`'s output.
@@ -41,10 +73,10 @@ enum Mode {
 /// key, user configuration that sets one key and one only Foxhound honours,
 /// and a project configuration that sets one key again and a second.
 fn lay_out(env: &TestEnv) {
-    let major = env.home().join("0.0");
-    fs::create_dir_all(&major).unwrap();
+    let layout = HomeLayout::of(env.home());
+    fs::create_dir_all(layout.per_major()).unwrap();
     fs::write(
-        major.join("operator-policy.toml"),
+        layout.operator_policy(),
         "version = \"0.1\"\n\n[lock.network.resolve]\n\"staging.example\" = [\"127.0.0.1\"]\n",
     )
     .unwrap();
@@ -125,6 +157,42 @@ fn config_explain_json_shows_each_value_with_the_layer_that_set_and_locked_it(#[
     });
 }
 
+/// A `--project` that names no file sets nothing: the answer lists it as
+/// not found.
+/// Covers: story:3-89, command:config.explain
+#[rstest]
+#[case::attached(Mode::Attached)]
+#[case::daemon(Mode::Daemon)]
+fn config_explain_lists_a_named_project_file_that_is_missing_as_not_found(#[case] mode: Mode) {
+    let env = TestEnv::new();
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let missing = env.folder().join("no-such-project.toml");
+    let missing = missing.to_str().unwrap();
+
+    let (stdout, _, succeeded) = explain(
+        &env,
+        mode,
+        &["timeout.navigation", "--project", missing, "--json"],
+    );
+
+    assert!(succeeded);
+    let output: Value = serde_json::from_str(&stdout).unwrap();
+    let project: Vec<&Value> = output["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|file| file["layer"] == "project_configuration")
+        .collect();
+    assert_eq!(
+        project,
+        [&json!({
+            "layer": "project_configuration",
+            "path": missing,
+            "found": false,
+        })]
+    );
+}
+
 /// Covers: story:3-89, command:config.explain
 #[rstest]
 #[case::attached(Mode::Attached)]
@@ -149,10 +217,10 @@ fn config_explain_shows_one_line_per_key_with_its_origin(#[case] mode: Mode) {
 #[test]
 fn config_explain_shows_the_happy_eyeballs_delays() {
     let env = TestEnv::new();
-    let major = env.home().join("0.0");
-    fs::create_dir_all(&major).unwrap();
+    let layout = HomeLayout::of(env.home());
+    fs::create_dir_all(layout.per_major()).unwrap();
     fs::write(
-        major.join("configuration.toml"),
+        layout.user_configuration(),
         "version = \"0.1\"\n\n[settings.resolver]\nattempt_delay = 100\n",
     )
     .unwrap();
@@ -293,10 +361,10 @@ fn config_explain_shows_browser_headless_true_by_default_and_the_layer_that_set_
     };
     let by_default = TestEnv::new();
     let configured = TestEnv::new();
-    let major = configured.home().join("0.0");
-    fs::create_dir_all(&major).unwrap();
+    let layout = HomeLayout::of(configured.home());
+    fs::create_dir_all(layout.per_major()).unwrap();
     fs::write(
-        major.join("configuration.toml"),
+        layout.user_configuration(),
         "version = \"0.1\"\n\n[settings.browser]\nheadless = false\n",
     )
     .unwrap();
@@ -317,6 +385,36 @@ fn config_explain_shows_browser_headless_true_by_default_and_the_layer_that_set_
                 ["collie", "foxhound"]
             ])],
         )
+    );
+}
+
+/// Machine settings that cannot be read fail every command that needs
+/// them with their Error code, printed as every command's failure is and
+/// exiting its row, before it does anything: no Run index is rebuilt and
+/// no Daemon starts on them, as `browser install` and `browser clean` fail
+/// (`browser.rs`).
+///
+/// Covers: error:setting_invalid, exit:program
+#[rstest]
+/// Covers: command:runs.reindex
+#[case::runs_reindex(&["runs", "reindex", "--json"])]
+/// Covers: command:daemon.start
+#[case::daemon_start(&["daemon", "start", "--json"])]
+fn a_command_that_needs_the_machines_settings_fails_with_their_error_code_when_they_cannot_be_read(
+    #[case] arguments: &[&str],
+) {
+    let env = TestEnv::new();
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    env.user_configuration("timeout.navigation = \"soon\"\n");
+
+    let output = cli(&env, COLLIE).args(arguments).run().unwrap();
+
+    let printed: Value = serde_json::from_str(&output.stdout).unwrap_or_default();
+    assert_eq!(
+        (output.exit, printed["error"]["code"].clone()),
+        (Some(3), json!("setting_invalid")),
+        "{}",
+        output.stderr
     );
 }
 
@@ -369,8 +467,8 @@ fn an_unknown_goodfetch_variable_stops_the_executable_before_its_command() {
 #[test]
 fn every_key_only_foxhound_honours_is_not_in_product_on_collies_engine() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
 
     let mut answers = Vec::new();
@@ -403,8 +501,8 @@ fn every_key_only_foxhound_honours_is_not_in_product_on_collies_engine() {
 #[test]
 fn a_foxhound_keys_refusal_names_foxhound_and_its_install() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
 
     engine.send(&json!({

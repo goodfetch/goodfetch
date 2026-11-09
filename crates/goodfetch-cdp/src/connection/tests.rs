@@ -265,16 +265,16 @@ fn a_refusal_and_a_closed_pipe_fail_the_commands_in_flight() {
         let (ended, (refused, gone, ())) = tokio::join!(driver.run(), async {
             tokio::join!(
                 connection.send(Some(&session), &GetVersionParams {}, TIMEOUT),
+                connection.send(None, &GetVersionParams {}, TIMEOUT),
                 async {
-                    tokio::task::yield_now().await;
-                    connection.send(None, &GetVersionParams {}, TIMEOUT).await
-                },
-                async {
-                    let first = browser.received().await;
-                    let _second = browser.received().await;
+                    let received = [browser.received().await, browser.received().await];
+                    let of_the_session = received
+                        .iter()
+                        .find(|command| command["sessionId"] == "session-1")
+                        .expect("the session's command reaches the browser");
                     browser
                         .send(&json!({
-                            "id": first["id"],
+                            "id": of_the_session["id"],
                             "error": { "code": -32000, "message": "Target closed" },
                         }))
                         .await;

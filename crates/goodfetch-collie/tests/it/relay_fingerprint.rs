@@ -155,13 +155,8 @@ fn requests_for(proving_ground: &ProvingGround, host: &str, target: &str) -> Vec
         .received_requests()
         .unwrap()
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|seen| seen.split(':').next() == Some(host))
-                && request["target"] == json!(target)
-        })
-        .cloned()
+        .filter(|request| request.host.split(':').next() == Some(host) && request.target == target)
+        .map(|request| serde_json::to_value(request).unwrap())
         .collect()
 }
 
@@ -285,13 +280,13 @@ fn navigation_resumed(proving_ground: &ProvingGround) -> Option<bool> {
 }
 
 /// A new Session of the Run `run_id`.
-fn session(program: &mut Program<'_>, run_id: &str) -> Value {
+fn session(program: &mut Program, run_id: &str) -> Value {
     let answer = program.call("run.new_session", &json!({ "run_id": run_id }));
     answer["result"]["session_id"].clone()
 }
 
 /// A new page in the Session `session`.
-fn page_in(program: &mut Program<'_>, session: &Value) -> String {
+fn page_in(program: &mut Program, session: &Value) -> String {
     let answer = program.call("session.new_page", &json!({ "session_id": session }));
     answer["result"]["page_id"]
         .as_str()

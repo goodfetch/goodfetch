@@ -15,10 +15,13 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
+use goodfetch_test_client::{Attached, HomeLayout};
 use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
+use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached_with;
 use crate::frontier::{Inside, crawl_declaring};
 
 /// The Proving ground's seed.
@@ -35,7 +38,7 @@ fn engine(env: &TestEnv) -> Attached {
 /// [`engine`], whose messages may be `silent` apart.
 fn engine_silent_for(env: &TestEnv, silent: Duration) -> Attached {
     let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
-    Attached::start_with(env, Some(silent), |command| {
+    attached_with(env, Some(silent), |command| {
         command.env(BROWSERS_PATH_VARIABLE, &cache);
     })
 }
@@ -70,17 +73,8 @@ fn articles(proving_ground: &ProvingGround) -> Vec<(String, Value)> {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| {
-            request["target"]
-                .as_str()
-                .is_some_and(|target| target.starts_with("/corpus/article"))
-        })
-        .map(|request| {
-            (
-                request["target"].as_str().unwrap().to_owned(),
-                request["cookies"].clone(),
-            )
-        })
+        .filter(|request| request.target.starts_with("/corpus/article"))
+        .map(|request| (request.target.clone(), json!(request.cookies)))
         .collect()
 }
 
@@ -131,7 +125,7 @@ fn a_cookie_the_browser_sample_set_is_sent_by_the_http_tiers_next_request_in_its
         &settings(&proving_ground, "auto"),
         &mut handler(&mut set),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let who = json!([["who", "a"]]);
     let none = json!([]);
@@ -151,6 +145,63 @@ fn a_cookie_the_browser_sample_set_is_sent_by_the_http_tiers_next_request_in_its
             ],
             &json!("finished")
         )
+    );
+}
+
+/// How many browser contexts the Run `run_id` created, by its CDP trace: its
+/// one Session's one in each browser it was seated in.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads the Run's CDP trace from outside the engine, on no async worker"
+)]
+fn contexts_created(env: &TestEnv, run_id: &str) -> usize {
+    let file = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_CDP_COMMANDS);
+    std::fs::read_to_string(file)
+        .unwrap()
+        .lines()
+        .filter(|line| {
+            serde_json::from_str::<Value>(line).unwrap()["method"] == "Target.createBrowserContext"
+        })
+        .count()
+}
+
+/// A Session on a forced `browser_fetch` tier opens no page but the engine's
+/// own, and is held to its browser's limits all the same: past them, each
+/// next request goes out of a replacement browser.
+///
+/// Covers: story:3-62, setting:governor.browser.recycle_pages, setting:governor.browser.memory_cap
+#[rstest]
+#[case::after_its_pages(json!({ "recycle_pages": 1 }))]
+#[case::past_its_memory_cap(json!({ "memory_cap": 1 }))]
+fn a_session_on_the_browser_fetch_tier_moves_off_its_recycled_browser(#[case] limit: Value) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let mut settings = settings(&proving_ground, "browser_fetch");
+    settings["governor"] = json!({ "browser": limit });
+
+    let finished = crawl_declaring(
+        &mut engine,
+        "recycled",
+        &[
+            seed(&proving_ground, "/corpus/article?n=1", "a"),
+            seed(&proving_ground, "/corpus/article?n=2", "a"),
+            seed(&proving_ground, "/corpus/article?n=3", "a"),
+        ],
+        &json!({ "a": {} }),
+        &settings,
+        &mut |_, _| json!({ "result": { "records": [] } }),
+    );
+    assert!(engine.finished());
+
+    assert_eq!(
+        (
+            &finished["result"]["lifecycle"],
+            articles(&proving_ground).len(),
+            contexts_created(&env, "recycled") >= 3,
+        ),
+        (&json!("finished"), 3, true),
+        "{finished}"
     );
 }
 
@@ -188,22 +239,11 @@ fn accept_encodings(proving_ground: &ProvingGround, host: &str) -> Vec<Value> {
         .received_requests()
         .unwrap()
         .every()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|seen| seen.starts_with(host))
-        })
+        .filter(|request| request.host.starts_with(host))
         .map(|request| {
-            request["headers"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|header| {
-                    header[0]
-                        .as_str()
-                        .is_some_and(|name| name.eq_ignore_ascii_case("accept-encoding"))
-                })
-                .map_or(Value::Null, |header| header[1].clone())
+            request
+                .header("accept-encoding")
+                .map_or(Value::Null, |value| json!(value))
         })
         .collect()
 }
@@ -214,12 +254,7 @@ fn requests_for(proving_ground: &ProvingGround, host: &str, target: &str) -> usi
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|seen| seen.starts_with(host))
-                && request["target"] == target
-        })
+        .filter(|request| request.host.starts_with(host) && request.target == target)
         .count()
 }
 
@@ -307,7 +342,7 @@ fn browser_fetch_passes_the_transport_conformance_gate() {
     );
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     let timed_out = failures(&mut engine, "slow");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let decoding_failed = (
         json!("navigation_failed"),
@@ -443,7 +478,7 @@ fn a_forced_browser_fetch_tier_sends_from_inside_the_sessions_browser() {
         "browser",
         &https_url,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let browsers = handshakes(&proving_ground, HOST, seen);
     let all = handshakes(&proving_ground, HOST, 0);
@@ -481,7 +516,7 @@ fn a_session_that_may_move_shows_one_tls_fingerprint_on_the_http_and_browser_tie
     let moving = reach_over_tls(&mut engine, &proving_ground, "moving", "auto", &https_url);
     let seen = handshakes_so_far(&proving_ground);
     let staying = reach_over_tls(&mut engine, &proving_ground, "staying", "http", &https_url);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let reqwest = handshakes(&proving_ground, HOST, seen);
     let all = handshakes(&proving_ground, HOST, 0);
@@ -586,7 +621,7 @@ fn a_body_cut_once_the_browser_read_it_fails_each_attempt_on_the_browser_tiers(#
         },
     );
     let ended = ended(&mut engine, "late-cuts");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
     assert_eq!(handled, Vec::<Value>::new(), "handed to the handler");

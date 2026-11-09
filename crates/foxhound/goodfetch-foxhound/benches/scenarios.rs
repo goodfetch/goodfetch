@@ -50,8 +50,10 @@ use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
 use goodfetch_fetch_tier::{Body, FetchTiers, Hop, Reuse, Sending, Sent, Transport};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::run::{LimitScope, LimitSetter};
 use goodfetch_protocol::usage::{INSTALL, Limit, REQUESTS};
+use goodfetch_test_client::Hello;
 use jiff::Timestamp;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
@@ -432,7 +434,17 @@ pub(crate) fn entries(home: &Path) -> u64 {
 }
 
 /// `hello`'s line.
-const HELLO: &str = r#"{"jsonrpc":"2.0","id":"hello","method":"hello","params":{"protocol_version":"0.1","surface":"rust","needs":"foxhound","product_version":"1.4.0"}}"#;
+fn hello() -> String {
+    Hello::needing(Product::Foxhound)
+        .id("hello")
+        .surface(Surface::Rust)
+        .with(|params| {
+            params.product_version =
+                ProductVersion::parse("1.4.0").expect("invariant: 1.4.0 is a Product version");
+        })
+        .message()
+        .to_string()
+}
 
 /// Crawls the site from its index on a Foxhound engine whose fetch tiers
 /// serve it from memory, on the Goodfetch home `home`, its paused clock
@@ -576,7 +588,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
                 .expect("invariant: the engine listens")
                 .split();
             let mut lines = BufReader::new(reader).lines();
-            send(&mut writer, HELLO).await;
+            send(&mut writer, &hello()).await;
             send(
                 &mut writer,
                 &crawl_start(settings, fields, handler, frontier, linked).to_string(),

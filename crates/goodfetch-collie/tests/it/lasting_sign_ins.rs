@@ -23,7 +23,10 @@ use std::net::TcpStream;
 use std::time::Duration;
 
 use goodfetch_engine::home::Home;
-use goodfetch_protocol::catalog::PROTOCOL_VERSION;
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::{Form, Surface};
+use goodfetch_test_client::Hello;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{TestEnv, cli};
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -34,9 +37,6 @@ use crate::daemon::StopsTheDaemon;
 use crate::sign_in::{agent, console_url, origin, runtime_file};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
-
-/// This commit's Product version.
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Thirty days, in seconds.
 const THIRTY_DAYS: u64 = 30 * 24 * 60 * 60;
@@ -129,13 +129,10 @@ fn console_socket(url: &str, cookie: &str) -> WebSocket<TcpStream> {
         .set_read_timeout(Some(Duration::from_secs(60)))
         .unwrap();
     let mut socket = tungstenite::client(request, stream).unwrap().0;
-    let hello = json!({
-        "protocol_version": PROTOCOL_VERSION.to_string(),
-        "surface": "console",
-        "form": "catalog",
-        "needs": "collie",
-        "product_version": VERSION,
-    });
+    let hello = Hello::needing(Product::Collie)
+        .surface(Surface::Console)
+        .with(|params| params.form = Some(Form::Catalog))
+        .params();
     let opened = call(&mut socket, 0, "hello", &hello);
     assert!(opened.get("result").is_some(), "{opened}");
     socket
@@ -213,10 +210,10 @@ fn a_sign_in_lasts_its_idle_expiry_and_outlives_a_daemon_restart() {
 #[test]
 fn a_sign_in_unused_past_the_idle_expiry_an_operator_policy_sets_ends() {
     let env = env();
-    let major = env.home().join("0.0");
-    std::fs::create_dir_all(&major).unwrap();
+    let layout = HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
     std::fs::write(
-        major.join("operator-policy.toml"),
+        layout.operator_policy(),
         "version = \"0.1\"\n\n[settings.console.sign_in]\nidle_expiry = 1000\n",
     )
     .unwrap();

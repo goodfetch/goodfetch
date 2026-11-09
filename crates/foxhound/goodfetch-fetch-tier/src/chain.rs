@@ -114,6 +114,18 @@ pub enum Stop {
     Failed(CallError),
     /// The request ends `skipped`.
     Skipped(Skip),
+    /// A hop's robots.txt could not be read, with no earlier copy, while
+    /// the crawl respects it, for the reason given: the hop is not sent,
+    /// and the crawl request retries it as one whose own robots.txt could
+    /// not be read, ending `skipped` with `robots_txt` once its retries ran
+    /// out (ADR 0086).
+    RobotsTxtUnreachable {
+        /// Why it could not be read.
+        message: String,
+        /// Whether the hop is on the crawl request's own domain key, whose
+        /// file it then is, as opposed to a healthy domain's redirect.
+        on_own_domain: bool,
+    },
 }
 
 /// A boxed future a [`HopGate`] answers.

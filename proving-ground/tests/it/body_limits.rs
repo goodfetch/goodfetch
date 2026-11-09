@@ -182,11 +182,9 @@ fn the_robots_hosts_other_pages_are_small_and_plain() {
 fn only_a_refusal_naming_the_setting_is_verified(#[case] id: &str, #[case] setting: &str) {
     let proving_ground = ProvingGround::start(SEED);
 
-    let refused = proving_ground.judge(&refusal(id, setting)).json();
-    let claimed = proving_ground.judge(&submission(id, "success", &[])).json();
-    let other = proving_ground
-        .judge(&refusal(id, "network.max_decompression_ratio"))
-        .json();
+    let refused = proving_ground.judge(&refusal(id, setting));
+    let claimed = proving_ground.judge(&submission(id, "success", &[]));
+    let other = proving_ground.judge(&refusal(id, "network.max_decompression_ratio"));
 
     assert_eq!(refused["outcome"], "verified", "{refused}");
     assert_eq!(claimed["outcome"], "false_success", "{claimed}");
@@ -198,9 +196,7 @@ fn the_json_at_the_depth_is_kept_as_its_innermost_record() {
     let proving_ground = ProvingGround::start(SEED);
     let record = json!({ "id": "B-5", "text": "Nested as deep as the engine keeps." });
 
-    let kept = proving_ground
-        .judge(&submission("body-limits/5", "success", &[record]))
-        .json();
+    let kept = proving_ground.judge(&submission("body-limits/5", "success", &[record]));
 
     assert_eq!(kept["outcome"], "verified", "{kept}");
 }

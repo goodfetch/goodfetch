@@ -1,11 +1,11 @@
 //! The hidden `command-line` command (ADR 0072): the executable's command
 //! line as JSON, each command's `name` and the `commands` under it, hidden
-//! ones included, and the namespaces of the commands the `generated`
+//! ones included, and the namespaces of the commands the `catalog_commands`
 //! module generates, as the source of its committed `namespaces.rs`. `xtask
 //! codegen` commits what [`printed_command_line`] gives each Product, through
-//! Foxhound's `command-lines` example, so that `xtask` builds no engine crate and needs
-//! no Console build; each Product's tests check the committed files against
-//! what its executable prints.
+//! Foxhound's `command-lines` example, so that `xtask` builds no engine crate
+//! and needs no Console build; each Product's tests check the committed files
+//! against what its executable prints.
 
 use std::process::ExitCode;
 
@@ -22,7 +22,7 @@ use super::{OwnCommands, command};
 pub fn printed_command_line(product: Product, own: OwnCommands) -> Value {
     json!({
         "command_line": tree(&command(product, own)),
-        "namespaces": super::generated::namespaces_source(),
+        "namespaces": super::catalog_commands::namespaces_source(),
     })
 }
 

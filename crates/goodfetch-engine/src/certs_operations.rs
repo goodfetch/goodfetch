@@ -140,17 +140,14 @@ fn host_of(host: &str) -> Result<String, CallError> {
 }
 
 /// Why a person's answer failed.
+#[derive(Debug, thiserror::Error)]
 enum Failed {
     /// The store refused it, or could not be read or written.
-    Store(KnownCertificatesError),
+    #[error(transparent)]
+    Store(#[from] KnownCertificatesError),
     /// It was made, but the Audit log could not record it.
-    Unrecorded(AuditError),
-}
-
-impl From<KnownCertificatesError> for Failed {
-    fn from(error: KnownCertificatesError) -> Self {
-        Self::Store(error)
-    }
+    #[error("the answer was made, but the Audit log cannot record it: {0}")]
+    Unrecorded(#[source] AuditError),
 }
 
 impl Failed {
@@ -159,10 +156,9 @@ impl Failed {
     fn call_error(self, done: &str) -> CallError {
         match self {
             Self::Store(error) => refusal(error, done),
-            Self::Unrecorded(error) => CallError::protocol(
-                ProtocolFailure::InternalError,
-                format!("the answer was made, but the Audit log cannot record it: {error}"),
-            ),
+            unrecorded @ Self::Unrecorded(_) => {
+                CallError::protocol(ProtocolFailure::InternalError, unrecorded.to_string())
+            }
         }
     }
 }

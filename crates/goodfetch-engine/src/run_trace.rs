@@ -26,6 +26,7 @@ use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Event;
+use goodfetch_protocol::home::{RUN_TRACE_PROVENANCE, RUN_TRACE_REQUESTS};
 use goodfetch_protocol::page::events::PAGE_REQUEST_FAILED;
 use goodfetch_protocol::page::{RequestFailed, SERVICE_WORKER_REQUEST, ServiceWorkerRequest};
 
@@ -33,9 +34,6 @@ use serde::Serialize;
 
 use crate::mask::{Mask, Scope};
 use crate::tasks::TaskOwner;
-
-/// The log's file in the Run's folder.
-pub const FILE: &str = "trace/requests.jsonl";
 
 /// A Run's request log.
 #[derive(Debug)]
@@ -51,7 +49,7 @@ impl RequestLog {
     /// `owner`'s blocking policy, masked by `mask`, the Run's, counting on
     /// `work`; its holder waits for `owner`.
     pub fn new(owner: TaskOwner, run_folder: &Path, mask: Mask, work: CountedWork) -> Self {
-        let file: PathBuf = run_folder.join(FILE);
+        let file: PathBuf = run_folder.join(RUN_TRACE_REQUESTS);
         Self {
             file: file.into(),
             owner,
@@ -121,10 +119,6 @@ impl RequestLog {
     }
 }
 
-/// The Run trace's Provenance log in the Run's folder (ADR 0047): one JSON
-/// line per entry, each naming its `action` and its page.
-pub const PROVENANCE: &str = "trace/provenance.jsonl";
-
 /// A Run's Provenance log, which holds its file from its first entry until
 /// the Run ends (ADR 0140's E5), so an entry creates no folder and opens no
 /// file. Each entry is written to the file at once, in one `write` with no
@@ -163,7 +157,7 @@ impl Provenance {
         Self {
             logs,
             held: Arc::new(Held {
-                path: run_folder.join(PROVENANCE),
+                path: run_folder.join(RUN_TRACE_PROVENANCE),
                 #[expect(
                     clippy::disallowed_types,
                     reason = "the log's file, the Mutex its field declares (ADR 0060)"

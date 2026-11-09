@@ -9,6 +9,9 @@ use crate::catalog::{
     Authority, Entries, Instrument, Metric, MetricLabel, ProtocolVersion, Setting, Stability,
     ValueKind,
 };
+use crate::connection::Surface;
+use crate::run::{Completeness, Lifecycle, RunKind, Verdict};
+use crate::wire_name;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -42,10 +45,56 @@ pub const OTLP_METRICS_ENDPOINT: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
-/// The values of the `run_kind` label: [`crate::run::RunKind`]'s.
-const RUN_KIND: MetricLabel = MetricLabel {
+/// The `run_kind` label: every [`RunKind`].
+pub const RUN_KIND_LABEL: MetricLabel = MetricLabel {
     name: "run_kind",
-    values: &["collie", "crawl"],
+    values: || wire_name::all(&RunKind::ALL),
+};
+
+/// The `lifecycle` label of `goodfetch.run.ended`: every [`Lifecycle`] a
+/// Run ends in, all but `running`.
+pub const LIFECYCLE_LABEL: MetricLabel = MetricLabel {
+    name: "lifecycle",
+    values: || {
+        Lifecycle::ALL
+            .into_iter()
+            .filter(|lifecycle| *lifecycle != Lifecycle::Running)
+            .map(Lifecycle::as_str)
+            .collect()
+    },
+};
+
+/// The `verdict` label of `goodfetch.run.ended`: every [`Verdict`].
+pub const VERDICT_LABEL: MetricLabel = MetricLabel {
+    name: "verdict",
+    values: || wire_name::all(&Verdict::ALL),
+};
+
+/// The `completeness` label of `goodfetch.run.ended`: every
+/// [`Completeness`].
+pub const COMPLETENESS_LABEL: MetricLabel = MetricLabel {
+    name: "completeness",
+    values: || wire_name::all(&Completeness::ALL),
+};
+
+/// The `browser` label of `goodfetch.browser.running`: the pinned Chrome for
+/// Testing, or the distribution's Chromium.
+pub const BROWSER_LABEL: MetricLabel = MetricLabel {
+    name: "browser",
+    values: || vec!["chrome_for_testing", "chromium"],
+};
+
+/// The `reason` label of `goodfetch.browser.recycled`: why a pool recycled
+/// a browser.
+pub const RECYCLE_REASON_LABEL: MetricLabel = MetricLabel {
+    name: "reason",
+    values: || vec!["pages", "memory", "idle", "shed"],
+};
+
+/// The `surface` label of `goodfetch.client.connected`: every [`Surface`].
+pub const SURFACE_LABEL: MetricLabel = MetricLabel {
+    name: "surface",
+    values: || wire_name::all(&Surface::ALL),
 };
 
 /// `goodfetch.run.active`: the live Runs.
@@ -54,7 +103,7 @@ pub const RUN_ACTIVE: Metric = Metric {
     description: "The Daemon's live Runs, whose Lifecycle is `running`, by kind.",
     instrument: Instrument::UpDownCounter,
     unit: "{run}",
-    labels: &[RUN_KIND],
+    labels: &[RUN_KIND_LABEL],
     stability: Stability::Stable,
     arrived_in: ARRIVED_IN,
 };
@@ -66,19 +115,10 @@ pub const RUN_ENDED: Metric = Metric {
     instrument: Instrument::Counter,
     unit: "{run}",
     labels: &[
-        RUN_KIND,
-        MetricLabel {
-            name: "lifecycle",
-            values: &["stopped", "finished", "failed"],
-        },
-        MetricLabel {
-            name: "verdict",
-            values: &["verified", "rejected", "needs_review"],
-        },
-        MetricLabel {
-            name: "completeness",
-            values: &["complete", "incomplete", "unverified"],
-        },
+        RUN_KIND_LABEL,
+        LIFECYCLE_LABEL,
+        VERDICT_LABEL,
+        COMPLETENESS_LABEL,
     ],
     stability: Stability::Stable,
     arrived_in: ARRIVED_IN,
@@ -90,10 +130,7 @@ pub const BROWSER_RUNNING: Metric = Metric {
     description: "The browsers the Daemon's Runs launched that run now, by kind: the pinned Chrome for Testing, or the distribution's Chromium where no build is made.",
     instrument: Instrument::UpDownCounter,
     unit: "{browser}",
-    labels: &[MetricLabel {
-        name: "browser",
-        values: &["chrome_for_testing", "chromium"],
-    }],
+    labels: &[BROWSER_LABEL],
     stability: Stability::Stable,
     arrived_in: ARRIVED_IN,
 };
@@ -104,10 +141,7 @@ pub const BROWSER_RECYCLED: Metric = Metric {
     description: "The browsers the Daemon's Runs' pools recycled, by why: `pages`, after `governor.browser.recycle_pages`; `memory`, past `governor.browser.memory_cap`; `idle`, past `governor.browser.recycle_idle` with no open page; `shed`, by the Resource governor at critical (ADR 0040).",
     instrument: Instrument::Counter,
     unit: "{browser}",
-    labels: &[MetricLabel {
-        name: "reason",
-        values: &["pages", "memory", "idle", "shed"],
-    }],
+    labels: &[RECYCLE_REASON_LABEL],
     stability: Stability::Experimental,
     arrived_in: ARRIVED_IN,
 };
@@ -129,20 +163,7 @@ pub const CLIENT_CONNECTED: Metric = Metric {
     description: "The Clients connected to the Daemon, by the surface each named in its `hello`, Console tabs included.",
     instrument: Instrument::UpDownCounter,
     unit: "{client}",
-    labels: &[MetricLabel {
-        name: "surface",
-        values: &[
-            "sdk_typescript",
-            "sdk_python",
-            "rust",
-            "cli",
-            "mcp",
-            "console",
-            "cloud",
-            "browser_host",
-            "worker",
-        ],
-    }],
+    labels: &[SURFACE_LABEL],
     stability: Stability::Stable,
     arrived_in: ARRIVED_IN,
 };
@@ -158,106 +179,22 @@ pub const DAEMON_DRAINING: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
-/// The values of `goodfetch.counted_work`'s `shared_path` label: the Shared
-/// paths (ADR 0140) with a counted row so far, each by name.
-const COUNTED_WORK_PATH: MetricLabel = MetricLabel {
+/// `goodfetch.counted_work`'s `shared_path` label: the Shared paths
+/// (ADR 0140) with a counted row so far, each by name, which `xtask codegen`
+/// writes from `goodfetch-counted-work`'s rows.
+pub const COUNTED_WORK_PATH_LABEL: MetricLabel = MetricLabel {
     name: "shared_path",
-    values: &[
-        "action",
-        "audit_entry",
-        "cdp_command",
-        "frontier_admission",
-        "frontier_hop",
-        "frontier_payload",
-        "frontier_sitemap",
-        "governor_sample",
-        "hook_stage",
-        "intercepted_request",
-        "json_rpc_message",
-        "live_view_frame",
-        "navigation",
-        "page_analysis",
-        "page_read",
-        "politeness_permit",
-        "record",
-        "run_state",
-        "run_trace",
-        "sink_delivery",
-        "usage_charge",
-        "working_copy_update",
-    ],
+    values: || SHARED_PATHS.to_vec(),
 };
 
-/// The values of `goodfetch.counted_work`'s `work` label: what those rows
-/// count.
-const COUNTED_WORK_WORK: MetricLabel = MetricLabel {
+/// `goodfetch.counted_work`'s `work` label: what those rows count, which
+/// `xtask codegen` writes from the same rows.
+pub const COUNTED_WORK_WORK_LABEL: MetricLabel = MetricLabel {
     name: "work",
-    values: &[
-        "deep_copies",
-        "encodes",
-        "parses",
-        "selector_compilations",
-        "readability_runs",
-        "file_opens",
-        "locale_form_builds",
-        "plugin_serializations",
-        "plugin_answer_parses",
-        "tree_copies",
-        "share_readability_runs",
-        "block_classifications",
-        "transactions",
-        "writer_reads",
-        "configuration_reads",
-        "prunes",
-        "effect_syncs",
-        "opens",
-        "script_sends",
-        "robots_parses",
-        "robots_reads",
-        "builds",
-        "calls",
-        "messages_no_hook",
-        "declaration_reads",
-        "validator_builds",
-        "validations",
-        "serializations",
-        "constant_lookups",
-        "invariant_reads",
-        "compilations",
-        "sends",
-        "log_sends_off",
-        "check_commands",
-        "click_commands",
-        "fill_commands",
-        "press_commands",
-        "statements",
-        "detection_reads",
-        "script_compilations",
-        "provenance_entries",
-        "merge_round_trips",
-        "document_loads",
-        "document_encodes",
-        "prepares",
-        "syncs",
-        "spawns",
-        "acknowledgements",
-        "seals",
-        "formatting_off",
-        "commands",
-        "world_creations",
-        "document_worlds",
-        "serialization_commands",
-        "meminfo_opens",
-        "static_opens",
-        "cpu_stat_opens",
-        "process_reads",
-        "pool_walks",
-        "fetch_messages_no_rule",
-        "matches",
-        "answers",
-        "entries",
-    ],
+    values: || WORKS.to_vec(),
 };
+
+include!("../generated/counted_work.rs");
 
 /// `goodfetch.counted_work`: the Counted work of each Shared path (ADR 0140).
 pub const COUNTED_WORK: Metric = Metric {
@@ -265,7 +202,7 @@ pub const COUNTED_WORK: Metric = Metric {
     description: "The Counted work the Daemon did, by Shared path and kind of work: what `xtask counts` holds to the Quality register's limits, per unit, on its benchmarks.",
     instrument: Instrument::Counter,
     unit: "{work}",
-    labels: &[COUNTED_WORK_PATH, COUNTED_WORK_WORK],
+    labels: &[COUNTED_WORK_PATH_LABEL, COUNTED_WORK_WORK_LABEL],
     stability: Stability::Experimental,
     arrived_in: ARRIVED_IN,
 };

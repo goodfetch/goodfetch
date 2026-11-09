@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use goodfetch_clean_up_rules::rules::without_cookie_sections;
+use goodfetch_clean_up_rules::rules::{EMBEDDED_MANIFEST, without_cookie_sections};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::rule_sources;
 use goodfetch_protocol::clean_up_rules::{
@@ -26,14 +26,24 @@ use tokio::sync::OnceCell;
 use super::failures::Unobtained;
 use super::{FILE_LIMIT, Sources, Version, lock, within};
 
-/// Each list: its key in `clean_up.lists` and in the manifest, and its file
-/// in the version.
-const LISTS: [(&str, &str); 4] = [
-    ("ads", "easylist.txt"),
-    ("trackers", "easyprivacy.txt"),
-    ("annoyances", "fanboy-annoyance.txt"),
-    ("unbreak", "brave-unbreak.txt"),
-];
+/// The file of each list in a version the engine fetches: the embedded
+/// part's, as its manifest names them.
+fn embedded_lists() -> RulesLists {
+    serde_json::from_str::<CleanUpRulesManifest>(EMBEDDED_MANIFEST)
+        .expect("invariant: the clean-up crate carries a manifest of this format")
+        .lists
+}
+
+/// Each of `lists` by its key in `clean_up.lists` and in the manifest, with
+/// its file.
+fn by_key(lists: &RulesLists) -> [(&'static str, &str); 4] {
+    [
+        ("ads", &lists.ads),
+        ("trackers", &lists.trackers),
+        ("annoyances", &lists.annoyances),
+        ("unbreak", &lists.unbreak),
+    ]
+}
 
 /// A list's expiry when it declares none.
 const DEFAULT_EXPIRY: Duration = Duration::from_hours(24);
@@ -155,9 +165,10 @@ async fn fresh_or_fetched(sources: &Sources, now: jiff::Timestamp) -> Result<Ver
 
 /// A new version of the lists, fetched now.
 async fn fetched(sources: &Sources, now: jiff::Timestamp) -> Result<Version, Unobtained> {
+    let lists = embedded_lists();
     let mut files = Vec::new();
     let mut expiry = None::<Duration>;
-    for (list, file) in LISTS {
+    for (list, file) in by_key(&lists) {
         let url = sources.lists.get(list).ok_or_else(|| {
             Unobtained::Unreadable(format!(
                 "`clean_up.lists` names no URL for the `{list}` Filter list"
@@ -192,12 +203,7 @@ async fn fetched(sources: &Sources, now: jiff::Timestamp) -> Result<Version, Uno
         source: RulesSource::Upstream,
         published_at: now,
         expires_at: now.checked_add(expiry.unwrap_or(DEFAULT_EXPIRY)).ok(),
-        lists: RulesLists {
-            ads: LISTS[0].1.to_owned(),
-            trackers: LISTS[1].1.to_owned(),
-            annoyances: LISTS[2].1.to_owned(),
-            unbreak: LISTS[3].1.to_owned(),
-        },
+        lists,
     };
     files.push((MANIFEST_FILE.to_owned(), super::manifest_file(&manifest)));
     sources

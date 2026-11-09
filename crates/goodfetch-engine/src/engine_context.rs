@@ -1,11 +1,11 @@
 //! What one engine's Runs and handlers are given, built once at its start
 //! (ADR 0059): the Goodfetch home, the clock, the engine's settings, the
 //! user's Audit log, known-certificates store and Usage ledger, where their
-//! blocking work runs, the engine's "Needs you", and the person a
-//! single-user install acts for. The
-//! engine builds it beside its Run registry and hands it down: to the
-//! registry, to each Connection's calls and to its listeners, so no module
-//! reaches these values through the Runs.
+//! blocking work runs, the engine's "Needs you", its sandbox probe and the
+//! person a single-user install acts for. The engine builds it beside its
+//! Run registry and hands it down: to the registry, to each Connection's
+//! calls and to its listeners, so no module reaches these values through the
+//! Runs.
 
 use std::sync::Arc;
 
@@ -18,6 +18,7 @@ use crate::home::Home;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
 use crate::needs_you::NeedsYou;
+use crate::sandbox_probe::SandboxProbe;
 use crate::settings::Settings;
 use crate::tasks::TaskOwner;
 
@@ -38,6 +39,7 @@ pub struct EngineContext {
     ledger: Ledger,
     owner: Arc<TaskOwner>,
     needs_you: NeedsYou,
+    sandbox_probe: SandboxProbe,
     person: Arc<str>,
 }
 
@@ -52,10 +54,10 @@ impl std::fmt::Debug for EngineContext {
 
 impl EngineContext {
     /// The engine at `home` on `clock` under `settings`, recording in
-    /// `audit`, its blocking work under `owner`, with `needs_you`, acting
-    /// for `person`; its known-certificates store and Usage ledger are
-    /// `home`'s, opened through the SQLite VFS named `vfs` (none in
-    /// production, ADR 0060).
+    /// `audit`, its blocking work under `owner`, with `needs_you` and
+    /// `sandbox_probe`, acting for `person`; its known-certificates store
+    /// and Usage ledger are `home`'s, opened through the SQLite VFS named
+    /// `vfs` (none in production, ADR 0060).
     #[expect(
         clippy::too_many_arguments,
         reason = "each is one of the engine's own values, built once at its start and held together here"
@@ -67,6 +69,7 @@ impl EngineContext {
         audit: Arc<AuditLog>,
         owner: Arc<TaskOwner>,
         needs_you: NeedsYou,
+        sandbox_probe: SandboxProbe,
         person: String,
         vfs: Option<String>,
     ) -> Self {
@@ -79,6 +82,7 @@ impl EngineContext {
             audit,
             owner,
             needs_you,
+            sandbox_probe,
             person: Arc::from(person),
         }
     }
@@ -128,6 +132,11 @@ impl EngineContext {
     /// The engine's "Needs you" (spec #592).
     pub(crate) fn needs_you(&self) -> &NeedsYou {
         &self.needs_you
+    }
+
+    /// The engine's sandbox probe, whose answer each browser launch reads.
+    pub(crate) fn sandbox_probe(&self) -> &SandboxProbe {
+        &self.sandbox_probe
     }
 
     /// The OS user's name, from the engine's environment map: the person

@@ -22,14 +22,11 @@ use goodfetch_engine::endpoint::same_token;
 use goodfetch_engine::tls::ExceptionUsed;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 
+use super::answers::{AUTHENTICATE, ESTABLISHED, failed};
 use super::client_hello::{ClientHello, Noting};
 use super::deadlines::{HEAD_DEADLINE, within, within_or_none};
 use super::head::{self, Head, Target, Unread};
 use super::terminate::{self, Stop, Terminated, Terminating};
-
-/// The name the relay gives its own member of a `Proxy-Status` field (RFC
-/// 9209).
-pub(crate) const RELAY: &str = "goodfetch-relay";
 
 /// What a name resolved to.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -211,21 +208,6 @@ pub(crate) enum Served {
     Failed,
 }
 
-/// The answer to a client without the Session's credentials.
-const AUTHENTICATE: &[u8] = b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"goodfetch\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-
-/// The answer to a tunnel that opened.
-const ESTABLISHED: &[u8] = b"HTTP/1.1 200 Connection Established\r\n\r\n";
-
-/// The relay's own answer to a tunnel that failed with `error` (RFC 9209),
-/// and `status`.
-fn failed(status: &str, error: &str) -> Vec<u8> {
-    format!(
-        "HTTP/1.1 {status}\r\nProxy-Status: {RELAY}; error={error}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-    )
-    .into_bytes()
-}
-
 /// Serves one connection of the browser's.
 ///
 /// # Cancel safety
@@ -275,16 +257,6 @@ where
             )
             .await;
         }
-        Err(Stopped::Unresolved(())) => {
-            return unreached(
-                &mut browser,
-                &head,
-                observe,
-                Unreached::NameNotResolved,
-                "dns_error",
-            )
-            .await;
-        }
         Err(Stopped::AddressRefused(refused)) => {
             return refuse(
                 &mut browser,
@@ -292,6 +264,18 @@ where
                 &refused,
                 observe,
                 "destination_ip_prohibited",
+            )
+            .await;
+        }
+        // Nothing else stops it with a refusal to name: its name has no
+        // address it may reach.
+        Err(_) => {
+            return unreached(
+                &mut browser,
+                &head,
+                observe,
+                Unreached::NameNotResolved,
+                "dns_error",
             )
             .await;
         }

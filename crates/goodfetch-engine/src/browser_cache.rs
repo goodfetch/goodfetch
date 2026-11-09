@@ -36,7 +36,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::formats::BROWSER_CACHE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
+use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, SettingLimit, SettingsLayer};
 
 pub use artifact::{BuildPlatform, PinnedArtifact, Pins, content_digest};
 pub use clean_up::{CleanUp, CleanUpReport, InstalledExecutable, MaxUnusedAge, kept_artifacts};
@@ -48,11 +48,8 @@ pub use platform::{
 
 use crate::call_error::CallError;
 use crate::pinned_download::{self, Digest, Failure, Fetching, PinnedUrl};
+use crate::tasks::BlockingThreads;
 use store::{Locking, Read};
-
-/// The variable that points at a copy of the Browser cache, which wins over
-/// `GOODFETCH_HOME` (ADR 0059).
-pub const BROWSERS_PATH_VARIABLE: &str = "GOODFETCH_BROWSERS_PATH";
 
 /// The folder of Goodfetch home the Browser cache sits in by default.
 pub const HOME_FOLDER: &str = "browsers";
@@ -174,7 +171,7 @@ impl CacheError {
 /// The command that installs `pinned_by`'s builds: its executable's
 /// `browser install` (ADR 0098).
 fn install_command(product: Product) -> String {
-    format!("goodfetch-{} browser install", product.as_str())
+    format!("{} browser install", product.executable_name())
 }
 
 fn describe(artifact: &ArtifactId, pinned_by: &PinnedBy) -> String {
@@ -186,17 +183,6 @@ fn describe(artifact: &ArtifactId, pinned_by: &PinnedBy) -> String {
         pinned_by.product.name(),
         pinned_by.product_version,
     )
-}
-
-/// Runs blocking `work` off the async workers. Until the tasks module's
-/// blocking policy (#215) lands, it runs inline, as that policy's inline
-/// mode does.
-#[expect(
-    clippy::unused_async,
-    reason = "its callers already await the tasks module's blocking policy, which replaces its body"
-)]
-async fn blocking<T>(work: impl FnOnce() -> T) -> T {
-    work()
 }
 
 /// Why a missing build cannot be put in the cache.
@@ -223,13 +209,16 @@ enum Present {
 #[derive(Clone, Debug)]
 pub struct BrowserCache {
     root: PathBuf,
+    blocking: BlockingThreads,
 }
 
 impl BrowserCache {
-    /// The cache at `location`; nothing is read until it is used.
-    pub fn new(location: &CacheLocation) -> Self {
+    /// The cache at `location`, whose hashing, unpacking and other file
+    /// work runs on `blocking`; nothing is read until it is used.
+    pub fn new(location: &CacheLocation, blocking: BlockingThreads) -> Self {
         Self {
             root: location.root().to_owned(),
+            blocking,
         }
     }
 
@@ -244,7 +233,8 @@ impl BrowserCache {
     ///
     /// Dropping the future loses nothing.
     pub async fn writable(&self) -> bool {
-        blocking(|| store::writable(&self.root)).await
+        let root = self.root.clone();
+        self.blocking.run(move || store::writable(&root)).await
     }
 
     /// The build `artifact`, which `pinned_by` pins, held for a launch: the
@@ -273,7 +263,7 @@ impl BrowserCache {
         progress: &mut (dyn FnMut(DownloadProgress) + Send),
     ) -> Result<Prepared, CacheError> {
         for _ in 0..2 {
-            match blocking(|| self.present(artifact, now)).await? {
+            match self.present_now(artifact, now).await? {
                 Present::Held(held) => {
                     return Ok(Prepared {
                         artifact: held,
@@ -305,7 +295,7 @@ impl BrowserCache {
             }
         }
         // Another process installed it in between, twice: it is there now.
-        match blocking(|| self.present(artifact, now)).await? {
+        match self.present_now(artifact, now).await? {
             Present::Held(held) => Ok(Prepared {
                 artifact: held,
                 downloaded: false,
@@ -365,7 +355,9 @@ impl BrowserCache {
     /// Dropping the future may leave a renamed entry, which the next
     /// clean-up deletes.
     pub async fn clean_up(&self, request: &CleanUp) -> Result<CleanUpReport, CacheError> {
-        blocking(|| clean_up::run(&self.root, request))
+        let (root, request) = (self.root.clone(), request.clone());
+        self.blocking
+            .run(move || clean_up::run(&root, &request))
             .await
             .map_err(CacheError::cache(&self.root))
     }
@@ -387,9 +379,23 @@ impl BrowserCache {
         now: jiff::Timestamp,
         max_unused_age: MaxUnusedAge,
     ) -> Result<Option<CleanUpReport>, CacheError> {
-        blocking(|| clean_up::run_daily(&self.root, kept, now, max_unused_age))
+        let root = self.root.clone();
+        self.blocking
+            .run(move || clean_up::run_daily(&root, kept, now, max_unused_age))
             .await
             .map_err(CacheError::cache(&self.root))
+    }
+
+    /// [`BrowserCache::present`], off the async workers.
+    async fn present_now(
+        &self,
+        artifact: &PinnedArtifact,
+        now: jiff::Timestamp,
+    ) -> Result<Present, CacheError> {
+        let (cache, artifact) = (self.clone(), artifact.clone());
+        self.blocking
+            .run(move || cache.present(&artifact, now))
+            .await
     }
 
     fn present(
@@ -422,8 +428,16 @@ impl BrowserCache {
                 && store::writable(&self.root)
             {
                 entry.used_at = now;
-                // A launch still runs when its use cannot be recorded.
-                let _ = store::write_entry(&folder, &entry);
+                // A launch still runs when its use cannot be recorded; the
+                // clean-up then counts the build unused since its last
+                // recorded use.
+                if let Err(error) = store::write_entry(&folder, &entry) {
+                    tracing::warn!(
+                        folder = %folder.display(),
+                        %error,
+                        "the use of a build in the Browser cache could not be recorded",
+                    );
+                }
             }
             return Ok(Present::Held(HeldArtifact {
                 folder,
@@ -547,7 +561,10 @@ impl BrowserCache {
                 ),
             });
         };
-        let partial = blocking(|| store::partial(&self.root))
+        let root = self.root.clone();
+        let partial = self
+            .blocking
+            .run(move || store::partial(&root))
             .await
             .map_err(CacheError::cache(&self.root))?;
         let archive = partial.path().join("archive");
@@ -583,7 +600,7 @@ impl BrowserCache {
             return Err(download_failed(artifact, pinned_by, &host, failure));
         }
         let files = store::files(partial.path());
-        if unpacked(&archive, &files, &file_name).await? != artifact.digest {
+        if unpacked(&self.blocking, archive, files, file_name).await? != artifact.digest {
             return Err(download_failed(
                 artifact,
                 pinned_by,
@@ -599,13 +616,19 @@ impl BrowserCache {
             used_at: now,
         };
         let folder = store::entry_folder(&self.root, &artifact.id);
-        let placed = blocking(|| store::install(&self.root, partial, &artifact.id, &entry))
+        let (root, id) = (self.root.clone(), artifact.id.clone());
+        let placed = self
+            .blocking
+            .run(move || store::install(&root, partial, &id, &entry))
             .await
             .map_err(CacheError::cache(&folder))?;
         if !placed {
             return Ok(None);
         }
-        let lock = match blocking(|| store::lock_shared(&folder))
+        let locked = folder.clone();
+        let lock = match self
+            .blocking
+            .run(move || store::lock_shared(&locked))
             .await
             .map_err(CacheError::cache(&folder))?
         {
@@ -686,20 +709,27 @@ impl BrowserCache {
 /// executable `file_name` names when it is no ZIP archive, and answers the
 /// digest of what it wrote. The archive had its pinned digest: a failure
 /// to write its files out, such as a full disk, is the cache's own.
-async fn unpacked(archive: &Path, files: &Path, file_name: &str) -> Result<Digest, CacheError> {
-    blocking(|| {
-        if Path::new(file_name)
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
-        {
-            extract::unpack(archive, files)?;
-        } else {
-            extract::place(archive, files, file_name)?;
-        }
-        content_digest(files)
-    })
-    .await
-    .map_err(CacheError::cache(files))
+async fn unpacked(
+    blocking: &BlockingThreads,
+    archive: PathBuf,
+    files: PathBuf,
+    file_name: String,
+) -> Result<Digest, CacheError> {
+    let written = files.clone();
+    blocking
+        .run(move || {
+            if Path::new(&file_name)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
+            {
+                extract::unpack(&archive, &files)?;
+            } else {
+                extract::place(&archive, &files, &file_name)?;
+            }
+            content_digest(&files)
+        })
+        .await
+        .map_err(CacheError::cache(&written))
 }
 
 fn download_failed(
@@ -745,11 +775,16 @@ fn download_failed(
 ///
 /// Dropping the future loses nothing.
 pub async fn installed_browser(
+    blocking: &BlockingThreads,
     choice: &BrowserChoice,
     candidates: &[PathBuf],
     product: Product,
 ) -> Result<PathBuf, CacheError> {
-    if let Some(found) = blocking(|| candidates.iter().find(|path| path.is_file()).cloned()).await {
+    let looked_in = candidates.to_vec();
+    let found = blocking
+        .run(move || looked_in.into_iter().find(|path| path.is_file()))
+        .await;
+    if let Some(found) = found {
         return Ok(found);
     }
     let (missing, fix) = match choice {

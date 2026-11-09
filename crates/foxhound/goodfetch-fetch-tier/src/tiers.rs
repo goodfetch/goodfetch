@@ -273,6 +273,50 @@ struct ServedPage {
     hand_over: Arc<HandOver>,
 }
 
+impl ServedPage {
+    /// The encoding its document was read in and where it came from, as
+    /// Provenance records them (ADR 0119); `None` for a page holding no
+    /// document, and on `light_browser`, where Lightpanda decoded the
+    /// document itself, in an encoding the engine does not learn.
+    fn encoding(&self) -> Option<EncodingProvenance> {
+        self.read
+            .filter(|_| self.choice.tier != FetchTier::LightBrowser)
+            .map(|read| EncodingProvenance {
+                encoding: read.encoding.name().to_owned(),
+                source: Some(read.source.provenance()),
+            })
+    }
+}
+
+/// What a served page holds of its crawl request's own document, read as
+/// one value ([`FetchTiers::facts`] while it is open, and
+/// [`FetchTiers::close`] as it closes): a run classifies its page and
+/// records its tier from it, so no read can come after the page closed
+/// and silently find nothing.
+#[derive(Clone, Debug)]
+pub struct PageFacts {
+    /// The response of its crawl request's own document, whose body
+    /// `response.body` reads under its `request_id`.
+    pub response: Option<PageResponse>,
+    /// The type of its response when that is no HTML document, the page
+    /// then holding none (ADR 0119).
+    pub not_document: Option<String>,
+    /// The encoding its document was read in and where it came from, as
+    /// Provenance records them (ADR 0119).
+    pub encoding: Option<EncodingProvenance>,
+    /// The invalid-certificate exception its document's host was reached
+    /// through, as Provenance marks it (ADR 0042, pitfall H03); `None`
+    /// when its certificate verified.
+    pub certificate_exception: Option<CertificateExceptionMark>,
+    /// The AI-use signals its response carried.
+    pub use_signals: UseSignals,
+    /// The call that escalated it to the browser, the first its tier could
+    /// not serve exactly under `auto`, as of the read: a document only a
+    /// guess could read is escalated as it is served (ADR 0119), and a
+    /// handler's call while it runs.
+    pub escalated: Option<&'static str>,
+}
+
 /// A document a fetch answered, read as a served page holds it: its text,
 /// its encoding, its `Link` header fields, its AI-use signals and what the
 /// readers of its untouched page read of it.
@@ -1203,63 +1247,20 @@ impl FetchTiers {
         settings.get::<bool>(&FETCH_LIGHT_BROWSER) && crate::light_browser::pinned_here().is_some()
     }
 
-    /// The AI-use signals the response of the served page `page_id`
-    /// carried; none once the page closed.
-    pub fn use_signals(&self, page_id: &PageId) -> UseSignals {
-        lock(&self.served.pages)
-            .use_signals
-            .get(page_id)
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    /// The response of the served page `page_id`'s crawl request's own
-    /// document, whose body `response.body` reads under its `request_id`;
-    /// `None` once the page closed.
-    pub fn response(&self, page_id: &PageId) -> Option<PageResponse> {
-        lock(&self.served.pages)
-            .open
-            .get(page_id)
-            .and_then(|page| page.own.as_ref())
-            .map(|(response, _)| response.clone())
-    }
-
-    /// The type of the served page `page_id`'s response when that is no
-    /// HTML document, the page then holding none (ADR 0119); `None` for a
-    /// document, or once the page closed.
-    pub fn not_document(&self, page_id: &PageId) -> Option<String> {
-        lock(&self.served.pages)
-            .open
-            .get(page_id)
-            .and_then(|page| page.not_document.clone())
-    }
-
-    /// The encoding the served page `page_id`'s document was read in and
-    /// where it came from, as Provenance records them (ADR 0119); `None`
-    /// for a page holding no document, or once it closed.
-    pub fn encoding(&self, page_id: &PageId) -> Option<EncodingProvenance> {
-        lock(&self.served.pages)
-            .open
-            .get(page_id)
-            // Lightpanda decoded a light page's document itself, in an
-            // encoding the engine does not learn.
-            .filter(|page| page.choice.tier != FetchTier::LightBrowser)
-            .and_then(|page| page.read)
-            .map(|read| EncodingProvenance {
-                encoding: read.encoding.name().to_owned(),
-                source: Some(read.source.provenance()),
-            })
-    }
-
-    /// The invalid-certificate exception the host of the served page
-    /// `page_id`'s document was reached through, as Provenance marks it
-    /// (ADR 0042, pitfall H03); `None` when its certificate verified, or
-    /// once it closed.
-    pub fn certificate_exception(&self, page_id: &PageId) -> Option<CertificateExceptionMark> {
-        lock(&self.served.pages)
-            .open
-            .get(page_id)
-            .and_then(|page| page.certificate_exception.clone())
+    /// What the served page `page_id` holds of its crawl request's own
+    /// document now, read as one value ([`PageFacts`]); `None` once the
+    /// page closed, when [`FetchTiers::close`] answered its last.
+    pub fn facts(&self, page_id: &PageId) -> Option<PageFacts> {
+        let pages = lock(&self.served.pages);
+        let page = pages.open.get(page_id)?;
+        Some(PageFacts {
+            response: page.own.as_ref().map(|(response, _)| response.clone()),
+            not_document: page.not_document.clone(),
+            encoding: page.encoding(),
+            certificate_exception: page.certificate_exception.clone(),
+            use_signals: pages.use_signals.get(page_id).cloned().unwrap_or_default(),
+            escalated: page.escalated,
+        })
     }
 
     /// The URL, the page signature and the `rel=canonical` of the served
@@ -1660,14 +1661,24 @@ impl FetchTiers {
     }
 
     /// Closes the served page `page_id`: later calls on it answer
-    /// `closed`.
-    pub fn close(&self, page_id: &PageId) {
+    /// `closed`. Answers what it held as it closed, the call that
+    /// escalated it while its handler ran included; `None` for a page
+    /// already closed.
+    pub fn close(&self, page_id: &PageId) -> Option<PageFacts> {
         let mut pages = lock(&self.served.pages);
-        pages.open.remove(page_id);
         pages.links.remove(page_id);
         pages.encodings.remove(page_id);
-        pages.use_signals.remove(page_id);
         pages.replays.remove(page_id);
+        let use_signals = pages.use_signals.remove(page_id).unwrap_or_default();
+        let page = pages.open.remove(page_id)?;
+        Some(PageFacts {
+            encoding: page.encoding(),
+            response: page.own.map(|(response, _)| response),
+            not_document: page.not_document,
+            certificate_exception: page.certificate_exception,
+            use_signals,
+            escalated: page.escalated,
+        })
     }
 
     /// Has the served page `page_id`, on `discovered_api`, replay the
@@ -1684,16 +1695,6 @@ impl FetchTiers {
                 },
             );
         }
-    }
-
-    /// The call that escalated the served page `page_id` to the browser,
-    /// the first its tier could not serve exactly under `auto`; `None`
-    /// while none did, or once the page closed.
-    pub fn escalated(&self, page_id: &PageId) -> Option<&'static str> {
-        lock(&self.served.pages)
-            .open
-            .get(page_id)
-            .and_then(|page| page.escalated)
     }
 
     /// Opens Collie's page on the browser tier for a handler of the live
@@ -2530,9 +2531,7 @@ fn chosen_extractor(run: &Run, label: Option<BuiltIn>) -> BuiltIn {
     label
         .or_else(|| {
             run.settings()
-                .map(|settings| settings.resolved().value(&CONTENT_EXTRACTOR))
-                .and_then(serde_json::Value::as_str)
-                .and_then(BuiltIn::named)
+                .and_then(|settings| BuiltIn::named(settings.resolved().get(&CONTENT_EXTRACTOR)))
         })
         .unwrap_or_default()
 }

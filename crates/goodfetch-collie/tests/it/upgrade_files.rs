@@ -12,6 +12,8 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_protocol::home::USER_CONFIGURATION_FILE;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{TestEnv, assert_cli_snapshot, cli};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -51,8 +53,8 @@ fn upgrade_files_refuses_a_newer_major() {
     let env = TestEnv::new();
     let newer = env.home().join("0.1");
     std::fs::create_dir_all(&newer).unwrap();
-    std::fs::write(newer.join("configuration.toml"), "version = \"0.1\"\n").unwrap();
-    let own = env.home().join("0.0").join("configuration.toml");
+    std::fs::write(newer.join(USER_CONFIGURATION_FILE), "version = \"0.1\"\n").unwrap();
+    let own = HomeLayout::of(env.home()).user_configuration();
     let before = std::fs::read(&own).ok();
 
     let output = cli(&env, COLLIE)
@@ -75,7 +77,7 @@ fn upgrade_files_fails_a_bad_from_by_its_row() {
     let env = TestEnv::new();
     let newer = env.home().join("0.1");
     std::fs::create_dir_all(&newer).unwrap();
-    std::fs::write(newer.join("configuration.toml"), "version = \"0.1\"\n").unwrap();
+    std::fs::write(newer.join(USER_CONFIGURATION_FILE), "version = \"0.1\"\n").unwrap();
 
     let no_major = cli(&env, COLLIE)
         .args(["upgrade-files", "--from", "abc", "--json"])

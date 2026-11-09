@@ -18,9 +18,9 @@ use goodfetch_conformance::{
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::result_document::{CapabilityResult, CaseOutcome, Outcome};
-use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, TestEnv, Tool, browser_cache, tools};
-
-use crate::proving_ground::LocalCopy;
+use goodfetch_test_support::{
+    BROWSERS_PATH_VARIABLE, ProvingGround as LocalCopy, TestEnv, Tool, browser_cache, tools,
+};
 
 /// One part of the page suite: its name, which names its kept document,
 /// and the capabilities it runs, in the case list's order.
@@ -132,8 +132,8 @@ fn prove(part: Part) {
 
 /// [`prove`] in `env`, its document kept as `name`'s.
 fn prove_in(env: &TestEnv, (_, capabilities): Part, name: &str) {
-    let copy = LocalCopy::start(env, env.seed());
-    let proving_ground = ProvingGround::local(copy.address());
+    let copy = LocalCopy::start(env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
     let mut environment = env.env().clone();
     environment.insert(
         BROWSERS_PATH_VARIABLE.to_owned(),

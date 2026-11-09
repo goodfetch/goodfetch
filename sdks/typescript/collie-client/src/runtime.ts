@@ -13,4 +13,8 @@ export { ClientConnection, type ClientConnectionOptions } from "./client-connect
 export type { ErrorClasses } from "./errors.ts";
 export type { Transport } from "./rpc.ts";
 export { holdInRealm } from "./realm.ts";
-export { PRODUCT_VERSION } from "./version.ts";
+export {
+  COLLIE_ENGINE_PATH_VARIABLE,
+  COLLIE_EXECUTABLE,
+  PRODUCT_VERSION,
+} from "./generated/connection.ts";

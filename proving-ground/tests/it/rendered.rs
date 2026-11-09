@@ -152,9 +152,7 @@ fn a_correct_rendered_result_is_verified(#[case] task: &str) {
     let proving_ground = ProvingGround::start(SEED);
     let records = correct_result(&proving_ground, task);
 
-    let answer = proving_ground
-        .judge(&submission(task, "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission(task, "success", &records));
 
     assert_eq!(answer["task"], task);
     assert_eq!(answer["outcome"], "verified", "{answer}");
@@ -167,9 +165,7 @@ fn a_rendered_crawl_missing_one_item_is_incomplete() {
     let mut records = correct_result(&proving_ground, "rendered/1");
     let dropped = records.remove(10);
 
-    let answer = proving_ground
-        .judge(&submission("rendered/1", "failure", &records))
-        .json();
+    let answer = proving_ground.judge(&submission("rendered/1", "failure", &records));
 
     assert_eq!(answer["outcome"], "incomplete", "{answer}");
     assert_eq!(answer["missing"], json!([dropped["id"]]));
@@ -182,9 +178,7 @@ fn a_crawl_that_never_scrolls_the_feed_is_a_false_success() {
     let mut records = correct_result(&proving_ground, "rendered/1");
     records.truncate(6);
 
-    let answer = proving_ground
-        .judge(&submission("rendered/1", "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission("rendered/1", "success", &records));
 
     assert_eq!(answer["task"], "rendered/1");
     assert_eq!(answer["outcome"], "false_success", "{answer}");
@@ -206,9 +200,7 @@ fn a_success_without_a_rendered_field_is_a_false_success_naming_it(#[case] field
         .expect("a Record is an object")
         .remove(field);
 
-    let answer = proving_ground
-        .judge(&submission("rendered/2", "success", &records))
-        .json();
+    let answer = proving_ground.judge(&submission("rendered/2", "success", &records));
 
     assert_eq!(answer["task"], "rendered/2");
     assert_eq!(answer["outcome"], "false_success", "{answer}");

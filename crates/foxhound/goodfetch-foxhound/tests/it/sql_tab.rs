@@ -16,11 +16,12 @@
     reason = "a test writes and reads back the file outside the runs, outside any async worker"
 )]
 
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 
 /// A query that runs for far longer than 200 ms.
 const LONG: &str = "SELECT count(*) FROM range(1000000000000) a WHERE a.range % 7 = 3";
@@ -113,7 +114,7 @@ fn records(engine: &mut Attached, run_id: &str) -> Vec<Value> {
 #[test]
 fn a_query_reads_the_records_run_records_reads_only_from_the_runs_it_selected() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     crawled(&mut engine, "monday", 2);
     crawled(&mut engine, "tuesday", 3);
     let expected = records(&mut engine, "tuesday");
@@ -158,7 +159,7 @@ fn a_query_reads_the_records_run_records_reads_only_from_the_runs_it_selected() 
         json!("run_not_found"),
         "{missing}"
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 }
 
 /// The statement `case` names, reading `url` or `outside` where it reads.
@@ -208,7 +209,7 @@ fn a_write_attach_install_or_outside_read_is_refused_beside_an_allowed_select(#[
     );
     let outside = env.home().join("outside.csv");
     std::fs::write(&outside, "a,b\n1,2\n").unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     crawled(&mut engine, "shop", 2);
     let before = target_connections(&proving_ground);
 
@@ -231,7 +232,7 @@ fn a_write_attach_install_or_outside_read_is_refused_beside_an_allowed_select(#[
     assert_eq!(allowed["result"]["rows"], json!([[2]]), "{allowed}");
     assert_eq!(target_connections(&proving_ground), before, "{case}");
     assert_eq!(std::fs::read_to_string(&outside).unwrap(), "a,b\n1,2\n");
-    assert!(engine.finish());
+    assert!(engine.finished());
 }
 
 /// A heavy query ends at `timeout.dataset_query` with `deadline_exceeded`
@@ -262,7 +263,7 @@ fn a_heavy_query_ends_at_its_limit_with_its_code(
 ) {
     let env = TestEnv::new();
     env.user_configuration(settings);
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     crawled(&mut engine, "shop", 1);
 
     let ended = query(&mut engine, heavy, &["shop"]);
@@ -281,7 +282,7 @@ fn a_heavy_query_ends_at_its_limit_with_its_code(
         "{ended}"
     );
     assert_eq!(allowed["result"]["rows"], json!([[1]]), "{allowed}");
-    assert!(engine.finish());
+    assert!(engine.finished());
 }
 
 /// A failure DuckDB's translation point does not recognise, such as a
@@ -292,7 +293,7 @@ fn a_heavy_query_ends_at_its_limit_with_its_code(
 #[test]
 fn an_unrecognised_failure_answers_query_failed() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     crawled(&mut engine, "shop", 1);
 
     let failed = query(
@@ -312,7 +313,7 @@ fn an_unrecognised_failure_answers_query_failed() {
         "{failed}"
     );
     assert_eq!(allowed["result"]["rows"], json!([[1]]), "{allowed}");
-    assert!(engine.finish());
+    assert!(engine.finished());
 }
 
 /// Rows past `dataset.query.max_rows` are counted in `total`, not
@@ -323,7 +324,7 @@ fn an_unrecognised_failure_answers_query_failed() {
 fn rows_past_max_rows_are_counted_not_returned() {
     let env = TestEnv::new();
     env.user_configuration("dataset.query.max_rows = 2\n");
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     crawled(&mut engine, "shop", 3);
 
     let limited = query(
@@ -337,5 +338,5 @@ fn rows_past_max_rows_are_counted_not_returned() {
         (&json!([[1], [2]]), &json!(3)),
         "{limited}"
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 }

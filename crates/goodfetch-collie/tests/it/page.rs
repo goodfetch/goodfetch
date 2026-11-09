@@ -21,7 +21,11 @@ use std::path::Path;
 use std::process::Command;
 
 use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, CleanUp};
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::home::RUN_TRACE_CDP_COMMANDS;
 use goodfetch_protocol::page::{Navigated, PageOpened};
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, CHROME_FOR_TESTING_BUILD, Mode, ProvingGround, TestEnv, browser_cache,
     cli, runtime,
@@ -29,8 +33,7 @@ use goodfetch_test_support::{
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use crate::attached::{Attached, hello};
-use crate::run::call;
+use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -43,12 +46,12 @@ pub(crate) const BROWSER_DEADLINE: std::time::Duration = std::time::Duration::fr
 
 /// Starts an Attached engine whose Browser cache is `cache`, and a Run whose
 /// `network.resolve` maps the Proving ground's hosts to its address.
-pub(crate) fn started<'env>(
-    env: &'env TestEnv,
+pub(crate) fn started(
+    env: &TestEnv,
     cache: &Path,
     proving_ground: &ProvingGround,
     run_id: &str,
-) -> Attached<'env> {
+) -> Attached {
     started_with(env, cache, proving_ground, run_id, &Map::new(), |_| {})
 }
 
@@ -56,28 +59,28 @@ pub(crate) fn started<'env>(
 /// changed by `change`, and a Run whose `network.resolve` maps the Proving
 /// ground's hosts to its address, beside `settings`, more of the Run's
 /// settings by area.
-pub(crate) fn started_with<'env>(
-    env: &'env TestEnv,
+pub(crate) fn started_with(
+    env: &TestEnv,
     cache: &Path,
     proving_ground: &ProvingGround,
     run_id: &str,
     settings: &Map<String, Value>,
     change: impl FnOnce(&mut Command),
-) -> Attached<'env> {
+) -> Attached {
     started_after(env, cache, proving_ground, run_id, settings, change, &[])
 }
 
 /// As [`started_with`], once the engine answered `before`, calls such as
 /// `usage.set` the Run's start depends on, each with an ID from 100.
-pub(crate) fn started_after<'env>(
-    env: &'env TestEnv,
+pub(crate) fn started_after(
+    env: &TestEnv,
     cache: &Path,
     proving_ground: &ProvingGround,
     run_id: &str,
     settings: &Map<String, Value>,
     change: impl FnOnce(&mut Command),
     before: &[(&str, Value)],
-) -> Attached<'env> {
+) -> Attached {
     begun(
         env,
         cache,
@@ -91,14 +94,14 @@ pub(crate) fn started_after<'env>(
 
 /// As [`started_with`], resuming the Run `run_id` with `run.resume` in a
 /// new engine, such as after its engine was killed.
-pub(crate) fn resumed_with<'env>(
-    env: &'env TestEnv,
+pub(crate) fn resumed_with(
+    env: &TestEnv,
     cache: &Path,
     proving_ground: &ProvingGround,
     run_id: &str,
     settings: &Map<String, Value>,
     change: impl FnOnce(&mut Command),
-) -> Attached<'env> {
+) -> Attached {
     begun(
         env,
         cache,
@@ -112,23 +115,23 @@ pub(crate) fn resumed_with<'env>(
 
 /// An engine started as [`started_after`] says, once `method` began the
 /// Run `run_id`.
-fn begun<'env>(
-    env: &'env TestEnv,
+fn begun(
+    env: &TestEnv,
     cache: &Path,
     proving_ground: &ProvingGround,
     (method, run_id): (&str, &str),
     settings: &Map<String, Value>,
     change: impl FnOnce(&mut Command),
     before: &[(&str, Value)],
-) -> Attached<'env> {
-    let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
+) -> Attached {
+    let mut engine = Attached::start_with(env, COLLIE, BROWSER_DEADLINE, |command| {
         command.env(BROWSERS_PATH_VARIABLE, cache);
         change(command);
     });
-    engine.send(&hello("collie", "0.1"));
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
     for ((method, params), id) in before.iter().zip(100..) {
-        let answered = call(&mut engine, id, method, params);
+        let answered = engine.ask(id, method, params);
         assert!(answered.get("result").is_some(), "{answered}");
     }
     let resolve: Map<String, Value> = proving_ground
@@ -145,8 +148,7 @@ fn begun<'env>(
         .as_object_mut()
         .expect("a test's `network` settings are a table")
         .insert("resolve".to_owned(), Value::Object(resolve));
-    let started = call(
-        &mut engine,
+    let started = engine.ask(
         1,
         method,
         &json!({ "run_id": run_id, "settings": settings }),
@@ -190,25 +192,14 @@ fn a_program_opens_pages_in_the_runs_default_session_and_gets_a_documents_respon
     let mut engine = started(&env, &cache, &proving_ground, "pages");
     let url = proving_ground.url("catalog.test", "/catalog/1");
 
-    let first = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "pages" }),
-    ));
-    let went = call(
-        &mut engine,
+    let first = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "pages" })));
+    let went = engine.ask(
         3,
         "page.goto",
         &json!({ "page_id": first.page_id, "url": url }),
     );
-    let second = opened(&call(
-        &mut engine,
-        4,
-        "run.new_page",
-        &json!({ "run_id": "pages" }),
-    ));
-    let finished = call(&mut engine, 5, "run.finish", &json!({ "run_id": "pages" }));
+    let second = opened(&engine.ask(4, "run.new_page", &json!({ "run_id": "pages" })));
+    let finished = engine.ask(5, "run.finish", &json!({ "run_id": "pages" }));
     let (rest, exited) = engine.finish();
 
     let response = serde_json::from_value::<Navigated>(went["result"].clone())
@@ -268,19 +259,13 @@ fn an_engine_under_a_deep_temporary_folder_starts_its_browser_and_goes_to_a_page
     );
     let url = proving_ground.url("catalog.test", "/catalog/1");
 
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "deep" }),
-    ));
-    let went = call(
-        &mut engine,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "deep" })));
+    let went = engine.ask(
         3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": url }),
     );
-    let _ = call(&mut engine, 4, "run.finish", &json!({ "run_id": "deep" }));
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "deep" }));
     let _ = engine.finish();
 
     assert_eq!(went["result"]["response"]["status"], json!(200), "{went}");
@@ -298,49 +283,34 @@ fn a_program_reads_the_main_content_of_its_page_as_markdown() {
     let mut engine = started(&env, &cache, &proving_ground, "formats");
     let product = proving_ground.url("extraction.test", "/markdown/mixed/product");
     let navigation = proving_ground.url("extraction.test", "/markdown/none/navigation-only");
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "formats" }),
-    ));
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "formats" })));
 
-    call(
-        &mut engine,
+    engine.ask(
         3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": product }),
     );
-    let markdown = call(
-        &mut engine,
+    let markdown = engine.ask(
         4,
         "page.formats",
         &json!({ "page_id": page.page_id, "formats": { "markdown": true } }),
     );
-    let envelope = call(
-        &mut engine,
+    let envelope = engine.ask(
         5,
         "page.formats",
         &json!({ "page_id": page.page_id, "formats": {} }),
     );
-    call(
-        &mut engine,
+    engine.ask(
         6,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": navigation }),
     );
-    let none = call(
-        &mut engine,
+    let none = engine.ask(
         7,
         "page.formats",
         &json!({ "page_id": page.page_id, "formats": { "markdown": { "content": "main" } } }),
     );
-    call(
-        &mut engine,
-        8,
-        "run.finish",
-        &json!({ "run_id": "formats" }),
-    );
+    engine.ask(8, "run.finish", &json!({ "run_id": "formats" }));
     let (rest, exited) = engine.finish();
 
     assert_eq!(
@@ -382,18 +352,8 @@ fn a_launch_with_an_empty_browser_cache_fails_from_the_call_that_launches() {
     std::fs::set_permissions(&cache, std::fs::Permissions::from_mode(0o555)).unwrap();
     let mut engine = started(&env, &cache, &proving_ground, "no-browser");
 
-    let opened = call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "no-browser" }),
-    );
-    let _ = call(
-        &mut engine,
-        3,
-        "run.finish",
-        &json!({ "run_id": "no-browser" }),
-    );
+    let opened = engine.ask(2, "run.new_page", &json!({ "run_id": "no-browser" }));
+    let _ = engine.ask(3, "run.finish", &json!({ "run_id": "no-browser" }));
     let _ = engine.finish();
     std::fs::set_permissions(&cache, std::fs::Permissions::from_mode(0o755)).unwrap();
 
@@ -430,13 +390,7 @@ pub(crate) fn browser_command_lines(env: &TestEnv) -> Vec<String> {
 /// The CDP methods the Run's trace recorded.
 #[cfg(unix)]
 pub(crate) fn traced_methods(env: &TestEnv, run_id: &str) -> BTreeSet<String> {
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
-        .join("trace")
-        .join("cdp-commands.jsonl");
+    let file = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_CDP_COMMANDS);
     std::fs::read_to_string(&file)
         .unwrap_or_else(|error| panic!("{}: {error}", file.display()))
         .lines()
@@ -495,14 +449,8 @@ fn the_browser_runs_over_a_pipe_never_enables_runtime_and_hides_the_guards_world
     let cache = browser_cache(&env).unwrap();
     let mut engine = started(&env, &cache, &proving_ground, "probe");
 
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "probe" }),
-    ));
-    let went = call(
-        &mut engine,
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "probe" })));
+    let went = engine.ask(
         3,
         "page.goto",
         &json!({ "page_id": page.page_id, "url": proving_ground.url("access.test", "/cdp-probe") }),
@@ -511,7 +459,7 @@ fn the_browser_runs_over_a_pipe_never_enables_runtime_and_hides_the_guards_world
     // The probe reports that it ran, then each side effect it saw, right
     // after; closing the browser gives those reports the time to arrive.
     let _ = probe_reports(&proving_ground);
-    let _ = call(&mut engine, 4, "run.finish", &json!({ "run_id": "probe" }));
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "probe" }));
     let _ = engine.finish();
     let methods = traced_methods(&env, "probe");
     let reports = probe_reports(&proving_ground);
@@ -560,8 +508,11 @@ fn a_running_browser_keeps_its_build_from_the_clean_up_until_it_exits() {
         };
         runtime()
             .block_on(
-                BrowserCache::new(&CacheLocation::new(env.home(), Some(cache.clone())))
-                    .clean_up(&request),
+                BrowserCache::new(
+                    &CacheLocation::new(env.home(), Some(cache.clone())),
+                    TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
+                )
+                .clean_up(&request),
             )
             .unwrap()
             .deleted
@@ -570,14 +521,9 @@ fn a_running_browser_keeps_its_build_from_the_clean_up_until_it_exits() {
             .collect::<Vec<_>>()
     };
 
-    let _ = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": "held" }),
-    ));
+    let _ = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "held" })));
     let while_running = clean_up();
-    let _ = call(&mut engine, 3, "run.finish", &json!({ "run_id": "held" }));
+    let _ = engine.ask(3, "run.finish", &json!({ "run_id": "held" }));
     let _ = engine.finish();
     let after_exit = clean_up();
 

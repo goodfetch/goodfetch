@@ -7,6 +7,100 @@
     reason = "test code, where STYLE.md allows unwrap; Clippy's test exemption does not reach integration-test helpers"
 )]
 
+use std::process::Command;
+use std::time::Duration;
+
+use goodfetch_protocol::catalog::Product;
+use goodfetch_test_client::{Attached, DaemonClient, Hello};
+use goodfetch_test_support::{Daemon, MESSAGE_DEADLINE, TestEnv};
+
+/// Foxhound's executable, which every test drives.
+const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
+
+/// The Datasets a crawl these tests start declares when its `crawl.start`
+/// names none (ADR 0103): those their handlers push Records into, with no
+/// schema or key.
+const PUSHED_INTO: [&str; 4] = ["pages", "books", "items", "links"];
+
+/// The Run file of `run_id` in `env`'s home, opened.
+pub(crate) fn run_file(env: &TestEnv, run_id: &str) -> rusqlite::Connection {
+    rusqlite::Connection::open(goodfetch_test_client::HomeLayout::of(env.home()).run_file(run_id))
+        .unwrap()
+}
+
+/// Which of `arrived`, a host's requests in order of arrival, its robots.txt
+/// first, reached it before their turn under `delay` microseconds between
+/// starts. The first after robots.txt counts its delay from that file's
+/// response and each later one from the start before it, so the request `n`
+/// places after robots.txt leaves at least `n` delays after the file's request
+/// arrived, and arrives later still: no way to the site can bring it closer, so
+/// this holds with no allowance. A gap between two requests alone is not
+/// judged: it also holds the difference of their ways to the site, which no
+/// figure bounds on a loaded host.
+pub(crate) fn before_their_turn(arrived: &[(String, u64)], delay: u64) -> Vec<String> {
+    let Some((_, read)) = arrived.first() else {
+        return Vec::new();
+    };
+    arrived
+        .iter()
+        .zip(0..)
+        .filter(|((_, at), places)| *at < read + places * delay)
+        .map(|((target, _), _)| target.clone())
+        .collect()
+}
+
+/// Foxhound's Attached engine, its logs at `trace`, once it answered the
+/// Python SDK's `hello`; a `crawl.start` sent through it that declares no
+/// Dataset declares [`PUSHED_INTO`].
+fn attached(env: &TestEnv) -> Attached {
+    attached_with(env, None, |_| {})
+}
+
+/// [`attached`], `prepare` setting the engine's command first, such as the
+/// browsers' folder its pages launch from, and each wait for its output
+/// bounded by `deadline` when given.
+fn attached_with(
+    env: &TestEnv,
+    deadline: Option<Duration>,
+    prepare: impl FnOnce(&mut Command),
+) -> Attached {
+    opened(Attached::start_with(
+        env,
+        FOXHOUND,
+        deadline.unwrap_or(MESSAGE_DEADLINE),
+        prepare,
+    ))
+}
+
+/// [`attached`] as `command` starts it, such as Foxhound's executable run
+/// in a mount namespace of its own.
+fn attached_spawned(env: &TestEnv, deadline: Option<Duration>, command: &mut Command) -> Attached {
+    opened(Attached::spawned(
+        env,
+        deadline.unwrap_or(MESSAGE_DEADLINE),
+        command,
+    ))
+}
+
+/// A Client Connection to `daemon`, once it answered the Python SDK's
+/// `hello` with its token.
+fn on_the_daemon(daemon: &Daemon) -> DaemonClient {
+    let mut client = DaemonClient::connect(daemon.endpoint());
+    let hello = client.open(
+        &Hello::needing(Product::Foxhound)
+            .id("hello")
+            .token(&daemon.description().token),
+    );
+    assert_eq!(hello["result"]["product"], "foxhound", "{hello}");
+    client
+}
+
+fn opened(mut engine: Attached) -> Attached {
+    let opened = engine.open(&Hello::needing(Product::Foxhound).id("hello"));
+    assert_eq!(opened["result"]["product"], "foxhound");
+    engine.declaring_by_default(&PUSHED_INTO)
+}
+
 mod addresses;
 mod admission;
 mod attached;

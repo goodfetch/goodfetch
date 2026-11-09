@@ -13,23 +13,10 @@ use goodfetch_protocol::formats::{ACCOUNTS_STORE, Compatibility};
 use goodfetch_protocol::people::SignInRow;
 use rusqlite::{Connection, OptionalExtension as _};
 
-use crate::sqlite_store::{
-    Access, Durability, File, Folder, FullFsync, OpenError, Opening, Schema, Synchronous, Wait,
-    WalOnClose,
-};
+use crate::sqlite_store::{Access, Durability, File, Folder, OpenError, Opening, Schema, Wait};
 
 /// How long a write waits for another connection's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// How its commits reach the disk: each synced, SQLite's default level,
-/// without `F_FULLFSYNC` on macOS, its WAL copied into the file as its last
-/// connection closes.
-const DURABILITY: Durability = Durability {
-    synchronous: Synchronous::Full,
-    opening: Synchronous::Full,
-    full_fsync: FullFsync::Off,
-    wal_on_close: WalOnClose::Checkpointed,
-};
 
 /// The tables of this version. A newer minor only adds tables and columns,
 /// each column with a default.
@@ -181,7 +168,7 @@ impl AccountsStore {
                 folder: Folder::Make,
                 access: Access::Create,
                 wait: Wait::Busy(BUSY_TIMEOUT),
-                durability: DURABILITY,
+                durability: Durability::SYNCED,
                 counting: None,
                 schema: Some(Schema {
                     format: &ACCOUNTS_STORE,
@@ -216,3 +203,6 @@ fn row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SignInRow> {
         wrapping_key: row.get(5)?,
     })
 }
+
+#[cfg(test)]
+mod tests;

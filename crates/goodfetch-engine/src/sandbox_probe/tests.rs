@@ -3,17 +3,54 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::collections::BTreeMap;
+use std::ffi::OsString;
+
 use goodfetch_protocol::security::{SECURITY_BROWSER_SANDBOX, SandboxEnvironment};
 use rstest::rstest;
 use serde_json::json;
 
 use super::{
-    Facts, NoSandboxPlatform, Probed, UserNamespace, host_defaults, judge,
+    Facts, Host, NoSandboxPlatform, Probed, SandboxProbe, UserNamespace, host_defaults, judge,
     label_holds_user_namespaces,
 };
 use crate::settings::HostDefaults;
 
 const EPERM: i32 = 1;
+
+/// A host that refuses the user namespace, where an engine's environment
+/// map decides the answer.
+fn refusing_host() -> Host {
+    Host {
+        user_namespace: UserNamespace::Refused(EPERM),
+        seccomp_filtered: false,
+        apparmor_restricts: false,
+    }
+}
+
+/// An SDK or a test holds two engines in one process, each started with
+/// its own environment map: neither takes the first one's answer.
+#[test]
+fn two_engines_in_one_process_each_answer_from_their_own_environment() {
+    let on_lambda = SandboxProbe::of(
+        refusing_host,
+        BTreeMap::from([(
+            OsString::from("AWS_LAMBDA_FUNCTION_NAME"),
+            OsString::from("a-function"),
+        )]),
+    );
+    let elsewhere = SandboxProbe::of(refusing_host, BTreeMap::new());
+
+    assert_eq!(
+        on_lambda.probed(),
+        &Probed::NoSandbox(NoSandboxPlatform::AwsLambda)
+    );
+    assert!(
+        matches!(elsewhere.probed(), Probed::Unknown { .. }),
+        "got {:?}",
+        elsewhere.probed()
+    );
+}
 
 fn facts(user_namespace: UserNamespace) -> Facts {
     Facts {
@@ -215,7 +252,7 @@ fn a_platform_with_no_sandbox_is_known_by_its_variable(
     #[case] platform: Option<NoSandboxPlatform>,
 ) {
     assert_eq!(
-        super::linux::platform(|variable| (variable == name).then(|| value.to_owned())),
+        super::platform(|variable| (variable == name).then(|| value.to_owned())),
         platform
     );
 }

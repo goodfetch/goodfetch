@@ -13,6 +13,15 @@ pub const ERROR_GROUPS: &[&str] = &[];
 /// The events only Foxhound carries.
 pub const EVENTS: &[&str] = &["sample.crawled"];
 
+/// The exit codes only Foxhound carries.
+pub const EXIT_CODES: &[&str] = &[];
+
+/// The handler requests only Foxhound carries.
+pub const HANDLER_REQUESTS: &[&str] = &[];
+
+/// The hook stages only Foxhound carries.
+pub const HOOK_STAGES: &[&str] = &[];
+
 /// The metrics only Foxhound carries.
 pub const METRICS: &[&str] = &["goodfetch.sample.crawled_pages"];
 
@@ -21,3 +30,9 @@ pub const OPERATIONS: &[&str] = &["sample.crawl"];
 
 /// The plugin kinds only Foxhound carries.
 pub const PLUGIN_KINDS: &[&str] = &[];
+
+/// The settings only Foxhound carries.
+pub const SETTINGS: &[&str] = &[];
+
+/// The shared type values only Foxhound carries.
+pub const SHARED_TYPE_VALUES: &[&str] = &[];

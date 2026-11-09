@@ -6,7 +6,7 @@
 use std::io::{BufRead as _, BufReader, Read as _};
 use std::process::Stdio;
 
-use goodfetch_test_support::{TestEnv, record_command};
+use goodfetch_test_support::{DISPATCH_TARGET, TestEnv, record_command};
 use serde_json::{Value, json};
 
 use crate::client_conformance::COLLIE;
@@ -53,7 +53,7 @@ fn attached() {
     );
     let records: Vec<&str> = stderr
         .lines()
-        .filter_map(|line| line.split_once("goodfetch::rpc::dispatch: "))
+        .filter_map(|line| line.split_once(&format!("{DISPATCH_TARGET}: ")))
         .map(|(_, record)| record)
         .collect();
     assert_eq!(

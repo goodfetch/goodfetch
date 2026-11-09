@@ -20,6 +20,7 @@
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
+use goodfetch_protocol::home::{OPERATOR_POLICY_FILE, USER_CONFIGURATION_FILE};
 use goodfetch_protocol::run::RunId;
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
@@ -30,7 +31,7 @@ use super::disk_view::DiskView;
 use super::events::credit;
 use super::needs_you::{SUBSCRIPTION, Seen, listed};
 use super::run::call;
-use super::{Client, attached_on, engine_with};
+use super::{Client, attached_on, engine_with, per_major};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Engine;
@@ -82,7 +83,7 @@ fn walled_engine(env: &TestEnv) -> Engine {
 
 /// Writes `text` as `file` of the test home's per-major folder.
 pub(super) fn write(env: &TestEnv, file: &str, text: &str) {
-    let folder = env.home().join("1");
+    let folder = per_major(env);
     std::fs::create_dir_all(&folder).unwrap();
     std::fs::write(folder.join(file), text).unwrap();
 }
@@ -91,7 +92,7 @@ pub(super) fn write(env: &TestEnv, file: &str, text: &str) {
 pub(super) fn configure(env: &TestEnv, settings: &str) {
     write(
         env,
-        "configuration.toml",
+        USER_CONFIGURATION_FILE,
         &format!("version = \"0.1\"\n\n[settings]\ngovernor.sample_interval = 250\n{settings}"),
     );
 }
@@ -206,7 +207,7 @@ fn a_domain_that_showed_a_consent_wall_is_offered_for_consent_domains(
     let env = TestEnv::new();
     configure(&env, configuration);
     if !policy.is_empty() {
-        write(&env, "operator-policy.toml", policy);
+        write(&env, OPERATOR_POLICY_FILE, policy);
     }
 
     let items = attached_on(&walled_engine(&env), &env, |mut client| async move {
@@ -400,9 +401,9 @@ fn an_answer_no_person_may_give_is_refused_and_writes_nothing(
     let env = TestEnv::new();
     configure(&env, "");
     if !policy.is_empty() {
-        write(&env, "operator-policy.toml", policy);
+        write(&env, OPERATOR_POLICY_FILE, policy);
     }
-    let file = env.home().join("1").join("configuration.toml");
+    let file = per_major(&env).join(USER_CONFIGURATION_FILE);
     let before = std::fs::read_to_string(&file).unwrap();
     let surface = surface.to_owned();
     let domain = domain.to_owned();
@@ -444,7 +445,7 @@ fn an_answer_no_person_may_give_is_refused_and_writes_nothing(
 fn an_answer_the_audit_log_cannot_record_is_written_and_says_so() {
     let env = TestEnv::new();
     configure(&env, "");
-    let file = env.home().join("1").join("configuration.toml");
+    let file = per_major(&env).join(USER_CONFIGURATION_FILE);
     let home = env.home().to_path_buf();
 
     let answer = attached_on(&walled_engine(&env), &env, |mut client| async move {

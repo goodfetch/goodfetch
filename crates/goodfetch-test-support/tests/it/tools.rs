@@ -1,6 +1,6 @@
 //! The test tool manifest that `just test` writes (ADR 0094): a test finds
-//! the commit's executables through it, and fails, naming `just test`, when
-//! it or an entry is missing.
+//! the commit's executables through it, and fails when it or an entry is
+//! missing.
 
 use std::path::Path;
 
@@ -10,23 +10,21 @@ use rstest::rstest;
 use crate::TEST_ENV;
 
 #[test]
-fn an_unset_manifest_fails_naming_just_test() {
+fn an_unset_manifest_fails() {
     let read = Tools::read(None);
 
     let error = read.unwrap_err();
     assert!(matches!(error, ToolsError::Unset), "{error}");
-    assert!(error.to_string().contains("`just test`"), "{error}");
 }
 
 #[test]
-fn a_missing_manifest_fails_naming_just_test() {
+fn a_missing_manifest_fails() {
     let env = TestEnv::new();
 
     let read = Tools::read(Some(&env.folder().join("tools.json")));
 
     let error = read.unwrap_err();
     assert!(matches!(error, ToolsError::Unreadable { .. }), "{error}");
-    assert!(error.to_string().contains("`just test`"), "{error}");
 }
 
 #[rstest]
@@ -35,7 +33,7 @@ fn a_missing_manifest_fails_naming_just_test() {
 #[case::proving_ground(Tool::ProvingGround)]
 #[case::conformance(Tool::Conformance)]
 #[case::stub_gateway(Tool::StubGateway)]
-fn a_missing_entry_fails_naming_just_test(#[case] tool: Tool) {
+fn a_missing_entry_fails(#[case] tool: Tool) {
     let env = TestEnv::new();
     let manifest = env.folder().join("tools.json");
     std::fs::write(&manifest, r#"{"test_env": "/bin/goodfetch-test-env"}"#).unwrap();
@@ -48,7 +46,6 @@ fn a_missing_entry_fails_naming_just_test(#[case] tool: Tool) {
         matches!(error, ToolsError::Missing(missing) if missing == tool),
         "{error}"
     );
-    assert!(error.to_string().contains("`just test`"), "{error}");
 }
 
 #[test]

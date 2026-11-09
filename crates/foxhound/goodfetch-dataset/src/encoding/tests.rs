@@ -6,8 +6,8 @@ use goodfetch_protocol::foxhound::export::{
 use rstest::rstest;
 
 use super::{
-    Columns, Compressor, ExportEncoder, ExportOptions, Exported, FeedFields, Nested, ParquetCodec,
-    csv_delimiter, feed_field, json_indent, sheet_name, xml_name,
+    Columns, Compressor, ExportEncoder, ExportOptions, Exported, FeedFields, Nested, OptionRefused,
+    ParquetCodec, csv_delimiter, feed_field, json_indent, sheet_name, xml_name,
 };
 
 /// When the test's Records were committed: ADR 0059's test `Clock` start.
@@ -168,19 +168,13 @@ fn a_table_of_no_field_writes_nothing(#[case] format: ExportFormat) {
 #[case::comma(",", Ok(','))]
 #[case::tab("\t", Ok('\t'))]
 #[case::a_letter_beyond_ascii("§", Ok('§'))]
-#[case::empty("", Err("is not one character"))]
-#[case::two("ab", Err("is not one character"))]
-#[case::a_quote(
-    "\"",
-    Err("is a double quote, a carriage return or a line feed, which a CSV field holds")
-)]
-#[case::a_line_feed(
-    "\n",
-    Err("is a double quote, a carriage return or a line feed, which a CSV field holds")
-)]
+#[case::empty("", Err(OptionRefused::NotOneCharacter))]
+#[case::two("ab", Err(OptionRefused::NotOneCharacter))]
+#[case::a_quote("\"", Err(OptionRefused::DelimiterACsvFieldHolds))]
+#[case::a_line_feed("\n", Err(OptionRefused::DelimiterACsvFieldHolds))]
 fn a_delimiter_is_one_character_a_field_does_not_hold(
     #[case] text: &str,
-    #[case] expected: Result<char, &str>,
+    #[case] expected: Result<char, OptionRefused>,
 ) {
     assert_eq!(csv_delimiter(text), expected);
 }
@@ -191,22 +185,20 @@ fn a_delimiter_is_one_character_a_field_does_not_hold(
 fn a_sheet_name_is_checked_and_the_built_in_one_made_fit() {
     assert_eq!(
         (
-            sheet_name("Livres 2026").as_deref().map_err(String::as_str),
-            sheet_name("").as_deref().map_err(String::as_str),
-            sheet_name(&"x".repeat(32))
-                .as_deref()
-                .map_err(String::as_str),
-            sheet_name("a/b").as_deref().map_err(String::as_str),
-            sheet_name("'quoted'").as_deref().map_err(String::as_str),
+            sheet_name("Livres 2026"),
+            sheet_name(""),
+            sheet_name(&"x".repeat(32)),
+            sheet_name("a/b"),
+            sheet_name("'quoted'"),
             ExportOptions::of("books[2026]/fr").xlsx_sheet,
             ExportOptions::of(&"y".repeat(40)).xlsx_sheet,
         ),
         (
-            Ok("Livres 2026"),
-            Err("is empty"),
-            Err("is longer than 31 characters"),
-            Err("holds one of `:`, `\\`, `/`, `?`, `*`, `[` and `]`"),
-            Err("starts or ends with `'`"),
+            Ok("Livres 2026".to_owned()),
+            Err(OptionRefused::Empty),
+            Err(OptionRefused::SheetNameTooLong),
+            Err(OptionRefused::SheetNameCharacter),
+            Err(OptionRefused::SheetNameQuoted),
             "books_2026__fr".to_owned(),
             "y".repeat(31),
         )
@@ -352,7 +344,7 @@ fn json_indent_writes_the_array_pretty_printed() {
             serde_json::to_string_pretty(&parsed).unwrap(),
             "[]".to_owned(),
             Ok(8),
-            Err("is more than 8".to_owned()),
+            Err(OptionRefused::IndentTooLarge),
         )
     );
 }
@@ -444,8 +436,26 @@ fn the_feed_fields_are_those_the_settings_name() {
                 "<item><title>N</title><link>https://a.test/</link><description>X</description>\
                  <pubDate>Tue, 3 Mar 2026 08:00:00 +0000</pubDate><guid isPermaLink=\"true\">https://a.test/</guid></item>"
             ),
-            Err("is empty"),
+            Err(OptionRefused::Empty),
         )
+    );
+}
+
+/// What `setting_invalid` says of a value is the end of its sentence, as
+/// a person reads it, with each figure and character the check holds to.
+#[test]
+fn a_refused_option_reads_as_what_is_wrong_with_the_value() {
+    assert_eq!(
+        [
+            OptionRefused::IndentTooLarge.to_string(),
+            OptionRefused::SheetNameTooLong.to_string(),
+            OptionRefused::SheetNameCharacter.to_string(),
+        ],
+        [
+            "is more than 8",
+            "is longer than 31 characters",
+            "holds one of `:`, `\\`, `/`, `?`, `*`, `[` and `]`",
+        ]
     );
 }
 

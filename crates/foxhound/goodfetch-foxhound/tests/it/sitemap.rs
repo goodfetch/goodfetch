@@ -22,8 +22,8 @@ use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
 use crate::frontier::{added, crawl_with};
+use crate::{attached, before_their_turn};
 
 /// The Proving ground's seed.
 const SEED: u64 = 903;
@@ -78,7 +78,7 @@ struct Crawled {
 
 fn crawl_sitemap(proving_ground: &ProvingGround, seed: &Value, more: &Value) -> Crawled {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let mut handled = Vec::new();
     let report = crawl_with(
         &mut engine,
@@ -126,7 +126,7 @@ fn crawl_sitemap(proving_ground: &ProvingGround, seed: &Value, more: &Value) -> 
         .collect();
     outcomes.sort_by(|a, b| a.0.cmp(&b.0));
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
     handled.sort();
     Crawled {
@@ -144,11 +144,11 @@ fn crawl_sitemap(proving_ground: &ProvingGround, seed: &Value, more: &Value) -> 
 fn received(observations: &Value, host: &str) -> Vec<(String, u64)> {
     let mut received: Vec<(String, u64)> = ReceivedRequests::of(observations)
         .every()
-        .filter(|request| request["host"] == host)
+        .filter(|request| request.host == host)
         .map(|request| {
             (
-                request["target"].as_str().unwrap().to_owned(),
-                request["timing"]["arrived_microseconds"].as_u64().unwrap(),
+                request.target.as_str().to_owned(),
+                request.timing.arrived_microseconds,
             )
         })
         .collect();
@@ -314,9 +314,8 @@ fn a_robots_txt_seed_admits_its_own_hosts_entries_from_the_sitemap_it_cross_subm
 /// A sitemap's own fetches, a nested one's too, are requests of their
 /// domain: a sitemap whose host the domain policy refuses is never
 /// fetched, one robots.txt disallows is never sent, and every request the
-/// site receives, the sitemaps' and the pages' alike, arrives at least
-/// `politeness.domain.delay` after the one before; no handler is given a
-/// sitemap.
+/// site receives, the sitemaps' and the pages' alike, waits its turn under
+/// `politeness.domain.delay` after robots.txt; no handler is given a sitemap.
 ///
 /// Covers: story:6-204, setting:politeness.domain.delay, setting:egress.blocked_domains, setting:fetch.tier
 #[test]
@@ -338,17 +337,12 @@ fn a_sitemaps_own_fetches_obey_the_domain_policy_politeness_and_robots_txt() {
     let crawled = crawl_sitemap(&proving_ground, &seed, &more);
 
     let arrivals = received(&crawled.observations, SITE);
-    // The Proving ground stamps an arrival a little after the engine sent it.
-    let least = DELAY_MILLISECONDS * 1_000 * 9 / 10;
-    let too_soon: Vec<&String> = arrivals
-        .windows(2)
-        .filter(|pair| pair[1].1 - pair[0].1 < least)
-        .map(|pair| &pair[1].0)
-        .collect();
+    let too_soon = before_their_turn(&arrivals, DELAY_MILLISECONDS * 1_000);
     assert_eq!(
         (
             crawled.handled,
             crawled.report["sitemaps"].clone(),
+            arrivals.first().map(|(target, _)| target.as_str()),
             targets(&crawled.observations, SITE),
             targets(&crawled.observations, BLOCKED),
             too_soon,
@@ -384,6 +378,7 @@ fn a_sitemaps_own_fetches_obey_the_domain_policy_politeness_and_robots_txt() {
                 2,
                 &[("no_rule", 1)]
             )]),
+            Some("/robots.txt"),
             [
                 "/books/1",
                 "/books/3",
@@ -394,7 +389,7 @@ fn a_sitemaps_own_fetches_obey_the_domain_policy_politeness_and_robots_txt() {
             .map(str::to_owned)
             .to_vec(),
             Vec::<String>::new(),
-            Vec::<&String>::new(),
+            Vec::<String>::new(),
         )
     );
 }
@@ -555,7 +550,7 @@ fn a_sitemap_seed_added_to_a_running_crawl_is_committed_at_once_and_read() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let url = |path: &str| proving_ground.url(SITE, path);
     let sitemap = plain_sitemap(&proving_ground);
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let mut answers = Vec::new();
     let mut handled = Vec::new();
 
@@ -580,7 +575,7 @@ fn a_sitemap_seed_added_to_a_running_crawl_is_committed_at_once_and_read() {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     handled.sort();
 
     assert_eq!(
@@ -617,7 +612,7 @@ fn a_sitemap_seed_staged_by_a_failed_attempt_is_discarded_and_its_retry_commits_
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let url = |path: &str| proving_ground.url(SITE, path);
     let sitemap = plain_sitemap(&proving_ground);
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let mut answers = Vec::new();
     let mut handled = Vec::new();
 
@@ -658,7 +653,7 @@ fn a_sitemap_seed_staged_by_a_failed_attempt_is_discarded_and_its_retry_commits_
         },
     );
     let observations = proving_ground.observations().unwrap();
-    assert!(engine.finish());
+    assert!(engine.finished());
     handled.sort();
 
     let sitemap_url = url("/sitemaps/plain.xml");

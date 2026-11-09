@@ -22,7 +22,7 @@ use goodfetch_protocol::result_document::OracleOutcome;
 use serde_json::{Value, json};
 
 use super::navigation::{answered, call};
-use super::{Checks, Site, clean_up, finish_run, new_page, start_run};
+use super::{Checks, Site, clean_up, finish_run, new_page, run_trace, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::target::EngineTarget;
 use crate::proving_ground::Submission;
@@ -40,8 +40,7 @@ fn goto(
     url: &str,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let id = connection.request(PAGE_GOTO.name, &json!({ "page_id": page, "url": url }))?;
-    let answer = connection.browser_answer(id)?.message;
+    let answer = connection.call(PAGE_GOTO.name, &json!({ "page_id": page, "url": url }))?;
     checks.check(
         format!("`{}` to {url} is answered", PAGE_GOTO.name),
         answer.get("result").is_some(),
@@ -79,9 +78,11 @@ fn task_pages(site: &Site, task: &str, checks: &mut Checks) -> Option<(String, V
         index.is_some(),
     );
     let index = index?;
-    let listing = site.proving_ground.page(&index).ok();
-    checks.check("the task's start page is served", listing.is_some());
-    let paths = listing?
+    let paths = checks
+        .read(
+            "the task's start page is served",
+            site.proving_ground.page(&index),
+        )?
         .split("href=\"")
         .skip(1)
         .filter_map(|link| link.split('"').next())
@@ -233,9 +234,9 @@ fn markdown_of(connection: &mut Connection, page: &PageId) -> Result<String, Gon
         .unwrap_or_default())
 }
 
-/// The `formats` lines of the Run `run_id`'s Provenance log.
-fn formats_entries(target: &EngineTarget, run_id: &str) -> Vec<Value> {
-    clean_up::provenance(target, run_id)
+/// The `formats` lines of a Run's Provenance log, read as `lines`.
+fn formats_entries(lines: Vec<Value>) -> Vec<Value> {
+    lines
         .into_iter()
         .filter(|line| line["action"] == json!("formats"))
         .collect()
@@ -260,8 +261,18 @@ pub(super) fn text_rendered_after_load_is_read(
     let item = start
         .rsplit_once("/items/")
         .map(|(origin, id)| format!("{origin}/api/items/{id}"))
-        .and_then(|url| site.proving_ground.page(&url).ok())
-        .and_then(|body| serde_json::from_str::<Value>(&body).ok());
+        .and_then(|url| {
+            checks.needs(
+                "the Proving ground serves the item's API answer",
+                site.proving_ground.page(&url),
+            )
+        })
+        .and_then(|body| {
+            checks.needs(
+                "the item's API answer is JSON",
+                serde_json::from_str::<Value>(&body),
+            )
+        });
     let (Some(name), Some(price)) = (
         item.as_ref().and_then(|item| item["name"].as_str()),
         item.as_ref().and_then(|item| item["price"].as_str()),
@@ -276,14 +287,13 @@ pub(super) fn text_rendered_after_load_is_read(
     start_run(connection, site, run_id, &json!({}), checks)?;
     if let Some(page) = new_page(connection, run_id, checks)? {
         goto(connection, &page.page_id, &start, checks)?;
-        let id = connection.request(
+        let filled = connection.call(
             PAGE_WAIT_FOR_FUNCTION.name,
             &json!({
                 "page_id": page.page_id,
                 "function": "() => document.querySelector('.price').dataset.price !== undefined",
             }),
         )?;
-        let filled = connection.browser_answer(id)?.message;
         checks.check(
             "the item page's script fills it after `load`",
             filled.get("result").is_some(),
@@ -360,14 +370,13 @@ pub(super) fn the_rules_touch_only_the_main_content(
             "the document's HTML as the page holds it still holds the ad",
             serialized["result"]["value"] == json!(true),
         );
-        let id = connection.request(
+        let found = connection.call(
             LOCATOR_WAIT_FOR.name,
             &json!({
                 "locator": { "page_id": page.page_id, "selector": ".ad-slot" },
                 "state": "attached",
             }),
         )?;
-        let found = connection.browser_answer(id)?.message;
         checks.check(
             format!("the program's own locator finds the ad ({found})"),
             found.get("result").is_some(),
@@ -397,12 +406,12 @@ pub(super) fn each_call_is_in_the_run_trace(
         markdown_of(connection, &page.page_id)?;
     }
     finish_run(connection, run_id)?;
-    let lines = clean_up::provenance(target, run_id);
+    let lines = checks.run_trace(run_trace::provenance(target, run_id));
     let version = lines
         .iter()
         .find(|line| line["action"] == json!("clean_up_rules"))
         .map(|line| line["digest"].clone());
-    let entries = formats_entries(target, run_id);
+    let entries = formats_entries(lines);
     checks.check(
         format!(
             "the Run trace holds one `formats` entry per call, three ({})",
@@ -455,7 +464,7 @@ pub(super) fn each_call_is_in_the_run_trace(
         );
     }
     finish_run(connection, run_id)?;
-    let entries = formats_entries(target, run_id);
+    let entries = formats_entries(checks.run_trace(run_trace::provenance(target, run_id)));
     checks.check(
         "with every Filter list off, the entry names no version and no removal",
         entries.len() == 1

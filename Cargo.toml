@@ -153,8 +153,6 @@ subtle = { version = "2.6.1", default-features = false }
 glob = { version = "0.3.4", default-features = false }
 # The pinned Chromium's CDP bindings and the client's connection (spec #577).
 goodfetch-cdp = { path = "crates/goodfetch-cdp" }
-# Both executables' command line, which Foxhound's reaches without Collie's
-# executable crate (ADR 0090).
 # The Clean-up rules and their matching (spec #577, ADR 0047).
 goodfetch-clean-up-rules = { path = "crates/goodfetch-clean-up-rules" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
@@ -184,6 +182,9 @@ goodfetch-secret-providers = { path = "crates/goodfetch-secret-providers" }
 goodfetch-session-pool = { path = "crates/foxhound/goodfetch-session-pool" }
 # Foxhound's SQL tab, DuckDB's read path; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-sql-tab = { path = "crates/foxhound/goodfetch-sql-tab" }
+# The protocol-aware test helpers; only ever a dev-dependency (ADR 0062's note
+# of 2026-11-07; `xtask dependency-direction`).
+goodfetch-test-client = { path = "crates/goodfetch-test-client" }
 # Only ever a dev-dependency (ADR 0062; `xtask dependency-direction`).
 goodfetch-test-support = { path = "crates/goodfetch-test-support" }
 # One feature resolution of the build side for every package selection

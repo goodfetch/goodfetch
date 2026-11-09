@@ -31,8 +31,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::home::Home;
 use crate::sqlite_store::{
-    self, Access, Durability, File, Folder, FormatRefusal, FullFsync, OpenError, Opening, Schema,
-    Synchronous, Wait, WalOnClose,
+    self, Access, Durability, File, Folder, FormatRefusal, OpenError, Opening, Schema, Wait,
 };
 
 /// The kind of exception a host was reached through, as Provenance marks
@@ -60,15 +59,6 @@ impl ExceptionKind {
 /// How long a write waits for another engine's, and a lookup while SQLite
 /// answers busy, as while a crashed writer's journal is recovered.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// How its commits reach the disk: each synced, without `F_FULLFSYNC` on
-/// macOS, its WAL copied into the file as its last connection closes.
-const DURABILITY: Durability = Durability {
-    synchronous: Synchronous::Full,
-    opening: Synchronous::Full,
-    full_fsync: FullFsync::Off,
-    wal_on_close: WalOnClose::Checkpointed,
-};
 
 /// The tables of this version. A newer minor only adds tables and columns,
 /// each column with a default, so these statements keep working on its
@@ -658,7 +648,7 @@ impl KnownCertificates {
                 folder: Folder::Make,
                 access: Access::Create,
                 wait: Wait::Busy(BUSY_TIMEOUT),
-                durability: DURABILITY,
+                durability: Durability::SYNCED,
                 counting: None,
                 schema: Some(Schema {
                     format: &KNOWN_CERTIFICATES,

@@ -30,9 +30,9 @@ use serde_json::{Value, json};
 
 use super::hostile_input;
 use super::launch::{IDENTITY_HOST, reports_once};
-use super::navigation::{call, failed_with, open, url_on};
+use super::navigation::{call, failed_with, open, open_page, url_on};
 use super::{Checks, Site, finish_run, new_page, start_run};
-use crate::protocol::connection::{Connection, Gone};
+use crate::protocol::connection::{Connection, Gone, code_of};
 use crate::protocol::target::EngineTarget;
 
 /// One `page.request` case of the page suite.
@@ -140,10 +140,9 @@ fn too_many_requests(
 ) -> Result<(), Gone> {
     let run_id = "conformance-page-request-429";
     let limited = site.named_url("fetch-edge.test", "/retry-after/429/long");
-    let Some(page) = open(connection, site, run_id, &[&limited], checks)? else {
+    let Some(page) = open_page(connection, site, run_id, checks)? else {
         return Ok(());
     };
-    let limited = limited.unwrap_or_default();
     let answer = request(connection, &page, &json!({ "url": limited }))?;
     let response = &answer["result"];
     checks.check(
@@ -170,11 +169,6 @@ fn too_many_requests(
     finish_run(connection, run_id)
 }
 
-/// The code a failure answer names.
-fn code_of(answer: &Value) -> &Value {
-    &answer["error"]["data"]["code"]
-}
-
 /// `max_redirects` follows at most its count: 0 answers the 3xx itself, a
 /// chain within the count answers its last response, one past it raises
 /// `too_many_redirects` naming the first URL, the hops followed and the
@@ -187,10 +181,9 @@ fn redirect_counts(
 ) -> Result<(), Gone> {
     let run_id = "conformance-page-request-redirects";
     let chain = site.named_url("fetch-edge.test", "/redirect/hops/5");
-    let Some(page) = open(connection, site, run_id, &[&chain], checks)? else {
+    let Some(page) = open_page(connection, site, run_id, checks)? else {
         return Ok(());
     };
-    let chain = chain.unwrap_or_default();
     for count in [20, 21] {
         let refused = request(
             connection,
@@ -285,12 +278,10 @@ fn cut_body(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Re
         ),
     ]
     .map(|(what, path, declared)| (what, site.named_url("fetch-edge.test", path), declared));
-    let urls: Vec<&Option<String>> = cuts.iter().map(|(_, url, _)| url).collect();
-    let Some(page) = open(connection, site, run_id, &urls, checks)? else {
+    let Some(page) = open_page(connection, site, run_id, checks)? else {
         return Ok(());
     };
     for (what, url, declared) in &cuts {
-        let url = url.clone().unwrap_or_default();
         let answer = request(connection, &page, &json!({ "url": url }))?;
         checks.check(
             format!("{what}: `page.request` answers its 200"),
@@ -334,7 +325,7 @@ fn kept_bytes(connection: &mut Connection, site: &Site, checks: &mut Checks) -> 
     let text = site.named_url("fetch-edge.test", "/text/shift-jis");
     let json = site.named_url("fetch-edge.test", "/json/bom");
     let document = url_on(site, "encodings/1", "/pages/shift-jis");
-    let Some(page) = open(connection, site, run_id, &[&text, &json, &document], checks)? else {
+    let Some(page) = open(connection, site, run_id, &[&document], checks)? else {
         return Ok(());
     };
     let text = request(connection, &page, &json!({ "url": text }))?;
@@ -427,11 +418,9 @@ fn session_page(
     run_id: &str,
     checks: &mut Checks,
 ) -> Result<Option<Value>, Gone> {
-    let id = connection.request(RUN_NEW_SESSION.name, &json!({ "run_id": run_id }))?;
-    let opened = connection.browser_answer(id)?.message;
+    let opened = connection.call(RUN_NEW_SESSION.name, &json!({ "run_id": run_id }))?;
     let session = opened["result"]["session_id"].clone();
-    let id = connection.request(SESSION_NEW_PAGE.name, &json!({ "session_id": session }))?;
-    let paged = connection.browser_answer(id)?.message;
+    let paged = connection.call(SESSION_NEW_PAGE.name, &json!({ "session_id": session }))?;
     let page = paged["result"]["page_id"].clone();
     checks.check(
         format!("`{}` opens a page of a new Session", SESSION_NEW_PAGE.name),
@@ -444,17 +433,10 @@ fn session_page(
 /// target starts with `prefix`, in arrival order: its target and the
 /// cookies it sent.
 fn received(site: &Site, host: &str, prefix: &str) -> Vec<(Value, Value)> {
-    site.proving_ground
-        .received_requests()
-        .unwrap_or_default()
+    site.received_requests()
         .of_the_case()
-        .filter(|request| {
-            request["host"] == json!(host)
-                && request["target"]
-                    .as_str()
-                    .is_some_and(|target| target.starts_with(prefix))
-        })
-        .map(|request| (request["target"].clone(), request["cookies"].clone()))
+        .filter(|request| request.host == host && request.target.starts_with(prefix))
+        .map(|request| (json!(request.target), json!(request.cookies)))
         .collect()
 }
 
@@ -465,7 +447,7 @@ fn received(site: &Site, host: &str, prefix: &str) -> Vec<(Value, Value)> {
 /// each request sent shows.
 fn cookies(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-page-request-cookies";
-    let url = |path: &str| site.named_url("scope.test", path).unwrap_or_default();
+    let url = |path: &str| site.named_url("scope.test", path);
     start_run(connection, site, run_id, &json!({}), checks)?;
     let first = session_page(connection, run_id, checks)?;
     let second = session_page(connection, run_id, checks)?;
@@ -580,10 +562,14 @@ fn service_worker(
         &page,
         &json!({ "url": format!("{origin}{path}") }),
     )?;
-    let reports = reports_once(site, path, |seen| {
-        seen.iter().any(|(check, _)| check == "controlled")
-    })
-    .unwrap_or_default();
+    let reports = checks
+        .needs(
+            "the Proving ground's observations can be read",
+            reports_once(site, path, |seen| {
+                seen.iter().any(|(check, _)| check == "controlled")
+            }),
+        )
+        .unwrap_or_default();
     checks.check(
         "a service worker registers and controls the page",
         reports.contains(&("register".to_owned(), "registered".to_owned()))

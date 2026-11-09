@@ -16,11 +16,11 @@
 use std::collections::BTreeSet;
 use std::time::Duration;
 
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::TestEnv;
-use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::{attached, run_file};
 
 /// The Resource governor's HTTP admissions, fixed at every crawl's handler
 /// concurrency here or above: under pressure the governor lowers a kind's
@@ -30,17 +30,6 @@ const GOVERNOR: &str = "governor.http.floor = 3\ngovernor.http.ceiling = 3\n";
 
 fn seed(url: &str, priority: i64) -> Value {
     json!({ "url": url, "label": "page", "priority": priority })
-}
-
-fn run_file(env: &TestEnv, run_id: &str) -> Connection {
-    Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap()
 }
 
 /// Crawls `seeds` under `settings` and answers, in turn, each set of
@@ -56,7 +45,7 @@ fn in_flight_at_once(
     settings: &Value,
 ) -> (Vec<BTreeSet<String>>, Value) {
     env.user_configuration(GOVERNOR);
-    let mut engine = Attached::start(env);
+    let mut engine = attached(env);
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
         "params": { "run_id": "fair", "seeds": seeds, "settings": settings },
@@ -103,7 +92,7 @@ fn in_flight_at_once(
             break message;
         }
     };
-    assert!(engine.finish());
+    assert!(engine.finished());
     (turns, report)
 }
 
@@ -238,14 +227,14 @@ fn a_crawls_own_domain_keys_put_two_sites_in_one_queue() {
 #[test]
 fn an_operator_policy_cap_bounds_the_rate_of_a_crawl_that_set_none() {
     let env = TestEnv::new();
-    let folder = env.home().join("0.0");
-    std::fs::create_dir_all(&folder).unwrap();
+    let layout = HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
     std::fs::write(
-        folder.join("operator-policy.toml"),
+        layout.operator_policy(),
         "version = \"0.1\"\n\n[cap.admission]\nmax_requests_per_minute = 1\n",
     )
     .unwrap();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
         "params": { "run_id": "paced", "seeds": [seed("https://a.test/1", 0), seed("https://b.test/1", 0)] },
@@ -265,7 +254,7 @@ fn an_operator_policy_cap_bounds_the_rate_of_a_crawl_that_set_none() {
         &json!({ "run_id": "paced" }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let statuses: Vec<(String, String)> = run_file(&env, "paced")
         .prepare("SELECT url, status FROM work_items ORDER BY position")

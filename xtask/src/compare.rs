@@ -36,15 +36,15 @@ mod trial;
 mod trials;
 
 use std::path::{Path, PathBuf};
-use std::process::{Command as Process, ExitCode};
+use std::process::ExitCode;
 
 use anyhow::{Context as _, Result};
 use clap::{Args, Subcommand, ValueEnum};
-use serde::Deserialize;
 
 use crate::check;
 use crate::environment::Environment;
 use crate::output;
+use crate::test_tools::{Tool, ToolManifest};
 
 use matrix::Scenario;
 use trials::Comparison;
@@ -154,24 +154,12 @@ pub(crate) struct TrialArguments {
     output: Option<PathBuf>,
 }
 
-/// The entries of the test tool manifest a run takes.
-#[derive(Deserialize)]
-struct Tools {
-    proving_ground: PathBuf,
-    foxhound: PathBuf,
-}
-
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
     match command {
         Command::Run(arguments) => {
-            let path = environment.path(&arguments.tools);
-            let text =
-                std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-            let tools: Tools = serde_json::from_slice(&text)
-                .with_context(|| format!("parsing {}", path.display()))?;
-            let commit = Process::new("git")
+            let tools = ToolManifest::read(&environment.path(&arguments.tools))?;
+            let commit = crate::git::command(&environment.root)
                 .args(["rev-parse", "HEAD"])
-                .current_dir(&environment.root)
                 .output()
                 .context("running git rev-parse")?;
             let browser = match &arguments.browser {
@@ -179,14 +167,14 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 None => trial::chrome_folder().with_context(|| {
                     format!(
                         "Playwright's Chrome for Testing {} is not installed: run `pnpm exec playwright install chromium`, or name its folder with --browser",
-                        trial::CHROME_FOR_TESTING_BUILD
+                        crate::test_facts::CHROME_FOR_TESTING_BUILD
                     )
                 })?,
             };
             let trials = run::run(
                 &run::Executables {
-                    proving_ground: &tools.proving_ground,
-                    foxhound: &tools.foxhound,
+                    proving_ground: tools.path(Tool::ProvingGround)?,
+                    foxhound: tools.path(Tool::Foxhound)?,
                     spider: &environment.path(&arguments.spider),
                     spider_chrome: &environment.path(&arguments.spider_chrome),
                     browser: &browser,

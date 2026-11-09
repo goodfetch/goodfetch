@@ -23,6 +23,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::home::RUN_TRACE_REQUESTS;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
     Answer, BROWSERS_PATH_VARIABLE, Family, Outcome, ProvingGround, Refusal, Runner, SsrfCase,
     SsrfTable, TestEnv, browser_cache,
@@ -30,9 +33,9 @@ use goodfetch_test_support::{
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use crate::attached::{Attached, hello};
+use crate::COLLIE;
 use crate::page::{BROWSER_DEADLINE, opened};
-use crate::run::call;
+use goodfetch_test_client::{Attached, hello};
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 632;
@@ -56,18 +59,18 @@ const MARGIN: Duration = Duration::from_millis(750);
 
 /// A Connection to an Attached engine, the Proving ground's hosts and
 /// [`REFUSED`] mapped in each Run's `network.resolve`.
-struct Program<'env> {
-    engine: Attached<'env>,
+struct Program {
+    engine: Attached,
     next_id: i64,
     resolve: Map<String, Value>,
 }
 
-impl<'env> Program<'env> {
-    fn start(env: &'env TestEnv, cache: &Path, proving_ground: &ProvingGround) -> Self {
-        let mut engine = Attached::start_waiting(env, BROWSER_DEADLINE, |command| {
+impl Program {
+    fn start(env: &TestEnv, cache: &Path, proving_ground: &ProvingGround) -> Self {
+        let mut engine = Attached::start_with(env, COLLIE, BROWSER_DEADLINE, |command| {
             command.env(BROWSERS_PATH_VARIABLE, cache);
         });
-        engine.send(&hello("collie", "0.1"));
+        engine.send(&hello(Product::Collie));
         let _ = engine.next();
         let mut resolve: Map<String, Value> = proving_ground
             .description()
@@ -88,7 +91,7 @@ impl<'env> Program<'env> {
 
     fn call(&mut self, method: &str, params: &Value) -> Value {
         self.next_id += 1;
-        call(&mut self.engine, self.next_id, method, params)
+        self.engine.ask(self.next_id, method, params)
     }
 
     /// Starts the Run `run_id`, whose domain policy allows the pages' hosts
@@ -201,12 +204,7 @@ fn received(proving_ground: &ProvingGround, host: &str, target: &str) -> usize {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| {
-            request["host"] == json!(host)
-                && request["target"]
-                    .as_str()
-                    .is_some_and(|seen| seen.starts_with(target))
-        })
+        .filter(|request| request.host == host && request.target.starts_with(target))
         .count()
 }
 
@@ -235,13 +233,7 @@ fn arrives(arrived: impl Fn() -> bool) -> bool {
 /// The Error codes of the Run trace's `page.request_failed` lines whose
 /// URL is on `host`, of the Run `run_id`.
 fn refusals_recorded(env: &TestEnv, run_id: &str, host: &str) -> Vec<Value> {
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
-        .join("trace")
-        .join("requests.jsonl");
+    let file = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_REQUESTS);
     std::fs::read_to_string(file)
         .unwrap_or_default()
         .lines()
@@ -453,13 +445,7 @@ fn host_of(url: &str) -> Option<String> {
 /// The refusals the Run trace of `run_id` recorded from its line `from` on,
 /// as `(host, Error code, rule)`.
 fn refusals_from(env: &TestEnv, run_id: &str, from: usize) -> (usize, Vec<(String, Value, Value)>) {
-    let file = env
-        .home()
-        .join("0.0")
-        .join("runs")
-        .join(run_id)
-        .join("trace")
-        .join("requests.jsonl");
+    let file = HomeLayout::of(env.home()).run_trace(run_id, RUN_TRACE_REQUESTS);
     let lines: Vec<Value> = std::fs::read_to_string(file)
         .unwrap_or_default()
         .lines()
@@ -490,12 +476,8 @@ fn reached_from(proving_ground: &ProvingGround, kind: &str, from: usize) -> (usi
     let reached = requests
         .every()
         .skip(from)
-        .filter(|request| {
-            request["target"]
-                .as_str()
-                .is_some_and(|seen| seen.starts_with(&target))
-        })
-        .filter_map(|request| request["host"].as_str().map(str::to_ascii_lowercase))
+        .filter(|request| request.target.starts_with(&target))
+        .map(|request| request.host.to_ascii_lowercase())
         .collect();
     (requests.every().count(), reached)
 }

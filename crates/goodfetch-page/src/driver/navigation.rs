@@ -352,11 +352,14 @@ impl Navigation {
             if sent.frame_id.as_ref() == Some(&self.frame)
                 && sent.r#type == Some(ResourceType::Document)
             {
-                // A redirect is sent again under the request's ID.
-                self.chains
-                    .entry(sent.loader_id.clone())
-                    .or_default()
-                    .push(sent.request.url);
+                // A redirect is sent again under the request's ID, and
+                // counts a hop; any other send starts the chain anew, as
+                // the page's events number a request's hops.
+                let chain = self.chains.entry(sent.loader_id.clone()).or_default();
+                if sent.redirect_response.is_none() {
+                    chain.clear();
+                }
+                chain.push(sent.request.url);
                 self.requests.insert(sent.request_id, sent.loader_id);
             }
         } else if let Some(received) = event.read::<network::ResponseReceivedEvent>() {

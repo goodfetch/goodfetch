@@ -1,6 +1,7 @@
 //! The Daemon's files on the machine (ADRs 0024, 0030 and 0059), in its
 //! major's per-major folder of Goodfetch home, so each major has its own
-//! and both Products share them:
+//! and both Products share them, named by `goodfetch_protocol::home`'s
+//! `DaemonFile`:
 //!
 //! ```text
 //! <home>/<major>/daemon.json         the runtime file, mode 0600
@@ -55,6 +56,7 @@ use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::daemon::{
     DaemonEndpoint, DaemonRuntimeFile, InstalledService, ServiceManager,
 };
+use goodfetch_protocol::home::DaemonFile;
 
 use sha2::{Digest as _, Sha256};
 
@@ -63,16 +65,15 @@ use crate::endpoint::new_token;
 use crate::home::Home;
 use crate::transport::{self, LONGEST_SOCKET_PATH};
 
-const RUNTIME_FILE: &str = "daemon.json";
-const SOCKET: &str = "daemon.sock";
-const SERVING_LOCK: &str = "daemon.lock";
-const START_LOCK: &str = "daemon-start.lock";
-const TOKEN_FILE: &str = "daemon.token";
-const SERVICE_FILE: &str = "daemon-service.json";
-const OPS_TOKEN_FILE: &str = "ops.token";
-const HTTP_LISTENER_TOKEN_FILE: &str = "http-listener.token";
-/// The page that opens the Console's sign-in link in a browser.
-const CONSOLE_OPENER: &str = "console.html";
+const RUNTIME_FILE: &str = DaemonFile::RuntimeFile.name();
+const SOCKET: &str = DaemonFile::Socket.name();
+const SERVING_LOCK: &str = DaemonFile::ServingLock.name();
+const START_LOCK: &str = DaemonFile::StartLock.name();
+const TOKEN_FILE: &str = DaemonFile::Token.name();
+const SERVICE_FILE: &str = DaemonFile::ServiceRecord.name();
+const OPS_TOKEN_FILE: &str = DaemonFile::OpsToken.name();
+const HTTP_LISTENER_TOKEN_FILE: &str = DaemonFile::HttpListenerToken.name();
+const CONSOLE_OPENER: &str = DaemonFile::ConsoleOpener.name();
 
 /// The token in the file at `path`, or `None` when there is none.
 fn read_token(path: &Path) -> io::Result<Option<String>> {
@@ -140,14 +141,23 @@ impl DaemonFiles {
             Err(error) if error.kind() == io::ErrorKind::InvalidData => Err(error),
             Err(error) => return Err(error),
         };
+        if self.serving()? {
+            found.map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Whether a Daemon of this major holds the serving lock.
+    fn serving(&self) -> io::Result<bool> {
         let lock = match File::open(self.folder.join(SERVING_LOCK)) {
             Ok(lock) => lock,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
             Err(error) => return Err(error),
         };
         match lock.try_lock() {
-            Ok(()) => Ok(None),
-            Err(TryLockError::WouldBlock) => found.map(Some),
+            Ok(()) => Ok(false),
+            Err(TryLockError::WouldBlock) => Ok(true),
             Err(TryLockError::Error(error)) => Err(error),
         }
     }
@@ -336,15 +346,22 @@ impl DaemonFiles {
     }
 
     /// The per-user service `daemon install` registered, or `None` when
-    /// none is.
+    /// none is, or when its record is not one and no Daemon holds the
+    /// serving lock: `daemon install` then replaces it, and a Client starts
+    /// a Daemon past it.
     ///
     /// # Errors
     ///
     /// When its record exists but cannot be read, or, of kind
-    /// [`io::ErrorKind::InvalidData`], when it is no record this version
-    /// reads.
+    /// [`io::ErrorKind::InvalidData`], when a Daemon holds the serving lock
+    /// and its record is no record this version reads.
     pub fn service(&self) -> io::Result<Option<InstalledService>> {
-        parsed(&self.folder.join(SERVICE_FILE))
+        match parsed(&self.folder.join(SERVICE_FILE)) {
+            Err(error) if error.kind() == io::ErrorKind::InvalidData && !self.serving()? => {
+                Ok(None)
+            }
+            read => read,
+        }
     }
 
     /// Records the installed `service`, readable and writable by its owner

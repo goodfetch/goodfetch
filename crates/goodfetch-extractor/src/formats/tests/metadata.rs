@@ -134,6 +134,61 @@ fn a_document_with_no_metadata_answers_nulls_and_empty_lists() {
     );
 }
 
+/// Whatever only a body holds ends the head where it stands, `<body>` tag or
+/// none, as the HTML Standard's parser ends it: a canonical link past it is
+/// the body's. What a head holds, and what a `<template>` keeps to itself,
+/// leaves the link in the head.
+#[rstest::rstest]
+#[case::past_a_paragraph(r#"<p>Text</p><link rel="canonical" href="/x">"#, None)]
+#[case::past_a_paragraph_in_a_head_never_closed(
+    r#"<head><title>T</title><p>Text</p><link rel="canonical" href="/x">"#,
+    None
+)]
+#[case::past_text(r#"Text<link rel="canonical" href="/x">"#, None)]
+#[case::past_a_body_tag(r#"<body></body><link rel="canonical" href="/x">"#, None)]
+#[case::only_the_first_is_looked_at(
+    r#"<p>Text</p><link rel="canonical" href="/x"><link rel="canonical" href="/y">"#,
+    None
+)]
+#[case::past_what_a_head_holds(
+    r#"<!doctype html> <!-- <p> --><title>T</title><style>p {}</style><script>"<p>"</script>
+    <meta name="a" content="b"><link rel="canonical" href="/x">"#,
+    Some("https://kites.test/x")
+)]
+#[case::past_a_closed_head(
+    r#"<head></head><link rel="canonical" href="/x">"#,
+    Some("https://kites.test/x")
+)]
+#[case::past_a_template(
+    r#"<head><template><p>Text</p>Text</template><link rel="canonical" href="/x">"#,
+    Some("https://kites.test/x")
+)]
+#[case::past_one_in_a_template(
+    r#"<head><template><link rel="canonical" href="/t"></template><link rel="canonical" href="/x">"#,
+    Some("https://kites.test/x")
+)]
+#[case::in_noscript(
+    r#"<head><noscript><link rel="canonical" href="/n"></noscript></head>"#,
+    None
+)]
+fn a_canonical_link_counts_only_while_the_head_stands(
+    #[case] html: &str,
+    #[case] expected: Option<&str>,
+) {
+    assert_eq!(metadata(html).canonical.as_deref(), expected);
+}
+
+/// A canonical link in the page's body is not its canonical, as the
+/// Frontier's evidence reads it (ADR 0120): the head's alone counts.
+/// Covers: story:6-6
+#[test]
+fn a_canonical_link_in_the_body_is_not_the_pages_canonical() {
+    let html = r#"<html><head><title>Bridles</title></head><body>
+        <link rel="canonical" href="/elsewhere"></body></html>"#;
+
+    assert_eq!(metadata(html).canonical, None);
+}
+
 /// Covers: story:6-6
 #[test]
 fn a_canonical_url_that_does_not_parse_is_null() {

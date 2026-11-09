@@ -31,7 +31,7 @@ use goodfetch_protocol::page::{PageId, SessionId};
 use serde_json::{Value, json};
 use url::Url;
 
-use super::Sessions;
+use super::{EngineWork, Sessions};
 use crate::browser_fetch::{self, Body};
 use crate::interception::{EngineRequests, OnDocument};
 use crate::page_value::PageValue;
@@ -92,10 +92,7 @@ impl Reader {
             return;
         };
         let reader = self.clone();
-        let limits = self
-            .run
-            .settings()
-            .map_or_else(Limits::default, |settings| Limits::of(settings.resolved()));
+        let limits = Limits::of_run(self.run.settings());
         self.run.spawn(async move {
             // Boxed: the fetch holds a browser load's state (clippy's
             // `large_futures`).
@@ -129,7 +126,7 @@ impl Reader {
         // it drops.
         let engine_page = self
             .sessions
-            .engine_page(&self.session, &self.value)
+            .engine_page(&self.session, &self.value, EngineWork::ArrivingDocument)
             .await
             .map_err(|error| NotRead(error.message().to_owned()))?;
         let request = browser_fetch::Request {

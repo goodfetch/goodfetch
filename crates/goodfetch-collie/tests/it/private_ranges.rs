@@ -16,12 +16,14 @@
     reason = "the tests write the Goodfetch home's Operator policy themselves"
 )]
 
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, cli};
 use serde_json::{Map, Value, json};
 
-use crate::attached::Attached;
 use crate::page::{opened, started_with};
-use crate::run::call;
+use goodfetch_test_client::{Attached, Hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -43,17 +45,11 @@ fn ran(env: &TestEnv, proving_ground: &ProvingGround, run_id: &str, settings: &V
     let cache = browser_cache(env).unwrap();
     let settings: Map<String, Value> = settings.as_object().cloned().unwrap_or_default();
     let mut engine = started_with(env, &cache, proving_ground, run_id, &settings, |_| {});
-    let page = opened(&call(
-        &mut engine,
-        2,
-        "run.new_page",
-        &json!({ "run_id": run_id }),
-    ))
-    .page_id
-    .0;
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": run_id })))
+        .page_id
+        .0;
     let target = format!("/catalog/1?run={run_id}");
-    let went = call(
-        &mut engine,
+    let went = engine.ask(
         3,
         "page.goto",
         &json!({ "page_id": page, "url": proving_ground.url("catalog.test", &target) }),
@@ -62,9 +58,9 @@ fn ran(env: &TestEnv, proving_ground: &ProvingGround, run_id: &str, settings: &V
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request["target"] == json!(target))
+        .filter(|request| request.target == target)
         .count();
-    let report = call(&mut engine, 4, "run.finish", &json!({ "run_id": run_id }))["result"].clone();
+    let report = engine.ask(4, "run.finish", &json!({ "run_id": run_id }))["result"].clone();
     let (_, stderr) = engine.finish_with_stderr();
     Met {
         went,
@@ -222,19 +218,18 @@ fn with_the_resolved_address_check_off_the_loopback_host_loads_and_the_switch_is
 #[test]
 fn an_operator_policy_that_locks_the_check_refuses_the_switch() {
     let env = TestEnv::new();
-    let major = env.home().join("0.0");
-    std::fs::create_dir_all(&major).unwrap();
+    let layout = HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
     std::fs::write(
-        major.join("operator-policy.toml"),
+        layout.operator_policy(),
         "version = \"0.1\"\n\n[lock.security]\nresolved_ip_check = true\n",
     )
     .unwrap();
-    let mut engine = Attached::start(&env);
-    engine.send(&crate::attached::hello("collie", "0.1"));
+    let mut engine = Attached::start(&env, COLLIE);
+    engine.send(&goodfetch_test_client::hello(Product::Collie));
     let _ = engine.next();
 
-    let refused = call(
-        &mut engine,
+    let refused = engine.ask(
         1,
         "run.start",
         &json!({ "run_id": "locked", "settings": { "security": { "resolved_ip_check": false } } }),
@@ -263,20 +258,15 @@ fn an_operator_policy_that_locks_the_check_refuses_the_switch() {
 #[test]
 fn a_client_acting_for_a_model_lists_no_private_range() {
     let env = TestEnv::new();
-    let start = |surface: Option<&str>| {
-        let mut engine = Attached::start(&env);
-        let mut hello = crate::attached::hello("collie", "0.1");
-        if let Some(surface) = surface {
-            hello["params"]["surface"] = json!(surface);
-        }
-        engine.send(&hello);
+    let start = |run_id: &str, hello: Hello| {
+        let mut engine = Attached::start(&env, COLLIE);
+        engine.send(&hello.message());
         let _ = engine.next();
-        let answered = call(
-            &mut engine,
+        let answered = engine.ask(
             1,
             "run.start",
             &json!({
-                "run_id": surface.unwrap_or("program"),
+                "run_id": run_id,
                 "settings": { "egress": { "private_ranges": ["127.0.0.0/8"] } },
             }),
         );
@@ -284,7 +274,11 @@ fn a_client_acting_for_a_model_lists_no_private_range() {
         answered
     };
 
-    let (for_a_model, own) = (start(Some("mcp")), start(None));
+    let program = Hello::needing(Product::Collie);
+    let (for_a_model, own) = (
+        start("mcp", program.clone().surface(Surface::Mcp)),
+        start("program", program),
+    );
 
     assert_eq!(
         (

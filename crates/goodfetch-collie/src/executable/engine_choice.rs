@@ -31,8 +31,10 @@
 //! answer; a second one, or one during a call that cannot be cancelled,
 //! ends the command at once (ADRs 0069, 0080 and 0093).
 //!
-//! The `daemon` commands open their Connections with the same `Link` and
-//! `hello`, listening for no interrupt, so `SIGINT` keeps its default.
+//! The Daemon is found, opened with `hello` and looked for again by the one
+//! Daemon client, [`Machine`]'s, which the `daemon` commands open their
+//! Connections through too, listening for no interrupt, so `SIGINT` keeps
+//! its default.
 //!
 //! Size: one concern, a command's Link to its engine: the choice of
 //! engine, `hello`, and the one call loop that interleaves the call's
@@ -45,25 +47,24 @@
 
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::transport::{self, Connection, ConnectionReader, ConnectionWriter, Network};
-use goodfetch_engine::{Dependencies, Engine, Identity};
-use goodfetch_protocol::catalog::ErrorGroup;
-use goodfetch_protocol::catalog::{Operation, PROTOCOL_VERSION, Product};
+use goodfetch_engine::{CallError, Dependencies, Engine, Identity};
+use goodfetch_protocol::catalog::{Operation, Product};
 use goodfetch_protocol::connection::{
-    CANCEL, CONNECTION_LOST, CancelParams, HELLO, HelloParams, NOT_IN_PRODUCT,
-    PROTOCOL_VERSION_UNSUPPORTED, Surface,
+    CANCEL, CONNECTION_LOST, CancelParams, HELLO, HelloParams, Surface,
 };
 use goodfetch_protocol::daemon::{
     DAEMON_UNREACHABLE, DaemonEndpoint, DaemonToken, DaemonUnreachableDetails,
 };
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::jsonrpc::{
-    ErrorData, ErrorObject, Message, Notification, Request, RequestId, Version,
+    ErrorObject, Message, Notification, Request, RequestId, Version,
 };
 use serde::Serialize;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
 use tokio::sync::mpsc;
 
+use super::daemon::{Machine, NotOpened, Wanted};
 use super::exit_codes;
 
 /// The id of `hello`.
@@ -74,10 +75,6 @@ const CALL_ID: i64 = 1;
 
 /// How many events or chunks a followed call may send beyond those printed.
 const CREDITS: u32 = 64;
-
-/// How many times a command looks for the Daemon again when the one it
-/// found went away, or handed over, before it gives up.
-const ATTEMPTS: usize = 3;
 
 /// Which engine the command line asks for (ADR 0024).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -136,67 +133,16 @@ pub enum Lifetime {
     Passing,
 }
 
-/// Where a Client reaches a Daemon and the token its `hello` carries.
-pub struct Reached {
-    /// The Daemon's endpoint.
-    pub endpoint: DaemonEndpoint,
-    /// The token its `hello` carries, which nothing prints.
-    pub token: DaemonToken,
-    /// Whether it is a remote Daemon `GOODFETCH_URL` names, which no
-    /// command starts, waits for or falls back from.
-    pub remote: bool,
-}
-
-/// The executable's side of its major's Daemon, which a command's call
-/// does not know (ADRs 0024 and 0098): where it runs, which executable starts as
-/// it, and how this executable restarts it.
-pub trait Daemons {
-    /// The Daemon a command reaches: the remote one `GOODFETCH_URL` names;
-    /// else the running Daemon of the major, or, when `start` and none
-    /// runs, its major's pick, which this starts; `None` when none runs
-    /// and `start` is false.
-    ///
-    /// # Errors
-    ///
-    /// What kept it from finding or starting one, with its Error code: a
-    /// `GOODFETCH_URL` or `GOODFETCH_TOKEN` it cannot take is
-    /// `setting_invalid`, and a Daemon it cannot read or start
-    /// `daemon_unreachable`.
-    fn find(&self, start: bool) -> Result<Option<Reached>, ErrorObject>;
-
-    /// Waits until a Daemon that refused the command and hands over has
-    /// started its major's pick.
-    ///
-    /// # Errors
-    ///
-    /// What kept it from waiting, with its Error code.
-    fn handed_over(&self) -> Result<(), ErrorObject>;
-
-    /// Waits, at most as long as a Daemon's stop takes, until the Daemon
-    /// `found` of the major, which went away while the command connected,
-    /// has stopped: a stopping Daemon closes its listener first and stops
-    /// its Runs before it lets its runtime file go.
-    ///
-    /// # Errors
-    ///
-    /// What kept it from waiting, with its Error code.
-    fn went_away(&self, found: &Reached) -> Result<(), ErrorObject>;
-
-    /// The `fix` of a refusal by Product or protocol version, whose own
-    /// `fix` is `given`: ADR 0098's, naming this executable's `daemon
-    /// restart` by its path.
-    fn refusal_fix(&self, given: &str) -> String;
-}
-
 /// The engine a command runs on: what its command line chose, and the
-/// executable's Daemon.
+/// executable's machine, whose Daemon it reaches.
 pub struct EngineChoice<'a> {
     /// The command line's choice.
     pub choice: Choice,
     /// What its call needs.
     pub lifetime: Lifetime,
-    /// The executable's Daemon.
-    pub daemons: &'a dyn Daemons,
+    /// The executable's machine, through whose one Daemon client the call
+    /// reaches the Daemon.
+    pub machine: &'a Machine<'a>,
     /// Prints a warning, such as the refusal a command falls back from.
     pub warn: &'a dyn Fn(&str),
 }
@@ -205,11 +151,11 @@ impl<'a> EngineChoice<'a> {
     /// The engine of a command whose value does not outlive it, as
     /// `choice` chooses: the Daemon when one runs or `--daemon` is given,
     /// else an Attached engine; refusals warned of through `warn`.
-    pub fn passing(choice: Choice, daemons: &'a dyn Daemons, warn: &'a dyn Fn(&str)) -> Self {
+    pub fn passing(choice: Choice, machine: &'a Machine<'a>, warn: &'a dyn Fn(&str)) -> Self {
         Self {
             choice,
             lifetime: Lifetime::Passing,
-            daemons,
+            machine,
             warn,
         }
     }
@@ -410,15 +356,21 @@ impl Answer {
 }
 
 /// How a call that answered no result failed, as [`Answer`] says it.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Failed {
     /// The engine's error, or its refusal of `hello`.
+    #[error("{}", .0.message)]
     Error(ErrorObject),
     /// Under `--daemon`, the Daemon's refusal of `hello` by Product or by
     /// protocol version.
+    #[error("{}", .0.message)]
     Refused(ErrorObject),
     /// No call was made, for the reason its Error code says.
+    #[error("{}", .0.message)]
     Unanswered(ErrorObject),
     /// The command was interrupted, or sent `SIGTERM`.
+    #[error("the command was interrupted")]
     Interrupted(Interrupt),
 }
 
@@ -463,120 +415,61 @@ pub fn call(
     };
     let reads = call.reads();
     let runtime = runtime();
-    for _ in 0..ATTEMPTS {
-        // The executable finds and starts the Daemon outside the runtime,
-        // which its own blocking work would stall.
-        let found = match reach.daemons.find(start) {
-            Ok(Some(found)) => found,
-            Ok(None) => return call_attached(engine, dependencies, needs, call),
-            Err(problem) => return Answer::Unanswered(problem),
-        };
-        let hello = hello(engine.identity(), needs, Some(&found.token));
-        match runtime.block_on(Link::open(&found.endpoint, &hello, Interrupts::listening)) {
-            Ok(mut link) => {
-                let answer = runtime.block_on(async {
-                    let answer = link.call(call).await;
-                    link.close().await;
-                    answer
-                });
-                end(runtime, reads);
-                return match answer {
-                    // The call in flight, the command's own or a later one
-                    // on the same Connection, is the one whose answer is
-                    // lost.
-                    Answer::Unanswered(_) => {
-                        Answer::Error(connection_lost(&found.endpoint, &link.method))
-                    }
-                    answer => answer,
-                };
-            }
-            Err(Opening::Interrupted(interrupt)) => return Answer::Interrupted(interrupt),
-            Err(Opening::Refused(mut refusal)) => {
-                let by_product_or_version =
-                    [NOT_IN_PRODUCT.name, PROTOCOL_VERSION_UNSUPPORTED.name]
-                        .contains(&refusal.data.code.as_str());
-                if found.remote || !by_product_or_version {
-                    return Answer::Error(refusal);
-                }
-                let given = refusal.data.details.get("fix").and_then(Value::as_str);
-                let fix = reach.daemons.refusal_fix(given.unwrap_or_default());
-                refusal
-                    .data
-                    .details
-                    .insert("fix".to_owned(), Value::from(fix));
-                // An Attached engine stops with the command, so a value
-                // that outlives it cannot run on one.
-                if reach.choice == Choice::Daemon || reach.lifetime == Lifetime::Lasting {
-                    return Answer::Refused(refusal);
-                }
-                (reach.warn)(&format!(
-                    "the Daemon refused this command, which runs on an Attached engine instead: {} {}",
-                    refusal.message,
-                    refusal.data.details["fix"].as_str().unwrap_or_default()
-                ));
-                drop(runtime);
-                return call_attached(engine, dependencies, needs, call);
-            }
-            // It hands over: once the pick runs, look again.
-            Err(Opening::HandOver(refusal)) => {
-                if found.remote {
-                    return Answer::Error(refusal);
-                }
-                if let Err(problem) = reach.daemons.handed_over() {
-                    return Answer::Unanswered(problem);
-                }
-            }
-            Err(Opening::Gone) if found.remote => {
-                return Answer::Unanswered(unreachable(
-                    format!(
-                        "The Daemon at {} closed the Connection before it answered `hello`, as it does for a token it does not take.",
-                        found.endpoint
-                    ),
-                    "Set `GOODFETCH_TOKEN` to the token the Daemon `GOODFETCH_URL` names takes, then run the command again.",
-                ));
-            }
-            Err(Opening::Unreachable) if found.remote => {
-                return Answer::Unanswered(unreachable(
-                    format!(
-                        "Nothing answers at {}, the Daemon `GOODFETCH_URL` names.",
-                        found.endpoint
-                    ),
-                    "Start the Daemon `GOODFETCH_URL` names, or unset `GOODFETCH_URL` to use this machine's, then run the command again.",
-                ));
-            }
-            // It went away in between: once it stopped, look again.
-            Err(Opening::Gone | Opening::Unreachable) => {
-                if let Err(problem) = reach.daemons.went_away(&found) {
-                    return Answer::Unanswered(problem);
-                }
-            }
+    let wanted = Wanted {
+        start,
+        remote: true,
+        needs,
+    };
+    let (mut link, found) = match reach.machine.open_daemon(
+        &runtime,
+        &wanted,
+        Interrupts::listening,
+    ) {
+        Ok(Some(opened)) => opened,
+        Ok(None) => {
+            drop(runtime);
+            return call_attached(engine, dependencies, needs, call);
         }
+        Err(NotOpened::Interrupted(interrupt)) => return Answer::Interrupted(interrupt),
+        Err(NotOpened::Refused(refusal)) => return Answer::Error(refusal),
+        Err(NotOpened::Failed(failure)) => return Answer::Unanswered(failure.into_error()),
+        Err(NotOpened::RefusedByProductOrVersion(refusal)) => {
+            // An Attached engine stops with the command, so a value
+            // that outlives it cannot run on one.
+            if reach.choice == Choice::Daemon || reach.lifetime == Lifetime::Lasting {
+                return Answer::Refused(refusal);
+            }
+            (reach.warn)(&format!(
+                "the Daemon refused this command, which runs on an Attached engine instead: {} {}",
+                refusal.message,
+                refusal.data.details["fix"].as_str().unwrap_or_default()
+            ));
+            drop(runtime);
+            return call_attached(engine, dependencies, needs, call);
+        }
+    };
+    let answer = runtime.block_on(async {
+        let answer = link.call(call).await;
+        link.close().await;
+        answer
+    });
+    end(runtime, reads);
+    match answer {
+        // The call in flight, the command's own or a later one on the same
+        // Connection, is the one whose answer is lost.
+        Answer::Unanswered(_) => Answer::Error(connection_lost(&found.endpoint, &link.method)),
+        answer => answer,
     }
-    Answer::Unanswered(unreachable(
-        format!("The Daemon went away {ATTEMPTS} times while this command connected."),
-        "Run the command again; `daemon status` shows whether a Daemon runs.",
-    ))
 }
 
 /// The failure of a command that reached no Daemon, as `message` says,
 /// and what to do, `fix`: `daemon_unreachable`, which exits its group's
 /// row, `8`.
 pub fn unreachable(message: String, fix: &str) -> ErrorObject {
-    let details = serde_json::to_value(DaemonUnreachableDetails {
+    let details = DaemonUnreachableDetails {
         fix: fix.to_owned(),
-    });
-    ErrorObject {
-        code: DAEMON_UNREACHABLE.group.json_rpc_class(),
-        message,
-        data: ErrorData {
-            code: DAEMON_UNREACHABLE.name.to_owned(),
-            retryable: DAEMON_UNREACHABLE.retryable,
-            details: match details {
-                Ok(Value::Object(details)) => details,
-                _ => Map::new(),
-            },
-        },
-    }
+    };
+    CallError::new(&DAEMON_UNREACHABLE, message, &details).to_error_object()
 }
 
 /// Calls `call` on an Attached engine in this process, `engine` on
@@ -662,15 +555,9 @@ pub(crate) fn hello(
     token: Option<&DaemonToken>,
 ) -> HelloParams {
     HelloParams {
-        protocol_version: PROTOCOL_VERSION,
-        surface: Surface::Cli,
-        form: None,
         token: token.map(|token| token.expose().to_owned()),
         needs: Some(needs),
-        product_version: identity.product_version.clone(),
-        log_level: None,
-        client_surface: None,
-        keep_daemon_alive: false,
+        ..HelloParams::new(Surface::Cli, identity.product_version.clone())
     }
 }
 
@@ -678,24 +565,17 @@ pub(crate) fn hello(
 /// dropped before `method` was answered: `connection_lost`, which exits
 /// its group's row, `8`.
 pub fn connection_lost(endpoint: &DaemonEndpoint, method: &str) -> ErrorObject {
-    let mut details = Map::new();
-    details.insert(
-        "fix".to_owned(),
-        Value::from(
-            "Check whether the call took effect, then run the command again; `daemon status` shows whether the Daemon still runs.",
-        ),
-    );
-    ErrorObject {
-        code: ErrorGroup::Unavailable.json_rpc_class(),
-        message: format!(
+    let details = json!({
+        "fix": "Check whether the call took effect, then run the command again; `daemon status` shows whether the Daemon still runs.",
+    });
+    CallError::new(
+        &CONNECTION_LOST,
+        format!(
             "The Connection to the Daemon at {endpoint} dropped before it answered `{method}`, so whether the call took effect is unknown."
         ),
-        data: ErrorData {
-            code: CONNECTION_LOST.name.to_owned(),
-            retryable: CONNECTION_LOST.retryable,
-            details,
-        },
-    }
+        &details,
+    )
+    .to_error_object()
 }
 
 /// Opens `connection` with `hello`, then makes the one call, and closes

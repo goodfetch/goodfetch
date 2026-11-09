@@ -34,13 +34,14 @@
 
 use std::path::Path;
 
+use goodfetch_test_client::DaemonClient;
 use goodfetch_test_support::{
     DAEMON_DEADLINE, Daemon, ProvingGround, TestEnv, private_resident_bytes_of,
 };
 use serde_json::{Value, json};
 
 use crate::fetch_tiers::settings;
-use crate::outcomes::Connection;
+use crate::on_the_daemon;
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
@@ -67,19 +68,19 @@ const PAGES: u64 = 300;
 const ALLOWANCE: &str = "governor.memory_allowance = 68719476736\n";
 
 /// Fails on any handler request: a code-free crawl sends none.
-fn no_handler(handle: &Value) -> Value {
+fn no_handler(handle: &Value) -> Option<Value> {
     panic!("a code-free crawl sent {handle}")
 }
 
 /// Runs the code-free crawl `run_id` of [`PAGES`] `scale.test` items over
 /// `connection` and waits for it to end, answering its finished report.
-fn crawl(connection: &mut Connection, proving_ground: &ProvingGround, run_id: &str) -> Value {
+fn crawl(connection: &mut DaemonClient, proving_ground: &ProvingGround, run_id: &str) -> Value {
     let seeds: Vec<Value> = (1..=PAGES)
         .map(|item| {
             json!({ "url": proving_ground.url("scale.test", &format!("/items/{item}")), "label": "item" })
         })
         .collect();
-    let started = connection.call(
+    let started = connection.call_handling(
         "start",
         "crawl.start",
         &json!({
@@ -98,7 +99,7 @@ fn crawl(connection: &mut Connection, proving_ground: &ProvingGround, run_id: &s
         &mut no_handler,
     );
     assert!(started.get("result").is_some(), "{started}");
-    connection.call(
+    connection.call_handling(
         "finish",
         "run.finish",
         &json!({ "run_id": run_id }),
@@ -108,8 +109,8 @@ fn crawl(connection: &mut Connection, proving_ground: &ProvingGround, run_id: &s
 
 /// The Daemon's live heap, as its `daemon.status` over `connection`
 /// answers it.
-fn live_heap(connection: &mut Connection) -> u64 {
-    let status = connection.call("status", "daemon.status", &json!({}), &mut no_handler);
+fn live_heap(connection: &mut DaemonClient) -> u64 {
+    let status = connection.call_handling("status", "daemon.status", &json!({}), &mut no_handler);
     status["result"]["heap"]
         .as_u64()
         .unwrap_or_else(|| panic!("the Daemon answered no live heap: {status}"))
@@ -145,7 +146,7 @@ fn forty_crawls_of_one_daemon_keep_its_live_heap_flat_once_warm() {
     env.user_configuration(ALLOWANCE);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let daemon = Daemon::start_program(&env, Path::new(FOXHOUND), DAEMON_DEADLINE).unwrap();
-    let mut connection = Connection::open(&daemon);
+    let mut connection = on_the_daemon(&daemon);
 
     let mut lifecycles = Vec::new();
     let (mut heap, mut private) = (Vec::new(), Vec::new());
@@ -159,7 +160,7 @@ fn forty_crawls_of_one_daemon_keep_its_live_heap_flat_once_warm() {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request["host"] == "scale.test")
+        .filter(|request| request.host == "scale.test")
         .count();
     drop(connection);
     daemon.stop(&env).unwrap();

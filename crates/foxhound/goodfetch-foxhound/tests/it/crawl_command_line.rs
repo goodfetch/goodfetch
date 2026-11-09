@@ -19,6 +19,7 @@
 use std::io::{BufRead as _, BufReader};
 use std::process::Stdio;
 
+use goodfetch_test_support::ToolStatus;
 use goodfetch_test_support::{
     Mode, ProvingGround, SnapshotValues, TestEnv, Tool, cli, engine_script, record_command,
     reported_address, snapshot_settings, tools,
@@ -95,7 +96,7 @@ fn crawl_start_crawls_the_catalog_from_its_flags_and_prints_the_run_id() {
         .map(|value| json!({ "id": value["id"], "name": value["name"], "price": value["price"] }))
         .collect();
     let judged = proving_ground
-        .judge_records(CATALOG, "success", &products)
+        .judge_records(CATALOG, ToolStatus::Success, &products)
         .unwrap();
     assert_eq!(
         (

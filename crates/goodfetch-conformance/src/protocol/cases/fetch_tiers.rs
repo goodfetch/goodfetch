@@ -10,22 +10,18 @@
 //! The fetch edge cases of the `http` tier (ADR 0118) are `edge`'s, and
 //! those of its redirect chains `chain`'s.
 
+use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::PAGE_FORMATS;
 use goodfetch_protocol::run::RUN_FINISH;
 use serde_json::{Value, json};
 
 use super::{Checks, Site};
 use crate::protocol::connection::{Connection, Gone};
+use crate::protocol::foxhound::{CRAWL_REQUEST_HANDLE, CRAWL_START};
 use crate::protocol::target::DEADLINE;
 
 mod chain;
 mod edge;
-
-/// `crawl.start`, Foxhound's.
-const CRAWL_START: &str = "crawl.start";
-
-/// `crawl_request.handle`, Foxhound's handler request.
-const CRAWL_REQUEST_HANDLE: &str = "crawl_request.handle";
 
 /// The task whose page the crawl fetches: labelled `gzip`.
 const TASK: &str = "content-coding/8";
@@ -203,11 +199,13 @@ fn http_tier(connection: &mut Connection, site: &Site, checks: &mut Checks) -> R
         "the Run finishes",
         finished["result"]["lifecycle"] == json!("finished"),
     );
-    let requests = site.proving_ground.received_requests().unwrap_or_default();
+    let requests = site.received_requests();
     let target = target_of(&url);
     let seen = requests
         .of_the_case()
-        .filter(|request| request["task"] == json!(TASK) && request["target"].as_str() == target)
+        .filter(|request| {
+            request.task.as_deref() == Some(TASK) && Some(request.target.as_str()) == target
+        })
         .count();
     checks.check("the site saw one request for the page", seen == 1);
     let closed = connection.request(
@@ -217,7 +215,7 @@ fn http_tier(connection: &mut Connection, site: &Site, checks: &mut Checks) -> R
     let closed: Value = connection.answer(closed)?.message;
     checks.check(
         "the page is closed once its attempt ended",
-        closed["error"]["data"]["code"] == json!("closed"),
+        closed["error"]["data"]["code"] == CLOSED.name,
     );
     Ok(())
 }

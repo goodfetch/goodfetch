@@ -19,15 +19,16 @@
 
 use goodfetch_engine::home::Home;
 use goodfetch_engine::known_certificates::{KeyHash, KnownCertificates};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::run::RunId;
 use goodfetch_test_support::{TestEnv, cli, pty};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
 use crate::daemon::{StopsTheDaemon, short_idle};
 use crate::engine_choice::{On, daemon_dispatched};
-use crate::run::call;
+use goodfetch_test_client::{Attached, Hello, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -76,10 +77,10 @@ fn listed_both_ways(env: &TestEnv) -> (Value, Value) {
         .args(["certs", "list", "--json"])
         .run()
         .unwrap();
-    let mut engine = Attached::start(env);
-    engine.send(&hello("collie", "0.1"));
+    let mut engine = Attached::start(env, COLLIE);
+    engine.send(&hello(Product::Collie));
     let _ = engine.next();
-    let answered = call(&mut engine, 1, "certs.list", &json!({}));
+    let answered = engine.ask(1, "certs.list", &json!({}));
     let _ = engine.finish();
     (serde_json::from_str(&printed.stdout).unwrap(), answered)
 }
@@ -207,15 +208,13 @@ fn audit_entries(env: &TestEnv) -> Vec<Value> {
 
 /// An Attached engine's answers to `calls`, made after a `hello` from
 /// `surface`.
-fn answers_from(env: &TestEnv, surface: &str, calls: &[(&str, Value)]) -> Vec<Value> {
-    let mut engine = Attached::start(env);
-    let mut opening = hello("collie", "0.1");
-    opening["params"]["surface"] = json!(surface);
-    engine.send(&opening);
+fn answers_from(env: &TestEnv, surface: Surface, calls: &[(&str, Value)]) -> Vec<Value> {
+    let mut engine = Attached::start(env, COLLIE);
+    engine.send(&Hello::needing(Product::Collie).surface(surface).message());
     let _ = engine.next();
     let answers = (1..)
         .zip(calls)
-        .map(|(id, (method, params))| call(&mut engine, id, method, params))
+        .map(|(id, (method, params))| engine.ask(id, method, params))
         .collect();
     let _ = engine.finish();
     answers
@@ -365,20 +364,20 @@ fn certs_accept_is_refused_under_json_and_without_a_terminal(
 /// Covers: story:4-36, story:4-37, operation:certs.accept, operation:certs.forget
 #[rstest::rstest]
 /// Covers: error:person_required
-#[case::from_an_agent("mcp", "person_required", Some((json!(PINNED), json!(CHANGED))))]
+#[case::from_an_agent(Surface::Mcp, "person_required", Some((json!(PINNED), json!(CHANGED))))]
 /// Covers: error:person_required
 #[case::from_the_typescript_sdk(
-    "sdk_typescript",
+    Surface::SdkTypescript,
     "person_required",
     Some((json!(PINNED), json!(CHANGED)))
 )]
 /// Covers: error:person_required
-#[case::from_the_python_sdk("sdk_python", "person_required", Some((json!(PINNED), json!(CHANGED))))]
+#[case::from_the_python_sdk(Surface::SdkPython, "person_required", Some((json!(PINNED), json!(CHANGED))))]
 /// Covers: error:person_required
-#[case::from_a_rust_program("rust", "person_required", Some((json!(PINNED), json!(CHANGED))))]
-#[case::from_the_cli("cli", "answered", None)]
+#[case::from_a_rust_program(Surface::Rust, "person_required", Some((json!(PINNED), json!(CHANGED))))]
+#[case::from_the_cli(Surface::Cli, "answered", None)]
 fn a_person_only_certs_call_is_refused_to_every_surface_but_a_persons(
-    #[case] surface: &str,
+    #[case] surface: Surface,
     #[case] expected: &str,
     #[case] after: Option<(Value, Value)>,
 ) {
@@ -419,7 +418,7 @@ fn certs_accept_refuses_a_key_that_did_not_stop_the_host() {
 
     let answers = answers_from(
         &env,
-        "cli",
+        Surface::Cli,
         &[(
             "certs.accept",
             json!({ "host": HOST, "spki_sha256": PINNED }),

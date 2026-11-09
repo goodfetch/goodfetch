@@ -5,6 +5,9 @@
 use std::io::Write as _;
 use std::process::Stdio;
 
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::Surface;
+use goodfetch_test_client::Hello;
 use goodfetch_test_support::{StrictStdout, TestEnv};
 use serde_json::{Value, json};
 
@@ -26,17 +29,11 @@ fn foxhounds_engine_accepts_a_client_that_needs_foxhound_and_answers_its_operati
     let mut stdout = StrictStdout::of(&process).unwrap();
 
     stdin
-        .write_all(&line(&json!({
-            "jsonrpc": "2.0",
-            "id": 0,
-            "method": "hello",
-            "params": {
-                "protocol_version": "0.1",
-                "surface": "sdk_typescript",
-                "needs": "foxhound",
-                "product_version": "0.0.0",
-            },
-        })))
+        .write_all(&line(
+            &Hello::needing(Product::Foxhound)
+                .surface(Surface::SdkTypescript)
+                .message(),
+        ))
         .unwrap();
     stdin
         .write_all(&line(&json!({

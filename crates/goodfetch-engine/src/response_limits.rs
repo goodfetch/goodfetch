@@ -30,12 +30,15 @@ use std::io::{self, Write};
 use goodfetch_protocol::response_limits::{
     DEFAULT_MAX_BODY_SIZE, DEFAULT_MAX_DECOMPRESSION_RATIO, DEFAULT_MAX_JSON_DEPTH, LimitSetting,
     MAX_JSON_DEPTH_CEILING, NETWORK_MAX_BODY_SIZE, NETWORK_MAX_DECOMPRESSION_RATIO,
-    NETWORK_MAX_JSON_DEPTH, RATIO_APPLIES_PAST, RESPONSE_LIMIT_EXCEEDED,
-    ResponseLimitExceededDetails,
+    NETWORK_MAX_JSON_DEPTH, RESPONSE_LIMIT_EXCEEDED, ResponseLimitExceededDetails,
 };
 
 use crate::call_error::CallError;
-use crate::settings::Resolved;
+use crate::settings::{Resolved, RunSettings};
+
+/// The decoded size past which `network.max_decompression_ratio` applies:
+/// 1 MiB.
+const RATIO_APPLIES_PAST: u64 = 1024 * 1024;
 
 /// The largest window, as a power of two, a zstd frame may ask for: 8 MiB
 /// (RFC 9659, and Chromium's `windowLogMax`).
@@ -80,6 +83,12 @@ impl Limits {
             max_decompression_ratio: settings.get(&NETWORK_MAX_DECOMPRESSION_RATIO),
             max_json_depth: settings.get(&NETWORK_MAX_JSON_DEPTH),
         }
+    }
+
+    /// The limits of a Run under `settings`; the catalog's defaults for a
+    /// Run with none.
+    pub fn of_run(settings: Option<&RunSettings>) -> Self {
+        settings.map_or_else(Self::default, |settings| Self::of(settings.resolved()))
     }
 
     /// Judges a body another reader decoded, such as a browser: `decoded`
@@ -269,6 +278,12 @@ impl Decoding {
         result.map_err(|_| BodyFailure::Decoding)
     }
 }
+
+/// The two bytes a gzip stream opens with (RFC 1952).
+pub const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
+
+/// The four bytes a zstd frame opens with (RFC 8878).
+pub const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
 
 /// A content coding the engine decodes, as Chrome decodes it: every tier
 /// that reads a body names its codings with this one rule.

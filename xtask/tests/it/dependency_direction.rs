@@ -1,5 +1,9 @@
 //! The dependency-direction check: `goodfetch-test-support` depends on no
-//! Goodfetch crate and is only ever a dev-dependency (ADR 0062); the Proving
+//! Goodfetch crate and is only ever a dev-dependency (ADR 0062);
+//! `goodfetch-test-client` depends on no Goodfetch crate but
+//! `goodfetch-protocol` and `goodfetch-test-support`, is only ever a
+//! dev-dependency and is never taken by `goodfetch-protocol` (ADR 0062's
+//! note of 2026-11-07); the Proving
 //! ground depends on no engine crate, nor on `goodfetch-conformance` or
 //! `goodfetch-protocol`; `goodfetch-conformance` depends only on
 //! `goodfetch-protocol` (ADR 0032, STYLE.md); `xtask` builds no Goodfetch
@@ -68,6 +72,7 @@ fn test_support_depending_on_a_goodfetch_crate_fails() {
 #[case::protocol("proving-ground-depends-on-protocol.toml")]
 #[case::protocol_as_a_build_dependency("proving-ground-build-depends-on-protocol.toml")]
 #[case::engine_as_a_dev_dependency("proving-ground-dev-depends-on-engine.toml")]
+#[case::test_client_as_a_dev_dependency("proving-ground-dev-depends-on-test-client.toml")]
 fn proving_ground_depending_on_a_goodfetch_crate_fails(#[case] manifest: &str) {
     let workspace = Workspace::from_fixture("dependency-direction");
     workspace.add_fixture_file(
@@ -83,6 +88,62 @@ fn proving_ground_depending_on_a_goodfetch_crate_fails(#[case] manifest: &str) {
             "proving-ground-depends-on-goodfetch",
             "goodfetch-proving-ground"
         )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn test_client_depending_on_more_than_the_protocol_and_test_support_fails() {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.add_fixture_file(
+        "dependency-direction-cases/test-client-depends-on-engine.toml",
+        "crates/goodfetch-test-client/Cargo.toml",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "test-client-depends-on-more-than-protocol",
+            "goodfetch-test-client"
+        )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[rstest]
+#[case::normal_dependency("engine-normal-depends-on-test-client.toml")]
+#[case::build_dependency("engine-build-depends-on-test-client.toml")]
+fn test_client_outside_dev_dependencies_fails(#[case] manifest: &str) {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.add_fixture_file(
+        &format!("dependency-direction-cases/{manifest}"),
+        "crates/goodfetch-engine/Cargo.toml",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("test-client-not-dev-only", "goodfetch-engine")]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn protocol_taking_test_client_fails() {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.add_fixture_file(
+        "dependency-direction-cases/protocol-dev-depends-on-test-client.toml",
+        "crates/goodfetch-protocol/Cargo.toml",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("protocol-takes-test-client", "goodfetch-protocol")]
     );
     assert_eq!(outcome.code, 1);
 }

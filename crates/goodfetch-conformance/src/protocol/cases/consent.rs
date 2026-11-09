@@ -14,15 +14,15 @@
 //! ground and by the Run trace the engine writes, its Provenance log
 //! among it. The consent wall cases (tickets #718 and #859) are `walls`'.
 
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use goodfetch_protocol::home::{RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PROVENANCE};
 use goodfetch_protocol::page::{PAGE_FORMATS, PAGE_GOTO, PageOpened};
 use goodfetch_protocol::run::RUN_FINISH;
 use serde_json::{Value, json};
 
 use super::navigation::call;
-use super::{Checks, Site, new_page, start_run};
+use super::{Checks, Site, new_page, poll, run_trace, start_run};
 use crate::protocol::connection::{Connection, Gone};
 
 pub(super) mod walls;
@@ -142,13 +142,11 @@ impl Case {
 
 /// The query parameters of each report the pages sent to `path`.
 fn reports(site: &Site, path: &str) -> Vec<Vec<(String, String)>> {
-    site.proving_ground
-        .received_requests()
-        .unwrap_or_default()
+    site.received_requests()
         .of_the_case()
-        .filter(|request| [json!(HOST), json!(FRAME_HOST)].contains(&request["host"]))
+        .filter(|request| [HOST, FRAME_HOST].contains(&request.host.as_str()))
         .filter_map(|request| {
-            let (target, query) = request["target"].as_str()?.split_once('?')?;
+            let (target, query) = request.target.split_once('?')?;
             (target == path).then(|| {
                 query
                     .split('&')
@@ -174,10 +172,6 @@ fn count(site: &Site, path: &str, wanted: &[(&str, &str)]) -> usize {
 
 /// Waits until more than `before` reports to `path` carry `wanted`, or
 /// `wait` passes; whether they did.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the synchronous harness polls the Proving ground on its own thread, outside any async worker"
-)]
 fn arrives(
     site: &Site,
     path: &str,
@@ -185,16 +179,13 @@ fn arrives(
     before: usize,
     wait: Duration,
 ) -> bool {
-    let started = Instant::now();
-    loop {
-        if count(site, path, wanted) > before {
-            return true;
-        }
-        if started.elapsed() > wait {
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
+    let counted = poll::until(
+        wait,
+        Duration::from_millis(200),
+        || count(site, path, wanted),
+        |counted| *counted > before,
+    );
+    counted > before
 }
 
 /// Starts the Run `run_id` with `settings` and opens its page.
@@ -217,7 +208,7 @@ fn visit(
     path: &str,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let url = site.named_url(HOST, path).unwrap_or_default();
+    let url = site.named_url(HOST, path);
     let answer = call(
         connection,
         PAGE_GOTO.name,
@@ -377,7 +368,8 @@ fn notice(
         !markdown.contains("This website uses cookies") && markdown.contains("The article's text"),
     );
     finish(connection, run_id)?;
-    let made = trace(home, run_id, "cdp-commands.jsonl")
+    let made = checks
+        .run_trace(run_trace::lines(home, run_id, RUN_TRACE_CDP_COMMANDS))
         .iter()
         .filter(|line| line["method"] == json!("CSS.createStyleSheet"))
         .count();
@@ -416,45 +408,6 @@ fn overrides(connection: &mut Connection, site: &Site, checks: &mut Checks) -> R
         reports(site, "/consent/leftover").is_empty(),
     );
     finish(connection, run_id)
-}
-
-/// The JSON lines of `file` in the trace folder of the Run `run_id`, under
-/// the Goodfetch home `home`: `<home>/<major>/runs/<run_id>/trace/`.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the harness is synchronous and runs no async worker"
-)]
-fn trace(home: Option<&str>, run_id: &str, file: &str) -> Vec<Value> {
-    let Some(home) = home else {
-        return Vec::new();
-    };
-    std::fs::read_dir(home)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|major| {
-            major
-                .path()
-                .join("runs")
-                .join(run_id)
-                .join("trace")
-                .join(file)
-        })
-        .filter(|path: &PathBuf| path.is_file())
-        .flat_map(|path| lines(&path))
-        .collect()
-}
-
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the harness is synchronous and runs no async worker"
-)]
-fn lines(file: &Path) -> Vec<Value> {
-    std::fs::read_to_string(file)
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|line| serde_json::from_str(line).ok())
-        .collect()
 }
 
 /// Cookiebot's refusal calls its own `Cookiebot.withdraw()`, a page
@@ -504,14 +457,14 @@ fn worlds(
         arrives(site, "/consent/answered", saved, before, ANSWER_WAIT),
     );
     finish(connection, run_id)?;
-    let commands = trace(home, run_id, "cdp-commands.jsonl");
+    let commands = checks.run_trace(run_trace::lines(home, run_id, RUN_TRACE_CDP_COMMANDS));
     let sent = |method: &str| commands.iter().any(|line| line["method"] == json!(method));
     checks.check("`Runtime.enable` was never sent", !sent("Runtime.enable"));
     checks.check(
         "the main-world snippet went through `DOM.resolveNode`",
         sent("DOM.resolveNode"),
     );
-    let outcomes = trace(home, run_id, "provenance.jsonl");
+    let outcomes = checks.run_trace(run_trace::lines(home, run_id, RUN_TRACE_PROVENANCE));
     for rule in ["Cybotcookiebot", "Moove"] {
         checks.check(
             format!("Provenance records {rule}'s prompt refused"),
@@ -542,7 +495,12 @@ fn off(
     };
     let before = count(site, "/consent/answered", &[("vendor", "onetrust")]);
     visit(connection, site, &page, "/vendor/onetrust", checks)?;
-    let left = walls::recorded(home, run_id, &page, ("/vendor/onetrust", "left"));
+    let left = checks.run_trace(walls::recorded(
+        home,
+        run_id,
+        &page,
+        ("/vendor/onetrust", "left"),
+    ));
     finish(connection, run_id)?;
     checks.check(
         "with `consent.handling` off, Provenance records OneTrust's prompt left",

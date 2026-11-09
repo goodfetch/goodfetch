@@ -23,7 +23,7 @@ use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::SettingsLayer;
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{TestEnv, wal_of};
 use jiff::Timestamp;
 use proptest::prelude::*;
 use rusqlite::Connection;
@@ -591,4 +591,15 @@ proptest! {
             })
         );
     }
+}
+
+/// The Audit log holds to the synced per-user store's durability: its WAL
+/// stays beside it as a write's connection closes (#2110).
+#[test]
+fn the_wal_stays_beside_the_log_once_a_write_closed_its_connection() {
+    let env = TestEnv::in_memory();
+
+    let log = written(&env, 1);
+
+    assert!(wal_of(log.path()).exists());
 }

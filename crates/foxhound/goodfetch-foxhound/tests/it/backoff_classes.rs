@@ -25,6 +25,8 @@ use std::net::{SocketAddr, TcpListener};
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use goodfetch_test_client::Attached;
+use goodfetch_test_support::ObservedRequest;
 use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
 };
@@ -32,7 +34,7 @@ use rstest::rstest;
 use rusqlite::{Connection, OpenFlags, OptionalExtension as _};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached_with;
 use crate::fetch_tiers::settings;
 
 /// The Proving ground's seed.
@@ -86,7 +88,7 @@ fn home(proving_ground: &ProvingGround, env: &TestEnv) {
 /// Testing.
 fn engine(env: &TestEnv) -> Attached {
     let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
-    Attached::start_with(env, Some(Duration::from_secs(90)), |command| {
+    attached_with(env, Some(Duration::from_secs(90)), |command| {
         command.env(BROWSERS_PATH_VARIABLE, &cache);
     })
 }
@@ -210,7 +212,7 @@ fn ready_at(file: &Path, key: &str) -> Option<SystemTime> {
 
 /// Whether the Politeness file holds the domain key `key` for at least
 /// `at_least` from now.
-fn held_for(file: &Path, key: &str, at_least: Duration) -> bool {
+pub(crate) fn held_for(file: &Path, key: &str, at_least: Duration) -> bool {
     ready_at(file, key).is_some_and(|until| until > SystemTime::now() + at_least)
 }
 
@@ -320,7 +322,7 @@ fn a_failing_site_backs_its_domain_off_and_a_500_does_not(
             "settings": crawl_settings(&proving_ground, tier, &extra, &more),
         }),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -335,10 +337,10 @@ fn a_failing_site_backs_its_domain_off_and_a_500_does_not(
     // HTTP/2, on either tier.
     if matches!(page, Page::Calm) {
         let observations = proving_ground.observations().unwrap();
-        let protocols: Vec<Value> = ReceivedRequests::of(&observations)
+        let protocols: Vec<String> = ReceivedRequests::of(&observations)
             .of_the_case()
-            .filter(|request| request["target"] == json!("/calm"))
-            .map(|request| request["protocol"].clone())
+            .filter(|request| request.target == "/calm")
+            .map(|request| request.protocol.clone())
             .collect();
         assert!(
             !protocols.is_empty() && protocols.iter().all(|protocol| protocol == "h2"),
@@ -384,13 +386,13 @@ fn the_sites_retry_after_holds_its_domain_and_nothing_is_sent_before_it(
             "settings": settings,
         }),
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
-    let targets: Vec<Value> = proving_ground
+    let targets: Vec<ObservedRequest> = proving_ground
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request["target"] == json!("/target"))
+        .filter(|request| request.target == "/target")
         .cloned()
         .collect();
     assert_eq!(
@@ -487,7 +489,7 @@ fn a_sites_429_through_a_proxy_backs_its_domain_off_and_lowers_no_ceiling() {
         &file,
         "scope.test",
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (

@@ -25,6 +25,8 @@
 //!   it holds. In the per-install layout, with the run folders on a tmpfs
 //!   of their own inside the home's, `/readyz` and `holds="run_state"`
 //!   follow the install database's filesystem, the home's.
+//! - **A read-only location:** `run.checkpoint` fails with
+//!   `file_write_failed`, naming `EROFS`, and leaves no file.
 //!
 //! The crawl and WARC lines are area 6's.
 #![expect(
@@ -42,16 +44,22 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::home::DaemonFile;
+use goodfetch_test_client::DaemonClient;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{MESSAGE_DEADLINE, TestEnv, browser_cache};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
 use crate::clean_up_rules::calendar_free;
-use crate::daemon::RawClient;
+use crate::daemon_hello;
 use crate::daemon_run::{ANY_PORT, Foreground};
 use crate::ops::{get, series};
-use goodfetch_test_support::{fill_filesystem, free_filesystem, inside_mount, tmpfs_mounted_home};
+use goodfetch_test_client::{Attached, hello};
+use goodfetch_test_support::{
+    fill_filesystem, free_filesystem, inside_mount, read_only_mounted, tmpfs_mounted_home,
+};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -74,19 +82,19 @@ enum Mode {
 }
 
 /// The engine of a test, on its tmpfs.
-enum Engine<'env> {
-    Attached(Attached<'env>),
+enum Engine {
+    Attached(Attached),
     Daemon {
         daemon: Foreground,
-        client: RawClient,
+        client: DaemonClient,
     },
 }
 
-impl<'env> Engine<'env> {
+impl Engine {
     /// Starts Collie's executable in `mode` with a tmpfs over the test's
     /// home, its user configuration holding `settings`, and opens the
     /// Connection subscribed to every event.
-    fn start(env: &'env TestEnv, mode: Mode, settings: &str) -> Self {
+    fn start(env: &TestEnv, mode: Mode, settings: &str) -> Self {
         let mut engine = match mode {
             Mode::Attached => {
                 env.user_configuration(settings);
@@ -94,7 +102,7 @@ impl<'env> Engine<'env> {
                 command.arg("attached-engine");
                 let mut engine =
                     Self::Attached(Attached::spawned(env, MESSAGE_DEADLINE, &mut command));
-                engine.send(&hello("collie", "0.1"));
+                engine.send(&hello(Product::Collie));
                 let _ = engine.next();
                 engine
             }
@@ -107,10 +115,10 @@ impl<'env> Engine<'env> {
                 let pid = daemon.process.child().id();
                 let token = std::fs::read_to_string(inside_mount(
                     pid,
-                    &env.home().join("0.0").join("daemon.token"),
+                    &HomeLayout::of(env.home()).daemon_file(DaemonFile::Token),
                 ))
                 .unwrap();
-                let client = RawClient::opened_at(&endpoint, &token, "collie");
+                let client = DaemonClient::opened(&endpoint, &daemon_hello(&token));
                 Self::Daemon { daemon, client }
             }
         };
@@ -185,7 +193,7 @@ impl<'env> Engine<'env> {
 }
 
 fn run_folder(env: &TestEnv, run_id: &str) -> PathBuf {
-    env.home().join("0.0").join("runs").join(run_id)
+    HomeLayout::of(env.home()).run_folder(run_id)
 }
 
 /// The codes of `report`'s warnings, but the calendar's
@@ -204,6 +212,51 @@ fn warnings(report: &Value) -> Vec<Value> {
 
 fn exists(pid: u32, path: &Path) -> bool {
     inside_mount(pid, path).exists()
+}
+
+/// Covers: story:3-30, error:file_write_failed
+#[test]
+fn a_checkpoint_to_a_read_only_filesystem_fails_and_leaves_no_file() {
+    let env = TestEnv::new();
+    let read_only = env.folder().join("read-only");
+    let mut command = read_only_mounted(&env, &read_only, COLLIE);
+    command.arg("attached-engine");
+    let mut engine = Attached::spawned(&env, MESSAGE_DEADLINE, &mut command);
+    let pid = engine.pid();
+    engine.send(&hello(Product::Collie));
+    let _ = engine.next();
+    let started = engine.ask(1, "run.start", &json!({ "run_id": "refused" }));
+
+    let failed = engine.ask(
+        2,
+        "run.checkpoint",
+        &json!({
+            "run_id": "refused",
+            "location": read_only.join("kept.sqlite").display().to_string(),
+        }),
+    );
+
+    let left = std::fs::read_dir(inside_mount(pid, &read_only))
+        .unwrap()
+        .count();
+    let _ = engine.finish();
+    let mut data = failed["error"]["data"].clone();
+    data["path"].take();
+    assert_eq!(
+        (started.get("result").is_some(), data, left),
+        (
+            true,
+            json!({
+                "code": "file_write_failed",
+                "retryable": false,
+                "reason": "read_only_filesystem",
+                "os_code": "EROFS",
+                "side": "engine",
+                "path": null,
+            }),
+            0,
+        )
+    );
 }
 
 /// Low: crossing `storage.low_free` leaves the Run working, its progress
@@ -284,7 +337,7 @@ fn past_critical_free_a_run_stops_resumably_and_nothing_new_is_written_there(#[c
     engine.stop();
 
     let folder = run_folder(&env, "full").display().to_string();
-    let runs = env.home().join("0.0").join("runs").display().to_string();
+    let runs = HomeLayout::of(env.home()).runs().display().to_string();
     assert_eq!(
         (
             (
@@ -423,7 +476,7 @@ fn per_install_daemon_with_ops(env: &TestEnv) -> (Foreground, SocketAddr, String
     let mut command = tmpfs_mounted_home(env, SIZE, "sh");
     command
         .args(["-c", OWN_RUNS, "sh"])
-        .arg(env.home().join("0.0").join("runs"))
+        .arg(HomeLayout::of(env.home()).runs())
         .arg(RUNS_SIZE.to_string())
         .args([COLLIE, "daemon", "run"]);
     daemon_from(env, command)
@@ -440,9 +493,11 @@ fn daemon_from(env: &TestEnv, mut command: Command) -> (Foreground, SocketAddr, 
         .parse()
         .unwrap();
     let pid = daemon.process.child().id();
-    let token =
-        std::fs::read_to_string(inside_mount(pid, &env.home().join("0.0").join("ops.token")))
-            .unwrap();
+    let token = std::fs::read_to_string(inside_mount(
+        pid,
+        &HomeLayout::of(env.home()).daemon_file(DaemonFile::OpsToken),
+    ))
+    .unwrap();
     (daemon, address, token)
 }
 
@@ -591,7 +646,7 @@ fn in_the_per_install_layout_readyz_follows_the_install_databases_filesystem() {
     let filler = fill_filesystem(pid, env.home(), CRITICAL_ROOM);
     let critical = storage_at(address, &token, pid, env.home(), "2");
     let ready_at_critical = get(address, "/readyz", None).0;
-    let runs_left = left(&inside_mount(pid, &env.home().join("0.0").join("runs")));
+    let runs_left = left(&inside_mount(pid, &HomeLayout::of(env.home()).runs()));
     let home_left = left(&inside_mount(pid, env.home()));
     free_filesystem(&filler);
     storage_at(address, &token, pid, env.home(), "0");

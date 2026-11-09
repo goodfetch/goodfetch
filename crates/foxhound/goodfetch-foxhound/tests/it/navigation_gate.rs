@@ -15,18 +15,27 @@
     reason = "the handler, the test's own code, waits in real time for the popup the browser navigates"
 )]
 #![expect(
+    clippy::disallowed_types,
+    reason = "the test's proxy thread, outside the engine, says it held a request (ADR 0060)"
+)]
+#![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, browser_cache};
+use goodfetch_test_client::Attached;
+use goodfetch_test_support::{
+    BROWSERS_PATH_VARIABLE, DISPATCH_TARGET, ProvingGround, TestEnv, browser_cache, proxy_in_front,
+};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
 use crate::frontier::{Inside, crawl_with};
+use crate::{attached_with, before_their_turn};
 
 /// The Proving ground's seed.
 const SEED: u64 = 760;
@@ -49,7 +58,7 @@ fn engine(env: &TestEnv) -> Attached {
     env.user_configuration(ADMITTED_WHATEVER_THE_LOAD);
     let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
     // A navigation may wait out its domain's delay with nothing to say.
-    Attached::start_with(env, Some(Duration::from_secs(60)), |command| {
+    attached_with(env, Some(Duration::from_secs(60)), |command| {
         command.env(BROWSERS_PATH_VARIABLE, &cache);
     })
 }
@@ -101,7 +110,7 @@ fn requested(proving_ground: &ProvingGround, host: &str, path: &str) -> usize {
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| request["host"] == host && request["target"] == path)
+        .filter(|request| request.host == host && request.target == path)
         .count()
 }
 
@@ -132,7 +141,7 @@ fn a_handlers_goto_robots_txt_disallows_is_refused_before_it_leaves() {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -213,7 +222,7 @@ fn a_disallowed_request_answers_nothing_and_a_disallowed_click_leaves_the_page()
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -264,31 +273,101 @@ fn arrivals(proving_ground: &ProvingGround, host: &str, targets: &[&str]) -> Vec
         .received_requests()
         .unwrap()
         .every()
-        .filter(|request| request["host"] == host)
+        .filter(|request| request.host == host)
         .filter_map(|request| {
-            let target = request["target"].as_str()?;
-            targets.contains(&target).then(|| {
-                (
-                    target.to_owned(),
-                    request["timing"]["arrived_microseconds"].as_u64().unwrap(),
-                )
-            })
+            let target = request.target.as_str();
+            targets
+                .contains(&target)
+                .then(|| (target.to_owned(), request.timing.arrived_microseconds))
         })
         .collect();
     arrivals.sort_by_key(|(_, at)| *at);
     arrivals
 }
 
-/// The targets of `arrivals` that came less than the delay after the one
-/// before them.
-fn too_soon(arrivals: &[(String, u64)]) -> Vec<String> {
-    // The Proving ground stamps an arrival a little after the engine sent it.
-    let least = DELAY_MILLISECONDS * 1_000 * 9 / 10;
-    arrivals
-        .windows(2)
-        .filter(|pair| pair[1].1 - pair[0].1 < least)
-        .map(|pair| pair[1].0.clone())
+/// The lines of the engine's log of the test's home, across its files, in
+/// the order of their times.
+fn engine_log(env: &TestEnv) -> Vec<Value> {
+    let mut lines: Vec<Value> = std::fs::read_dir(env.home().join("logs"))
+        .unwrap()
+        .flat_map(|file| {
+            std::fs::read_to_string(file.unwrap().path())
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect::<Vec<Value>>()
+        })
+        .collect();
+    lines.sort_by_cached_key(|line| {
+        line["timestamp"]
+            .as_str()
+            .and_then(|at| at.parse::<jiff::Timestamp>().ok())
+    });
+    lines
+}
+
+/// When the navigation gate admitted each request of `domain_key`, by the
+/// engine's log.
+fn admitted(env: &TestEnv, domain_key: &str) -> Vec<jiff::Timestamp> {
+    engine_log(env)
+        .iter()
+        .filter(|line| {
+            line["target"] == json!("goodfetch::navigation_gate")
+                && line["fields"]["domain_key"] == json!(domain_key)
+        })
+        .map(|line| line["timestamp"].as_str().unwrap().parse().unwrap())
         .collect()
+}
+
+/// How many of `admitted` the gate admitted before their turn after `from`,
+/// a moment before the first of them: the n-th no sooner than n - 1 delays
+/// after it, to the millisecond its starts are kept in. Two neighbours prove
+/// nothing: the gate takes each start ahead of its wait, so the first's late
+/// wake can leave the next closer than the delay by as much.
+fn admitted_too_soon(
+    admitted: &[jiff::Timestamp],
+    from: jiff::Timestamp,
+    delay: Duration,
+) -> usize {
+    let delay = i64::try_from(delay.as_millis()).unwrap();
+    admitted
+        .iter()
+        .zip(0..)
+        .filter(|(at, places)| at.as_millisecond() < from.as_millisecond() + places * delay)
+        .count()
+}
+
+/// What the site `host` and the navigation gate saw of its domain `domain_key`
+/// under the delay, for a site that was asked for `targets`, its robots.txt
+/// first: how many of them arrived, each once; whether robots.txt did not come
+/// first or a later one reached the site before its turn after it
+/// ([`before_their_turn`]); and how many requests the gate admitted.
+fn permits_of(
+    env: &TestEnv,
+    proving_ground: &ProvingGround,
+    (host, domain_key): (&str, &str),
+    targets: &[&str],
+) -> (usize, bool, usize) {
+    let arrived = arrivals(proving_ground, host, targets);
+    let arrived_once = targets
+        .iter()
+        .filter(|target| {
+            arrived
+                .iter()
+                .filter(|(arrived, _)| arrived == *target)
+                .count()
+                == 1
+        })
+        .count();
+    let arrived_too_soon = arrived
+        .first()
+        .is_some_and(|(first, _)| first != "/robots.txt")
+        || !before_their_turn(&arrived, DELAY_MILLISECONDS * 1_000).is_empty();
+    (
+        arrived_once,
+        arrived_too_soon,
+        admitted(env, domain_key).len(),
+    )
 }
 
 /// A URL matcher for a page's waits: the glob `pattern`.
@@ -298,9 +377,10 @@ fn glob(pattern: &str) -> Value {
 
 /// A handler's `goto`, a click that navigates, a `page.request`, each
 /// redirect hop, a script's redirect and a popup's navigation each take a
-/// permit of their domain's Politeness: under `politeness.domain.delay`,
-/// every one of them, and the robots.txt read for their host, reaches the
-/// site at least the delay after the one before it there.
+/// permit of their domain's Politeness: under `politeness.domain.delay`, the
+/// gate admits every one of them at least the delay after the one before it
+/// there, each reaches the site once, and the first after the robots.txt read
+/// for their host reaches it at least the delay after that read.
 ///
 /// Covers: story:5-134, story:5-112, story:5-113, setting:politeness.domain.delay, operation:page.goto, operation:locator.click, operation:page.request, operation:page.wait_for_url
 #[test]
@@ -332,15 +412,7 @@ fn every_navigation_of_a_handlers_pages_takes_a_permit_of_its_domain() {
                 ("page.goto", url(POPUP_HOST, "/popup")),
                 ("locator.click", click("#open")),
             ];
-            for (method, mut params) in steps {
-                if method != "locator.click" {
-                    params["page_id"] = json!(page_id);
-                }
-                let answer = inside.call(method, &params);
-                if answer.get("result").is_none() {
-                    failed.push(answer);
-                }
-            }
+            failed = steps_on_the_page(inside, &page_id, steps);
             // The popup navigates on its own, once its permit comes: the
             // handler answers once it did, while its lease still holds.
             let until = Instant::now() + Duration::from_secs(10);
@@ -352,12 +424,18 @@ fn every_navigation_of_a_handlers_pages_takes_a_permit_of_its_domain() {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
-    let history = arrivals(&proving_ground, HISTORY, &["/robots.txt", "/", "/b", "/c"]);
-    let edge = arrivals(
+    let history = permits_of(
+        &env,
         &proving_ground,
-        FETCH_EDGE,
+        (HISTORY, "navigation.test"),
+        &["/robots.txt", "/", "/b", "/c"],
+    );
+    let edge = permits_of(
+        &env,
+        &proving_ground,
+        (FETCH_EDGE, "fetch-edge.test"),
         &[
             "/robots.txt",
             "/redirect/hops/2",
@@ -367,25 +445,122 @@ fn every_navigation_of_a_handlers_pages_takes_a_permit_of_its_domain() {
             "/target",
         ],
     );
-    let popup = arrivals(
+    let popup = permits_of(
+        &env,
         &proving_ground,
-        POPUP_HOST,
+        (POPUP_HOST, "access.test"),
         &["/robots.txt", "/popup", "/popup/opened"],
+    );
+    assert_eq!(
+        (&report["result"]["lifecycle"], failed, history, edge, popup),
+        (
+            &json!("finished"),
+            Vec::<Value>::new(),
+            (4, false, 3),
+            (6, false, 5),
+            (3, false, 2),
+        )
+    );
+}
+
+/// Calls each of `steps` on the page `page_id`, the page named in each but a
+/// click's, whose locator names it: answers the calls that failed.
+fn steps_on_the_page<const STEPS: usize>(
+    inside: &mut Inside<'_>,
+    page_id: &str,
+    steps: [(&str, Value); STEPS],
+) -> Vec<Value> {
+    let mut failed = Vec::new();
+    for (method, mut params) in steps {
+        if method != "locator.click" {
+            params["page_id"] = json!(page_id);
+        }
+        let answer = inside.call(method, &params);
+        if answer.get("result").is_none() {
+            failed.push(answer);
+        }
+    }
+    failed
+}
+
+/// How long [`a_navigation_slow_to_reach_its_site_takes_the_next_ones_permit_no_sooner`]
+/// holds the first navigation on its way: short of the delay, so the next
+/// one's permit could come early only if the hold moved it.
+const SLOW_ON_ITS_WAY: Duration = Duration::from_millis(300);
+
+/// A click's request stays on its way to the site, here in the Session's
+/// proxy, long after its send, and that moves no permit: the gate holds the
+/// delay between sends (ADR 0086), so it admits the next request the delay
+/// after the one before, and each still reaches the site no sooner than its
+/// turn. The test names the hold it forces. How close the two arrive is not
+/// judged: it also holds how soon the handler asked, which no figure bounds on
+/// a loaded host.
+///
+/// Covers: story:5-134, setting:politeness.domain.delay, operation:locator.click, operation:page.request
+#[test]
+fn a_navigation_slow_to_reach_its_site_takes_the_next_ones_permit_no_sooner() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let held = Arc::new(AtomicBool::new(false));
+    let holding = Arc::clone(&held);
+    let front = proxy_in_front(
+        proving_ground.description().fixtures.proxies["open"].clone(),
+        move |line| {
+            if line.contains("/b HTTP/") {
+                std::thread::sleep(SLOW_ON_ITS_WAY);
+                holding.store(true, Ordering::SeqCst);
+            }
+        },
+    );
+    let more = json!({
+        "politeness": { "domain": { "delay": DELAY_MILLISECONDS } },
+        "proxy": { "server": format!("http://{front}") },
+    });
+
+    let mut failed = Vec::new();
+    let report = crawl_with(
+        &mut engine,
+        "slow-way",
+        &[json!({ "url": proving_ground.url(ROBOTS_HOST, "/catalog/1"), "label": "page" })],
+        &settings(&proving_ground, &more),
+        &mut |inside, handle| {
+            let page_id = new_page(inside, handle);
+            let steps = [
+                (
+                    "page.goto",
+                    json!({ "url": proving_ground.url(HISTORY, "/") }),
+                ),
+                (
+                    "locator.click",
+                    json!({ "locator": { "page_id": page_id, "selector": "#next" } }),
+                ),
+                ("page.wait_for_url", json!({ "url": glob("**/b") })),
+                (
+                    "page.request",
+                    json!({ "url": proving_ground.url(HISTORY, "/c") }),
+                ),
+            ];
+            failed = steps_on_the_page(inside, &page_id, steps);
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finished());
+
+    let history = permits_of(
+        &env,
+        &proving_ground,
+        (HISTORY, "navigation.test"),
+        &["/robots.txt", "/", "/b", "/c"],
     );
     assert_eq!(
         (
             &report["result"]["lifecycle"],
             failed,
-            (history.len(), edge.len(), popup.len()),
-            (too_soon(&history), too_soon(&edge), too_soon(&popup)),
+            held.load(Ordering::SeqCst),
+            history
         ),
-        (
-            &json!("finished"),
-            Vec::<Value>::new(),
-            (4, 6, 3),
-            (Vec::new(), Vec::new(), Vec::new()),
-        ),
-        "{history:?} {edge:?} {popup:?}"
+        (&json!("finished"), Vec::<Value>::new(), true, (4, false, 3))
     );
 }
 
@@ -480,7 +655,7 @@ fn a_handler_waiting_for_a_permit_is_not_timed_out_and_its_wait_is_named() {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -552,8 +727,10 @@ fn taken(env: &TestEnv, key: &str) -> Taken {
 /// worker treats navigations as `navigations` says, waiting until the
 /// worker controls it, then reloading it. Answers what the gate had taken
 /// of [`SERVICE_WORKER_KEY`] right before the reload and once it answered,
-/// and the arrival times, in microseconds, of each request for the page.
-fn reloaded_under_a_service_worker(navigations: &str) -> ((Taken, Taken), Vec<u64>) {
+/// how many requests for the page arrived, how many the gate admitted of the
+/// key's, and how many of those it admitted before their turn after the
+/// crawl's start ([`admitted_too_soon`]).
+fn reloaded_under_a_service_worker(navigations: &str) -> ((Taken, Taken), usize, usize, usize) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
@@ -562,6 +739,7 @@ fn reloaded_under_a_service_worker(navigations: &str) -> ((Taken, Taken), Vec<u6
         "politeness": { "domain": { "delay": SERVICE_WORKER_DELAY.as_millis() } },
     });
 
+    let mut going = None;
     let mut reload = None;
     let report = crawl_with(
         &mut engine,
@@ -571,6 +749,7 @@ fn reloaded_under_a_service_worker(navigations: &str) -> ((Taken, Taken), Vec<u6
         &mut |inside, handle| {
             let page_id = new_page(inside, handle);
             let url = proving_ground.url(SERVICE_WORKER_HOST, &page);
+            going = Some(jiff::Timestamp::now());
             let went = inside.call("page.goto", &json!({ "page_id": page_id, "url": url }));
             assert_eq!(went["result"]["response"]["status"], 200, "{went}");
             let title = json!({ "page_id": page_id, "function": "() => document.title" });
@@ -592,37 +771,36 @@ fn reloaded_under_a_service_worker(navigations: &str) -> ((Taken, Taken), Vec<u6
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
-    let arrived = arrivals(&proving_ground, SERVICE_WORKER_HOST, &[page.as_str()])
-        .into_iter()
-        .map(|(_, at)| at)
-        .collect();
-    (reload.unwrap(), arrived)
+    let arrived = arrivals(&proving_ground, SERVICE_WORKER_HOST, &[page.as_str()]).len();
+    let admitted = admitted(&env, SERVICE_WORKER_KEY);
+    (
+        reload.unwrap(),
+        arrived,
+        admitted.len(),
+        admitted_too_soon(&admitted, going.unwrap(), SERVICE_WORKER_DELAY),
+    )
 }
 
 /// A service worker's request carrying a navigation of a handler's page,
 /// its `navigate`-mode request or its `cors` refetch of the pending
 /// navigation's URL, takes that navigation's permit, once: the reload takes
-/// one Permit of its domain, and its request reaches the site no sooner
-/// than the delay between starts after the page's first load.
+/// one Permit of its domain, and the gate admits it no sooner than the delay
+/// between starts after the page's first load.
 ///
 /// Covers: story:5-134, story:5-112, operation:page.reload
 #[rstest::rstest]
 #[case::its_navigate_mode_request("pass")]
 #[case::its_refetch_of_a_pending_navigation("refetch")]
 fn a_service_workers_navigation_request_takes_the_permit(#[case] navigations: &str) {
-    let ((before, after), arrived) = reloaded_under_a_service_worker(navigations);
+    let ((before, after), arrived, admitted, too_soon) =
+        reloaded_under_a_service_worker(navigations);
 
-    let least = u64::try_from(SERVICE_WORKER_DELAY.as_micros() * 9 / 10).unwrap();
     assert_eq!(
-        (
-            after.permits - before.permits,
-            arrived.len(),
-            arrived.windows(2).all(|pair| pair[1] - pair[0] >= least)
-        ),
-        (1, 2, true),
-        "{before:?} {after:?} {arrived:?}"
+        (after.permits - before.permits, arrived, admitted, too_soon),
+        (1, 2, 2, 0),
+        "{before:?} {after:?}"
     );
 }
 
@@ -633,10 +811,10 @@ fn a_service_workers_navigation_request_takes_the_permit(#[case] navigations: &s
 /// Covers: story:5-134, operation:page.reload
 #[test]
 fn a_navigation_a_service_worker_answers_from_its_cache_takes_no_permit() {
-    let ((before, after), arrived) = reloaded_under_a_service_worker("cache");
+    let ((before, after), arrived, _, _) = reloaded_under_a_service_worker("cache");
 
     assert_eq!(
-        (arrived.len(), before.permits, &after),
+        (arrived, before.permits, &after),
         (1, 1, &before),
         "{before:?} {after:?}"
     );
@@ -692,7 +870,7 @@ fn token_refusals(run_id: &str, more: &Value) -> Vec<bool> {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
     refused
 }
@@ -767,7 +945,7 @@ fn a_handlers_refused_goto_escaping_it_ends_the_request_skipped_with_its_reason(
         &json!({ "run_id": "escapes" }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let outcome = &outcomes["result"]["outcomes"][0];
     assert_eq!(
@@ -826,7 +1004,7 @@ fn with_robots_txt_not_respected_a_handlers_goto_is_not_refused() {
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (&report["result"]["lifecycle"], statuses),
@@ -881,7 +1059,7 @@ fn goto_declaring(host: &str, path: &str, site_preferences: &Value) -> (Value, V
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
     (went, text)
 }
@@ -1023,18 +1201,14 @@ fn on_the_served_page(
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
     let mut sent: Vec<String> = proving_ground
         .received_requests()
         .unwrap()
         .of_the_case()
-        .filter(|request| {
-            request["host"]
-                .as_str()
-                .is_some_and(|seen| seen.split(':').next() == Some(host))
-        })
-        .filter_map(|request| request["target"].as_str().map(str::to_owned))
+        .filter(|request| request.host.split(':').next() == Some(host))
+        .map(|request| request.target.clone())
         .filter(|target| target != "/robots.txt" && !target.starts_with("/.well-known/"))
         .collect();
     sent.sort();
@@ -1131,7 +1305,7 @@ fn a_handlers_goto_to_a_host_whose_declared_signals_refuse_the_purpose_is_never_
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
 
     assert_eq!(
@@ -1183,7 +1357,7 @@ fn with_use_signals_not_honoured_a_handlers_goto_reads_no_signal_file(
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
 
     assert_eq!(
@@ -1194,8 +1368,9 @@ fn with_use_signals_not_honoured_a_handlers_goto_reads_no_signal_file(
                 .received_requests()
                 .unwrap()
                 .every()
-                .filter(|request| request["host"] == TDMREP_FILE_HOST
-                    && request["target"] == "/robots.txt")
+                .filter(
+                    |request| request.host == TDMREP_FILE_HOST && request.target == "/robots.txt"
+                )
                 .count(),
             requested(
                 &proving_ground,
@@ -1257,10 +1432,11 @@ const CATALOG_HOST: &str = "catalog.test";
 const EIGHT_DELAY_MILLISECONDS: u64 = 3_500;
 
 /// Eight handlers running at once, each going to its own page of one
-/// domain at the same moment, press that domain one request at a time:
-/// every request reaches the site at least `politeness.domain.delay` after
-/// the one before it there, on the Proving ground's arrival times, the
-/// site counts one request per page and sees no misstep, and no handler is
+/// domain at the same moment, press that domain one request at a time: the
+/// gate admits each at least `politeness.domain.delay` after the one before,
+/// each reaches the site no sooner than its turn after robots.txt, on the
+/// Proving ground's arrival times, the site counts one request per page and
+/// sees no misstep, and no handler is
 /// timed out while its `goto` waits for its permit, though the last waits
 /// longer than its lease was granted for.
 ///
@@ -1343,17 +1519,13 @@ fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
             }));
         }
     };
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let mut targets: Vec<&str> = pages.iter().map(String::as_str).collect();
     targets.push("/robots.txt");
     let arrived = arrivals(&proving_ground, CATALOG_HOST, &targets);
-    let least = EIGHT_DELAY_MILLISECONDS * 1_000 * 9 / 10;
-    let close: Vec<String> = arrived
-        .windows(2)
-        .filter(|pair| pair[1].1 - pair[0].1 < least)
-        .map(|pair| pair[1].0.clone())
-        .collect();
+    let early = before_their_turn(&arrived, EIGHT_DELAY_MILLISECONDS * 1_000);
+    let admitted = admitted(&env, CATALOG_HOST).len();
     let observations = proving_ground.observations().unwrap();
     assert_eq!(
         (
@@ -1361,8 +1533,10 @@ fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
             handles.len(),
             again,
             answers,
+            arrived.first().map(|(target, _)| target.as_str()),
             arrived.len(),
-            close,
+            early,
+            admitted,
             &observations["findings"],
         ),
         (
@@ -1370,8 +1544,10 @@ fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
             HANDLERS,
             Vec::<Value>::new(),
             vec![json!(200); HANDLERS],
+            Some("/robots.txt"),
             HANDLERS + 1,
             Vec::<String>::new(),
+            HANDLERS,
             &json!([]),
         ),
         "{arrived:?}"
@@ -1529,9 +1705,9 @@ fn a_handlers_page_past_its_work_items_lease_sends_nothing_more() {
                 "page.goto",
                 &json!({ "page_id": pages[0], "url": url("/catalog/1") }),
             ));
-            std::thread::sleep(Duration::from_secs(12));
-            let lease_ended = requested_in_all(&proving_ground);
             let engine = inside.engine();
+            next_seed_delivered(engine, &mut others);
+            let lease_ended = requested_in_all(&proving_ground);
             (refused, later) = past_the_lease(engine, &pages, &url, &mut others);
             requests = Some((lease_ended, requested_in_all(&proving_ground)));
             // The second seed's attempt, delivered meanwhile, ends at once.
@@ -1551,7 +1727,7 @@ fn a_handlers_page_past_its_work_items_lease_sends_nothing_more() {
         "params": { "page_id": program_page, "url": url("/catalog/5") },
     }));
     let program_goto = answer_to(&mut engine, "program-goto", &mut others);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let (lease_ended, after) = requests.expect("the handler ran");
     assert_eq!(
@@ -1616,6 +1792,21 @@ fn program_page(engine: &mut Attached, settings: &Value, others: &mut Vec<Value>
     answer_to(engine, "program-page", others)["result"]["page_id"].clone()
 }
 
+/// Waits until the crawl delivers its next seed, keeping what comes in
+/// `others`: at a handler concurrency of 1, it does once the attempt in
+/// flight ended, which a handler that only holds its pages does when its
+/// lease ends. The wait fails past the engine's message deadline.
+fn next_seed_delivered(engine: &mut Attached, others: &mut Vec<Value>) {
+    loop {
+        let message = engine.next().expect("the engine answers");
+        let delivered = message["method"] == "crawl_request.handle";
+        others.push(message);
+        if delivered {
+            return;
+        }
+    }
+}
+
 /// What a handler past its lease gets: the codes of a click on its first
 /// page, a navigation of its second and a `page.request` of its third, each
 /// the first call on its page, then of a navigation of each page.
@@ -1666,8 +1857,15 @@ fn requested_in_all(proving_ground: &ProvingGround) -> usize {
 /// and answers 1.5 s after the request arrived.
 const SLOW_ROBOTS_HOST: &str = "slow-robots.access-policy.test";
 
+/// The domain key of [`SLOW_ROBOTS_HOST`]'s requests.
+const SLOW_ROBOTS_KEY: &str = "access-policy.test";
+
 /// [`SLOW_ROBOTS_HOST`]'s Crawl-delay, in milliseconds.
 const SLOW_ROBOTS_CRAWL_DELAY_MILLISECONDS: u64 = 2_000;
+
+/// How long after its request arrives [`SLOW_ROBOTS_HOST`]'s robots.txt
+/// answers, in microseconds.
+const SLOW_ROBOTS_ANSWER_MICROSECONDS: u64 = 1_500_000;
 
 /// The answers to the calls `ids` `engine` sends next, in the order of
 /// `ids`, whatever order they come in; the requests and replies between
@@ -1704,10 +1902,11 @@ fn goto_at_once(inside: &mut Inside<'_>, pages: &[String], urls: &[String]) -> V
 /// Two pages of a handler going at once to a host whose robots.txt answers
 /// slowly, under its Crawl-delay, reach it no sooner than the Crawl-delay
 /// after the robots.txt request, on the Proving ground's arrival times,
-/// and the Crawl-delay apart (ADR 0086): the page whose navigation fetched
-/// robots.txt counts the delay from its response's arrival, never from its
-/// send, and the page that read the copy meanwhile counts it from that
-/// copy's fetch, never going at once because it fetched nothing itself.
+/// and the gate admits them the Crawl-delay apart (ADR 0086): the page whose
+/// navigation fetched robots.txt counts the delay from its response's arrival,
+/// never from its send, and the page that read the copy meanwhile counts it
+/// from that copy's fetch, never going at once because it fetched nothing
+/// itself.
 ///
 /// Covers: story:5-134, operation:page.goto, operation:run.new_page
 #[test]
@@ -1731,36 +1930,38 @@ fn a_handlers_navigations_after_a_slow_robots_txt_wait_its_crawl_delay_from_its_
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let arrived = arrivals(
         &proving_ground,
         SLOW_ROBOTS_HOST,
         &["/robots.txt", "/catalog/1", "/catalog/2"],
     );
-    let delay = SLOW_ROBOTS_CRAWL_DELAY_MILLISECONDS * 1_000;
-    let after_robots_txt = arrived.get(1).map(|first| first.1 >= arrived[0].1 + delay);
-    // Between two navigations, the arrivals may come a little closer than
-    // their sends (`too_soon`).
-    let apart = arrived
-        .get(2)
-        .map(|second| second.1 - arrived[1].1 >= delay * 9 / 10);
+    // Each navigation's turn counts from robots.txt's answer, not its request.
+    let mut from_its_answer = arrived.clone();
+    if let Some((_, read)) = from_its_answer.first_mut() {
+        *read += SLOW_ROBOTS_ANSWER_MICROSECONDS;
+    }
+    let early = before_their_turn(
+        &from_its_answer,
+        SLOW_ROBOTS_CRAWL_DELAY_MILLISECONDS * 1_000,
+    );
     assert_eq!(
         (
             &report["result"]["lifecycle"],
             statuses,
             arrived.first().map(|(target, _)| target.as_str()),
             arrived.len(),
-            after_robots_txt,
-            apart,
+            early,
+            admitted(&env, SLOW_ROBOTS_KEY).len(),
         ),
         (
             &json!("finished"),
             vec![json!(200); 2],
             Some("/robots.txt"),
             3,
-            Some(true),
-            Some(true),
+            Vec::<String>::new(),
+            2,
         ),
         "{arrived:?}"
     );
@@ -1770,32 +1971,51 @@ fn a_handlers_navigations_after_a_slow_robots_txt_wait_its_crawl_delay_from_its_
 /// Session's first request through the egress relay, in milliseconds.
 const RELAY_DELAY_MILLISECONDS: u64 = 1_000;
 
-/// How much sooner than the delay the second navigation of the fresh-relay
-/// case may arrive after the first, in microseconds: the first one's way
-/// to the site after the send the gate counts from, which the second, on
-/// the tunnel the first left open, has no part of. After its credentials
-/// the browser opens the relay's tunnel again, the relay dials the site,
-/// and the TLS handshake follows. On loopback under load it once came to
-/// 0.94 ms (#1735: a gap of 999,056 µs; the handshake alone measured
-/// 0.11 ms), while a gate counting from the first request's admission or
-/// from the command that first sent it on comes short by the relay's `407`
-/// and its credentials: 4 ms to 50 ms in #1613's measurements, 270 ms
-/// under heavier load.
-const RELAY_TRANSIT_MICROSECONDS: u64 = 2_000;
+/// When the engine sent each `page.goto`'s request on for its last time, by
+/// its log, each with whether that was with the Session's proxy credentials
+/// after the relay's `407`: its `Fetch.continueWithAuth`, else the last
+/// `Fetch.continueRequest` before the call answered. The page's icon, which
+/// the first document's load may ask for, leaves before the next document,
+/// which its gate holds.
+fn navigations_sent(env: &TestEnv) -> Vec<(jiff::Timestamp, bool)> {
+    let mut sent = Vec::new();
+    let mut latest: Option<(jiff::Timestamp, bool)> = None;
+    for line in engine_log(env) {
+        let at = || line["timestamp"].as_str().unwrap().parse().unwrap();
+        let credentials = latest.is_some_and(|(_, credentials)| credentials);
+        match (
+            line["target"].as_str().unwrap_or_default(),
+            line["fields"]["method"].as_str().unwrap_or_default(),
+        ) {
+            ("goodfetch::cdp::command", "Fetch.continueWithAuth") if !credentials => {
+                latest = Some((at(), true));
+            }
+            ("goodfetch::cdp::command", "Fetch.continueRequest") if !credentials => {
+                latest = Some((at(), false));
+            }
+            (DISPATCH_TARGET, "page.goto") => sent.extend(latest.take()),
+            _ => {}
+        }
+    }
+    sent
+}
 
-/// A handler's navigations of one domain reach it the delay between starts
-/// apart, on the Proving ground's arrival times, the first included, its
-/// Session's first request through its egress relay: the browser sends it
-/// only once the relay answered `407` and got the Session's credentials,
-/// so its delay counts from that send, never from its admission, nor from
-/// the command that first sent it on (ADR 0086). The gate's sends are what
-/// it holds the delay apart; the arrival after the first may come sooner
-/// by that first request's own way to the site after its send
-/// ([`RELAY_TRANSIT_MICROSECONDS`]).
+/// A handler's navigations of one domain leave the delay between starts
+/// apart, its Session's first request through its egress relay included: the
+/// browser sends it only once the relay answered `407` and got the Session's
+/// credentials, so its delay counts from that send, never from its admission,
+/// nor from the command that first sent it on (ADR 0086). The test judges the
+/// sends themselves, by when the engine's log says it sent each command: an
+/// arrival comes later than its send by a way to the site the first request
+/// alone has to open (the relay dials the site, and the TLS handshake follows),
+/// which no figure bounds on a loaded host. Each send's turn counts from the
+/// first's: the first is recorded after its command leaves, so the delays from
+/// it hold to the microsecond, while a later send is recorded just before its
+/// command and its neighbour's gap can come short by that moment.
 ///
 /// Covers: story:5-134, setting:politeness.domain.delay, operation:page.goto, operation:run.new_page
 #[test]
-fn a_handlers_navigations_through_a_fresh_egress_relay_reach_their_domain_the_delay_apart() {
+fn a_handlers_navigations_through_a_fresh_egress_relay_leave_the_delay_apart() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
@@ -1826,32 +2046,31 @@ fn a_handlers_navigations_through_a_fresh_egress_relay_reach_their_domain_the_de
             json!({ "result": { "records": [] } })
         },
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
+    let sent = navigations_sent(&env);
     let arrived = arrivals(&proving_ground, CATALOG_HOST, &pages);
-    let gaps: Vec<u64> = arrived
-        .windows(2)
-        .map(|pair| pair[1].1 - pair[0].1)
+    let sends: Vec<(String, u64)> = sent
+        .iter()
+        .map(|(at, _)| ("sent".to_owned(), at.as_microsecond().try_into().unwrap()))
         .collect();
-    // The gap after the relay's first request is held to the delay, short
-    // of it only by that request's way to the site after its send
-    // (`RELAY_TRANSIT_MICROSECONDS`): a gate counting from its admission,
-    // or from the command that first sent it on, lets the second arrive
-    // short of it by the relay's `407` and its credentials. Between two
-    // later navigations, the arrivals may come a little closer than the
-    // sends (`too_soon`).
-    let delay = RELAY_DELAY_MILLISECONDS * 1_000;
-    let least = delay * 9 / 10;
     assert_eq!(
         (
             &report["result"]["lifecycle"],
             statuses,
             arrived.len(),
-            gaps.first()
-                .map(|relay_gap| *relay_gap >= delay - RELAY_TRANSIT_MICROSECONDS),
-            gaps.iter().skip(1).filter(|gap| **gap < least).count(),
+            sent.iter()
+                .map(|(_, credentials)| *credentials)
+                .collect::<Vec<_>>(),
+            before_their_turn(&sends, RELAY_DELAY_MILLISECONDS * 1_000),
         ),
-        (&json!("finished"), vec![json!(200); 3], 3, Some(true), 0),
-        "{arrived:?} {gaps:?}"
+        (
+            &json!("finished"),
+            vec![json!(200); 3],
+            3,
+            vec![true, false, false],
+            Vec::<String>::new(),
+        ),
+        "{sent:?} {arrived:?}"
     );
 }

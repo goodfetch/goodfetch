@@ -17,6 +17,7 @@ mod fetch_edge;
 mod fingerprint;
 mod light_browser;
 mod transport_failures;
+mod tunnels;
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
@@ -37,6 +38,17 @@ fn running_clock_runtime() -> tokio::runtime::Runtime {
         .enable_all()
         .build()
         .unwrap()
+}
+
+/// The requests the Proving ground received on `host` for `path`.
+fn requests_for(proving_ground: &ProvingGround, host: &str, path: &str) -> Vec<serde_json::Value> {
+    proving_ground
+        .received_requests()
+        .unwrap()
+        .of_the_case()
+        .filter(|request| request.host.split(':').next() == Some(host) && request.target == path)
+        .map(|request| serde_json::to_value(request).unwrap())
+        .collect()
 }
 
 /// The HTTP transports each test runs on.
@@ -97,16 +109,19 @@ fn reqwest(proving_ground: &ProvingGround, proxy: Option<Url>) -> Reqwest {
     Reqwest::new(config(proving_ground, proxy, &[])).unwrap()
 }
 
+/// `stack`'s transport under `config`.
+fn built(stack: Stack, config: TransportConfig) -> Box<dyn Transport> {
+    match stack {
+        Stack::Reqwest => Box::new(Reqwest::new(config).unwrap()),
+        Stack::Wreq => Box::new(Wreq::new(config, HttpProfile::default()).unwrap()),
+    }
+}
+
 /// `stack`'s transport, under [`config`].
 fn transport(
     stack: Stack,
     proving_ground: &ProvingGround,
     proxy: Option<Url>,
 ) -> Box<dyn Transport> {
-    match stack {
-        Stack::Reqwest => Box::new(reqwest(proving_ground, proxy)),
-        Stack::Wreq => {
-            Box::new(Wreq::new(config(proving_ground, proxy, &[]), HttpProfile::default()).unwrap())
-        }
-    }
+    built(stack, config(proving_ground, proxy, &[]))
 }

@@ -151,6 +151,7 @@ lint:
     step --after xtask xtask-telemetry 'cargo run --quiet --bin xtask -- telemetry'
     step --after xtask xtask-no-retry 'cargo run --quiet --bin xtask -- no-retry'
     step --after xtask xtask-received-requests 'cargo run --quiet --bin xtask -- received-requests'
+    step --after xtask xtask-mask-writers 'cargo run --quiet --bin xtask -- mask-writers'
     step --after xtask xtask-quarantine 'GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" cargo run --quiet --bin xtask -- quarantine check --cargo-profile {{ test_profile }}'
     step --after xtask xtask-axe-exceptions 'GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" cargo run --quiet --bin xtask -- axe-exceptions check'
     step --after xtask xtask-modules 'cargo run --quiet --bin xtask -- modules'
@@ -176,7 +177,7 @@ codegen:
 # nothing and fails on a list that differs: the Pre-merge suite's drift check.
 journeys-tasks *check:
     {{ just_executable() }} _test-tools
-    cargo run --quiet --bin xtask -- journeys tasks --proving-ground "$(jq -r .proving_ground target/test-tools.json)" {{ check }}
+    proving_ground=$(cargo run --quiet --bin xtask -- test-tools path proving_ground --manifest target/test-tools.json); cargo run --quiet --bin xtask -- journeys tasks --proving-ground "$proving_ground" {{ check }}
 
 # ADR 0063's rule on the tests of each Journey variant, in the Pre-merge
 # suite: lists the four runners' tests into target/journey-listings/ (nextest
@@ -452,12 +453,10 @@ test suite *packages:
     # Each Rust Journey variant writes its result document, `<id>@<surface>.json`,
     # into target/result-documents/ (ADR 0063).
     export GOODFETCH_TEST_SUITE="{{ suite }}"
-    {{ just_executable() }} _test-tools
+    {{ just_executable() }} _test-tools ${GOODFETCH_TEST_ENGINE:+--engine "$GOODFETCH_TEST_ENGINE"}
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     export GOODFETCH_TEST_RESULT_DOCUMENTS="$PWD/target/result-documents"
     if [[ -n "${GOODFETCH_TEST_ENGINE:-}" ]]; then
-      manifest=$(jq --arg engine "$GOODFETCH_TEST_ENGINE" '.collie = $engine | .foxhound = $engine' target/test-tools.json)
-      printf '%s\n' "$manifest" > target/test-tools.json
       echo "Engine: $GOODFETCH_TEST_ENGINE, for both Products"
     fi
     select_nextest=() select_vitest=() select_playwright=() select_pytest=()
@@ -715,6 +714,13 @@ snapshots *arguments:
 # Runs chosen tests `count` times each, whatever each run's result (ADR 0064).
 [positional-arguments]
 repeat count *selection:
+    {{ just_executable() }} _test-tools
+    {{ just_executable() }} _repeat "$@"
+
+# `just repeat` once the test tool manifest is built: the stress run builds
+# it once for all its counts.
+[positional-arguments]
+_repeat count *selection:
     #!/usr/bin/env bash
     set -euo pipefail
     shift
@@ -728,7 +734,6 @@ repeat count *selection:
     # a red one no other iteration or runner runs.
     iterations=1
     if [[ "${1:-}" == --until-red ]]; then iterations={{ count }}; fi
-    {{ just_executable() }} _test-tools
     export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     GOODFETCH_ORDER_SEED=$(ci/order-seed.sh)
     export GOODFETCH_ORDER_SEED
@@ -741,8 +746,6 @@ repeat count *selection:
     # Each runner's commands, as JSON: `{"<runner>": [[<argument>, …], …]}`,
     # one list of arguments a command, a batch of its tests.
     batched=$(cargo run --quiet --bin xtask -- repeat --count "{{ count }}" "$@")
-    {{ just_executable() }} _test-tools
-    export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
     status=0
     for runner in nextest vitest playwright pytest; do
       if (( iterations > 1 && status != 0 )); then
@@ -850,7 +853,7 @@ stress base="" since="" *within:
       echo "Stress run: $(wc -l < "$tests" | tr -d ' ') test(s), $count times each"
       [[ -s "$tests" ]] || continue
       rm -f target/nextest/*/junit.xml
-      {{ just_executable() }} repeat "$count" --until-red --tests-file "$tests" || status=$?
+      {{ just_executable() }} _repeat "$count" --until-red --tests-file "$tests" || status=$?
       folder="target/junit/repeat-$count"
       mkdir -p "$folder"
       find target/junit -maxdepth 1 -name '*.xml' -exec mv {} "$folder/" \;
@@ -1026,7 +1029,7 @@ release-ci cells="all" commit="":
 # Runs the resident-memory check: `just rss [scenario…]`.
 rss *scenarios:
     {{ if os() == "linux" { "ci/musl/install.sh" } else { "true" } }}
-    cargo run --quiet --bin xtask -- test-tools --cargo-profile ci --shipped-target --out "$PWD/target/rss/test-tools.json"
+    cargo run --quiet --bin xtask -- test-tools build --cargo-profile ci --shipped-target --out "$PWD/target/rss/test-tools.json"
     rm -f target/rss/peaks.jsonl
     cargo run --quiet --bin xtask -- rss measure {{ scenarios }} --tools target/rss/test-tools.json --out target/rss/peaks.jsonl
     cargo run --quiet --bin xtask -- rss check --peaks target/rss/peaks.jsonl
@@ -1040,7 +1043,7 @@ rss *scenarios:
 # Proposes this platform's resident-memory ceilings from 20 runs.
 rss-propose *scenarios:
     {{ if os() == "linux" { "ci/musl/install.sh" } else { "true" } }}
-    cargo run --quiet --bin xtask -- test-tools --cargo-profile ci --shipped-target --out "$PWD/target/rss/test-tools.json"
+    cargo run --quiet --bin xtask -- test-tools build --cargo-profile ci --shipped-target --out "$PWD/target/rss/test-tools.json"
     rm -f target/rss/propose.jsonl
     cargo run --quiet --bin xtask -- rss measure {{ scenarios }} --runs 20 --tools target/rss/test-tools.json --out target/rss/propose.jsonl
     cargo run --quiet --bin xtask -- rss propose --peaks target/rss/propose.jsonl
@@ -1081,7 +1084,7 @@ rss-propose *scenarios:
 # Spider's crate and the sides' packages are downloaded once, free.
 # Runs the comparison matrix on this machine.
 compare profile="release" *args:
-    cargo run --quiet --bin xtask -- test-tools --cargo-profile {{ profile }} --out "$PWD/target/compare/test-tools.json"
+    cargo run --quiet --bin xtask -- test-tools build --cargo-profile {{ profile }} --out "$PWD/target/compare/test-tools.json"
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir target/compare-spider/spider
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features chrome --target-dir target/compare-spider/spider-chrome
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
@@ -1150,7 +1153,7 @@ musl-toolchain:
 # Writes the Performance targets report on this machine.
 targets:
     {{ if os() == "linux" { "ci/musl/install.sh" } else { "true" } }}
-    cargo run --quiet --bin xtask -- test-tools --cargo-profile release --shipped-target --out "$PWD/target/targets/test-tools.json"
+    cargo run --quiet --bin xtask -- test-tools build --cargo-profile release --shipped-target --out "$PWD/target/targets/test-tools.json"
     rm -f target/targets/peaks.jsonl target/targets/startup-*.json
     cargo run --quiet --bin xtask -- targets startup --tools target/targets/test-tools.json --out target/targets
     cargo run --quiet --bin xtask -- rss measure idle-attached-engine idle-daemon crawl --runs 5 --tools target/targets/test-tools.json --out target/targets/peaks.jsonl
@@ -1177,7 +1180,7 @@ perf base="":
 # GOODFETCH_PERF_MACHINE to its label; it times, so no suite runs it.
 console-lighthouse:
     {{ just_executable() }} console-build
-    cargo run --quiet --bin xtask -- test-tools --cargo-profile ci --out "$PWD/target/perf-series/test-tools.json"
+    cargo run --quiet --bin xtask -- test-tools build --cargo-profile ci --out "$PWD/target/perf-series/test-tools.json"
     GOODFETCH_TEST_TOOLS="$PWD/target/perf-series/test-tools.json" pnpm exec playwright test --config console/collie/perf/playwright.config.ts
 
 # The Pre-merge suite's tests that only Linux decides (`tc netem`, the
@@ -1220,11 +1223,13 @@ tlc *arguments:
     {{ just_executable() }} tlc-fetch
     cargo run --quiet --bin xtask -- tlc run {{ arguments }}
 
-# A job that passes the models is so shown able to fail.
-# The TLC job's self-test: the sample's broken variant must fail its invariant.
+# A job that passes the models is so shown able to fail, and run fencing's
+# model to reach the zombie copy its destinations fence (`zombie.cfg`).
+# The TLC job's self-test: the sample's broken variant and run fencing's zombie variant must fail their invariants.
 tlc-self-test:
     {{ just_executable() }} tlc-fetch
     cargo run --quiet --bin xtask -- tlc run sample --config broken --expect invariant-violated
+    cargo run --quiet --bin xtask -- tlc run run-fencing --config zombie --expect invariant-violated
 
 # Keeps each archive of test-support/lazyfs/sources.toml in
 # target/lazyfs/sources/, downloading only a file that lacks its pinned
@@ -1536,9 +1541,15 @@ hooks:
 # the backstop's last green run (ci/merge-cap.sh) unless the owner passes
 # `--past-cap`: `just merge <number> --past-cap`. It refuses to start a gate
 # under GOODFETCH_GATE_MIN_FREE_GB (30) free on the file system of the gate's
-# `target/`, keeps a failing gate's log and test results in the common Git
+# `target/` or, on Linux, a full gate unless GOODFETCH_LAZYFS names the LazyFS
+# build `just stress` needs, keeps a failing gate's log and test results in the common Git
 # folder's `goodfetch-gate-failures/` for 30 days, and sweeps the gate's
-# `target/` after the gate, still holding its lock.
+# `target/` after the gate, still holding its lock. The gate outlives the
+# shell that starts it: it runs in a session of its own, with its output in
+# the common Git folder's `goodfetch-gate-logs/`, and this command follows
+# that log and ends with the gate's status. Stopping this command leaves the
+# gate running; SIGTERM to the process it names stops the gate and releases
+# its lock.
 merge number *override:
     ci/merge-pr.sh {{ number }} {{ override }}
 
@@ -1564,9 +1575,11 @@ rosetta-trial:
 # Builds the commit's executables that tests run (each Product's, the Proving
 # ground's, goodfetch-test-env, goodfetch-scripted-engine and
 # goodfetch-conformance, those the workspace has) with the tests' Cargo profile, and writes the test tool
-# manifest of their paths to target/test-tools.json.
-_test-tools:
-    cargo run --quiet --bin xtask -- test-tools --cargo-profile {{ test_profile }} --out "$PWD/target/test-tools.json"
+# manifest of their paths to target/test-tools.json; `--engine <path>` names
+# that executable for both Products instead (a skew run's).
+[positional-arguments]
+_test-tools *arguments:
+    cargo run --quiet --bin xtask -- test-tools build --cargo-profile {{ test_profile }} --out "$PWD/target/test-tools.json" "$@"
 
 # Removes the exercise records and the nextest JUnit file of an earlier
 # Pre-merge or Release run, which `just features-audit` would read.
@@ -1680,8 +1693,9 @@ gate-backstop ref="origin/main":
 # (TESTING.md, After merge; ci/test-health.crontab), on `main`'s head in the
 # backstop's gate worktree: `constrained`, the constrained test-health run,
 # and `mutants`, the advisory mutation run over the last day's Rust changes
-# (ci/test-health/scheduled.sh). Logs and results go to ~/test-health/
-# (GOODFETCH_TEST_HEALTH_LOG). Run from the main checkout.
+# (ci/test-health/scheduled.sh). Either skips while `just merge`'s gate runs,
+# and a gate started during one waits for it. Logs and results go to ~/test-health/ (GOODFETCH_TEST_HEALTH_LOG). Run from
+# the main checkout.
 test-health run ref="origin/main":
     ci/test-health/scheduled.sh {{ run }} {{ ref }}
 

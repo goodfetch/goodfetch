@@ -21,7 +21,7 @@ const CRATES_IO: [&str; 2] = [
 
 /// The members no Product ships: the build tool and the test-only crates
 /// (STYLE.md, Workspace and crates; TESTING.md, Shared helpers).
-const NEVER_SHIPPED: [&str; 2] = ["xtask", "goodfetch-test-support"];
+const NEVER_SHIPPED: [&str; 3] = ["xtask", "goodfetch-test-support", "goodfetch-test-client"];
 
 #[derive(Deserialize)]
 struct Metadata {

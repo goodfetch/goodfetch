@@ -37,11 +37,7 @@ impl WorkKind {
 
     /// Its name, as its settings, events and metric labels spell it.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Http => "http",
-            Self::BrowserPage => "browser_page",
-            Self::ModelCall => "model_call",
-        }
+        crate::wire_name::of(&self)
     }
 
     /// Its floor's setting.
@@ -397,12 +393,7 @@ impl PressureSource {
 
     /// Its name, as the metric's label spells it.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Memory => "memory",
-            Self::HostMemory => "host_memory",
-            Self::Cpu => "cpu",
-            Self::Tokio => "tokio",
-        }
+        crate::wire_name::of(&self)
     }
 }
 
@@ -553,16 +544,26 @@ pub const SATURATION: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
+/// The `kind` label of `goodfetch.governor.target`: every [`WorkKind`].
+pub const KIND_LABEL: MetricLabel = MetricLabel {
+    name: "kind",
+    values: || crate::wire_name::all(&WorkKind::ALL),
+};
+
+/// The `source` label of `goodfetch.governor.pressure_source`: every
+/// [`PressureSource`].
+pub const SOURCE_LABEL: MetricLabel = MetricLabel {
+    name: "source",
+    values: || crate::wire_name::all(&PressureSource::ALL),
+};
+
 /// `goodfetch.governor.target`: each kind's concurrency target.
 pub const TARGET: Metric = Metric {
     name: "goodfetch.governor.target",
     description: "How many of each kind of work the resource governor admits at once now, between its floor and its ceiling (ADR 0040).",
     instrument: Instrument::Gauge,
     unit: "{admission}",
-    labels: &[MetricLabel {
-        name: "kind",
-        values: &["http", "browser_page", "model_call"],
-    }],
+    labels: &[KIND_LABEL],
     stability: Stability::Experimental,
     arrived_in: ARRIVED_IN,
 };
@@ -574,10 +575,7 @@ pub const PRESSURE_SOURCE: Metric = Metric {
     description: "1 for the reading that holds the resource governor above normal, 0 for the others: all 0 at normal (ADR 0040).",
     instrument: Instrument::Gauge,
     unit: "1",
-    labels: &[MetricLabel {
-        name: "source",
-        values: &["memory", "host_memory", "cpu", "tokio"],
-    }],
+    labels: &[SOURCE_LABEL],
     stability: Stability::Experimental,
     arrived_in: ARRIVED_IN,
 };

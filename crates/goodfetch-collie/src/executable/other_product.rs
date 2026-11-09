@@ -19,6 +19,7 @@ use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::foxhound_names;
 use serde_json::Value;
 
+use super::catalog_commands::spelled;
 use super::exit_codes;
 use super::output::{self, Human};
 
@@ -130,11 +131,6 @@ fn words(arguments: &[OsString]) -> Vec<String> {
         }
     }
     words
-}
-
-/// The command line's spelling of a catalog word (ADR 0099).
-fn spelled(word: &str) -> String {
-    word.replace('_', "-")
 }
 
 #[cfg(test)]

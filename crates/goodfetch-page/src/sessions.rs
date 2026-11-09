@@ -303,7 +303,7 @@ fn unavailable(run: &Run, error: &impl std::fmt::Display, context: &CallContext)
             folder: run.folder().to_owned(),
             error: error.to_string(),
         },
-        context.identity(),
+        context,
     )
 }
 
@@ -317,6 +317,21 @@ fn lease_holds(value: &PageValue) -> Result<(), CallError> {
             .map_err(|ended| lease.withheld(ended, target::CreateTargetParams::METHOD)),
         None => Ok(()),
     }
+}
+
+/// What the engine opens a page of its own in a Session for
+/// ([`Sessions::engine_page`]), which says what a move of the Session then
+/// would race: storage a program's navigation has yet to write is not carried
+/// (ADR 0040).
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum EngineWork {
+    /// A request the program or a crawl sent: a move races any navigation
+    /// in flight on the Session's pages, from its call to its page's `load`.
+    Request,
+    /// Reading for a document that just arrived in one of the Session's
+    /// pages, whose scripts may still be writing, whether or not its
+    /// navigation call has answered: a move always races them.
+    ArrivingDocument,
 }
 
 /// A page of a Session that the engine drives itself
@@ -873,28 +888,40 @@ impl Sessions {
     /// in the Session's browser context, so its cookies are the Session's
     /// (ADR 0020). It carries `value`, the value of the page it acts for.
     /// It closes once its caller is done with it, or drops it; `closed`
-    /// when the Session is.
+    /// when the Session is. It counts toward its browser's limits, and moves
+    /// the Session off a recycled browser unless a move would race what
+    /// `work` says (ADR 0040).
     pub(crate) async fn engine_page(
         &self,
         session: &SessionId,
         value: &PageValue,
+        work: EngineWork,
     ) -> Result<EnginePage, CallError> {
-        let open = self
-            .state
-            .lock()
-            .await
-            .sessions
-            .get(session)
-            .cloned()
-            .ok_or_else(|| session_closed(session))?;
+        let (open, races) = {
+            let state = self.state.lock().await;
+            let open = state
+                .sessions
+                .get(session)
+                .cloned()
+                .ok_or_else(|| session_closed(session))?;
+            let races = match work {
+                EngineWork::ArrivingDocument => true,
+                EngineWork::Request => {
+                    self.interception.navigation_pending(session)
+                        || state
+                            .pages
+                            .values()
+                            .any(|page| page.session == *session && page.life.navigating())
+                }
+            };
+            (open, races)
+        };
         if let Some(failed) = &open.reopen_failed {
             return Err(failed.clone());
         }
         open.life.call().await?;
         lease_holds(value)?;
-        // Hidden, so Chromium asks no site for the icon of the document it
-        // loads (ticket #1608).
-        let (driver, in_browser) = open.seat.new_page(Visibility::Hidden).await?;
+        let (driver, in_browser) = open.seat.new_engine_page(races).await?;
         Ok(EnginePage {
             driver: driver.with_value(value.clone(), open.run.clock()),
             in_browser: Some(in_browser),
@@ -1341,7 +1368,7 @@ async fn open_proxy(
     };
     // A Proxy provider's price must be in the currency of each currency
     // Limit on `proxy_bytes` that holds the Run (ADR 0101).
-    let currencies = if resolved.value(&PROXY_PROVIDER).is_null() {
+    let currencies = if resolved.get::<Option<&str>>(&PROXY_PROVIDER).is_none() {
         Vec::new()
     } else {
         run.usage()

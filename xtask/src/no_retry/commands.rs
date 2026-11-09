@@ -326,8 +326,18 @@ fn runs_test(words: &[String], index: usize) -> bool {
             (program, next),
             ("playwright" | "cargo" | "insta" | "miri", Some("test"))
                 | (
-                    "just",
-                    Some("test" | "quick" | "pre-merge" | "release" | "repeat" | "stress" | "miri")
+                    // `just_executable` is a recipe's own `{{ just_executable() }}`.
+                    "just" | "just_executable",
+                    Some(
+                        "test"
+                            | "quick"
+                            | "pre-merge"
+                            | "release"
+                            | "repeat"
+                            | "_repeat"
+                            | "stress"
+                            | "miri"
+                    )
                 )
         )
 }

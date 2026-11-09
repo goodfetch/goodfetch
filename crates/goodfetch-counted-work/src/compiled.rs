@@ -19,11 +19,11 @@ use moka::Equivalent;
 /// Filter lists compile for a Run, and the few dozen the engine's own readers
 /// and a Run's fields and handlers hold. A selector takes about a kilobyte,
 /// so they stay under about 16 MB.
-pub const CAPACITY: u64 = 16_384;
+pub(crate) const CAPACITY: u64 = 16_384;
 
 /// The most regular expressions, and apart the most globs, the cache keeps:
 /// a Run's fields, Scope and Payload rules hold a few dozen.
-pub const PATTERN_CAPACITY: u64 = 1_024;
+const PATTERN_CAPACITY: u64 = 1_024;
 
 /// A compilation's key: the Clean-up rules' digest for one of their
 /// selectors, and its text.
@@ -76,6 +76,7 @@ impl<V: Clone + Send + Sync + 'static> Part<V> {
     }
 
     /// How many it keeps now, its evictions done.
+    #[cfg(test)]
     fn len(&self) -> u64 {
         self.0.run_pending_tasks();
         self.0.entry_count()
@@ -142,6 +143,7 @@ impl Compiled {
     }
 
     /// How many selectors it keeps now, its evictions done.
+    #[cfg(test)]
     pub(crate) fn selectors(&self) -> u64 {
         self.selectors.len()
     }

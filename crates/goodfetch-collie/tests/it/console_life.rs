@@ -14,12 +14,15 @@
 
 use std::net::{SocketAddr, TcpStream};
 
+use goodfetch_protocol::catalog::Product;
+use goodfetch_test_support::MESSAGE_DEADLINE;
 use goodfetch_test_support::{RuntimeFile, TestEnv, cli};
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
-use crate::daemon::{RawClient, StopsTheDaemon};
+use crate::daemon::StopsTheDaemon;
+use crate::daemon_client;
 use crate::sign_in::{agent, sign_in};
+use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -27,8 +30,8 @@ const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The `hello` reply's result of `attached`, which it answers first.
-fn hello_result(attached: &mut Attached<'_>) -> Value {
-    attached.send(&hello("collie", "0.1"));
+fn hello_result(attached: &mut Attached) -> Value {
+    attached.send(&hello(Product::Collie));
     let reply = attached.next().unwrap();
     assert_eq!(reply["id"], 0, "{reply}");
     reply["result"].clone()
@@ -54,7 +57,7 @@ fn address_of(url: &str) -> SocketAddr {
 #[test]
 fn an_attached_engine_given_a_console_address_serves_its_console_until_its_script_ends() {
     let env = TestEnv::new();
-    let mut attached = Attached::start_with(&env, |command| {
+    let mut attached = Attached::start_with(&env, COLLIE, MESSAGE_DEADLINE, |command| {
         command.args(["--console-address", "127.0.0.1:0"]);
     });
 
@@ -96,7 +99,7 @@ fn an_attached_engine_given_a_console_address_serves_its_console_until_its_scrip
 fn an_attached_engine_without_a_console_address_serves_none() {
     let env = TestEnv::new();
     env.user_configuration("console.address = \"127.0.0.1:0\"\n");
-    let mut attached = Attached::start(&env);
+    let mut attached = Attached::start(&env, COLLIE);
 
     let result = hello_result(&mut attached);
 
@@ -123,7 +126,7 @@ fn a_runs_link_names_the_public_url_and_carries_no_credential() {
         .unwrap();
     assert_eq!(started.exit, Some(0), "{}", started.stderr);
     let found = RuntimeFile::read(&RuntimeFile::path(env.home(), VERSION)).unwrap();
-    let mut client = RawClient::opened(&found, "collie");
+    let mut client = daemon_client(&found);
 
     client.call(1, "run.start", &json!({ "run_id": "linked" }));
     let finished = client.call(2, "run.finish", &json!({ "run_id": "linked" }));

@@ -48,7 +48,7 @@ use goodfetch_engine::run_state::run_row;
 use goodfetch_engine::runs::{
     Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext, Run,
 };
-use goodfetch_engine::settings::{Resolved, RunSettings, catalog_value, get_or_default};
+use goodfetch_engine::settings::{Resolved, RunSettings, get_or_default};
 use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::clean_up_rules::{CleanUpRulesManifest, MANIFEST_FILE, RulesSource};
@@ -224,10 +224,10 @@ impl Kept {
     /// The versions kept in the Browser cache of `home`.
     fn in_home(home: &Home, owner: TaskOwner) -> Self {
         Self {
-            cache: BrowserCache::new(&CacheLocation::new(
-                home.root(),
-                home.browsers_path().map(Path::to_path_buf),
-            )),
+            cache: BrowserCache::new(
+                &CacheLocation::new(home.root(), home.browsers_path().map(Path::to_path_buf)),
+                owner.blocking_threads(),
+            ),
             owner,
         }
     }
@@ -574,11 +574,10 @@ impl Versions {
             "source": version.manifest.source,
             "published_at": version.manifest.published_at,
             "applied_by": { "product": context.product, "product_version": context.product_version },
-            "update": context
-                .settings
-                .map(RunSettings::resolved)
-                .map_or_else(|| catalog_value(&CLEAN_UP_UPDATE), |settings| settings.value(&CLEAN_UP_UPDATE))
-                .clone(),
+            "update": get_or_default::<&str>(
+                context.settings.map(RunSettings::resolved),
+                &CLEAN_UP_UPDATE,
+            ),
             "resumed": resumed,
         });
         if let Some(fallback) = &fallback {
@@ -869,13 +868,16 @@ async fn known(
         .map(|(version, held)| (version, Some(held)))
 }
 
-/// The Clean-up rules digest `run`'s state records.
+/// The Clean-up rules digest `run`'s state records; none, and the failure
+/// logged, when its state does not read.
 async fn recorded_digest(run: &Run) -> Option<String> {
-    run.state()
-        .read(run_row::clean_up_digest)
-        .await
-        .ok()
-        .flatten()
+    match run.state().read(run_row::clean_up_digest).await {
+        Ok(digest) => digest,
+        Err(error) => {
+            tracing::warn!(%error, "the Run's state did not read its Clean-up rules' digest: none is recorded for it");
+            None
+        }
+    }
 }
 
 impl CleanUpVersions for Versions {

@@ -96,6 +96,17 @@ pub(super) fn open(
     if !served {
         return Ok(None);
     }
+    open_page(connection, site, run_id, checks)
+}
+
+/// Opens a page of a new Run `run_id`, for a case whose URLs the Proving
+/// ground always gives; `None` when the page did not open.
+pub(super) fn open_page(
+    connection: &mut Connection,
+    site: &Site,
+    run_id: &str,
+    checks: &mut Checks,
+) -> Result<Option<Value>, Gone> {
     start_run(connection, site, run_id, &json!({}), checks)?;
     Ok(new_page(connection, run_id, checks)?.map(|page| json!(page.page_id)))
 }
@@ -422,7 +433,7 @@ pub(super) fn superseded(
     let first = connection.request(PAGE_GOTO.name, &json!({ "page_id": page, "url": held }))?;
     pause(SUPERSEDING_DELAY);
     let second = connection.request(PAGE_GOTO.name, &json!({ "page_id": page, "url": next }))?;
-    let answers = both(connection, first, second);
+    let answers = connection.both(first, second);
     let restored = site.proving_ground.set_time_step(0).is_ok();
     checks.check("the Proving ground's time step is set back", restored);
     let (first, second) = answers?;
@@ -515,20 +526,6 @@ pub(super) fn past_its_deadline(
             .is_some_and(|elapsed| elapsed >= SHORT_NAVIGATION_TIMEOUT),
     );
     finish_run(connection, run_id)
-}
-
-/// The answers to the requests `first` and `second`, in whichever order
-/// they come.
-fn both(connection: &mut Connection, first: i64, second: i64) -> Result<(Value, Value), Gone> {
-    let answer = connection.browser_answer(first)?;
-    if let Some(early) = answer
-        .others
-        .into_iter()
-        .find(|message| message.get("method").is_none() && message["id"] == json!(second))
-    {
-        return Ok((answer.message, early));
-    }
-    Ok((answer.message, connection.browser_answer(second)?.message))
 }
 
 /// Waits `duration` on the harness's own thread.

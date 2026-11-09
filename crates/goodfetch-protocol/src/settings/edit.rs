@@ -38,13 +38,12 @@ pub enum PolicyTable {
 }
 
 impl PolicyTable {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 3] = [Self::Settings, Self::Lock, Self::Cap];
+
     /// Its table's name in the file.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Settings => "settings",
-            Self::Lock => "lock",
-            Self::Cap => "cap",
-        }
+        crate::wire_name::of(&self)
     }
 }
 

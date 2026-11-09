@@ -2,9 +2,32 @@ use std::time::Duration;
 
 use rstest::rstest;
 
-use super::{Limits, Placement, Recycle, Seats, Use, place, recycle};
+use super::{Limits, Opens, Placement, Recycle, Seats, Stage, Use, leaves, place, recycle};
 
 const MIB: u64 = 1024 * 1024;
+
+/// A page that a move could not race.
+const ENGINE_PAGE: Opens = Opens::EnginePage { races: false };
+
+/// A page that opens while a move could race a program's navigation.
+const RACING_ENGINE_PAGE: Opens = Opens::EnginePage { races: true };
+
+#[rstest]
+#[case::a_serving_browser_keeps_a_program_page(Opens::ProgramPage, Stage::Serving, false)]
+#[case::a_serving_browser_keeps_an_engine_page(ENGINE_PAGE, Stage::Serving, false)]
+#[case::a_recycled_browser_opens_no_program_page(Opens::ProgramPage, Stage::Retiring, true)]
+#[case::a_recycled_browser_opens_no_engine_page(ENGINE_PAGE, Stage::Retiring, true)]
+#[case::a_recycled_browser_opens_one_a_move_would_race(RACING_ENGINE_PAGE, Stage::Retiring, false)]
+#[case::a_closing_browser_opens_no_program_page(Opens::ProgramPage, Stage::Closing, true)]
+#[case::a_closing_browser_opens_no_engine_page(ENGINE_PAGE, Stage::Closing, true)]
+#[case::a_closing_browser_opens_none_a_move_would_race(RACING_ENGINE_PAGE, Stage::Closing, true)]
+fn a_session_leaves_a_browser_that_opens_it_no_page(
+    #[case] opens: Opens,
+    #[case] stage: Stage,
+    #[case] left: bool,
+) {
+    assert_eq!(leaves(opens, stage), left);
+}
 
 /// ADR 0040's defaults: 8 contexts per process, 100 pages, 5 idle
 /// minutes, a cap of twice the warm-up size.

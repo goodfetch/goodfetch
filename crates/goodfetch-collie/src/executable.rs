@@ -3,15 +3,15 @@
 //! codes, and one start, from the composition and Product its `main` passes.
 //! Today the command line holds `--version`, the hidden Attached-engine
 //! entry, which an SDK starts, the hidden `command-line`, which prints the
-//! command line for `xtask codegen` (ADR 0072), `browser install`, `browser clean`,
-//! `console`, `config explain`,
+//! command line for `xtask codegen` (ADR 0072), `browser install`, `browser
+//! clean`, `console`, `config explain`,
 //! `daemon start|stop|restart|status|health|install|uninstall|rotate-token|http-listener-token|run`,
 //! with the hidden `daemon launched` a start or the installed service
-//! runs, `runs reindex` and `upgrade-files`, beside the commands the `generated` module generates
-//! from the catalog for every other namespace, such as `run start` and
-//! `engine info`, and `--color auto|always|never` on every command; the CLI's
-//! other commands join with area 11. Every
-//! command but `daemon launched` and `command-line` first records the
+//! runs, `runs reindex` and `upgrade-files`, beside the commands the
+//! `catalog_commands` module generates from the catalog for every other
+//! namespace, such as `run start` and `engine info`, and `--color
+//! auto|always|never` on every command; the CLI's other commands join with
+//! area 11. Every command but `daemon launched` and `command-line` first records the
 //! executable in the list of installed executables (ADR 0098);
 //! `command-line` runs before any of the executable's set-up.
 //!
@@ -48,14 +48,14 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::process::ExitCode;
 
+use catalog_commands::{Call, Generated, Joined, Joining};
+pub use catalog_commands::{OwnCall, OwnCommand, OwnCommands};
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
+pub use daemon::Machine;
 use daemon_command::{DaemonCommand, daemon_command};
-use engine_choice::EngineFlags;
-use generated::{Call, Generated, Joined, Joining};
-pub use generated::{OwnCall, OwnCommand, OwnCommands};
+use engine_choice::{Choice, EngineFlags};
 use goodfetch_engine::age_notice::AgeNotice;
 use goodfetch_engine::audit::AuditEvents;
-use goodfetch_engine::browser_cache::BROWSERS_PATH_VARIABLE;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::crash_report;
 use goodfetch_engine::daemon::DaemonConsole;
@@ -65,12 +65,14 @@ use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::log::LogEvents;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::settings::deployment_variable;
+use goodfetch_engine::settings::{Resolved, SettingsError, SettingsFiles, deployment_variable};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::cli::ATTACHED_ENGINE;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, HOME_VARIABLE};
 use identity::{Refused, identity, refuse};
 use output::{ColourChoice, ColourFlag, Human};
 use settings_flags::SettingsFlags;
@@ -81,6 +83,7 @@ mod allocator;
 mod audit;
 mod audit_events;
 mod browsers;
+pub mod catalog_commands;
 mod certs;
 mod command_line;
 mod config;
@@ -89,7 +92,6 @@ mod daemon;
 mod daemon_command;
 pub mod engine_choice;
 pub mod exit_codes;
-pub mod generated;
 mod identity;
 mod log_file;
 mod logs;
@@ -107,13 +109,6 @@ mod usage;
 /// The Goodfetch home's folder of crash reports, which stay on the machine
 /// (ADR 0043).
 const CRASH_FOLDER: &str = "crashes";
-
-/// The Goodfetch home's folder in the OS's usual data folder, where
-/// `GOODFETCH_HOME` is unset.
-const HOME_FOLDER: &str = "goodfetch";
-
-/// The deployment variable that roots the Goodfetch home (ADRs 0059, 0083).
-pub const HOME_VARIABLE: &str = "GOODFETCH_HOME";
 
 /// The command line both executables share.
 #[derive(Parser)]
@@ -138,7 +133,7 @@ const COLOR: &str = ColourFlag::ID;
 enum Command {
     /// Runs as an Attached engine over stdio, which stops at the end of its
     /// input: what an SDK starts.
-    #[command(hide = true)]
+    #[command(hide = true, name = ATTACHED_ENGINE)]
     AttachedEngine {
         /// Serves the engine's own Console at this `host:port` while it
         /// runs, as a script that wants no Daemon asks (ADR 0031); its
@@ -406,6 +401,8 @@ pub fn main(start: &Start) -> ExitCode {
     let environment = with_passed_variables(&start.environment, &parsed);
     let human = Human::new(colour, &environment);
     let home = home(&environment);
+    // Read once, before any command builds its runtime (#2200).
+    let settings = machine_settings(start, home.as_ref());
     let clock = Clock::system();
     let log_events = LogEvents::new();
     let masks = Masks::new();
@@ -413,7 +410,10 @@ pub fn main(start: &Start) -> ExitCode {
     let (logs, entropy) = match observe(
         start,
         &binary,
-        home.as_ref(),
+        (
+            home.as_ref(),
+            settings.as_ref().and_then(|read| read.as_ref().ok()),
+        ),
         &parsed,
         clock,
         &log_events,
@@ -440,7 +440,8 @@ pub fn main(start: &Start) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let Some(home) = home else {
+    // Both are found once the Product version parsed, as `identity` asks.
+    let Some((home, settings)) = home.zip(settings) else {
         tracing::error!("no Goodfetch home: set GOODFETCH_HOME, or a home folder the OS knows");
         return ExitCode::FAILURE;
     };
@@ -466,10 +467,20 @@ pub fn main(start: &Start) -> ExitCode {
     run(
         parsed,
         (&engine, dependencies),
+        &settings,
         start.commands,
         &environment,
         &human,
     )
+}
+
+/// The machine's settings, the Operator policy and user configuration of
+/// `start`'s major in `home`, as the engine resolves them before any Run,
+/// or why they cannot be read; none without a Goodfetch home or a Product
+/// version.
+fn machine_settings(start: &Start, home: Option<&Home>) -> Option<Result<Resolved, SettingsError>> {
+    let version = ProductVersion::parse(start.version).ok()?;
+    Some(SettingsFiles::of(home?, &version).machine_settings(start.product))
 }
 
 /// The executable's name, the command `start`'s command line asks for and
@@ -519,14 +530,16 @@ fn instrumented(
 }
 
 /// Installs the `tracing` subscriber of `parsed`'s process, with
-/// `log_events` and every writer masking with `masks`, and its crash reports, and answers it with the process's
-/// `Entropy` from the OS, a fork of which draws its export's trace and span
-/// IDs; fails once it has logged why the logs cannot go where the `log.*`
-/// settings say, with the Error code (ADR 0122).
+/// `log_events` and every writer masking with `masks`, under the `log.*`
+/// settings of the machine's `settings`, their defaults when they cannot be
+/// read, so that the command can log why, and its crash reports, and answers
+/// it with the process's `Entropy` from the OS, a fork of which draws its
+/// export's trace and span IDs; fails once it has logged why the logs cannot
+/// go where the `log.*` settings say, with the Error code (ADR 0122).
 fn observe(
     start: &Start,
     binary: &str,
-    home: Option<&Home>,
+    (home, settings): (Option<&Home>, Option<&Resolved>),
     parsed: &Parsed,
     clock: Clock,
     log_events: &LogEvents,
@@ -538,20 +551,17 @@ fn observe(
         trace_ids: entropy.as_mut().ok().map(Entropy::fork),
     };
     let version = ProductVersion::parse(start.version).ok();
-    let settings = home
-        .zip(version.as_ref())
-        .and_then(|(home, version)| browsers::machine_settings(home, start.product, version).ok());
     let process = logs::Process::of(parsed);
-    let filter = logs::filter_of(settings.as_ref());
+    let filter = logs::filter_of(settings);
     let file = version.as_ref().map_or(Ok(None), |version| {
-        logs::file_of(binary, process, version, home, settings.as_ref(), clock)
+        logs::file_of(binary, process, version, home, settings, clock)
     });
     let refused = filter.as_ref().err().or(file.as_ref().err()).cloned();
     let installed = logs::install(logs::Logs {
         filter: filter.unwrap_or_else(|_| "info".to_owned()),
         file: file.ok().flatten(),
         to: process.to(),
-        settings: settings.as_ref(),
+        settings,
         events: log_events,
         masks,
         product: start.product,
@@ -623,6 +633,7 @@ fn records_the_executable(parsed: &Parsed) -> bool {
 fn run(
     parsed: Parsed,
     (engine, dependencies): (&Engine, Dependencies),
+    settings: &Result<Resolved, SettingsError>,
     own: OwnCommands,
     environment: &BTreeMap<OsString, OsString>,
     human: &Human,
@@ -634,6 +645,7 @@ fn run(
         environment,
         executable: std::env::current_exe().ok(),
         clock: dependencies.clock,
+        settings,
     };
     if records_the_executable(&parsed) {
         machine.record();
@@ -651,17 +663,11 @@ fn run(
         Command::Browser {
             command: BrowserCommand::Install { json },
             ..
-        } => browsers::install(engine.identity(), environment, machine.clock, json, human),
+        } => browsers::install(&machine, json, human),
         Command::Browser {
             command: BrowserCommand::Clean { dry_run, json },
             ..
-        } => browsers::clean(
-            engine.identity(),
-            environment,
-            machine.clock,
-            (dry_run, json),
-            human,
-        ),
+        } => browsers::clean(&machine, (dry_run, json), human),
         Command::Console {
             no_browser, json, ..
         } => console::open(&machine, no_browser, json, human),
@@ -676,12 +682,20 @@ fn run(
                     attached: _,
                 },
             ..
-        } => config_explain(
+        } => config::explain(
             (engine, dependencies),
             &machine,
-            daemon,
-            (keys, settings.run_layer(), project),
-            json,
+            if daemon {
+                Choice::Daemon
+            } else {
+                Choice::Attached
+            },
+            &config::Explain {
+                keys,
+                settings: settings.run_layer(),
+                project,
+                json,
+            },
             human,
         ),
         Command::Daemon { command, .. } => {
@@ -695,7 +709,7 @@ fn run(
                 tracing::error!("the working folder cannot be read");
                 return ExitCode::FAILURE;
             };
-            runs::reindex(engine.identity(), &home, &folder, paths, json)
+            runs::reindex(&machine, &folder, paths, json, human)
         }
         Command::Usage { command, .. } => {
             warn_of_a_temporary_ledger(&home, human);
@@ -766,44 +780,6 @@ fn warn_of_a_temporary_ledger(home: &Home, human: &Human) {
     }
 }
 
-/// `config explain`, from the working folder: in this process, or through
-/// the Daemon's `config.explain` under `--daemon`, the remote Daemon
-/// `GOODFETCH_URL` names when it is set.
-fn config_explain(
-    (engine, dependencies): (&Engine, Dependencies),
-    machine: &daemon::Machine<'_>,
-    through_daemon: bool,
-    (keys, settings, project): (
-        Vec<String>,
-        serde_json::Map<String, serde_json::Value>,
-        Option<std::path::PathBuf>,
-    ),
-    json: bool,
-    human: &Human,
-) -> ExitCode {
-    let Ok(folder) = std::env::current_dir() else {
-        tracing::error!("the working folder cannot be read");
-        return ExitCode::FAILURE;
-    };
-    let request = config::Explain {
-        keys,
-        settings,
-        project,
-        folder,
-        json,
-    };
-    if through_daemon {
-        return config::explain_through(engine, dependencies, machine, &request, human);
-    }
-    config::explain(
-        engine.identity(),
-        machine.home,
-        machine.environment,
-        &request,
-        human,
-    )
-}
-
 /// Prints the age notice on stderr when it is due for an executable
 /// released on `release_date` (ADR 0030), at the time `clock` reads.
 fn age_notice(release_date: Option<&str>, home: &Home, identity: &Identity, clock: Clock) {
@@ -823,7 +799,7 @@ fn age_notice(release_date: Option<&str>, home: &Home, identity: &Identity, cloc
 fn home(environment: &BTreeMap<OsString, OsString>) -> Option<Home> {
     let home = match deployment_variable(environment, HOME_VARIABLE) {
         Some(home) => Home::new(home.into()),
-        None => Home::new(dirs::data_dir()?.join(HOME_FOLDER)),
+        None => Home::new(dirs::data_dir()?.join(goodfetch_protocol::home::HOME_FOLDER)),
     };
     Some(home.with_browsers_path(
         deployment_variable(environment, BROWSERS_PATH_VARIABLE).map(Into::into),
@@ -858,15 +834,10 @@ pub fn command(product: Product, own: OwnCommands) -> clap::Command {
 /// catalog for every namespace no hand-written group takes, `own` among
 /// them written by hand.
 fn command_line(product: Product, own: OwnCommands) -> (clap::Command, Generated) {
-    let (binary, about) = match product {
-        Product::Collie => (
-            "goodfetch-collie",
-            "Collie, Goodfetch's Product for browser automation.",
-        ),
-        Product::Foxhound => (
-            "goodfetch-foxhound",
-            "Foxhound, Goodfetch's Product for crawling, which contains Collie.",
-        ),
+    let binary = product.executable_name();
+    let about = match product {
+        Product::Collie => "Collie, Goodfetch's Product for browser automation.",
+        Product::Foxhound => "Foxhound, Goodfetch's Product for crawling, which contains Collie.",
     };
     // `--color` stays the root's own: global at the root, clap would copy it
     // into every command group on each parse (see `ColourFlag`).
@@ -885,16 +856,12 @@ fn run_attached(
     machine: &daemon::Machine<'_>,
     console_address: Option<&str>,
 ) -> ExitCode {
-    let identity = engine.identity();
-    let settings = browsers::machine_settings(
-        &dependencies.home,
-        identity.product,
-        &identity.product_version,
-    )
-    .ok();
+    // Settings it cannot read leave their defaults here: the engine refuses
+    // its Client's calls with their Error code, on the Connection.
+    let settings = machine.settings().ok();
     // In the per-install layout the Daemon alone writes run state: the
     // Attached engine hands its Runs to it (ADR 0002).
-    let daemon = if daemon::per_install(settings.as_ref()) {
+    let daemon = if daemon::per_install(settings) {
         match machine.reach_for_relay() {
             Ok(reach) => Some(reach),
             Err(failure) => return failure.report(),
@@ -925,7 +892,7 @@ fn run_attached(
         // its script gives for its run (ADR 0031).
         let console = match console_address {
             Some(address) if engine.serves_console() => {
-                daemon::start_console(address, settings.as_ref()).await.0
+                daemon::start_console(address, settings).await.0
             }
             Some(_) | None => DaemonConsole::Absent,
         };

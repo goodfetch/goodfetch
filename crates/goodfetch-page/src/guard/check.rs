@@ -5,7 +5,9 @@
 
 use std::time::Duration;
 
-use serde::Deserialize;
+use goodfetch_protocol::connection::WaitedFor;
+use goodfetch_protocol::page::waits::ElementState;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 /// The check and arm, a function the guard's world calls.
@@ -92,7 +94,7 @@ pub(crate) enum Seen {
     /// It is not, at the step `step`.
     Waiting {
         /// The condition that did not hold, such as `visible` or `unique`.
-        step: String,
+        step: Step,
         /// What the page showed instead.
         observed: String,
         /// Every element that matched, when there were several.
@@ -107,8 +109,79 @@ pub(crate) enum Seen {
 }
 
 impl Seen {
+    /// A wait at `step`, the page showing `observed`, listing no matches.
+    pub(crate) fn waiting(step: Step, observed: impl Into<String>) -> Self {
+        Self::Waiting {
+            step,
+            observed: observed.into(),
+            matches: Vec::new(),
+        }
+    }
+
     /// The check's answer, `value`, as what it saw.
     pub(crate) fn read(value: &Value) -> Result<Self, serde_json::Error> {
         Self::deserialize(value)
+    }
+}
+
+/// A condition the check waits on, by the name `check.js` gives it: a step
+/// it names otherwise does not read, so the script and the guard cannot
+/// part on a name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Step {
+    /// A count wait's matches are not as many as its bounds allow.
+    Count,
+    /// A `detached` wait still matches.
+    Detached,
+    /// More than one element matches.
+    Unique,
+    /// A `hidden` wait's match is visible.
+    Hidden,
+    /// Nothing matches.
+    Attached,
+    /// The match is not visible.
+    Visible,
+    /// The match is disabled.
+    Enabled,
+    /// The match is not editable.
+    Editable,
+    /// The match is moving.
+    Stable,
+    /// Another element would receive the event.
+    ReceivesEvents,
+}
+
+impl Step {
+    /// The step a locator's wait for `state` waits at.
+    pub(crate) fn waiting_for(state: ElementState) -> Self {
+        match state {
+            ElementState::Attached => Self::Attached,
+            ElementState::Detached => Self::Detached,
+            ElementState::Visible => Self::Visible,
+            ElementState::Hidden => Self::Hidden,
+        }
+    }
+
+    /// Its name, as `check.js` gives it.
+    pub(crate) fn as_str(self) -> &'static str {
+        goodfetch_protocol::wire_name::of(&self)
+    }
+
+    /// What a call that waited for this check to pass waited for, as its
+    /// `deadline_exceeded` names it.
+    pub(crate) fn waited_for(self) -> WaitedFor {
+        match self {
+            Self::Count => WaitedFor::TARGET_COUNT,
+            Self::Detached => WaitedFor::TARGET_DETACHED,
+            Self::Unique => WaitedFor::TARGET_UNIQUE,
+            Self::Hidden => WaitedFor::TARGET_HIDDEN,
+            Self::Attached => WaitedFor::TARGET_ATTACHED,
+            Self::Visible => WaitedFor::TARGET_VISIBLE,
+            Self::Enabled => WaitedFor::TARGET_ENABLED,
+            Self::Editable => WaitedFor::TARGET_EDITABLE,
+            Self::Stable => WaitedFor::TARGET_STABLE,
+            Self::ReceivesEvents => WaitedFor::TARGET_RECEIVES_EVENTS,
+        }
     }
 }

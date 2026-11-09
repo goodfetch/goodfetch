@@ -21,10 +21,13 @@ use std::process::Stdio;
 use std::sync::mpsc;
 use std::time::Duration;
 
+use goodfetch_protocol::home::{DaemonFile, RUN_FILE};
+use goodfetch_test_client::DaemonClient;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{DaemonEndpoint, Process, RuntimeFile, TestEnv, record_command_in};
 use serde_json::{Value, json};
 
-use crate::daemon::RawClient;
+use crate::daemon_hello;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -173,22 +176,22 @@ impl Foreground {
 
 /// The persistent token Clients of the foreground Daemon open with.
 pub(crate) fn token(env: &TestEnv) -> String {
-    std::fs::read_to_string(env.home().join("0.0").join("daemon.token")).unwrap()
+    std::fs::read_to_string(HomeLayout::of(env.home()).daemon_file(DaemonFile::Token)).unwrap()
 }
 
 /// A Client of the foreground Daemon at `endpoint`.
-pub(crate) fn opened(env: &TestEnv, endpoint: &DaemonEndpoint) -> RawClient {
-    RawClient::opened_at(endpoint, &token(env), "collie")
+pub(crate) fn opened(env: &TestEnv, endpoint: &DaemonEndpoint) -> DaemonClient {
+    DaemonClient::opened(endpoint, &daemon_hello(&token(env)))
 }
 
 fn run_folder(env: &TestEnv, run_id: &str) -> PathBuf {
-    env.home().join("0.0").join("runs").join(run_id)
+    HomeLayout::of(env.home()).run_folder(run_id)
 }
 
 /// The run row of `run_id`'s run file: its lifecycle, stop reason and run
 /// epoch.
 fn run_row(env: &TestEnv, run_id: &str) -> Value {
-    let file = rusqlite::Connection::open(run_folder(env, run_id).join("run.sqlite")).unwrap();
+    let file = rusqlite::Connection::open(run_folder(env, run_id).join(RUN_FILE)).unwrap();
     let row: String = file
         .query_row(
             "SELECT json_object('lifecycle', lifecycle, 'stop_reason', json(stop_reason), 'epoch', epoch) FROM run",

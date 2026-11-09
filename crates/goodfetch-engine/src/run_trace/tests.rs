@@ -7,6 +7,7 @@
     reason = "the test reads the Run trace's files back"
 )]
 
+use goodfetch_protocol::home::{RUN_TRACE_PROVENANCE, RUN_TRACE_REQUESTS};
 use goodfetch_protocol::page::events::PAGE_REQUEST_FAILED;
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
@@ -15,7 +16,7 @@ use serde_json::json;
 
 use goodfetch_counted_work::{CountedWork, Row};
 
-use super::{PROVENANCE, Provenance, RequestLog};
+use super::{Provenance, RequestLog};
 use crate::mask::{Mask, Masks, Reach, Redaction};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -58,7 +59,7 @@ fn the_request_log_writes_a_resolved_value_only_when_its_runs_redaction_is_off(
         .unwrap();
 
     assert_eq!(
-        std::fs::read_to_string(env.folder().join(super::FILE)).unwrap(),
+        std::fs::read_to_string(env.folder().join(RUN_TRACE_REQUESTS)).unwrap(),
         written
     );
 }
@@ -89,7 +90,7 @@ fn the_provenance_log_writes_a_resolved_value_only_when_its_runs_redaction_is_of
         .unwrap();
 
     assert_eq!(
-        std::fs::read_to_string(env.folder().join(PROVENANCE)).unwrap(),
+        std::fs::read_to_string(env.folder().join(RUN_TRACE_PROVENANCE)).unwrap(),
         written
     );
 }
@@ -118,7 +119,7 @@ fn the_provenance_log_opens_its_file_once_and_each_entry_is_on_file_once_recorde
                     json!({ "action": "step", "step": step }),
                 ))
                 .unwrap();
-            std::fs::read_to_string(env.folder().join(PROVENANCE)).unwrap()
+            std::fs::read_to_string(env.folder().join(RUN_TRACE_PROVENANCE)).unwrap()
         })
         .collect::<Vec<_>>();
 

@@ -1,0 +1,10 @@
+[package]
+name = "goodfetch-test-client"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+goodfetch-workspace-hack = { path = "../goodfetch-workspace-hack" }
+goodfetch-protocol = { path = "../goodfetch-protocol" }
+goodfetch-test-support = { path = "../goodfetch-test-support" }

@@ -1,10 +1,11 @@
 //! A fetched page's `rel=canonical` (ADR 0120), which the Frontier reads
 //! as evidence and never as a merge: the first `<link rel="canonical">`
-//! in its `<head>` with an `href`, resolved against its base URL as HTML
-//! resolves a link's, or else the first `Link` header field value with
+//! in its `<head>` with an `href`, read by the extractor's rule for
+//! `metadata.canonical`, or else the first `Link` header field value with
 //! `rel="canonical"`, resolved against the URL it was fetched at.
 
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
+use goodfetch_extractor::{canonical_url, is_canonical_link};
 use url::Url;
 
 /// The URL `html`'s head, or else its `headers` (names lower-cased), name
@@ -27,8 +28,11 @@ pub(crate) fn canonical(
     in_head(&document, &link, base).or_else(|| in_headers(headers, url))
 }
 
-/// What names a document's head links, among them its canonical.
-pub(crate) const LINK: &str = "head link[rel][href]";
+/// What names a document's head links, among them its canonical: the
+/// head's own, as `metadata.canonical` reads them, where the parser's tree
+/// also holds a `<noscript>`'s, which a browser running scripts reads as
+/// text.
+pub(crate) const LINK: &str = "head > link[rel][href]";
 
 /// The URL the first `<link rel="canonical">` with an `href` in
 /// `document`'s head names, resolved against `base`, `link` being
@@ -38,9 +42,9 @@ pub(crate) fn in_head(document: &ParsedHtml, link: &dom_query::Matcher, base: &U
         .select_matcher(link)
         .nodes()
         .iter()
-        .find(|link| link.attr("rel").is_some_and(|rel| has_canonical(&rel)))
+        .find(|link| link.attr("rel").is_some_and(|rel| is_canonical_link(&rel)))
         .and_then(|link| link.attr("href"))
-        .and_then(|href| base.join(href.trim()).ok())
+        .and_then(|href| canonical_url(&href, base))
 }
 
 /// The URL the first `Link` header field value with `rel="canonical"`
@@ -50,14 +54,11 @@ pub(crate) fn in_headers(headers: &[(String, String)], url: &Url) -> Option<Url>
         .iter()
         .filter(|(name, _)| name == "link")
         .flat_map(|(_, value)| links(value))
-        .find_map(|(target, rel)| has_canonical(rel).then(|| url.join(target).ok()).flatten())
-}
-
-/// Whether the `rel` value `rel`, a list of link types, holds
-/// `canonical`, in any case.
-fn has_canonical(rel: &str) -> bool {
-    rel.split_ascii_whitespace()
-        .any(|kind| kind.eq_ignore_ascii_case("canonical"))
+        .find_map(|(target, rel)| {
+            is_canonical_link(rel)
+                .then(|| url.join(target).ok())
+                .flatten()
+        })
 }
 
 /// Each link of a `Link` field value (RFC 8288): its target, between `<`

@@ -96,6 +96,42 @@ pub(crate) fn recycle(browser: &Use, limits: &Limits) -> Option<Recycle> {
         .map(|_| Recycle::Memory)
 }
 
+/// Where a browser of the pool is in its life.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Stage {
+    /// It opens pages.
+    Serving,
+    /// It is recycled: it closes once none is open, and opens a page only
+    /// for a Session a move would race ([`leaves`]).
+    Retiring,
+    /// It closes.
+    Closing,
+}
+
+/// The page a Session asks its browser to open.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Opens {
+    /// A page a program opens.
+    ProgramPage,
+    /// A page the engine opens for itself; it `races` when a move of the
+    /// Session now could capture its storage before a program's navigation
+    /// wrote it.
+    EnginePage { races: bool },
+}
+
+/// Whether a Session leaves its browser, at `stage` once judged, before it
+/// opens the page `opens`. It leaves a recycled browser unless a move would
+/// race a program's navigation, when the page opens beside that navigation
+/// and the Session's next page moves it; it always leaves one that closes,
+/// which takes its context whether it moves or not.
+pub(crate) fn leaves(opens: Opens, stage: Stage) -> bool {
+    match (stage, opens) {
+        (Stage::Serving, _) | (Stage::Retiring, Opens::EnginePage { races: true }) => false,
+        (Stage::Retiring, Opens::ProgramPage | Opens::EnginePage { races: false })
+        | (Stage::Closing, _) => true,
+    }
+}
+
 /// Where a Session's browser context goes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Placement {

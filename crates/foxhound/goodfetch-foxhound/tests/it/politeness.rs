@@ -8,10 +8,11 @@
 //! and the Permits of an engine killed mid-request are reclaimed once its
 //! Run's writer lock is free. The handlers are the test's: a request is in
 //! flight from its `crawl_request.handle` until the test answers it.
+use goodfetch_test_client::Attached;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
+use crate::attached;
 
 fn one_at_a_time() -> Value {
     json!({ "politeness": { "domain": { "concurrency": 1 } } })
@@ -135,8 +136,8 @@ fn two_engines_crawling_one_site_never_have_more_in_flight_on_it_than_its_cap() 
     // pressure lowers its HTTP target towards its floor, one by default
     // (ADR 0040), and the second request would wait for the governor.
     env.user_configuration("governor.http.floor = 2\ngovernor.http.ceiling = 2\n");
-    let mut first = Attached::start(&env);
-    let mut second = Attached::start(&env);
+    let mut first = attached(&env);
+    let mut second = attached(&env);
 
     let mut held = start(
         &mut first,
@@ -164,8 +165,8 @@ fn two_engines_crawling_one_site_never_have_more_in_flight_on_it_than_its_cap() 
         finish(&mut first, "first")["result"]["lifecycle"].clone(),
         finish(&mut second, "second")["result"]["lifecycle"].clone(),
     );
-    assert!(first.finish());
-    assert!(second.finish());
+    assert!(first.finished());
+    assert!(second.finished());
 
     assert_eq!(
         (
@@ -193,8 +194,8 @@ fn two_engines_crawling_one_site_never_have_more_in_flight_on_it_than_its_cap() 
 #[test]
 fn a_crawl_that_shares_no_politeness_goes_beside_another_and_is_marked_in_its_result() {
     let env = TestEnv::new();
-    let mut first = Attached::start(&env);
-    let mut second = Attached::start(&env);
+    let mut first = attached(&env);
+    let mut second = attached(&env);
     let mut held = start(
         &mut first,
         "shared",
@@ -218,8 +219,8 @@ fn a_crawl_that_shares_no_politeness_goes_beside_another_and_is_marked_in_its_re
     let report = finish(&mut second, "own");
     answer(&mut first, &held[0]);
     finish(&mut first, "shared");
-    assert!(first.finish());
-    assert!(second.finish());
+    assert!(first.finished());
+    assert!(second.finished());
 
     assert_eq!(
         (url(&own[0]), &report["result"]["weakened"]),
@@ -237,7 +238,7 @@ fn a_crawl_that_shares_no_politeness_goes_beside_another_and_is_marked_in_its_re
 #[test]
 fn the_permit_of_an_engine_killed_mid_request_is_reclaimed() {
     let env = TestEnv::new();
-    let mut victim = Attached::start(&env);
+    let mut victim = attached(&env);
     let held = start(
         &mut victim,
         "killed",
@@ -249,7 +250,7 @@ fn the_permit_of_an_engine_killed_mid_request_is_reclaimed() {
     }
     victim.kill();
 
-    let mut survivor = Attached::start(&env);
+    let mut survivor = attached(&env);
     let mut taken = start(
         &mut survivor,
         "survivor",
@@ -261,7 +262,7 @@ fn the_permit_of_an_engine_killed_mid_request_is_reclaimed() {
     }
     answer(&mut survivor, &taken[0]);
     let report = finish(&mut survivor, "survivor");
-    assert!(survivor.finish());
+    assert!(survivor.finished());
 
     assert_eq!(
         (url(&taken[0]), &report["result"]["lifecycle"]),

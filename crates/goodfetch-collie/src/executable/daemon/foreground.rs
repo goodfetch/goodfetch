@@ -49,23 +49,16 @@ use goodfetch_protocol::daemon::{
     ADDRESS, DRAIN_GRACE, DaemonEndpoint, DaemonStatus, DaemonToken, IDLE_TIMEOUT,
 };
 use goodfetch_protocol::ops::{ADDRESS as OPS_ADDRESS, OTLP_METRICS_ENDPOINT};
-use goodfetch_protocol::settings::{SETTING_INVALID, SettingLimit, SettingsLayer};
+use goodfetch_protocol::settings::{
+    DAEMON_ADDRESS_VARIABLE as ADDRESS_VARIABLE,
+    DAEMON_DRAIN_GRACE_VARIABLE as DRAIN_GRACE_VARIABLE, OPS_ADDRESS_VARIABLE, SETTING_INVALID,
+    SettingLimit, SettingsLayer,
+};
 use tokio_util::sync::CancellationToken;
 
 use super::{Failure, Machine, Reach, multi_thread_runtime};
-use crate::executable::browsers;
 use crate::executable::metrics::Export;
 use crate::executable::otlp::ToCollector;
-
-/// The deployment variable that overrides `daemon.address` for `daemon run`.
-const ADDRESS_VARIABLE: &str = "GOODFETCH_DAEMON_ADDRESS";
-
-/// The deployment variable that overrides `daemon.drain_grace` for
-/// `daemon run`, in milliseconds.
-const DRAIN_GRACE_VARIABLE: &str = "GOODFETCH_DAEMON_DRAIN_GRACE";
-
-/// The deployment variable that overrides `ops.address` for `daemon run`.
-const OPS_ADDRESS_VARIABLE: &str = "GOODFETCH_OPS_ADDRESS";
 
 /// What the foreground Daemon runs with, from the machine's settings and
 /// its environment.
@@ -340,11 +333,7 @@ async fn ops_listener(
 /// first two unless the Operator policy locks them; the address must be a
 /// loopback one.
 fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
-    let settings = browsers::machine_settings(
-        machine.home,
-        machine.identity.product,
-        &machine.identity.product_version,
-    )?;
+    let settings = machine.settings.clone()?;
     let (address, source) =
         match overridden(&settings, machine.environment, ADDRESS_VARIABLE, &ADDRESS)? {
             Some(address) => (address, Source::variable(ADDRESS_VARIABLE)),
@@ -418,6 +407,7 @@ pub(super) fn reach(machine: &Machine<'_>) -> Result<Option<Reach>, Failure> {
         endpoint: DaemonEndpoint::Tcp(configured.address),
         token: DaemonToken::new(token),
         service: false,
+        remote: false,
     }))
 }
 
@@ -595,7 +585,7 @@ mod tests {
 
     #[test]
     fn a_loopback_address_is_taken_and_any_other_refused() {
-        let source = Source::variable("GOODFETCH_DAEMON_ADDRESS");
+        let source = Source::variable(super::ADDRESS_VARIABLE);
         let codes = [
             "127.0.0.1:0",
             "[::1]:7900",

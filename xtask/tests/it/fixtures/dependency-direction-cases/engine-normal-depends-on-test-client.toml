@@ -1,0 +1,8 @@
+[package]
+name = "goodfetch-engine"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+goodfetch-test-client = { path = "../goodfetch-test-client" }

@@ -96,30 +96,30 @@ impl Exported<'_> {
 pub struct ExportOptions {
     /// Whether a CSV Export starts with a byte order mark,
     /// `export.csv.bom`.
-    pub csv_bom: bool,
+    pub(crate) csv_bom: bool,
     /// The character between a CSV Export's fields,
     /// `export.csv.delimiter`.
-    pub csv_delimiter: char,
+    pub(crate) csv_delimiter: char,
     /// How a CSV Export writes an object, `export.csv.nested`.
-    pub csv_nested: Nested,
+    pub(crate) csv_nested: Nested,
     /// The name of an XLSX Export's sheet, `export.xlsx.sheet`.
-    pub xlsx_sheet: String,
+    pub(crate) xlsx_sheet: String,
     /// The Dataset's name: an HTML table's and a feed's title, and an Avro
     /// schema's record.
-    pub title: String,
+    pub(crate) title: String,
     /// The spaces a JSON Export indents each level by, `export.json.indent`.
-    pub json_indent: usize,
+    pub(crate) json_indent: usize,
     /// The XML root element's name, `export.xml.root`.
-    pub xml_root: String,
+    pub(crate) xml_root: String,
     /// The XML element of each Record, `export.xml.record`.
-    pub xml_record: String,
+    pub(crate) xml_record: String,
     /// A Parquet file's codec, `export.parquet.compression`.
-    pub parquet_codec: ParquetCodec,
+    pub(crate) parquet_codec: ParquetCodec,
     /// The fields a feed's items are taken from, `export.feed.*`.
-    pub feed: FeedFields,
+    pub(crate) feed: FeedFields,
     /// A feed's ID, a URI each entry's ID without a link adds its Record's
     /// number to.
-    pub feed_id: String,
+    pub(crate) feed_id: String,
 }
 
 impl ExportOptions {
@@ -155,7 +155,7 @@ impl ExportOptions {
     /// The built-in options of an Export of the Run `run_id`'s Dataset
     /// `dataset`, whose feed's ID names both.
     #[must_use]
-    pub fn of_run(run_id: &str, dataset: &str) -> Self {
+    pub(crate) fn of_run(run_id: &str, dataset: &str) -> Self {
         Self {
             feed_id: format!(
                 "urn:goodfetch:run:{}:dataset:{}",
@@ -169,12 +169,42 @@ impl ExportOptions {
     /// How a table Export in `format` writes an object: as
     /// `export.csv.nested` says in CSV, as its JSON text elsewhere.
     #[must_use]
-    pub fn nested(&self, format: ExportFormat) -> Nested {
+    pub(crate) fn nested(&self, format: ExportFormat) -> Nested {
         match format {
             ExportFormat::Csv => self.csv_nested,
             _ => Nested::Json,
         }
     }
+}
+
+/// What is wrong with a value of an `export.*` setting, which reads as the
+/// end of `setting_invalid`'s sentence about that value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum OptionRefused {
+    /// A delimiter that is no single character.
+    #[error("is not one character")]
+    NotOneCharacter,
+    /// A delimiter CSV gives another meaning.
+    #[error("is a double quote, a carriage return or a line feed, which a CSV field holds")]
+    DelimiterACsvFieldHolds,
+    /// An XML element's name that is none.
+    #[error("is no XML name: a letter or `_`, then letters, digits, `-`, `.` and `_`")]
+    NoXmlName,
+    /// An indent past `JSON_INDENT_MAX`.
+    #[error("is more than {}", JSON_INDENT_MAX)]
+    IndentTooLarge,
+    /// A sheet's name or a feed's field with nothing in it.
+    #[error("is empty")]
+    Empty,
+    /// A sheet's name past [`SHEET_NAME_MAX`].
+    #[error("is longer than {} characters", SHEET_NAME_MAX)]
+    SheetNameTooLong,
+    /// A sheet's name holding one of [`NOT_IN_SHEET_NAMES`].
+    #[error("holds one of `:`, `\\`, `/`, `?`, `*`, `[` and `]`")]
+    SheetNameCharacter,
+    /// A sheet's name a spreadsheet would read as quoted.
+    #[error("starts or ends with `'`")]
+    SheetNameQuoted,
 }
 
 /// The delimiter `text` names, or why it names none: one character, but
@@ -183,14 +213,12 @@ impl ExportOptions {
 /// # Errors
 ///
 /// What is wrong with `text`.
-pub(crate) fn csv_delimiter(text: &str) -> Result<char, &'static str> {
+pub(crate) fn csv_delimiter(text: &str) -> Result<char, OptionRefused> {
     let mut characters = text.chars();
     match (characters.next(), characters.next()) {
-        (Some('"' | '\r' | '\n'), None) => {
-            Err("is a double quote, a carriage return or a line feed, which a CSV field holds")
-        }
+        (Some('"' | '\r' | '\n'), None) => Err(OptionRefused::DelimiterACsvFieldHolds),
         (Some(character), None) => Ok(character),
-        _ => Err("is not one character"),
+        _ => Err(OptionRefused::NotOneCharacter),
     }
 }
 
@@ -199,11 +227,11 @@ pub(crate) fn csv_delimiter(text: &str) -> Result<char, &'static str> {
 /// # Errors
 ///
 /// What is wrong with `text`.
-pub(crate) fn xml_name(text: &str) -> Result<String, &'static str> {
+pub(crate) fn xml_name(text: &str) -> Result<String, OptionRefused> {
     if xml::is_name(text) {
         Ok(text.to_owned())
     } else {
-        Err("is no XML name: a letter or `_`, then letters, digits, `-`, `.` and `_`")
+        Err(OptionRefused::NoXmlName)
     }
 }
 
@@ -212,11 +240,11 @@ pub(crate) fn xml_name(text: &str) -> Result<String, &'static str> {
 /// # Errors
 ///
 /// What is wrong with `count`.
-pub(crate) fn json_indent(count: u64) -> Result<usize, String> {
+pub(crate) fn json_indent(count: u64) -> Result<usize, OptionRefused> {
     if count <= JSON_INDENT_MAX {
         Ok(usize::try_from(count).expect("invariant: at most `JSON_INDENT_MAX`"))
     } else {
-        Err(format!("is more than {JSON_INDENT_MAX}"))
+        Err(OptionRefused::IndentTooLarge)
     }
 }
 
@@ -225,9 +253,9 @@ pub(crate) fn json_indent(count: u64) -> Result<usize, String> {
 /// # Errors
 ///
 /// What is wrong with `text`.
-pub(crate) fn feed_field(text: &str) -> Result<String, &'static str> {
+pub(crate) fn feed_field(text: &str) -> Result<String, OptionRefused> {
     if text.is_empty() {
-        Err("is empty")
+        Err(OptionRefused::Empty)
     } else {
         Ok(text.to_owned())
     }
@@ -253,25 +281,18 @@ fn urn_text(text: &str) -> String {
 /// # Errors
 ///
 /// What is wrong with `text`.
-pub(crate) fn sheet_name(text: &str) -> Result<String, String> {
+pub(crate) fn sheet_name(text: &str) -> Result<String, OptionRefused> {
     if text.is_empty() {
-        return Err("is empty".to_owned());
+        return Err(OptionRefused::Empty);
     }
     if text.chars().count() > SHEET_NAME_MAX {
-        return Err(format!("is longer than {SHEET_NAME_MAX} characters"));
+        return Err(OptionRefused::SheetNameTooLong);
     }
     if text.contains(NOT_IN_SHEET_NAMES) {
-        let (last, others) = NOT_IN_SHEET_NAMES
-            .split_last()
-            .expect("invariant: a sheet's name refuses some characters");
-        let others: Vec<String> = others
-            .iter()
-            .map(|character| format!("`{character}`"))
-            .collect();
-        return Err(format!("holds one of {} and `{last}`", others.join(", ")));
+        return Err(OptionRefused::SheetNameCharacter);
     }
     if text.starts_with('\'') || text.ends_with('\'') {
-        return Err("starts or ends with `'`".to_owned());
+        return Err(OptionRefused::SheetNameQuoted);
     }
     Ok(text.to_owned())
 }

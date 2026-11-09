@@ -171,13 +171,11 @@ fn the_headline_and_author_of_a_frozen_page_are_verified(
 ) {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = proving_ground
-        .judge(&json!({
-            "task": task,
-            "status": "success",
-            "records": [{ "id": url, "title": title, "author": author }],
-        }))
-        .json();
+    let answer = proving_ground.judge(&json!({
+        "task": task,
+        "status": "success",
+        "records": [{ "id": url, "title": title, "author": author }],
+    }));
 
     assert_eq!(answer["outcome"], "verified", "{answer}");
 }
@@ -187,17 +185,15 @@ fn the_headline_and_author_of_a_frozen_page_are_verified(
 fn a_frozen_pages_headline_with_another_apostrophe_is_a_false_success() {
     let proving_ground = ProvingGround::start(SEED);
 
-    let answer = proving_ground
-        .judge(&json!({
-            "task": "replay/2",
-            "status": "success",
-            "records": [{
-                "id": FDA,
-                "title": "FDA's Concerns with Unapproved GLP-1 Drugs Used for Weight Loss",
-                "author": "Center for Drug Evaluation and Research",
-            }],
-        }))
-        .json();
+    let answer = proving_ground.judge(&json!({
+        "task": "replay/2",
+        "status": "success",
+        "records": [{
+            "id": FDA,
+            "title": "FDA's Concerns with Unapproved GLP-1 Drugs Used for Weight Loss",
+            "author": "Center for Drug Evaluation and Research",
+        }],
+    }));
 
     assert_eq!(answer["outcome"], "false_success", "{answer}");
     assert_eq!(answer["wrong"][0]["field"], "title", "{answer}");

@@ -658,6 +658,31 @@ fn a_selection_without_its_gate_ends_the_tier_before_any_lint() {
     assert!(run.stderr.contains("`gate=`"), "{}", run.stderr);
 }
 
+/// Two `gate=` lines say neither gate: the reader refuses them as it refuses
+/// none, rather than take the last.
+#[test]
+fn a_selection_with_its_gate_twice_ends_the_tier_before_any_lint() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_ins(&workspace);
+    selection(&stand_in, "docs");
+    let full = std::fs::read_to_string(stand_in.join("selection")).unwrap();
+    std::fs::write(stand_in.join("selection"), format!("gate=full\n{full}")).unwrap();
+
+    let run = quick(&workspace, &stand_in, &[]);
+
+    assert_eq!(run.code, Some(1), "{}", run.stderr);
+    assert_eq!(
+        run.calls,
+        [
+            "compiler-cache",
+            "floor-guard origin/main",
+            "commit-leaks origin/main",
+            "_skips-report"
+        ]
+    );
+    assert!(run.stderr.contains("`gate=`"), "{}", run.stderr);
+}
+
 /// Runs `script`, a bash script that sources the repository's
 /// `ci/keep-going.sh`, in a new workspace, with `variables` added.
 fn keep_going(script: &str, variables: &[(&str, &str)]) -> (Workspace, Run) {

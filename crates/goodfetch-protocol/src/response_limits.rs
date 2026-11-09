@@ -31,10 +31,6 @@ pub const DEFAULT_MAX_JSON_DEPTH: u64 = 128;
 /// it the engine's parser, which recurses, might not fit a thread's stack.
 pub const MAX_JSON_DEPTH_CEILING: u64 = 1024;
 
-/// The decoded size past which `network.max_decompression_ratio` applies:
-/// 1 MiB.
-pub const RATIO_APPLIES_PAST: u64 = 1024 * 1024;
-
 fn sixty_four_mebibytes() -> Value {
     json!(DEFAULT_MAX_BODY_SIZE)
 }

@@ -9,12 +9,13 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::{RuntimeFile, TestEnv};
 use serde_json::{Value, json};
 
-use crate::attached::{Attached, hello};
-use crate::daemon::{RawClient, StopsTheDaemon, json_of, short_idle};
-use crate::run::call;
+use crate::daemon::{StopsTheDaemon, json_of, short_idle};
+use crate::daemon_client;
+use goodfetch_test_client::{Attached, hello};
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
 
@@ -37,7 +38,7 @@ fn an_attached_engine_reads_a_run_the_daemon_works_through_the_daemon() {
     json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
     let found =
         RuntimeFile::read(&RuntimeFile::path(env.home(), env!("CARGO_PKG_VERSION"))).unwrap();
-    let mut owner = RawClient::opened(&found, "collie");
+    let mut owner = daemon_client(&found);
     owner.call(1, "run.start", &json!({ "run_id": "followed" }));
     owner.call(
         2,
@@ -49,18 +50,12 @@ fn an_attached_engine_reads_a_run_the_daemon_works_through_the_daemon() {
         "key_value_store.set",
         &json!({ "run_id": "followed", "key": "cursor", "value": 3 }),
     );
-    let mut reader = Attached::start(&env);
-    reader.send(&hello("collie", "0.1"));
+    let mut reader = Attached::start(&env, COLLIE);
+    reader.send(&hello(Product::Collie));
     let _ = reader.next();
 
-    let progress = call(
-        &mut reader,
-        1,
-        "run.progress",
-        &json!({ "run_id": "followed" }),
-    );
-    let value = call(
-        &mut reader,
+    let progress = reader.ask(1, "run.progress", &json!({ "run_id": "followed" }));
+    let value = reader.ask(
         2,
         "key_value_store.get",
         &json!({ "run_id": "followed", "key": "cursor" }),

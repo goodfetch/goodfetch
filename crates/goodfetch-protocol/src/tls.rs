@@ -196,16 +196,19 @@ pub enum KnownCertificateFailure {
 }
 
 impl KnownCertificateFailure {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 6] = [
+        Self::Expired,
+        Self::NotYetValid,
+        Self::UnknownIssuer,
+        Self::NameMismatch,
+        Self::SelfSigned,
+        Self::Revoked,
+    ];
+
     /// Its name as the wire writes it.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Expired => "expired",
-            Self::NotYetValid => "not_yet_valid",
-            Self::UnknownIssuer => "unknown_issuer",
-            Self::NameMismatch => "name_mismatch",
-            Self::SelfSigned => "self_signed",
-            Self::Revoked => "revoked",
-        }
+        crate::wire_name::of(&self)
     }
 }
 

@@ -5,8 +5,43 @@
 
 use std::io::{BufRead as _, BufReader};
 use std::process::{Child, ChildStdout, Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use goodfetch_test_support::{
+    LOOPBACK_PORT_0, Observations, ROUTES, ServeLine, UNSHAPED, serve_arguments,
+};
+use hmac::{Hmac, Mac as _};
 use serde_json::{Value, json};
+use sha1::Sha1;
+
+/// The TOTP code (RFC 6238: HMAC-SHA-1, 30-second steps, 6 digits) of a
+/// base32 secret at `unix_seconds`, as a tool's authenticator computes it,
+/// apart from the Proving ground's own and held to the RFC's vectors
+/// (`login`'s `the_test_authenticator_gives_rfc_6238s_codes`).
+pub(crate) fn totp(secret: &str, unix_seconds: u64) -> String {
+    let key = data_encoding::BASE32_NOPAD
+        .decode(secret.as_bytes())
+        .expect("the secret is base32");
+    let mut mac = Hmac::<Sha1>::new_from_slice(&key).expect("HMAC takes any key");
+    mac.update(&(unix_seconds / 30).to_be_bytes());
+    let hash = mac.finalize().into_bytes();
+    let offset = usize::from(hash[19] & 0x0f);
+    let code =
+        u32::from_be_bytes(hash[offset..offset + 4].try_into().expect("four bytes")) & 0x7fff_ffff;
+    format!("{:06}", code % 1_000_000)
+}
+
+/// [`totp`] of a base32 secret now: the Proving ground checks a code by the
+/// system's clock, as a login page does (RFC 6238's section 5.2), and
+/// accepts the steps next to the current one, so a step ending between the
+/// two reads fails nothing.
+pub(crate) fn totp_now(secret: &str) -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("the clock is past 1970")
+        .as_secs();
+    totp(secret, now)
+}
 
 /// A running `serve`, stopped when dropped.
 pub(crate) struct ProvingGround {
@@ -59,26 +94,20 @@ impl Answer {
 impl ProvingGround {
     /// Starts `serve` on port 0 of the loopback address.
     pub(crate) fn start(seed: u64) -> Self {
-        Self::start_on(seed, "127.0.0.1:0")
+        Self::start_on(seed, LOOPBACK_PORT_0)
     }
 
     /// Starts `serve` on the given address.
     pub(crate) fn start_on(seed: u64, address: &str) -> Self {
-        Self::start_with(
-            seed,
-            &["--address", address, "--network-profile", "none"],
-            &[],
-        )
+        Self::start_with(&serve_arguments(seed, address, UNSHAPED))
     }
 
-    /// Starts `serve` with the given address and network arguments, in an
-    /// environment that holds only `environment`.
-    pub(crate) fn start_with(seed: u64, arguments: &[&str], environment: &[(&str, &str)]) -> Self {
+    /// Starts the Proving ground with `arguments`, `serve`'s from
+    /// [`serve_arguments`] and any after them, in an empty environment.
+    pub(crate) fn start_with(arguments: &[String]) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_goodfetch-proving-ground"))
-            .args(["serve", "--seed", &seed.to_string(), "--copy", "local"])
             .args(arguments)
             .env_clear()
-            .envs(environment.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -88,10 +117,12 @@ impl ProvingGround {
         let mut line = String::new();
         stdout.read_line(&mut line).expect("stdout is readable");
         assert!(line.ends_with('\n'), "serve printed no line: {line:?}");
-        let address = serde_json::from_str::<Value>(&line).expect("the line is JSON")["address"]
-            .as_str()
-            .expect("the line names an address")
-            .to_owned();
+        let address = serde_json::from_str::<ServeLine>(&line)
+            .unwrap_or_else(|error| {
+                panic!("the line is not the described serve line ({error}): {line}")
+            })
+            .address
+            .to_string();
         let agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .max_redirects(0)
@@ -281,7 +312,7 @@ impl ProvingGround {
     pub(crate) fn tasks(&self) -> Value {
         let response = self
             .agent
-            .get(format!("http://{}/tasks", self.address))
+            .get(format!("http://{}{}", self.address, ROUTES.tasks))
             .call()
             .expect("the Proving ground answers");
         let answer = Self::answer(response);
@@ -311,16 +342,20 @@ impl ProvingGround {
     /// its private key, each as PEM.
     pub(crate) fn client_identity(&self) -> (String, String) {
         (
-            self.control("/client-certificate").body,
-            self.control("/client-key").body,
+            self.control(ROUTES.client_certificate).body,
+            self.control(ROUTES.client_key).body,
         )
     }
 
     /// Every request the Proving ground recorded, with its sums.
     pub(crate) fn observations(&self) -> Value {
-        let answer = self.control("/observations");
+        let answer = self.control(ROUTES.observations);
         assert_eq!(answer.status, 200, "{}", answer.body);
-        answer.json()
+        let document = answer.json();
+        if let Err(error) = serde_json::from_value::<Observations>(document.clone()) {
+            panic!("the observations are not the described format ({error}): {document}");
+        }
+        document
     }
 
     /// Puts a JSON body to a path on the Proving ground's own address.
@@ -378,11 +413,25 @@ impl ProvingGround {
         Self::answer(response)
     }
 
-    /// Submits a result to the oracle.
-    pub(crate) fn judge(&self, submission: &Value) -> Answer {
+    /// The oracle's verdict on a submitted result, which it must answer
+    /// with 200: an error page fails here, naming its status and body,
+    /// never later as a wrong outcome.
+    pub(crate) fn judge(&self, submission: &Value) -> Value {
+        let answer = self.submit(submission);
+        assert_eq!(
+            answer.status, 200,
+            "the oracle judges the submission: {}",
+            answer.body
+        );
+        answer.json()
+    }
+
+    /// Submits a result to the oracle, answering whatever it answers, for a
+    /// test of a refused submission.
+    pub(crate) fn submit(&self, submission: &Value) -> Answer {
         let response = self
             .agent
-            .post(format!("http://{}/oracle", self.address))
+            .post(format!("http://{}{}", self.address, ROUTES.oracle))
             .send_json(submission)
             .expect("the Proving ground answers");
         Self::answer(response)

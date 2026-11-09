@@ -16,6 +16,7 @@ use crate::hostile::{
 };
 use crate::locales::LocaleTable;
 use crate::proving_ground::ProvingGroundDescription;
+use crate::proving_ground_format::{Observations, OracleSubmission, ROUTES, Routes, ServeLine};
 use crate::script::Script;
 use crate::snapshot::SnapshotFilters;
 use crate::ssrf::{SsrfLayers, SsrfTable};
@@ -87,8 +88,9 @@ impl Description {
 
 /// The JSON Schemas of the file types this crate defines, by the path
 /// `xtask codegen` commits each under, relative to `test-support/fixtures/`:
-/// `schemas/` for most, and the script format's among the engine scripts it
-/// describes (ADR 0069).
+/// `schemas/` for most, the script format's among the engine scripts it
+/// describes (ADR 0069), and `proving-ground/` the Proving ground's own
+/// routes, a fixture the TypeScript and Python test support read.
 pub fn schemas() -> BTreeMap<&'static str, serde_json::Value> {
     BTreeMap::from([
         (
@@ -122,6 +124,26 @@ pub fn schemas() -> BTreeMap<&'static str, serde_json::Value> {
         (
             "schemas/locales.schema.json",
             schemars::schema_for!(LocaleTable).to_value(),
+        ),
+        (
+            "proving-ground/routes.json",
+            serde_json::to_value(ROUTES).expect("invariant: the routes serialize"),
+        ),
+        (
+            "schemas/proving-ground-observations.schema.json",
+            schemars::schema_for!(Observations).to_value(),
+        ),
+        (
+            "schemas/proving-ground-oracle-submission.schema.json",
+            schemars::schema_for!(OracleSubmission).to_value(),
+        ),
+        (
+            "schemas/proving-ground-routes.schema.json",
+            schemars::schema_for!(Routes).to_value(),
+        ),
+        (
+            "schemas/proving-ground-serve-line.schema.json",
+            schemars::schema_for!(ServeLine).to_value(),
         ),
         (
             "schemas/snapshot-filters.schema.json",

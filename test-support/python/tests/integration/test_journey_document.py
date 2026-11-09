@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 
 import jsonschema
 import pytest
-from goodfetch_test_support import TestEnv, Tool
+from goodfetch_test_support import TestEnv, Tool, proving_ground_routes
 from goodfetch_test_support.generated.result_document import (
     CheckOutcome,
     CheckResult,
@@ -35,6 +35,7 @@ from goodfetch_test_support.generated.result_document import (
     TaskResult,
 )
 from goodfetch_test_support.result_document import write_journey_document
+from goodfetch_test_support.schemas import validate
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
@@ -154,8 +155,9 @@ def proving_ground(test_env: TestEnv) -> Generator[ProvingGround]:
     )
     try:
         assert serve.stdout is not None
-        reported = json.loads(serve.stdout.readline())
-        yield ProvingGround(reported["address"])
+        reported: object = json.loads(serve.stdout.readline())
+        validate(reported, "proving-ground-serve-line.schema.json")
+        yield ProvingGround(cast("dict[str, str]", reported)["address"])
     finally:
         serve.kill()
         serve.communicate()
@@ -184,19 +186,24 @@ def extract_the_product(test_env: TestEnv, *, wrong_price: bool) -> JourneyOutco
     oracle verified it. Each step's outcome is recorded as it happens.
     """
     with proving_ground(test_env) as copy:
-        listing: dict[str, Any] = json.loads(copy.exchange("GET", "tasks", "/tasks"))
+        routes = proving_ground_routes()
+        listing: dict[str, Any] = json.loads(
+            copy.exchange("GET", "tasks", routes.tasks)
+        )
         entry = next(entry for entry in listing["tasks"] if entry["id"] == "catalog/2")
         url = urlsplit(cast("str", entry["start_url"]))
         record = product(copy.exchange("GET", url.netloc, url.path))
         submitted = {**record, "price": "0.01"} if wrong_price else record
+        submission = {"task": "catalog/2", "status": "success", "records": [submitted]}
+        validate(submission, "proving-ground-oracle-submission.schema.json")
         answer = cast(
             "dict[str, Any]",
             json.loads(
                 copy.exchange(
                     "POST",
                     "oracle",
-                    "/oracle",
-                    {"task": "catalog/2", "status": "success", "records": [submitted]},
+                    routes.oracle,
+                    submission,
                 )
             ),
         )

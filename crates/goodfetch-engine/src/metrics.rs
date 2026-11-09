@@ -12,15 +12,18 @@ use std::sync::Arc;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::governor::{
-    PRESSURE_SOURCE, PressureSource, SATURATION, SystemInfo, TARGET, WorkKind,
+    KIND_LABEL, PRESSURE_SOURCE, PressureSource, SATURATION, SOURCE_LABEL, SystemInfo, TARGET,
+    WorkKind,
 };
 use goodfetch_protocol::ops::{
-    BROWSER_MEMORY, BROWSER_RECYCLED, BROWSER_RUNNING, CLIENT_CONNECTED, COUNTED_WORK,
-    DAEMON_DRAINING, RUN_ACTIVE, RUN_ENDED,
+    BROWSER_LABEL, BROWSER_MEMORY, BROWSER_RECYCLED, BROWSER_RUNNING, CLIENT_CONNECTED,
+    COMPLETENESS_LABEL, COUNTED_WORK, COUNTED_WORK_PATH_LABEL, COUNTED_WORK_WORK_LABEL,
+    DAEMON_DRAINING, LIFECYCLE_LABEL, RECYCLE_REASON_LABEL, RUN_ACTIVE, RUN_ENDED, RUN_KIND_LABEL,
+    SURFACE_LABEL, VERDICT_LABEL,
 };
 use goodfetch_protocol::run::{RunKind, RunReport};
 use goodfetch_protocol::storage::{
-    AVAILABLE, INODES_AVAILABLE, LEVEL, SampledFolder, StorageLevel,
+    AVAILABLE, HOLDS_LABEL, INODES_AVAILABLE, LEVEL, SampledFolder, StorageLevel,
 };
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{
@@ -85,7 +88,10 @@ fn storage_gauge(
         .with_callback(move |observer: &dyn AsyncInstrument<u64>| {
             for folder in storage.borrow().iter() {
                 if let Some(value) = value(folder) {
-                    observer.observe(value, &[KeyValue::new("holds", folder.holds.as_str())]);
+                    observer.observe(
+                        value,
+                        &[KeyValue::new(HOLDS_LABEL.name, folder.holds.as_str())],
+                    );
                 }
             }
         })
@@ -118,8 +124,8 @@ impl Metrics {
                     observer.observe(
                         counted.read(row),
                         &[
-                            KeyValue::new("shared_path", row.path()),
-                            KeyValue::new("work", row.work()),
+                            KeyValue::new(COUNTED_WORK_PATH_LABEL.name, row.path()),
+                            KeyValue::new(COUNTED_WORK_WORK_LABEL.name, row.work()),
                         ],
                     );
                 }
@@ -205,7 +211,7 @@ impl Metrics {
     pub fn browser_running(&self, browser: &'static str) -> Counted {
         Counted::new(
             self.0.browser_running.clone(),
-            vec![KeyValue::new("browser", browser)],
+            vec![KeyValue::new(BROWSER_LABEL.name, browser)],
         )
     }
 
@@ -214,7 +220,7 @@ impl Metrics {
     pub fn browser_recycled(&self, reason: &'static str) {
         self.0
             .browser_recycled
-            .add(1, &[KeyValue::new("reason", reason)]);
+            .add(1, &[KeyValue::new(RECYCLE_REASON_LABEL.name, reason)]);
     }
 
     /// A level of `metric`, an up-down counter with no label, that a crate
@@ -236,7 +242,7 @@ impl Metrics {
     pub(crate) fn run_live(&self, kind: RunKind) {
         self.0
             .run_active
-            .add(1, &[KeyValue::new("run_kind", kind.as_str())]);
+            .add(1, &[KeyValue::new(RUN_KIND_LABEL.name, kind.as_str())]);
     }
 
     /// A live Run of `kind` ended as `report` says, or with no report when
@@ -245,17 +251,17 @@ impl Metrics {
     pub(crate) fn run_ended(&self, kind: RunKind, report: Option<&RunReport>) {
         self.0
             .run_active
-            .add(-1, &[KeyValue::new("run_kind", kind.as_str())]);
+            .add(-1, &[KeyValue::new(RUN_KIND_LABEL.name, kind.as_str())]);
         let Some(report) = report else {
             return;
         };
         self.0.run_ended.add(
             1,
             &[
-                KeyValue::new("run_kind", kind.as_str()),
-                KeyValue::new("lifecycle", report.lifecycle.as_str()),
-                KeyValue::new("verdict", report.verdict.as_str()),
-                KeyValue::new("completeness", report.completeness.as_str()),
+                KeyValue::new(RUN_KIND_LABEL.name, kind.as_str()),
+                KeyValue::new(LIFECYCLE_LABEL.name, report.lifecycle.as_str()),
+                KeyValue::new(VERDICT_LABEL.name, report.verdict.as_str()),
+                KeyValue::new(COMPLETENESS_LABEL.name, report.completeness.as_str()),
             ],
         );
     }
@@ -264,7 +270,7 @@ impl Metrics {
     pub(crate) fn clients(&self, surface: Surface, by: i64) {
         self.0
             .client_connected
-            .add(by, &[KeyValue::new("surface", surface.as_str())]);
+            .add(by, &[KeyValue::new(SURFACE_LABEL.name, surface.as_str())]);
     }
 
     /// Whether the Daemon drains.
@@ -282,7 +288,7 @@ impl Metrics {
             let concurrency = info.concurrency.of(kind);
             self.0.governor_target.record(
                 u64::from(concurrency.target),
-                &[KeyValue::new("kind", kind.as_str())],
+                &[KeyValue::new(KIND_LABEL.name, kind.as_str())],
             );
             if concurrency.target > 0 {
                 saturation =
@@ -293,7 +299,7 @@ impl Metrics {
         for source in PressureSource::ALL {
             self.0.governor_pressure_source.record(
                 u64::from(info.pressure_source == Some(source)),
-                &[KeyValue::new("source", source.as_str())],
+                &[KeyValue::new(SOURCE_LABEL.name, source.as_str())],
             );
         }
     }

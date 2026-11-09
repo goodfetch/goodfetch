@@ -68,7 +68,7 @@ pub(super) fn export(
         })
         .ok()?;
     let resource = opentelemetry_sdk::Resource::builder_empty()
-        .with_service_name(format!("goodfetch-{}", product.as_str()))
+        .with_service_name(product.executable_name())
         .build();
     let provider = SdkLoggerProvider::builder()
         .with_batch_exporter(exporter)

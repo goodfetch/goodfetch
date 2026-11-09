@@ -18,10 +18,8 @@ use Service::{
     WhenAlreadyTrue as W,
 };
 
-/// Each row on each tier, as spec #582's table writes it, and what one of
-/// its calls leads to there under `auto` and under a forced tier: a call a
-/// tier cannot serve exactly escalates under `auto` and fails with
-/// `browser_required` when forced; one it serves is served either way.
+/// Each row on each tier, as spec #582's table writes it, and the row one of
+/// its calls belongs to.
 #[rstest::rstest]
 #[case::read(Row::Read, Some("page.formats"), [S, S, S, S, S])]
 #[case::question(Row::Question, None, [M, M, M, M, S])]
@@ -33,29 +31,39 @@ use Service::{
 #[case::navigation(Row::Navigation, Some("page.goto"), [O, O, O, E, S])]
 #[case::request(Row::Request, Some("page.request"), [S, S, S, S, S])]
 #[case::lifecycle(Row::Lifecycle, Some("page.close"), [S, S, S, S, S])]
-fn each_row_on_each_tier_is_served_exactly_or_escalates_or_is_refused_when_forced(
+fn each_row_on_each_tier_serves_what_the_specs_table_writes(
     #[case] row: Row,
     #[case] call: Option<&str>,
     #[case] expected: [Service; 5],
 ) {
-    assert_eq!(TIERS.map(|tier| row.on(tier)), expected);
-    if let Some(call) = call {
-        let expected = |forced: bool| {
-            expected.map(|service| match service {
-                E if forced => Some(Verdict::BrowserRequired),
-                E => Some(Verdict::Escalate),
-                service => Some(Verdict::Serve(service)),
-            })
-        };
-        assert_eq!(
-            (
-                Row::of(call),
-                TIERS.map(|tier| verdict(call, tier, false)),
-                TIERS.map(|tier| verdict(call, tier, true)),
-            ),
-            (Some(row), expected(false), expected(true)),
-        );
-    }
+    assert_eq!(
+        (TIERS.map(|tier| row.on(tier)), call.and_then(Row::of)),
+        (expected, call.map(|_| row)),
+    );
+}
+
+/// What a call leads to on a tier, under `auto` and under a forced tier: a
+/// call the tier cannot serve exactly escalates under `auto` and fails with
+/// `browser_required` when forced; one it serves is served either way.
+#[rstest::rstest]
+#[case::served_under_auto("page.formats", FetchTier::Http, false, Verdict::Serve(S))]
+#[case::served_when_forced("page.formats", FetchTier::Http, true, Verdict::Serve(S))]
+#[case::replayed_when_forced(
+    "page.wait_for_response",
+    FetchTier::DiscoveredApi,
+    true,
+    Verdict::Serve(R)
+)]
+#[case::unserved_under_auto("page.evaluate", FetchTier::Http, false, Verdict::Escalate)]
+#[case::unserved_when_forced("page.evaluate", FetchTier::Http, true, Verdict::BrowserRequired)]
+#[case::on_the_browser_when_forced("page.evaluate", FetchTier::Browser, true, Verdict::Serve(S))]
+fn a_call_is_served_or_escalates_or_is_refused_when_forced(
+    #[case] call: &str,
+    #[case] tier: FetchTier,
+    #[case] forced: bool,
+    #[case] expected: Verdict,
+) {
+    assert_eq!(verdict(call, tier, forced), Some(expected));
 }
 
 /// Every call of the catalog's page entries has a row, so none is served

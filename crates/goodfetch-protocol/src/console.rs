@@ -124,18 +124,6 @@ pub const CONSOLE_PORT_IN_USE: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
-/// What `console_port_in_use` details.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct ConsolePortInUseDetails {
-    /// The address whose port is taken.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub address: String,
-    /// What to do instead: the error's `fix` (ADR 0079), which names
-    /// `console.address`.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub fix: String,
-}
-
 /// Where a Daemon's Console is, as its runtime file and `daemon status`
 /// report it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

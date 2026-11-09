@@ -1,8 +1,9 @@
 //! The Python layer of one SDK package (ADRs 0038 and 0095): pydantic v2
 //! models from `datamodel-code-generator`, and, written here, each operation
 //! as an async method and a sync one, the event registry, one exception class
-//! per Error code (the base and the seven group classes in Collie's client
-//! package), the base class of the handlers of each Plugin kind, with the
+//! per Error code (the seven group classes in Collie's client package, on the
+//! base its hand-written `goodfetch_error` module declares), the base class
+//! of the handlers of each Plugin kind, with the
 //! catalog's descriptions as Google-style docstrings and its Experimental and
 //! deprecated markers. Foxhound's layer imports what Collie's client package
 //! defines.
@@ -20,6 +21,14 @@ use super::{Generated, TypesFile};
 
 /// Collie's generated layer, as Foxhound's layer imports it.
 const CLIENT_PACKAGE: &str = "goodfetch_collie_client.generated";
+
+/// The hand-written module of Collie's client package that declares what
+/// sends a call and reads its result, which every layer's methods take.
+const CALLER_MODULE: &str = "goodfetch_collie_client.caller";
+
+/// The hand-written module of Collie's client package that declares the
+/// base of every exception class, which every layer's classes extend.
+const GOODFETCH_ERROR_MODULE: &str = "goodfetch_collie_client.goodfetch_error";
 
 /// How `xtask codegen` runs `datamodel-code-generator`.
 pub(super) const DATAMODEL_CODEGEN_OPTIONS: [&str; 19] = [
@@ -278,41 +287,19 @@ fn operations(layer: &Layer) -> String {
         "{product}'s operations, each an async method and a sync one (ADR 0038)."
     ));
     text.push('\n');
-    // In isort's order: classes, then functions.
     let returns = !layer.operations.is_empty();
-    let typing: Vec<&str> = [
-        ("Any", returns),
-        ("Protocol", layer.product == Product::Collie),
-        ("cast", returns),
-    ]
-    .into_iter()
-    .filter_map(|(name, imported)| imported.then_some(name))
-    .collect();
-    if !typing.is_empty() {
-        let _ = writeln!(text, "from typing import {}", typing.join(", "));
-    }
-    if layer.product == Product::Collie {
-        text.push_str("\nfrom pydantic import BaseModel\n");
-    }
     if deprecates {
-        text.push_str("from typing_extensions import deprecated\n");
+        text.push_str("from typing_extensions import deprecated\n\n");
     }
-    if layer.product == Product::Foxhound {
-        let _ = writeln!(
-            text,
-            "\nfrom {CLIENT_PACKAGE}.operations import AsyncCaller, Caller"
-        );
-    }
+    let _ = writeln!(
+        text,
+        "from {CALLER_MODULE} import AsyncCaller, Caller{}",
+        if returns { ", fields_of" } else { "" }
+    );
     let imports = model_imports(layer, &types);
     if !imports.is_empty() {
         text.push('\n');
         text.push_str(&imports);
-    }
-    if layer.product == Product::Collie {
-        text.push_str(CALLERS);
-    }
-    if !layer.operations.is_empty() {
-        text.push_str(FIELDS);
     }
     for (prefix, caller, asynchronous) in [("Async", "AsyncCaller", true), ("", "Caller", false)] {
         let mode = if asynchronous { "async" } else { "sync" };
@@ -345,7 +332,7 @@ fn operations(layer: &Layer) -> String {
             ));
             let _ = writeln!(
                 text,
-                "        return {result}.model_construct(**_fields({}self._caller.call({:?}, params)))",
+                "        return {result}.model_construct(**fields_of({}self._caller.call({:?}, params)))",
                 if asynchronous { "await " } else { "" },
                 operation.name
             );
@@ -353,35 +340,6 @@ fn operations(layer: &Layer) -> String {
     }
     text
 }
-
-/// What Collie's client package declares once for every layer's methods.
-const CALLERS: &str = r#"
-
-class AsyncCaller(Protocol):
-    """What sends a call for the async methods: the client package's runtime."""
-
-    async def call(self, operation: str, params: BaseModel) -> object:
-        """Sends one call and returns its result as the engine sent it."""
-        ...
-
-
-class Caller(Protocol):
-    """What sends a call for the sync methods: the client package's runtime."""
-
-    def call(self, operation: str, params: BaseModel) -> object:
-        """Sends one call and returns its result as the engine sent it."""
-        ...
-"#;
-
-/// How each method builds its result: from the fields as the engine sent
-/// them, without validation, so a field or value a newer engine added never
-/// raises (ADR 0082).
-const FIELDS: &str = r#"
-
-def _fields(result: object) -> dict[str, Any]:
-    """The fields of a result, the JSON object the engine sent."""
-    return cast("dict[str, Any]", result)
-"#;
 
 fn events(layer: &Layer) -> String {
     let product = layer.product.name();
@@ -452,7 +410,10 @@ fn errors(layer: &Layer) -> String {
     text.push_str("\nfrom collections.abc import Callable, Mapping\nfrom typing import Final");
     match layer.product {
         Product::Collie => {
-            text.push_str(", Literal\n\nErrorGroup = Literal[");
+            let _ = write!(
+                text,
+                ", Literal\n\nfrom {GOODFETCH_ERROR_MODULE} import GoodfetchError\n\nErrorGroup = Literal["
+            );
             text.push_str(
                 &layer
                     .error_groups
@@ -464,7 +425,6 @@ fn errors(layer: &Layer) -> String {
             text.push_str(
                 "]\n\"\"\"The seven groups of Error codes, named for their remedy.\"\"\"\n",
             );
-            text.push_str(GOODFETCH_ERROR);
             for group in &layer.error_groups {
                 let _ = write!(
                     text,
@@ -480,16 +440,15 @@ fn errors(layer: &Layer) -> String {
             }
         }
         Product::Foxhound => {
-            let mut imported: BTreeSet<String> = layer
+            let imported: BTreeSet<String> = layer
                 .error_codes
                 .iter()
                 .map(|code| group_class(&code.group))
                 .collect();
-            imported.insert("GoodfetchError".to_owned());
             let names: Vec<&String> = imported.iter().collect();
             let _ = writeln!(
                 text,
-                "\n\nfrom {CLIENT_PACKAGE}.errors import {}",
+                "\n\nfrom {CLIENT_PACKAGE}.errors import {}\nfrom {GOODFETCH_ERROR_MODULE} import GoodfetchError",
                 join(&names)
             );
         }
@@ -527,27 +486,6 @@ fn errors(layer: &Layer) -> String {
     text.push_str("}\n\"\"\"The exception class of each Error code.\"\"\"\n");
     text
 }
-
-/// The base of every exception class, generated once in Collie's client package.
-const GOODFETCH_ERROR: &str = r#"
-
-class GoodfetchError(Exception):
-    """The base of every error a Goodfetch SDK raises (ADR 0079)."""
-
-    code: str
-    """The Error code, as the engine sent it."""
-    group: ErrorGroup
-    """The code's group, named for its remedy."""
-    retryable: bool
-    """Whether the same call may succeed when made again."""
-
-    def __init__(self, message: str, *, code: str, group: ErrorGroup, retryable: bool) -> None:
-        """Takes the message and the code's fields."""
-        super().__init__(message)
-        self.code = code
-        self.group = group
-        self.retryable = retryable
-"#;
 
 fn plugins(layer: &Layer) -> String {
     let product = layer.product.name();

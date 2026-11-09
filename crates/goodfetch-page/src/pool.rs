@@ -9,16 +9,19 @@
 //! its memory cap (`governor.browser.memory_cap`, else twice what it used
 //! once its first page had run), or once it held no open page for
 //! `governor.browser.recycle_idle`, the time a Session spends seated in it
-//! or opening a page there not counted. Recycled, it opens no new page: each of
-//! its Sessions takes its next page in another browser, launched for it
+//! or opening a page there not counted. Recycled, it opens no new program
+//! page: each of its Sessions takes its next page in another browser, launched for it
 //! when none has room, carrying its cookies and `localStorage` there (ADR
 //! 0040: a Session is not its browser); the pages a Session left behind
 //! stay open where they are, and the recycled browser closes once none is
 //! left, taking along the cookies and storage of a Session that had not
-//! moved yet. A browser holding a page in a Human pause, under a person in
-//! the Live view or under a raw CDP attach is recycled only once that page
-//! is released. A Borrowed browser never enters the pool, so it is neither
-//! recycled nor counted.
+//! moved yet. A page the engine opens for itself counts and moves a Session
+//! as a program's does, unless a move would race a program's navigation:
+//! it then opens beside that navigation, in a recycled browser that does not
+//! close yet, and the Session's next page moves it. A browser holding a page
+//! in a Human pause, under a person in the Live view or under a raw CDP
+//! attach is recycled only once that page is released. A Borrowed browser
+//! never enters the pool, so it is neither recycled nor counted.
 //!
 //! Once launched, each browser joins the engine's Resource governor, which
 //! counts its memory in its Run's footprint and, while memory is critical,
@@ -67,7 +70,7 @@ use crate::egress_relay::authority::Authority;
 use crate::egress_relay::{Local, RelayTls};
 use crate::trace::CommandLog;
 pub(crate) use rules::Placement;
-use rules::{Limits, Seats, Use};
+use rules::{Limits, Opens, Seats, Stage, Use};
 
 /// Why a Session's local addresses cannot be held.
 #[derive(Debug)]
@@ -188,17 +191,6 @@ struct Pooled {
     waiting: bool,
     /// Whether its connection is followed, for a quit or a crash.
     followed: bool,
-}
-
-/// Where a browser of the pool is in its life.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Stage {
-    /// It opens pages.
-    Serving,
-    /// It is recycled: it opens no new page, and closes once none is open.
-    Retiring,
-    /// It closes.
-    Closing,
 }
 
 impl Pooled {
@@ -566,16 +558,17 @@ impl Pool {
         }
     }
 
-    /// Whether the browser `number` is recycled now: it was already, or it
-    /// reached its pages or passed its memory cap, measured now.
-    async fn recycled(&self, number: u64) -> bool {
+    /// Where the browser `number` is once judged: recycled if it was
+    /// already, or if it reached its pages or passed its memory cap,
+    /// measured now; closing once it left the pool.
+    async fn judged(&self, number: u64) -> Stage {
         let (process, served) = {
             let browsers = lock(&self.shared.browsers);
             let Some(pooled) = browsers.list.get(&number) else {
-                return true;
+                return Stage::Closing;
             };
             if pooled.stage != Stage::Serving {
-                return true;
+                return pooled.stage;
             }
             (pooled.browser.process(), pooled.served)
         };
@@ -598,7 +591,7 @@ impl Pool {
         };
         let mut browsers = lock(&self.shared.browsers);
         let Some(pooled) = browsers.list.get_mut(&number) else {
-            return true;
+            return Stage::Closing;
         };
         if pooled.warm_up.is_none() && served > 0 {
             pooled.warm_up = footprint;
@@ -610,7 +603,7 @@ impl Pool {
             held: pooled.held > 0,
         };
         let Some(why) = rules::recycle(&browser, &self.shared.limits) else {
-            return pooled.stage != Stage::Serving;
+            return pooled.stage;
         };
         tracing::info!(
             browser = number,
@@ -620,8 +613,9 @@ impl Pool {
         );
         self.shared.run.metrics().browser_recycled(why.as_str());
         pooled.stage = Stage::Retiring;
+        // The asker's `Opening` keeps it from closing here.
         self.settle(&mut browsers, number);
-        true
+        Stage::Retiring
     }
 
     /// A page of the seat `seat` opens in the browser `number`.
@@ -901,10 +895,10 @@ struct SeatShared {
 
 /// What a seat's place actor is asked, each with where its answer goes.
 enum PlaceCommand {
-    /// Seat it where it is in no browser; with `moving`, move it first
-    /// when its browser is recycled.
+    /// Seat it where it is in no browser; for a page it `opens`, judge its
+    /// browser, and move it first when [`rules::leaves`] says so.
     Seated {
-        moving: bool,
+        opens: Option<Opens>,
         answer: oneshot::Sender<Result<(u64, Driver, Opening), CallError>>,
     },
     /// Whether it is seated in the browser of this number now.
@@ -965,7 +959,7 @@ impl Seat {
     ///
     /// Dropping the future loses only the answer: the seating goes on.
     pub(crate) async fn open(&self) -> Result<(), CallError> {
-        self.shared.seated(false).await.map(drop)
+        self.shared.seated(None).await.map(drop)
     }
 
     /// Opens a page of the Session in its browser, of `visibility`,
@@ -974,7 +968,32 @@ impl Seat {
         &self,
         visibility: Visibility,
     ) -> Result<(PageDriver, InBrowser), CallError> {
-        let (number, driver, opening) = self.shared.seated(true).await?;
+        self.page_seated(Opens::ProgramPage, visibility).await
+    }
+
+    /// Opens a page the engine drives itself, which counts toward its
+    /// browser's limits and moves the Session off a recycled browser as a
+    /// program's page does, unless that `races` a program's navigation: a
+    /// move then would take the Session's storage before that navigation's
+    /// document wrote it, so the page opens beside it, in a browser that is
+    /// not closing, and the Session's next page moves it. Hidden, so Chromium
+    /// asks no site for the icon of the document it loads (ticket #1608).
+    pub(crate) async fn new_engine_page(
+        &self,
+        races: bool,
+    ) -> Result<(PageDriver, InBrowser), CallError> {
+        self.page_seated(Opens::EnginePage { races }, Visibility::Hidden)
+            .await
+    }
+
+    /// Opens the page `opens`, of `visibility`, where the Session is seated,
+    /// having first left its browser when [`rules::leaves`] says so.
+    async fn page_seated(
+        &self,
+        opens: Opens,
+        visibility: Visibility,
+    ) -> Result<(PageDriver, InBrowser), CallError> {
+        let (number, driver, opening) = self.shared.seated(Some(opens)).await?;
         let in_browser = self.shared.pool.page_opening(number, self.shared.number);
         drop(opening);
         let page = driver.new_page(visibility).await?;
@@ -1065,10 +1084,10 @@ impl Seat {
 impl SeatShared {
     /// Asks its place actor for the browser it is seated in, as
     /// [`PlaceCommand::Seated`] says.
-    async fn seated(&self, moving: bool) -> Result<(u64, Driver, Opening), CallError> {
+    async fn seated(&self, opens: Option<Opens>) -> Result<(u64, Driver, Opening), CallError> {
         let (answer, answered) = oneshot::channel();
         self.place
-            .send(PlaceCommand::Seated { moving, answer })
+            .send(PlaceCommand::Seated { opens, answer })
             .await
             .map_err(|_| place_ended())?;
         answered.await.map_err(|_| place_ended())?
@@ -1110,8 +1129,8 @@ async fn keep_place(seat: Weak<SeatShared>, mut commands: mpsc::Receiver<PlaceCo
             PlaceCommand::Seated { answer, .. } if place.lost.is_some() => {
                 let _ = answer.send(Err(crate::errors::browser_crashed(None)));
             }
-            PlaceCommand::Seated { moving, answer } => {
-                let seated = seat.seated_moving(&mut place, moving).await;
+            PlaceCommand::Seated { opens, answer } => {
+                let seated = seat.seated_moving(&mut place, opens).await;
                 // An asker that left drops what it asked for.
                 let _ = answer.send(seated);
             }
@@ -1147,23 +1166,26 @@ async fn keep_place(seat: Weak<SeatShared>, mut commands: mpsc::Receiver<PlaceCo
 
 impl SeatShared {
     /// The browser the Session is seated in and its driver there, seating
-    /// it as [`Self::seated_in`] does; with `moving`, it first leaves a
-    /// browser of the pool that is recycled, as often as one is. A Session
-    /// seated in a browser that quit or crashed never leaves it: the browser
-    /// took the Session with it (S8, S9), so the call raises
-    /// `page_crashed`, which its caller settles into the Session's end once
-    /// the loss reaches it.
+    /// it as [`Self::seated_in`] does; for a page it `opens`, each browser of
+    /// the pool it is seated in is judged, and it leaves one as often as
+    /// [`rules::leaves`] says so. A Session seated in a browser that quit or
+    /// crashed never leaves it: the browser took the Session with it (S8,
+    /// S9), so the call raises `page_crashed`, which its caller settles into
+    /// the Session's end once the loss reaches it.
     async fn seated_moving(
         self: &Arc<Self>,
         place: &mut Place,
-        moving: bool,
+        opens: Option<Opens>,
     ) -> Result<(u64, Driver, Opening), CallError> {
         loop {
             let (number, driver, opening) = self.seated_in(place).await?;
             if driver.browser_lost() {
                 return Err(crate::errors::browser_crashed(None));
             }
-            if !moving || self.borrowed.is_some() || !self.pool.recycled(number).await {
+            let Some(opens) = opens.filter(|_| self.borrowed.is_none()) else {
+                return Ok((number, driver, opening));
+            };
+            if !rules::leaves(opens, self.pool.judged(number).await) {
                 return Ok((number, driver, opening));
             }
             drop(opening);

@@ -12,14 +12,14 @@
 //! control in the Audit log, one warning through the host's logging, and
 //! the control in its Run report's `weakened`, as every setting whose value
 //! weakens is. With `security.audit_chain` off, the Run's other entries are
-//! written unchained. A Run whose `egress.private_ranges` lists any range
-//! or host is recorded the same way, once, as `private_addresses_allowed`
-//! with what it listed (ADR 0016), and its Run report's `weakened` names
-//! it.
+//! written unchained. A composition may also register a key whose value
+//! lists what the engine refuses by default, recorded the same way, once,
+//! as the kind it names with what it listed: the engine's own
+//! `egress.private_ranges`, as `private_addresses_allowed` (ADR 0016),
+//! which its Run report's `weakened` names too.
 
-use goodfetch_protocol::audit::{Actor, PRIVATE_ADDRESSES_ALLOWED, SECURITY_SWITCH_TURNED_OFF};
+use goodfetch_protocol::audit::{Actor, SECURITY_SWITCH_TURNED_OFF};
 use goodfetch_protocol::catalog::{Setting, SharedTypeValue};
-use goodfetch_protocol::egress::EGRESS_PRIVATE_RANGES;
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::security::SECURITY_AUDIT_CHAIN;
 use goodfetch_protocol::settings::WeakenedSetting;
@@ -31,7 +31,7 @@ use crate::settings::Resolved;
 
 /// How a registered key's weakening value is recorded.
 #[derive(Clone, Copy)]
-enum Recorded {
+pub(crate) enum Recorded {
     /// As a security control switched off.
     Switch,
     /// As this Audit log kind, with the value's built-in default.
@@ -39,6 +39,23 @@ enum Recorded {
         kind: &'static SharedTypeValue,
         built_in: fn() -> Value,
     },
+    /// As this Audit log kind, chained whatever `security.audit_chain`
+    /// says, with what the value lists under `field`: an allowance of what
+    /// the engine refuses by default, such as the private ranges a Run may
+    /// reach.
+    Listing {
+        kind: &'static SharedTypeValue,
+        field: &'static str,
+    },
+}
+
+impl Recorded {
+    fn kind(self) -> &'static SharedTypeValue {
+        match self {
+            Self::Switch => &SECURITY_SWITCH_TURNED_OFF,
+            Self::As { kind, .. } | Self::Listing { kind, .. } => kind,
+        }
+    }
 }
 
 /// A registered key.
@@ -50,14 +67,10 @@ struct Control {
 
 impl std::fmt::Debug for Control {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let recorded = match self.recorded {
-            Recorded::Switch => SECURITY_SWITCH_TURNED_OFF.name,
-            Recorded::As { kind, .. } => kind.name,
-        };
         formatter
             .debug_struct("Control")
             .field("setting", &self.setting.name)
-            .field("recorded", &recorded)
+            .field("recorded", &self.recorded.kind().name)
             .finish()
     }
 }
@@ -68,26 +81,11 @@ impl std::fmt::Debug for Control {
 pub struct Controls(Vec<Control>);
 
 impl Controls {
-    /// The same, reporting `setting` too: a key whose value, where it
-    /// weakens, switches a control off.
+    /// The same, reporting `setting` too: a value of it that weakens is
+    /// recorded as `recorded` says, with the layer that set it. The first
+    /// registration of a key holds.
     #[must_use]
-    pub fn with(self, setting: &'static Setting) -> Self {
-        self.registering(setting, Recorded::Switch)
-    }
-
-    /// The same, recording a value of `setting` that weakens as `kind`, with
-    /// the value, its built-in default `built_in` and the layer that set it.
-    #[must_use]
-    pub fn with_recorded(
-        self,
-        setting: &'static Setting,
-        kind: &'static SharedTypeValue,
-        built_in: fn() -> Value,
-    ) -> Self {
-        self.registering(setting, Recorded::As { kind, built_in })
-    }
-
-    fn registering(mut self, setting: &'static Setting, recorded: Recorded) -> Self {
+    pub(crate) fn with(mut self, setting: &'static Setting, recorded: Recorded) -> Self {
         debug_assert!(
             setting.weakens.is_some(),
             "a switchable control's setting says which values switch it off"
@@ -103,21 +101,17 @@ impl Controls {
     }
 
     /// The registered controls that `resolved`, a Run's settings, switches
-    /// off, each with its value and the layer that set it, and its private
-    /// ranges when it lists any.
+    /// off, each with its value and the layer that set it.
     pub fn switched_off(&self, resolved: &Resolved) -> SwitchedOff {
         SwitchedOff(
             resolved
                 .weakened()
                 .into_iter()
                 .filter_map(|weakened| {
-                    if weakened.key == EGRESS_PRIVATE_RANGES.name {
-                        return Some((weakened, None));
-                    }
                     self.0
                         .iter()
                         .find(|control| control.setting.name == weakened.key)
-                        .map(|control| (weakened, Some(*control)))
+                        .map(|control| (weakened, *control))
                 })
                 .collect(),
         )
@@ -126,7 +120,7 @@ impl Controls {
 
 /// The controls a Run's settings switch off.
 #[derive(Clone, Debug, Default)]
-pub struct SwitchedOff(Vec<(WeakenedSetting, Option<Control>)>);
+pub struct SwitchedOff(Vec<(WeakenedSetting, Control)>);
 
 impl SwitchedOff {
     /// Whether the Audit log's hash chain is among them, so that the Run's
@@ -172,53 +166,55 @@ impl SwitchedOff {
                 layer: Some(switched.layer),
                 run_id: Some(run_id.clone()),
             };
-            if switched.key == EGRESS_PRIVATE_RANGES.name {
-                entries.push(NewEntry {
-                    origin,
-                    kind: &PRIVATE_ADDRESSES_ALLOWED,
-                    details: json!({ "setting": switched.key, "ranges": switched.value }),
-                    always_chained: true,
-                });
-                continue;
-            }
-            if let Some(Control {
-                recorded: Recorded::As { kind, built_in },
-                ..
-            }) = control
-            {
-                let default = built_in();
-                tracing::warn!(
-                    run_id = %run_id,
-                    setting = %switched.key,
-                    layer = switched.layer.as_str(),
-                    "the Run `{run_id}` weakens a built-in default, recorded as `{}`: its {} layer sets `{}` to {}, the default being {default}",
-                    kind.name,
-                    switched.layer.as_str(),
-                    switched.key,
-                    switched.value,
-                );
-                entries.push(NewEntry {
-                    origin,
-                    kind,
-                    details: json!({ "setting": switched.key, "value": switched.value, "default": default }),
-                    always_chained: false,
-                });
-                continue;
-            }
-            tracing::warn!(
-                run_id = %run_id,
-                setting = %switched.key,
-                layer = switched.layer.as_str(),
-                "the Run `{run_id}` runs with the security control `{}` switched off by its {} layer",
-                switched.key,
-                switched.layer.as_str(),
-            );
-            entries.push(NewEntry {
-                origin,
-                kind: &SECURITY_SWITCH_TURNED_OFF,
-                details: json!({ "setting": switched.key, "value": switched.value }),
-                always_chained: true,
-            });
+            let entry = match control.recorded {
+                Recorded::Listing { kind, field } => {
+                    let mut details = serde_json::Map::new();
+                    details.insert("setting".to_owned(), json!(switched.key));
+                    details.insert(field.to_owned(), switched.value.clone());
+                    NewEntry {
+                        origin,
+                        kind,
+                        details: Value::Object(details),
+                        always_chained: true,
+                    }
+                }
+                Recorded::As { kind, built_in } => {
+                    let default = built_in();
+                    tracing::warn!(
+                        run_id = %run_id,
+                        setting = %switched.key,
+                        layer = switched.layer.as_str(),
+                        "the Run `{run_id}` weakens a built-in default, recorded as `{}`: its {} layer sets `{}` to {}, the default being {default}",
+                        kind.name,
+                        switched.layer.as_str(),
+                        switched.key,
+                        switched.value,
+                    );
+                    NewEntry {
+                        origin,
+                        kind,
+                        details: json!({ "setting": switched.key, "value": switched.value, "default": default }),
+                        always_chained: false,
+                    }
+                }
+                Recorded::Switch => {
+                    tracing::warn!(
+                        run_id = %run_id,
+                        setting = %switched.key,
+                        layer = switched.layer.as_str(),
+                        "the Run `{run_id}` runs with the security control `{}` switched off by its {} layer",
+                        switched.key,
+                        switched.layer.as_str(),
+                    );
+                    NewEntry {
+                        origin,
+                        kind: &SECURITY_SWITCH_TURNED_OFF,
+                        details: json!({ "setting": switched.key, "value": switched.value }),
+                        always_chained: true,
+                    }
+                }
+            };
+            entries.push(entry);
         }
         audit.record_together(entries, now).map(drop)
     }

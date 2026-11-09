@@ -15,6 +15,7 @@
 
 use goodfetch_cdp::NetError;
 
+use crate::egress_relay::answers::{RELAY, failed};
 pub(crate) use crate::proxy_status::PROXY_STATUS;
 use crate::proxy_status::{name, nearest, parameter};
 
@@ -49,17 +50,11 @@ pub enum Answer<'a> {
     },
 }
 
-/// The name the Session's own loopback relay gives its member of a
-/// `Proxy-Status` field.
-pub(crate) const RELAY: &str = "goodfetch-relay";
-
 /// The relay's answer to the browser when an HTTP proxy cannot be reached:
 /// its own `502`, whose `Proxy-Status` member names the relay, so it stays
 /// the proxy's failure yet is no refusal by the proxy.
-pub(crate) fn relay_unreachable() -> String {
-    format!(
-        "HTTP/1.1 502 Bad Gateway\r\nProxy-Status: {RELAY}; error=connection_refused\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-    )
+pub(crate) fn relay_unreachable() -> Vec<u8> {
+    failed("502 Bad Gateway", "connection_refused")
 }
 
 /// Whether the nearest member of the `Proxy-Status` field `field` is the

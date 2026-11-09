@@ -22,14 +22,15 @@ use goodfetch_protocol::page::route::{
 };
 use goodfetch_protocol::page::session_pages::PAGE_CLOSE;
 use goodfetch_protocol::page::{NAVIGATION_FAILED, PAGE_GOTO, PageOpened};
-use goodfetch_protocol::response_limits::RESPONSE_LIMIT_EXCEEDED;
+use goodfetch_protocol::response_limits::{NETWORK_MAX_BODY_SIZE, RESPONSE_LIMIT_EXCEEDED};
 use goodfetch_protocol::run::RUN_FINISH;
 use serde_json::{Value, json};
 
 use super::navigation::{answered, url_on};
 use super::{Checks, Site, finish_run, new_page, start_run};
-use crate::protocol::connection::{Connection, Gone};
+use crate::protocol::connection::{Connection, Gone, code_of};
 use crate::protocol::target::BROWSER_DEADLINE;
+use crate::proving_ground::ObservedRequest;
 
 /// The Error code the harness's handler fails with, as an SDK's does for a
 /// handler that threw.
@@ -297,12 +298,10 @@ pub(super) fn received(site: &Site, host: &str, target: &str) -> usize {
 }
 
 /// The requests to `host` for `target` the Proving ground received.
-fn requests_to(site: &Site, host: &str, target: &str) -> Vec<Value> {
-    site.proving_ground
-        .received_requests()
-        .unwrap_or_default()
+fn requests_to(site: &Site, host: &str, target: &str) -> Vec<ObservedRequest> {
+    site.received_requests()
         .of_the_case()
-        .filter(|request| request["host"] == json!(host) && request["target"] == json!(target))
+        .filter(|request| request.host == host && request.target == target)
         .cloned()
         .collect()
 }
@@ -316,11 +315,6 @@ fn target_of(url: &str) -> &str {
                 .map(|path| &url[scheme + 3 + path..])
         })
         .unwrap_or("/")
-}
-
-/// The Error code a failure answer names.
-fn code_of(answer: &Value) -> &Value {
-    &answer["error"]["data"]["code"]
 }
 
 /// Starts the Run `run_id` with `settings` and opens a page of it.
@@ -360,7 +354,7 @@ fn unroute(routes: &mut Routes, connection: &mut Connection, id: i64) -> Result<
 /// the request.
 fn unanswered(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-route-unanswered";
-    let (Some(url), Some(page)) = (
+    let (url, Some(page)) = (
         site.named_url("scope.test", "/about?route=unanswered"),
         page(connection, site, run_id, &json!({}), checks)?,
     ) else {
@@ -400,7 +394,7 @@ fn handler_fails(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-route-handler-fails";
-    let (Some(url), Some(page)) = (
+    let (url, Some(page)) = (
         site.named_url("scope.test", "/about?route=fails"),
         page(connection, site, run_id, &json!({}), checks)?,
     ) else {
@@ -455,7 +449,7 @@ fn answered_twice(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-route-answered-twice";
-    let (Some(url), Some(page)) = (
+    let (url, Some(page)) = (
         site.named_url("scope.test", "/about?route=twice"),
         page(connection, site, run_id, &json!({}), checks)?,
     ) else {
@@ -502,7 +496,7 @@ fn answered_twice(
 /// the first answer wins, and the routes after it are not asked.
 fn order(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-route-order";
-    let (Some(first), Some(wins), Some(page)) = (
+    let (first, wins, Some(page)) = (
         site.named_url("scope.test", "/about?route=order"),
         site.named_url("scope.test", "/about?route=first-wins"),
         page(connection, site, run_id, &json!({}), checks)?,
@@ -605,7 +599,7 @@ fn continue_fulfill_abort(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-route-answers";
-    let (Some(continued), Some(rewritten), Some(fulfilled), Some(aborted), Some(page)) = (
+    let (continued, rewritten, fulfilled, aborted, Some(page)) = (
         site.named_url("scope.test", "/about?route=continue"),
         site.named_url("scope.test", "/about?route=continued"),
         site.named_url("scope.test", "/about?route=fulfill"),
@@ -696,7 +690,7 @@ fn fetch_then_fulfill(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-route-fetch";
-    let (Some(url), Some(page)) = (
+    let (url, Some(page)) = (
         site.named_url("scope.test", "/about?route=fetch"),
         page(connection, site, run_id, &json!({}), checks)?,
     ) else {
@@ -752,7 +746,7 @@ fn order_of_steps(
     let Some(page) = page(connection, site, run_id, &settings, checks)? else {
         return finish_run(connection, run_id);
     };
-    let (Some(login), Some(off)) = (
+    let (Some(login), off) = (
         url_on(site, "portal/1", "/login"),
         site.named_url("elsewhere.test", "/offsite?route=rewritten"),
     ) else {
@@ -797,27 +791,22 @@ fn order_of_steps(
 
 /// Whether the request `request` the Proving ground received carries the
 /// header `name` with `value`.
-fn sends_header(request: &Value, name: &str, value: &str) -> bool {
-    request["headers"].as_array().is_some_and(|headers| {
-        headers.iter().any(|header| {
-            header[0]
-                .as_str()
-                .is_some_and(|sent| sent.eq_ignore_ascii_case(name))
-                && header[1] == json!(value)
-        })
-    })
+fn sends_header(request: &ObservedRequest, name: &str, value: &str) -> bool {
+    request
+        .headers
+        .iter()
+        .any(|(sent, sent_value)| sent.eq_ignore_ascii_case(name) && sent_value == value)
 }
 
 /// Whether the request `request` the Proving ground received carries the
 /// cookie `name`, once.
-fn carries_cookie(request: &Value, name: &str) -> bool {
-    request["cookies"].as_array().is_some_and(|cookies| {
-        cookies
-            .iter()
-            .filter(|cookie| cookie[0] == json!(name))
-            .count()
-            == 1
-    })
+fn carries_cookie(request: &ObservedRequest, name: &str) -> bool {
+    request
+        .cookies
+        .iter()
+        .filter(|(cookie, _)| cookie == name)
+        .count()
+        == 1
 }
 
 /// Step 7 after step 2: a load of the portal's login page carries the
@@ -882,7 +871,7 @@ fn policy_judges_what_routes_send(
     off: &str,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let (Some(reports), Some(fulfilled_off), Some(unrouted_off)) = (
+    let (Some(reports), fulfilled_off, unrouted_off) = (
         url_on(site, "portal/1", "/reports?page=1"),
         site.named_url("elsewhere.test", "/offsite?route=fulfilled"),
         site.named_url("elsewhere.test", "/offsite?route=none"),
@@ -934,7 +923,7 @@ fn policy_judges_what_routes_send(
 /// sees both.
 fn cache_kept(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-route-cache";
-    let (Some(without_route), Some(with_route), Some(page)) = (
+    let (without_route, with_route, Some(page)) = (
         site.named_url("scope.test", "/cached?route=none"),
         site.named_url("scope.test", "/cached?route=page"),
         page(connection, site, run_id, &json!({}), checks)?,
@@ -982,7 +971,7 @@ fn sibling_closed(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-route-sibling-closed";
-    let (Some(url), Some(again), Some(closing)) = (
+    let (url, again, Some(closing)) = (
         site.named_url("scope.test", "/about?route=sibling"),
         site.named_url("scope.test", "/again?route=sibling"),
         page(connection, site, run_id, &json!({}), checks)?,
@@ -1106,7 +1095,7 @@ fn fetch_past_limit(
 ) -> Result<(), Gone> {
     let run_id = "conformance-route-fetch-past-limit";
     let settings = json!({ "network": { "max_body_size": 64 } });
-    let (Some(url), Some(page)) = (
+    let (url, Some(page)) = (
         site.named_url("scope.test", "/about?route=fetch-past-limit"),
         page(connection, site, run_id, &settings, checks)?,
     ) else {
@@ -1132,7 +1121,7 @@ fn fetch_past_limit(
         made.first().is_some_and(|(method, answer)| {
             *method == ROUTE_FETCH.name
                 && code_of(answer) == &json!(RESPONSE_LIMIT_EXCEEDED.name)
-                && answer["error"]["data"]["setting"] == json!("network.max_body_size")
+                && answer["error"]["data"]["setting"] == NETWORK_MAX_BODY_SIZE.name
                 && answer["error"]["data"]["limit"] == json!(64)
         }),
     );
@@ -1143,7 +1132,7 @@ fn fetch_past_limit(
 /// `postData()` reads it; a request with none has none.
 fn post_data(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
     let run_id = "conformance-route-post-data";
-    let (Some(url), Some(page)) = (
+    let (url, Some(page)) = (
         site.named_url("scope.test", "/about?route=post-data"),
         page(connection, site, run_id, &json!({}), checks)?,
     ) else {

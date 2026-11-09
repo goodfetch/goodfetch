@@ -57,7 +57,7 @@ runners = [
     ] },
 ]
 not_run.redirect = "An Operator-configured endpoint's request follows no redirect (`http_client::ConfiguredEndpoint`)."
-not_run.rebinding = "An endpoint's export looks its host up on each connection through `http_client`'s lookup, which judges each answer as the `classification` layer's rebinding runner does; an endpoint's own name is the Operator's, which the run's pages cannot answer."
+not_run.rebinding = "An endpoint's export looks its host up and judges the answers before each send (`egress::Gate::Endpoint`), as the `classification` layer's rebinding runner does; an endpoint's own name is the Operator's, which the run's pages cannot answer."
 not_run.upstream_proxy = "An Operator-configured endpoint goes direct, never through the run's upstream proxy (ADR 0017's endpoint class)."
 
 [layers.session_proxy]

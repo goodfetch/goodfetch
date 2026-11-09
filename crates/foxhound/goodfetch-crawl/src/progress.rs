@@ -281,7 +281,7 @@ pub(crate) struct CrawlProgress;
 
 impl ProgressPart for CrawlProgress {
     fn fill(&self, connection: &Connection, progress: &mut RunProgress) -> rusqlite::Result<()> {
-        if run_row::kind(connection)? != RunKind::Crawl {
+        if !run_row::is_of_kind(connection, RunKind::Crawl)? {
             return Ok(());
         }
         let (ended, _) = crate::report::ended(connection)?;

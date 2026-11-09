@@ -17,13 +17,15 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use goodfetch_test_client::Attached;
+use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::crawl::Attached;
 use crate::frontier::{Inside, crawl_from};
+use crate::{attached, run_file};
 
 /// A book's JSON Schema: `title` and `isbn` required, `price` a number.
 fn book_schema() -> Value {
@@ -89,11 +91,11 @@ fn a_crawl_whose_datasets_cannot_be_declared_is_refused_before_its_run_begins(
     #[case] expected: Value,
 ) {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let reply = start_declaring(&mut engine, &datasets);
     let listed = engine.call("list", "run.list", &json!({}), &mut |_| None);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (refusal(&reply), &listed["result"]["runs"]),
@@ -152,14 +154,7 @@ fn push_under(
 /// Each committed Record of the run file of `run_id`, in Dataset and
 /// number order: its Dataset, its number, its crawl request and its data.
 fn committed(env: &TestEnv, run_id: &str) -> Vec<(String, i64, String, Value)> {
-    let connection = Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap();
+    let connection = Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap();
     let mut select = connection
         .prepare("SELECT dataset, number, work_item, data FROM records ORDER BY dataset, number")
         .unwrap();
@@ -218,7 +213,7 @@ fn outcomes(engine: &mut Attached, run_id: &str) -> Vec<Value> {
 #[test]
 fn a_pushed_record_is_checked_against_its_dataset_and_only_one_that_holds_is_staged() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let book = json!({ "title": "Dune", "isbn": "0441013597", "price": 9.99 });
 
     let mut answers = Vec::new();
@@ -252,7 +247,7 @@ fn a_pushed_record_is_checked_against_its_dataset_and_only_one_that_holds_is_sta
         },
     );
     let read = outcomes(&mut engine, "pushed");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let invalid = |dataset: &str, paths: &[&str]| {
         json!({
@@ -313,7 +308,7 @@ fn a_pushed_record_is_checked_against_its_dataset_and_only_one_that_holds_is_sta
 #[test]
 fn an_answer_holding_a_record_that_does_not_hold_fails_its_request_unretried_and_commits_nothing() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
 
     let mut attempts = 0;
     let report = crawl_from(
@@ -333,7 +328,7 @@ fn an_answer_holding_a_record_that_does_not_hold_fails_its_request_unretried_and
         },
     );
     let read = outcomes(&mut engine, "escaped");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -364,7 +359,7 @@ fn an_answer_holding_a_record_that_does_not_hold_fails_its_request_unretried_and
 #[test]
 fn records_of_a_retried_request_commit_once_numbered_from_one_in_commit_order() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let note = |handle: &Value, n: u32| {
         let request = handle["crawl_request"]["id"].as_str().unwrap();
         json!({ "id": format!("{request}-{}-{n}", handle["attempt"]) })
@@ -407,7 +402,7 @@ fn records_of_a_retried_request_commit_once_numbered_from_one_in_commit_order() 
         },
     );
     let read = outcomes(&mut engine, "retried");
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     let committed = committed(&env, "retried");
     let numbers: Vec<i64> = committed.iter().map(|(_, number, _, _)| *number).collect();
@@ -447,18 +442,6 @@ fn records_of_a_retried_request_commit_once_numbered_from_one_in_commit_order() 
             ],
         )
     );
-}
-
-/// The run file of the Run `run_id`.
-fn run_file(env: &TestEnv, run_id: &str) -> Connection {
-    Connection::open(
-        env.home()
-            .join("0.0")
-            .join("runs")
-            .join(run_id)
-            .join("run.sqlite"),
-    )
-    .unwrap()
 }
 
 /// The reply of a start under the Run ID `run_id` of the seed
@@ -530,7 +513,7 @@ fn a_start_under_its_run_id_refuses_a_dataset_holding_records_dropped_or_keyed_a
     #[case] expected: Value,
 ) {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let book = json!({ "title": "Dune", "isbn": "0441013597" });
 
     let report = crawl_from(
@@ -543,7 +526,7 @@ fn a_start_under_its_run_id_refuses_a_dataset_holding_records_dropped_or_keyed_a
         &mut |_, _| json!({ "result": { "records": [{ "dataset": "books", "data": book }] } }),
     );
     let answer = start_again(&mut engine, "kept", &datasets);
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -564,7 +547,7 @@ fn a_start_under_its_run_id_refuses_a_dataset_holding_records_dropped_or_keyed_a
 #[test]
 fn a_start_under_its_run_id_refuses_a_dataset_holding_only_rejected_records_renamed() {
     let env = TestEnv::new();
-    let mut engine = Attached::start(&env);
+    let mut engine = attached(&env);
     let untitled = json!({ "isbn": "0441013597" });
 
     let mut refused = Value::Null;
@@ -594,7 +577,7 @@ fn a_start_under_its_run_id_refuses_a_dataset_holding_only_rejected_records_rena
         &json!({ "run_id": "rejecting", "dataset": "books" }),
         &mut |_| None,
     );
-    assert!(engine.finish());
+    assert!(engine.finished());
 
     assert_eq!(
         (
@@ -681,7 +664,7 @@ fn a_crawl_resumed_after_its_schema_changed_checks_new_records_against_it_and_ea
     let first = json!({ "title": "Dune", "isbn": "1", "price": 9.99 });
     let second = json!({ "title": "Emma", "isbn": "2", "price": "cheap" });
 
-    let mut killed = Attached::start(&env);
+    let mut killed = attached(&env);
     killed.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start", "params": start(schema("number")),
     }));
@@ -701,13 +684,18 @@ fn a_crawl_resumed_after_its_schema_changed_checks_new_records_against_it_and_ea
             }
         }
     }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     while hashed(&env, "evolved").is_empty() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the first seed's Record is committed"
+        );
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     let began = books_hash(&env, "evolved");
     killed.kill();
 
-    let mut resuming = Attached::start(&env);
+    let mut resuming = attached(&env);
     let mut answer = |params: &Value| {
         assert_eq!(params["crawl_request"]["url"], "https://shop.test/b");
         Some(json!({ "result": { "records": [{ "dataset": "books", "data": second }] } }))
@@ -730,7 +718,7 @@ fn a_crawl_resumed_after_its_schema_changed_checks_new_records_against_it_and_ea
         &json!({ "run_id": "evolved" }),
         &mut answer,
     );
-    assert!(resuming.finish());
+    assert!(resuming.finished());
 
     let now = books_hash(&env, "evolved");
     assert_ne!(began, now, "the changed schema has another hash");

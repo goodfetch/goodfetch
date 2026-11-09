@@ -5,10 +5,13 @@ use std::fmt::Write as _;
 
 use clap::Command;
 use clap::error::ErrorKind;
-use goodfetch_collie::executable::generated::{Call, Generated};
+use goodfetch_collie::executable::catalog_commands::{Call, Generated};
 use goodfetch_collie::executable::{OwnCommands, command};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound_names;
+use goodfetch_test_support::{
+    certificate_verification_switches, command_help, command_paths, long_flags,
+};
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
@@ -376,34 +379,52 @@ fn run_export_takes_its_dataset_second_and_out(
     );
 }
 
-/// Every command path below `command`, each group before its commands,
-/// hidden ones included.
-fn paths(command: &clap::Command) -> Vec<Vec<String>> {
-    command
-        .get_subcommands()
-        .flat_map(|sub| {
-            std::iter::once(vec![sub.get_name().to_owned()]).chain(paths(sub).into_iter().map(
-                |mut path| {
-                    path.insert(0, sub.get_name().to_owned());
-                    path
-                },
-            ))
-        })
-        .collect()
+#[test]
+fn the_command_line_holds_no_clap_misconfiguration() {
+    command(Product::Foxhound, COMMANDS).debug_assert();
 }
 
-/// The help the executable prints for `path`, rendered by its own command
-/// line.
-fn help(command: &clap::Command, path: &[String]) -> String {
-    let arguments = std::iter::once(command.get_name().to_owned())
-        .chain(path.iter().cloned())
-        .chain(std::iter::once("--help".to_owned()));
-    command
-        .clone()
-        .try_get_matches_from(arguments)
-        .err()
-        .unwrap()
-        .to_string()
+/// A start builds no group's commands, Foxhound's own among them: clap
+/// builds them only for the group it parses or shows help for, so
+/// `--version` and every command skip building the rest of the tree (ADR
+/// 0071's startup figure).
+#[test]
+fn a_start_builds_no_command_of_any_group() {
+    let (command_line, _) = command_line(Product::Foxhound);
+
+    let built: Vec<(&str, Vec<&str>)> = command_line
+        .get_subcommands()
+        .map(|group| {
+            let commands: Vec<&str> = group.get_subcommands().map(Command::get_name).collect();
+            (group.get_name(), commands)
+        })
+        .filter(|(_, commands)| !commands.is_empty())
+        .collect();
+
+    assert_eq!(built, Vec::<(&str, Vec<&str>)>::new());
+}
+
+/// Story 4-31: no flag of Foxhound's executable turns certificate
+/// verification off, those of `crawl start` and `run export`, the commands
+/// it writes by hand, among them. No flag reads a variable either: clap's
+/// `env` feature is off.
+/// Covers: story:4-31
+#[test]
+fn no_flag_switches_certificate_verification_off() {
+    let flags = long_flags(&command(Product::Foxhound, COMMANDS));
+
+    assert_eq!(
+        (
+            flags.iter().any(|flag| flag == "links"),
+            flags.iter().any(|flag| flag == "out"),
+        ),
+        (true, true),
+        "the enumeration reaches `crawl start`'s and `run export`'s flags"
+    );
+    assert_eq!(
+        certificate_verification_switches(&flags),
+        Vec::<String>::new()
+    );
 }
 
 /// Whether Foxhound's help `foxhounds` of the command path `path` shows
@@ -446,7 +467,7 @@ fn the_containment_check_refuses_an_option_line_foxhound_adds_to_a_command_colli
         command(Product::Foxhound, COMMANDS),
     );
     let path = ["run".to_owned(), "start".to_owned()];
-    let foxhounds = help(&foxhound, &path);
+    let foxhounds = command_help(&foxhound, &path);
     let planted = foxhounds.replacen(
         "Options:\n",
         "Options:\n      --extra  An option only Foxhound's executable has\n",
@@ -454,7 +475,11 @@ fn the_containment_check_refuses_an_option_line_foxhound_adds_to_a_command_colli
     );
     assert_ne!(planted, foxhounds, "the plant is in Foxhound's help");
 
-    assert!(!shows_unchanged(&help(&collie, &path), &planted, &path));
+    assert!(!shows_unchanged(
+        &command_help(&collie, &path),
+        &planted,
+        &path
+    ));
 }
 
 /// The containment check (ADRs 0090 and 0094): Foxhound's executable
@@ -471,23 +496,33 @@ fn foxhounds_help_shows_each_command_collies_carries_unchanged() {
         command(Product::Foxhound, COMMANDS),
     );
 
-    let changed: Vec<String> = paths(&collie)
+    let changed: Vec<String> = command_paths(&collie)
         .into_iter()
-        .filter(|path| !shows_unchanged(&help(&collie, path), &help(&foxhound, path), path))
+        .filter(|path| {
+            !shows_unchanged(
+                &command_help(&collie, path),
+                &command_help(&foxhound, path),
+                path,
+            )
+        })
         .map(|path| path.join(" "))
         .collect();
 
     assert_eq!(changed, Vec::<String>::new());
-    let tree = std::iter::once(Vec::new()).chain(paths(&foxhound)).fold(
-        String::new(),
-        |mut tree, path| {
+    let tree = std::iter::once(Vec::new())
+        .chain(command_paths(&foxhound))
+        .fold(String::new(), |mut tree, path| {
             let words: Vec<&str> = std::iter::once("goodfetch-foxhound")
                 .chain(path.iter().map(String::as_str))
                 .chain(std::iter::once("--help"))
                 .collect();
-            let _ = writeln!(tree, "$ {}\n{}", words.join(" "), help(&foxhound, &path));
+            let _ = writeln!(
+                tree,
+                "$ {}\n{}",
+                words.join(" "),
+                command_help(&foxhound, &path)
+            );
             tree
-        },
-    );
+        });
     insta::assert_snapshot!("help_tree_foxhound", tree);
 }

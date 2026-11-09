@@ -60,8 +60,10 @@ export { productEnv, scriptedEngineEnv, type Product } from "./product-env.ts";
 export { redact, type SnapshotValues } from "./snapshot.ts";
 export {
   provingGroundOf,
+  provingGroundRoutes,
   type ProvingGroundDescription,
   type ProvingGroundFixtures,
+  type ProvingGroundRoutes,
   type ProxyCredentials,
 } from "./proving-ground.ts";
 export {

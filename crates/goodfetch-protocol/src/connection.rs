@@ -10,6 +10,7 @@
 //! its schema (ADR 0096).
 
 use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::fmt;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -17,7 +18,9 @@ use std::path::PathBuf;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
-use crate::catalog::{Entries, ErrorCodeDefinition, ErrorGroup, Product, ProtocolVersion};
+use crate::catalog::{
+    Entries, ErrorCodeDefinition, ErrorGroup, PROTOCOL_VERSION, Product, ProtocolVersion,
+};
 use crate::jsonrpc::RequestId;
 use crate::log::LogLevel;
 use crate::settings::SettingLimit;
@@ -84,6 +87,20 @@ pub enum Form {
 }
 
 impl Surface {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 10] = [
+        Self::SdkTypescript,
+        Self::SdkPython,
+        Self::Rust,
+        Self::Cli,
+        Self::Mcp,
+        Self::Console,
+        Self::Kennel,
+        Self::Cloud,
+        Self::BrowserHost,
+        Self::Worker,
+    ];
+
     /// Whether a Client of this surface acts for a model, which sets none of
     /// the settings that send a Secret reference's value to a destination
     /// they name (ADR 0092): the MCP server, and a Script sandbox worker
@@ -157,28 +174,97 @@ impl Surface {
 
     /// Its name on the wire.
     pub fn as_str(self) -> &'static str {
-        match self {
-            Self::SdkTypescript => "sdk_typescript",
-            Self::SdkPython => "sdk_python",
-            Self::Rust => "rust",
-            Self::Cli => "cli",
-            Self::Mcp => "mcp",
-            Self::Console => "console",
-            Self::Kennel => "kennel",
-            Self::Cloud => "cloud",
-            Self::BrowserHost => "browser_host",
-            Self::Worker => "worker",
-        }
+        crate::wire_name::of(&self)
     }
 }
 
 /// A Product version, `major.minor.patch` with an optional pre-release
-/// (ADR 0090). Reported, never compared (ADR 0095).
+/// (ADR 0090). Reported, never compared across a Connection (ADR 0095);
+/// on one machine it orders by Semantic Versioning's precedence, so the
+/// newest installed executable can be picked (ADR 0098), and it names its
+/// [`VersionLine`].
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ProductVersion {
     text: String,
     major: u64,
     minor: u64,
+}
+
+/// A Product version's line: its major, or during `0.y` previews its `0.y`
+/// minor, since each preview minor counts as a major (ADR 0030). Lines
+/// order as their versions do, and each has its own per-major folder in
+/// Goodfetch home, named by its text: `1` for any `1.x.y`, `0.4` for any
+/// `0.4.y`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct VersionLine {
+    major: u64,
+    /// The preview's minor when `major` is 0, else 0.
+    minor: u64,
+}
+
+impl VersionLine {
+    /// The line a per-major folder's name, `1` or `0.4`, names: `None` for
+    /// a name that is no line's, such as `0`, `01` or `1.2`.
+    pub fn parse(name: &str) -> Option<Self> {
+        let number = |part: &str| {
+            let canonical = !part.is_empty()
+                && part.bytes().all(|byte| byte.is_ascii_digit())
+                && (part == "0" || !part.starts_with('0'));
+            canonical.then(|| part.parse().ok()).flatten()
+        };
+        match name.split_once('.') {
+            Some(("0", minor)) => Some(Self {
+                major: 0,
+                minor: number(minor)?,
+            }),
+            Some(_) => None,
+            None => match number(name)? {
+                0 => None,
+                major => Some(Self { major, minor: 0 }),
+            },
+        }
+    }
+
+    /// Whether it is a `0.y` preview's.
+    pub fn is_preview(self) -> bool {
+        self.major == 0
+    }
+
+    /// Its major: 0 for a preview.
+    pub fn major(self) -> u64 {
+        self.major
+    }
+
+    /// The preview's minor, which counts as its major; 0 for a release.
+    pub fn minor(self) -> u64 {
+        self.minor
+    }
+
+    /// The line after it: the next `0.y` during previews, else the next
+    /// major; `None` past `u64::MAX`.
+    pub fn next(self) -> Option<Self> {
+        if self.is_preview() {
+            Some(Self {
+                major: 0,
+                minor: self.minor.checked_add(1)?,
+            })
+        } else {
+            Some(Self {
+                major: self.major.checked_add(1)?,
+                minor: 0,
+            })
+        }
+    }
+}
+
+impl fmt::Display for VersionLine {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_preview() {
+            write!(formatter, "0.{}", self.minor)
+        } else {
+            write!(formatter, "{}", self.major)
+        }
+    }
 }
 
 /// Text that is no Product version.
@@ -228,6 +314,14 @@ impl ProductVersion {
         self.major
     }
 
+    /// Its line: its major, or its `0.y` minor during previews (ADR 0030).
+    pub fn line(&self) -> VersionLine {
+        VersionLine {
+            major: self.major,
+            minor: if self.major == 0 { self.minor } else { 0 },
+        }
+    }
+
     /// Its major and minor, as the formats' rules compare them (ADRs 0030
     /// and 0098); a number past `u16::MAX` reads as `u16::MAX`.
     pub fn major_minor(&self) -> ProtocolVersion {
@@ -248,13 +342,84 @@ impl ProductVersion {
     /// plus the minor during `0.y` previews, where each minor counts as a
     /// major (ADR 0030).
     pub(crate) fn loopback_of_its_major(&self, release_base: u16, preview_base: u16) -> SocketAddr {
-        let number = |number: u64| u16::try_from(number).ok();
-        let port = match (number(self.major), number(self.minor)) {
-            (Some(0), Some(minor)) => preview_base.saturating_add(minor),
-            (Some(major), _) => release_base.saturating_add(major),
-            (None, _) => release_base,
+        let line = self.line();
+        let (base, number) = if line.is_preview() {
+            (preview_base, line.minor())
+        } else {
+            (release_base, line.major())
         };
+        let port = u16::try_from(number).map_or(release_base, |number| base.saturating_add(number));
         SocketAddr::from((Ipv4Addr::LOCALHOST, port))
+    }
+
+    /// Its pre-release, the text after the first `-`, if any.
+    fn pre_release(&self) -> Option<&str> {
+        self.text
+            .split_once('-')
+            .map(|(_, pre_release)| pre_release)
+    }
+
+    /// Its patch number's text, canonical digits.
+    fn patch(&self) -> &str {
+        let core = self
+            .text
+            .split_once('-')
+            .map_or(self.text.as_str(), |(core, _)| core);
+        core.rsplit('.').next().unwrap_or(core)
+    }
+}
+
+impl Ord for ProductVersion {
+    /// Semantic Versioning's precedence: the numbers, then a release above
+    /// its pre-releases, which compare identifier by identifier; versions
+    /// of equal precedence order by their text, so the order agrees with
+    /// equality.
+    fn cmp(&self, other: &Self) -> Ordering {
+        // A canonical number's text orders by its length, then its digits,
+        // however long it is.
+        let (patch, other_patch) = (self.patch(), other.patch());
+        (self.major, self.minor)
+            .cmp(&(other.major, other.minor))
+            .then_with(|| (patch.len(), patch).cmp(&(other_patch.len(), other_patch)))
+            .then_with(|| match (self.pre_release(), other.pre_release()) {
+                (None, None) => Ordering::Equal,
+                (None, Some(_)) => Ordering::Greater,
+                (Some(_), None) => Ordering::Less,
+                (Some(left), Some(right)) => pre_release_order(left, right),
+            })
+            .then_with(|| self.text.cmp(&other.text))
+    }
+}
+
+impl PartialOrd for ProductVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Semantic Versioning's precedence of two pre-releases: identifier by
+/// identifier, numbers numerically and below words, words by their bytes,
+/// and a shorter list below a longer one it begins.
+fn pre_release_order(left: &str, right: &str) -> Ordering {
+    let mut left_parts = left.split('.');
+    let mut right_parts = right.split('.');
+    loop {
+        match (left_parts.next(), right_parts.next()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(left), Some(right)) => {
+                let order = match (left.parse::<u64>(), right.parse::<u64>()) {
+                    (Ok(left), Ok(right)) => left.cmp(&right),
+                    (Ok(_), Err(_)) => Ordering::Less,
+                    (Err(_), Ok(_)) => Ordering::Greater,
+                    (Err(_), Err(_)) => left.cmp(right),
+                };
+                if order != Ordering::Equal {
+                    return order;
+                }
+            }
+        }
     }
 }
 
@@ -341,6 +506,26 @@ pub struct HelloParams {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub keep_daemon_alive: bool,
+}
+
+impl HelloParams {
+    /// The `hello` every Client builds on: the protocol version this
+    /// crate speaks, `surface`, its own `product_version`, and every other
+    /// field at its default, no form, token, Product, log level, relayed
+    /// surface or keep-alive, which a caller sets by struct update.
+    pub fn new(surface: Surface, product_version: ProductVersion) -> Self {
+        Self {
+            protocol_version: PROTOCOL_VERSION,
+            surface,
+            form: None,
+            token: None,
+            needs: None,
+            product_version,
+            log_level: None,
+            client_surface: None,
+            keep_daemon_alive: false,
+        }
+    }
 }
 
 /// One engine process, new each time an engine starts (ADR 0031): the
@@ -560,7 +745,86 @@ pub struct DeadlineExceededDetails {
     pub elapsed: u64,
     /// What it waited for, such as `first_byte` or `navigation`.
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub waited_for: String,
+    pub waited_for: WaitedFor,
+}
+
+/// What a call past its deadline waited for, as `deadline_exceeded` names
+/// it: a value of a type both Products share, open as ADR 0099 has such
+/// types, so Foxhound adds its own (`goodfetch_protocol::foxhound`'s) and a
+/// reader keeps one it does not know. Each of Collie's values is an
+/// associated constant.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(transparent)]
+#[schemars(transparent)]
+pub struct WaitedFor(Cow<'static, str>);
+
+impl WaitedFor {
+    /// A response's first byte.
+    pub const FIRST_BYTE: Self = Self::named("first_byte");
+    /// A navigation's end.
+    pub const NAVIGATION: Self = Self::named("navigation");
+    /// A request the page sends.
+    pub const REQUEST: Self = Self::named("request");
+    /// A response to a request.
+    pub const RESPONSE: Self = Self::named("response");
+    /// A request's end.
+    pub const FINISHED_REQUEST: Self = Self::named("finished request");
+    /// A response's whole body.
+    pub const RESPONSE_BODY: Self = Self::named("response body");
+    /// The page's URL to match.
+    pub const URL: Self = Self::named("url");
+    /// A page function to return a truthy value.
+    pub const FUNCTION: Self = Self::named("function");
+    /// A navigation's commit.
+    pub const COMMIT: Self = Self::named("commit");
+    /// The document's `DOMContentLoaded`.
+    pub const DOM_CONTENT_LOADED: Self = Self::named("domcontentloaded");
+    /// The document's `load`.
+    pub const LOAD: Self = Self::named("load");
+    /// The page's network to be idle.
+    pub const NETWORK_IDLE: Self = Self::named("networkidle");
+    /// The browser's answer to a command.
+    pub const BROWSER_ANSWER: Self = Self::named("browser_answer");
+    /// A Run's end.
+    pub const RUN_END: Self = Self::named("Run's end");
+    /// A Run's next safe point.
+    pub const RUN_SAFE_POINT: Self = Self::named("Run's next safe point");
+    /// A locator's matches to number what its count allows.
+    pub const TARGET_COUNT: Self = Self::named("target_count");
+    /// A locator's target to be detached.
+    pub const TARGET_DETACHED: Self = Self::named("target_detached");
+    /// A locator to match one element.
+    pub const TARGET_UNIQUE: Self = Self::named("target_unique");
+    /// A locator's target to be hidden.
+    pub const TARGET_HIDDEN: Self = Self::named("target_hidden");
+    /// A locator's target to be attached.
+    pub const TARGET_ATTACHED: Self = Self::named("target_attached");
+    /// A locator's target to be visible.
+    pub const TARGET_VISIBLE: Self = Self::named("target_visible");
+    /// A locator's target to be enabled.
+    pub const TARGET_ENABLED: Self = Self::named("target_enabled");
+    /// A locator's target to be editable.
+    pub const TARGET_EDITABLE: Self = Self::named("target_editable");
+    /// A locator's target to stop moving.
+    pub const TARGET_STABLE: Self = Self::named("target_stable");
+    /// A locator's target to be the one that receives the event.
+    pub const TARGET_RECEIVES_EVENTS: Self = Self::named("target_receives_events");
+
+    /// The value named `name`, for a Product's own constant.
+    pub const fn named(name: &'static str) -> Self {
+        Self(Cow::Borrowed(name))
+    }
+
+    /// Its name on the wire.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for WaitedFor {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
 }
 
 /// Who stopped a call (ADR 0113).
@@ -649,27 +913,6 @@ pub const ENGINE_NOT_FOUND: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
-/// What `engine_not_found` details: where the SDK looked.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum EngineNotFoundDetails {
-    /// The Product's engine-path variable named a path that is no
-    /// executable file.
-    Path {
-        /// The path the variable named.
-        #[schemars(extend("arrived_in" = "0.1"))]
-        path: String,
-    },
-    /// No engine-path variable was set, and the Product's platform package
-    /// is not installed.
-    Package {
-        /// The platform package's name, such as
-        /// `@goodfetch/collie-linux-x64`.
-        #[schemars(extend("arrived_in" = "0.1"))]
-        package: String,
-    },
-}
-
 /// An Attached engine that ended before its Connection was closed (ADRs
 /// 0078 and 0079), raised by the SDK runtime.
 pub const ENGINE_EXITED: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -693,21 +936,6 @@ pub const CONNECTION_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
-/// What `engine_exited` details.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct EngineExitedDetails {
-    /// The engine's exit code; `None` when a signal ended it or the
-    /// Connection's transport has none.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub exit_code: Option<i32>,
-    /// The signal that ended it, by name, such as `SIGKILL`.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub signal: Option<String>,
-    /// The last 64 KiB of its stderr.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub stderr_tail: String,
-}
-
 /// An engine that wrote what is no JSON-RPC message on the Connection
 /// (ADRs 0024 and 0078), raised by the SDK runtime.
 pub const ENGINE_OUTPUT_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -718,14 +946,6 @@ pub const ENGINE_OUTPUT_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
-
-/// What `engine_output_invalid` details.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct EngineOutputInvalidDetails {
-    /// The line the engine wrote, without its line end.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub line: String,
-}
 
 /// The refusal of an answer only a person gives (ADRs 0011 and 0041): an
 /// operation the catalog marks [`Reach::PersonOnly`](crate::catalog::Reach)

@@ -20,16 +20,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
+use crate::facts::DISPATCH_TARGET;
 use crate::variables::{BINARY_ID_VARIABLE, RECORDS_VARIABLE, TEST_NAME_VARIABLE, Variables};
-
-/// The `tracing` target of `rpc`'s dispatch records, which the test
-/// subscriber writes into the record.
-pub const DISPATCH_TARGET: &str = "goodfetch::rpc::dispatch";
-
-/// The `tracing` target of the engine's outcome records: each Error code a
-/// Run recorded and no reply carries, such as a work item's `handler_lost`,
-/// which the subscriber writes into the record beside the dispatch records.
-pub const OUTCOME_TARGET: &str = "goodfetch::run::outcome";
 
 /// The target of the CLI helper's command records, which the exercise
 /// audit reads beside the dispatch records.

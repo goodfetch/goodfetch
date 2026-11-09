@@ -28,6 +28,7 @@ Each suite runs everything the suite before it runs.
   > Amended by [ADR 0126](0126-each-crate-declares-which-of-its-modules-may-import-which-each-module-names-one-concern-and-a-file-past-1000-lines-states-why.md): the Quick suite also runs the `xtask` check of each crate's `modules.toml` and of the 1,000-line size alarm.
 - **Pre-merge suite**: what ADR 0032's pull-request tier runs, on one platform. That is the Quick suite plus:
   - the `tests/it` binary of every touched crate and of the crates that depend on it (`rdeps`);
+    > Amended on 2026-11-09 (owner request of 2026-11-09, [#2238](https://github.com/goodfetch/goodfetch/issues/2238)): a change confined to a crate's `tests/` folder touches that crate's tests alone, since no library, executable or benchmark build reads that folder: it reaches neither the crates that depend on the crate, nor what runs its executable, nor its bench targets. A file of that folder that a file outside it names (a shared fixture listing it, the crate's own code including it, another crate naming it through the crate's folder) still touches the whole crate.
   - the conformance suites against the local Proving ground with the Goodfetch Chromium;
   - the touched Sinks' suites against their emulators and containers (every Sink's suite until the merge queue exists, as ADR 0032 requires);
   - the touched SDKs, adapters and Integrations on one runtime each;

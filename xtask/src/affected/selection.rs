@@ -77,8 +77,8 @@ enum Products {
 
 pub(crate) struct Selection {
     jobs: BTreeSet<Job>,
-    /// The changed crates and their dependants, for runs that select crates
-    /// by name (`cargo -p`).
+    /// The changed crates and their dependants, with the crates whose tests
+    /// alone change, for runs that select crates by name (`cargo -p`).
     crates: BTreeSet<String>,
     vitest_packages: BTreeSet<RepoPath>,
     pytest_packages: BTreeSet<RepoPath>,
@@ -213,7 +213,7 @@ fn in_tests_folder(krate: &Crate, path: &RepoPath) -> bool {
 }
 
 /// The crate whose `tests/` folder holds `path`, the crate owning it.
-pub(crate) fn tests_owner<'a>(workspace: &'a Workspace, path: &RepoPath) -> Option<&'a Crate> {
+pub(super) fn tests_owner<'a>(workspace: &'a Workspace, path: &RepoPath) -> Option<&'a Crate> {
     match owner(workspace, path) {
         Some(Owner::Crate(krate)) if in_tests_folder(krate, path) => Some(krate),
         _ => None,

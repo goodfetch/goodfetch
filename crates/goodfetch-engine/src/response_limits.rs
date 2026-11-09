@@ -24,6 +24,21 @@
 //! the 128th level: the scan bounds the depth instead, to
 //! `network.max_json_depth` and at most [`JSON_DEPTH_CEILING`], where the
 //! parser still fits a thread's stack.
+//!
+//! Every network read of JSON goes through [`parse_json`]: a discovered API's
+//! answers, captured and replayed, a site's `TDMRep` file, and the daily
+//! channel's manifest and token. A capture is told to no call, so it keeps a
+//! call past the depth without its answer, and the replay of that call refuses
+//! it. These reads stay outside, each on the parser's own limit of 127 levels:
+//!
+//! - a Secret provider's or an OTLP collector's reply: an Operator's endpoint,
+//!   which no page call waits on (ADR 0067);
+//! - a page's JSON-LD and a consent message: text of a document already read
+//!   under the limits, where one block that does not parse costs that block;
+//! - a Clean-up rules manifest: read from files its pinned digest vouches for,
+//!   or from the Browser cache;
+//! - the browser's CDP messages and the JSON-RPC channel, which holds its own
+//!   `message_too_deep`.
 
 use std::io::{self, Write};
 
@@ -594,8 +609,8 @@ pub fn parse_json(
     // The scan above bounds the depth, below the ceiling.
     deserializer.disable_recursion_limit();
     let value =
-        serde::Deserialize::deserialize(&mut deserializer).map_err(|_| JsonFailure::Malformed)?;
-    deserializer.end().map_err(|_| JsonFailure::Malformed)?;
+        serde::Deserialize::deserialize(&mut deserializer).map_err(JsonFailure::Malformed)?;
+    deserializer.end().map_err(JsonFailure::Malformed)?;
     Ok(value)
 }
 
@@ -604,8 +619,8 @@ pub fn parse_json(
 pub enum JsonFailure {
     /// It nests past `network.max_json_depth`.
     Limit(LimitExceeded),
-    /// It is no JSON.
-    Malformed,
+    /// It is no JSON, as the parser says.
+    Malformed(serde_json::Error),
 }
 
 /// Judges how deep `json`, a body of `url`, nests its arrays and objects,

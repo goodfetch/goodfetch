@@ -79,6 +79,7 @@ use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::metrics::Counted;
+use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
@@ -773,7 +774,7 @@ impl On<'_> {
         } else {
             None
         };
-        let capture = Capture::default();
+        let capture = Capture::under(Limits::of_run(self.run.settings()));
         let browser = self
             .browser_run(
                 &tiering.tiers,

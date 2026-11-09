@@ -55,7 +55,7 @@ use crate::driver::cdp_response::{
     bodiless, coded, cut_after_sent_on, cut_though_finished, declared_length, encoded_bytes,
     from_the_network, paused_headers, paused_status, redirects, whole_body,
 };
-use crate::errors::{network_error, site_preferences_refused};
+use crate::errors::{gate_refused, network_error};
 use crate::interception::{EngineRequests, Overrides, authentication};
 use crate::page_value::{Navigation, NavigationKind, Permit};
 use crate::paused_body::{declared_within_limits, streamed};
@@ -360,7 +360,7 @@ impl<'a> Load<'a> {
                     Err(refusal) => {
                         self.fail(&paused.request_id, network::ErrorReason::Aborted)
                             .await;
-                        return Some(Err(site_preferences_refused(&navigation.url, &refusal)));
+                        return Some(Err(gate_refused(&navigation.url, &refusal)));
                     }
                 }
                 self.send(&command).await;

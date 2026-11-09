@@ -490,19 +490,23 @@ impl NavigationGate for Gate {
     }
 }
 
-/// A handler page's refusal by a site preference: an unreachable
-/// robots.txt refuses it as robots.txt (RFC 9309 §2.3.1.4).
-pub(crate) fn refusal(refused: site_preferences::Refusal) -> Refusal {
-    Refusal {
-        reason: refused.by.site_preference(),
-        message: refused.message,
+/// A handler page's refusal by a site preference, an unreachable robots.txt
+/// refusing it as robots.txt (RFC 9309 §2.3.1.4), or by a limit a file of the
+/// preferences passed.
+pub(crate) fn refusal(refused: impl Into<site_preferences::NotAllowed>) -> Refusal {
+    match refused.into() {
+        site_preferences::NotAllowed::Refused(refused) => Refusal::Preference {
+            reason: refused.by.site_preference(),
+            message: refused.message,
+        },
+        site_preferences::NotAllowed::PastALimit(limit) => Refusal::PastALimit(limit),
     }
 }
 
 impl Gate {
     /// Admits a request to `url`, or refuses it by the site's preferences
     /// ([`SitePreferences::judged`]).
-    pub(crate) async fn admitted(&self, url: &Url) -> Result<Permit, site_preferences::Refusal> {
+    pub(crate) async fn admitted(&self, url: &Url) -> Result<Permit, site_preferences::NotAllowed> {
         let hand_over = &self.0.of_run;
         let run = &hand_over.run;
         let preferences = &hand_over.site_preferences;
@@ -737,16 +741,23 @@ impl HopGate for ChainGate {
                 .await
             {
                 Ok(permit) => Ok(permit),
+                Err(site_preferences::NotAllowed::PastALimit(limit)) => {
+                    Err(Stop::Failed(limit.error()))
+                }
                 // A crawl request retries a hop's unreachable robots.txt as
                 // it retries its own (ADR 0086).
-                Err(refusal) if refusal.by == RefusedBy::UnreachableRobotsTxt => {
+                Err(site_preferences::NotAllowed::Refused(refusal))
+                    if refusal.by == RefusedBy::UnreachableRobotsTxt =>
+                {
                     Err(Stop::RobotsTxtUnreachable {
                         message: refusal.message,
                         on_own_domain: self.hand_over.of_run.keys.key(hop.url.as_str())
                             == self.hand_over.domain_key,
                     })
                 }
-                Err(refusal) => skipped(refusal.by.skip_reason(), refusal.message),
+                Err(site_preferences::NotAllowed::Refused(refusal)) => {
+                    skipped(refusal.by.skip_reason(), refusal.message)
+                }
             }
         })
     }

@@ -52,7 +52,7 @@ use super::steps::{self, Blocking, Overrides, Stopped, entries};
 use super::{PageState, lock};
 use crate::borrowed::Lookups;
 use crate::driver::{PageDriver, cdp_response};
-use crate::errors::{site_preferences_failure, site_preferences_refused};
+use crate::errors::{gate_failure, gate_refused};
 use crate::page_events::{Refusals, is_navigation, post_data, resource_type};
 use crate::page_value::{
     DocumentResponse, Navigation, NavigationKind, Permit, ReadDocument, Reader, Reading, Refusal,
@@ -1262,26 +1262,26 @@ impl PageContext {
         if !matches!(self.sender, Sender::Page(_)) {
             // A worker's or a frame's request, which no page's event
             // reports, is recorded refused at once.
-            self.leave_refusal(held, site_preferences_failure(url, refusal));
+            self.leave_refusal(held, gate_failure(url, refusal));
         } else if let Some(network_id) = &held.paused.network_id {
             self.refusals
-                .leave(network_id, site_preferences_failure(url, refusal), !waiting);
+                .leave(network_id, gate_failure(url, refusal), !waiting);
         }
         match page {
-            Some((state, _)) if waiting => state.leave(site_preferences_refused(url, refusal)),
+            Some((state, _)) if waiting => state.leave(gate_refused(url, refusal)),
             // No call waits on it: the waiters armed for it raise it.
             Some((_, page)) => page
                 .refusals
-                .refuse_navigation(url, site_preferences_refused(url, refusal)),
-            None if waiting => self.state.leave(site_preferences_refused(url, refusal)),
+                .refuse_navigation(url, gate_refused(url, refusal)),
+            None if waiting => self.state.leave(gate_refused(url, refusal)),
             None if held.navigation => self
                 .refusals
-                .refuse_navigation(url, site_preferences_refused(url, refusal)),
+                .refuse_navigation(url, gate_refused(url, refusal)),
             None => {}
         }
         self.fail(&held.paused.request_id, network::ErrorReason::Aborted)
             .await;
-        site_preferences_refused(url, refusal)
+        gate_refused(url, refusal)
     }
 
     /// How step 3 judges `held`: a hop of the main frame's navigation while
@@ -1525,7 +1525,7 @@ impl PageContext {
             body,
         };
         let refusal = gate.judge_document(&response).await.err()?;
-        let error = site_preferences_refused(&paused.request.url, &refusal);
+        let error = gate_refused(&paused.request.url, &refusal);
         let page = carried.and_then(|state| state.navigating.as_ref().map(|page| (state, page)));
         let (state, driver, refusals) = match page {
             Some((state, page)) => (state, &page.driver, &page.refusals),

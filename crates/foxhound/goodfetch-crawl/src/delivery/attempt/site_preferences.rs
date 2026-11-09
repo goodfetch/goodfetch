@@ -14,7 +14,8 @@ use goodfetch_engine::robots_txt;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
-    AfterRobotsTxt, HttpTier, Reading, Refusal, RefusedBy, Request, UseSignals, skip_reason,
+    AfterRobotsTxt, HttpTier, NotAllowed, Reading, Refusal, RefusedBy, Request, UseSignals,
+    skip_reason,
 };
 use goodfetch_frontier::SharedRobotsTxt;
 use goodfetch_frontier::Url;
@@ -22,7 +23,7 @@ use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::page::{SITE_PREFERENCES_REFUSED, SitePreference};
 use serde_json::{Map, Value};
 
-use super::{Answer, On};
+use super::{Answer, On, failed};
 
 /// The Politeness the crawl's Run shares, under `settings`, once it
 /// opened: from then on the Run reads robots.txt from the copy its user's
@@ -110,7 +111,12 @@ impl On<'_> {
                 fetched_on(http, run, location)
             })
             .await
-            .map_err(|refusal| answer(run, leased.crawl_request.id.as_str(), refusal))?;
+            .map_err(|not_allowed| match not_allowed {
+                NotAllowed::Refused(refusal) => {
+                    answer(run, leased.crawl_request.id.as_str(), refusal)
+                }
+                NotAllowed::PastALimit(limit) => failed(&limit.error()),
+            })?;
         if allowed.ignored {
             self.lease.robots_txt_ignored();
         }

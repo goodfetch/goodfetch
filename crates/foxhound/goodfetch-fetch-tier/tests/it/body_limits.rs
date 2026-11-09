@@ -21,8 +21,8 @@ use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::robots_txt::Answer;
 use goodfetch_engine::settings::{Layers, Values, resolve};
 use goodfetch_fetch_tier::{
-    FetchBounds, Fetched, Hop, HttpProfile, Request, Reqwest, SitePreferences, Transport, Wreq,
-    fetch,
+    FetchBounds, Fetched, Hop, HttpProfile, NotAllowed, Request, Reqwest, SitePreferences,
+    Transport, Wreq, fetch,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
@@ -142,7 +142,8 @@ fn judged(
     ));
     match judged {
         Ok(_) => "allowed".to_owned(),
-        Err(refused) => format!("refused: {refused}"),
+        Err(NotAllowed::PastALimit(limit)) => refusal(&Err(limit.error())),
+        Err(NotAllowed::Refused(refused)) => format!("refused: {refused}"),
     }
 }
 

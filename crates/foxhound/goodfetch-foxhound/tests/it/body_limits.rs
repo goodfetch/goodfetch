@@ -190,13 +190,13 @@ fn every_body_past_a_limit_fails_its_request_and_its_page_request_on_the_http_ti
 ///
 /// Covers: setting:network.max_json_depth, setting:site_preferences.purpose, error:response_limit_exceeded
 #[rstest::rstest]
-#[case::raised_past_the_file("body-limits/4", Some(129), "succeeded")]
-#[case::at_the_default("body-limits/5", None, "succeeded")]
-#[case::lowered_below_the_file("body-limits/5", Some(127), "failed")]
+#[case::raised_past_the_file("body-limits/4", Some(129), false)]
+#[case::at_the_default("body-limits/5", None, false)]
+#[case::lowered_below_the_file("body-limits/5", Some(127), true)]
 fn the_runs_json_depth_decides_what_its_tdmrep_read_refuses(
     #[case] task: &str,
     #[case] depth: Option<u64>,
-    #[case] kind: &str,
+    #[case] is_refused: bool,
 ) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
@@ -205,33 +205,45 @@ fn the_runs_json_depth_decides_what_its_tdmrep_read_refuses(
         "tls.trusted_cas.\"body-limits.test\" = ['{ca}']\n"
     ));
     let mut engine = engine(&env);
-    let network = depth.map_or_else(|| json!({}), |depth| json!({ "max_json_depth": depth }));
+    let url = proving_ground.start_url(task).unwrap();
+    let mut settings = settings(
+        &proving_ground,
+        &json!({
+            "fetch": { "tier": "http" },
+            "crawl": { "retry": { "max": 0 } },
+            "politeness": { "domain": { "delay": 0 } },
+            "site_preferences": {
+                "respect_robots_txt": false,
+                "respect_use_signals": true,
+                "purpose": "ai-input",
+            },
+        }),
+    );
+    if let Some(depth) = depth {
+        settings["network"]["max_json_depth"] = json!(depth);
+    }
 
     let finished = crawl_declaring(
         &mut engine,
         "json-depth",
-        &[json!({ "url": proving_ground.start_url(task).unwrap(), "label": "page" })],
+        &[json!({ "url": url, "label": "page" })],
         &json!({ "page": { "settings": { "crawl": { "content_types": ["application/json"] } } } }),
-        &settings(
-            &proving_ground,
-            &json!({
-                "fetch": { "tier": "http" },
-                "crawl": { "retry": { "max": 0 } },
-                "network": network,
-                "politeness": { "domain": { "delay": 0 } },
-                "site_preferences": {
-                    "respect_robots_txt": false,
-                    "respect_use_signals": true,
-                    "purpose": "ai-input",
-                },
-            }),
-        ),
+        &settings,
         &mut |_, _| json!({ "result": { "records": [] } }),
     );
     let ended = ended(&mut engine, "json-depth");
     assert!(engine.finished());
 
     assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
-    assert_eq!(ended.len(), 1, "{ended:?}");
-    assert_eq!(ended[0].1, json!(kind), "{ended:?}");
+    let expected = if is_refused {
+        (
+            url,
+            json!("failed"),
+            json!("response_limit_exceeded"),
+            json!("network.max_json_depth"),
+        )
+    } else {
+        (url, json!("succeeded"), Value::Null, Value::Null)
+    };
+    assert_eq!(ended, [expected]);
 }

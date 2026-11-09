@@ -207,7 +207,18 @@ struct Replaying {
 /// with the first replayed call its pattern matches, or told none came.
 struct Waiter {
     pattern: goodfetch_page::url_pattern::UrlPattern,
-    answer: tokio::sync::oneshot::Sender<Option<goodfetch_protocol::page::events::PageExchange>>,
+    answer: tokio::sync::oneshot::Sender<Replayed>,
+}
+
+/// What a wait is told of the calls replayed for it.
+#[derive(Clone)]
+enum Replayed {
+    /// The call its pattern matched.
+    Answered(goodfetch_protocol::page::events::PageExchange),
+    /// That call's answer passed a limit: `response_limit_exceeded`.
+    PastALimit(goodfetch_engine::response_limits::LimitExceeded),
+    /// None came, so it escalates.
+    NoneCame,
 }
 
 /// Why a page's links could not be read.

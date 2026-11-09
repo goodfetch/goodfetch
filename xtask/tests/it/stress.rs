@@ -553,6 +553,103 @@ fn a_test_the_change_since_the_earlier_run_changes_runs_20_times() {
     assert_eq!(selection, expected);
 }
 
+/// A credit file as `xtask gate plan` writes it, holding `passes` clean passes
+/// of `test`.
+fn credit_file(workspace: &Workspace, passes: u32, test: &str) -> String {
+    let file = workspace.path().join("target/run.credit");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file, format!("stressed\tearlier\t10\t{passes}\t{test}\n")).unwrap();
+    file.display().to_string()
+}
+
+/// The incremental gate's credit (#2233): a test with earlier clean passes
+/// runs what its count still owes, and one that has its count runs no more;
+/// a test with no credit runs its whole count.
+#[rstest]
+#[case::owes_the_rest(7, Some("13"))]
+#[case::owes_one(19, Some("1"))]
+#[case::has_its_count(20, None)]
+fn a_credited_test_runs_only_what_its_count_still_owes(
+    #[case] passes: u32,
+    #[case] owed: Option<&str>,
+) {
+    let (workspace, base) = base();
+    change(&workspace);
+    let credited = "stressed changed::tests::added";
+    let credit = credit_file(&workspace, passes, credited);
+
+    let selection = select(
+        &workspace,
+        &["--base", &base, "--within", "stressed", "--credit", &credit],
+    );
+
+    let mut expected = change_selection();
+    expected.retain(|(_, runner, _)| runner == "nextest");
+    expected.retain(|(_, _, test)| test != credited);
+    if let Some(owed) = owed {
+        expected.push(selected(owed, "nextest", credited));
+    }
+    expected.sort();
+    assert_eq!(selection, expected);
+}
+
+/// A test taken off the quarantine list owes the rest of its 200.
+#[test]
+fn a_credited_test_taken_off_the_quarantine_list_owes_the_rest_of_its_200() {
+    let (workspace, base) = base();
+    change(&workspace);
+    let test = "stressed steady::tests::flaky";
+    let expected = change_selection();
+    assert!(
+        expected
+            .iter()
+            .any(|(count, _, name)| count == "200" && name == test),
+        "{expected:?}"
+    );
+    let credit = credit_file(&workspace, 20, test);
+
+    let selection = select(
+        &workspace,
+        &["--base", &base, "--within", "stressed", "--credit", &credit],
+    );
+
+    assert!(
+        selection.contains(&selected("180", "nextest", test)),
+        "{selection:?}"
+    );
+}
+
+/// A credit file that is missing or cannot be read is no credit: every test
+/// runs its whole count.
+#[rstest]
+#[case::missing(None)]
+#[case::unreadable(Some("not a credit\n"))]
+fn a_credit_file_that_cannot_be_read_owes_every_whole_count(#[case] text: Option<&str>) {
+    let (workspace, base) = base();
+    change(&workspace);
+    let file = workspace.path().join("target/run.credit");
+    if let Some(text) = text {
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, text).unwrap();
+    }
+
+    let selection = select(
+        &workspace,
+        &[
+            "--base",
+            &base,
+            "--within",
+            "stressed",
+            "--credit",
+            &file.to_string_lossy(),
+        ],
+    );
+
+    let mut expected = change_selection();
+    expected.retain(|(_, runner, _)| runner == "nextest");
+    assert_eq!(selection, expected);
+}
+
 /// A branch behind its base, as one that has not merged its target lately:
 /// the base's Vitest config imports an entry of a workspace package that the
 /// head does not have. The base is listed with its own packages, so its
@@ -901,9 +998,61 @@ fn a_stress_run_builds_the_test_tools_once() {
     assert_eq!(test_tools_builds(&ran), 1, "{:?}", ran.calls);
 }
 
-/// A test taken off the quarantine list runs its 200 times: the recipe keeps
-/// only the selection lines of a count `xtask stress counts` lists, so a
-/// count it stopped listing would run nothing, in a green job.
+/// #2233: the recipe runs what the selection owes each test, smallest count
+/// first, and hands `xtask stress select` the credit file.
+#[cfg(unix)]
+#[test]
+fn a_stress_run_runs_each_tests_owed_count_and_hands_on_the_credit() {
+    let recipes =
+        recipes("3\tnextest\tsample tests::steady\n20\tnextest\tsample tests::steady_twin\n");
+
+    let ran = recipes.just(&["stress", "HEAD", "", "the.credit", "sample"]);
+
+    assert_eq!(ran.code, Some(0), "{}", ran.output);
+    assert_eq!(
+        recipes.junit("target/junit/repeat-3"),
+        [("tests::steady".to_owned(), 3, 0)],
+        "{}",
+        ran.output
+    );
+    assert_eq!(
+        recipes.junit("target/junit/repeat-20"),
+        [("tests::steady_twin".to_owned(), 20, 0)],
+        "{}",
+        ran.output
+    );
+    assert!(
+        ran.calls
+            .iter()
+            .any(|call| call.contains(" -- stress select ")
+                && call.contains("--within sample")
+                && call.contains("--credit the.credit")),
+        "{:?}",
+        ran.calls
+    );
+}
+
+/// A planted failure in a test that owes only part of its count still turns
+/// the run red, at the end of its iteration.
+#[cfg(unix)]
+#[test]
+fn a_failure_in_a_credited_test_turns_the_stress_run_red() {
+    let recipes = recipes("3\tnextest\tsample counted::red_on_its_second_run\n");
+
+    let ran = recipes.just(&["stress", "HEAD", "", "the.credit", "sample"]);
+
+    assert_ne!(ran.code, Some(0), "{}", ran.output);
+    assert_eq!(recipes.runs(), 2, "{}", ran.output);
+    assert_eq!(
+        recipes.junit("target/junit/repeat-3"),
+        [("counted::red_on_its_second_run".to_owned(), 1, 1)],
+        "{}",
+        ran.output
+    );
+}
+
+/// A test taken off the quarantine list runs its 200 times: the recipe runs
+/// each count the selection gives, so no count can be left out of a green job.
 #[cfg(unix)]
 #[test]
 fn a_test_taken_off_the_quarantine_list_runs_its_200_times() {

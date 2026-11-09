@@ -804,18 +804,21 @@ _repeat count *selection:
 # The incremental gate (ADR 0135) narrows it: with `within` workspace members (crates
 # by name, pnpm and uv packages by folder), only their new and changed
 # tests run, plus each test whose file changed `since` the earlier gate
-# run's head.
-# Stresses new and changed tests: `just stress [base] [since] [within…]`.
+# run's head; and a test with clean passes in the `credit` file, which `xtask
+# gate plan` wrote, runs what its count still owes (#2233), so each count's
+# folder and its `just repeat` hold the runs this run gives it.
+# Stresses new and changed tests: `just stress [base] [since] [credit] [within…]`.
 [positional-arguments]
-stress base="" since="" *within:
+stress base="" since="" credit="" *within:
     #!/usr/bin/env bash
     set -euo pipefail
-    shift 2
+    shift 3
     base="{{ base }}"
     [[ -n "$base" ]] || base=$(git merge-base origin/main HEAD)
     narrowing=()
     for member in "$@"; do narrowing+=(--within "$member"); done
     [[ -z "{{ since }}" ]] || narrowing+=(--since "{{ since }}")
+    [[ -z "{{ credit }}" ]] || narrowing+=(--credit "{{ credit }}")
     target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
     # Vitest lists a file's tests by loading it, as a run does, so the
     # listings get the variables `just repeat` runs the tests with.
@@ -838,9 +841,7 @@ stress base="" since="" *within:
     # changed tests can pass what one command line holds.
     tests=$(mktemp)
     # Each count `xtask stress select` gives a test, smallest first.
-    source ci/output-value.sh
-    listed=$(cargo run --quiet --bin xtask -- stress counts)
-    counts=$(output_value counts "$listed")
+    counts=$(cut -f1 <<< "$selection" | sort -nu)
     for count in $counts; do
       # A red run stops at the end of its first red iteration: no later count runs.
       if (( status != 0 )); then

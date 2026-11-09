@@ -269,7 +269,8 @@ reused() {
 # are judged by, crate by crate (`xtask gate record --junit`): its nextest
 # JUnit and, for the stress run, its selection. Each crate that passed in
 # full records green, every other member red; a failure they do not account
-# for records every member red.
+# for records every member red. A crate a red stress run left short of its
+# counts, with no failing test, keeps its clean passes for the next run.
 record() {
   [[ $form == all && $planned != none ]] || return 0
   if [[ $2 -eq 0 ]]; then
@@ -335,7 +336,8 @@ pre_merge_suite() {
 # every Vitest, Playwright and pytest test, as a full run does, in the
 # head's order (`--shuffled-all`), and nextest over its crates; the stress
 # run takes the new and changed tests of the members the change since the
-# earlier run reaches, and each test that change changed.
+# earlier run reaches, and each test that change changed, each running what
+# its count still owes after the clean passes the plan kept (#2233).
 run_part() {
   local part members=()
   case $1 in
@@ -351,7 +353,7 @@ run_part() {
     stress)
       part=$(output_value stress.members "$plan")
       read -ra members <<<"$part"
-      gated stress just stress "" "$previous" "${members[@]}"
+      gated stress just stress "" "$previous" "target/gate-runs/$planned.credit" "${members[@]}"
       ;;
     *)
       echo "error: the plan runs a part of $1, which runs no member's tests" >&2

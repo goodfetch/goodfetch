@@ -951,7 +951,7 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
     }
     for rerun in [
         "test quick --shuffled-all a b console/screens.spec.ts",
-        "stress  earlier a :unowned",
+        "stress  earlier target/gate-runs/planned.credit a :unowned",
         "lint",
         "linux",
         "visual",

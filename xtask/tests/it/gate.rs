@@ -361,6 +361,172 @@ fn a_change_to_the_justfile_reruns_every_step_in_full() {
     assert!(second.why["perf"].starts_with("justfile changed since "));
 }
 
+/// The fixture with an `xtask` crate of its own, as the repository has, and
+/// its dep-info: a first run green on every step.
+fn green_run_with_xtask(workspace: &Workspace, records: &Path) {
+    add_xtask(workspace, records);
+    let first = plan(workspace, records);
+    record_plan(workspace, records, &first, &[]);
+}
+
+/// Adds an `xtask` crate to the fixture, as the repository has, with the
+/// dep-info of its executable and its tests.
+fn add_xtask(workspace: &Workspace, records: &Path) {
+    workspace.edit(
+        "Cargo.toml",
+        "\"proving-ground\",",
+        "\"proving-ground\",\n  \"xtask\",",
+    );
+    workspace.write(
+        "xtask/Cargo.toml",
+        b"[package]\nname = \"xtask\"\nversion = \"0.0.0\"\nedition = \"2024\"\n",
+    );
+    workspace.write("xtask/src/main.rs", b"fn main() {}\n");
+    workspace.write("xtask/tests/it/main.rs", b"//! Its tests.\n");
+    commit_all(workspace, "Add xtask");
+    let deps = target(records).join("debug/deps");
+    for (name, source) in [
+        ("xtask", "xtask/src/main.rs"),
+        ("it", "xtask/tests/it/main.rs"),
+    ] {
+        let file = deps.join(format!("{name}-0.d"));
+        let source = workspace.path().join(source);
+        std::fs::write(&file, format!("{}: {}\n", file.display(), source.display())).unwrap();
+    }
+}
+
+/// The steps of `plan` that run whatever a change reaches.
+const EVERY_RUN: [&str; 12] = [
+    "dco",
+    "commit-messages",
+    "floor-guard",
+    "commit-leaks",
+    "audit",
+    "notices",
+    "lint",
+    "feature-combinations",
+    "fuzz-check",
+    "proofs",
+    "journeys-tasks",
+    "features-tests",
+];
+
+/// The members Vitest, Playwright and pytest test in the fixture: every run
+/// reruns them in the head's order.
+const SHUFFLED: [&str; 4] = [
+    "sdks/python/collie-client",
+    "sdks/python/foxhound",
+    "sdks/typescript/collie-client",
+    "sdks/typescript/foxhound",
+];
+
+/// #2090's F4: a file of the gate's inputs reaches the steps that read it and
+/// no other. An xtask test file reaches xtask's own tests and, since the
+/// Linux-only tests are partly xtask's, `just linux`; a `ci/` file its
+/// steps; one no gate step runs, or that only a step every run reruns reads,
+/// reaches nothing more.
+#[rstest::rstest]
+#[case::xtask_test_file("xtask/tests/it/stress.rs", &["linux"], true)]
+#[case::xtask_fixture("xtask/tests/it/fixtures/empty/README.md", &["linux"], true)]
+#[case::ci_no_gate_step_runs("ci/coverage.sh", &[], false)]
+#[case::ci_backstop("ci/gate-backstop.sh", &[], false)]
+#[case::ci_read_by_a_step_every_run_reruns("ci/gitleaks.toml", &[], false)]
+#[case::ci_proof("ci/proofs/msrv/Cargo.toml", &[], false)]
+#[case::ci_perf("ci/perf.sh", &["perf"], false)]
+#[case::ci_linux("ci/linux.sh", &["linux"], false)]
+#[case::ci_visual("ci/visual/run.sh", &["visual"], false)]
+#[case::ci_container("ci/container.sh", &["linux", "perf", "visual"], false)]
+#[case::ci_msrv("ci/msrv.sh", &["msrv"], false)]
+#[case::ci_miri("ci/miri.toml", &["miri"], false)]
+fn a_gate_input_the_map_names_reaches_only_the_steps_that_read_it(
+    #[case] path: &str,
+    #[case] steps: &[&str],
+    #[case] reaches_xtask: bool,
+) {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    green_run_with_xtask(&workspace, &records);
+    workspace.write(path, b"# Changed.\n");
+    commit_all(&workspace, "Change one input");
+
+    let second = plan(&workspace, &records);
+
+    let ran: BTreeSet<&str> = second
+        .steps
+        .iter()
+        .filter(|(_, (action, _))| action == "run")
+        .map(|(step, _)| step.as_str())
+        .collect();
+    let expected: BTreeSet<&str> = EVERY_RUN.iter().chain(steps).copied().collect();
+    assert_eq!(ran, expected, "{:?}", second.why);
+    let mut rerun: BTreeSet<String> = SHUFFLED.iter().map(|member| (*member).to_owned()).collect();
+    if reaches_xtask {
+        rerun.insert("xtask".to_owned());
+    }
+    for step in ["quick", "pre-merge", "stress"] {
+        assert_eq!(action(&second, step).0, "part", "{step}: {:?}", second.why);
+        assert_eq!(members(&second, step), rerun, "{step}: {:?}", second.why);
+    }
+}
+
+/// A `ci/` file a member's test names still reaches that member, by the
+/// string-literal evidence: a test may run it.
+#[test]
+fn a_ci_file_a_test_names_reaches_that_tests_member() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    workspace.write(
+        "xtask/tests/it/coverage.rs",
+        b"const SCRIPT: &str = \"../ci/coverage.sh\";\n",
+    );
+    workspace.write("ci/coverage.sh", b"#!/bin/sh\n");
+    green_run_with_xtask(&workspace, &records);
+    workspace.write("ci/coverage.sh", b"#!/bin/sh\nexit 0\n");
+    commit_all(&workspace, "Change the coverage script");
+
+    let second = plan(&workspace, &records);
+
+    assert!(
+        members(&second, "pre-merge").contains("xtask"),
+        "{:?}",
+        second.why
+    );
+    assert!(
+        second.why["pre-merge"].contains("names ci/coverage.sh"),
+        "{}",
+        second.why["pre-merge"]
+    );
+    // Its evidence reaches xtask's tests alone, which no crate depends on.
+    for step in ["perf", "msrv", "miri", "tlc", "visual", "kennel"] {
+        assert_eq!(action(&second, step).0, "reuse", "{step}: {:?}", second.why);
+    }
+}
+
+/// Any path of the gate's inputs the map does not name still reruns every
+/// step, as does `xtask/src/`, which decides the plan.
+#[rstest::rstest]
+#[case::a_script_every_step_needs("ci/pre-merge.sh")]
+#[case::a_new_ci_file("ci/a-new-script.sh")]
+#[case::a_new_ci_folder("ci/a-new-folder/settings.toml")]
+#[case::xtask_source("xtask/src/gate/plan.rs")]
+#[case::xtask_manifest("xtask/Cargo.toml")]
+#[case::xtask_modules("xtask/modules.toml")]
+fn a_gate_input_the_map_does_not_name_reruns_every_step(#[case] path: &str) {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    green_run_with_xtask(&workspace, &records);
+    let mut contents = workspace.read(path).unwrap_or_default();
+    contents.extend_from_slice(b"\n# Changed.\n");
+    workspace.write(path, &contents);
+    commit_all(&workspace, "Change one input");
+
+    let second = plan(&workspace, &records);
+
+    assert!(
+        second.steps.values().all(|(action, _)| action == "run"),
+        "{:?}",
+        second.steps
+    );
+    assert!(second.why["perf"].contains(path), "{}", second.why["perf"]);
+}
+
 #[test]
 fn a_tree_with_uncommitted_changes_reuses_and_records_nothing() {
     let (workspace, _folder, records) = gated_repository(&[]);
@@ -690,6 +856,267 @@ fn a_red_stress_run_records_green_each_crate_whose_selected_tests_all_passed_the
     assert!(!rerun.contains("goodfetch-frontier"), "{rerun:?}");
 }
 
+/// The stress run of the fixture's `xtask`, engine and frontier tests, and a
+/// Vitest test, each its 20 times.
+const SELECTION: &str = "20\tnextest\txtask::it a::flaky\n\
+                         20\tnextest\tgoodfetch-engine b::steady\n\
+                         20\tnextest\tgoodfetch-frontier::it c::steady\n\
+                         20\tvitest\tsdk > a case\n";
+
+/// Records `plan`'s stress run red with `selection`, each of `iterations` the
+/// nextest cases one iteration ran, as `just repeat --until-red` keeps them.
+fn red_stress_run(
+    workspace: &Workspace,
+    records: &Path,
+    plan: &Plan,
+    selection: &str,
+    iterations: &[Vec<(&str, &str, bool)>],
+) {
+    let folder = records.with_file_name(format!("repeat-of-{}", plan.head));
+    std::fs::create_dir_all(&folder).unwrap();
+    for (iteration, cases) in iterations.iter().enumerate() {
+        std::fs::write(
+            folder.join(format!("nextest-ci.1.{iteration}.xml")),
+            nextest_junit(cases, true),
+        )
+        .unwrap();
+    }
+    let file = folder.with_extension("selection");
+    std::fs::write(&file, selection).unwrap();
+    record_with(
+        workspace,
+        records,
+        &plan.head,
+        "stress",
+        &[
+            "--selection",
+            &file.to_string_lossy(),
+            "--junit",
+            &folder.to_string_lossy(),
+        ],
+    );
+}
+
+/// The iterations of a run on SELECTION that went red on xtask's test on the
+/// last of `passes` + 1: the engine's and the frontier's passed each time.
+fn red_on_xtask_after(passes: usize) -> Vec<Vec<(&'static str, &'static str, bool)>> {
+    (0..=passes)
+        .map(|iteration| {
+            vec![
+                ("xtask::it@stress-0", "a::flaky", iteration < passes),
+                ("goodfetch-engine@stress-0", "b::steady", true),
+                ("goodfetch-frontier::it@stress-0", "c::steady", true),
+            ]
+        })
+        .collect()
+}
+
+/// The fixture with xtask, on a first run with every step green but the stress
+/// run, red on xtask's test on its 7th pass; then a fix to that test's file.
+/// Returns the first head.
+fn red_on_xtask_then_its_fix(workspace: &Workspace, records: &Path) -> String {
+    add_xtask(workspace, records);
+    let first = plan(workspace, records);
+    for step in first.steps.keys() {
+        if step != "stress" {
+            record(workspace, records, &first.head, step, "pass");
+        }
+    }
+    red_stress_run(
+        workspace,
+        records,
+        &first,
+        SELECTION,
+        &red_on_xtask_after(6),
+    );
+    workspace.write("xtask/tests/it/stress.rs", b"//! The fix.\n");
+    commit_all(workspace, "Fix the flaky test");
+    first.head
+}
+
+/// The credit file of the run on `head`, as `<member> <origin> <passes> <test>`
+/// lines, or none.
+fn credited(records: &Path, head: &str) -> Vec<String> {
+    std::fs::read_to_string(records.join(format!("{head}.credit")))
+        .unwrap_or_default()
+        .lines()
+        .map(|line| {
+            let fields: Vec<&str> = line.split('\t').collect();
+            let [member, origin, _at, passes, test] = fields.as_slice() else {
+                panic!("a credit line has five fields, not {line:?}");
+            };
+            format!("{member} {origin} {passes} {test}")
+        })
+        .collect()
+}
+
+/// #2233, as on #2223's gate at f5841c69f: one test failed in xtask on the
+/// 7th pass. The fix's plan reruns the members it reaches and those short of
+/// their passes, each of which keeps the clean passes it has; the member with
+/// the red test keeps none, and the Vitest member, which runs in the head's
+/// order, none. Nothing else reruns.
+#[test]
+fn a_red_stress_run_leaves_its_clean_members_their_passes_and_the_fix_reruns_what_it_reaches() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let first = red_on_xtask_then_its_fix(&workspace, &records);
+
+    let second = plan(&workspace, &records);
+
+    assert_eq!(action(&second, "stress").0, "part", "{:?}", second.why);
+    let mut rerun: BTreeSet<String> = SHUFFLED.iter().map(|member| (*member).to_owned()).collect();
+    rerun.extend(["xtask", "goodfetch-engine", "goodfetch-frontier"].map(str::to_owned));
+    assert_eq!(members(&second, "stress"), rerun);
+    assert_eq!(
+        credited(&records, &second.head),
+        [
+            format!("goodfetch-engine {first} 7 goodfetch-engine b::steady"),
+            format!("goodfetch-frontier {first} 7 goodfetch-frontier::it c::steady"),
+        ]
+    );
+    // The fix reaches xtask's tests alone in the other suites.
+    let mut suites: BTreeSet<String> = SHUFFLED.iter().map(|member| (*member).to_owned()).collect();
+    suites.insert("xtask".to_owned());
+    assert_eq!(members(&second, "quick"), suites);
+    assert_eq!(members(&second, "pre-merge"), suites);
+    for step in ["perf", "visual", "tlc", "kennel", "msrv", "miri"] {
+        assert_eq!(action(&second, step).0, "reuse", "{step}: {:?}", second.why);
+    }
+}
+
+/// A later red run adds a clean member's passes to what it had, keeping the
+/// head and the time of its earliest; a member that went red in it loses
+/// them, so a planted failure both turns the run red and starts the member's
+/// count again.
+#[test]
+fn a_later_red_run_adds_to_clean_passes_and_a_red_test_takes_its_members_away() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let first = red_on_xtask_then_its_fix(&workspace, &records);
+    let second = plan(&workspace, &records);
+    let cases = |engine: bool| {
+        vec![
+            ("goodfetch-engine@stress-0", "b::steady", engine),
+            ("goodfetch-frontier::it@stress-0", "c::steady", true),
+        ]
+    };
+    // The 13 passes they owe; the engine's test, planted red, fails the 4th.
+    red_stress_run(
+        &workspace,
+        &records,
+        &second,
+        "13\tnextest\tgoodfetch-engine b::steady\n13\tnextest\tgoodfetch-frontier::it c::steady\n",
+        &[cases(true), cases(true), cases(true), cases(false)],
+    );
+
+    assert_eq!(
+        credited(&records, &second.head),
+        [format!(
+            "goodfetch-frontier {first} 11 goodfetch-frontier::it c::steady"
+        )]
+    );
+    let third = plan(&workspace, &records);
+    assert!(members(&third, "stress").contains("goodfetch-engine"));
+    assert_eq!(
+        credited(&records, &third.head),
+        [format!(
+            "goodfetch-frontier {first} 11 goodfetch-frontier::it c::steady"
+        )],
+        "{:?}",
+        third.why
+    );
+}
+
+/// A red run whose files do not account for its failure records every member
+/// red, and with no clean pass it can vouch for: the credit it was handed goes.
+#[test]
+fn a_red_stress_run_its_files_do_not_account_for_leaves_no_credit() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    red_on_xtask_then_its_fix(&workspace, &records);
+    let second = plan(&workspace, &records);
+    assert_ne!(credited(&records, &second.head), Vec::<String>::new());
+
+    record_with(
+        &workspace,
+        &records,
+        &second.head,
+        "stress",
+        &["--selection", "no-such-selection.tsv"],
+    );
+
+    assert_eq!(credited(&records, &second.head), Vec::<String>::new());
+}
+
+/// A credit file that cannot be read is no credit: the plan still runs, and
+/// the members run their whole count.
+#[test]
+fn an_unreadable_credit_file_is_no_credit() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let first = red_on_xtask_then_its_fix(&workspace, &records);
+    std::fs::write(records.join(format!("{first}.credit")), "not a credit\n").unwrap();
+
+    let second = plan(&workspace, &records);
+
+    assert!(
+        members(&second, "stress").contains("goodfetch-engine"),
+        "{:?}",
+        second.why
+    );
+    assert_eq!(credited(&records, &second.head), Vec::<String>::new());
+}
+
+/// `xtask stress select` reads the file the plan wrote; a green run then
+/// records each credited member green with its earliest pass's time and the
+/// head it ran on, so the age limit counts from it and the backstop finds it.
+#[test]
+fn a_green_run_keeps_where_its_credited_passes_came_from() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let first = red_on_xtask_then_its_fix(&workspace, &records);
+    let second = plan(&workspace, &records);
+
+    record(&workspace, &records, &second.head, "stress", "pass");
+
+    let recorded = std::fs::read_to_string(records.join(format!("{}.tsv", second.head))).unwrap();
+    let line = recorded
+        .lines()
+        .rfind(|line| line.starts_with("stress:goodfetch-engine\t"))
+        .unwrap();
+    let fields: Vec<&str> = line.split('\t').collect();
+    assert_eq!(fields[1], "pass", "{line}");
+    assert_eq!(fields[2], second.head, "{line}");
+    assert_eq!(fields[5], first, "{line}");
+    assert_eq!(credited(&records, &second.head), Vec::<String>::new());
+}
+
+/// The backstop: a full run on main's head stresses nothing, since its base is
+/// that head, so its green says nothing of a result that counted passes from an
+/// earlier head. The comparison lists each one, with the base its run compared
+/// with, for the backstop to stress again on the merged tree.
+#[test]
+fn a_full_run_lists_each_result_that_counted_earlier_passes() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let first = red_on_xtask_then_its_fix(&workspace, &records);
+    let second = plan(&workspace, &records);
+    record_plan(&workspace, &records, &second, &[]);
+    workspace.git(&["commit", "--quiet", "--allow-empty", "--message", "Merge"]);
+    let backstop = records.with_file_name("backstop-runs");
+    let full = plan_with(&workspace, &backstop, "CI=", &["--full"]);
+    record_plan(&workspace, &backstop, &full, &[]);
+
+    let compared = compare(&workspace, &backstop, &records, &full.head);
+
+    assert_eq!(compared.code, 0, "{}", compared.stderr);
+    let found: Vec<serde_json::Value> = serde_json::from_str(&compared.stdout).unwrap();
+    let base = workspace.git(&["rev-parse", "origin/main"]);
+    assert_eq!(
+        found,
+        ["goodfetch-engine", "goodfetch-frontier"].map(|member| serde_json::json!({
+            "kind": "credited", "unit": format!("stress:{member}"), "step": "stress",
+            "member": member, "run": second.head, "origin": first, "base": base.trim(),
+        })),
+        "{}",
+        compared.stdout
+    );
+}
+
 /// Records every step its plan runs as `ci/pre-merge.sh` does, green but
 /// for `red`.
 fn record_plan(workspace: &Workspace, records: &Path, plan: &Plan, red: &[&str]) {
@@ -752,10 +1179,12 @@ fn a_full_run_finds_each_reused_result_it_finds_red() {
 
     assert_eq!(compared.code, 0, "{}", compared.stderr);
     let found: Vec<serde_json::Value> = serde_json::from_str(&compared.stdout).unwrap();
+    let base = workspace.git(&["rev-parse", "origin/main"]);
+    let base = base.trim();
     assert!(
         found.contains(&serde_json::json!({
             "kind": "miss", "unit": "perf", "step": "perf", "member": null,
-            "run": second, "origin": first,
+            "run": second, "origin": first, "base": base,
         })),
         "{}",
         compared.stdout
@@ -763,7 +1192,7 @@ fn a_full_run_finds_each_reused_result_it_finds_red() {
     assert!(
         found.contains(&serde_json::json!({
             "kind": "suspect", "unit": "pre-merge:goodfetch-engine", "step": "pre-merge",
-            "member": "goodfetch-engine", "run": second, "origin": first,
+            "member": "goodfetch-engine", "run": second, "origin": first, "base": base,
         })),
         "{}",
         compared.stdout

@@ -179,7 +179,7 @@ fn each_reused_result_the_full_run_finds_red_is_a_miss_that_fails_the_backstop()
     );
     assert!(
         run.results
-            .ends_with("gate=pass misses=2 suspects=1 unchecked=1\n"),
+            .ends_with("gate=pass misses=2 suspects=1 unchecked=1 credited=0\n"),
         "{}",
         run.results
     );
@@ -193,6 +193,70 @@ fn each_reused_result_the_full_run_finds_red_is_a_miss_that_fails_the_backstop()
     }
     assert!(
         !run.misses.contains("pre-merge:goodfetch-engine:"),
+        "{}",
+        run.misses
+    );
+}
+
+/// A full run on `main`'s head stresses nothing, since its base is that head,
+/// so a result that counted passes from an earlier head (#2233) is stressed
+/// again here, at its whole count, against the base its run compared with: red
+/// is a miss that fails the backstop.
+#[rstest::rstest]
+#[case::green(false, Some(0), "misses=0")]
+#[case::red(true, Some(1), "misses=1")]
+fn each_result_that_counted_earlier_passes_is_stressed_again(
+    #[case] red: bool,
+    #[case] code: Option<i32>,
+    #[case] misses: &str,
+) {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    let found = |member: &str, base: &str| {
+        serde_json::json!({
+            "kind": "credited", "unit": format!("stress:{member}"), "step": "stress",
+            "member": member, "run": "gated", "origin": "earlier", "base": base,
+        })
+    };
+    let compared = serde_json::json!([
+        found("goodfetch-engine", "the-base"),
+        found("goodfetch-frontier", "the-base"),
+        found("goodfetch-frontier", "the-base"),
+        found("goodfetch-conformance", "another-base"),
+    ]);
+    std::fs::write(stand_in.join("compare"), compared.to_string()).unwrap();
+    if red {
+        std::fs::write(
+            stand_in.join("failing"),
+            "stress the-base   goodfetch-engine goodfetch-frontier\n",
+        )
+        .unwrap();
+    }
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, code, "{}", run.log);
+    for stressed in [
+        "stress the-base   goodfetch-engine goodfetch-frontier|",
+        "stress another-base   goodfetch-conformance|",
+    ] {
+        assert!(
+            run.calls.contains(&stressed.to_owned()),
+            "{stressed}: {:?}",
+            run.calls
+        );
+    }
+    assert!(
+        run.results.ends_with(&format!(
+            "gate=pass {misses} suspects=0 unchecked=0 credited=3\n"
+        )),
+        "{}",
+        run.results
+    );
+    assert_eq!(
+        run.misses
+            .contains("miss stress: goodfetch-engine goodfetch-frontier"),
+        red,
         "{}",
         run.misses
     );
@@ -214,7 +278,7 @@ fn a_backstop_with_no_miss_passes() {
     );
     assert!(
         run.results
-            .ends_with("gate=pass misses=0 suspects=0 unchecked=0\n"),
+            .ends_with("gate=pass misses=0 suspects=0 unchecked=0 credited=0\n"),
         "{}",
         run.results
     );

@@ -20,7 +20,10 @@ struct Found {
     /// `miss` when the full run found it red; `suspect` for a step run per
     /// member, whose red the members that run reran may hold; `unchecked`
     /// when the full run has no result for it, as when it stopped at a red
-    /// step.
+    /// step; `credited`, whatever the full run found, for a result that
+    /// counted passes from an earlier head: a full run on `main`'s head has
+    /// that head as its base, so its stress run stresses nothing, and only a
+    /// stress run against this run's base can say.
     kind: &'static str,
     /// The unit, `<step>` or `<step>:<member>`.
     unit: String,
@@ -30,8 +33,11 @@ struct Found {
     member: Option<String>,
     /// The head of the run that reused it.
     run: String,
-    /// The head of the run it was reused from.
+    /// The head of the run it was reused from, or where its earliest
+    /// credited passes ran.
     origin: String,
+    /// The base the run that reused it compared with.
+    base: String,
 }
 
 /// For the full run on `full`, whose record is in `records`, each result
@@ -45,11 +51,11 @@ pub(super) fn compare(root: &Path, records: &Path, others: &Path, full: &str) ->
     if let Some((unit, outcome)) = record
         .units
         .iter()
-        .find(|(_, outcome)| outcome.origin != full)
+        .find(|(_, outcome)| outcome.origin != full || outcome.credited.is_some())
     {
         output::error(&format!(
             "Gate: the run on {full} is not a full run: it reused {unit} from {}",
-            outcome.origin
+            outcome.credited.as_ref().unwrap_or(&outcome.origin)
         ));
         return Ok(ExitCode::FAILURE);
     }
@@ -80,13 +86,14 @@ pub(super) fn compare(root: &Path, records: &Path, others: &Path, full: &str) ->
             }
         };
         for (unit, outcome) in &run.units {
-            if !outcome.green || outcome.origin == head {
+            if !outcome.green || (outcome.origin == head && outcome.credited.is_none()) {
                 continue;
             }
             let (step, member) = unit
                 .split_once(':')
                 .map_or((unit.as_str(), None), |(step, member)| (step, Some(member)));
             let kind = match record.units.get(unit) {
+                _ if outcome.credited.is_some() => "credited",
                 None => "unchecked",
                 Some(full) if full.green => continue,
                 Some(_) if Step::from_name(step).is_some_and(Step::per_member) => "suspect",
@@ -98,7 +105,8 @@ pub(super) fn compare(root: &Path, records: &Path, others: &Path, full: &str) ->
                 step: step.to_owned(),
                 member: member.map(str::to_owned),
                 run: head.clone(),
-                origin: outcome.origin.clone(),
+                origin: outcome.credited.as_ref().unwrap_or(&outcome.origin).clone(),
+                base: run.base.clone(),
             });
         }
     }

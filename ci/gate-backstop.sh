@@ -9,10 +9,13 @@
 # found red is a selection miss, a defect of the gate's selection to fix. A
 # red step run per member only makes the reused crates suspects, since the
 # members the incremental run reran may hold the red, so each suspect
-# crate's tests rerun alone and a red confirms the miss.
+# crate's tests rerun alone and a red confirms the miss. The full run's stress
+# run has `main`'s head as its base, so it stresses nothing: each crate whose
+# result in that run counted passes from an earlier head (#2233) is stressed
+# again here, at its whole count, against that run's base, and a red is a miss.
 #
 # Each run appends one line to `<log>/results.txt`, `<UTC day> <commit>
-# gate=<pass|fail> misses=<n> suspects=<n> unchecked=<n>`, or
+# gate=<pass|fail> misses=<n> suspects=<n> unchecked=<n> credited=<n>`, or
 # `gate=skipped (…)` when the disk lacks room, and each miss, suspect or
 # unchecked result to `<log>/misses.txt`; the run's own log is
 # `<log>/<day>.log`, with `<log>`
@@ -57,9 +60,9 @@ gate=pass
 GOODFETCH_GATE_FULL=1 just pre-merge all || gate=fail
 echo "== the full run on $commit: $gate"
 
-misses=0 suspects=0 unchecked=0
+misses=0 suspects=0 unchecked=0 credited=0
 # A JSON array of the results found, each with its kind, unit, step,
-# member, run and origin (`xtask gate compare`).
+# member, run, origin and base (`xtask gate compare`).
 compared=$(just _gate-compare "$commit" "$merged_runs") || {
   echo "error: the full run on $commit could not be compared" >&2
   compared="[]"
@@ -112,6 +115,18 @@ for step in quick pre-merge stress; do
     fi
   done
 done
+# The crates whose stress result counted passes from an earlier head, by the
+# base their run compared with: their whole counts, on this tree.
+bases=$(jq -r '[.[] | select(.kind == "credited") | .base] | unique | .[]' <<<"$compared")
+for base in $bases; do
+  listed=$(jq -r --arg base "$base" '[.[] | select(.kind == "credited" and .base == $base) | .member] | unique | .[]' <<<"$compared" | tr '\n' ' ')
+  read -ra crates <<<"$listed"
+  credited=$((credited + ${#crates[@]}))
+  if ! just stress "$base" "" "" "${crates[@]}"; then
+    misses=$((misses + 1))
+    note "miss stress: ${crates[*]}: an incremental run on this tree counted their earlier passes, and their whole counts against $base are red here"
+  fi
+done
 
-echo "$day $commit gate=$gate misses=$misses suspects=$suspects unchecked=$unchecked" >>"$logs/results.txt"
+echo "$day $commit gate=$gate misses=$misses suspects=$suspects unchecked=$unchecked credited=$credited" >>"$logs/results.txt"
 [[ $gate == pass && $misses -eq 0 ]]

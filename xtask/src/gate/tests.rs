@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use rstest::rstest;
 
 use super::plan::{
-    Action, GateRun, Head, MAX_AGE, Outcome, Planned, Step, Touched, UNOWNED, gate_input, plan,
-    unit,
+    Action, Credit, GateRun, Head, MAX_AGE, Outcome, Planned, Step, Touched, UNOWNED, gate_input,
+    narrowed, plan, unit,
 };
 use super::steps::{Entry, Form, Kind, entries};
 use super::{plan_value, render, runs};
@@ -39,6 +39,7 @@ fn green(origin: &str) -> Outcome {
         origin: origin.to_owned(),
         tree: format!("{origin}-tree"),
         at: NOW - 60,
+        credited: None,
     }
 }
 
@@ -59,6 +60,7 @@ fn full_green_run() -> GateRun {
         base: BASE.to_owned(),
         host: HOST.to_owned(),
         units,
+        credits: BTreeMap::new(),
     }
 }
 
@@ -168,11 +170,9 @@ fn a_change_that_reaches_nothing_reruns_only_the_global_checks() {
 fn a_change_to_one_package_reruns_its_tests_and_the_jobs_it_selects() {
     let record = full_green_run();
     let touched = Touched {
-        gate_input: None,
         jobs: BTreeSet::from([Job::PreMerge, Job::Visual]),
-        crates: false,
         members: BTreeSet::from(["test-support/typescript".to_owned()]),
-        evidence: BTreeMap::new(),
+        ..Touched::default()
     };
 
     let plan = planned(Some(&record), &touched_since_earlier(touched));
@@ -314,6 +314,335 @@ fn a_path_outside_the_gate_inputs_is_none(#[case] path: &str) {
     assert_eq!(gate_input(&[RepoPath::new(path)]), None);
 }
 
+/// A `justfile`'s recipes: each name, with what it depends on and its lines
+/// without its comments.
+fn recipes(justfile: &str) -> BTreeMap<&str, String> {
+    let mut recipes: BTreeMap<&str, String> = BTreeMap::new();
+    let mut current = None;
+    for line in justfile.lines() {
+        if line.trim_start().starts_with('#') || line.starts_with('[') || line.is_empty() {
+            continue;
+        }
+        if line.starts_with(char::is_whitespace) {
+            if let Some(name) = current {
+                let lines = recipes.entry(name).or_default();
+                lines.push_str(line);
+                lines.push('\n');
+            }
+            continue;
+        }
+        current = None;
+        if line.contains(":=") {
+            continue;
+        }
+        if let Some((head, dependencies)) = line.rsplit_once(':') {
+            let name = head.split_whitespace().next().unwrap_or(head);
+            let name = name.trim_start_matches('@');
+            current = Some(name);
+            let mut calls = String::new();
+            for dependency in dependencies.split_whitespace() {
+                calls.push_str("just ");
+                calls.push_str(dependency);
+                calls.push('\n');
+            }
+            recipes.insert(name, calls);
+        }
+    }
+    recipes
+}
+
+/// The `ci/` paths `text` names.
+fn ci_paths(text: &str) -> BTreeSet<String> {
+    text.match_indices("ci/")
+        .map(|(start, _)| {
+            text[start..]
+                .chars()
+                .take_while(|character| {
+                    character.is_alphanumeric() || ['_', '.', '/', '-'].contains(character)
+                })
+                .collect::<String>()
+        })
+        .collect()
+}
+
+/// The `ci/` paths running the `recipes` named `from` reads: those named in
+/// their lines, in those of the recipes they call, and in the scripts these
+/// name, comments aside.
+fn ci_paths_run(
+    root: &std::path::Path,
+    recipes: &BTreeMap<&str, String>,
+    from: &[&str],
+) -> BTreeSet<String> {
+    let mut seen = BTreeSet::new();
+    let mut todo: Vec<&str> = from.to_vec();
+    let mut paths = BTreeSet::new();
+    while let Some(name) = todo.pop() {
+        if !seen.insert(name) {
+            continue;
+        }
+        let Some(body) = recipes.get(name) else {
+            continue;
+        };
+        paths.extend(ci_paths(body));
+        let words: Vec<&str> = body.split_whitespace().collect();
+        for pair in words.windows(2) {
+            if pair[0].ends_with("}}") || pair[0].contains("just") {
+                todo.push(pair[1]);
+            }
+        }
+    }
+    let mut unread: Vec<String> = paths.iter().cloned().collect();
+    while let Some(script) = unread.pop() {
+        let Ok(text) = std::fs::read_to_string(root.join(&script)) else {
+            continue;
+        };
+        let code: Vec<&str> = text
+            .lines()
+            .filter(|line| !line.trim_start().starts_with('#'))
+            .collect();
+        for path in ci_paths(&code.join("\n")) {
+            if paths.insert(path.clone()) {
+                unread.push(path);
+            }
+        }
+    }
+    paths
+}
+
+/// The map says which steps read each path it names, so a step that starts
+/// to run one must say so here: its next change would otherwise reuse that
+/// step's result. Read from the repository's own justfile and scripts.
+#[test]
+fn every_step_a_path_the_map_names_reaches_is_in_the_map() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask sits in the repository");
+    let justfile = std::fs::read_to_string(root.join("justfile")).expect("the repository's");
+    let recipes = recipes(&justfile);
+    let mut wrong = Vec::new();
+    for path in ci_paths_run(
+        root,
+        &recipes,
+        &[
+            "pre-merge",
+            "_gate-plan",
+            "_gate-record",
+            "_os-services",
+            "console-build",
+        ],
+    ) {
+        if narrowed(&RepoPath::new(path.as_str())).is_some() {
+            wrong.push(format!("every step reads {path}"));
+        }
+    }
+    for listed in entries(Form::All) {
+        let Some(step) = Step::from_name(listed.name) else {
+            continue;
+        };
+        if ALWAYS.contains(&step.name()) {
+            continue;
+        }
+        for path in ci_paths_run(root, &recipes, &[listed.just[0]]) {
+            if narrowed(&RepoPath::new(path.as_str()))
+                .is_some_and(|entry| !entry.steps.contains(&step))
+            {
+                wrong.push(format!("{} reads {path}", step.name()));
+            }
+        }
+    }
+    assert_eq!(wrong, Vec::<String>::new());
+}
+
+const SHORT: &str = "goodfetch-engine";
+
+/// A full green run on `EARLIER`, but its stress run of `SHORT`: red, with 7
+/// clean passes of one test.
+fn run_short_of_its_passes() -> GateRun {
+    let mut record = full_green_run();
+    record.units.insert(
+        unit(Step::Stress, Some(SHORT)),
+        Outcome {
+            green: false,
+            ..green(EARLIER)
+        },
+    );
+    record.credits.insert(
+        SHORT.to_owned(),
+        Credit {
+            origin: EARLIER.to_owned(),
+            at: NOW - 60,
+            passes: BTreeMap::from([("goodfetch-engine a::test".to_owned(), 7)]),
+        },
+    );
+    record
+}
+
+fn stress_credits(plan: &[Planned]) -> &BTreeMap<String, Credit> {
+    &plan
+        .iter()
+        .find(|planned| planned.step == Step::Stress)
+        .expect("every step is planned")
+        .credits
+}
+
+/// A member short of its passes reruns, keeping them while nothing that
+/// bears on it changed, and it is never reused on them alone.
+#[test]
+fn a_member_short_of_its_passes_reruns_with_them() {
+    let record = run_short_of_its_passes();
+
+    let plan = planned(Some(&record), &touched_since_earlier(Touched::default()));
+
+    assert!(matches!(
+        action(&plan, Step::Stress),
+        Action::Part { members, why }
+            if members == &BTreeSet::from([SHORT.to_owned()]) && why.contains("red on earlier")
+    ));
+    assert_eq!(stress_credits(&plan).get(SHORT), record.credits.get(SHORT));
+    // Only the stress run counts passes.
+    for planned in plan.iter().filter(|planned| planned.step != Step::Stress) {
+        assert!(planned.credits.is_empty(), "{:?}", planned.step);
+    }
+}
+
+/// Every member short of its passes is still a part, whose selection takes
+/// the credit: a run in full takes none.
+#[test]
+fn every_member_rerun_with_credit_for_one_is_a_part() {
+    let record = run_short_of_its_passes();
+    let touched = Touched {
+        members: members()
+            .into_iter()
+            .filter(|member| member != SHORT)
+            .collect(),
+        ..Touched::default()
+    };
+
+    let plan = planned(Some(&record), &touched_since_earlier(touched));
+
+    assert!(matches!(action(&plan, Step::Stress), Action::Part { .. }));
+    assert_eq!(stress_credits(&plan).len(), 1);
+}
+
+/// The passes count only with the member's inputs identical, on the same
+/// host, base and order, within the age limit: each case takes them away.
+#[rstest]
+#[case::the_change_reaches_it(|_: &mut GateRun, touched: &mut Touched| {
+    touched.members.insert(SHORT.to_owned());
+})]
+#[case::the_evidence_reaches_it(|_: &mut GateRun, touched: &mut Touched| {
+    touched.evidence.insert(SHORT.to_owned(), "its build read a file".to_owned());
+})]
+#[case::a_gate_input_changed(|_: &mut GateRun, touched: &mut Touched| {
+    touched.gate_input = Some("justfile".to_owned());
+})]
+#[case::the_host_changed(|record: &mut GateRun, _: &mut Touched| {
+    record.host = "another host".to_owned();
+})]
+#[case::the_base_moved(|record: &mut GateRun, _: &mut Touched| {
+    record.base = "older-base".to_owned();
+})]
+#[case::they_are_older_than_the_limit(|record: &mut GateRun, _: &mut Touched| {
+    record.credits.get_mut(SHORT).unwrap().at = NOW - MAX_AGE - 1;
+})]
+fn passes_count_only_while_nothing_that_bears_on_them_changed(
+    #[case] change: fn(&mut GateRun, &mut Touched),
+) {
+    let mut record = run_short_of_its_passes();
+    let mut touched = Touched::default();
+    change(&mut record, &mut touched);
+
+    let plan = planned(Some(&record), &touched_since_earlier(touched));
+
+    assert_eq!(stress_credits(&plan), &BTreeMap::new());
+    assert!(!matches!(action(&plan, Step::Stress), Action::Reuse { .. }));
+}
+
+/// A credit carried from an earlier head is judged by the change since that
+/// head, not since the run that carried it.
+#[test]
+fn a_carried_credit_is_judged_since_the_head_its_passes_began_on() {
+    let mut record = run_short_of_its_passes();
+    record.credits.get_mut(SHORT).unwrap().origin = "first".to_owned();
+    let touched = BTreeMap::from([
+        (EARLIER.to_owned(), Touched::default()),
+        (
+            "first".to_owned(),
+            Touched {
+                members: BTreeSet::from([SHORT.to_owned()]),
+                ..Touched::default()
+            },
+        ),
+    ]);
+
+    let plan = planned(Some(&record), &touched);
+
+    assert_eq!(stress_credits(&plan), &BTreeMap::new());
+}
+
+/// Vitest, Playwright and pytest order their tests by the head's seed, so
+/// passes in another head's order are no passes in this one's (the owner's F8,
+/// option B): such a member keeps none, whatever a record says.
+#[test]
+fn a_member_a_shuffling_runner_tests_keeps_no_passes() {
+    let record = run_short_of_its_passes();
+    let shuffled = BTreeSet::from([SHORT.to_owned()]);
+
+    let plan = planned_shuffling(
+        &members(),
+        &shuffled,
+        Some(&record),
+        &touched_since_earlier(Touched::default()),
+    );
+
+    assert_eq!(stress_credits(&plan), &BTreeMap::new());
+}
+
+/// A green stress result that counted earlier passes reads back with the head
+/// they began on; a record without that field is one that counted none.
+#[test]
+fn a_result_that_counted_earlier_passes_reads_back_with_their_head() {
+    let text =
+        "base\tb\nhost\th\nstress:a\tpass\tfeed\tt\t10\tc0ffee\nstress:b\tpass\tfeed\tt\t10\n";
+
+    let record = runs::parse("feed", text).unwrap();
+
+    assert_eq!(record.units["stress:a"].credited.as_deref(), Some("c0ffee"));
+    assert_eq!(record.units["stress:b"].credited, None);
+    assert_eq!(runs::parse("feed", &runs::render(&record)).unwrap(), record);
+}
+
+#[test]
+fn credits_read_back_as_written() {
+    let credits = BTreeMap::from([(
+        "goodfetch-engine".to_owned(),
+        Credit {
+            origin: "c0ffee".to_owned(),
+            at: 10,
+            passes: BTreeMap::from([
+                ("goodfetch-engine a::one".to_owned(), 7),
+                ("goodfetch-engine a::two".to_owned(), 6),
+            ]),
+        },
+    )]);
+
+    let read = runs::parse_credits(&runs::render_credits(&credits)).unwrap();
+
+    assert_eq!(read, credits);
+}
+
+/// A file that could mix two members' lines or a count it cannot read says
+/// nothing that can be counted on.
+#[rstest]
+#[case::too_few_fields("a\tc0ffee\t10\n")]
+#[case::not_a_count("a\tc0ffee\t10\tmany\ta test\n")]
+#[case::not_a_time("a\tc0ffee\tsoon\t7\ta test\n")]
+#[case::two_origins_for_a_member("a\tc0ffee\t10\t7\ta one\na\tfeed\t10\t7\ta two\n")]
+#[case::two_times_for_a_member("a\tc0ffee\t10\t7\ta one\na\tc0ffee\t11\t7\ta two\n")]
+fn a_credit_file_that_cannot_be_read_is_an_error(#[case] text: &str) {
+    assert!(runs::parse_credits(text).is_err());
+}
+
 #[test]
 fn a_red_result_is_never_reused() {
     let mut record = full_green_run();
@@ -428,6 +757,7 @@ fn a_record_reads_back_as_written_and_its_last_line_for_a_unit_wins() {
             origin: "feed".to_owned(),
             tree: "t2".to_owned(),
             at: 20,
+            credited: None,
         })
     );
     assert_eq!(runs::parse("feed", &runs::render(&record)).unwrap(), record);
@@ -741,6 +1071,7 @@ fn a_reason_over_several_lines_stays_on_its_key_line() {
             why: "git failed:\nfatal: bad object".to_owned(),
         },
         carried: BTreeMap::new(),
+        credits: BTreeMap::new(),
     }];
 
     let text = render(None, "head", &BTreeSet::new(), &[], &plan);

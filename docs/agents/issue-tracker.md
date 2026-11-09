@@ -51,7 +51,7 @@ V1 is delivered in four GitHub milestones (ADR 0058): `M1 Core`, `M2 Client surf
 
 - **Assign**: every ticket carries one milestone: `gh issue create --milestone "<name>" ...`, or later `gh issue edit <n> --milestone "<name>"`.
 - **Order**: a ticket's milestone is never later than the earliest milestone of any ticket it blocks, directly or transitively.
-- **Frontier**: milestones neither pick nor order work. A run's frontier is its spec's open tickets with no open blocker and no assignee, never `ready-for-human`. A ticket blocked by another spec's open ticket waits until that ticket closes.
+- **Frontier**: milestones neither pick nor order work. A run's frontier is its spec's open `ready-for-agent` tickets with no open blocker and no assignee (ADR 0144), so never a `ready-for-human` or `needs-triage` one. A ticket blocked by another spec's open ticket waits until that ticket closes.
 - **Gate**: each of M1, M2 and M3 holds a `ready-for-human` testing issue, created with the milestone, with no blocking links (GitHub allows at most 50 per issue). It is ready for the owner once it is the only open issue of its milestone, and the frontier skips `ready-for-human` issues, so no agent takes it. It is a checkpoint: no ticket waits for it to close.
 
 ## Implementation loop

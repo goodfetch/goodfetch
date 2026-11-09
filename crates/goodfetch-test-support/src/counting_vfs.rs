@@ -17,7 +17,6 @@
 )]
 
 use std::ffi::{CStr, CString, c_char, c_int};
-use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -172,9 +171,7 @@ unsafe extern "C" fn open(
         if code == ffi::SQLITE_OK && !(*file).pMethods.is_null() {
             (*file).pMethods = &raw const shared.table((*file).pMethods).methods;
             if !name.is_null() {
-                shared.opened(Path::new(std::ffi::OsStr::from_bytes(
-                    CStr::from_ptr(name).to_bytes(),
-                )));
+                shared.opened(Path::new(&*CStr::from_ptr(name).to_string_lossy()));
             }
         }
         code

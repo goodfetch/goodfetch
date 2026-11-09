@@ -59,22 +59,14 @@ const TESTED_KINDS: [&str; 7] = [
     "test",
 ];
 
-/// Reads the dep-info and build-script outputs of every profile's build
-/// under `target`, and the test targets `cargo metadata` lists.
-pub(crate) fn rust_inputs(
-    root: &Path,
-    cargo: &OsStr,
-    target: &Path,
-    members: &WorkspaceMembers,
-) -> Result<RustInputs> {
-    let packages = metadata::packages(cargo, root)?;
-    // Each crate's `test` targets, by their dep-info name, when no other
-    // target of the crate shares it, as a library's test build shares its
-    // library's: what one of them alone read reaches the crate's tests.
-    let integration_tests: BTreeMap<String, BTreeSet<String>> = packages
+/// Each crate's `test` targets, by their dep-info name, when no other
+/// target of the crate shares it, as a library's test build shares its
+/// library's: what one of them alone read reaches the crate's tests.
+fn integration_tests(packages: &[metadata::Package]) -> BTreeMap<String, BTreeSet<String>> {
+    let name = |target: &metadata::Target| target.name.replace('-', "_");
+    packages
         .iter()
         .map(|package| {
-            let name = |target: &metadata::Target| target.name.replace('-', "_");
             let others: BTreeSet<String> = package
                 .targets
                 .iter()
@@ -90,7 +82,19 @@ pub(crate) fn rust_inputs(
                 .collect();
             (package.name.clone(), tests)
         })
-        .collect();
+        .collect()
+}
+
+/// Reads the dep-info and build-script outputs of every profile's build
+/// under `target`, and the test targets `cargo metadata` lists.
+pub(crate) fn rust_inputs(
+    root: &Path,
+    cargo: &OsStr,
+    target: &Path,
+    members: &WorkspaceMembers,
+) -> Result<RustInputs> {
+    let packages = metadata::packages(cargo, root)?;
+    let integration_tests = integration_tests(&packages);
     let test_targets: BTreeMap<String, BTreeSet<String>> = packages
         .into_iter()
         .map(|package| {
@@ -207,7 +211,7 @@ impl RustInputs {
         changed: &BTreeSet<String>,
     ) -> BTreeMap<String, Read> {
         let mut reached = BTreeMap::new();
-        let build = |why: String| Read {
+        let with_dependants = |why: String| Read {
             why,
             tests_alone: false,
         };
@@ -217,7 +221,7 @@ impl RustInputs {
             if built.is_none() && tested.is_none() {
                 reached.insert(
                     krate,
-                    build(format!(
+                    with_dependants(format!(
                         "no dep-info of its build under {}, so nothing shows what it read",
                         self.target.display()
                     )),
@@ -233,13 +237,13 @@ impl RustInputs {
             if let Some(missing) = missing {
                 reached.insert(
                     krate,
-                    build(format!(
+                    with_dependants(format!(
                         "no dep-info of its test target `{missing}` under {}, so nothing shows what it read",
                         self.target.display()
                     )),
                 );
             } else if let Some(path) = first_changed(built, changed) {
-                reached.insert(krate, build(format!("its build read {path}")));
+                reached.insert(krate, with_dependants(format!("its build read {path}")));
             } else if let Some(path) = first_changed(tested, changed) {
                 reached.insert(
                     krate,

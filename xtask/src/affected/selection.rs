@@ -281,6 +281,28 @@ struct Changed<'a> {
     packages: Vec<&'a Package>,
 }
 
+/// A path no member owns, such as a lockfile, a tool's settings or a
+/// workflow, may change any test: every one of the Products' runs.
+fn change_everything<'a>(workspace: &'a Workspace, products: Products, changed: &mut Changed<'a>) {
+    let in_scope = |folder: &RepoPath| match products {
+        Products::Foxhound => foxhound_side::contains(&format!("{}/", folder.as_str())),
+        Products::Both => true,
+    };
+    changed.jobs.insert(Job::Docs);
+    changed.crates.extend(
+        workspace
+            .crates
+            .iter()
+            .filter(|krate| in_scope(&krate.folder))
+            .map(|krate| krate.name.clone()),
+    );
+    changed.packages = workspace
+        .packages
+        .iter()
+        .filter(|package| in_scope(&package.folder))
+        .collect();
+}
+
 fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products) -> Changed<'a> {
     let mut changed = Changed {
         jobs: BTreeSet::new(),
@@ -317,25 +339,7 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
         }
     }
     if everything {
-        // A path no member owns, such as a lockfile, a tool's settings or a
-        // workflow, may change any test: every one of the Products' runs.
-        let in_scope = |folder: &RepoPath| match products {
-            Products::Foxhound => foxhound_side::contains(&format!("{}/", folder.as_str())),
-            Products::Both => true,
-        };
-        changed.jobs.insert(Job::Docs);
-        changed.crates.extend(
-            workspace
-                .crates
-                .iter()
-                .filter(|krate| in_scope(&krate.folder))
-                .map(|krate| krate.name.clone()),
-        );
-        changed.packages = workspace
-            .packages
-            .iter()
-            .filter(|package| in_scope(&package.folder))
-            .collect();
+        change_everything(workspace, products, &mut changed);
     }
     // A crate that embeds a package's build changes with that package and
     // with what its build and code depend on, not with what its tests alone

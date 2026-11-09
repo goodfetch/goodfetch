@@ -21,7 +21,7 @@
 //!
 //! JSON is judged before anything parses it ([`check_json_depth`]), then
 //! parsed with no recursion limit of the parser's own, which refuses the
-//! 128th level (serde_json 1.0.154, run): the scan bounds the depth instead, to
+//! 128th level (`serde_json` 1.0.154, run): the scan bounds the depth instead, to
 //! `network.max_json_depth` and at most [`JSON_DEPTH_CEILING`], where the
 //! parser still fits a thread's stack.
 //!

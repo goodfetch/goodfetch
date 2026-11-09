@@ -18,7 +18,6 @@ use crate::clock::Clock;
 use crate::egress::{ConfiguredKind, EndpointPolicy, Refused};
 use crate::http_client::{self, ConfiguredEndpoint, EndpointFailure};
 use crate::pinned_download::{Fetching, USER_AGENT};
-use crate::response_limits::Limits;
 use crate::settings::Resolved;
 use crate::tasks::TaskOwner;
 use crate::tls::Trust;
@@ -39,8 +38,6 @@ pub struct Sourcing {
     /// What a source's certificate may chain to beside Mozilla's roots:
     /// the authorities `tls.trusted_cas` lists for its own domain.
     pub trust: Trust,
-    /// `network.max_json_depth`, for a source's answer read as JSON.
-    pub limits: Limits,
 }
 
 impl Sourcing {
@@ -51,7 +48,6 @@ impl Sourcing {
             fetching: Fetching::new(clock),
             endpoints: EndpointPolicy::default(),
             trust: Trust::default_roots(),
-            limits: Limits::default(),
         }
     }
 
@@ -66,7 +62,6 @@ impl Sourcing {
             fetching: Fetching::of(settings, clock),
             endpoints: EndpointPolicy::of(settings),
             trust: Trust::of(settings, owner).await,
-            limits: Limits::of(settings),
         }
     }
 }

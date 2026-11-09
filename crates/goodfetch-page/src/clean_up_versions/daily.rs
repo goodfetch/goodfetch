@@ -81,14 +81,13 @@ async fn pull(sources: &Sources, reference: &str) -> Result<Vec<(String, Vec<u8>
             status: fetched.status,
         });
     }
-    let manifest = parse_json(&url, &fetched.body, &sources.sourcing.limits).map_err(
-        |failure| match failure {
+    let manifest =
+        parse_json(&url, &fetched.body, &sources.limits).map_err(|failure| match failure {
             JsonFailure::Limit(limit) => Unobtained::PastALimit(limit),
             JsonFailure::Malformed(error) => Unobtained::Unreadable(format!(
                 "the daily channel's manifest does not read: {error}"
             )),
-        },
-    )?;
+        })?;
     let mut files = Vec::new();
     for layer in manifest["layers"].as_array().into_iter().flatten() {
         let (Some(digest), Some(name)) = (
@@ -194,7 +193,7 @@ async fn anonymous_token(
     else {
         return Ok(None);
     };
-    let token = match parse_json(url.as_str(), &answer.body, &sources.sourcing.limits) {
+    let token = match parse_json(url.as_str(), &answer.body, &sources.limits) {
         Ok(token) => token,
         Err(JsonFailure::Limit(limit)) => return Err(limit),
         Err(JsonFailure::Malformed(_)) => return Ok(None),

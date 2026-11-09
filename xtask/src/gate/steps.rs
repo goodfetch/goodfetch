@@ -54,7 +54,7 @@ pub(crate) struct Entry {
 }
 
 /// Collie's Console build, which the steps beside find in the workspace
-/// they mount (ADR 0057): it runs once the whole change's checks passed.
+/// they mount (ADR 0057): it runs after the whole change's checks.
 const CONSOLE_BUILD: &str = "console-build";
 
 /// The checks of `just lint` that read documents: the docs form's only

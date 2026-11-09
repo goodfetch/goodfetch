@@ -11,8 +11,9 @@ use crate::products;
 
 /// A step of `just pre-merge all` that the gate records, declared in the
 /// order `ci/pre-merge.sh` starts them (`steps`): the checks that judge the
-/// whole change in seconds first, so a red one ends the gate before any
-/// build, then those beside the host's, then the host's others.
+/// whole change in seconds first, so the gate's log opens with their
+/// verdicts, then those beside the host's, then the host's others. A red
+/// step ends no gate: every step runs and records its result.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Step {
     Dco,

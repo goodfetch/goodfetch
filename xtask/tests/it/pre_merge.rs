@@ -183,7 +183,8 @@ const HOST_SETUP: &[&str] = if cfg!(target_os = "linux") {
 /// thrown away, writes the child's process ID to `descendant` and waits for
 /// it; the failing step then fails only once that child has started. When
 /// they are `late`'s content, it fails with status 3 once the run's output
-/// holds `awaiting`'s text. When `holding` lists them, one call a line, it
+/// holds `awaiting`'s text, and when they are `slow`'s content it passes once
+/// that output holds it. When `holding` lists them, one call a line, it
 /// appends them to `held` and waits while `hold` exists.
 fn stand_in_just(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
@@ -220,6 +221,14 @@ if [ -f "{late}" ] && [ "$*" = "$(cat "{late}")" ]; then
   done
   exit 3
 fi
+if [ -f "{slow}" ] && [ "$*" = "$(cat "{slow}")" ]; then
+  waited=0
+  while ! grep -qF -- "$(cat "{awaiting}")" "{stdout}" && [ $waited -lt 300 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  exit 0
+fi
 if [ -f "{lingering}" ] && [ "$*" = "$(cat "{lingering}")" ]; then
   sleep 300 >/dev/null 2>&1 &
   echo $! >"{descendant}"
@@ -250,6 +259,7 @@ fi
         lingering = folder.join("lingering").display(),
         descendant = folder.join("descendant").display(),
         late = folder.join("late").display(),
+        slow = folder.join("slow").display(),
         awaiting = folder.join("awaiting").display(),
         stdout = folder.join("stdout").display(),
     );
@@ -413,55 +423,197 @@ fn the_docs_form_runs_only_the_checks_that_read_documents_and_commits() {
     );
 }
 
-/// A form's `calls` through `call`, the one that fails.
-fn through<'a>(calls: &'a [&'a str], call: &str) -> &'a [&'a str] {
-    let last = calls
-        .iter()
-        .position(|listed| *listed == call)
-        .unwrap_or_else(|| panic!("no {call} in {calls:?}"));
-    &calls[..=last]
+/// The line of the gate's end that names a red step with its exit status.
+fn red_line(step: &str, status: i32) -> String {
+    format!("  {step}: exit status {status}\n")
 }
 
-#[test]
-fn a_red_check_ends_the_docs_form_before_the_document_checks() {
+/// A red step ends no form of the gate (ADR 0135's amendment of 2026-11-10):
+/// the quick and docs forms run every other check too, in the same order,
+/// and fail with the red step's status, naming it last.
+#[rstest]
+#[case::quick("quick", HOST_SETUP, &QUICK_CALLS)]
+#[case::docs("docs", &[], &DOCS_CALLS)]
+fn a_red_check_leaves_every_other_check_of_the_quick_and_docs_forms_running(
+    #[case] form: &str,
+    #[case] setup: &[&str],
+    #[case] calls: &[&str],
+) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
     std::fs::write(stand_in.join("failing"), "floor-guard").unwrap();
 
-    let run = pre_merge(&workspace, &stand_in, &["docs"]);
+    let run = pre_merge(&workspace, &stand_in, &[form]);
 
     assert_eq!(run.code, Some(3), "{}", run.stderr);
-    assert_eq!(
-        run.calls,
-        calls_between(&[], through(&DOCS_CALLS, "floor-guard"), &["_skips-report"])
+    assert_eq!(run.calls, calls_between(setup, calls, &["_skips-report"]));
+    assert!(
+        run.stderr.ends_with(&format!(
+            "error: the gate is red: 1 step failed, and every other step ran\n{}",
+            red_line("floor-guard", 3)
+        )),
+        "{}",
+        run.stderr
     );
 }
 
-/// A red check of the whole change ends the gate before the Console build
-/// and before any step beside the host's starts, so a gate that fails in
-/// seconds never starts perf (the test-gate audit's F3).
-#[rstest]
-#[case::dco("dco")]
-#[case::commit_messages("commit-messages")]
-#[case::floor_guard("floor-guard")]
-#[case::commit_leaks("commit-leaks")]
-#[case::audit("audit")]
-#[case::notices("notices")]
-fn a_red_whole_change_check_ends_the_gate_before_any_step_beside_starts(#[case] check: &str) {
+/// The full gate's steps, each with the call that fails it.
+const ALL_STEPS_AND_THEIR_CALLS: [(&str, &str); 24] = [
+    ("dco", "dco"),
+    ("commit-messages", "commit-messages"),
+    ("floor-guard", "floor-guard"),
+    ("commit-leaks", "commit-leaks"),
+    ("audit", "audit"),
+    ("notices", "notices"),
+    ("console-build", "console-build"),
+    ("perf", "perf"),
+    ("linux", "linux"),
+    ("visual", "visual"),
+    ("lint", "lint"),
+    ("feature-combinations", "feature-combinations"),
+    ("fuzz-check", "fuzz-check"),
+    ("proofs", "proofs"),
+    ("quick", "_suite quick all"),
+    ("pre-merge", "_suite pre-merge all"),
+    ("stress", "stress"),
+    ("journeys-tasks", "journeys-tasks --check"),
+    ("features-tests", "features-tests clients-tests"),
+    ("tlc", "_tlc all"),
+    ("kennel", "_kennel all"),
+    ("msrv", "msrv"),
+    ("miri", "miri"),
+    // The exercise audit is the Pre-merge suite's step too, after its tests.
+    ("pre-merge", "features-audit"),
+];
+
+/// One red step, whichever it is, leaves the full gate's verdict as it was,
+/// red with that step's exit status, and stops no other step: the host's
+/// calls are a green gate's, in a green gate's order, the steps beside all
+/// run, every step is recorded with its own result, and the gate's end names
+/// the red one (ADR 0135's amendment of 2026-11-10). Only the Pre-merge
+/// suite's own rule stays: its exercise audit runs after green tests, or
+/// after nextest's tests alone failed (status 100), not after another failure.
+#[test]
+fn one_red_step_leaves_every_other_step_of_the_full_gate_running_and_recorded() {
+    let workspace = Workspace::from_fixture("empty");
+    let every_step: Vec<String> = listed(&workspace, "all")
+        .into_iter()
+        .map(|step| step.name)
+        .collect();
+    let failable: std::collections::BTreeSet<&str> = ALL_STEPS_AND_THEIR_CALLS
+        .iter()
+        .map(|(step, _)| *step)
+        .collect();
+    assert_eq!(
+        failable,
+        every_step.iter().map(String::as_str).collect(),
+        "a step of `xtask gate steps` has no call here that fails it"
+    );
+    for (step, call) in ALL_STEPS_AND_THEIR_CALLS {
+        let workspace = Workspace::from_fixture("empty");
+        let stand_in = stand_in_just(&workspace);
+        std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
+        std::fs::write(stand_in.join("failing"), call).unwrap();
+
+        let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+        assert_eq!(run.code, Some(3), "{call}: {}", run.stderr);
+        let (mut beside, host): (Vec<String>, Vec<String>) = run
+            .calls
+            .into_iter()
+            .partition(|ran| BESIDE_CALLS.contains(&ran.as_str()));
+        beside.sort();
+        assert_eq!(beside, ["linux", "perf", "visual"], "{call}");
+        let green: Vec<&str> = ALL_HOST_CALLS
+            .into_iter()
+            .filter(|ran| !(call == "_suite pre-merge all" && *ran == "features-audit"))
+            .collect();
+        assert_eq!(
+            host,
+            calls_between(HOST_SETUP, &green, &["_skips-report"]),
+            "{call}"
+        );
+        let mut recorded: Vec<&str> = run.gate[1..]
+            .iter()
+            .map(|record| {
+                record
+                    .split(" --")
+                    .next()
+                    .expect("a record's step and status")
+            })
+            .collect();
+        recorded.sort_unstable();
+        let mut expected: Vec<String> = listed(&workspace, "all")
+            .into_iter()
+            .filter(|listed| listed.kind != "command")
+            .map(|listed| {
+                let status = if listed.name == step { "fail" } else { "pass" };
+                format!("_gate-record planned {} {status}", listed.name)
+            })
+            .collect();
+        expected.sort();
+        assert_eq!(recorded, expected, "{call}");
+        assert!(
+            run.stderr.ends_with(&format!(
+                "error: the gate is red: 1 step failed, and every other step ran\n{}",
+                red_line(step, 3)
+            )),
+            "{call}: {}",
+            run.stderr
+        );
+    }
+}
+
+/// A gate with several red steps names each at its end, the host's in their
+/// order and then the steps beside, and fails with the first one's status,
+/// so one gate shows a change all its reds.
+#[test]
+fn the_gates_end_names_every_red_step_and_fails_with_the_first_ones_status() {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
-    std::fs::write(stand_in.join("failing"), check).unwrap();
+    std::fs::write(
+        stand_in.join("statuses"),
+        "visual=7\nfloor-guard=4\nlint=3\nmsrv=5\n",
+    )
+    .unwrap();
 
     let run = pre_merge(&workspace, &stand_in, &["all"]);
 
-    assert_eq!(run.code, Some(3), "{}", run.stderr);
-    assert_eq!(
-        run.calls,
-        calls_between(
-            HOST_SETUP,
-            through(&ALL_HOST_CALLS, check),
-            &["_skips-report"]
-        )
+    assert_eq!(run.code, Some(4), "{}", run.stderr);
+    assert!(
+        run.stderr.ends_with(&format!(
+            "error: the gate is red: 4 steps failed, and every other step ran\n{}{}{}{}",
+            red_line("floor-guard", 4),
+            red_line("lint", 3),
+            red_line("msrv", 5),
+            red_line("visual", 7)
+        )),
+        "{}",
+        run.stderr
+    );
+}
+
+/// A result that cannot be recorded still ends the gate where it is, red
+/// step or not: the planned head is no longer the clean tree checked out, so
+/// nothing after it would be this head's result (ADR 0135).
+#[test]
+fn a_result_that_cannot_be_recorded_ends_the_gate_there() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
+    std::fs::write(
+        stand_in.join("statuses"),
+        "lint=3\n_gate-record planned lint fail=4\n",
+    )
+    .unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    assert_eq!(run.code, Some(4), "{}", run.stderr);
+    assert!(
+        !run.calls.iter().any(|call| call == "feature-combinations"),
+        "{:?}",
+        run.calls
     );
 }
 
@@ -810,33 +962,12 @@ fn a_failed_check_beside_the_host_steps_fails_the_suite(#[case] step: &str) {
     let run = pre_merge(&workspace, &stand_in, &["all"]);
 
     assert_eq!(run.code, Some(3), "{}", run.stderr);
-    assert!(
-        run.stderr.contains(&format!("just {step} failed")),
-        "{}",
-        run.stderr
-    );
+    assert!(run.stderr.contains(&red_line(step, 3)), "{}", run.stderr);
     assert!(
         run.calls.iter().any(|call| call == "miri"),
         "{:?}",
         run.calls
     );
-}
-
-#[test]
-fn a_failed_stress_run_stops_the_suite_before_the_later_steps() {
-    let workspace = Workspace::from_fixture("empty");
-    let stand_in = stand_in_just(&workspace);
-    std::fs::write(stand_in.join("failing"), "stress").unwrap();
-
-    let run = pre_merge(&workspace, &stand_in, &["all"]);
-
-    assert_eq!(run.code, Some(3), "{}", run.stderr);
-    assert!(
-        !run.calls.iter().any(|call| call == "miri"),
-        "{:?}",
-        run.calls
-    );
-    assert_eq!(run.calls.last().map(String::as_str), Some("_skips-report"));
 }
 
 /// On a Linux host every step after the setup meets the services it
@@ -1072,6 +1203,7 @@ fn a_failed_stress_run_is_recorded_with_when_it_began() {
 /// is recorded with its nextest file, so its crates that passed in full
 /// record green (the test-gate audit's option 4b). A red audit, or another
 /// failure, records every member red, and the step stays red throughout.
+/// The stress run follows whichever it was.
 #[rstest]
 #[case::the_audit_passes(
     "",
@@ -1113,7 +1245,7 @@ fn a_pre_merge_suite_red_in_nextest_alone_still_runs_the_exercise_audit(
         run.gate
     );
     assert!(
-        !run.calls.iter().any(|call| call == "stress"),
+        run.calls.iter().any(|call| call == "stress"),
         "{:?}",
         run.calls
     );
@@ -1203,56 +1335,47 @@ fn under_keep_going_a_red_nextest_run_still_runs_every_other_runner(
     }
 }
 
-/// A step beside the host's that ended before a host step failed keeps its
-/// result, so the next run reuses it where the change since does not reach
-/// it (the test-gate audit's option 3).
-#[rstest]
-#[case::passed("perf", "pass")]
-#[case::failed("visual", "fail")]
-fn a_step_beside_that_ended_before_a_host_step_failed_records_its_result(
-    #[case] step: &str,
-    #[case] status: &str,
-) {
+/// A step beside the host's still running when a host step fails runs to its
+/// own end and records its result, so the next run reuses it where the change
+/// since does not reach it: on 2026-11-09 a red Pre-merge suite stopped perf
+/// 42 minutes in, and the next gate ran it again for 52 (ADR 0135's amendment
+/// of 2026-11-10).
+#[test]
+fn a_step_beside_still_running_when_a_host_step_fails_runs_to_its_end_and_is_recorded() {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
     std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
-    if status == "fail" {
-        std::fs::write(stand_in.join("failing"), step).unwrap();
-    }
-    // `lint` fails once the step beside has ended.
-    std::fs::write(stand_in.join("late"), "lint").unwrap();
-    std::fs::write(
-        stand_in.join("awaiting"),
-        format!("[{step}] Gate step {step}: ended at"),
-    )
-    .unwrap();
+    std::fs::write(stand_in.join("failing"), "lint").unwrap();
+    // `perf` ends, green, only once `lint` has failed.
+    std::fs::write(stand_in.join("slow"), "perf").unwrap();
+    std::fs::write(stand_in.join("awaiting"), "Gate step lint: ended at").unwrap();
 
     let run = pre_merge(&workspace, &stand_in, &["all"]);
 
     assert_eq!(run.code, Some(3), "{}", run.stderr);
-    assert!(
-        !run.calls.iter().any(|call| call == "miri"),
-        "the run went on past lint: {:?}",
-        run.calls
-    );
-    assert!(
-        run.gate
-            .contains(&format!("_gate-record planned {step} {status}")),
-        "{:?}\n{}",
-        run.gate,
-        run.stdout
-    );
+    for recorded in [
+        "_gate-record planned lint fail",
+        "_gate-record planned perf pass",
+    ] {
+        assert!(
+            run.gate.contains(&recorded.to_owned()),
+            "{recorded}: {:?}\n{}",
+            run.gate,
+            run.stdout
+        );
+    }
 }
 
-/// A step beside the host's still running when a host step fails is
-/// stopped and records nothing, so the next run reruns it.
+/// A gate that ends on an error of its own, here a plan it cannot read,
+/// still stops each step beside the host's where it is, and such a step
+/// records nothing, so the next run reruns it.
 #[test]
-fn a_step_beside_still_running_when_a_host_step_fails_records_nothing() {
+fn a_step_beside_still_running_when_the_gate_cannot_go_on_records_nothing() {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
-    std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
+    let unreadable = no_earlier_run(&workspace, "planned").replacen("lint.action=run\n", "", 1);
+    std::fs::write(stand_in.join("plan"), unreadable).unwrap();
     std::fs::write(stand_in.join("lingering"), "perf").unwrap();
-    std::fs::write(stand_in.join("failing"), "lint").unwrap();
 
     let run = pre_merge(&workspace, &stand_in, &["all"]);
 
@@ -1261,13 +1384,7 @@ fn a_step_beside_still_running_when_a_host_step_fails_records_nothing() {
             .arg(descendant.trim())
             .status();
     }
-    assert_eq!(run.code, Some(3), "{}", run.stderr);
-    assert!(
-        run.gate
-            .contains(&"_gate-record planned lint fail".to_owned()),
-        "{:?}",
-        run.gate
-    );
+    assert_eq!(run.code, Some(1), "{}", run.stderr);
     assert!(
         !run.gate.iter().any(|call| call.contains(" perf ")),
         "{:?}",
@@ -1416,16 +1533,25 @@ pub(crate) fn runs(id: &str) -> bool {
     output.status.success() && !state.trim().is_empty() && !state.trim().starts_with('Z')
 }
 
-/// A host step that fails first stops each step beside it with every
-/// process that step started, so none goes on building in the workspace
-/// a later gate run uses (fix-queue 102: `xtask perf build` and its
-/// `cargo bench` outlived a stopped `just perf` for 19 minutes).
+/// A gate that ends before its steps beside have, here on a result it cannot
+/// record, stops each of them with every process that step started, so none
+/// goes on building in the workspace a later gate run uses (fix-queue 102:
+/// `xtask perf build` and its `cargo bench` outlived a stopped `just perf`
+/// for 19 minutes).
 #[test]
-fn a_failed_host_step_stops_every_process_a_step_beside_it_started() {
+fn a_gate_that_cannot_go_on_stops_every_process_a_step_beside_started() {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
     std::fs::write(stand_in.join("lingering"), "perf").unwrap();
+    // `lint` fails once `perf`'s child has started, and its red result is
+    // the one that cannot be recorded.
     std::fs::write(stand_in.join("failing"), "lint").unwrap();
+    std::fs::write(
+        stand_in.join("statuses"),
+        "_gate-record planned lint fail=3\n",
+    )
+    .unwrap();
 
     let run = pre_merge(&workspace, &stand_in, &["all"]);
 

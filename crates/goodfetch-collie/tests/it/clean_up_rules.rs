@@ -754,7 +754,7 @@ fn a_pinned_versions_manifest_past_the_json_depth_refuses_the_start() {
     );
     stand_in.publish("served", &served, &served_files);
     let mut lowered = settings(None, json!({ "version": served }));
-    lowered.insert("network".to_owned(), json!({ "max_json_depth": 1 }));
+    lowered["network"]["max_json_depth"] = json!(1);
 
     let answers = [
         (

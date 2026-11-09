@@ -16,7 +16,7 @@
 
 use goodfetch_test_client::Attached;
 use goodfetch_test_support::{
-    ExpectedError, HostileTables, LimitSetting, ProvingGround, ServedBy, TestEnv,
+    ExpectedError, HostileTables, LimitSetting, ProvingGround, ReceivedRequests, ServedBy, TestEnv,
 };
 use serde_json::{Value, json};
 
@@ -181,6 +181,73 @@ fn every_body_past_a_limit_fails_its_request_and_its_page_request_on_the_http_ti
             ),
         ]
     );
+}
+
+/// A handler's navigation on the browser tier to a host whose `TDMRep` file
+/// nests past the depth raises `response_limit_exceeded` naming the setting,
+/// through the page's navigation gate, and never reaches the host's page.
+///
+/// Covers: row:SC-05, error:response_limit_exceeded, setting:network.max_json_depth, setting:site_preferences.purpose, operation:page.goto
+#[test]
+fn a_browsers_navigation_to_a_host_whose_tdmrep_file_is_too_deep_is_refused() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let ca = proving_ground.description().ca.display().to_string();
+    env.user_configuration(&format!(
+        "tls.trusted_cas.\"body-limits.test\" = ['{ca}']\n"
+    ));
+    let mut engine = engine(&env);
+    let target = proving_ground.start_url("body-limits/4").unwrap();
+    let mut answer = Value::Null;
+
+    let finished = crawl_declaring(
+        &mut engine,
+        "browser-depth",
+        &[json!({ "url": proving_ground.start_url(SAFE).unwrap(), "label": "page" })],
+        &json!({ "page": {} }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "browser" },
+                "crawl": { "retry": { "max": 0 } },
+                "politeness": { "domain": { "delay": 0 } },
+                "site_preferences": {
+                    "respect_robots_txt": false,
+                    "respect_use_signals": true,
+                    "purpose": "ai-input",
+                },
+            }),
+        ),
+        &mut |inside, handle| {
+            answer = inside.call(
+                "page.goto",
+                &json!({ "page_id": handle["page_id"], "url": target }),
+            );
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finished());
+
+    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+    assert_eq!(
+        (
+            &answer["error"]["data"]["code"],
+            &answer["error"]["data"]["setting"],
+        ),
+        (
+            &json!("response_limit_exceeded"),
+            &json!("network.max_json_depth"),
+        ),
+        "{answer}"
+    );
+    let observations = proving_ground.observations().unwrap();
+    let asked: Vec<&str> = ReceivedRequests::of(&observations)
+        .every()
+        .filter(|request| request.host.starts_with("4.body-limits.test"))
+        .map(|request| request.target.as_str())
+        .filter(|target| *target != "/robots.txt")
+        .collect();
+    assert_eq!(asked, ["/.well-known/tdmrep.json"]);
 }
 
 /// `network.max_json_depth` decides what a crawl's read of JSON refuses: a Run

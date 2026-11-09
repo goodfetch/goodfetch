@@ -262,6 +262,102 @@ fn an_infinite_list_compared_against_the_browser_is_served_by_its_replayed_calls
     assert!(browsed >= 3 * (2 + 2 * 3), "{browsed}");
 }
 
+/// A handler that waits for its list's second call and pushes what it was
+/// told: its status, or the code and setting of the refusal.
+fn read_the_second_call(inside: &mut Inside<'_>, handle: &Value) -> Value {
+    let page_id = handle["page_id"].clone();
+    let engine = inside.engine();
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "second", "method": "page.wait_for_response",
+        "params": {
+            "page_id": page_id,
+            "url": { "kind": "regex", "pattern": r"/api/deep/\d+\?page=2$" },
+            "timeout": 15_000,
+        },
+    }));
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "reload", "method": "page.reload",
+        "params": { "page_id": page_id },
+    }));
+    let mut second = Value::Null;
+    for _ in 0..2 {
+        let reply = engine.next().unwrap();
+        if reply["id"] == "second" {
+            second = reply;
+        }
+    }
+    let told = match second.get("result") {
+        Some(result) => json!({ "status": result["response"]["status"] }),
+        None => json!({
+            "code": second["error"]["data"]["code"],
+            "setting": second["error"]["data"]["setting"],
+        }),
+    };
+    let reply = inside.call(
+        "crawl_request.push",
+        &json!({
+            "run_id": handle["run_id"],
+            "crawl_request_id": handle["crawl_request"]["id"],
+            "lease_epoch": handle["lease_epoch"],
+            "dataset": "pages",
+            "data": { "list": handle["crawl_request"]["url"], "told": told },
+        }),
+    );
+    assert!(reply.get("result").is_some(), "{reply}");
+    json!({ "result": { "records": [] } })
+}
+
+/// A replayed call whose answer nests past `network.max_json_depth` answers
+/// the wait for it `response_limit_exceeded` naming the setting: a list
+/// learned onto `discovered_api` from samples that nest within it meets the
+/// depth on a later list, and its handler is told so.
+///
+/// Covers: story:5-119, row:SC-05, error:response_limit_exceeded, setting:network.max_json_depth, operation:page.wait_for_response
+#[test]
+fn a_replayed_call_past_the_json_depth_answers_its_wait_response_limit_exceeded() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+    let seeds: Vec<Value> = (1..=LISTS)
+        .map(|n| json!({ "url": proving_ground.url(HOST, &format!("/deep/{n}")), "label": "deep" }))
+        .collect();
+
+    let finished = crawl_declaring(
+        &mut engine,
+        "api-deep",
+        &seeds,
+        &json!({ "deep": {} }),
+        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &mut read_the_second_call,
+    );
+    assert!(engine.finished());
+    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+
+    let refused = json!({
+        "code": "response_limit_exceeded",
+        "setting": "network.max_json_depth",
+    });
+    let mut told: Vec<(String, Value)> = committed(&env, "api-deep")
+        .into_iter()
+        .map(|record| {
+            let list = record["list"].as_str().unwrap().to_owned();
+            (list, record["told"].clone())
+        })
+        .collect();
+    told.sort_by(|left, right| left.0.cmp(&right.0));
+    let expected: Vec<(String, Value)> = (1..=LISTS)
+        .map(|n| {
+            let told = if n < 4 {
+                json!({ "status": 200 })
+            } else {
+                refused.clone()
+            };
+            (proving_ground.url(HOST, &format!("/deep/{n}")), told)
+        })
+        .collect();
+    assert_eq!(told, expected);
+}
+
 /// A list whose call carries a token its document issued, which the site
 /// takes once, cannot be replayed: each sample's run on `discovered_api`
 /// is refused the call, its wait escalates, and the Label stays on the

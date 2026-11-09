@@ -45,6 +45,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 pub use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
+use goodfetch_engine::response_limits::LimitExceeded;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_extractor::BuiltIn;
@@ -328,14 +329,20 @@ impl Debug for Permit {
     }
 }
 
-/// Why a navigation gate refused a request or a response: it raises
-/// `site_preferences_refused` with the reason.
+/// Why a navigation gate refused a request or a response.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Refusal {
-    /// The preference that refused it.
-    pub reason: SitePreference,
-    /// What the error's message says of it.
-    pub message: String,
+pub enum Refusal {
+    /// A site preference refused it: it raises `site_preferences_refused`
+    /// with the reason.
+    Preference {
+        /// The preference that refused it.
+        reason: SitePreference,
+        /// What the error's message says of it.
+        message: String,
+    },
+    /// A file of the site's preferences passed a limit on what the engine
+    /// reads: it raises `response_limit_exceeded`.
+    PastALimit(LimitExceeded),
 }
 
 /// A document's response, as the navigation gate's second method judges

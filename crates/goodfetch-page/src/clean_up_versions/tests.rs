@@ -12,6 +12,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use goodfetch_clean_up_rules::rules::{FilterLists, ListTexts};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
+use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::rule_sources::Sourcing;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::clean_up_rules::{
@@ -91,6 +92,7 @@ fn sources(env: &TestEnv, clock: Clock, origin: &str) -> Sources {
         state: env.folder().join("clean-up-rules.json"),
         channel: String::new(),
         lists,
+        limits: Limits::default(),
     }
 }
 

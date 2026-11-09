@@ -729,6 +729,57 @@ fn a_pinned_version_the_engine_cannot_have_refuses_the_start() {
     );
 }
 
+/// The daily channel's manifest is JSON from outside: a pinned version whose
+/// manifest nests past `network.max_json_depth` refuses the start naming the
+/// setting, and no Run is recorded; a Run that lowers the setting below a
+/// manifest it would read refuses that one too.
+/// Covers: story:5-97, setting:clean_up.version, setting:network.max_json_depth, error:response_limit_exceeded
+#[test]
+fn a_pinned_versions_manifest_past_the_json_depth_refuses_the_start() {
+    let env = TestEnv::new();
+    let stand_in = StandIn::start(&[REGISTRY, LISTS]);
+    configure(&env, &stand_in, &channel_configuration(&stand_in));
+    let (deep, _) = version("daily", days_from_now(-1), days_from_now(13), "/deep\n", "");
+    let (open, close) = ("[".repeat(129), "]".repeat(129));
+    stand_in.serve(
+        &manifest_path(&deep.replacen(':', "-", 1)),
+        format!("{open}{close}").into_bytes(),
+    );
+    let (served, served_files) = version(
+        "daily",
+        days_from_now(-1),
+        days_from_now(13),
+        "/served\n",
+        "",
+    );
+    stand_in.publish("served", &served, &served_files);
+    let mut lowered = settings(None, json!({ "version": served }));
+    lowered["network"]["max_json_depth"] = json!(1);
+
+    let answers = [
+        (
+            "deep",
+            Value::Object(settings(None, json!({ "version": deep }))),
+        ),
+        ("lowered", Value::Object(lowered)),
+    ]
+    .map(|(run_id, settings)| {
+        let answer = start(&env, run_id, &settings);
+        (
+            answer["error"]["data"]["code"].clone(),
+            answer["error"]["data"]["setting"].clone(),
+            run_folder(env.home(), run_id).exists(),
+        )
+    });
+
+    let refused = (
+        json!("response_limit_exceeded"),
+        json!("network.max_json_depth"),
+        false,
+    );
+    assert_eq!(answers, [refused.clone(), refused]);
+}
+
 /// The reasons the Clean-up rules entries of `run_id`'s Provenance give for
 /// a fallback.
 fn fallback_reasons(home: &Path, run_id: &str) -> Vec<Value> {

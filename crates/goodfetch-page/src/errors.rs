@@ -152,26 +152,30 @@ pub(crate) fn call_error(
     }
 }
 
-/// `site_preferences_refused` for the navigation or request to `url` that
+/// The error of the navigation or request to `url` the gate refused,
+/// `site_preferences_refused` or `response_limit_exceeded`, that
 /// `refusal` refused at the page's navigation gate (ADRs 0086 and 0093).
-pub(crate) fn site_preferences_refused(url: &str, refusal: &GateRefusal) -> CallError {
-    CallError::new(
-        &SITE_PREFERENCES_REFUSED,
-        format!("the site's preferences refused {url}: {}", refusal.message),
-        &SitePreferencesRefusedDetails {
-            url: url.to_owned(),
-            reason: refusal.reason,
-        },
-    )
+pub(crate) fn gate_refused(url: &str, refusal: &GateRefusal) -> CallError {
+    match refusal {
+        GateRefusal::Preference { reason, message } => CallError::new(
+            &SITE_PREFERENCES_REFUSED,
+            format!("the site's preferences refused {url}: {message}"),
+            &SitePreferencesRefusedDetails {
+                url: url.to_owned(),
+                reason: *reason,
+            },
+        ),
+        GateRefusal::PastALimit(limit) => limit.error(),
+    }
 }
 
-/// `site_preferences_refused` as a failed request carries it, for the
-/// request to `url` that `refusal` refused.
-pub(crate) fn site_preferences_failure(url: &str, refusal: &GateRefusal) -> ErrorData {
-    let error = site_preferences_refused(url, refusal);
+/// That error as a failed request carries it, for the request to `url` that
+/// `refusal` refused.
+pub(crate) fn gate_failure(url: &str, refusal: &GateRefusal) -> ErrorData {
+    let error = gate_refused(url, refusal);
     ErrorData {
-        code: SITE_PREFERENCES_REFUSED.name.to_owned(),
-        retryable: SITE_PREFERENCES_REFUSED.retryable,
+        code: error.code().to_owned(),
+        retryable: error.retryable(),
         details: error.details().cloned().unwrap_or_default(),
     }
 }

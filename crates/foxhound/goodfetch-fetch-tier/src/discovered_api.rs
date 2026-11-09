@@ -38,6 +38,7 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, PoisonError};
 
+use goodfetch_engine::response_limits::{Limits, parse_json};
 use goodfetch_page::page_value::{Kept, ObservedResponse, ResponseObserver};
 use goodfetch_page::url_pattern::UrlPattern;
 use serde::{Deserialize, Serialize};
@@ -56,12 +57,22 @@ const MAX_ANSWER: usize = 4 * 1024 * 1024;
 /// order they came. The observer is told no method, so a call another
 /// method sent is captured too; replayed as a `GET`, its answer differs,
 /// and the comparison keeps its Label on the browser.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Capture {
     calls: Arc<Mutex<Vec<Call>>>,
+    /// `network.max_json_depth`, for a call's answer.
+    limits: Limits,
 }
 
 impl Capture {
+    /// A capture of a Run under `limits`.
+    pub fn under(limits: Limits) -> Self {
+        Self {
+            calls: Arc::default(),
+            limits,
+        }
+    }
+
     /// The calls captured so far.
     pub fn calls(&self) -> Vec<Call> {
         self.calls
@@ -92,10 +103,11 @@ impl ResponseObserver for Capture {
         // A body the browser no longer held, one past the Run's limits or
         // one past the cap, is captured without its answer: its URL still
         // tells a page number, and the same call made again may bring its
-        // answer.
+        // answer. No call waits on a capture, so the refusal of an answer
+        // past the depth is left to the call's replay.
         let json = match body {
             Some(body) if response.body_length <= body.len() => {
-                serde_json::from_slice::<Value>(body).unwrap_or(Value::Null)
+                parse_json(response.url, body, &self.limits).unwrap_or(Value::Null)
             }
             Some(_) | None => Value::Null,
         };

@@ -24,6 +24,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use goodfetch_counted_work::ParsedHtml;
+use goodfetch_engine::response_limits::{JsonFailure, LimitExceeded, Limits, parse_json};
 use goodfetch_engine::robots_txt;
 use goodfetch_protocol::site_preferences::PURPOSE_VALUES;
 use quick_xml::Reader;
@@ -340,20 +341,35 @@ struct TdmRepRule {
 /// rule's pattern does ([`robots_txt::matches`]): from the path's start,
 /// `*` any characters, a final `$` its end, case-sensitive, in one pass
 /// whatever the site wrote.
+///
+/// # Errors
+///
+/// The file, read from `location`, nests past `limits`' depth: it says
+/// nothing that can be read, and a site's reservation is not taken as unset
+/// for it.
 pub(crate) fn tdmrep_file_refusing(
     file: &[u8],
-    url: &Url,
+    (location, url): (&Url, &Url),
     purpose: Purpose,
-) -> Option<&'static str> {
+    limits: &Limits,
+) -> Result<Option<&'static str>, LimitExceeded> {
     if purpose == Purpose::Search {
-        return None;
+        return Ok(None);
     }
-    let rules: Vec<TdmRepRule> = serde_json::from_slice(file).ok()?;
+    let json = match parse_json(location.as_str(), file, limits) {
+        Ok(json) => json,
+        Err(JsonFailure::Limit(limit)) => return Err(limit),
+        Err(JsonFailure::Malformed(_)) => return Ok(None),
+    };
+    let Ok(rules) = serde_json::from_value::<Vec<TdmRepRule>>(json) else {
+        return Ok(None);
+    };
     let target = robots_txt::target(url);
-    let rule = rules
+    Ok(rules
         .iter()
-        .find(|rule| robots_txt::matches(&rule.location, &target))?;
-    (rule.reservation.as_u64() == Some(1)).then_some("TDMRep's `/.well-known/tdmrep.json`")
+        .find(|rule| robots_txt::matches(&rule.location, &target))
+        .filter(|rule| rule.reservation.as_u64() == Some(1))
+        .map(|_| "TDMRep's `/.well-known/tdmrep.json`"))
 }
 
 /// Whether the RSL `file` refuses `purpose`, named: it does when it holds

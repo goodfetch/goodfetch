@@ -1,9 +1,17 @@
 //! Covers: story:5-119
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
+use goodfetch_engine::response_limits::Limits;
+use goodfetch_page::page_value::{ObservedResponse, ResponseObserver};
+use goodfetch_protocol::page::PageId;
+use rstest::rstest;
 use serde_json::{Value, json};
 use url::Url;
 
-use super::{Call, infer};
+use super::{Call, Capture, infer};
 
 fn url(text: &str) -> Url {
     Url::parse(text).unwrap()
@@ -223,6 +231,64 @@ fn calls_captured_out_of_order_are_put_back_in_order() {
         replayed(&cursors, "http://t.test/cursor/7", &|_| None),
         ["http://t.test/api/cursor/7"]
     );
+}
+
+/// JSON `depth` levels deep, its arrays around one object.
+fn nested(depth: usize) -> Vec<u8> {
+    let arrays = depth - 1;
+    format!(
+        "{}{{\"next\":\"k1\"}}{}",
+        "[".repeat(arrays),
+        "]".repeat(arrays)
+    )
+    .into_bytes()
+}
+
+/// What a capture under `network.max_json_depth` `limit` keeps of a JSON
+/// answer `depth` levels deep: `true` for its answer, `false` for the call
+/// without it.
+fn keeps_the_answer(depth: usize, limit: u64) -> bool {
+    let capture = Capture::under(Limits {
+        max_json_depth: limit,
+        ..Limits::default()
+    });
+    let body = nested(depth);
+    let page_id = PageId("page".to_owned());
+    let headers = [("content-type".to_owned(), "application/json".to_owned())];
+    capture.on_response(
+        &ObservedResponse {
+            page_id: &page_id,
+            url: "http://t.test/api",
+            body_length: body.len(),
+            status: 200,
+            headers: &headers,
+            from_service_worker: false,
+        },
+        Some(&body),
+    );
+    let calls = capture.calls();
+    assert_eq!(calls.len(), 1, "the call is captured either way");
+    !calls[0].json.is_null()
+}
+
+/// `network.max_json_depth` decides which answers a capture keeps, up to the
+/// ceiling, where a plan's walk of the answer still fits a stack: past 127
+/// levels too, where the parser alone gave up, and a call past the depth is
+/// kept without its answer, for its replay to refuse.
+///
+/// Covers: setting:network.max_json_depth
+#[rstest]
+#[case::within_the_default(128, 128, true)]
+#[case::past_the_default(129, 128, false)]
+#[case::under_a_raised_depth(129, 129, true)]
+#[case::at_the_ceiling(1024, 1024, true)]
+#[case::under_a_lowered_depth(4, 3, false)]
+fn the_json_depth_decides_which_answers_a_capture_keeps(
+    #[case] depth: usize,
+    #[case] limit: u64,
+    #[case] kept: bool,
+) {
+    assert_eq!(keeps_the_answer(depth, limit), kept);
 }
 
 /// A call captured without its answer, which the browser no longer held,

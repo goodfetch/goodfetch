@@ -6,7 +6,9 @@
 //! `failed` with `response_limit_exceeded` naming its setting, while the
 //! page compressed within the ratio, the positive control, succeeds; a
 //! handler's `page.request` on that page to a bomb or an endless body
-//! answers the same refusal.
+//! answers the same refusal. The table's JSON past its depth is met as the
+//! crawl reads its `TDMRep` file, the JSON it parses before it sends a request
+//! under a Purpose, and `network.max_json_depth` decides.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -14,7 +16,7 @@
 
 use goodfetch_test_client::Attached;
 use goodfetch_test_support::{
-    ExpectedError, HostileTables, LimitSetting, ProvingGround, ServedBy, TestEnv,
+    ExpectedError, HostileTables, LimitSetting, ProvingGround, ReceivedRequests, ServedBy, TestEnv,
 };
 use serde_json::{Value, json};
 
@@ -24,10 +26,8 @@ use crate::frontier::crawl_declaring;
 /// The Proving ground's seed.
 const SEED: u64 = 644;
 
-/// Each body page of the committed limits table and the setting its
-/// refusal names: every case a Proving ground page serves that names a
-/// body setting. The table's JSON depth case is no crawl request's: its
-/// page is read as text, and no JSON is parsed.
+/// Each page of the committed limits table that a Proving ground page serves
+/// and whose refusal names a setting, with that setting.
 fn refused() -> Vec<(String, LimitSetting)> {
     let tables = HostileTables::committed().unwrap();
     let refused: Vec<_> = tables
@@ -35,9 +35,7 @@ fn refused() -> Vec<(String, LimitSetting)> {
         .cases
         .into_iter()
         .filter_map(|case| match (case.served_by, case.expected) {
-            (ServedBy::Page(task), ExpectedError::ResponseLimitExceeded { setting })
-                if setting != LimitSetting::MaxJsonDepth =>
-            {
+            (ServedBy::Page(task), ExpectedError::ResponseLimitExceeded { setting }) => {
                 Some((task, setting))
             }
             _ => None,
@@ -46,10 +44,11 @@ fn refused() -> Vec<(String, LimitSetting)> {
     for setting in [
         LimitSetting::MaxBodySize,
         LimitSetting::MaxDecompressionRatio,
+        LimitSetting::MaxJsonDepth,
     ] {
         assert!(
             refused.iter().any(|(_, served)| *served == setting),
-            "the table serves no body case naming {setting:?}"
+            "the table serves no case naming {setting:?}"
         );
     }
     refused
@@ -84,14 +83,15 @@ fn ended(engine: &mut Attached, run_id: &str) -> Vec<(String, Value, Value, Valu
     ended
 }
 
-/// Every body page of the limits table, crawled on a forced `http` tier
-/// under a Label that reads `text/plain` (the type of the `body-limits`
-/// pages), ends `failed` with `response_limit_exceeded` naming its setting, and
-/// the page within the limits succeeds; the handler, which runs on that
-/// page alone, gets the same refusal from `page.request` to a bomb and to
-/// an endless body.
+/// Every page of the limits table, crawled on a forced `http` tier under a
+/// Label that reads `text/plain` (the type of the `body-limits` pages) and a
+/// Purpose, which reads each host's `TDMRep` file first, ends `failed` with
+/// `response_limit_exceeded` naming its setting, and the page within the
+/// limits succeeds; the handler, which runs on that page alone, gets the same
+/// refusal from `page.request` to a bomb, to an endless body and to a host
+/// whose `TDMRep` file nests past the depth.
 ///
-/// Covers: row:SC-05, error:response_limit_exceeded, setting:fetch.tier, setting:tls.trusted_cas, setting:crawl.content_types, operation:page.request
+/// Covers: row:SC-05, error:response_limit_exceeded, setting:fetch.tier, setting:tls.trusted_cas, setting:crawl.content_types, setting:site_preferences.purpose, setting:network.max_json_depth, operation:page.request
 #[test]
 fn every_body_past_a_limit_fails_its_request_and_its_page_request_on_the_http_tier() {
     let env = TestEnv::new();
@@ -111,7 +111,7 @@ fn every_body_past_a_limit_fails_its_request_and_its_page_request_on_the_http_ti
         .chain([SAFE])
         .map(|task| json!({ "url": url(task), "label": "page" }))
         .collect();
-    let requested = [url("bombs/5"), url("body-limits/2")];
+    let requested = [url("bombs/5"), url("body-limits/2"), url("body-limits/4")];
 
     let mut answers = Vec::new();
     let finished = crawl_declaring(
@@ -125,7 +125,11 @@ fn every_body_past_a_limit_fails_its_request_and_its_page_request_on_the_http_ti
                 "fetch": { "tier": "http" },
                 "crawl": { "retry": { "max": 0 } },
                 "politeness": { "domain": { "delay": 0 } },
-                "site_preferences": { "respect_robots_txt": false },
+                "site_preferences": {
+                    "respect_robots_txt": false,
+                    "respect_use_signals": true,
+                    "purpose": "ai-input",
+                },
             }),
         ),
         &mut |inside, handle| {
@@ -171,6 +175,142 @@ fn every_body_past_a_limit_fails_its_request_and_its_page_request_on_the_http_ti
                 json!("response_limit_exceeded"),
                 json!("network.max_body_size")
             ),
+            (
+                json!("response_limit_exceeded"),
+                json!("network.max_json_depth")
+            ),
         ]
     );
+}
+
+/// A handler's navigation on the browser tier to a host whose `TDMRep` file
+/// nests past the depth raises `response_limit_exceeded` naming the setting,
+/// through the page's navigation gate, and never reaches the host's page.
+///
+/// Covers: row:SC-05, error:response_limit_exceeded, setting:network.max_json_depth, setting:site_preferences.purpose, operation:page.goto
+#[test]
+fn a_browsers_navigation_to_a_host_whose_tdmrep_file_is_too_deep_is_refused() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let ca = proving_ground.description().ca.display().to_string();
+    env.user_configuration(&format!(
+        "tls.trusted_cas.\"body-limits.test\" = ['{ca}']\n"
+    ));
+    let mut engine = engine(&env);
+    let target = proving_ground.start_url("body-limits/4").unwrap();
+    let mut answer = Value::Null;
+
+    let finished = crawl_declaring(
+        &mut engine,
+        "browser-depth",
+        &[json!({ "url": proving_ground.start_url(SAFE).unwrap(), "label": "page" })],
+        &json!({ "page": {} }),
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "browser" },
+                "crawl": { "retry": { "max": 0 } },
+                "politeness": { "domain": { "delay": 0 } },
+                "site_preferences": {
+                    "respect_robots_txt": false,
+                    "respect_use_signals": true,
+                    "purpose": "ai-input",
+                },
+            }),
+        ),
+        &mut |inside, handle| {
+            answer = inside.call(
+                "page.goto",
+                &json!({ "page_id": handle["page_id"], "url": target }),
+            );
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert!(engine.finished());
+
+    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+    assert_eq!(
+        (
+            &answer["error"]["data"]["code"],
+            &answer["error"]["data"]["setting"],
+        ),
+        (
+            &json!("response_limit_exceeded"),
+            &json!("network.max_json_depth"),
+        ),
+        "{answer}"
+    );
+    let observations = proving_ground.observations().unwrap();
+    let asked: Vec<String> = ReceivedRequests::of(&observations)
+        .every()
+        .filter(|request| request.host.starts_with("4.body-limits.test"))
+        .map(|request| request.target.clone())
+        .filter(|target| target != "/robots.txt")
+        .collect();
+    assert_eq!(asked, ["/.well-known/tdmrep.json"]);
+}
+
+/// `network.max_json_depth` decides what a crawl's read of JSON refuses: a Run
+/// that raises it past the file's nesting sends the request, the file 128
+/// deep passes the default, which the parser alone refused, and a Run that
+/// lowers it below refuses that file.
+///
+/// Covers: setting:network.max_json_depth, setting:site_preferences.purpose
+#[rstest::rstest]
+#[case::raised_past_the_file("body-limits/4", Some(129), false)]
+#[case::at_the_default("body-limits/5", None, false)]
+#[case::lowered_below_the_file("body-limits/5", Some(127), true)]
+fn the_runs_json_depth_decides_what_its_tdmrep_read_refuses(
+    #[case] task: &str,
+    #[case] depth: Option<u64>,
+    #[case] is_refused: bool,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let ca = proving_ground.description().ca.display().to_string();
+    env.user_configuration(&format!(
+        "tls.trusted_cas.\"body-limits.test\" = ['{ca}']\n"
+    ));
+    let mut engine = engine(&env);
+    let url = proving_ground.start_url(task).unwrap();
+    let mut settings = settings(
+        &proving_ground,
+        &json!({
+            "fetch": { "tier": "http" },
+            "crawl": { "retry": { "max": 0 } },
+            "politeness": { "domain": { "delay": 0 } },
+            "site_preferences": {
+                "respect_robots_txt": false,
+                "respect_use_signals": true,
+                "purpose": "ai-input",
+            },
+        }),
+    );
+    if let Some(depth) = depth {
+        settings["network"]["max_json_depth"] = json!(depth);
+    }
+
+    let finished = crawl_declaring(
+        &mut engine,
+        "json-depth",
+        &[json!({ "url": url, "label": "page" })],
+        &json!({ "page": { "settings": { "crawl": { "content_types": ["application/json"] } } } }),
+        &settings,
+        &mut |_, _| json!({ "result": { "records": [] } }),
+    );
+    let ended = ended(&mut engine, "json-depth");
+    assert!(engine.finished());
+
+    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+    let expected = if is_refused {
+        (
+            url,
+            json!("failed"),
+            json!("response_limit_exceeded"),
+            json!("network.max_json_depth"),
+        )
+    } else {
+        (url, json!("succeeded"), Value::Null, Value::Null)
+    };
+    assert_eq!(ended, [expected]);
 }

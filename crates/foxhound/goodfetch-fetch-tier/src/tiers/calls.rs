@@ -716,16 +716,21 @@ fn failed(url: &str, error: &impl std::fmt::Display) -> CallError {
     )
 }
 
-/// `site_preferences_refused` for the request to `url` the gate refused.
+/// `site_preferences_refused` for the request to `url` the gate refused, or
+/// `response_limit_exceeded` when a file of the preferences passed a limit.
 fn refused(url: &str, refusal: &goodfetch_page::page_value::Refusal) -> CallError {
-    CallError::new(
-        &SITE_PREFERENCES_REFUSED,
-        format!("the site's preferences refused {url}: {}", refusal.message),
-        &SitePreferencesRefusedDetails {
-            url: url.to_owned(),
-            reason: refusal.reason,
-        },
-    )
+    use goodfetch_page::page_value::Refusal;
+    match refusal {
+        Refusal::Preference { reason, message } => CallError::new(
+            &SITE_PREFERENCES_REFUSED,
+            format!("the site's preferences refused {url}: {message}"),
+            &SitePreferencesRefusedDetails {
+                url: url.to_owned(),
+                reason: *reason,
+            },
+        ),
+        Refusal::PastALimit(limit) => limit.error(),
+    }
 }
 
 /// `too_many_redirects` for `chain`, past `max_redirects`.

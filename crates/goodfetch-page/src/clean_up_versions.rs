@@ -43,6 +43,7 @@ use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, HeldArtifact}
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::pinned_download::Digest;
+use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::rule_sources::Sourcing;
 use goodfetch_engine::run_state::run_row;
 use goodfetch_engine::runs::{
@@ -311,6 +312,8 @@ pub(crate) struct Sources {
     pub(crate) channel: String,
     /// The URL of each Filter list `upstream` fetches, by list.
     pub(crate) lists: BTreeMap<String, String>,
+    /// `network.max_json_depth`, for the daily channel's manifest and token.
+    pub(crate) limits: Limits,
 }
 
 impl Sources {
@@ -345,6 +348,7 @@ impl Sources {
                 .join(STATE_FILE),
             channel,
             lists,
+            limits: Limits::of_run(context.settings),
         }
     }
 

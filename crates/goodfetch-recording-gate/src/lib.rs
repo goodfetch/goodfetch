@@ -221,7 +221,7 @@ impl NavigationGate for RecordingGate {
                 tokio::time::sleep(held).await;
             }
             if let Some(reason) = refused {
-                return Err(Refusal {
+                return Err(Refusal::Preference {
                     reason,
                     message: format!("the Recording gate refuses {}", navigation.url),
                 });
@@ -245,7 +245,7 @@ impl NavigationGate for RecordingGate {
             records.judged_bodies.push(response.body.len());
         }
         let judged = match first_match(&lock(&self.shared.rules).refused_documents, response.url) {
-            Some(reason) => Err(Refusal {
+            Some(reason) => Err(Refusal::Preference {
                 reason,
                 message: format!(
                     "the Recording gate refuses the document of {}",

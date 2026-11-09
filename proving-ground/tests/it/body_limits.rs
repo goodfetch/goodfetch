@@ -128,6 +128,26 @@ fn the_apis_json_nests_as_deep_as_its_task_says(#[case] id: &str, #[case] expect
     assert_eq!(depth(arrived.body()), expected);
 }
 
+/// Each JSON task's host serves its JSON as its `TDMRep` file too, the read
+/// of JSON a crawl makes before it sends a request; another task's does not.
+#[rstest]
+#[case::past_the_depth("body-limits/4", 200, 129)]
+#[case::at_the_depth("body-limits/5", 200, 128)]
+#[case::no_json_task("body-limits/1", 404, 0)]
+fn a_json_tasks_host_serves_its_json_as_its_tdmrep_file(
+    #[case] id: &str,
+    #[case] status: u16,
+    #[case] expected: usize,
+) {
+    let proving_ground = ProvingGround::start(SEED);
+    let (host, _) = start(&proving_ground, id);
+
+    let arrived = raw_clients::get(&proving_ground, &host, "/.well-known/tdmrep.json", &[]);
+
+    assert_eq!(arrived.status(), Some(status));
+    assert_eq!(depth(arrived.body()), expected);
+}
+
 /// How many bytes `body` decodes to through gzip, which a body whose
 /// checksum or length is wrong fails.
 fn gunzipped(body: &[u8]) -> u64 {

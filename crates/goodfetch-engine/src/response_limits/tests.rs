@@ -311,7 +311,10 @@ fn json_past_the_ceiling_is_refused_whatever_the_setting_says() {
 fn a_body_that_is_no_json_is_malformed() {
     let parsed = parse_json(URL, b"[1, 2", &Limits::default());
 
-    assert!(matches!(parsed, Err(JsonFailure::Malformed)), "{parsed:?}");
+    assert!(
+        matches!(parsed, Err(JsonFailure::Malformed(_))),
+        "{parsed:?}"
+    );
 }
 
 /// A zstd frame (RFC 8878) that regenerates `size` zero bytes from RLE

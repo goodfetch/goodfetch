@@ -8,6 +8,7 @@ use std::time::Duration;
 use goodfetch_clean_up_rules::rules::EMBEDDED_DIGEST;
 use goodfetch_engine::CallError;
 use goodfetch_engine::pinned_download::{Digest, Fetching};
+use goodfetch_engine::response_limits::LimitExceeded;
 use goodfetch_engine::rule_sources::SourceFailure;
 use goodfetch_engine::runs::{Fallback, RulesContext};
 use goodfetch_engine::settings::{RunSettings, get_or_default};
@@ -78,6 +79,9 @@ pub(crate) enum Unobtained {
     /// What a source gave is no version this engine reads.
     #[error("{0}")]
     Unreadable(String),
+    /// What a source gave passed a limit on what the engine reads.
+    #[error("cannot be fetched: {0}")]
+    PastALimit(LimitExceeded),
     /// The Browser cache did not keep it.
     #[error("cannot be kept in the Browser cache: {0}")]
     NotKept(String),
@@ -99,6 +103,7 @@ impl Unobtained {
             Self::Tampered { .. } => "tampered",
             Self::OtherDigest { .. } => "other_digest",
             Self::Unreadable(_) => "unreadable",
+            Self::PastALimit(_) => "past_a_limit",
             Self::NotKept(_) => "not_kept",
             Self::NotLoaded(_) => "not_loaded",
         }
@@ -180,6 +185,7 @@ pub(super) fn refusal(
         )
     };
     match failure {
+        Unobtained::PastALimit(limit) => limit.error(),
         Unobtained::NotADigest => CallError::new(
             &SETTING_INVALID,
             message.clone(),

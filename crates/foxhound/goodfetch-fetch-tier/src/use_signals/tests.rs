@@ -7,6 +7,8 @@
 )]
 
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_engine::response_limits::{LimitExceeded, Limits};
+use goodfetch_protocol::response_limits::LimitSetting;
 use rstest::rstest;
 use url::Url;
 
@@ -157,9 +159,66 @@ fn a_tdmrep_file_reserves_what_its_first_matching_rule_does(
     #[case] reserved: bool,
 ) {
     assert_eq!(
-        refusals(|purpose| tdmrep_file_refusing(file.as_bytes(), &url(at), purpose)),
+        refusals(|purpose| tdmrep(file.as_bytes(), &url(at), purpose, &Limits::default()).unwrap()),
         [reserved; 3]
     );
+}
+
+/// `TDMRep`'s judgment of `file`, read from the site's well-known location.
+fn tdmrep(
+    file: &[u8],
+    at: &Url,
+    purpose: Purpose,
+    limits: &Limits,
+) -> Result<Option<&'static str>, LimitExceeded> {
+    tdmrep_file_refusing(file, (&FILE.parse().unwrap(), at), purpose, limits)
+}
+
+const FILE: &str = "https://example.test/.well-known/tdmrep.json";
+
+/// A file `depth` levels deep, its rules one array and object in: the rule
+/// reserves everything, so a file that reads reserves the URL.
+fn nested_rules(depth: usize) -> String {
+    let rule = r#"{"location":"/","tdm-reservation":1,"nested":"#;
+    let filler = "[".repeat(depth - 2) + &"]".repeat(depth - 2);
+    format!("[{rule}{filler}}}]")
+}
+
+/// `network.max_json_depth` decides what a file nested this deep says: within
+/// it the file reads, past 127 levels too, where the parser alone gave up and
+/// left the site's reservation unset; past it the file is refused, naming the
+/// setting and the location it was read from.
+#[rstest]
+#[case::within_the_default(128, 128, Ok(true))]
+#[case::past_the_default(129, 128, Err(128))]
+#[case::under_a_raised_depth(129, 129, Ok(true))]
+#[case::at_the_ceiling(1024, 1024, Ok(true))]
+#[case::under_a_lowered_depth(4, 3, Err(3))]
+fn the_json_depth_decides_what_a_tdmrep_file_says(
+    #[case] depth: usize,
+    #[case] limit: u64,
+    #[case] wanted: Result<bool, u64>,
+) {
+    let limits = Limits {
+        max_json_depth: limit,
+        ..Limits::default()
+    };
+
+    let judged = tdmrep(
+        nested_rules(depth).as_bytes(),
+        &url("https://example.test/a"),
+        Purpose::Collect,
+        &limits,
+    );
+
+    let judged = judged
+        .map(|reserved| reserved.is_some())
+        .map_err(|exceeded| {
+            assert_eq!(exceeded.url, FILE);
+            assert_eq!(exceeded.setting, LimitSetting::MaxJsonDepth);
+            exceeded.limit
+        });
+    assert_eq!(judged, wanted);
 }
 
 /// A site's file can state any location: one of 24 wildcards before a
@@ -172,9 +231,9 @@ fn a_hostile_location_of_many_wildcards_is_judged_on_a_long_path() {
     let file = format!(r#"[{{"location":"{location}","tdm-reservation":1}}]"#);
     let at = url(&format!("https://example.test/{}", "a".repeat(400)));
 
-    let reserved = tdmrep_file_refusing(file.as_bytes(), &at, Purpose::Collect);
+    let reserved = tdmrep(file.as_bytes(), &at, Purpose::Collect, &Limits::default());
 
-    assert_eq!(reserved, None);
+    assert_eq!(reserved, Ok(None));
 }
 
 /// A license as RSL 1.0 writes one, holding `body`.
@@ -230,11 +289,13 @@ fn no_file_is_judged_against_search() {
     assert_eq!(
         (
             content_signals_refusing(&signals(&[("search", false)]), Purpose::Search),
-            tdmrep_file_refusing(
+            tdmrep(
                 CATALOG_RESERVED.as_bytes(),
                 &url("https://example.test/catalog"),
-                Purpose::Search
-            ),
+                Purpose::Search,
+                &Limits::default(),
+            )
+            .unwrap(),
             rsl_refusing(rsl.as_bytes(), Purpose::Search),
         ),
         (None, None, None)

@@ -14,22 +14,24 @@
 //! answered no JSON, or no navigation came before its deadline, is a
 //! call the tier cannot serve exactly: it escalates under `auto` (#770's
 //! first build; `wait_for_request`, the
-//! page's events and kept responses join with #1659).
+//! page's events and kept responses join with #1659). A replayed call whose
+//! answer nests past `network.max_json_depth` answers the waits it matches
+//! `response_limit_exceeded`, and ends the replay.
 
 use std::time::Duration;
 
 use goodfetch_engine::GuardAnswer;
+use goodfetch_engine::response_limits::{JsonFailure, Limits, parse_json};
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::page::events::{PageExchange, PageRequest};
 use goodfetch_protocol::page::request::PageRequestParams;
 use goodfetch_protocol::page::route::UrlMatcher;
 use goodfetch_protocol::settings::TIMEOUT_WAIT;
-use serde_json::Value;
 use tokio::sync::oneshot;
 use url::Url;
 
-use super::super::{FetchTiers, ServedPage, Waiter, lock};
+use super::super::{FetchTiers, Replayed, ServedPage, Waiter, lock};
 use super::{answered, encoded, ready, sent};
 
 /// Arms `page.wait_for_response` or `page.wait_for_request_finished`,
@@ -90,8 +92,9 @@ pub(super) fn arm(
             }
         };
         match waited.await {
-            Some(Some(exchange)) => Ok(encoded(&exchange)),
-            Some(None) | None => Err(tiers.unserved(&page_id, operation, true)),
+            Some(Replayed::Answered(exchange)) => Ok(encoded(&exchange)),
+            Some(Replayed::PastALimit(limit)) => Err(limit.error()),
+            Some(Replayed::NoneCame) | None => Err(tiers.unserved(&page_id, operation, true)),
         }
     })
 }
@@ -119,6 +122,7 @@ pub(super) async fn replay(
         return;
     };
     let run = page.document.run.clone();
+    let limits = Limits::of_run(run.settings());
     while armed(tiers, page_id) {
         let Some(call) = replay.next_call() else {
             break;
@@ -134,10 +138,18 @@ pub(super) async fn replay(
         let Ok(fetched) = sent(page, &params).await else {
             break;
         };
-        let json = (200..300)
-            .contains(&fetched.status)
-            .then(|| serde_json::from_slice::<Value>(&fetched.body).ok())
-            .flatten();
+        let json = if (200..300).contains(&fetched.status) {
+            match parse_json(call.as_str(), &fetched.body, &limits) {
+                Ok(json) => Some(json),
+                Err(JsonFailure::Limit(limit)) => {
+                    tell(tiers, page_id, call.as_str(), &Replayed::PastALimit(limit));
+                    break;
+                }
+                Err(JsonFailure::Malformed(_)) => None,
+            }
+        } else {
+            None
+        };
         let Some(json) = json else {
             // A call the site no longer answers as it answered the browser,
             // a signed one, a token taken once: no wait is answered from it.
@@ -163,13 +175,19 @@ pub(super) async fn replay(
             },
             response,
         };
-        answer(tiers, page_id, &exchange);
+        let url = exchange.request.url.clone();
+        tell(
+            tiers,
+            page_id,
+            &url,
+            &Replayed::Answered(Box::new(exchange)),
+        );
         replay.answered(&json);
     }
     // The waits left: told none came, so they escalate.
     if let Some(replaying) = lock(&tiers.served.pages).replays.get_mut(page_id) {
         for waiter in replaying.waiters.drain(..) {
-            let _ = waiter.answer.send(None);
+            let _ = waiter.answer.send(Replayed::NoneCame);
         }
     }
 }
@@ -187,9 +205,9 @@ fn armed(tiers: &FetchTiers, page_id: &PageId) -> bool {
         })
 }
 
-/// Answers every wait armed on the served page `page_id` whose pattern
-/// matches the replayed call `exchange`.
-fn answer(tiers: &FetchTiers, page_id: &PageId, exchange: &PageExchange) {
+/// Tells every wait armed on the served page `page_id` whose pattern matches
+/// the replayed call to `url` what came of it.
+fn tell(tiers: &FetchTiers, page_id: &PageId, url: &str, replayed: &Replayed) {
     let mut pages = lock(&tiers.served.pages);
     let Some(replaying) = pages.replays.get_mut(page_id) else {
         return;
@@ -197,9 +215,9 @@ fn answer(tiers: &FetchTiers, page_id: &PageId, exchange: &PageExchange) {
     let (matched, waiting): (Vec<Waiter>, Vec<Waiter>) = replaying
         .waiters
         .drain(..)
-        .partition(|waiter| waiter.pattern.matches(&exchange.request.url));
+        .partition(|waiter| waiter.pattern.matches(url));
     replaying.waiters = waiting;
     for waiter in matched {
-        let _ = waiter.answer.send(Some(exchange.clone()));
+        let _ = waiter.answer.send(replayed.clone());
     }
 }

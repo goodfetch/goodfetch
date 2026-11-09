@@ -37,6 +37,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::politeness::Politeness;
+use goodfetch_engine::response_limits::{LimitExceeded, Limits};
 use goodfetch_engine::robots_txt::{self, Answer, Fetch, Fetched, Judgment, Rule};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
@@ -126,6 +127,28 @@ pub struct Refusal {
     pub by: RefusedBy,
     /// What it says of the request.
     pub message: String,
+}
+
+/// Why a request is not sent: a preference refused it, or what the site
+/// declares its preferences in could not be read past a limit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NotAllowed {
+    /// A preference refused it.
+    Refused(Refusal),
+    /// A file of its preferences passed a limit: `response_limit_exceeded`.
+    PastALimit(LimitExceeded),
+}
+
+impl From<Refusal> for NotAllowed {
+    fn from(refusal: Refusal) -> Self {
+        Self::Refused(refusal)
+    }
+}
+
+impl From<LimitExceeded> for NotAllowed {
+    fn from(limit: LimitExceeded) -> Self {
+        Self::PastALimit(limit)
+    }
 }
 
 /// What a site's preferences let a request do once they allow it.
@@ -245,6 +268,8 @@ pub struct SitePreferences {
     /// `search`, which is no declaration (ADR 0086).
     purpose: Option<Purpose>,
     signal_files: SignalFiles,
+    /// `network.max_json_depth`, for the signal files read as JSON.
+    limits: Limits,
 }
 
 impl SitePreferences {
@@ -264,6 +289,7 @@ impl SitePreferences {
                 .and_then(|token| ProductToken::new(token).ok()),
             purpose,
             signal_files: SignalFiles::default(),
+            limits: Limits::of(settings),
         }
     }
 
@@ -345,7 +371,7 @@ impl SitePreferences {
     ///
     /// # Errors
     ///
-    /// The [`Refusal`] of a request that is not to be sent.
+    /// [`NotAllowed`] of a request that is not to be sent.
     ///
     /// # Cancel safety
     ///
@@ -356,7 +382,7 @@ impl SitePreferences {
         url: &Url,
         reading: Option<&Reading>,
         fetch: F,
-    ) -> Result<Allowed, Refusal>
+    ) -> Result<Allowed, NotAllowed>
     where
         F: FnOnce(Url) -> Fut + Send,
         Fut: Future<Output = Answer> + Send,
@@ -378,17 +404,16 @@ impl SitePreferences {
             ),
         };
         if let Some(signal) = content_signals_refusing(&applying.content_signals, purpose) {
-            return Err(refused(signal));
+            return Err(refused(signal).into());
         }
         let Ok(location) = url.join(TDMREP_FILE) else {
             return Ok(allowed);
         };
-        match self
-            .signal_file(&location, fetch)
-            .await
-            .and_then(|file| tdmrep_file_refusing(&file, url, purpose))
-        {
-            Some(signal) => Err(refused(signal)),
+        let Some(file) = self.signal_file(&location, fetch).await else {
+            return Ok(allowed);
+        };
+        match tdmrep_file_refusing(&file, (&location, url), purpose, &self.limits)? {
+            Some(signal) => Err(refused(signal).into()),
             None => Ok(allowed),
         }
     }

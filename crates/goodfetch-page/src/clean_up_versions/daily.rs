@@ -14,9 +14,9 @@
 
 use goodfetch_engine::browser_cache::HeldArtifact;
 use goodfetch_engine::pinned_download::Digest;
+use goodfetch_engine::response_limits::{JsonFailure, LimitExceeded, parse_json};
 use goodfetch_engine::rule_sources::{self, Fetched};
 use goodfetch_protocol::clean_up_rules::RulesSource;
-use serde_json::Value;
 
 use super::failures::Unobtained;
 use super::{FILE_LIMIT, Sources, Version};
@@ -81,11 +81,13 @@ async fn pull(sources: &Sources, reference: &str) -> Result<Vec<(String, Vec<u8>
             status: fetched.status,
         });
     }
-    let manifest: Value = serde_json::from_slice(&fetched.body).map_err(|error| {
-        Unobtained::Unreadable(format!(
-            "the daily channel's manifest does not read: {error}"
-        ))
-    })?;
+    let manifest =
+        parse_json(&url, &fetched.body, &sources.limits).map_err(|failure| match failure {
+            JsonFailure::Limit(limit) => Unobtained::PastALimit(limit),
+            JsonFailure::Malformed(error) => Unobtained::Unreadable(format!(
+                "the daily channel's manifest does not read: {error}"
+            )),
+        })?;
     let mut files = Vec::new();
     for layer in manifest["layers"].as_array().into_iter().flatten() {
         let (Some(digest), Some(name)) = (
@@ -151,6 +153,7 @@ async fn get(
     *token = Some(
         anonymous_token(sources, challenge)
             .await
+            .map_err(Unobtained::PastALimit)?
             .ok_or_else(refused)?,
     );
     send(token.as_ref()).await
@@ -159,8 +162,17 @@ async fn get(
 /// The anonymous token the registry's `challenge`, a `WWW-Authenticate`
 /// header's `Bearer realm=…,service=…,scope=…`, names; none when it names
 /// no realm or gives no token.
-async fn anonymous_token(sources: &Sources, challenge: &str) -> Option<String> {
-    let parameters = challenge.strip_prefix("Bearer ")?;
+///
+/// # Errors
+///
+/// The answer nests past `network.max_json_depth`.
+async fn anonymous_token(
+    sources: &Sources,
+    challenge: &str,
+) -> Result<Option<String>, LimitExceeded> {
+    let Some(parameters) = challenge.strip_prefix("Bearer ") else {
+        return Ok(None);
+    };
     let mut realm = None;
     let mut query = Vec::new();
     for parameter in parameters.split(',') {
@@ -174,13 +186,20 @@ async fn anonymous_token(sources: &Sources, challenge: &str) -> Option<String> {
             _ => {}
         }
     }
-    let url = url::Url::parse_with_params(realm?, &query).ok()?;
-    let answer = rule_sources::get(url.as_str(), &[], &sources.sourcing, SMALL_LIMIT)
-        .await
-        .ok()?;
-    let token: Value = serde_json::from_slice(&answer.body).ok()?;
-    token["token"]
+    let Some(url) = realm.and_then(|realm| url::Url::parse_with_params(realm, &query).ok()) else {
+        return Ok(None);
+    };
+    let Ok(answer) = rule_sources::get(url.as_str(), &[], &sources.sourcing, SMALL_LIMIT).await
+    else {
+        return Ok(None);
+    };
+    let token = match parse_json(url.as_str(), &answer.body, &sources.limits) {
+        Ok(token) => token,
+        Err(JsonFailure::Limit(limit)) => return Err(limit),
+        Err(JsonFailure::Malformed(_)) => return Ok(None),
+    };
+    Ok(token["token"]
         .as_str()
         .or_else(|| token["access_token"].as_str())
-        .map(str::to_owned)
+        .map(str::to_owned))
 }

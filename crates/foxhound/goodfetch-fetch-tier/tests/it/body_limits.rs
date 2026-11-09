@@ -4,8 +4,9 @@
 //! ends in `response_limit_exceeded` naming its setting, the decompression
 //! bombs (stacked codings included), the bodies past 64 MiB (a gzip one
 //! within the ratio included) and the endless bodies, while the driver
-//! stops reading at the limit; a normal compressed page passes. The table's
-//! JSON depth case is no fetch's: the driver parses no JSON.
+//! stops reading at the limit; a normal compressed page passes. The driver
+//! parses no JSON, so the table's JSON depth case is read as a crawl's site
+//! preferences read it: the host's `TDMRep` file, fetched through the driver.
 //!
 //! Covers: row:SC-05, error:response_limit_exceeded
 #![expect(
@@ -17,14 +18,19 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::response_limits::Limits;
+use goodfetch_engine::robots_txt::Answer;
+use goodfetch_engine::settings::{Layers, Values, resolve};
 use goodfetch_fetch_tier::{
-    FetchBounds, Fetched, Hop, HttpProfile, Reqwest, Transport, Wreq, fetch,
+    FetchBounds, Fetched, Hop, HttpProfile, NotAllowed, Request, Reqwest, SitePreferences,
+    Transport, Wreq, fetch,
 };
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use goodfetch_test_support::{
     ExpectedError, HostileTables, LimitSetting, ProvingGround, ReceivedRequests, ServedBy, TestEnv,
 };
 use rstest::rstest;
+use serde_json::{Value, json};
 use url::Url;
 
 use crate::{Stack, running_clock_runtime};
@@ -87,14 +93,93 @@ fn refusal(fetched: &Result<Fetched, CallError>) -> String {
     }
 }
 
-/// Every case of the committed limits table that a Proving ground page
-/// serves and that names a body setting, fetched on each transport: each
-/// is refused naming its setting and its value, every miss collected
-/// before the test fails. The cases come from the table alone, so a case
-/// it gains runs here too; the test only checks that both body settings
-/// are among them.
+/// What a crawl's site preferences under `max_json_depth` say of the start
+/// page of the task `id`, its `TDMRep` file fetched through `transport`: the
+/// setting and limit of the refusal, or `allowed`.
+fn judged(
+    transport: &dyn Transport,
+    proving_ground: &ProvingGround,
+    id: &str,
+    max_json_depth: u64,
+) -> String {
+    let Value::Object(given) = json!({
+        "network": { "max_json_depth": max_json_depth },
+        "site_preferences": {
+            "respect_robots_txt": false,
+            "respect_use_signals": true,
+            "purpose": "ai-input",
+        },
+    }) else {
+        unreachable!("a JSON object");
+    };
+    let layers = Layers {
+        run: Values::read(SettingsLayer::Run, &given, Product::Foxhound).unwrap(),
+        ..Layers::default()
+    };
+    let settings = resolve(&layers, Product::Foxhound, Product::Foxhound).unwrap();
+    let preferences = SitePreferences::of(&settings);
+    let url = Url::parse(&proving_ground.start_url(id).unwrap()).unwrap();
+    let judged = running_clock_runtime().block_on(preferences.judged(
+        Request::CrawlRequest,
+        &url,
+        None,
+        |location| async move {
+            match fetch(
+                transport,
+                &Hop::get(location),
+                &bounds(Limits::default()),
+                &Clock::system(),
+            )
+            .await
+            {
+                Ok(fetched) => Answer::Response {
+                    status: fetched.status,
+                    body: fetched.body.to_vec(),
+                },
+                Err(error) => Answer::Unreachable(error.message().to_owned()),
+            }
+        },
+    ));
+    match judged {
+        Ok(_) => "allowed".to_owned(),
+        Err(NotAllowed::PastALimit(limit)) => refusal(&Err(limit.error())),
+        Err(NotAllowed::Refused(refused)) => format!("refused: {refused}"),
+    }
+}
+
+/// The driver's bytes of the host's JSON reach the one check on each
+/// transport: JSON 129 deep is refused at the default and read under a depth
+/// raised past it, and JSON 128 deep, which the parser alone would refuse,
+/// passes the default.
 ///
-/// Covers: setting:network.max_body_size, setting:network.max_decompression_ratio
+/// Covers: setting:network.max_json_depth
+#[rstest]
+#[case::past_the_default("body-limits/4", 128, "network.max_json_depth=128")]
+#[case::under_a_raised_depth("body-limits/4", 129, "allowed")]
+#[case::at_the_default("body-limits/5", 128, "allowed")]
+#[case::under_a_lowered_depth("body-limits/5", 127, "network.max_json_depth=127")]
+fn the_runs_json_depth_decides_on_each_transport(
+    #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
+    #[case] task: &str,
+    #[case] depth: u64,
+    #[case] wanted: &str,
+) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = transport(stack, &proving_ground);
+
+    let got = judged(transport.as_ref(), &proving_ground, task, depth);
+
+    assert_eq!(got, wanted);
+}
+
+/// Every case of the committed limits table that a Proving ground page
+/// serves and that names a setting, read on each transport: each is refused
+/// naming its setting and its value, every miss collected before the test
+/// fails. The cases come from the table alone, so a case it gains runs here
+/// too; the test only checks that each setting is among them.
+///
+/// Covers: setting:network.max_body_size, setting:network.max_decompression_ratio, setting:network.max_json_depth
 #[rstest]
 fn every_body_of_the_limits_table_ends_in_response_limit_exceeded_naming_its_setting(
     #[values(Stack::Reqwest, Stack::Wreq)] stack: Stack,
@@ -112,7 +197,7 @@ fn every_body_of_the_limits_table_ends_in_response_limit_exceeded_naming_its_set
                 let wanted = match setting {
                     LimitSetting::MaxBodySize => "network.max_body_size=67108864",
                     LimitSetting::MaxDecompressionRatio => "network.max_decompression_ratio=100",
-                    LimitSetting::MaxJsonDepth => return None,
+                    LimitSetting::MaxJsonDepth => "network.max_json_depth=128",
                 };
                 Some((case.name.as_str(), task.as_str(), *setting, wanted))
             }
@@ -122,13 +207,17 @@ fn every_body_of_the_limits_table_ends_in_response_limit_exceeded_naming_its_set
 
     let misses: Vec<String> = cases
         .iter()
-        .filter_map(|(name, task, _, wanted)| {
-            let got = refusal(&fetched(
-                transport.as_ref(),
-                &proving_ground,
-                task,
-                Limits::default(),
-            ));
+        .filter_map(|(name, task, setting, wanted)| {
+            let got = if *setting == LimitSetting::MaxJsonDepth {
+                judged(transport.as_ref(), &proving_ground, task, 128)
+            } else {
+                refusal(&fetched(
+                    transport.as_ref(),
+                    &proving_ground,
+                    task,
+                    Limits::default(),
+                ))
+            };
             (got != *wanted).then(|| format!("{name} ({task}): wanted {wanted}, got {got}"))
         })
         .collect();
@@ -136,10 +225,11 @@ fn every_body_of_the_limits_table_ends_in_response_limit_exceeded_naming_its_set
     for setting in [
         LimitSetting::MaxBodySize,
         LimitSetting::MaxDecompressionRatio,
+        LimitSetting::MaxJsonDepth,
     ] {
         assert!(
             cases.iter().any(|(_, _, served, _)| *served == setting),
-            "the table serves no body case naming {setting:?}"
+            "the table serves no case naming {setting:?}"
         );
     }
     assert_eq!(misses, Vec::<String>::new());

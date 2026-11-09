@@ -144,7 +144,7 @@ fn a_json_tasks_host_serves_its_json_as_its_tdmrep_file(
 
     let arrived = raw_clients::get(&proving_ground, &host, "/.well-known/tdmrep.json", &[]);
 
-    assert_eq!(arrived.status(), status);
+    assert_eq!(arrived.status(), Some(status));
     assert_eq!(depth(arrived.body()), expected);
 }
 

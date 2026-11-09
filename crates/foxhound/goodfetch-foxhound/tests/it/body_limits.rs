@@ -255,7 +255,7 @@ fn a_browsers_navigation_to_a_host_whose_tdmrep_file_is_too_deep_is_refused() {
 /// deep passes the default, which the parser alone refused, and a Run that
 /// lowers it below refuses that file.
 ///
-/// Covers: setting:network.max_json_depth, setting:site_preferences.purpose, error:response_limit_exceeded
+/// Covers: setting:network.max_json_depth, setting:site_preferences.purpose
 #[rstest::rstest]
 #[case::raised_past_the_file("body-limits/4", Some(129), false)]
 #[case::at_the_default("body-limits/5", None, false)]

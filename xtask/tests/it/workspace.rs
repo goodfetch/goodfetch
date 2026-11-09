@@ -8,9 +8,8 @@ use std::process::Command;
 
 pub(crate) struct Workspace {
     folder: tempfile::TempDir,
-    /// The Cargo target folder this workspace builds into, taken on its
-    /// first `xtask` run.
-    target: std::cell::OnceCell<TargetSlot>,
+    /// The Cargo target folder this workspace builds into.
+    target: TargetSlot,
 }
 
 /// One of the numbered target folders under `fixture-target/`, held through
@@ -18,6 +17,10 @@ pub(crate) struct Workspace {
 /// fixture crate share their artifacts' names, so two workspaces never build
 /// into one folder at once; a folder keeps its dependencies built for the
 /// next test that takes it.
+///
+/// A workspace takes its slot before it writes a file. Cargo calls a crate
+/// fresh when its sources are older than its last build, so sources written
+/// before an earlier holder's build would read that holder's test binary.
 struct TargetSlot {
     folder: PathBuf,
     _lock: std::fs::File,
@@ -149,12 +152,10 @@ fn copy_tree(from: &Path, to: &Path) {
 impl Workspace {
     /// Copies `fixtures/<name>/` into a new temporary folder.
     pub(crate) fn from_fixture(name: &str) -> Self {
+        let target = TargetSlot::take();
         let folder = tempfile::tempdir().unwrap();
         copy_tree(&fixtures().join(name), folder.path());
-        Self {
-            folder,
-            target: std::cell::OnceCell::new(),
-        }
+        Self { folder, target }
     }
 
     pub(crate) fn path(&self) -> &Path {
@@ -399,10 +400,7 @@ impl Workspace {
             .command(env!("CARGO_BIN_EXE_xtask"))
             .args(args)
             .envs(variables.iter().copied())
-            .env(
-                "CARGO_TARGET_DIR",
-                &self.target.get_or_init(TargetSlot::take).folder,
-            )
+            .env("CARGO_TARGET_DIR", &self.target.folder)
             .env("CARGO_NET_OFFLINE", "true")
             .output()
             .unwrap();

@@ -298,6 +298,24 @@ fn a_test_quarantined_and_lifted_on_a_merged_branch_runs_200_times() {
     );
 }
 
+/// The other workspace builds a test of its own after this one is copied and
+/// frees its target folder first. Were this one to take that folder then, its
+/// older sources would read as already built, and its listing would hold the
+/// other's test.
+#[test]
+fn a_workspace_lists_its_own_tests_whatever_another_built_since_its_copy() {
+    let (workspace, base) = base_with_an_empty_list();
+    let (other, other_base) = base_with_an_empty_list();
+    other.edit("src/changed.rs", "fn kept() {}", &rstest_cases(&["case_1"]));
+    other.commit_all();
+    select(&other, &["--base", &other_base, "--within", "stressed"]);
+    drop(other);
+
+    let selection = select(&workspace, &["--base", &base, "--within", "stressed"]);
+
+    assert!(selection.is_empty(), "{selection:?}");
+}
+
 /// A runner may hold no test, as Playwright before the first Playwright
 /// test exists: it lists none, and the others' tests are still chosen.
 #[test]

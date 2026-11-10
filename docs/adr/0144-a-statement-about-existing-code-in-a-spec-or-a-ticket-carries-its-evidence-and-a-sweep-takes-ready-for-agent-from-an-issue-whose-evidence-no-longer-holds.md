@@ -4,7 +4,7 @@ A spec or a ticket that says what today's code does lists each such statement wi
 
 On 2026-11-09 a read of the refactor's issues against `main` found statements about existing code that the code contradicts, and the repair of 2026-11-10 confirmed 40 of them: 14 in spec #2138 and its tickets, 18 in spec #2139 and its tickets, and 8 in six tickets beside them. The statements set what the tickets build:
 
-- **A ticket's size.** #2167 was filed as a prefactor on the statement that URL keying and Scope "stay pure work on the page's task". They run inside the writer's jobs and read the run file, so #2167 is its spec's largest ticket.
+- **A ticket's size.** #2167 was filed as a prefactor on the statement that URL keying and Scope "stay pure work on the page's task". They run inside the writer's jobs and read the run file, so #2167 was its spec's largest ticket, since split in five.
 - **A ticket's test.** #2133 required a test that Payload counts reach the Run's counts, on the statement that they are lost. They are not lost, so the test passes before any change.
 - **A design.** #2139 ended a handler's `page.on` subscriptions at "no command". A `page.on` that listens to `console` or `page_error` has sent `Runtime.enable` since 2026-10-23, and the page driver's module comment still said "`Runtime` is never enabled" two weeks later, when the spec was written.
 

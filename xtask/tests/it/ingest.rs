@@ -450,33 +450,8 @@ fn test_that_failed_in_one_attempt_and_passed_in_another_is_found_flaky_after_in
 
 /// A run's head is not always what its jobs tested: a Release run tests the
 /// commit its `commit` input names, a pull-request run its merge commit. Each
-/// test run records the commit and tree its job checked out (`context.json`).
-#[test]
-fn test_runs_record_the_commit_and_tree_their_job_tested() {
-    let workspace = Workspace::from_fixture("results-ingest");
-    let github = GitHub::serving(&[
-        (ATTEMPT, RUN_ATTEMPT),
-        (JOBS, ATTEMPT_JOBS),
-        (ARTIFACTS, RUN_ARTIFACTS),
-    ]);
-
-    let outcome = ingest(&workspace, &github);
-
-    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-    let file = read_store_file(&workspace, &format!("{STORE}/runs/2026/10/42-2.tar.gz"));
-    let tested: std::collections::BTreeSet<(&str, &str)> = file
-        .test_runs
-        .iter()
-        .map(|run| {
-            (
-                run["commit"].as_str().unwrap(),
-                run["tree"].as_str().unwrap(),
-            )
-        })
-        .collect();
-    assert_eq!(tested, [("c2", "t2")].into());
-}
-
+/// test run records the commit and tree its job checked out (`context.json`):
+/// here `c2` and `t2`, beside the run's head `c1` and `t1`.
 #[test]
 fn attempt_becomes_one_store_file_with_a_record_per_test_run_and_job() {
     let workspace = Workspace::from_fixture("results-ingest");
@@ -488,7 +463,7 @@ fn attempt_becomes_one_store_file_with_a_record_per_test_run_and_job() {
 
     let outcome = ingest(&workspace, &github);
 
-    assert_eq!(outcome.code, 0);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     let file = read_store_file(&workspace, &format!("{STORE}/runs/2026/10/42-2.tar.gz"));
     assert_eq!(
         file.paths,

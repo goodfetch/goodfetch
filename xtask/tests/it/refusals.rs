@@ -214,8 +214,11 @@ fn unregistering_a_format_removes_its_cases() {
     assert!(!workspace.path().join(REFUSALS).join("sample-file").exists());
 }
 
+/// Every rule the protocol knows has a refusal table, so a registry can
+/// only miss one by naming a rule the protocol does not know, which reading
+/// the registry refuses.
 #[test]
-fn a_format_under_a_rule_without_a_refusal_table_fails() {
+fn a_format_under_a_rule_the_protocol_does_not_know_fails() {
     let workspace = Workspace::from_fixture("refusals");
     register(
         &workspace,
@@ -233,7 +236,9 @@ fn a_format_under_a_rule_without_a_refusal_table_fails() {
 
     assert_ne!(outcome.code, 0);
     assert!(
-        outcome.stderr.contains("response_cache"),
+        outcome
+            .stderr
+            .contains("reading the format registry: unknown variant `response_cache`"),
         "{}",
         outcome.stderr
     );

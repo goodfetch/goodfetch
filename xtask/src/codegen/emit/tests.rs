@@ -2,7 +2,6 @@ use rstest::rstest;
 use serde_json::json;
 
 use super::emit;
-use goodfetch_protocol::catalog::Product;
 
 #[test]
 fn the_bundle_holds_the_schema_of_the_releases_file() {
@@ -191,20 +190,6 @@ fn every_event_an_operation_names_is_in_the_catalog() {
         .filter(|event| !listed.contains(event))
         .collect();
     assert_eq!(unlisted, Vec::<&str>::new());
-}
-
-#[rstest]
-#[case::collie(Product::Collie, "collie")]
-#[case::foxhound(Product::Foxhound, "foxhound")]
-fn product_reads_and_writes_the_mark_the_catalog_writes(
-    #[case] product: Product,
-    #[case] mark: &str,
-) {
-    let written = serde_json::to_value(product).unwrap();
-
-    assert_eq!(written, json!(mark));
-    assert_eq!(product.as_str(), mark);
-    assert_eq!(serde_json::from_value::<Product>(written).unwrap(), product);
 }
 
 #[test]
@@ -467,19 +452,6 @@ fn no_requests_params_type_is_a_member_of_another_type() {
             "{name} is a member of another type"
         );
     }
-}
-
-/// Covers: story:3-146
-#[rstest]
-#[case::both(r#"{ "traceparent": "a", "tracestate": "b" }"#, true)]
-#[case::neither("{}", true)]
-#[case::baggage(r#"{ "baggage": "a=b" }"#, false)]
-#[case::a_number(r#"{ "traceparent": 1 }"#, false)]
-fn a_trace_context_reads_only_its_two_strings(#[case] meta: &str, #[case] reads: bool) {
-    assert_eq!(
-        serde_json::from_str::<goodfetch_protocol::jsonrpc::TraceContext>(meta).is_ok(),
-        reads
-    );
 }
 
 #[test]

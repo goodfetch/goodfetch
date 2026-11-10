@@ -17,6 +17,20 @@ fn a_product_contains_itself_and_foxhound_contains_collie(
 }
 
 #[rstest]
+#[case::collie(Product::Collie, "collie")]
+#[case::foxhound(Product::Foxhound, "foxhound")]
+fn product_reads_and_writes_the_mark_the_catalog_writes(
+    #[case] product: Product,
+    #[case] mark: &str,
+) {
+    let written = serde_json::to_value(product).unwrap();
+
+    assert_eq!(written, json!(mark));
+    assert_eq!(product.as_str(), mark);
+    assert_eq!(serde_json::from_value::<Product>(written).unwrap(), product);
+}
+
+#[rstest]
 #[case::zero("0.1", ProtocolVersion { major: 0, minor: 1 })]
 #[case::several_digits("12.304", ProtocolVersion { major: 12, minor: 304 })]
 fn a_protocol_version_reads_as_major_dot_minor(

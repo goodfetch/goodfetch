@@ -26,5 +26,6 @@ extend-exclude = ["rnd/", "vendor/", "crates/goodfetch-cdp/protocol.json", "crat
 # `writeable` crate and its `Writeable` trait. And the Console's Lingui catalog keys its messages by a
 # six-character hash of each, such as `"ypes-A": "Model calls"`, no word.
 # And the rows of ISO 3166-1's country codes `proxy.country` takes
-# (`"BA", "BB", …`), no words either.
-extend-ignore-re = ["(?m)^  \"[A-Za-z0-9_-]{6}\": \"", "ThreatMetrix", "online-metrix", "\\bmis-", "\\bPNGs\\b", "look-alikes", "\\bnd-(router|neighbor)-", "\\bndJson", "(?i)\\bcaf(\\\\u|%C3)", "\\bCaf&eacute;", "für alle", "ses raisons", "\\bgrant_univeral_access\\b", "Alle (akzeptieren|ablehnen)", "LevelOptin", "\\bFebruar\\b", "\\bIST\\b", "\\bwriteable::Writeable\\b", "(?m)^    (\"[A-Z]{2}\", )*\"[A-Z]{2}\",$"]
+# (`"BA", "BB", …`), no words either. And the owner's words quoted as
+# typed in the order of work and ADR 0037's note (« best pratice »).
+extend-ignore-re = ["(?m)^  \"[A-Za-z0-9_-]{6}\": \"", "ThreatMetrix", "online-metrix", "\\bmis-", "\\bPNGs\\b", "look-alikes", "\\bnd-(router|neighbor)-", "\\bndJson", "(?i)\\bcaf(\\\\u|%C3)", "\\bCaf&eacute;", "für alle", "ses raisons", "\\bgrant_univeral_access\\b", "Alle (akzeptieren|ablehnen)", "LevelOptin", "\\bFebruar\\b", "\\bIST\\b", "\\bwriteable::Writeable\\b", "(?m)^    (\"[A-Z]{2}\", )*\"[A-Z]{2}\",$", "best pratice would build it"]

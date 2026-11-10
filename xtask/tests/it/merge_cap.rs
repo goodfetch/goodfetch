@@ -159,6 +159,58 @@ fn the_cap_counts_from_the_latest_green_run_on_mains_history() {
     );
 }
 
+/// The backstop has a switch, `ci/gate-backstop.state` (ADR 0135): while
+/// `main` holds it as `off`, no green run comes, so the cap counts nothing
+/// and says so, however many merges have landed since the last one. Held as
+/// `on`, the cap counts as it does without the file.
+#[rstest]
+#[case::off("off\n", Some(0), "the backstop is off on origin/main")]
+#[case::on("on\n", Some(1), "12 merges have landed on origin/main")]
+fn the_cap_counts_only_while_the_backstop_is_switched_on(
+    #[case] state: &str,
+    #[case] code: Option<i32>,
+    #[case] said: &str,
+) {
+    let workspace = repository();
+    let tested = land(&workspace, 0);
+    land(&workspace, 11);
+    workspace.write("ci/gate-backstop.state", state.as_bytes());
+    workspace.git(&["add", "ci/gate-backstop.state"]);
+    workspace.git(&["commit", "--quiet", "--message", "Merge #12"]);
+    workspace.git(&["update-ref", "refs/remotes/origin/main", "main"]);
+
+    let run = merge_cap(&workspace, Some(&green(&tested)), &[]);
+
+    assert_eq!(run.code, code, "{}{}", run.stdout, run.stderr);
+    assert!(
+        run.stdout.contains(said) || run.stderr.contains(said),
+        "{}{}",
+        run.stdout,
+        run.stderr
+    );
+}
+
+/// A switch that says neither `on` nor `off` is refused, not guessed at.
+#[test]
+fn a_switch_that_says_neither_on_nor_off_is_refused() {
+    let workspace = repository();
+    let tested = land(&workspace, 0);
+    workspace.write("ci/gate-backstop.state", b"paused\n");
+    workspace.git(&["add", "ci/gate-backstop.state"]);
+    workspace.git(&["commit", "--quiet", "--message", "Merge #1"]);
+    workspace.git(&["update-ref", "refs/remotes/origin/main", "main"]);
+
+    let run = merge_cap(&workspace, Some(&green(&tested)), &[]);
+
+    assert_eq!(run.code, Some(1), "{}", run.stdout);
+    assert!(
+        run.stderr
+            .contains("says `paused`, which is neither `on` nor `off`"),
+        "{}",
+        run.stderr
+    );
+}
+
 /// Green runs that `main`'s history holds none of leave nothing to count
 /// from, so the cap refuses rather than guess.
 #[test]

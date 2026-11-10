@@ -1707,7 +1707,8 @@ _gate-record head step status *evidence:
 # past a miss nothing can clear is TESTING.md's, never an edit of its results.
 # It waits for a running gate of `just merge` before its full run, as a gate
 # started meanwhile waits for it, and sweeps its worktree's `target/` after
-# its day's line, still holding its lock.
+# its day's line, still holding its lock. It has a switch, the one word of
+# ci/gate-backstop.state (`on` or `off`): switched off, a run does nothing.
 # Its log and results go to ~/gate-backstop/ (GOODFETCH_GATE_BACKSTOP_LOG). Run
 # from the main checkout.
 gate-backstop ref="origin/main":

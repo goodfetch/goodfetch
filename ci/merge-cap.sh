@@ -9,7 +9,8 @@
 # commits of `origin/main` since the latest green run whose commit `main`
 # holds. Until the backstop has had a green run it blocks nothing and says
 # so; when green runs exist but `main` holds none of their commits, it
-# refuses rather than guess. `--past-cap`, the owner's explicit override,
+# refuses rather than guess. While the backstop is switched off on `main`
+# (`ci/gate-backstop.state`), it counts nothing and says so. `--past-cap`, the owner's explicit override,
 # merges anyway and says so. It reads refs only: the caller fetches. It
 # keeps to bash 3.2, which stock macOS runs.
 #   ci/merge-cap.sh [--past-cap]
@@ -34,6 +35,13 @@ ref=origin/main
 results=${GOODFETCH_GATE_BACKSTOP_LOG:-$HOME/gate-backstop}/results.txt
 # shellcheck source=ci/backstop-green.sh
 source "$(dirname "$0")/backstop-green.sh"
+# The backstop's switch, as `main` holds it: while it is off no green run
+# comes, so the cap has nothing to count from and blocks no merge.
+state=$(backstop_state "$(git show "$ref:ci/gate-backstop.state" 2>/dev/null || true)")
+if [[ $state == off ]]; then
+  echo "The merge cap: the backstop is off on $ref (ci/gate-backstop.state), so the cap counts nothing"
+  exit 0
+fi
 greens=$(backstop_greens "$results")
 if [[ -z $greens ]]; then
   echo "The merge cap: the backstop has no green run yet in $results, so the cap counts nothing until its first one"

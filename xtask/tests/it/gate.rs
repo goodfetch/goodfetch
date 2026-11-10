@@ -431,6 +431,7 @@ const SHUFFLED: [&str; 4] = [
 #[case::xtask_fixture("xtask/tests/it/fixtures/empty/README.md", &["linux"], true)]
 #[case::ci_no_gate_step_runs("ci/coverage.sh", &[], false)]
 #[case::ci_backstop("ci/gate-backstop.sh", &[], false)]
+#[case::ci_backstop_switch("ci/gate-backstop.state", &[], false)]
 #[case::ci_read_by_a_step_every_run_reruns("ci/gitleaks.toml", &[], false)]
 #[case::ci_proof("ci/proofs/msrv/Cargo.toml", &[], false)]
 #[case::ci_perf("ci/perf.sh", &["perf"], false)]

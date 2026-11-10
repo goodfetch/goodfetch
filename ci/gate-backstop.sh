@@ -47,8 +47,11 @@
 # started: what the gate it waited for merged is the next day's. A backstop
 # that finds its own worktree held lists its day as skipped. After its line is
 # written, the run sweeps its worktree's `target/`, still holding the lock. A
-# stop ends its steps before the lock goes, with no line for the day. It
-# keeps to bash 3.2, which stock macOS runs.
+# stop ends its steps before the lock goes, with no line for the day.
+#
+# It has a switch, `ci/gate-backstop.state`: `on` or `off`, read from the
+# commit it tests. Switched off, a run does nothing. It keeps to bash 3.2,
+# which stock macOS runs.
 set -euo pipefail
 
 ref=${1:-origin/main}
@@ -70,6 +73,17 @@ scripts=${GOODFETCH_GATE_SCRIPTS:-}
 unset GOODFETCH_GATE_SCRIPTS GOODFETCH_GATE_SCRIPTS_OF
 trap 'rm -rf "$scripts"' EXIT
 echo "== $(date -u +%FT%TZ) the incremental gate's backstop on $ref"
+
+# The backstop's switch, as the commit under test holds it: switched off, a
+# run starts nothing, takes no lock and writes no line, and ends well, so the
+# cron entry can stay while it is off.
+# shellcheck source=ci/backstop-green.sh
+source "$(dirname "$0")/backstop-green.sh"
+state=$(backstop_state "$(cat "$(dirname "$0")/gate-backstop.state" 2>/dev/null || true)")
+if [[ $state == off ]]; then
+  echo "== off: ci/gate-backstop.state of $commit says off, so nothing runs"
+  exit 0
+fi
 
 # The re-stress refuses a selected `lazyfs::` test without a LazyFS build (xtask's
 # `repeat`), and which tests it selects takes a build to find, so a run on Linux,
@@ -96,8 +110,6 @@ fi
 gate_worktree_name="gate-backstop"
 # shellcheck source=ci/gate-worktree.sh
 source "$(dirname "$0")/gate-worktree.sh"
-# shellcheck source=ci/backstop-green.sh
-source "$(dirname "$0")/backstop-green.sh"
 # A worktree another run holds, a test-health run or a backstop still waiting
 # for a gate, is a skipped day with its line, as a test-health run lists
 # itself beside a busy worktree (ci/test-health/scheduled.sh): a night without

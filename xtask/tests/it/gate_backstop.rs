@@ -451,7 +451,7 @@ fn a_run_uses_the_helpers_of_the_commit_it_tests() {
         &workspace,
         &[(
             "ci/backstop-green.sh",
-            b"backstop_greens() { :; }\nlatest_green() { git rev-parse main~1; }\n",
+            b"backstop_state() { echo on; }\nbackstop_greens() { :; }\nlatest_green() { git rev-parse main~1; }\n",
         )],
     );
     let earlier = workspace.git(&["rev-parse", "main~1"]);
@@ -711,6 +711,62 @@ fn a_red_full_run_fails_the_backstop() {
 
     assert_eq!(run.code, Some(1), "{}", run.log);
     assert!(run.results.contains(" gate=fail "), "{}", run.results);
+}
+
+/// The backstop has a switch, `ci/gate-backstop.state` of the commit it
+/// tests (ADR 0135). Switched `off`, a run starts nothing, takes no lock,
+/// writes no line and ends well, so the cron entry can stay; switched `on`,
+/// it runs as it does for a commit without the file.
+#[rstest::rstest]
+#[case::off("off\n", &[], "")]
+#[case::on("on\n", &["fetch|", "pre-merge all|1"], "gate=pass misses=0")]
+fn the_backstop_runs_only_while_it_is_switched_on(
+    #[case] state: &str,
+    #[case] first_calls: &[&str],
+    #[case] line: &str,
+) {
+    let workspace = backstop_repository();
+    commit_to_main(&workspace, &[("ci/gate-backstop.state", state.as_bytes())]);
+    let stand_in = stand_in_just(&workspace);
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(0), "{}", run.log);
+    let calls: Vec<&str> = run
+        .calls
+        .iter()
+        .map(String::as_str)
+        .take(first_calls.len().max(1))
+        .collect();
+    assert_eq!(calls, first_calls);
+    assert!(run.results.contains(line), "{}", run.results);
+    assert_eq!(run.results.is_empty(), line.is_empty(), "{}", run.results);
+    assert_eq!(
+        workspace
+            .path()
+            .join(".claude/worktrees/gate-backstop")
+            .exists(),
+        !line.is_empty()
+    );
+}
+
+/// A switch that says neither `on` nor `off` fails the run before any step.
+#[test]
+fn a_backstop_whose_switch_says_neither_on_nor_off_fails_before_any_step() {
+    let workspace = backstop_repository();
+    commit_to_main(&workspace, &[("ci/gate-backstop.state", b"paused\n")]);
+    let stand_in = stand_in_just(&workspace);
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(1), "{}", run.log);
+    assert!(run.calls.is_empty(), "{:?}", run.calls);
+    assert!(
+        run.log
+            .contains("says `paused`, which is neither `on` nor `off`"),
+        "{}",
+        run.log
+    );
 }
 
 /// A backstop whose build could take the disk below what the host keeps

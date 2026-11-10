@@ -1549,12 +1549,15 @@ proofs:
 hooks:
     git config core.hooksPath .githooks
 
-# Merges a pull request only when `just pre-merge all`, which starts with
-# `just quick all`'s lint and Quick suite, passes on its exact head, in a
-# clean checkout in the gate's own worktree (AGENTS.md, "Merging"), or `just
-# pre-merge quick` when no test reads the change (`xtask affected`'s
-# `gate=quick`, ADR 0135), or `just pre-merge docs` when it is documents
-# alone (`gate=docs`). It refuses once 10 merges have landed on `main` since
+# Merges a pull request only when its gate passes on its exact head, in a
+# clean checkout in the gate's own worktree (AGENTS.md, "Merging"): `just
+# pre-merge docs` when it is documents alone (`xtask affected`'s
+# `gate=docs`), `just pre-merge quick` when no test reads the change
+# (`gate=quick`), and for a change a test reads `just pre-merge all`, which
+# starts with `just quick all`'s lint and Quick suite, on a spec's pull
+# request (head branch `spec/<n>`) and `just pre-merge quick` on any other
+# (ADR 0135's amendment of 2026-11-10); `just merge <number> --full` runs
+# the full gate on any pull request. It refuses once 10 merges have landed on `main` since
 # the backstop's last green run (ci/merge-cap.sh) unless the owner passes
 # `--past-cap`: `just merge <number> --past-cap`. It refuses to start a gate
 # under GOODFETCH_GATE_MIN_FREE_GB (30) free on the file system of the gate's

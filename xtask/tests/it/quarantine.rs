@@ -50,17 +50,6 @@ fn an_entry_read_without_a_github_token_fails_naming_the_token() {
     );
 }
 
-#[test]
-fn empty_list_passes() {
-    let workspace = Workspace::from_fixture("quarantine");
-    let github = GitHub::serving(&[]);
-
-    let outcome = check(&workspace, &github);
-
-    assert_eq!(outcome.findings(), vec![]);
-    assert_eq!(outcome.code, 0);
-}
-
 /// An empty list runs no runner, so `just lint` builds no test binary for
 /// it; a listed nextest test needs Cargo for its listing (a Cargo that
 /// cannot start fails the check), which shows the empty list's pass ran none.

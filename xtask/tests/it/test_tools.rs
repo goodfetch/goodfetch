@@ -77,21 +77,13 @@ fn an_entry_no_tool_has_fails_to_parse() {
 }
 
 #[test]
-fn manifest_lists_each_executable_the_workspace_has() {
+fn the_manifest_names_each_executable_the_workspace_has_by_its_built_absolute_path() {
     let workspace = Workspace::from_fixture("test-tools");
 
     let manifest = test_tools(&workspace);
 
     let entries: Vec<&String> = manifest.as_object().unwrap().keys().collect();
     assert_eq!(entries, ["collie", "test_env"]);
-}
-
-#[test]
-fn each_entry_is_the_absolute_path_of_the_built_executable() {
-    let workspace = Workspace::from_fixture("test-tools");
-
-    let manifest = test_tools(&workspace);
-
     let path = Path::new(manifest["test_env"].as_str().unwrap());
     assert!(path.is_absolute(), "{}", path.display());
     assert!(path.is_file(), "{}", path.display());

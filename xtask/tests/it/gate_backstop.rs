@@ -790,6 +790,40 @@ fn a_backstop_without_the_disk_its_build_needs_is_skipped() {
     assert!(sweeps(&stand_in).is_empty(), "{:?}", sweeps(&stand_in));
 }
 
+/// A reader of the results sees every day's run: one that ends on its setup,
+/// before its full run's result, reads as failed, never as nothing, which
+/// would look like a night the cron did not fire. Its lock goes with it.
+#[cfg(target_os = "linux")]
+#[rstest::rstest]
+#[case::the_fetch("fetch", Some(3))]
+#[case::the_worktrees_checkout("checkout", Some(128))]
+#[case::the_os_services("_os-services", Some(3))]
+fn a_backstop_whose_setup_fails_leaves_a_failed_results_line(
+    #[case] setup: &str,
+    #[case] code: Option<i32>,
+) {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    if setup == "checkout" {
+        // A file where the worktree goes, which `git worktree add` refuses.
+        workspace.write(".claude/worktrees/gate-backstop", b"");
+    } else {
+        std::fs::write(stand_in.join("failing"), format!("{setup}\n")).unwrap();
+    }
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, code, "{}", run.log);
+    assert!(run.results.contains(" gate=fail ("), "{}", run.results);
+    assert_eq!(run.results.lines().count(), 1, "{}", run.results);
+    assert!(
+        !workspace
+            .path()
+            .join(".claude/worktrees/gate-backstop.lock")
+            .exists()
+    );
+}
+
 /// The backstop's sweeps of its worktree's `target/`, as the stand-in noted
 /// them: `<arguments>|<locked or free>|<written or unwritten>|<folder>`.
 fn sweeps(stand_in: &Path) -> Vec<String> {

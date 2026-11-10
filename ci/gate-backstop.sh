@@ -47,7 +47,12 @@
 # started: what the gate it waited for merged is the next day's. A backstop
 # that finds its own worktree held lists its day as skipped. After its line is
 # written, the run sweeps its worktree's `target/`, still holding the lock. A
-# stop ends its steps before the lock goes, with no line for the day.
+# stop ends its steps before the lock goes, with no line for the day. A run
+# that ends on its setup, the fetch, the worktree's checkout or the OS
+# services, before its full run's result, lists its day as
+# `gate=fail (ended before its result: …)`, as a test-health run does
+# (ci/test-health/scheduled.sh): a night without a line would read as a night
+# cron did not fire.
 #
 # It has a switch, `ci/gate-backstop.state`: `on` or `off`, read from the
 # commit it tests. Switched off, a run does nothing. It keeps to bash 3.2,
@@ -60,6 +65,25 @@ mkdir -p "$logs"
 day=$(date -u +%F)
 exec >>"$logs/$day.log" 2>&1
 
+commit=unknown
+said=""
+locked=""
+scripts=${GOODFETCH_GATE_SCRIPTS:-}
+# Ends the day with its line `gate=$1`.
+result() {
+  echo "$day $commit gate=$1" >>"$logs/results.txt"
+  said=yes
+}
+# `set -e` ends the run on a setup that fails: its line still says so. A run
+# that needs no line (switched off, refused, stopped) says so in `said`.
+ended() {
+  local status=$?
+  [[ -n $said ]] || result "fail (ended before its result: status $status)"
+  [[ -z $locked ]] || rm -rf "$lock"
+  rm -rf "$scripts"
+}
+trap ended EXIT
+
 git fetch --quiet origin
 commit=$(git rev-parse --verify "$ref^{commit}")
 
@@ -69,9 +93,7 @@ if [[ ${GOODFETCH_GATE_SCRIPTS_OF:-} != "$commit" ]]; then
   GOODFETCH_GATE_SCRIPTS_OF=$commit GOODFETCH_GATE_SCRIPTS=$scripts \
     exec bash "$scripts/ci/gate-backstop.sh" "$commit" </dev/null
 fi
-scripts=${GOODFETCH_GATE_SCRIPTS:-}
 unset GOODFETCH_GATE_SCRIPTS GOODFETCH_GATE_SCRIPTS_OF
-trap 'rm -rf "$scripts"' EXIT
 echo "== $(date -u +%FT%TZ) the incremental gate's backstop on $ref"
 
 # The backstop's switch, as the commit under test holds it: switched off, a
@@ -82,6 +104,7 @@ source "$(dirname "$0")/backstop-green.sh"
 state=$(backstop_state "$(cat "$(dirname "$0")/gate-backstop.state" 2>/dev/null || true)")
 if [[ $state == off ]]; then
   echo "== off: ci/gate-backstop.state of $commit says off, so nothing runs"
+  said=off
   exit 0
 fi
 
@@ -91,7 +114,7 @@ fi
 # does. Cron's entry names it (ci/gate-backstop.crontab).
 if [[ "$(uname -s)" == Linux && ! (-f ${GOODFETCH_LAZYFS:-} && -x ${GOODFETCH_LAZYFS:-}) ]]; then
   echo "error: the backstop's re-stress needs GOODFETCH_LAZYFS to name an executable LazyFS build, and it is ${GOODFETCH_LAZYFS:-not set}; build one with \`just lazyfs-build\`, copy its target/lazyfs/bin/ outside every checkout and name it in the crontab (ci/gate-backstop.crontab)" >&2
-  echo "$day $commit gate=skipped (no LazyFS build: GOODFETCH_LAZYFS is ${GOODFETCH_LAZYFS:-not set})" >>"$logs/results.txt"
+  result "skipped (no LazyFS build: GOODFETCH_LAZYFS is ${GOODFETCH_LAZYFS:-not set})"
   exit 1
 fi
 
@@ -102,6 +125,7 @@ if [[ -n ${GOODFETCH_GATE_BACKSTOP_SINCE:-} ]]; then
   told_since=$(git rev-parse --verify "$GOODFETCH_GATE_BACKSTOP_SINCE^{commit}")
   if ! git merge-base --is-ancestor "$told_since" "$commit"; then
     echo "error: GOODFETCH_GATE_BACKSTOP_SINCE is $told_since, which $commit does not hold" >&2
+    said=refused
     exit 1
   fi
   echo "== the owner named $told_since: the merges it holds are not checked"
@@ -117,11 +141,11 @@ source "$(dirname "$0")/gate-worktree.sh"
 holder=$(gate_worktree_holder "$lock")
 if [[ -n $holder ]]; then
   echo "== skipped: process $holder holds $worktree"
-  echo "$day $commit gate=skipped (the backstop's worktree is busy: process $holder)" >>"$logs/results.txt"
+  result "skipped (the backstop's worktree is busy: process $holder)"
   exit 1
 fi
 gate_worktree_lock
-trap 'rm -rf "$lock" "$scripts"' EXIT
+locked=yes
 
 # The lock is what keeps a gate from starting beside this run's suites, so a
 # stop (SIGTERM, SIGHUP, SIGINT) ends them before the lock goes: it stops the
@@ -137,6 +161,7 @@ trap 'rm -rf "$lock" "$scripts"' EXIT
 stop() {
   local job
   trap '' TERM HUP INT
+  said=stopped
   echo "== the backstop was told to stop: stopping its steps"
   for job in $(jobs -p); do kill -TERM -- "-$job" 2>/dev/null || true; done
   wait || true
@@ -179,7 +204,7 @@ needed=${GOODFETCH_GATE_BACKSTOP_MIN_FREE_GB:-$needed}
 free=$(df -Pk "$root" | awk 'NR == 2 { print int($4 / 1048576) }')
 if ((free < needed)); then
   echo "== skipped: $free GB free, the backstop needs $needed GB"
-  echo "$day $commit gate=skipped (free disk $free GB < $needed GB)" >>"$logs/results.txt"
+  result "skipped (free disk $free GB < $needed GB)"
   exit 1
 fi
 gate_worktree_checkout "$commit"
@@ -279,7 +304,7 @@ for base in $bases; do
   fi
 done
 
-echo "$day $commit gate=$gate misses=$misses suspects=$suspects unchecked=$unchecked earned=$earned${told_since:+ since=$told_since}" >>"$logs/results.txt"
+result "$gate misses=$misses suspects=$suspects unchecked=$unchecked earned=$earned${told_since:+ since=$told_since}"
 
 # Once the day's line is written, and still holding the worktree's lock, so
 # no test-health run builds here meanwhile, the worktree's `target/` loses the

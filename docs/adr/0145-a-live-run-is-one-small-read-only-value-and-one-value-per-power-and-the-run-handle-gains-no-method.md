@@ -19,7 +19,7 @@ The Runs' registry is sound: one actor, one mailbox, one transition function wit
 - **Each power is a value of its own,** in the owner module ADR 0140 names for it, or in a module of its own where ADR 0140 names none: the run file's writer, charging, the Run trace, progress, Secrets and the data key, the Run report's warnings, the end.
 - **A function takes the identity and the powers it uses,** and nothing else of the Run.
 
-> Note (agent decision of 2026-11-10, awaiting the owner's reading), from the same review: the two lists do not cover everything `Run` hands out. Read at `197a8c18e` with the language server, the handle has 64 methods, one of them in `runs/outcome.rs`. 32 are the identity's or a listed power's, and 5 hand out what the engine's context already holds. Ten more follow from the rule above with no choice left, and are placed so:
+> Note (agent, accepted by the owner on 2026-11-10), from the same review: the two lists do not cover everything `Run` hands out. Read at `197a8c18e` with the language server, the handle has 64 methods, one of them in `runs/outcome.rs`. 32 are the identity's or a listed power's, and 5 hand out what the engine's context already holds. Ten more follow from the rule above with no choice left, and are placed so:
 >
 > - a point in time is read from the identity's clock, and an outcome record from its Run ID;
 > - the hold of a Human pause is progress's;
@@ -28,6 +28,16 @@ The Runs' registry is sound: one actor, one mailbox, one transition function wit
 > - asking a Run to stop, and the watches that ask it at a timeout or a storage failure, stay the Runs' registry's; a charge that a Limit refuses asks it too, as today.
 >
 > The other 17 hand out nine things that neither list names: the Run's share of the Resource governor, entropy, the Politeness a Run shares, its robots.txt copies, where a crawl attempt's writes are staged, the storage of bodies and of kept files, the signal that a Run was let finish, the record that a Run uses another Product's entry, and its records in the Run index. Each needs a new power, a new part of the identity or another home. That is the owner's to decide, and nothing is chosen here: [#2255](https://github.com/goodfetch/goodfetch/issues/2255) holds the question with its options, and [#2299](https://github.com/goodfetch/goodfetch/issues/2299) builds the answer.
+
+> Note (owner's decisions, 2026-11-10, [#2255](https://github.com/goodfetch/goodfetch/issues/2255), in the grilling of decision G-10 of the consolidated review, answered "Yes, all eleven" and "Yes to both"): the nine are placed.
+>
+> - **Five more powers,** each in its owner module, so the powers are twelve: the Run's share of the Resource governor, with the governor's last sample (the governor's module, ADR 0140's E4); entropy, a value that forks in the order it forks today (ADR 0059); the Politeness a Run shares, opened on the first ask (the Politeness module, E6); the Run's own robots.txt copies, the one holder of "one fetch per origin while the Run lives" (the robots.txt module); and the Run's files, which stores a page's body and keeps a file for the program (the Run files' module).
+> - **The end carries the signal that a Run was let finish.** The driver that ends a Run is the one that waits to be let finish, and the registry alone sets the signal. The identity's list stays as it is.
+> - **Four are no value of the Run.** Where a crawl attempt's writes are staged arrives with the contribution that registers the crawl's driver, asked with the Run's ID and the attempt's crawl request ID and lease epoch; no contribution is added. The robots.txt copy a crawl shares is held by the crawl's own record of its Run. The record that a Run uses another Product's entry is a command of the registry's handle that takes the Run's ID. The two records a Run leaves in the Run index are functions of the Run index's module over the identity and the engine's context, never a command to the registry's loop.
+> - **The registry alone sets a Run's stop signal.** A power that must ask for a stop, charging at a Limit's refusal and the Politeness a Run shares at a storage failure of its file, is built with a value of the registry's that asks.
+> - **The registry's loop awaits no file.** [#2258](https://github.com/goodfetch/goodfetch/issues/2258) moves every disk wait of the loop beside it, not only a start's and a resume's.
+>
+> No Shared path's owner module or Cost contract changes (ADR 0140). [#2299](https://github.com/goodfetch/goodfetch/issues/2299) builds the placements.
 
 ### `Run` gains no method
 
@@ -75,6 +85,7 @@ Each reason is the one put to the owner before the answer ([#2253](https://githu
 
 - **`docs/agents/rollout-order.md` gains two steps** after spec #2138; spec #1838's CDP tickets and specs #2139, #2164 and #2194 run after them.
 - **The Run's identity keeps its task owner.** A Session's and a browser's owner are made as its children ([ADR 0146](0146-a-session-a-page-and-a-browser-each-have-one-owner-a-page-has-one-reader-of-its-events-and-one-module-of-the-page-crate-names-cdp.md)); what ends is page code starting tasks on the Run itself.
+  > Note (owner's decision, 2026-11-10, [#2255](https://github.com/goodfetch/goodfetch/issues/2255), in the grilling of decision G-10 of the consolidated review): "read-only" means that no holder changes what the identity says of the Run. It does not mean without authority. Its task owner starts work that stops with the Run: a task, blocking work, an analysis, an actor, a child owner. The identity hands out that starting side alone. Cancelling, waiting for and stopping the Run's own owner stay the Runs' registry's, and the type the identity hands out has none of the three (`crates/goodfetch-engine/src/tasks.rs:260-293`, read at `094c96b2d`, where one type has both sides; the Run's own owner is stopped in one place, as the Run ends, `crates/goodfetch-engine/src/runs.rs:6401`). A child is a full owner, which its Session, Page or browser stops (ADR 0146). The identity also holds the Run's folder as a path: writing in it is the Run's files power's by its signature, not by enforcement. [#2257](https://github.com/goodfetch/goodfetch/issues/2257) builds it.
 - **`runs`' list in `modules.toml` shrinks,** and each module split out of it gets its own.
 - **A start that runs beside the loop can overlap another command.** The spec's model-based test of the registry holds what the loop held by awaiting: one start per Run ID, a stop or a discard that arrives while a Run is starting, a drain that waits for the starts in flight.
 - **Not decided here:** how the engine stops naming Foxhound items is ADR 0099's rule, applied by [#2231](https://github.com/goodfetch/goodfetch/issues/2231).

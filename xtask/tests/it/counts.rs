@@ -646,36 +646,16 @@ fn proving_fails_a_valgrind_row_blind_to_its_plant() {
 }
 
 /// The real register: each row of a path whose code does not exist yet has its
-/// limit and a command that says it has not run, with nothing to build.
+/// limit and a command that says it has not run, with nothing to build. The
+/// rows, their limits and their tickets are the register's and `xtask
+/// counts`' own, so only their lines' shape is held here; the fixture tests
+/// hold their values.
 #[rstest]
-#[case::hook_stage("F5", &[
-    "F5.messages_no_hook: not run yet, limit 0, until #1481 builds its path",
-    "F5.calls: not run yet, limit 1, until #1481 builds its path",
-    "F5.builds: not run yet, limit 0, until #1481 builds its path",
-])]
-#[case::sink_delivery("F6", &[
-    "F6.opens: not run yet, limit 0, until #1121 builds its path",
-    "F6.transactions: not run yet, limit 1, until #1121 builds its path",
-    "F6.writer_reads: not run yet, limit 0, until #1121 builds its path",
-])]
-#[case::working_copy_update("E7", &[
-    "E7.merge_round_trips: not run yet, limit 1, until #1998 builds its path",
-    "E7.document_loads: not run yet, limit 0, until #1689 builds its path",
-    "E7.document_encodes: not run yet, limit 0, until #1689 builds its path",
-    "E7.opens: not run yet, limit 0, until #1689 builds its path",
-    "E7.prepares: not run yet, limit 0, until #1689 builds its path",
-    "E7.transactions: not run yet, limit 1, until #1689 builds its path",
-    "E7.syncs: not run yet, limit 0, until #1689 builds its path",
-    "E7.encodes: not run yet, limit 1, until #1689 builds its path",
-])]
-#[case::live_view_frame("C6", &[
-    "C6.file_opens: not run yet, limit 0, until #959 builds its path",
-    "C6.compilations: not run yet, limit 0, until #959 builds its path",
-    "C6.spawns: not run yet, limit 0, until #959 builds its path",
-    "C6.acknowledgements: not run yet, limit 1, until #959 builds its path",
-    "C6.seals: not run yet, limit 1, until #959 builds its path",
-])]
-fn a_path_not_built_yet_reports_its_rows_as_not_run(#[case] path: &str, #[case] lines: &[&str]) {
+#[case::hook_stage("F5")]
+#[case::sink_delivery("F6")]
+#[case::working_copy_update("E7")]
+#[case::live_view_frame("C6")]
+fn a_path_not_built_yet_reports_its_rows_as_not_run(#[case] path: &str) {
     let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap();
@@ -692,7 +672,17 @@ fn a_path_not_built_yet_reports_its_rows_as_not_run(#[case] path: &str, #[case] 
         "{stdout}{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(stdout.lines().collect::<Vec<_>>(), lines);
+    // `<path>.<row>: not run yet, limit <limit>, until #<ticket> builds its path`
+    let not_run = |line: &str| {
+        line.strip_prefix(&format!("{path}."))
+            .and_then(|line| line.split_once(": not run yet, limit "))
+            .and_then(|(_, line)| line.split_once(", until #"))
+            .is_some_and(|(_, line)| line.ends_with(" builds its path"))
+    };
+    assert!(
+        !stdout.is_empty() && stdout.lines().all(not_run),
+        "{stdout}"
+    );
 }
 
 /// B1's counted rows other than `F1.parses`, at the figures [`whole_b1`]'s

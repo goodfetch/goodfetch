@@ -6,7 +6,7 @@ The order the owner adopted on 2026-11-01 for the specs after [#1583](https://gi
 
 - **A step that names a spec** is one `/implement-spec` run of it: every open ticket of that spec, whatever its milestone. A ticket that another spec's open ticket blocks stays off its frontier until that ticket closes.
 - **A step that names tickets** (steps 2, 4 and 10) is a relay of `/implement` on those tickets alone. It is no `/implement-spec` run, so it cuts no spec into scoped runs. Each of its tickets is built on a branch from `main` and reaches `main` through a pull request that closes it; tickets that are ready together are combined into one branch for one gate (`AGENTS.md`, Merging). None lands on a spec's integration branch.
-- **#1838 is named three times and has one `/implement-spec` run.** Steps 2 and 4 take, as relays, the nine tickets of it that another spec's ticket waits for. Step 9 is its run, with every ticket still open then. That run started on 2026-11-06: `spec/1838` holds 12 commits that are not on `main`, the work of #2066, #2106 and #2131, and has no pull request yet, so step 9 resumes it.
+- **#1838 is named three times and has one `/implement-spec` run.** Steps 2 and 4 take, as relays, the nine tickets of it that another spec's ticket waits for. Step 9 is its run, with every ticket still open then. That run started on 2026-11-06: `spec/1838` holds 12 commits that are not on `main`, the work of #2066 and #2106, and has no pull request yet, so step 9 resumes it.
 
 **The standing check's ticket,** [#2242](https://github.com/goodfetch/goodfetch/issues/2242) (ADR 0144), belongs to no spec and nothing waits for it: a relay takes it at any point.
 

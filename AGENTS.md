@@ -39,7 +39,7 @@ Traps that break things, each explained in `STYLE.md`:
 CI runs locally (ADR 0135); GitHub Actions runs the Release suite only.
 
 - Merge a pull request only with `just merge <number>`: it gates the pull request's exact head in a clean, locked worktree, runs the quick gate instead when `xtask affected` prints `gate=quick` and the docs gate when it prints `gate=docs`, and merges only when the gate passes. While the owner rents it, `just merge` runs on the Hetzner server (ADR 0135's amendment of 2026-10-22).
-- `just merge` refuses once 10 merges have landed on `main` since the backstop's last green run; only the owner passes `--past-cap` (ADR 0135's amendment of 2026-11-04).
+- The backstop has a switch, `ci/gate-backstop.state` (`on` or `off`), which only the owner changes; it is off since 2026-11-10 (ADR 0135's amendment of that date). While it is on, `just merge` refuses once 10 merges have landed on `main` since the backstop's last green run, and only the owner passes `--past-cap` (ADR 0135's amendment of 2026-11-04); while it is off, that cap counts nothing.
 - In a stack of pull requests, merge the bottom one first.
 - When several ready pull requests would each get the full gate, combine them into one branch and run `just merge` once.
 - Dispatch the Release suite with `just release-ci`. On `main`, name the hosted cells: the default, `all`, includes the macOS cells, which queue for the unregistered `owner-machine` runner and fail after 24 hours.

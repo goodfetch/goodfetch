@@ -1453,6 +1453,9 @@ The ratchet. A figure is compared with its "Today" value, never with the previou
 | `C5.cache_file_opens` | body files opened per cache hit (0 per miss) | 1 | not run yet (#793) | B2 | must not grow | `just counts --path C5` | implementer done, merge gate |
 | `C5.body_reads` | body reads per recorded response, a recording or WARC on (0 when off) | 1 | not run yet (#1291) | B2 | must not grow | `just counts --path C5` | implementer done, merge gate |
 | `C5.charset_refetches` | second GETs per document on the charset path (0 elsewhere) | ≤ 1 | not run yet (#1783) | B2 | must not grow | `just counts --path C5` | implementer done, merge gate |
+| `C7.hop_pages_opened` | page targets created per browser-fetch hop; the Contract is set by ADR 0020's rule of 2026-11-10 | set by the rule of where `auto` sends its HTTP from | not run yet (#2294); read in the code, not run: 1 | B2 | must not grow | `just counts --path C7` | implementer done, merge gate |
+| `C7.hop_commands` | CDP commands sent per browser-fetch hop | set by the same rule | not run yet (#2294); read in the code, not run: 17 with a window, 18 headless | B2 | must not grow | `just counts --path C7` | implementer done, merge gate |
+| `C7.hop_pauses` | `Fetch.requestPaused` events answered per browser-fetch hop | set by the same rule | not run yet (#2294); read in the code, not run: 2 | B2 | must not grow | `just counts --path C7` | implementer done, merge gate |
 | `E1.decodes` | decodes per request, straight into typed params | 1 | no counter yet (B3 counts no decode) | B3 | must not grow | none yet | none yet |
 | `E4.cpu_stat_opens` | `cpu.stat` opens per sample (0 with its warning off) | ≤ 1 | not run yet (#1306) | B3 | must not grow | `just counts --path E4` | implementer done, merge gate |
 | `E4.pool_walks` | memory walks per page opened in the browser pool | 0 | not reached on B2 (X17) | B2 | must not grow | `just counts` | implementer done, merge gate |

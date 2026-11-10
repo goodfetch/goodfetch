@@ -381,31 +381,52 @@ fn the_register_of_this_repository_passes() {
     );
 }
 
-/// `just lint-documents`, which `just lint` runs first and the docs gate
-/// runs alone, runs the check, so every form of the merge gate does.
+/// The command of each step the repository's `just <recipe>` runs, as
+/// keep-going's list mode prints them (`<command>  # <step>`) without running
+/// any (`ci/keep-going.sh`, as `just quick-steps` reads them).
+fn steps(recipe: &str) -> Vec<String> {
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    let output = Command::new("just")
+        .arg(recipe)
+        .env("GOODFETCH_STEPS_LIST", "1")
+        .current_dir(repository)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{stdout}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    stdout
+        .lines()
+        .filter_map(|line| {
+            line.rsplit_once("  # ")
+                .map(|(command, _)| command.to_owned())
+        })
+        .collect()
+}
+
+/// `just lint-documents`, which `just lint` runs among its steps and the docs
+/// gate runs alone, runs the check, so every form of the merge gate does.
 #[test]
 fn just_lint_runs_the_check() {
-    let justfile = include_str!("../../../justfile");
-    let recipe = |name: &str| {
-        justfile
-            .split(&format!("\n{name}:"))
-            .nth(1)
-            .and_then(|recipe| recipe.split("\n\n").next())
-            .unwrap()
-            .to_owned()
-    };
-    let lint = recipe("lint");
-    let documents = recipe("lint-documents");
+    let lint = steps("lint");
+    let documents = steps("lint-documents");
 
-    // `just lint` runs its checks as keep-going steps (#2131): the first is
-    // `lint-documents`.
-    let first = lint
-        .lines()
-        .find(|line| line.trim_start().starts_with("step "));
-    assert_eq!(
-        first.map(str::trim),
-        Some("step lint-documents '{{ just_executable() }} lint-documents'"),
-        "{lint}"
+    assert!(
+        lint.iter().any(|command| matches!(
+            command.split_whitespace().collect::<Vec<_>>()[..],
+            [just, "lint-documents"] if just.ends_with("just")
+        )),
+        "{lint:#?}"
     );
-    assert!(documents.contains("xtask -- register check"), "{documents}");
+    assert!(
+        documents
+            .iter()
+            .any(|command| command.contains("xtask -- register check")),
+        "{documents:#?}"
+    );
 }

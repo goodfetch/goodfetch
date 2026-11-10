@@ -36,7 +36,8 @@ pub(crate) const NO_PROCESS: &str = "2147483646";
 /// other format to the system's `date`.
 /// `gh pr view` shows an open pull request at the head of `change`, or at the
 /// commit `pushed` names once a test pushed another, in the state and draft
-/// state `state` gives (`<state>`, a tab, `<true|false>`) when it exists, and `gh pr
+/// state `state` gives (`<state>`, a tab, `<true|false>`) when it exists, from
+/// the head branch `branch` names, `change` without it, and `gh pr
 /// merge` makes `main` a merge with the tree of the revision `merges-as` names,
 /// when it exists; `cargo run … affected` prints `selection`'s content, else
 /// `gate=quick` or the gate `gate` names, its sweep notes `sweeping` and waits
@@ -60,7 +61,7 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
             "gh",
             format!(
                 "#!/bin/sh\necho \"gh $*\" >>\"{calls}\"\n\
-                 if [ \"$1 $2\" = \"pr view\" ]; then printf '%s\\t%s\\tmain\\tA change\\n' \"$(cat \"{state}\" 2>/dev/null || printf 'OPEN\\tfalse')\" \"$(cat \"{pushed}\" 2>/dev/null || echo {head})\"; fi\n\
+                 if [ \"$1 $2\" = \"pr view\" ]; then printf '%s\\t%s\\tmain\\t%s\\tA change\\n' \"$(cat \"{state}\" 2>/dev/null || printf 'OPEN\\tfalse')\" \"$(cat \"{pushed}\" 2>/dev/null || echo {head})\" \"$(cat \"{branch}\" 2>/dev/null || echo change)\"; fi\n\
                  if [ \"$1 $2\" = \"pr merge\" ] && [ -f \"{merges_as}\" ]; then\n\
                    merged=$(git -c user.name=GitHub -c user.email=noreply@example.test commit-tree \"$(cat \"{merges_as}\")^{{tree}}\" -p refs/heads/main -p {head} -m merged)\n\
                    git update-ref refs/heads/main \"$merged\"\n\
@@ -68,6 +69,7 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
                 calls = calls.display(),
                 pushed = folder.join("pushed").display(),
                 state = folder.join("state").display(),
+                branch = folder.join("branch").display(),
                 merges_as = folder.join("merges-as").display(),
             ),
         ),
@@ -200,7 +202,19 @@ fn calls(stand_in: &Path) -> Vec<String> {
 
 /// Runs `merge_command` to its end.
 fn merge(workspace: &Workspace, stand_in: &Path, variables: &[(&str, &str)]) -> Run {
+    merge_with(workspace, stand_in, &[], variables)
+}
+
+/// Runs `merge_command` to its end with these options after the number, as
+/// `just merge <number> <options>` passes them.
+fn merge_with(
+    workspace: &Workspace,
+    stand_in: &Path,
+    options: &[&str],
+    variables: &[(&str, &str)],
+) -> Run {
     let output = merge_command(workspace, stand_in, variables)
+        .args(options)
         .output()
         .unwrap();
     Run {
@@ -547,7 +561,7 @@ fn a_gates_steps_ignore_no_signal_the_gates_start_would_have_them_ignore() {
 fn a_full_gate_without_a_lazyfs_build_fails_before_any_step(#[case] lazyfs: Option<&str>) {
     let (workspace, head) = pull_request();
     let stand_in = stand_ins(&workspace, &head);
-    std::fs::write(stand_in.join("gate"), "full").unwrap();
+    a_specs_pull_request_a_test_reads(&stand_in);
     let named = lazyfs.map(|path| workspace.path().join(path).display().to_string());
     let mut variables = vec![("GOODFETCH_GATE_MIN_FREE_GB", "0")];
     if let Some(named) = &named {
@@ -652,11 +666,205 @@ fn a_merge_says_which_gate_passed_it(#[case] full: bool, #[case] words: &str) {
     );
 }
 
+/// Which gate `just merge` runs (ADR 0135's amendment of 2026-11-10, the
+/// owner's decision for the refactor: quick per merge, the full gate once per
+/// finished spec). `xtask affected` says what the change is; a change a test
+/// reads takes the full gate only on a spec's pull request, whose head branch
+/// is `spec/<n>`, or when `--full` asks for it, and the quick gate otherwise.
+/// A change of documents alone keeps the docs gate, and one no test reads the
+/// quick gate, on any branch.
+#[rstest]
+#[case::a_change_a_test_reads("full", "change", &[], "quick")]
+#[case::a_specs_pull_request("full", "spec/130", &[], "all")]
+#[case::a_branch_that_only_starts_like_a_specs("full", "spec/notes", &[], "quick")]
+#[case::a_branch_that_only_names_a_spec("full", "claude/spec/130", &[], "quick")]
+#[case::asked_for("full", "change", &["--full"], "all")]
+#[case::asked_for_on_documents("docs", "change", &["--full"], "all")]
+#[case::a_specs_documents("docs", "spec/130", &[], "docs")]
+#[case::a_specs_change_no_test_reads("quick", "spec/130", &[], "quick")]
+fn a_change_a_test_reads_takes_the_full_gate_only_on_a_specs_pull_request_or_when_asked(
+    #[case] affected: &str,
+    #[case] branch: &str,
+    #[case] options: &[&str],
+    #[case] form: &str,
+) {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let lazyfs = full_gate_with_lazyfs(&stand_in);
+    std::fs::write(stand_in.join("gate"), affected).unwrap();
+    std::fs::write(stand_in.join("branch"), branch).unwrap();
+
+    let run = merge_with(
+        &workspace,
+        &stand_in,
+        options,
+        &[
+            ("GOODFETCH_GATE_MIN_FREE_GB", "0"),
+            ("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()),
+        ],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    let gates: Vec<&str> = run
+        .calls
+        .iter()
+        .filter_map(|call| call.strip_prefix("just pre-merge "))
+        .collect();
+    assert_eq!(gates, [form]);
+}
+
+/// A quick merge of a change a test reads is never recorded as a full one:
+/// the gate's log and the merge's message name the quick gate, say why it
+/// ran, and say what did not run.
+#[test]
+fn a_quick_merge_of_a_change_a_test_reads_says_what_it_did_not_run() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("gate"), "full").unwrap();
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    let said = "`just pre-merge quick` (a test reads the change, and the full gate runs once per finished spec, on the pull request of its `spec/<n>` branch, or with `--full`; the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)";
+    let merged = run
+        .calls
+        .iter()
+        .find(|call| call.starts_with("gh pr merge "))
+        .unwrap();
+    assert!(
+        merged.contains(&format!(
+            "--body Merged on the local gate: {said} passed at {head}."
+        )),
+        "{merged}"
+    );
+    assert!(
+        run.stdout.contains(&format!("The gate is {said}")),
+        "{}",
+        run.stdout
+    );
+}
+
+/// A full gate says in its log and in the merge's message why it ran, after
+/// the words the merge's record is found by.
+#[rstest]
+#[case::a_specs_pull_request("spec/130", &[], "(the pull request of a spec's branch, `spec/130`)")]
+#[case::asked_for("change", &["--full"], "(asked for with `--full`)")]
+fn a_full_gate_says_why_it_ran(#[case] branch: &str, #[case] options: &[&str], #[case] why: &str) {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let lazyfs = full_gate_with_lazyfs(&stand_in);
+    std::fs::write(stand_in.join("branch"), branch).unwrap();
+
+    let run = merge_with(
+        &workspace,
+        &stand_in,
+        options,
+        &[
+            ("GOODFETCH_GATE_MIN_FREE_GB", "0"),
+            ("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()),
+        ],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    let said = format!("`just pre-merge all` {why}");
+    let merged = run
+        .calls
+        .iter()
+        .find(|call| call.starts_with("gh pr merge "))
+        .unwrap();
+    assert!(
+        merged.contains(&format!("--body Merged on the local gate: {said}")),
+        "{merged}"
+    );
+    assert!(
+        run.stdout.contains(&format!("The gate is {said}")),
+        "{}",
+        run.stdout
+    );
+}
+
+/// `--full` and `--past-cap` go together in either order, and any other
+/// option is refused before the gate starts.
+#[rstest]
+#[case::full_first(&["--full", "--past-cap"], Some(0), "all")]
+#[case::past_cap_first(&["--past-cap", "--full"], Some(0), "all")]
+#[case::past_cap_alone(&["--past-cap"], Some(0), "quick")]
+#[case::unknown(&["--fast"], Some(2), "")]
+#[case::unknown_after_a_known_one(&["--full", "--fast"], Some(2), "")]
+fn the_gates_options_go_in_any_order_and_no_other_is_taken(
+    #[case] options: &[&str],
+    #[case] code: Option<i32>,
+    #[case] form: &str,
+) {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let lazyfs = full_gate_with_lazyfs(&stand_in);
+    std::fs::write(stand_in.join("branch"), "change").unwrap();
+
+    let run = merge_with(
+        &workspace,
+        &stand_in,
+        options,
+        &[
+            ("GOODFETCH_GATE_MIN_FREE_GB", "0"),
+            ("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()),
+        ],
+    );
+
+    assert_eq!(run.code, code, "{}{}", run.stdout, run.stderr);
+    let gates: Vec<&str> = run
+        .calls
+        .iter()
+        .filter_map(|call| call.strip_prefix("just pre-merge "))
+        .collect();
+    let expected: Vec<&str> = form.split(' ').filter(|form| !form.is_empty()).collect();
+    assert_eq!(gates, expected);
+}
+
+/// A quick gate's hand-over of its base's listings rests on no test reading
+/// the change. A quick merge of a change a test reads may add, rename or
+/// remove tests, so the base's listings are not the merge's: none is kept,
+/// and the next stress run lists its base from a checkout.
+#[test]
+fn a_quick_merge_of_a_change_a_test_reads_hands_no_listings_to_the_merge() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("gate"), "full").unwrap();
+    std::fs::write(stand_in.join("merges-as"), &head).unwrap();
+    std::fs::write(stand_in.join("base-listings"), "").unwrap();
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    assert!(!listings(&workspace).exists(), "{}", run.stdout);
+    assert!(
+        run.stdout
+            .contains("the next stress run lists its base from a checkout"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        !run.calls
+            .iter()
+            .any(|call| call.contains("stress listings")),
+        "{:?}",
+        run.calls
+    );
+}
+
 #[test]
 fn a_full_gate_with_a_lazyfs_build_runs_its_steps() {
     let (workspace, head) = pull_request();
     let stand_in = stand_ins(&workspace, &head);
-    std::fs::write(stand_in.join("gate"), "full").unwrap();
+    a_specs_pull_request_a_test_reads(&stand_in);
     let lazyfs = stand_in.join("lazyfs");
     std::fs::write(&lazyfs, "#!/bin/sh\n").unwrap();
     std::fs::set_permissions(&lazyfs, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -674,9 +882,17 @@ fn a_full_gate_with_a_lazyfs_build_runs_its_steps() {
     call(&run, "just pre-merge all");
 }
 
+/// Makes the pull request a spec's, from its integration branch `spec/<n>`
+/// (`docs/agents/issue-tracker.md`), with a change a test reads: the one kind
+/// that takes the full gate unasked.
+fn a_specs_pull_request_a_test_reads(stand_in: &Path) {
+    std::fs::write(stand_in.join("gate"), "full").unwrap();
+    std::fs::write(stand_in.join("branch"), "spec/130").unwrap();
+}
+
 /// A stand-in LazyFS build, and the variables of a full gate that uses it.
 fn full_gate_with_lazyfs(stand_in: &Path) -> PathBuf {
-    std::fs::write(stand_in.join("gate"), "full").unwrap();
+    a_specs_pull_request_a_test_reads(stand_in);
     let lazyfs = stand_in.join("lazyfs");
     std::fs::write(&lazyfs, "#!/bin/sh\n").unwrap();
     std::fs::set_permissions(&lazyfs, std::fs::Permissions::from_mode(0o755)).unwrap();

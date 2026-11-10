@@ -15,12 +15,36 @@ root=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)
 worktree="$root/.claude/worktrees/${gate_worktree_name:-merge-gate}"
 lock="$worktree.lock"
 
+# Prints when process `$1` started, in a form two shells print alike for one
+# process and no later process of that number shares: on Linux its start in
+# clock ticks since the boot (/proc/<pid>/stat, the 22nd field, past the
+# command's name in parentheses), elsewhere `ps`'s start time in UTC and the C
+# locale. Nothing when the process no longer runs.
+process_started() {
+  local stat
+  if [[ -d /proc/self ]]; then
+    stat=$(cat "/proc/$1/stat" 2>/dev/null) || return 0
+    awk '{ print $20 }' <<<"${stat##*) }"
+  else
+    TZ=UTC LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null | awk '{ $1 = $1; print }'
+  fi
+}
+
 # Prints the process that holds the lock folder `$1`, when it still runs; a
-# lock whose holder ended holds nothing, and prints nothing.
+# lock whose holder ended holds nothing, and prints nothing. Neither does a
+# lock whose process number another process has since taken, as one may after
+# a reboot: the lock names when its holder started (`started`), which that
+# process does not match, so no run waits for ever for a run long gone. A
+# lock with no `started`, as a script from before it wrote one takes, is
+# judged by its process alone.
 gate_worktree_holder() {
   local holder
   holder=$(cat "$1/pid" 2>/dev/null || true)
-  if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then echo "$holder"; fi
+  if [[ -z $holder ]] || ! kill -0 "$holder" 2>/dev/null; then return 0; fi
+  if [[ -f $1/started && $(cat "$1/started" 2>/dev/null || true) != "$(process_started "$holder")" ]]; then
+    return 0
+  fi
+  echo "$holder"
 }
 
 # `just merge`'s gate and the runs in the backstop's worktree read each
@@ -70,6 +94,8 @@ gate_worktree_lock() {
       exit 1
     fi
   done
+  # When it started first: a lock is read from the moment it names a process.
+  process_started "$$" >"$lock/started"
   echo "$$" >"$lock/pid"
 }
 

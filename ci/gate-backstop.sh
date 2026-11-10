@@ -43,9 +43,12 @@
 # The full run and `just merge`'s gate never run together (ADR 0135's
 # amendment of 2026-11-10): a backstop that finds a gate running waits for it
 # to end, holding its worktree, and a gate started while the backstop holds
-# its worktree waits for the backstop. After its line is written, the run
-# sweeps its worktree's `target/`, still holding the lock. It keeps to bash
-# 3.2, which stock macOS runs.
+# its worktree waits for the backstop. It tests the head it read when it
+# started: what the gate it waited for merged is the next day's. A backstop
+# that finds its own worktree held lists its day as skipped. After its line is
+# written, the run sweeps its worktree's `target/`, still holding the lock. A
+# stop ends its steps before the lock goes, with no line for the day. It
+# keeps to bash 3.2, which stock macOS runs.
 set -euo pipefail
 
 ref=${1:-origin/main}
@@ -95,8 +98,48 @@ gate_worktree_name="gate-backstop"
 source "$(dirname "$0")/gate-worktree.sh"
 # shellcheck source=ci/backstop-green.sh
 source "$(dirname "$0")/backstop-green.sh"
+# A worktree another run holds, a test-health run or a backstop still waiting
+# for a gate, is a skipped day with its line, as a test-health run lists
+# itself beside a busy worktree (ci/test-health/scheduled.sh): a night without
+# a line would read as a night cron did not fire.
+holder=$(gate_worktree_holder "$lock")
+if [[ -n $holder ]]; then
+  echo "== skipped: process $holder holds $worktree"
+  echo "$day $commit gate=skipped (the backstop's worktree is busy: process $holder)" >>"$logs/results.txt"
+  exit 1
+fi
 gate_worktree_lock
 trap 'rm -rf "$lock" "$scripts"' EXIT
+
+# The lock is what keeps a gate from starting beside this run's suites, so a
+# stop (SIGTERM, SIGHUP, SIGINT) ends them before the lock goes: it stops the
+# step that runs, with every process that step started, waits for it, and
+# only then lets the exit release the worktree; the day gets no line. Each
+# step that builds or tests runs in the background, since a shell runs a trap
+# only once its foreground command has ended, and in a process group of its
+# own that it leads (job control, for that one command), as ci/merge-pr.sh
+# starts its gate's steps: `just pre-merge` then stops the steps it runs
+# beside as it ends. SIGKILL runs no trap: the suites of a backstop or a gate
+# killed that way run on while its lock, whose holder is gone, holds nothing,
+# so stop either with SIGTERM.
+stop() {
+  local job
+  trap '' TERM HUP INT
+  echo "== the backstop was told to stop: stopping its steps"
+  for job in $(jobs -p); do kill -TERM -- "-$job" 2>/dev/null || true; done
+  wait || true
+  exit 143
+}
+trap stop TERM HUP INT
+stoppable() {
+  local status=0
+  set -m
+  "$@" &
+  set +m
+  wait "$!" || status=$?
+  return "$status"
+}
+
 # The full run and `just merge`'s gate never run together: each is a gate's
 # worth of suites, and two on one host fail tests on timing (TESTING.md,
 # Checks by role). The backstop has its lock before it reads the gate's, as a
@@ -131,10 +174,10 @@ gate_worktree_checkout "$commit"
 # The incremental runs it compares with: `just merge`'s, read only.
 merged_runs="$root/.claude/worktrees/merge-gate/target/gate-runs"
 cd "$worktree"
-just fetch
+stoppable just fetch
 
 gate=pass
-GOODFETCH_GATE_FULL=1 just pre-merge all || gate=fail
+GOODFETCH_GATE_FULL=1 stoppable just pre-merge all || gate=fail
 echo "== the full run on $commit: $gate"
 
 misses=0 suspects=0 unchecked=0 earned=0
@@ -188,7 +231,7 @@ done <<<"$unreached"
 # instead of skipping its tests: red confirms the miss. The stress run's
 # suspects are reported as they are.
 if [[ "$(uname -s)" == Linux ]]; then
-  just _os-services
+  stoppable just _os-services
   set -a
   # shellcheck source=/dev/null
   source "${RUNNER_TEMP:-/tmp}/goodfetch-os-services/env"
@@ -200,7 +243,7 @@ for step in quick pre-merge stress; do
   crates=$(suspect_crates "$step" | tr '\n' ' ')
   [[ -n ${crates// /} ]] || continue
   for crate in $crates; do
-    if [[ $step != stress ]] && ! just test "$step" "$crate"; then
+    if [[ $step != stress ]] && ! stoppable just test "$step" "$crate"; then
       misses=$((misses + 1))
       note "miss $step:$crate: reused by an incremental run on this tree, red when its tests rerun alone"
     elif [[ $step == stress ]]; then
@@ -218,7 +261,7 @@ for base in $bases; do
   listed=$(jq -r --arg base "$base" '[.[] | select(.kind == "earned" and .base == $base) | .member] | unique | .[]' <<<"$compared" | tr '\n' ' ')
   read -ra crates <<<"$listed"
   earned=$((earned + ${#crates[@]}))
-  if ! just stress "$base" "" "" merged "${crates[@]}"; then
+  if ! stoppable just stress "$base" "" "" merged "${crates[@]}"; then
     misses=$((misses + 1))
     note "miss stress: ${crates[*]}: a merge since the last green run counted their earlier passes, and their whole counts against $base are red or could not run here; a red may be any merge's since that base, and a base that can never run takes GOODFETCH_GATE_BACKSTOP_SINCE (TESTING.md)"
   fi
@@ -241,7 +284,7 @@ echo "$day $commit gate=$gate misses=$misses suspects=$suspects unchecked=$unche
 # or a container's volume. A run that ends before this, stopped or on a fault,
 # leaves the sweep to the next day's; a sweep that fails changes no verdict.
 sweep_target() {
-  just sweep-target "$@" ||
+  stoppable just sweep-target "$@" ||
     echo "warning: the backstop's target/ was not swept (just sweep-target $*)" >&2
 }
 sweep_target --leave ci-test --unused-hours 72

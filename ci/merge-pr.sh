@@ -114,6 +114,36 @@ stop() {
 }
 trap stop TERM HUP INT
 
+# One worktree for every gate, locked and held by one gate at a time, reset
+# to the exact head (ci/gate-worktree.sh).
+# shellcheck source=ci/gate-worktree.sh
+source "$(dirname "$0")/gate-worktree.sh"
+# shellcheck source=ci/output-value.sh
+source "$(dirname "$0")/output-value.sh"
+gate_worktree_lock
+locked=1
+
+# A run in the backstop's worktree, a test-health run or the backstop's own
+# full run, shares the host's cores with whatever runs beside it, and on
+# 2026-11-08 a test-health run's load failed a gate on a leak timeout. The gate
+# waits, holding its lock so no later run starts, until that run ends: within
+# its minutes, or at once if it died. A test-health run sees this lock once it
+# has marked its own, and skips. The backstop takes its lock before it reads
+# this one, as the gate has taken this one before it reads the backstop's, so
+# of a backstop and a gate starting together at least one sees the other: a
+# backstop that sees this gate lets it end first and says so in its lock, and
+# the gate then goes on (ci/gate-worktree.sh). The wait comes before the pull
+# request is read: behind a backstop it can last hours, and the gate judges
+# the head, the base and the merge cap as they are once it starts.
+waiting_for=""
+while ahead=$(run_in_the_backstops_worktree "$$") && [[ -n $ahead ]]; do
+  if [[ $ahead != "$waiting_for" ]]; then
+    echo "Waiting for $ahead, to end before the gate starts"
+    waiting_for=$ahead
+  fi
+  sleep 1
+done
+
 IFS=$'\t' read -r state draft head base title < <(
   gh pr view "$number" --json state,isDraft,headRefOid,baseRefName,title \
     --jq '[.state, (.isDraft | tostring), .headRefOid, .baseRefName, .title] | @tsv'
@@ -144,44 +174,19 @@ fi
 
 # This checkout's compiler cache check, which the gate runs in its own.
 compiler_cache=$(cd "$(dirname "$0")" && pwd)/compiler-cache.sh
-# One worktree for every gate, locked and held by one gate at a time, reset
-# to the exact head (ci/gate-worktree.sh).
-# shellcheck source=ci/gate-worktree.sh
-source "$(dirname "$0")/gate-worktree.sh"
-# shellcheck source=ci/output-value.sh
-source "$(dirname "$0")/output-value.sh"
-gate_worktree_lock
-locked=1
-
-# A run in the backstop's worktree, a test-health run or the backstop's own
-# full run, shares the host's cores with whatever runs beside it, and on
-# 2026-11-08 a test-health run's load failed a gate on a leak timeout. The gate
-# waits, holding its lock so no later run starts, until that run ends: within
-# its minutes, or at once if it died. A test-health run sees this lock once it
-# has marked its own, and skips. The backstop takes its lock before it reads
-# this one, as the gate has taken this one before it reads the backstop's, so
-# of a backstop and a gate starting together at least one sees the other: a
-# backstop that sees this gate lets it end first and says so in its lock, and
-# the gate then goes on (ci/gate-worktree.sh).
-waiting_for=""
-while ahead=$(run_in_the_backstops_worktree "$$") && [[ -n $ahead ]]; do
-  if [[ $ahead != "$waiting_for" ]]; then
-    echo "Waiting for $ahead, to end before the gate starts"
-    waiting_for=$ahead
-  fi
-  sleep 1
-done
 
 # A failing gate's log and test results are kept in the repository's common
 # folder, which no checkout's clean, no worktree removal and no sweep of the
 # temporary folder reaches, for 30 days: a flaky-candidate issue links them.
+# `red-steps` holds what each red step's runners had written when it ended
+# (ci/pre-merge.sh), since the gate goes on and later steps clear those files.
 failures="$common/goodfetch-gate-failures"
 keep_failed_gate() {
   local kept entry
   kept="$failures/$(date -u +%Y%m%dT%H%M%SZ)-pr$number-${head:0:12}"
   mkdir -p "$kept"
   cp "$run.log" "$kept/gate.log"
-  for entry in nextest junit skipped.txt stress-selection.tsv; do
+  for entry in nextest junit skipped.txt stress-selection.tsv red-steps; do
     [[ ! -e $worktree/target/$entry ]] || cp -R "$worktree/target/$entry" "$kept/"
   done
   find "$failures" -mindepth 1 -maxdepth 1 -type d -mtime +30 -exec rm -rf {} +

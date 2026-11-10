@@ -17,7 +17,11 @@ use crate::workspace::Workspace;
 /// to `calls`, prints `compare`'s content as `just _gate-compare`, and fails
 /// with status 3 for the calls `failing` lists, one a line. As `just
 /// sweep-target` it appends to `sweeps` its arguments, `locked` when the
-/// backstop's worktree is held, and the folder it runs in.
+/// backstop's worktree is held, `written` when the day's line is in
+/// `results.txt`, and the folder it runs in. For a call
+/// `holding` lists, it notes its process in `held` and waits while `hold`
+/// exists; told to stop meanwhile, it notes in `stopped` whether the
+/// backstop's worktree is still `locked` or already `free`, and ends.
 fn stand_in_just(workspace: &Workspace) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
@@ -30,16 +34,28 @@ fi
 if [ "$1" = sweep-target ]; then
   held=free
   if [ -f "{lock}/pid" ]; then held=locked; fi
-  echo "$*|$held|$PWD" >>"{sweeps}"
+  line=unwritten
+  if [ -s "{results}" ]; then line=written; fi
+  echo "$*|$held|$line|$PWD" >>"{sweeps}"
 fi
 if [ -f "{failing}" ] && grep -qxF -- "$*" "{failing}"; then
   exit 3
 fi
+if [ -f "{holding}" ] && grep -qxF -- "$*" "{holding}"; then
+  trap 'held=free; if [ -f "{lock}/pid" ]; then held=locked; fi; echo $held >"{stopped}"; exit 143' TERM
+  echo $$ >"{held}"
+  while [ -f "{hold}" ]; do sleep 0.02; done
+fi
 "#,
+        holding = folder.join("holding").display(),
+        held = folder.join("held").display(),
+        hold = folder.join("hold").display(),
+        stopped = folder.join("stopped").display(),
         calls = folder.join("calls").display(),
         compare = folder.join("compare").display(),
         failing = folder.join("failing").display(),
         sweeps = folder.join("sweeps").display(),
+        results = workspace.path().join("logs/results.txt").display(),
         lock = workspace
             .path()
             .join(".claude/worktrees/gate-backstop.lock")
@@ -726,7 +742,7 @@ fn a_backstop_without_the_disk_its_build_needs_is_skipped() {
 }
 
 /// The backstop's sweeps of its worktree's `target/`, as the stand-in noted
-/// them: `<arguments>|<locked or free>|<folder>`.
+/// them: `<arguments>|<locked or free>|<written or unwritten>|<folder>`.
 fn sweeps(stand_in: &Path) -> Vec<String> {
     std::fs::read_to_string(stand_in.join("sweeps"))
         .unwrap_or_default()
@@ -735,7 +751,8 @@ fn sweeps(stand_in: &Path) -> Vec<String> {
         .collect()
 }
 
-/// The two sweeps of a backstop that ran, in its worktree and under its lock:
+/// The two sweeps of a backstop that ran, in its worktree, under its lock and
+/// once its day's line is written:
 /// every profile but `ci-test` keeps what a build read in the last two days,
 /// the daily runs' reach, and `ci-test`, which only the weekly constrained
 /// test-health run builds, what one read in the last fifteen.
@@ -750,7 +767,7 @@ fn the_backstops_sweeps(workspace: &Workspace) -> Vec<String> {
         "sweep-target --target target/ci-test --unused-hours 384",
     ]
     .into_iter()
-    .map(|sweep| format!("{sweep}|locked|{}", worktree.display()))
+    .map(|sweep| format!("{sweep}|locked|written|{}", worktree.display()))
     .collect()
 }
 
@@ -841,24 +858,7 @@ fn a_backstop_lets_a_running_merge_gate_end_before_it_starts_and_says_which() {
         ".claude/worktrees/merge-gate.lock/pid",
         gate_process.as_bytes(),
     );
-    workspace.write(
-        "runner-temp/goodfetch-os-services/env",
-        b"DBUS_SESSION_BUS_ADDRESS=unix:path=/stand-in/bus\n",
-    );
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/gate-backstop.sh");
-    let mut command = workspace.command(script);
-    command.arg("origin/main");
-    let mut backstop = as_cron_runs_it(
-        &workspace,
-        &stand_in,
-        &[("GOODFETCH_GATE_BACKSTOP_MIN_FREE_GB", "0")],
-        &mut command,
-    )
-    .stdin(std::process::Stdio::null())
-    .stdout(std::process::Stdio::null())
-    .stderr(std::process::Stdio::null())
-    .spawn()
-    .unwrap();
+    let mut backstop = started_backstop(&workspace, &stand_in);
     let waits_for = workspace
         .path()
         .join(".claude/worktrees/gate-backstop.lock/waits-for");
@@ -897,6 +897,29 @@ fn a_backstop_lets_a_running_merge_gate_end_before_it_starts_and_says_which() {
     );
 }
 
+/// Starts the repository's `ci/gate-backstop.sh` as [`backstop`] runs it, and
+/// leaves it running.
+fn started_backstop(workspace: &Workspace, stand_in: &Path) -> std::process::Child {
+    workspace.write(
+        "runner-temp/goodfetch-os-services/env",
+        b"DBUS_SESSION_BUS_ADDRESS=unix:path=/stand-in/bus\n",
+    );
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/gate-backstop.sh");
+    let mut command = workspace.command(script);
+    command.arg("origin/main");
+    as_cron_runs_it(
+        workspace,
+        stand_in,
+        &[("GOODFETCH_GATE_BACKSTOP_MIN_FREE_GB", "0")],
+        &mut command,
+    )
+    .stdin(std::process::Stdio::null())
+    .stdout(std::process::Stdio::null())
+    .stderr(std::process::Stdio::null())
+    .spawn()
+    .unwrap()
+}
+
 /// A gate that died left its lock behind: it holds no backstop up, and the
 /// backstop does not say it waits.
 #[test]
@@ -917,6 +940,114 @@ fn a_backstop_waits_for_no_gate_that_died() {
         "{:?}",
         run.calls
     );
+}
+
+/// A lock names when its holder started, beside its process ID. A process
+/// that took a dead gate's number started at another time: it holds no
+/// backstop up, where the number alone would have kept it waiting for ever.
+#[test]
+fn a_process_that_took_a_dead_gates_number_holds_no_backstop_up() {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    workspace.write(
+        ".claude/worktrees/merge-gate.lock/pid",
+        std::process::id().to_string().as_bytes(),
+    );
+    workspace.write(
+        ".claude/worktrees/merge-gate.lock/started",
+        b"Thu Jan  1 00:00:00 1970\n",
+    );
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(0), "{}", run.log);
+    assert!(!run.log.contains("waiting for"), "{}", run.log);
+    assert!(
+        run.calls.contains(&"pre-merge all|1".to_owned()),
+        "{:?}",
+        run.calls
+    );
+}
+
+/// A backstop that finds its own worktree held, by a test-health run or by a
+/// backstop still waiting for a gate, starts nothing, leaves that run its
+/// lock, and lists its day as skipped: a night with no line in `results.txt`
+/// would look like a night the cron did not fire.
+#[test]
+fn a_backstop_whose_worktree_is_held_lists_its_day_as_skipped() {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    let holder = std::process::id().to_string();
+    workspace.write(
+        ".claude/worktrees/gate-backstop.lock/pid",
+        holder.as_bytes(),
+    );
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(1), "{}", run.log);
+    assert!(run.calls.is_empty(), "{:?}", run.calls);
+    assert!(
+        run.results.ends_with(&format!(
+            " gate=skipped (the backstop's worktree is busy: process {holder})\n"
+        )),
+        "{}",
+        run.results
+    );
+    assert_eq!(
+        std::fs::read_to_string(
+            workspace
+                .path()
+                .join(".claude/worktrees/gate-backstop.lock/pid")
+        )
+        .ok(),
+        Some(holder)
+    );
+}
+
+/// The backstop's lock is what keeps a gate from starting beside its suites,
+/// so a stop must end those suites before the lock goes. Told to stop during
+/// its full run, the backstop stops the step that runs, waits for it, and
+/// only then releases its worktree; it writes no line for the day.
+#[rstest::rstest]
+#[case::sigterm("-TERM")]
+#[case::sighup("-HUP")]
+#[case::sigint("-INT")]
+fn a_stop_ends_the_backstops_steps_before_its_lock_goes(#[case] stop: &str) {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("hold"), "").unwrap();
+    std::fs::write(stand_in.join("holding"), "pre-merge all\n").unwrap();
+    let mut backstop = started_backstop(&workspace, &stand_in);
+    let held = stand_in.join("held");
+    until("the backstop's full run", || {
+        std::fs::read_to_string(&held).is_ok_and(|process| process.ends_with('\n'))
+    });
+    let full_run = std::fs::read_to_string(&held).unwrap().trim().to_owned();
+
+    let sent = std::process::Command::new("kill")
+        .args([stop, &backstop.id().to_string()])
+        .status()
+        .unwrap();
+    let code = backstop.wait().unwrap().code();
+    // A step the stop did not reach would wait on for ever.
+    std::fs::remove_file(stand_in.join("hold")).unwrap();
+
+    assert!(sent.success());
+    assert_eq!(code, Some(143));
+    assert_eq!(
+        std::fs::read_to_string(stand_in.join("stopped")).ok(),
+        Some("locked\n".to_owned())
+    );
+    assert!(!crate::pre_merge::runs(&full_run));
+    assert!(
+        !workspace
+            .path()
+            .join(".claude/worktrees/gate-backstop.lock")
+            .exists()
+    );
+    let run = run_ended(&workspace, &stand_in, code);
+    assert_eq!(run.results, "", "{}", run.log);
 }
 
 /// A gate worktree keeps its npm packages from one gate to the next, but

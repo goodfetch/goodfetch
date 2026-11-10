@@ -142,7 +142,7 @@ listing=$(just _gate-steps "$form")
 order=$(output_value steps "$listing")
 read -ra steps <<<"$order"
 
-rm -f target/skipped.txt
+rm -rf target/skipped.txt target/red-steps
 # The docs and quick forms run their steps one after the other on the host,
 # recording nothing.
 if [[ $form == docs || $form == quick ]]; then
@@ -336,8 +336,24 @@ clear_evidence() {
 }
 # When the gated step began, which a failed stress run's clean passes age from.
 started=""
-# Runs a step's command, records its result, and notes the step when it
-# ended red. A result that cannot be recorded ends the gate.
+# Copies what the test runners have written, as it is when a step ends red,
+# to target/red-steps/<step>/, for the failing gate's kept results
+# (ci/merge-pr.sh): the gate goes on, and the steps after a red one clear or
+# write over those files. The stress run removes nextest's JUnit files before
+# each of its counts, and each suite writes Vitest's, Playwright's and
+# pytest's anew. A copy that fails only warns: it changes no verdict.
+keep_results() {
+  local kept=target/red-steps/$1 results
+  for results in target/nextest target/junit; do
+    [[ -e $results ]] || continue
+    mkdir -p "$kept"
+    cp -R "$results" "$kept/" ||
+      echo "warning: $results, as the red step $1 left it, was not kept in $kept" >&2
+  done
+}
+# Runs a step's command, records its result, and, when it ended red, keeps
+# its result files and notes the step. A result that cannot be recorded ends
+# the gate.
 gated() {
   local step=$1 status=0
   shift
@@ -345,6 +361,7 @@ gated() {
   started=$(date +%s)
   timed "$step" "$@" || status=$?
   record "$step" "$status"
+  [[ $status -eq 0 ]] || keep_results "$step"
   [[ $status -eq 0 ]] || went_red "$step" "$status"
 }
 # The Pre-merge suite's tests (`just` with these arguments), then the
@@ -367,6 +384,7 @@ pre_merge_suite() {
   suite=("$@")
   timed pre-merge suite_and_audit || status=$?
   record pre-merge "$status"
+  [[ $status -eq 0 ]] || keep_results pre-merge
   [[ $status -eq 0 ]] || went_red pre-merge "$status"
 }
 # A part of a step run per member: the Quick and Pre-merge suites rerun

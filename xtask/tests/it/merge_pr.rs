@@ -34,7 +34,8 @@ pub(crate) const NO_PROCESS: &str = "2147483646";
 /// Stand-ins for `gh`, `cargo` and `just` that append each call to `calls`,
 /// and for `date`, which gives [`STARTED`] for `-u +%s` and leaves every
 /// other format to the system's `date`.
-/// `gh pr view` shows an open pull request at the head of `change`, and `gh pr
+/// `gh pr view` shows an open pull request at the head of `change`, or at the
+/// commit `pushed` names once a test pushed another, and `gh pr
 /// merge` makes `main` a merge with the tree of the revision `merges-as` names,
 /// when it exists; `cargo run … affected` prints `selection`'s content, else
 /// `gate=quick` or the gate `gate` names, its sweep notes `sweeping` and waits
@@ -46,7 +47,8 @@ pub(crate) const NO_PROCESS: &str = "2147483646";
 /// notes the signals it ignores in `signals` where the system lists them,
 /// notes its process in `reached`, waits while `hold` exists, writes a line,
 /// takes a second more while `lengthy` exists and, while `failing` exists,
-/// fails with status 3; a `just pre-merge` that starts while another runs
+/// leaves a red step's kept result file and fails with status 3; a `just
+/// pre-merge` that starts while another runs
 /// notes itself in `together`.
 fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
     let folder = workspace.path().join("stand-in");
@@ -57,12 +59,13 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
             "gh",
             format!(
                 "#!/bin/sh\necho \"gh $*\" >>\"{calls}\"\n\
-                 if [ \"$1 $2\" = \"pr view\" ]; then printf 'OPEN\\tfalse\\t{head}\\tmain\\tA change\\n'; fi\n\
+                 if [ \"$1 $2\" = \"pr view\" ]; then printf 'OPEN\\tfalse\\t%s\\tmain\\tA change\\n' \"$(cat \"{pushed}\" 2>/dev/null || echo {head})\"; fi\n\
                  if [ \"$1 $2\" = \"pr merge\" ] && [ -f \"{merges_as}\" ]; then\n\
                    merged=$(git -c user.name=GitHub -c user.email=noreply@example.test commit-tree \"$(cat \"{merges_as}\")^{{tree}}\" -p refs/heads/main -p {head} -m merged)\n\
                    git update-ref refs/heads/main \"$merged\"\n\
                  fi\n",
                 calls = calls.display(),
+                pushed = folder.join("pushed").display(),
                 merges_as = folder.join("merges-as").display(),
             ),
         ),
@@ -115,7 +118,10 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
                    echo 'the steps ran'\n\
                    if [ -f \"{lengthy}\" ]; then sleep 1; fi\n\
                    [ -z \"$alone\" ] || rmdir \"{running}\"\n\
-                   if [ -f \"{failing}\" ]; then echo 'a test failed'; exit 3; fi\n\
+                   if [ -f \"{failing}\" ]; then\n\
+                     mkdir -p target/red-steps/quick/nextest/quick && echo '<testsuites/>' >target/red-steps/quick/nextest/quick/junit.xml\n\
+                     echo 'a test failed'; exit 3\n\
+                   fi\n\
                  fi\n",
                 calls = calls.display(),
                 running = folder.join("running").display(),
@@ -368,6 +374,12 @@ fn a_failing_gate_keeps_its_log_and_test_results_and_is_swept_too() {
         "{name}"
     );
     assert!(kept[0].join("nextest/quick/junit.xml").is_file());
+    // What each red step left when it ended, which the steps after it clear.
+    assert!(
+        kept[0]
+            .join("red-steps/quick/nextest/quick/junit.xml")
+            .is_file()
+    );
     assert!(
         run.stdout
             .contains(&format!("kept in {}", kept[0].display())),
@@ -1007,10 +1019,15 @@ fn logs_of(folders: &[PathBuf]) -> String {
 /// together, whichever takes its lock first, and neither waits for the other
 /// for ever: each has its own lock before it reads the other's, so at least
 /// one sees the other, and a backstop that sees the gate lets it go first.
-/// Both real scripts run here, once with each started first, each `just
-/// pre-merge` taking a second.
-#[test]
-fn a_gate_and_the_backstop_started_together_never_run_their_suites_together() {
+/// Both real scripts run here, with one or the other started first, each
+/// `just pre-merge` taking a second, and each lock naming when its holder
+/// started, as the scripts write it.
+#[rstest]
+#[case::the_backstop_first(true)]
+#[case::the_gate_first(false)]
+fn a_gate_and_the_backstop_started_together_never_run_their_suites_together(
+    #[case] backstop_first: bool,
+) {
     let workspace = crate::gate_backstop::backstop_repository();
     // Ignored, as the repository's `.gitignore` ignores it, so each
     // worktree is a clean checkout again at its next run.
@@ -1056,33 +1073,100 @@ fn a_gate_and_the_backstop_started_together_never_run_their_suites_together() {
         .unwrap()
     };
 
-    for round in 0..2 {
-        let (mut first, mut second) = if round == 0 {
-            (backstop(), gate())
-        } else {
-            (gate(), backstop())
-        };
-        let statuses = [first.wait().unwrap(), second.wait().unwrap()];
-        assert!(
-            statuses.iter().all(std::process::ExitStatus::success),
-            "round {round}: {statuses:?}\n{}",
-            logs_of(&[
-                workspace.path().join("logs"),
-                workspace.path().join(".git/goodfetch-gate-logs")
-            ])
-        );
-    }
+    let (mut first, mut second) = if backstop_first {
+        (backstop(), gate())
+    } else {
+        (gate(), backstop())
+    };
+    let statuses = [first.wait().unwrap(), second.wait().unwrap()];
 
-    let ran = calls(&stand_in);
-    for suites in ["just pre-merge quick", "just pre-merge all"] {
-        assert_eq!(
-            ran.iter().filter(|call| *call == suites).count(),
-            2,
-            "{suites}: {ran:?}"
-        );
-    }
+    assert!(
+        statuses.iter().all(std::process::ExitStatus::success),
+        "{statuses:?}\n{}",
+        logs_of(&[
+            workspace.path().join("logs"),
+            workspace.path().join(".git/goodfetch-gate-logs")
+        ])
+    );
+    let mut suites: Vec<String> = calls(&stand_in)
+        .into_iter()
+        .filter(|call| call.starts_with("just pre-merge "))
+        .collect();
+    suites.sort();
+    assert_eq!(suites, ["just pre-merge all", "just pre-merge quick"]);
     let together = std::fs::read_to_string(stand_in.join("together")).unwrap_or_default();
-    assert!(together.is_empty(), "ran while another ran: {together}");
+    assert_eq!(together, "", "a suite ran while the other ran");
+}
+
+/// A gate behind a backstop can wait for hours, and its pull request may be
+/// pushed meanwhile. The gate reads the pull request once its wait has ended,
+/// so it judges and merges the head the pull request then has, not one read
+/// before the wait, which `gh pr merge` would refuse after a whole gate.
+#[test]
+fn a_gate_judges_the_head_its_pull_request_has_once_its_wait_ends() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let mut backstop = holder();
+    hold_the_backstops_worktree(&workspace, &backstop.id().to_string(), HeldBy::Backstop);
+    let (mut caller, output) = merge_writing_to_a_file(&workspace, &stand_in);
+    until("the gate's word that it waits", || {
+        std::fs::read_to_string(&output).is_ok_and(|text| text.contains("Waiting for the backstop"))
+    });
+    workspace.write("change.txt", b"a later change\n");
+    workspace.git(&["add", "change.txt"]);
+    workspace.git(&["commit", "--quiet", "--message", "A later change"]);
+    let pushed = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    workspace.git(&["update-ref", &format!("refs/pull/{NUMBER}/head"), &pushed]);
+    std::fs::write(stand_in.join("pushed"), &pushed).unwrap();
+
+    backstop.kill().unwrap();
+    backstop.wait().unwrap();
+    until_the_gate_merged(&workspace, &stand_in);
+
+    assert!(caller.wait().unwrap().success());
+    let merged: Vec<String> = calls(&stand_in)
+        .into_iter()
+        .filter(|call| call.starts_with("gh pr merge"))
+        .collect();
+    assert_eq!(merged.len(), 1, "{merged:?}");
+    assert!(
+        merged[0].contains(&format!("--match-head-commit {pushed}")),
+        "{merged:?}"
+    );
+    let said = std::fs::read_to_string(&output).unwrap();
+    assert!(
+        said.contains(&format!(
+            "Running the local gate (quick) on #{NUMBER} at {pushed}"
+        )),
+        "{said}"
+    );
+}
+
+/// A lock names when its holder started, beside its process ID. A process
+/// that took a dead run's number, as one may after a reboot, started at
+/// another time: it holds no gate up, where the number alone would have kept
+/// the gate waiting for ever.
+#[test]
+fn a_process_that_took_a_dead_runs_number_holds_no_gate_up() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    hold_the_backstops_worktree(
+        &workspace,
+        &std::process::id().to_string(),
+        HeldBy::Backstop,
+    );
+    std::fs::write(
+        backstop_lock(&workspace).join("started"),
+        "Thu Jan  1 00:00:00 1970\n",
+    )
+    .unwrap();
+
+    let (mut caller, output) = merge_writing_to_a_file(&workspace, &stand_in);
+
+    until_the_gate_merged(&workspace, &stand_in);
+    assert!(caller.wait().unwrap().success());
+    let said = std::fs::read_to_string(&output).unwrap();
+    assert!(!said.contains("Waiting for"), "{said}");
 }
 
 /// A run that died left its lock and its marks behind: it holds no gate up,

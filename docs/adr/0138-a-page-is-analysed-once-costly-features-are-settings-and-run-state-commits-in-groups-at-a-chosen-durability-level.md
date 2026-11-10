@@ -180,6 +180,7 @@ How proven crawlers shape this work. Each was checked against its primary source
   > Note (agent decision, pending owner review), 2026-11-01: the delivery loop issues the claims, which batch naturally; the page's task then carries it from its fetch to its outcome.
 - **Two shared, bounded resources** take the staged model's strengths (sizing each step on its own, and batching) without splitting an attempt across queues:
   - **A CPU pool** sized to the cores runs every Page analysis. It is a policy of `tasks` (ADR 0060), not Tokio's blocking pool, which grows to 512 threads.
+    > Note (owner's decision, 2026-11-10, [#2200](https://github.com/goodfetch/goodfetch/issues/2200)): until #2200 lands the code differs from this bullet. The CPU pool is a count of permits, one per core, and an analysis that holds one runs on a thread of Tokio's blocking pool (`crates/goodfetch-engine/src/tasks.rs:147-166`, `:321-328`). #2200 gives Page analyses threads of the CPU pool's own, so that the cap on blocking threads it adds, 4 by default, does not limit them.
 
     > Note (agent decision, pending owner review), 2026-11-01: a method of `TaskOwner` with permits sized to the cores in front of the owner's blocking threads, so at most that many analyses run. `BlockingPolicy` stays a `Copy` value, and `Inline` runs the analysis inline, so the paused benchmark's counts stay exact.
   - **The writer** groups commits (above).

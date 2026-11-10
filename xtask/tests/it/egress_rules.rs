@@ -26,17 +26,6 @@ fn job_under_the_deny_reaches_no_endpoint() {
 }
 
 #[test]
-fn released_artifacts_open_no_endpoint_under_the_deny() {
-    let workspace = Workspace::from_fixture("egress");
-    workspace.add_fixture_file("egress-cases/releases.toml", "compat/releases.toml");
-
-    let outcome = workspace.xtask(&["egress", "endpoints", "--job", "pull-request.yml#quick"]);
-
-    assert_eq!(outcome.stdout, "");
-    assert_eq!(outcome.code, 0);
-}
-
-#[test]
 fn named_endpoint_job_reaches_its_own_list_only() {
     let workspace = Workspace::from_fixture("egress");
     workspace.add_fixture_file("egress-cases/releases.toml", "compat/releases.toml");
@@ -164,6 +153,8 @@ fn rules_with_nothing_resolved_accept_no_address() {
     assert_eq!(outcome.code, 0);
 }
 
+/// A release file in the tree opens none of the release hosts: the rules
+/// once allowed what `compat/releases.toml` named.
 #[rstest]
 #[case::test_v8_build_on_github("pull-request.yml#quick", "github.com 443 140.82.121.4\n")]
 #[case::release_asset_redirect(

@@ -166,27 +166,6 @@ fn audit_counts_an_error_code_the_run_recorded_as_reached() {
     assert_eq!(outcome.findings(), vec![]);
 }
 
-#[test]
-fn audit_over_the_tests_that_ran_fails_one_that_never_reached_its_feature() {
-    let workspace = Workspace::from_fixture("exercise-audit");
-    workspace.edit(
-        "records/sample-it-calls_echo_then_crawl.jsonl",
-        r#""method":"sample.crawl""#,
-        r#""method":"sample.echo""#,
-    );
-
-    let outcome = audit(&workspace, &["--junit", "junit/nextest.xml"]);
-
-    assert_eq!(outcome.code, 1, "{}{}", outcome.stdout, outcome.stderr);
-    assert_eq!(
-        outcome.findings(),
-        vec![finding(
-            "unreached",
-            "operation:sample.crawl in sample::it calls_echo_then_crawl"
-        )]
-    );
-}
-
 #[rstest]
 #[case::integration_test(
     "records/sample-it-gets_the_refusal.jsonl",

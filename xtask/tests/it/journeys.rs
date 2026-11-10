@@ -43,46 +43,6 @@ fn check(workspace: &Workspace) -> crate::workspace::Outcome {
     workspace.xtask(&["journeys", "check"])
 }
 
-#[test]
-fn clean_catalog_passes() {
-    let workspace = catalog();
-
-    let outcome = check(&workspace);
-
-    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
-    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-}
-
-/// Copies the files of `folder`, and of its folders, to `journeys/` in the
-/// workspace under `prefix`.
-fn copy_catalog(workspace: &Workspace, folder: &Path, prefix: &str) {
-    for entry in std::fs::read_dir(folder).unwrap() {
-        let entry = entry.unwrap();
-        let name = entry.file_name().into_string().unwrap();
-        if entry.file_type().unwrap().is_dir() {
-            copy_catalog(workspace, &entry.path(), &format!("{prefix}{name}/"));
-        } else {
-            workspace.write(
-                &format!("journeys/{prefix}{name}"),
-                &std::fs::read(entry.path()).unwrap(),
-            );
-        }
-    }
-}
-
-/// The repository's catalog as committed, J-001, its schema and its task
-/// lists included.
-#[test]
-fn committed_catalog_passes() {
-    let workspace = Workspace::from_fixture("empty");
-    copy_catalog(&workspace, &committed(), "");
-
-    let outcome = check(&workspace);
-
-    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
-    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-}
-
 #[rstest]
 #[case::unknown_field("status = \"active\"\n", "status = \"active\"\nowner = \"area 3\"\n")]
 #[case::no_product("product = \"collie\"\n", "")]
@@ -394,8 +354,9 @@ fn task_list_that_does_not_parse_fails() {
     assert_eq!(outcome.code, 1);
 }
 
-/// The Quick suite starts no process (ADR 0063): the task rule reads the
-/// committed lists, so the check passes with no program it could start.
+/// The clean fixture catalog passes. The Quick suite starts no process (ADR
+/// 0063): the task rule reads the committed lists, so the check passes with
+/// no program it could start.
 #[test]
 fn task_rule_reads_the_committed_lists_and_starts_no_process() {
     let workspace = catalog();

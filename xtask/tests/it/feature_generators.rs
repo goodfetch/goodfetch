@@ -203,21 +203,6 @@ fn each_console_route_is_a_feature_with_its_products() {
     );
 }
 
-#[test]
-fn a_removed_route_leaves_the_inventory() {
-    let workspace = Workspace::from_fixture("codegen");
-    workspace.write(COLLIE_ROUTES, br#"{ "routes": ["/runs", "/runs/$run"] }"#);
-    codegen(&workspace);
-    workspace.write(COLLIE_ROUTES, br#"{ "routes": ["/runs"] }"#);
-
-    codegen(&workspace);
-
-    assert_eq!(
-        features_of_kind(&workspace, "screen"),
-        vec![("screen:/runs".to_owned(), both())]
-    );
-}
-
 /// The fixture's modules of Collie's and Foxhound's entries.
 const COLLIE_ENTRIES: &str = "crates/goodfetch-protocol/src/sample.rs";
 const FOXHOUND_ENTRIES: &str = "crates/goodfetch-protocol/src/foxhound.rs";

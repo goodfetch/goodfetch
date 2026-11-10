@@ -4,8 +4,10 @@
 //! each with its timeout and its record in the Run trace) and asks its
 //! browser for one primitive, `connect()`, which yields the browser's CDP
 //! connection: a browser the engine launched fills it here, a Browser host
-//! later. `Runtime` is never enabled, and the guard's script lives in an
-//! isolated world no page script reaches (ADR 0019). A page's navigations
+//! later. The driver never enables `Runtime`: `page_events` does, on a page
+//! whose `page.on` call listens to `console` or `page_error`, and nothing
+//! turns it off again. The guard's script lives in an isolated world no
+//! page script reaches (ADR 0019). A page's navigations
 //! each wait for their document's `load` event, or the state the call
 //! names, and answer its response with the encoding it was decoded with,
 //! read in the guard's world (ADR 0119); the back/forward cache is off at

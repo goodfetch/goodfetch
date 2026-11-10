@@ -15,15 +15,25 @@
 # (ci/linux.sh), which on a Linux host run among the host's tests, after the
 # OS-service setup below; `just visual`, the visual projects in the pinned Playwright
 # image (ci/visual/container.sh). The suite waits for each and fails when one
-# fails, and stops them when a host step fails first, keeping the result of
-# each that had already ended for the gate's record. The host's checks that
-# take seconds and judge the whole change (sign-offs, commit messages, the
-# floor guard, secrets in commits, advisories, notices) run first, before the
-# Console build and the steps beside, so a red one ends the gate before perf
-# starts; the other checks of the whole change (lint, the SDK crates'
-# features, the fuzz targets, the proofs) run before the suites; the stress
-# run of the new and changed tests (`just stress`) runs after the Pre-merge
-# suite, whose build its listings reuse.
+# fails. The host's checks that take seconds and judge the whole change
+# (sign-offs, commit messages, the floor guard, secrets in commits,
+# advisories, notices) run first, before the Console build and the steps
+# beside, so their reds show in the gate's first minute; the other checks of
+# the whole change (lint, the SDK crates' features, the fuzz targets, the
+# proofs) run before the suites; the stress run of the new and changed tests
+# (`just stress`) runs after the Pre-merge suite, whose build its listings
+# reuse.
+#
+# A red step ends no form of the gate (ADR 0135's amendment of 2026-11-10):
+# every other step still runs, the steps beside to their own end, each step
+# of the full gate records its result, and the gate's end names every red
+# step and fails with the first one's exit status, as `just quick` reports
+# every failure of its run. So a change meets all its reds in one gate, and
+# the next gate reuses each green result the fix does not reach. Any red
+# still means no merge. What ends the gate where it is, stopping the steps
+# beside, is a fault of the gate itself: a setup of the OS services that
+# fails, a step list or a plan the script cannot read, a result that cannot
+# be recorded, or a stop.
 #
 # `all` is incremental (ADR 0135): on a head that descends from a head whose
 # gate already ran, it reuses the green results of the steps, and of the
@@ -53,6 +63,26 @@ timed() {
   "$@" || status=$?
   echo "Gate step $step: ended at $(date -u +%Y-%m-%dT%H:%M:%SZ) after $(($(date -u +%s) - started)) s, exit status $status"
   return "$status"
+}
+
+# The steps that ended red, each with its exit status, in the order the gate
+# met them, and the gate's own status: the first one's.
+red=()
+verdict=0
+# Notes that a step ended red with an exit status; the gate goes on.
+went_red() {
+  red+=("$1: exit status $2")
+  [[ $verdict -ne 0 ]] || verdict=$2
+}
+# The gate's end: passes when no step ended red, else names each red step
+# and fails with the first one's status.
+conclude() {
+  [[ ${#red[@]} -gt 0 ]] || exit 0
+  local noun=steps
+  [[ ${#red[@]} -gt 1 ]] || noun=step
+  echo "error: the gate is red: ${#red[@]} $noun failed, and every other step ran" >&2
+  printf '  %s\n' "${red[@]}" >&2
+  exit "$verdict"
 }
 
 all=${1:-}
@@ -106,14 +136,13 @@ fi
 
 # The form's list: its steps' names in order, and each one's kind (`step`,
 # `beside` or `command`) and `just` command. The checks that judge the
-# whole change in seconds come first in every form, so a red one ends the
-# gate before any build and any step beside the host's (the test-gate
-# audit's F3).
+# whole change in seconds come first in every form, before any build and
+# any step beside the host's, so the gate's log opens with their verdicts.
 listing=$(just _gate-steps "$form")
 order=$(output_value steps "$listing")
 read -ra steps <<<"$order"
 
-rm -f target/skipped.txt
+rm -rf target/skipped.txt target/red-steps
 # The docs and quick forms run their steps one after the other on the host,
 # recording nothing.
 if [[ $form == docs || $form == quick ]]; then
@@ -127,9 +156,11 @@ if [[ $form == docs || $form == quick ]]; then
   for step in "${steps[@]}"; do
     arguments=$(output_value "$step.just" "$listing")
     read -ra command <<<"$arguments"
-    timed "$step" just "${command[@]}"
+    status=0
+    timed "$step" just "${command[@]}" || status=$?
+    [[ $status -eq 0 ]] || went_red "$step" "$status"
   done
-  exit 0
+  conclude
 fi
 beside_names=()
 beside_pids=()
@@ -148,8 +179,8 @@ beside() {
   beside_pids+=("$!")
 }
 # A step beside the host's notes its exit status in `ended` once it has
-# ended, before its end is logged, so a host step that fails first cannot
-# lose the result of a step beside that had finished.
+# ended, before its end is logged, so a gate that ends before it has waited
+# for the step cannot lose the result of a step beside that had finished.
 ended=""
 # shellcheck disable=SC2329 # called through timed
 beside_step() {
@@ -159,11 +190,12 @@ beside_step() {
   echo "$status" >"$ended/$name"
   return "$status"
 }
-# At the end, stops the process groups of the steps still running beside
-# and records each step beside that had already ended, releases the gate's
-# records, then lists what this host skipped. A step stopped while it ran
-# records nothing, so the next run reruns it. `kill` signals each group it
-# is given, even past one that has ended.
+# At the end, releases the gate's records, then lists what this host
+# skipped. A gate that ends before it has waited for its steps beside, on a
+# fault of its own or a stop, first stops the process groups of those still
+# running and records each that had already ended. A step stopped while it
+# ran records nothing, so the next run reruns it. `kill` signals each group
+# it is given, even past one that has ended.
 lock=""
 # A stop reaches this script twice under `just merge`'s stop, through its
 # process group and again from the `just` above it, and the second must not
@@ -304,8 +336,26 @@ clear_evidence() {
 }
 # When the gated step began, which a failed stress run's clean passes age from.
 started=""
-# Runs a step's command, records its result, and fails the suite when it
-# fails.
+# Copies what the test runners have written, as it is when a step ends red,
+# to target/red-steps/<step>/, for the failing gate's kept results
+# (ci/merge-pr.sh): the gate goes on, and the steps after a red one clear or
+# write over those files. The stress run removes nextest's JUnit files before
+# each of its counts, and each suite writes Vitest's, Playwright's and
+# pytest's anew. It covers the host's steps the gate records; the steps
+# beside, the Console build and the quick and docs forms get no folder. A
+# folder or a copy that cannot be made only warns: it changes no verdict.
+keep_results() {
+  local kept=target/red-steps/$1 results
+  for results in target/nextest target/junit; do
+    [[ -e $results ]] || continue
+    if ! { mkdir -p "$kept" && cp -R "$results" "$kept/"; }; then
+      echo "warning: $results, as the red step $1 left it, was not kept in $kept" >&2
+    fi
+  done
+}
+# Runs a step's command, records its result, and, when it ended red, keeps
+# its result files and notes the step. A result that cannot be recorded ends
+# the gate.
 gated() {
   local step=$1 status=0
   shift
@@ -313,7 +363,8 @@ gated() {
   started=$(date +%s)
   timed "$step" "$@" || status=$?
   record "$step" "$status"
-  return "$status"
+  [[ $status -eq 0 ]] || keep_results "$step"
+  [[ $status -eq 0 ]] || went_red "$step" "$status"
 }
 # The Pre-merge suite's tests (`just` with these arguments), then the
 # exercise audit of the tests that ran (ADR 0072): one step, recorded once
@@ -335,7 +386,8 @@ pre_merge_suite() {
   suite=("$@")
   timed pre-merge suite_and_audit || status=$?
   record pre-merge "$status"
-  [[ $status -eq 0 ]] || exit "$status"
+  [[ $status -eq 0 ]] || keep_results pre-merge
+  [[ $status -eq 0 ]] || went_red pre-merge "$status"
 }
 # A part of a step run per member: the Quick and Pre-merge suites rerun
 # every Vitest, Playwright and pytest test, as a full run does, in the
@@ -396,7 +448,11 @@ for step in "${steps[@]}"; do
   read -ra command <<<"$arguments"
   kind=$(output_value "$step.kind" "$listing")
   case $kind in
-    command) timed "$step" just "${command[@]}" ;;
+    command)
+      status=0
+      timed "$step" just "${command[@]}" || status=$?
+      [[ $status -eq 0 ]] || went_red "$step" "$status"
+      ;;
     beside)
       planned_action=$(action "$step")
       if [[ $planned_action == reuse ]]; then reused "$step"; else beside "$step" "${command[@]}"; fi
@@ -409,16 +465,13 @@ for step in "${steps[@]}"; do
   esac
 done
 
-status=0
+# The steps beside run to their own end, whatever the host's steps gave.
 for i in "${!beside_names[@]}"; do
   echo "Waiting for ${beside_names[i]}…"
-  step=0
-  wait "${beside_pids[i]}" || step=$?
-  record "${beside_names[i]}" "$step"
-  if [[ $step -ne 0 ]]; then
-    echo "error: just ${beside_names[i]} failed with exit status $step" >&2
-    [[ $status -ne 0 ]] || status=$step
-  fi
+  status=0
+  wait "${beside_pids[i]}" || status=$?
+  record "${beside_names[i]}" "$status"
+  [[ $status -eq 0 ]] || went_red "${beside_names[i]}" "$status"
 done
 beside_pids=()
-exit "$status"
+conclude

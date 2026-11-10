@@ -21,8 +21,9 @@ use crate::output;
 struct Found {
     /// `miss` when the full run found it red; `suspect` for a step run per
     /// member, whose red the members that run reran may hold; `unchecked`
-    /// when the full run has no result for it, as when it stopped at a red
-    /// step; `earned`, whatever the full run found, for a result that counted
+    /// when the full run has no result for it, as when it was stopped or
+    /// ended on a fault of its own (a red step ends no gate); `earned`,
+    /// whatever the full run found, for a result that counted
     /// passes from an earlier head: a full run on `main`'s head has that head
     /// as its base, so its stress run stresses nothing, and only a stress run
     /// against this run's base can say; `unreadable` for a run merged since

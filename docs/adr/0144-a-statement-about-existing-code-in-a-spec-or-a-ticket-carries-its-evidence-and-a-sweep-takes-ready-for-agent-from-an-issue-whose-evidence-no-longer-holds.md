@@ -2,7 +2,7 @@
 
 A spec or a ticket that says what today's code does lists each such statement with the file and symbol that show it and the commit they were read at. A command of `xtask` checks those citations against `main`, and an issue whose citation no longer holds loses `ready-for-agent` until someone reads the code again. Proposed by an agent and accepted by the owner on 2026-11-10.
 
-On 2026-11-09 a read of the refactor's issues against `main` found statements about existing code that the code contradicts, and the repair of 2026-11-10 confirmed 40 of them: 14 in spec #2138 and its tickets, 18 in spec #2139 and its tickets, and 8 in six tickets beside them. The statements set what the tickets build:
+On 2026-11-09 a read of the refactor's issues against `main` found statements about existing code that the code contradicts, and the repair of 2026-11-10 confirmed 40 of them: 14 in spec #2138 and its tickets, 18 in spec #2139 and its tickets, and 8 in six tickets beside them. The same reading of specs #2164, #2165 and #2194 that day corrected about 80 more. The statements set what the tickets build:
 
 - **A ticket's size.** #2167 was filed as a prefactor on the statement that URL keying and Scope "stay pure work on the page's task". They run inside the writer's jobs and read the run file, so #2167 was its spec's largest ticket, since split in five.
 - **A ticket's test.** #2133 required a test that Payload counts reach the Run's counts, on the statement that they are lost. They are not lost, so the test passes before any change.
@@ -42,7 +42,7 @@ In a spec the list sits under `to-spec`'s Further Notes, so its Implementation D
 - **The sweep leaves a spec alone once its run has started,** from the first commit on `spec/<n>`: its tickets change the cited code on purpose, and its implementers read the code itself.
 - **A spec carries a list from its publication** when it is published on or after 2026-11-10, and a spec without one is not `ready-for-agent`. Of the older specs, those `rollout-order.md` lists whose runs had not started gained theirs on 2026-11-10 (below). #1838 and #1577, whose runs have started, carry none and the sweep leaves them alone. Any other open spec gains its list before its run starts, written by whoever prepares that run, and keeps its label until then.
 
-**How it applies to the specs at hand.** The repair of 2026-11-10 wrote the lists of 30 issues, each read at 95935d9b2 and checked by a prototype of the command: specs #2138, #2139 and #2212, and 27 tickets of theirs and of #1838. Specs #2164, #2165 and #2194 were not read in that pass and gain theirs before their runs.
+**How it applies to the specs at hand.** The repair of 2026-11-10 wrote the lists of the six specs `rollout-order.md` lists whose runs had not started, #2138, #2139, #2164, #2165, #2194 and #2212, and of their tickets and the tickets of #1838 it corrected, each read at 95935d9b2 and checked by a prototype of the command. A ticket of theirs that waits for a decision of the owner is `needs-info` until the answer.
 
 ## Considered Options
 

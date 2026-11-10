@@ -215,10 +215,10 @@ fn unregistering_a_format_removes_its_cases() {
 }
 
 /// Every rule the protocol knows has a refusal table, so a registry can
-/// only miss one by naming a rule the protocol does not know, which reading
-/// the registry refuses.
+/// only miss one by naming a rule the protocol does not know: the command
+/// then reaches no verdict, exits 2 and names the rule.
 #[test]
-fn a_format_under_a_rule_the_protocol_does_not_know_fails() {
+fn a_format_under_a_rule_the_protocol_does_not_know_reaches_no_verdict() {
     let workspace = Workspace::from_fixture("refusals");
     register(
         &workspace,
@@ -234,11 +234,9 @@ fn a_format_under_a_rule_the_protocol_does_not_know_fails() {
 
     let outcome = workspace.xtask(&["compat", "refusals"]);
 
-    assert_ne!(outcome.code, 0);
+    assert_eq!(outcome.code, 2, "{}", outcome.stderr);
     assert!(
-        outcome
-            .stderr
-            .contains("reading the format registry: unknown variant `response_cache`"),
+        outcome.stderr.contains("`response_cache`"),
         "{}",
         outcome.stderr
     );

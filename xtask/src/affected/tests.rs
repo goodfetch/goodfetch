@@ -907,7 +907,7 @@ fn selection_with_one_reader(reader: &str, text: &str, changed: &str) -> (Select
 )]
 #[case::a_folder_holding_it(
     "crates/goodfetch-conformance/src/lib.rs",
-    r#"const MODELS: &str = "test-support/models/sample";"#,
+    r#"const SUPPORT: &str = "test-support";"#,
     true
 )]
 #[case::a_path_through_a_folder_holding_it(

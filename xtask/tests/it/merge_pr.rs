@@ -35,7 +35,8 @@ pub(crate) const NO_PROCESS: &str = "2147483646";
 /// and for `date`, which gives [`STARTED`] for `-u +%s` and leaves every
 /// other format to the system's `date`.
 /// `gh pr view` shows an open pull request at the head of `change`, or at the
-/// commit `pushed` names once a test pushed another, and `gh pr
+/// commit `pushed` names once a test pushed another, in the state and draft
+/// state `state` gives (`<state>`, a tab, `<true|false>`) when it exists, and `gh pr
 /// merge` makes `main` a merge with the tree of the revision `merges-as` names,
 /// when it exists; `cargo run … affected` prints `selection`'s content, else
 /// `gate=quick` or the gate `gate` names, its sweep notes `sweeping` and waits
@@ -59,13 +60,14 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
             "gh",
             format!(
                 "#!/bin/sh\necho \"gh $*\" >>\"{calls}\"\n\
-                 if [ \"$1 $2\" = \"pr view\" ]; then printf 'OPEN\\tfalse\\t%s\\tmain\\tA change\\n' \"$(cat \"{pushed}\" 2>/dev/null || echo {head})\"; fi\n\
+                 if [ \"$1 $2\" = \"pr view\" ]; then printf '%s\\t%s\\tmain\\tA change\\n' \"$(cat \"{state}\" 2>/dev/null || printf 'OPEN\\tfalse')\" \"$(cat \"{pushed}\" 2>/dev/null || echo {head})\"; fi\n\
                  if [ \"$1 $2\" = \"pr merge\" ] && [ -f \"{merges_as}\" ]; then\n\
                    merged=$(git -c user.name=GitHub -c user.email=noreply@example.test commit-tree \"$(cat \"{merges_as}\")^{{tree}}\" -p refs/heads/main -p {head} -m merged)\n\
                    git update-ref refs/heads/main \"$merged\"\n\
                  fi\n",
                 calls = calls.display(),
                 pushed = folder.join("pushed").display(),
+                state = folder.join("state").display(),
                 merges_as = folder.join("merges-as").display(),
             ),
         ),
@@ -1167,6 +1169,101 @@ fn a_process_that_took_a_dead_runs_number_holds_no_gate_up() {
     assert!(caller.wait().unwrap().success());
     let said = std::fs::read_to_string(&output).unwrap();
     assert!(!said.contains("Waiting for"), "{said}");
+}
+
+/// A lock that names its holder's true start, as the scripts write it, reads
+/// as held: here the real `gate_worktree_lock` takes the backstop's worktree
+/// for a process that then lives on, and the gate waits for that process.
+#[test]
+fn a_lock_naming_its_holders_true_start_holds_a_gate_up() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let take_the_lock = format!(
+        "gate_worktree_name=gate-backstop; source '{}'; gate_worktree_lock; exec sleep 600",
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../ci/gate-worktree.sh")
+            .display()
+    );
+    let mut backstop = workspace
+        .command("bash")
+        .args(["-c", &take_the_lock])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    until("the backstop's lock", || {
+        std::fs::read_to_string(backstop_lock(&workspace).join("pid"))
+            .is_ok_and(|process| process.trim() == backstop.id().to_string())
+    });
+    let (mut caller, output) = merge_writing_to_a_file(&workspace, &stand_in);
+    let waiting = format!("Waiting for the backstop, process {}", backstop.id());
+
+    until("the gate's word that it waits", || {
+        std::fs::read_to_string(&output).is_ok_and(|text| text.contains(&waiting))
+    });
+
+    backstop.kill().unwrap();
+    backstop.wait().unwrap();
+    until_the_gate_merged(&workspace, &stand_in);
+    assert!(caller.wait().unwrap().success());
+}
+
+/// A start that cannot be told, on either side, makes no lock stale: a live
+/// lock read as stale would let two suites run together unseen, while a dead
+/// one read as live makes a caller wait in sight, and its holder's number is
+/// checked again each second. Only two readings that differ are another
+/// process. Here the lock names no start, and the gate still waits.
+#[test]
+fn a_lock_whose_holders_start_cannot_be_told_is_judged_by_its_process() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let mut backstop = holder();
+    hold_the_backstops_worktree(&workspace, &backstop.id().to_string(), HeldBy::Backstop);
+    std::fs::write(backstop_lock(&workspace).join("started"), "").unwrap();
+    let (mut caller, output) = merge_writing_to_a_file(&workspace, &stand_in);
+    let waiting = format!("Waiting for the backstop, process {}", backstop.id());
+
+    until("the gate's word that it waits", || {
+        std::fs::read_to_string(&output).is_ok_and(|text| text.contains(&waiting))
+    });
+
+    backstop.kill().unwrap();
+    backstop.wait().unwrap();
+    until_the_gate_merged(&workspace, &stand_in);
+    assert!(caller.wait().unwrap().success());
+}
+
+/// A pull request the gate will refuse is refused at once, before the gate
+/// takes its lock and waits: behind a backstop the wait can last hours, and a
+/// refusal should cost nothing. The gate reads the pull request again once a
+/// wait has ended.
+#[rstest]
+#[case::closed("CLOSED\tfalse", "is CLOSED, not open")]
+#[case::a_draft("OPEN\ttrue", "is a draft")]
+fn a_pull_request_the_gate_refuses_is_refused_before_any_wait(
+    #[case] state: &str,
+    #[case] refusal: &str,
+) {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("state"), state).unwrap();
+    let mut backstop = holder();
+    hold_the_backstops_worktree(&workspace, &backstop.id().to_string(), HeldBy::Backstop);
+
+    let (mut caller, output) = merge_writing_to_a_file(&workspace, &stand_in);
+    until("the gate's refusal", || {
+        std::fs::read_to_string(&output).is_ok_and(|text| text.contains(refusal))
+    });
+    let code = caller.wait().unwrap().code();
+    let backstop_still_runs = runs(&backstop.id().to_string());
+    backstop.kill().unwrap();
+    backstop.wait().unwrap();
+
+    assert_eq!(code, Some(1));
+    assert!(backstop_still_runs);
+    let said = std::fs::read_to_string(&output).unwrap();
+    assert!(!said.contains("Waiting for"), "{said}");
+    assert!(!gate_lock(&workspace).exists());
 }
 
 /// A run that died left its lock and its marks behind: it holds no gate up,

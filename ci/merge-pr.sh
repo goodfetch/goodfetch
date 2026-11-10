@@ -114,6 +114,42 @@ stop() {
 }
 trap stop TERM HUP INT
 
+# Reads the pull request, its state, head, base and title, and refuses one
+# the gate cannot merge: closed, a draft, past the merge cap, moved while it
+# was read, or without its base's tip.
+read_pull_request() {
+  IFS=$'\t' read -r state draft head base title < <(
+    gh pr view "$number" --json state,isDraft,headRefOid,baseRefName,title \
+      --jq '[.state, (.isDraft | tostring), .headRefOid, .baseRefName, .title] | @tsv'
+  )
+  if [[ $state != OPEN ]]; then
+    echo "error: pull request #$number is $state, not open" >&2
+    exit 1
+  fi
+  if [[ $draft != false ]]; then
+    echo "error: pull request #$number is a draft; mark it ready first" >&2
+    exit 1
+  fi
+
+  git fetch --quiet origin "$base"
+  git fetch --quiet origin main
+  "$(dirname "$0")/merge-cap.sh" ${cap[@]+"${cap[@]}"}
+  git fetch --quiet origin "pull/$number/head"
+  if [[ $(git rev-parse FETCH_HEAD) != "$head" ]]; then
+    echo "error: pull request #$number moved while it was read; run the command again" >&2
+    exit 1
+  fi
+  # A head that contains its base's tip merges into the same tree it was tested
+  # on, so the gate's verdict holds for what lands on the base.
+  if ! git merge-base --is-ancestor "origin/$base" "$head"; then
+    echo "error: pull request #$number does not contain the tip of $base; merge $base into it first" >&2
+    exit 1
+  fi
+}
+# Before the lock and any wait, so a pull request the gate refuses is refused
+# at once and holds nothing.
+read_pull_request
+
 # One worktree for every gate, locked and held by one gate at a time, reset
 # to the exact head (ci/gate-worktree.sh).
 # shellcheck source=ci/gate-worktree.sh
@@ -132,8 +168,8 @@ locked=1
 # this one, as the gate has taken this one before it reads the backstop's, so
 # of a backstop and a gate starting together at least one sees the other: a
 # backstop that sees this gate lets it end first and says so in its lock, and
-# the gate then goes on (ci/gate-worktree.sh). The wait comes before the pull
-# request is read: behind a backstop it can last hours, and the gate judges
+# the gate then goes on (ci/gate-worktree.sh). Behind a backstop the wait can
+# last hours, so a gate that waited reads its pull request again: it judges
 # the head, the base and the merge cap as they are once it starts.
 waiting_for=""
 while ahead=$(run_in_the_backstops_worktree "$$") && [[ -n $ahead ]]; do
@@ -143,34 +179,7 @@ while ahead=$(run_in_the_backstops_worktree "$$") && [[ -n $ahead ]]; do
   fi
   sleep 1
 done
-
-IFS=$'\t' read -r state draft head base title < <(
-  gh pr view "$number" --json state,isDraft,headRefOid,baseRefName,title \
-    --jq '[.state, (.isDraft | tostring), .headRefOid, .baseRefName, .title] | @tsv'
-)
-if [[ $state != OPEN ]]; then
-  echo "error: pull request #$number is $state, not open" >&2
-  exit 1
-fi
-if [[ $draft != false ]]; then
-  echo "error: pull request #$number is a draft; mark it ready first" >&2
-  exit 1
-fi
-
-git fetch --quiet origin "$base"
-git fetch --quiet origin main
-"$(dirname "$0")/merge-cap.sh" ${cap[@]+"${cap[@]}"}
-git fetch --quiet origin "pull/$number/head"
-if [[ $(git rev-parse FETCH_HEAD) != "$head" ]]; then
-  echo "error: pull request #$number moved while it was read; run the command again" >&2
-  exit 1
-fi
-# A head that contains its base's tip merges into the same tree it was tested
-# on, so the gate's verdict holds for what lands on the base.
-if ! git merge-base --is-ancestor "origin/$base" "$head"; then
-  echo "error: pull request #$number does not contain the tip of $base; merge $base into it first" >&2
-  exit 1
-fi
+[[ -z $waiting_for ]] || read_pull_request
 
 # This checkout's compiler cache check, which the gate runs in its own.
 compiler_cache=$(cd "$(dirname "$0")" && pwd)/compiler-cache.sh

@@ -34,16 +34,22 @@ process_started() {
 # lock whose holder ended holds nothing, and prints nothing. Neither does a
 # lock whose process number another process has since taken, as one may after
 # a reboot: the lock names when its holder started (`started`), which that
-# process does not match, so no run waits for ever for a run long gone. A
-# lock with no `started`, as a script from before it wrote one takes, is
-# judged by its process alone.
+# process does not match, so no run waits for ever for a run long gone.
+#
+# Only two readings that differ make a lock stale. A start that cannot be
+# told, the lock's or the process's, leaves the lock judged by its process
+# alone, as a lock with no `started` is, which a script from before it wrote
+# one takes. The two mistakes do not cost the same: a live lock read as stale
+# lets two heavy suites run together, with nothing to show it but tests that
+# fail on timing; a dead lock read as live makes a caller wait, which its log
+# says and a stop ends, and the process is looked at again each second.
 gate_worktree_holder() {
-  local holder
+  local holder recorded current
   holder=$(cat "$1/pid" 2>/dev/null || true)
   if [[ -z $holder ]] || ! kill -0 "$holder" 2>/dev/null; then return 0; fi
-  if [[ -f $1/started && $(cat "$1/started" 2>/dev/null || true) != "$(process_started "$holder")" ]]; then
-    return 0
-  fi
+  recorded=$(cat "$1/started" 2>/dev/null || true)
+  current=$(process_started "$holder")
+  if [[ -n $recorded && -n $current && $recorded != "$current" ]]; then return 0; fi
   echo "$holder"
 }
 

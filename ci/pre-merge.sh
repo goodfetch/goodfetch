@@ -341,14 +341,16 @@ started=""
 # (ci/merge-pr.sh): the gate goes on, and the steps after a red one clear or
 # write over those files. The stress run removes nextest's JUnit files before
 # each of its counts, and each suite writes Vitest's, Playwright's and
-# pytest's anew. A copy that fails only warns: it changes no verdict.
+# pytest's anew. It covers the host's steps the gate records; the steps
+# beside, the Console build and the quick and docs forms get no folder. A
+# folder or a copy that cannot be made only warns: it changes no verdict.
 keep_results() {
   local kept=target/red-steps/$1 results
   for results in target/nextest target/junit; do
     [[ -e $results ]] || continue
-    mkdir -p "$kept"
-    cp -R "$results" "$kept/" ||
+    if ! { mkdir -p "$kept" && cp -R "$results" "$kept/"; }; then
       echo "warning: $results, as the red step $1 left it, was not kept in $kept" >&2
+    fi
   done
 }
 # Runs a step's command, records its result, and, when it ended red, keeps

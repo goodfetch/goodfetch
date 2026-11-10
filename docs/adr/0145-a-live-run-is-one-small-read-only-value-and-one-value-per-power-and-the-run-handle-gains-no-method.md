@@ -5,6 +5,7 @@ What a live Run offers the engine's other modules becomes two tiers: one small r
 The Runs' registry is sound: one actor, one mailbox, one transition function with no wildcard arm. The handle beside it is where everything else is reached. `Run` is a cloneable record of ten fields, and its `impl` runs for about 1,230 lines. Whoever holds one can write the run file, charge Usage, set progress, write the Run trace, draw entropy, read settings and call the registry. A text count on 2026-11-10 finds 223 parameters or fields named `run` of type `Run` outside tests: 109 in the page crate, 71 in the crawl crate, 32 in the fetch tier's and 11 in the engine.
 
 - **No rule is broken by the number of methods.** ADR 0126 refuses an alarm on it. What does not hold is the file's own `Size:` sentence, which says the file stays whole "so every change to a Run's state passes through one loop": the methods of `Run` never pass through that loop.
+  > Note (correction, 2026-11-10, from an independent review of the publication): "never" is inexact. Of the 63 methods of that `impl`, 60 never pass through that loop, and three send it a command: the end, `uses`, and a charge refused because the Usage ledger cannot be stored (`crates/goodfetch-engine/src/runs.rs:1945-1956`, `:2542-2547` and `:2520-2529`, read at `197a8c18e`). The decision is unchanged: the `Size:` sentence still does not hold for the other 60.
 - **ADR 0140 already names an owner module for each service:** `ledger::charging` for a Usage charge (E3), `run_trace` "as one writer per Run" (E5), the `run_state` writer (F2). The handle is where they are reached, not where they live.
 - **Three adopted tickets are about to rebuild three of them:** [#1888](https://github.com/goodfetch/goodfetch/issues/1888) (charging), [#2243](https://github.com/goodfetch/goodfetch/issues/2243) to [#2167](https://github.com/goodfetch/goodfetch/issues/2167) (the crawl's Run state) and [#1890](https://github.com/goodfetch/goodfetch/issues/1890) (the Run trace's writer). With no rule, each would land its new methods on `Run`.
 - **The one precedent built a second handle.** Commit `823766a89` (2026-11-07) moved the engine's own services out of `Runs` into `EngineContext`, a record of ten fields reached as `CallContext::engine()`. It is not the model here.
@@ -17,6 +18,16 @@ The Runs' registry is sound: one actor, one mailbox, one transition function wit
 - **The Run's identity** is one small read-only value behind one `Arc`: the Run's ID, its folder, its clock, its resolved settings, its stop signal, its metrics, its `tracing` span and its task owner. Cloning it is one reference count.
 - **Each power is a value of its own,** in the owner module ADR 0140 names for it, or in a module of its own where ADR 0140 names none: the run file's writer, charging, the Run trace, progress, Secrets and the data key, the Run report's warnings, the end.
 - **A function takes the identity and the powers it uses,** and nothing else of the Run.
+
+> Note (agent decision of 2026-11-10, awaiting the owner's reading), from the same review: the two lists do not cover everything `Run` hands out. Read at `197a8c18e` with the language server, the handle has 64 methods, one of them in `runs/outcome.rs`. 32 are the identity's or a listed power's, and 5 hand out what the engine's context already holds. Ten more follow from the rule above with no choice left, and are placed so:
+>
+> - a point in time is read from the identity's clock, and an outcome record from its Run ID;
+> - the hold of a Human pause is progress's;
+> - why a Run did nothing is the Run report's, written with its warnings;
+> - what a Run used so far is a function over charging and the run file's writer;
+> - asking a Run to stop, and the watches that ask it at a timeout or a storage failure, stay the Runs' registry's; a charge that a Limit refuses asks it too, as today.
+>
+> The other 17 hand out nine things that neither list names: the Run's share of the Resource governor, entropy, the Politeness a Run shares, its robots.txt copies, where a crawl attempt's writes are staged, the storage of bodies and of kept files, the signal that a Run was let finish, the record that a Run uses another Product's entry, and its records in the Run index. Each needs a new power, a new part of the identity or another home. That is the owner's to decide, and nothing is chosen here: [#2255](https://github.com/goodfetch/goodfetch/issues/2255) holds the question with its options, and [#2299](https://github.com/goodfetch/goodfetch/issues/2299) builds the answer.
 
 ### `Run` gains no method
 

@@ -953,6 +953,61 @@ fn a_change_no_test_reads_never_takes_the_full_gate_whatever_the_count(
     assert_eq!(forms(&run), [form], "{}", run.stdout);
 }
 
+/// A stand-in `git` that, asked to count the merges whose message matches
+/// (`rev-list --count … --grep=…`, the count of the quick merges since the
+/// last full gate), does `counting` instead; every other call is the system's
+/// `git`.
+fn git_counting_with(stand_in: &Path, counting: &str) {
+    let git = stand_in.join("git");
+    std::fs::write(
+        &git,
+        format!(
+            "#!/bin/sh\n\
+             case \" $* \" in\n\
+               *\" --count \"*\" --grep=\"*) {counting} ;;\n\
+               *) PATH=/usr/bin:/bin exec git \"$@\" ;;\n\
+             esac\n"
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// The count decides whether a change a test reads takes the full gate, so a
+/// count the script cannot read fails before any step: read as none, it would
+/// send the tenth change to the quick gate.
+#[rstest]
+#[case::the_count_fails("exit 128")]
+#[case::it_gives_nothing("exit 0")]
+#[case::it_gives_no_whole_number("echo nine")]
+fn a_count_of_quick_merges_that_cannot_be_read_merges_nothing(#[case] counting: &str) {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("gate"), "full").unwrap();
+    git_counting_with(&stand_in, counting);
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert!(
+        run.stdout.contains("could not be counted"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        !run.calls
+            .iter()
+            .any(|call| call.starts_with("just ") || call.starts_with("gh pr merge")),
+        "{:?}",
+        run.calls
+    );
+    assert!(!gate_lock(&workspace).exists());
+}
+
 /// Runs the gate to its end on pull request #7, from a branch that is no
 /// spec's, whose change `xtask affected` calls `affected`, on a `main` that
 /// first took `merges` ([`pull_request_after`]). A LazyFS build is there for

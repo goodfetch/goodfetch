@@ -284,8 +284,12 @@ elif [[ $affected == full && $branch =~ ^spec/[0-9]+$ ]]; then
 elif [[ $affected == full ]]; then
   # More than nine can be there, merged before this script counted or by a
   # checkout that did not: the next change still takes the full gate, and
-  # says which change it is.
-  quick_merges=$(quick_merges_since_the_last_full_gate)
+  # says which change it is. A count that cannot be read is refused: taken
+  # for none, it would send the tenth change to the quick gate.
+  if ! quick_merges=$(quick_merges_since_the_last_full_gate) || [[ ! $quick_merges =~ ^(0|[1-9][0-9]*)$ ]]; then
+    echo "error: the changes a test reads that merged on the quick gate since the last full gate could not be counted on origin/$base (the count read \"$quick_merges\", which is no whole number), so nothing says whether this change is the tenth; run the command again, or ask for the full gate with \`--full\`" >&2
+    exit 1
+  fi
   if ((quick_merges == 9)); then
     why_full="the tenth change a test reads since the last full gate"
   elif ((quick_merges > 9)); then

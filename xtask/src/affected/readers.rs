@@ -481,7 +481,7 @@ fn literals(path: &RepoPath) -> Vec<String> {
     }
     for end in 1..parts.len() {
         let folder = parts[..end].join("/");
-        for quote in ['"', '\''] {
+        for quote in ['"', '\'', '`'] {
             literals.push(format!("{quote}{folder}{quote}"));
             literals.push(format!("{quote}{folder}/"));
         }

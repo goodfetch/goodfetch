@@ -55,6 +55,38 @@ fn recorded_ancestors(root: &Path, records: &Path, tip: &str) -> Result<Vec<Stri
     Ok(ancestors.into_iter().map(|(_, head)| head).collect())
 }
 
+/// What the stress run of a run compares its head with: the head of the last
+/// full gate, or the change's base and why.
+pub(super) enum StressBase {
+    /// The head of the last full gate whose stress run passed: a test reads
+    /// what the change's base gained since.
+    LastFullGate(String),
+    /// The change's base, which is the run's own head, as the backstop's on
+    /// `main`'s head: it gates no change, each merge it holds was judged by
+    /// its own gate, and its stress run selects nothing.
+    RunOnTheBase,
+    /// The change's base, for want of a record: none on a head the base holds
+    /// shows a stress run that passed, so the tests merged on the quick gate
+    /// since the last full gate are not in the range.
+    NoFullGateRecorded,
+    /// The change's base, since no test reads what it gained since the last
+    /// full gate (`xtask affected`'s `gate=docs` or `gate=quick`, by which
+    /// `just merge` gives such a change no stress run): the selection would be
+    /// the same, and the base's saved listings, which `just merge` carries
+    /// across such merges, serve it.
+    NoTestReadsWhatMerged,
+}
+
+impl StressBase {
+    /// The head that replaces the change's base, when one does.
+    pub(super) fn last_full_gate(&self) -> Option<&str> {
+        match self {
+            Self::LastFullGate(head) => Some(head),
+            Self::RunOnTheBase | Self::NoFullGateRecorded | Self::NoTestReadsWhatMerged => None,
+        }
+    }
+}
+
 /// The head the stress run of the run on `head` compares it with in place of
 /// the change's `base`, so that it covers what merged on the quick gate since
 /// the last full gate (ADR 0135's amendment of 2026-11-10): the nearest head
@@ -63,28 +95,22 @@ fn recorded_ancestors(root: &Path, records: &Path, tip: &str) -> Result<Vec<Stri
 /// head of the change itself is none of them: the change's own tests are new
 /// since its base, whatever an earlier run on it found.
 ///
-/// None when no test reads what `base` gained since that head (`xtask
-/// affected`'s `gate=docs` or `gate=quick`, by which `just merge` gives such a
-/// change no stress run): the selection would be the same, and the base's
-/// saved listings, which `just merge` carries across such merges, serve it.
-/// None too for a run on `base` itself, as the backstop's on `main`'s head: it
-/// gates no change, each merge it holds was judged by its own gate, and its
-/// stress run selects nothing.
+/// Else the change's `base`, with which of [`StressBase`]'s reasons keeps it.
 pub(super) fn stress_base(
     root: &Path,
     members: &WorkspaceMembers,
     records: &Path,
     head: &str,
     base: &str,
-) -> Result<Option<String>> {
+) -> Result<StressBase> {
     if head == base {
-        return Ok(None);
+        return Ok(StressBase::RunOnTheBase);
     }
     let Some(last_full_gate) = recorded_ancestors(root, records, base)?
         .into_iter()
         .find(|candidate| stress_passed(records, candidate))
     else {
-        return Ok(None);
+        return Ok(StressBase::NoFullGateRecorded);
     };
     let merged_since = Range::Commits {
         base: last_full_gate.clone(),
@@ -92,7 +118,11 @@ pub(super) fn stress_base(
     };
     let a_test_reads_it =
         affected::select_among(root, members, &merged_since)?.takes_the_full_gate();
-    Ok(a_test_reads_it.then_some(last_full_gate))
+    Ok(if a_test_reads_it {
+        StressBase::LastFullGate(last_full_gate)
+    } else {
+        StressBase::NoTestReadsWhatMerged
+    })
 }
 
 /// Whether the record of the run on `head` shows that its stress run passed:

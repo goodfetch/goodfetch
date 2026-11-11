@@ -60,6 +60,7 @@ use crate::affected::{self, Job, Range, RepoPath, WorkspaceMembers};
 use crate::environment::Environment;
 use crate::{git, metadata, output};
 use attribution::{Evidence, Judged, StressEvidence};
+use earlier::StressBase;
 use evidence::RustInputs;
 use plan::{Action, GateRun, Head, Outcome, Planned, Step, Touched, UNOWNED, short, unit};
 
@@ -362,20 +363,14 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
     let stress_base = earlier::stress_base(root, &members_read, records, &head, &base)?;
     let machine = render(
         previous_head,
-        stress_base.as_deref(),
+        stress_base.last_full_gate(),
         &head,
         &members,
         &unowned,
         &planned,
     );
     let mut log = describe(previous_head, &planned);
-    if let Some(stress_base) = &stress_base {
-        let _ = writeln!(
-            log,
-            "The stress run compares the head with {}, the head of the last full gate whose stress run passed: a test reads what merged since.",
-            short(stress_base)
-        );
-    }
+    log.push_str(&describe_stress_base(&stress_base));
     if !beyond.is_empty() {
         log.push_str(
             "Evidence reaches these members, which `xtask affected` does not select (they rerun):\n",
@@ -779,6 +774,21 @@ fn plan_value<'a>(plan: &'a str, key: &str) -> Result<&'a str> {
         (Some(value), None) => Ok(value),
         (None, _) => bail!("the plan has no `{key}=` line"),
         (Some(_), Some(_)) => bail!("the plan has more than one `{key}=` line"),
+    }
+}
+
+/// The stress run's range in words, for the run's log: the last full gate's
+/// head when the range starts there, and what the range leaves out when no
+/// record says where that gate's stress run ended. Nothing when the change's
+/// base is the whole of it.
+fn describe_stress_base(stress_base: &StressBase) -> String {
+    match stress_base {
+        StressBase::LastFullGate(last_full_gate) => format!(
+            "The stress run compares the head with {}, the head of the last full gate whose stress run passed: a test reads what merged since.\n",
+            short(last_full_gate)
+        ),
+        StressBase::NoFullGateRecorded => "The stress run compares the head with its own base: no record of an earlier full gate whose stress run passed is on the base's history, so the tests merged on the quick gate since are not run their 20 times here.\n".to_owned(),
+        StressBase::RunOnTheBase | StressBase::NoTestReadsWhatMerged => String::new(),
     }
 }
 

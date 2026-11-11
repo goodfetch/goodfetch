@@ -1710,6 +1710,55 @@ fn with_no_full_gate_recorded_the_stress_run_keeps_its_base() {
     assert_eq!(next.stress_base, "-");
 }
 
+/// What the plan's log says when no record shows where the last full gate's
+/// stress run ended.
+const NO_FULL_GATE_RECORDED: &str =
+    "no record of an earlier full gate whose stress run passed is on the base's history";
+
+/// That stress run leaves out the tests merged on the quick gate since the
+/// last full gate, while `just merge` starts its count of quick merges again
+/// at this gate: the plan's log says so, since `stress.base=-` alone does not
+/// tell it from a base nothing a test reads merged on.
+#[test]
+fn with_no_full_gate_recorded_the_plans_log_says_the_stress_run_leaves_the_quick_merges_tests_out()
+{
+    let (workspace, _folder, records, _) = quick_merges_since_a_full_gate();
+    std::fs::remove_dir_all(&records).unwrap();
+
+    let next = planned(&workspace, &records, "CI=", &[]);
+
+    assert!(
+        next.stderr.contains(NO_FULL_GATE_RECORDED),
+        "{}",
+        next.stderr
+    );
+}
+
+/// With the last full gate recorded and nothing a test reads merged since, the
+/// stress run keeps the change's base and leaves no test out: the plan's log
+/// does not say it does.
+#[test]
+fn with_a_full_gate_recorded_the_plans_log_does_not_say_the_stress_run_leaves_tests_out() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    full_gate_merged(&workspace, &records);
+    let documents = change_from(&workspace, "main", "documents");
+    merged_into_main(&workspace, &documents, QUICK_GATE_MERGE);
+    pull_request_adding_a_test(
+        &workspace,
+        "next-full-gate",
+        "crates/goodfetch-conformance/src/lib.rs",
+    );
+
+    let next = planned(&workspace, &records, "CI=", &[]);
+
+    assert_eq!(parse(&next).stress_base, "-");
+    assert!(
+        !next.stderr.contains(NO_FULL_GATE_RECORDED),
+        "{}",
+        next.stderr
+    );
+}
+
 /// A run on `main` itself, as the backstop's full run is, gates no change: its
 /// head is its own base, each merge it holds was judged by its own gate, and
 /// its stress run selects nothing (ADR 0135's amendment of 2026-11-09). The

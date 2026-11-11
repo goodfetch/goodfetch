@@ -233,6 +233,10 @@ How proven crawlers shape this work. Each was checked against its primary source
 
   > Note (owner's decisions, 2026-11-10, [#2252](https://github.com/goodfetch/goodfetch/issues/2252), Q5, Q10 and Q11): the matrix gains two scenarios: Collie against Playwright ([#2282](https://github.com/goodfetch/goodfetch/issues/2282)), and a crawl-like one with no bar, article pages over TLS and HTTP/2 under the 20 ms profile ([#2284](https://github.com/goodfetch/goodfetch/issues/2284)). Scenario 3's site widens from 50 domains to 1,000 domains of 10 pages ([#2283](https://github.com/goodfetch/goodfetch/issues/2283)).
 
+  > Note (owner's decisions, 2026-11-10, grilling of decision G-08 of the consolidated review: Q3 answered "yes", and Q12, put after an independent check of the grilling's drafts, answered "Yes, all three", each on the grilling's recommended option as put; the wording is the grilling session's, and the owner did not read it): `just compare` gains a cell on the Proving ground's hostile pages. It counts the rules each tool broke, as the site records them, each tool at its own defaults: requests sent while the site had asked to wait, requests over the site's limit of requests in flight, requests to disallowed pages, and whether the site ended up refusing the tool. It carries no bar; whether it gains a target is decided after its first figures.
+  >
+  > Note (the grilling session's own, 2026-11-10, same grilling, awaiting the owner's reading): the cell reads the `traps` family and `limits/1` and `limits/3`, not `limits/2`, which no single address can complete. It runs one pass at each tool's own defaults and one pass on the `traps` family alone with every tool at 16 in flight (shown to the owner as corrected). Beside the rules broken it prints wanted pages fetched and requests wasted on a duplicate or a trap.
+
 ### A `STYLE.md` rule, lints and step 7
 
 - **`STYLE.md` gains, under Memory and hot paths:**

@@ -37,4 +37,5 @@ ADR 0016 made the costly security controls switchable. At the owner's request th
 
 - ADR 0028 lets an Operator policy or a Recipe cap or lock these switches; where nothing locks them, a run can still switch them.
 - The V1 benchmark publishes what each control costs, as it does for the security controls of ADR 0016.
+  > Note (owner's decisions, 2026-11-10, grilling of decision G-08 of the consolidated review: Q2 and Q4 answered "yes", each on the grilling's recommended option as put; the wording is the grilling session's, and the owner did not read it): `just compare`'s report states each control's cost before the benchmark does. For Foxhound, a table of the instructions per page each default adds when switched on alone. For Collie, the gap between its Guard-on and Guard-off rows on the same tasks.
 - Later decisions that add a costly control state its switch and its mark.

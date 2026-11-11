@@ -127,8 +127,9 @@ fn calls_between(setup: &[&str], calls: &[&str], last: &[&str]) -> Vec<String> {
 
 /// An incremental gate's plan (ADR 0135), in `xtask gate plan`'s keys: each
 /// step of the full gate runs in full but those `actions` gives as
-/// `(<step>, <action>, <members>, <why>)`. A plan whose `head` is `none`
-/// records nothing.
+/// `(<step>, <action>, <members>, <why>)`, and the stress run compares the
+/// head with the change's base (`stress.base=-`). A plan whose `head` is
+/// `none` records nothing.
 fn plan(
     workspace: &Workspace,
     previous: &str,
@@ -137,8 +138,9 @@ fn plan(
     unowned: &str,
     actions: &[(&str, &str, &str, &str)],
 ) -> String {
-    let mut text =
-        format!("previous={previous}\nhead={head}\nmembers={members}\nunowned={unowned}\n");
+    let mut text = format!(
+        "previous={previous}\nhead={head}\nmembers={members}\nunowned={unowned}\nstress.base=-\n"
+    );
     for step in listed(workspace, "all")
         .into_iter()
         .filter(|step| step.kind != "command")
@@ -778,6 +780,7 @@ fn a_plan_without_a_key_or_with_it_twice_ends_the_gate_at_the_step_that_needs_it
 #[rstest]
 #[case::no_previous("previous=none\n", "`previous=`")]
 #[case::no_head("head=none\n", "`head=`")]
+#[case::no_stress_base("stress.base=-\n", "`stress.base=`")]
 fn a_plan_without_its_earlier_run_or_head_starts_no_step(#[case] line: &str, #[case] key: &str) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_in_just(&workspace);
@@ -1179,6 +1182,55 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
         .collect();
     expected.sort();
     assert_eq!(recorded, expected);
+}
+
+/// The calls of `just stress` a run made.
+fn stress_calls(run: &Run) -> Vec<&str> {
+    run.calls
+        .iter()
+        .map(String::as_str)
+        .filter(|call| call.split(' ').next() == Some("stress"))
+        .collect()
+}
+
+/// A full gate's stress run covers what merged on the quick gate since the
+/// last full gate (ADR 0135's amendment of 2026-11-10, #2455). `main` took two
+/// quick merges, each adding a test, since the head whose full gate `just
+/// merge` recorded, so the next full gate's stress run compares its head with
+/// that head: its own base holds both tests already, and would leave them
+/// without their 20 runs. The plan is the one the repository's `xtask gate
+/// plan` makes from that record, made before the stand-in's files are in the
+/// tree, since a plan on a tree with uncommitted changes reads no record.
+#[test]
+fn a_full_gates_stress_run_compares_its_head_with_the_last_full_gates() {
+    let (workspace, _folder, records, full_gate) = crate::gate::quick_merges_since_a_full_gate();
+    let plan = crate::gate::plan_text(&workspace, &records);
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("plan"), plan).unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(stress_calls(&run), [format!("stress {full_gate}")]);
+}
+
+/// A part of the stress run keeps that head as what it compares with: the
+/// pull request gated again after a fix reruns the members the fix reaches,
+/// and their tests the quick merges added are still theirs to run.
+#[test]
+fn a_part_of_the_stress_run_compares_its_head_with_the_last_full_gates_too() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    let plan = incremental_plan(&workspace).replacen("stress.base=-", "stress.base=full-gated", 1);
+    std::fs::write(stand_in.join("plan"), plan).unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(
+        stress_calls(&run),
+        ["stress full-gated earlier target/gate-runs/planned.earned  a :unowned"]
+    );
 }
 
 /// A failed Quick suite or stress run hands `xtask gate record` the files

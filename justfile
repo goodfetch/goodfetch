@@ -821,6 +821,13 @@ _repeat count *selection:
 # folder and its `just repeat` hold the runs this run gives it. The backstop
 # passes `merged`: every commit since `base` is on `main` already, each judged
 # by its own gate, so a test or member gone since is noted, not refused.
+#
+# `just merge`'s full gate passes as `base` the head of the last full gate
+# whose stress run passed, when a test reads what `main` gained since (the
+# plan's `stress.base`, `xtask gate plan`): the tests the quick merges since
+# then added or changed run here too, and the deleted tests, with the trailers
+# that accept them, are read from that head (ADR 0135's amendment of
+# 2026-11-10).
 # Stresses new and changed tests: `just stress [base] [since] [earned] [merged] [within…]`.
 [positional-arguments]
 stress base="" since="" earned="" merged="" *within:

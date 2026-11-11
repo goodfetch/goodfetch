@@ -13,6 +13,11 @@
 //!   file that change (`--since` the earlier run's head) changed. A test with
 //!   clean passes the plan kept (`--earned`, #2233) runs what its count still
 //!   owes, so it has its whole count across those runs.
+//!   `just merge`'s full gate gives as the base the head of the last full
+//!   gate, when a test reads what merged since (`xtask gate plan`'s
+//!   `stress.base`): everything here reads its range from the base, so the
+//!   tests the quick merges since then added or changed are selected, and the
+//!   tests they deleted judged, with the change's own.
 //!   A test the base lists and the head does not fails the selection,
 //!   unless a `Quality-change` trailer of the change names its ID (the
 //!   Floor; `deleted`).
@@ -559,7 +564,8 @@ pub(crate) enum Command {
     /// off the quarantine list 200 times, less the clean passes `--earned`
     /// gives it.
     Select {
-        /// The change's base commit.
+        /// The commit the head is compared with: the change's base, or the
+        /// head of the last full gate from `just merge`'s full gate.
         #[arg(long)]
         base: String,
         /// The folder of the listings the cache-warming job saved, one

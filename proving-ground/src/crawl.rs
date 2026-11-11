@@ -29,6 +29,10 @@
 //!   host names of its own;
 //! - `tiers`: static and script-rendered listings on one host, apart by
 //!   their paths' first segment, from which a crawl learns its tiers;
+//! - `rungs`: the rung site, whose pages each need one rung of the ladder
+//!   `fetch.tier: auto` climbs: static, answered only to the pinned
+//!   browser's TLS fingerprint, or complete only once its script ran, with
+//!   a manifest of every page's kind and expected Records;
 //! - `comparison`: `just compare`'s multi-domain site and script-rendered
 //!   site, the `scale` family's tree of pages on host names of their own
 //!   under `localhost`.
@@ -46,6 +50,7 @@ mod limits;
 mod links;
 mod pacing;
 mod parameters;
+mod rungs;
 mod scale;
 mod scope;
 mod sitemap_seed;
@@ -60,6 +65,7 @@ use std::net::IpAddr;
 use hyper::body::Bytes;
 use hyper::{Method, StatusCode};
 
+use crate::client_hello::ClientHello;
 use crate::clock::Stopwatch;
 use crate::exchange::Reply;
 use crate::generator;
@@ -70,7 +76,7 @@ use crate::task::{self, Entry, Expected, Finding, Kind, Record, Task};
 pub(crate) use limits::Held;
 
 /// The family host names, each with its family's name.
-const FAMILIES: [(&str, &str); 14] = [
+const FAMILIES: [(&str, &str); 15] = [
     (statuses::HOST, statuses::FAMILY),
     (traps::HOST, traps::FAMILY),
     (limits::HOST, limits::FAMILY),
@@ -85,6 +91,7 @@ const FAMILIES: [(&str, &str); 14] = [
     (learning::SHOP_HOST, learning::FAMILY),
     (learning::WWW_HOST, learning::FAMILY),
     (tiers::HOST, tiers::FAMILY),
+    (rungs::HOST, rungs::FAMILY),
 ];
 
 /// The parts of a request a Crawl family reads: an
@@ -100,6 +107,9 @@ pub(crate) struct Request<'a> {
     pub(crate) query: &'a str,
     /// The address the request came from.
     pub(crate) peer: IpAddr,
+    /// The `ClientHello` of the request's connection; `None` over plain
+    /// text.
+    pub(crate) tls: Option<&'a ClientHello>,
 }
 
 impl Request<'_> {
@@ -270,6 +280,7 @@ impl Families {
             sitemap_seed::FAMILY => sitemap_seed::respond(&visit),
             learning::FAMILY => learning::respond(&visit),
             tiers::FAMILY => tiers::respond(&visit, &self.tiers),
+            rungs::FAMILY => rungs::respond(&visit),
             comparison::FAMILY => comparison::respond(&visit),
             _ => scale::respond(&visit),
         })

@@ -246,6 +246,7 @@ impl Site {
                 path: request.path,
                 query: request.query,
                 peer: request.peer,
+                tls: request.tls,
             };
             if let Some(page) = self.crawl.respond(self.seed, &visit, &self.observations) {
                 return page.into_reply();

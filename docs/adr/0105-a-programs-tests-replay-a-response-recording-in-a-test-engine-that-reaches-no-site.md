@@ -113,6 +113,7 @@ ADR 0085 handed `page.clock`, `routeFromHAR` and `routeWebSocket` to this decisi
 - **A `CrawlContext` the test builds and calls the handler with,** or **a context faked in each SDK without an engine:** rejected above.
 - **Answering Rust's Scripted model inside the linked engine:** rejected. The kit would then bypass the SDK-handler path that ADR 0069 has Goodfetch's own SDK suites test through it.
 - **Per-runner plugins and fixtures** (web-poet's pytest plugin, Playwright Test's fixtures): rejected by S2 and P31. The kit's values work in any runner.
+  > Note, 2026-11-11 (the owner, grilling of decision G-19 of the consolidated review, Q11: « Yes to all », on option (a) as put, after being told that this ADR names none of these parts; the owner did not read this note's wording): the test runner and every part of it are refused, each on its own row of ADR 0037's matrix with the reason "Goodfetch works inside the program's own runner, which already provides this": reporters, splitting a suite across machines, watch and UI mode, a dev server's start, component tests and test-writing agents (rows SDK-26 to SDK-31). It is a new decision for those parts, on the reason of lines 82, 105 and 115.
 - **Model recordings or the Fake model for programs:** rejected. A Plan replays what the model decided with no call at all; the Fake model answers Proving ground tasks only.
 - **`page.clock`, `routeFromHAR`, `routeWebSocket` and `toHaveScreenshot`:** rejected above.
 

@@ -21,24 +21,14 @@ export type TestSupportErrorCode =
   | "proving_ground_unseeded"
   /** A test took `daemon` without setting `withDaemon`. */
   | "daemon_not_requested"
-  /** A served test took `daemon` with no `consoleServer`, while the executables serve no Console (ADR 0068). */
-  | "console_not_served"
-  /** Every named port a test's Daemon can keep is taken (#2035). */
-  | "named_ports_exhausted"
   /** A served test asked for a size-capped filesystem where test support makes none: off Linux (ADR 0122). */
   | "size_capped_unsupported"
-  /** `signIn` did not reach a signed-in state: the Console refused the link, or the OIDC provider the person (ADR 0068). */
-  | "sign_in_failed"
   /** A Playwright test gave its context a `storageState`, which no test may set (ADR 0068). */
   | "storage_state_refused"
-  /** A Journey file cannot be read, is not TOML, or fails `journeys/journey.schema.json` (ADR 0063). */
-  | "journey_invalid"
   /** The catalog's file of one Journey's ID holds another Journey (ADR 0063). */
   | "other_journey"
   /** A Journey helper was asked for a surface its Journey has no variant on (ADR 0063). */
   | "unlisted_surface"
-  /** A Journey variant's run recorded a failure, or its document is not `proved` (ADR 0063). */
-  | "variant_not_proved"
   /** `goodfetch-test-env` exited with a failure when its stdin closed. */
   | "teardown_failed"
   /** A process the test started through test support was alive after teardown (ADR 0069). */
@@ -57,12 +47,6 @@ export type TestSupportErrorCode =
   | "focus_not_visible"
   /** A keyboard walk's stop is entirely covered by other content (ADR 0073). */
   | "focus_obscured"
-  /** A `screen:` Feature has no route or no sign-in state in `console/screens.toml`, so its keyboard walk cannot open it (ADR 0073). */
-  | "screen_setup_missing"
-  /** `console/screens.toml` is no TOML, or an entry names no `screen:` Feature, repeats one, or has a field it does not define (ADR 0073). */
-  | "screen_setups_invalid"
-  /** A screen's route did not answer 2xx, so its keyboard walk would walk an error page (ADR 0073). */
-  | "screen_not_served"
   /** A browser command was asked for state its browser provider cannot set (ADR 0068). */
   | "provider_unsupported"
   /** A Playwright test turned on `bypassCSP`, which no test may set (ADR 0068). */
@@ -75,10 +59,6 @@ export type TestSupportErrorCode =
   | "inventory_invalid"
   /** A suite's case list cannot be read, is no TOML, or lacks its suite's name and version, a capability's name, or a case's ID or `covers` (ADRs 0033 and 0069). */
   | "case_list_invalid"
-  /** A Console conformance test's `capability` annotation and title name no case the suite's case list declares (ADR 0068). */
-  | "conformance_case_unknown"
-  /** Two tests of one Console conformance target report different targets, platforms, runtimes or Proving grounds (ADR 0068). */
-  | "conformance_target_mismatch"
   /** A case log entry fails the bundle's `case_log_entry` schema, such as by setting an outcome (ADR 0069). */
   | "case_log_entry_invalid"
   /** A test carries a `client_case/` tag naming no case of the reporter's case list (ADR 0069). */
@@ -89,24 +69,10 @@ export type TestSupportErrorCode =
   | "covers_unknown"
   /** axe found a violation of WCAG 2.2 AA or a best practice on a served test's page (ADR 0073). */
   | "axe_violations"
-  /** A screen's keyboard walk reaches no stop (ADR 0073). */
-  | "keyboard_walk_empty"
   /** `browserStateReset` lifted a test's overrides and the page still read them past its deadline (ADR 0068). */
   | "browser_state_not_reset"
   /** A stop's area changes while it stays unfocused, so `focusChecks` cannot tell a focus ring from it (ADR 0073). */
   | "focus_not_visible_unstable"
-  /** A screen's keyboard walk is not the one `console/screens.toml` records for it (ADR 0073). */
-  | "keyboard_walk_changed"
-  /** `console/screens.toml` sets up a screen the Feature inventory does not list (ADR 0073). */
-  | "screen_setup_orphaned"
-  /** The Console has routes, and the Feature inventory names no `screen:` Feature (ADR 0073). */
-  | "screens_missing"
-  /** An entry of the axe exception file excepts no violation on a page it names where its rule ran: its selector matches nothing there, or none of its elements violates the rule any more (ADR 0073). */
-  | "axe_exception_unmatched"
-  /** An entry of the axe exception file names a selector that takes in the whole page (`html`, `body` or every element in it), which would turn its rule off (ADR 0073). */
-  | "axe_exception_too_broad"
-  /** The axe exception file cannot be read, or an entry lacks a field or has one it does not define (ADR 0073). */
-  | "axe_exceptions_invalid"
   /** At 320 × 256 CSS pixels, the page or a region of it scrolls horizontally outside a data table or code block (ADR 0073). */
   | "horizontal_scroll"
   /** Text is clipped by its box with no way to read it in full, such as by scrolling (ADR 0073). */
@@ -132,17 +98,7 @@ export type TestSupportErrorCode =
   /** The Client closed its end, or the script ended, with a step of the Scripted engine's script unused (ADR 0069). */
   | "unused_step"
   /** A `reply` or `await_reply` step of a Scripted engine's script follows no request to answer (ADR 0069). */
-  | "nothing_to_answer"
-  /** The Console called an operation the test set no answer for (ADR 0068). */
-  | "call_unanswered"
-  /** The Console sent a message the committed bundle refuses, or one no engine of the Product takes (ADR 0068). */
-  | "request_invalid"
-  /** A test's answer to a call is not one the engine could send: it breaks the bundle, or names an Error code the catalog lacks (ADR 0068). */
-  | "answer_invalid"
-  /** A test pushed an event the engine could never send: unknown, breaking its payload's schema, or at a position that does not go up (ADR 0068). */
-  | "event_invalid"
-  /** The Console fetched a body by a handle the test never served (ADR 0068). */
-  | "body_unserved";
+  | "nothing_to_answer";
 
 /** An error of test support, matched on its `code`. */
 export class TestSupportError extends Error {

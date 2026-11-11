@@ -7,10 +7,6 @@
 //! tests show a file's own sync; the folder's sync after the rename is the
 //! engine's `durable` module's. Only the Release suite runs them, on Linux
 //! x64 (`just lazyfs-test`); nextest's profiles leave them out elsewhere.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the tests read the files back as a reboot would, outside any async worker"
-)]
 
 use goodfetch_engine::audit::{AuditLog, Origin};
 use goodfetch_engine::home::Home;

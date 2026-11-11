@@ -447,7 +447,7 @@ impl InMemoryDialer {
 }
 
 /// The Stub gateway's listener (ADR 0096): TCP on loopback, on which that
-/// test-only executable serves its Clients' WebSockets.
+/// test-only executable serves each Client's WebSocket.
 pub struct GatewayListener(
     #[expect(
         clippy::disallowed_types,

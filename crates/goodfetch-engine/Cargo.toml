@@ -36,11 +36,8 @@ hickory-resolver = { workspace = true, features = ["tokio", "system-config"] }
 hkdf.workspace = true
 # Names from outside input in Unicode's composed form (ADR 0067).
 icu_normalizer.workspace = true
-# The Console's sign-in verifiers and CSRF tokens, HMACs under the Console
-# key (spec #592).
-hmac.workspace = true
-# The engine's own HTTP client (ADRs 0043 and 0060), HTTPS over HTTP/1.1,
-# and the Console's server, HTTP/1.1 (ADR 0057).
+# The engine's own HTTP client (ADRs 0043 and 0060), HTTPS over HTTP/1.1
+# (ADR 0057).
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["client", "http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }

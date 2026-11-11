@@ -1,8 +1,6 @@
 # The one pnpm workspace (ADR 0032; STYLE.md, TypeScript). `rnd/lab` keeps a
 # workspace of its own and is not part of this one.
 packages:
-  - console
-  - console/*
   - sdks/typescript/*
   - adapters/*/*
   - integrations/*/*
@@ -11,40 +9,12 @@ packages:
   - conformance/*
   - test-support/typescript
 
-# eslint-plugin-lingui (ADR 0073) takes micromatch only for its `matcher`,
-# which is picomatch's own function, and micromatch's `braces` has an advisory
-# with no fix (GHSA-vfj7-8cjw-p6xm). It gets picomatch instead, through the
-# patch that calls it directly, so no package with an open advisory installs
-# (STYLE.md, Dependencies). Remove both once the plugin drops micromatch.
 overrides:
-  "eslint-plugin-lingui>micromatch": "npm:picomatch@2.3.2"
-  # Lingui's CLI (ADR 0073), which the Console's catalog check and its Vite
-  # plugin run, takes picomatch the same way: its patch calls picomatch's
-  # `isMatch` and `makeRe` where it called micromatch's `any` and `capture`.
-  "@lingui/cli>micromatch": "npm:picomatch@2.3.2"
-  # Lighthouse (the Console's lab metrics, ADR 0071) takes fast-uri through
-  # ajv; 3.1.8 and before have open advisories (GHSA-w74x-v6f9-j3xg and
-  # three more) that 3.1.9 fixes. Remove once ajv's own range resolves it.
-  "fast-uri@<3.1.9": 3.1.9
-  # The Allure report (`allure`, its `@allurereport/core` and `ci`) and
-  # Storybook's docgen plugin (`@joshwooding/vite-plugin-react-docgen-typescript`)
-  # take glob 13, whose aborted walk keeps reading folders
-  # (GHSA-3g3m-2fjr-6pw4), fixed in 14.0.2; neither has a release that takes
-  # glob 14 (#1785). Remove once both ranges resolve to 14.0.2 or later.
+  # The Allure report (`allure`, its `@allurereport/core` and `ci`) takes
+  # glob 13, whose aborted walk keeps reading folders (GHSA-3g3m-2fjr-6pw4),
+  # fixed in 14.0.2; it has no release that takes glob 14 (#1785). Remove
+  # once its range resolves to 14.0.2 or later.
   "glob@>=9.0.0 <14.0.2": 14.0.3
-  # ESLint (through eslint-plugin-lingui), its `@eslint/config-array` and
-  # typescript-eslint's `typescript-estree` take minimatch 10, whose pattern
-  # preprocessing can grow without bound (GHSA-g3hv-75wg-m249), fixed in
-  # 11.0.1; none has a release that takes minimatch 11 (#1785). They call only
-  # `minimatch()`, `new Minimatch` and its `match`, which 11 keeps. Remove
-  # once their ranges resolve to 11.0.1 or later.
-  "minimatch@<11.0.1": 11.0.3
-  # Lighthouse lists Sentry's Node client, an error reporter, which ADR 0043
-  # keeps out of every lockfile (`xtask telemetry`). `-` removes it, so it is
-  # never installed. Lighthouse loads it only in its CLI, after the user agrees
-  # to error reporting, through an `import` it catches; the programmatic API
-  # the Console's recorder calls never does (`core/lib/sentry.js`).
-  "lighthouse>@sentry/node": "-"
 
 # One version of each shared tool for every package. Playwright's entry is
 # shared by Playwright Test and Vitest's browser provider (ADR 0068).
@@ -61,12 +31,8 @@ catalog:
   typescript: 7.0.2
   vitest: 5.0.5
 
-patchedDependencies:
-  "@lingui/cli@6.10.0": patches/@lingui__cli@6.10.0.patch
-  eslint-plugin-lingui@0.16.0: patches/eslint-plugin-lingui@0.16.0.patch
-
 # Install scripts that never run (STYLE.md, Dependencies: nothing a build
-# downloads). esbuild, which Storybook's builder brings (ADR 0068), only
+# downloads). esbuild, which Vite brings, only
 # checks there its platform binary, which pnpm installs as its optional
 # dependency for the host.
 allowBuilds:

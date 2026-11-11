@@ -7610,50 +7610,6 @@
       ]
     },
     {
-      "id": "screen:/needs-you",
-      "kind": "screen",
-      "area": 12,
-      "milestone": null,
-      "status": "active",
-      "products": [
-        "collie",
-        "foxhound"
-      ]
-    },
-    {
-      "id": "screen:/runs",
-      "kind": "screen",
-      "area": 12,
-      "milestone": null,
-      "status": "active",
-      "products": [
-        "collie",
-        "foxhound"
-      ]
-    },
-    {
-      "id": "screen:/runs/$run",
-      "kind": "screen",
-      "area": 12,
-      "milestone": null,
-      "status": "active",
-      "products": [
-        "collie",
-        "foxhound"
-      ]
-    },
-    {
-      "id": "screen:/settings",
-      "kind": "screen",
-      "area": 12,
-      "milestone": null,
-      "status": "active",
-      "products": [
-        "collie",
-        "foxhound"
-      ]
-    },
-    {
       "id": "setting:admission.max_requests_per_minute",
       "kind": "setting",
       "area": 3,

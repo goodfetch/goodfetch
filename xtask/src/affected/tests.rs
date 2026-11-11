@@ -946,7 +946,7 @@ fn foxhound_side_change_outside_any_package_selects_all_of_foxhounds_tests() {
     insta::assert_snapshot!(selection, @r#"
     jobs=["pre-merge","sinks","perf","docs"]
     crates=goodfetch-conformance goodfetch-foxhound goodfetch-frontier goodfetch-sink-kafka goodfetch-sink-s3 goodfetch-sink-shared
-    vitest-packages=console/foxhound sdks/typescript/foxhound
+    vitest-packages=sdks/typescript/foxhound
     pytest-packages=sdks/python/foxhound
     sinks=goodfetch-sink-kafka goodfetch-sink-s3
     sinks-touched=goodfetch-sink-kafka goodfetch-sink-s3

@@ -102,14 +102,6 @@ fn file_formats() -> serde_json::Value {
             "schema": { "$ref": "#/$defs/CertificatePin" },
         },
         {
-            "name": "accounts-store",
-            "version": "0.1",
-            "storage": "sqlite",
-            "rule": "default",
-            "hello_from": [],
-            "schema": { "$ref": "#/$defs/SignInRow" },
-        },
-        {
             "name": "export",
             "version": "0.1",
             "storage": "json",

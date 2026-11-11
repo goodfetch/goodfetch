@@ -155,8 +155,10 @@ impl Rule {
             | Self::TokenExpired
             | Self::TokenRevoked
             | Self::TokenScopedElsewhere => true,
-            Self::TokenInQueryString | Self::OriginMissing => http || websocket,
-            Self::HostForeign | Self::OriginForeign => http || websocket,
+            Self::TokenInQueryString
+            | Self::OriginMissing
+            | Self::HostForeign
+            | Self::OriginForeign => http || websocket,
             Self::ProbesAnswerStatusOnly | Self::OriginMissingWithoutHeaderToken => http,
             Self::HelloNotFirst => !http && !proxy,
         }

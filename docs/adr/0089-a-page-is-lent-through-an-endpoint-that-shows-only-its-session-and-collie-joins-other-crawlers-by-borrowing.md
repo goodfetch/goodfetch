@@ -52,6 +52,8 @@ Decided in [Third-party automation on Foxhound pages, and Collie inside other cr
 
 > Amended by [ADR 0114](0114-a-program-and-collie-take-turns-on-a-page-other-code-drives-and-an-ai-verb-fails-when-a-navigation-it-did-not-start-replaces-its-document.md): while a library is attached, the program awaits each of its own Collie calls before the library acts, and an AI verb of the program's whose document a navigation it did not start replaces fails with `page_navigated_during_call`.
 
+> Note (owner's decision, 2026-11-11, grilling of decision G-15 of the consolidated review: Q2 answered "Yes, all four" on the grilling's recommended option as put; the wording is the grilling session's, and the owner did not read it): the Stealth row above is amended: a `stealth` Session's page is lent only when its setting allows `Runtime`, as [ADR 0021](0021-standard-access-by-default-and-escalation-by-new-session.md)'s note of that day says.
+
 ### Supported libraries
 
 - **Supported, each with a helper, a guide and conformance cases:** Playwright in TypeScript and Python, Puppeteer in TypeScript, Browser Use in Python.

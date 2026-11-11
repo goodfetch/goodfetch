@@ -897,8 +897,8 @@ fn selection_with_one_reader(reader: &str, text: &str, changed: &str) -> (Select
 /// A file no member owns and no change to which reaches every member, such
 /// as a TLC model, is read by a member whose code names it in a string
 /// literal: by its file name ending one, or by a folder that holds it, whole
-/// or starting a longer path, in either quote. A literal naming another file
-/// reads nothing.
+/// or starting a longer path, in any quote, a TypeScript template literal's
+/// too. A literal naming another file reads nothing.
 #[rstest]
 #[case::its_file_name(
     "crates/goodfetch-conformance/src/lib.rs",
@@ -918,6 +918,11 @@ fn selection_with_one_reader(reader: &str, text: &str, changed: &str) -> (Select
 #[case::a_folder_holding_it_in_single_quotes(
     "crates/goodfetch-conformance/scripts/models.py",
     "MODEL = ROOT / 'test-support/models/sample/' + NAME\n",
+    true
+)]
+#[case::a_folder_holding_it_in_a_template_literal(
+    "crates/goodfetch-conformance/web/models.ts",
+    "const MODEL = `test-support/models/${name}`;",
     true
 )]
 #[case::another_files_name(

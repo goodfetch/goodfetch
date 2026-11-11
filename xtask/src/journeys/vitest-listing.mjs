@@ -17,8 +17,18 @@ process.env["NODE_ENV"] ??= "test";
 const vitest = await createVitest({ watch: false, run: true });
 try {
   // A module that fails to collect, such as one with an undeclared tag,
-  // sets the exit code, which fails the listing.
-  const { testModules } = await vitest.collect();
+  // sets the exit code, which fails the listing. `collect` runs no reporter,
+  // so nothing would say why: each error goes to stderr, which the failure
+  // quotes.
+  const { testModules, unhandledErrors } = await vitest.collect();
+  for (const testModule of testModules) {
+    for (const error of testModule.errors()) {
+      process.stderr.write(`${testModule.moduleId}: ${error.message}\n`);
+    }
+  }
+  for (const error of unhandledErrors) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  }
   const tests = testModules.flatMap((testModule) =>
     [...testModule.children.allTests()].map((test) => ({
       name: test.fullName,

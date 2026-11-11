@@ -499,7 +499,8 @@ fn vitest_tag_the_inventory_does_not_list_fails_the_listing() {
 
     assert_ne!(listed.code, 0, "{}", listed.stderr);
     assert!(
-        listed.stderr.contains("the Vitest listing failed"),
+        listed.stderr.contains("the Vitest listing failed")
+            && listed.stderr.contains("operation:sample.gone"),
         "{}",
         listed.stderr
     );

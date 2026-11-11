@@ -297,7 +297,9 @@ fn installed(root: &Path, relative: &str, install: &str) -> Result<PathBuf> {
 }
 
 /// Runs `command`, which `name` names in an error, and fails unless it
-/// exits with one of the `success` codes.
+/// exits with one of the `success` codes. The error holds the command's
+/// stderr, or its stdout when stderr is empty: pytest prints a collection
+/// error on stdout.
 pub(crate) fn run(command: &mut Command, name: &str, success: &[i32]) -> Result<Output> {
     let output = command
         .output()
@@ -307,7 +309,29 @@ pub(crate) fn run(command: &mut Command, name: &str, success: &[i32]) -> Result<
         .code()
         .is_some_and(|code| success.contains(&code))
     {
-        bail!("{name} failed: {}", String::from_utf8_lossy(&output.stderr));
+        let cause = if output.stderr.trim_ascii().is_empty() {
+            &output.stdout
+        } else {
+            &output.stderr
+        };
+        bail!("{name} failed: {}", String::from_utf8_lossy(cause));
     }
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// pytest prints a collection error on stdout and nothing on stderr, so
+    /// a failure names whichever stream holds its cause.
+    #[rstest::rstest]
+    #[case::on_stderr("echo listed; echo 'unknown tag' >&2; exit 1")]
+    #[case::on_stdout_alone("echo 'unknown tag'; exit 1")]
+    fn a_failed_listing_names_its_cause(#[case] script: &str) {
+        let error = run(Command::new("sh").args(["-c", script]), "the listing", &[0])
+            .expect_err("the listing exits 1");
+
+        assert_eq!(error.to_string(), "the listing failed: unknown tag\n");
+    }
 }

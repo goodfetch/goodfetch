@@ -20,6 +20,9 @@ The repository was written while an autonomous delivery mode in `AGENTS.md` had 
 
 - **Name an actor for the fresh review** (a review subagent before each merge): rejected. It re-creates the retired delivery mode, and `implement-spec` already runs `code-review` before it marks the pull request ready.
 - **Rewrite each ADR's text in place:** rejected. ADRs are records; each amended bullet carries a note pointing here.
+  > Note (owner's decisions, 2026-11-10, grilling of decision G-06 of the consolidated review: Q7 answered "Yes, all fourteen" and Q8 answered "Yes, all fourteen", each on the grilling's recommended option as put; the wording is the grilling session's, and the owner did not read it): an agent's decision recorded under an ADR says its kind where it says who decided: "agent decision, as built" for where code lives, a name, a test or a measure; "agent decision on a default, not read by the owner" for what a user gets with nothing set; "agent decision on a guarantee, not read by the owner" for what a promise means or where it stops. The owner reads the default and guarantee notes, by subject, when a spec that touches their ADR is cut: the spec's draft lists them in one table, and the owner's approval of the spec is the owner's reading of them. No note is marked accepted that the owner did not read.
+  >
+  > Note (the grilling session's own, 2026-11-11, from G-06's answers to Q7 and Q8, awaiting the owner's reading): a note that asks the owner something, replaces what the owner set, or decides for work not built is never "as built". A note the owner read says "accepted by the owner on", the date, and the question it answers, and names the sentence read when the owner did not read the whole note. A note about the Console says "moot: the Console leaves", and a note a later ADR ends names the ADR that ends it, as Q7 re-marked them. "Pending owner review" is no longer written.
 
 ## Consequences
 

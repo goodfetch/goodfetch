@@ -50,16 +50,17 @@ pub use identity::{
     Declared, Hop, TABLES as VISITED_TABLES, admit_hop, fuzz_url_key, redirect_hop,
     redirect_reached, rewrite, url_key,
 };
-pub use learn::{EndMerged, PageSeen, Redirect, learn, learn_redirect};
+pub use learn::{
+    EndMerged, Ended, PageSeen, Redirect, completeness_reasons as learned_completeness_reasons,
+    learn, learn_redirect,
+};
 pub use politeness::{
     Pace, crawl_delay_read, last_start, latency_measured, longest_wait, paces,
     refuse_second_copies, start_after, start_after_robots_txt, started_again, started_at_send,
 };
 pub use queues::DomainQueues;
 pub use robots_txt::{SharedRobotsTxt, TABLES as ROBOTS_TXT_TABLES};
-pub use rules::{
-    TABLES as RULES_TABLES, completeness_reasons as learned_completeness_reasons, learned_rules,
-};
+pub use rules::{TABLES as RULES_TABLES, learned_rules};
 pub use scope::{Narrowing, Patterns, Scope, Strategy as ScopeStrategy, TABLES as SCOPE_TABLES};
 pub use staged::{Admitting, Refused, Staged};
 pub use url::{document_base, resolve_link};

@@ -25,7 +25,8 @@
 //! URL of a listing that prefers its cursor is a `duplicate`; each such
 //! URL is recorded with its rule. What an admitted candidate shows, its
 //! integer parameters and the page that linked it, teaches the rules in
-//! turn.
+//! turn, unless the Run set `frontier.learning` off: its admissions then
+//! keep no such evidence, and no learned cursor refuses a URL.
 
 use std::sync::LazyLock;
 
@@ -200,7 +201,7 @@ pub fn admit_in(
             crawl_request,
         } => {
             for rule in rules {
-                rules::merged(connection, rule, url.as_str())?;
+                rules::merged(connection, rule, url.as_str(), Some(identities.plain()))?;
             }
             return Ok(not_added(
                 admitting,
@@ -209,11 +210,11 @@ pub fn admit_in(
             ));
         }
     }
-    if let Some((reason, rule)) = rules::refuses(connection, key.url())? {
-        rules::merged(connection, rule, url.as_str())?;
+    let bounds = Bounds::read(connection)?;
+    if let Some((reason, rule)) = rules::refuses(connection, key.url(), bounds.learning)? {
+        rules::merged(connection, rule, url.as_str(), None)?;
         return Ok(not_added(admitting, reason, None));
     }
-    let bounds = Bounds::read(connection)?;
     let budget = bounds.budget_of(&url);
     if let Some(reason) =
         bounds.refuses(connection, &url, depth.into(), budget, admitting.earlier())?
@@ -230,7 +231,9 @@ pub fn admit_in(
         identities.learned(),
         budget.map(|budget| budget.pattern.as_str()),
     );
-    rules::admitted(connection, key.url(), from.map(keyed).as_ref())?;
+    if bounds.learning {
+        rules::admitted(connection, key.url(), from.map(keyed).as_ref())?;
+    }
     if narrowing.is_none() {
         Scope::widen(connection, &url)?;
         admitting.widened(&url);

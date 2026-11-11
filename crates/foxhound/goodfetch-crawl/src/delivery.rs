@@ -55,7 +55,8 @@
 //! `goodfetch.work_item.retried`, on the meter the Run hands out (ADR 0050).
 //! A pending work item a rule the Frontier learned later merged leaves its
 //! domain's queue, and one the gate already took gives its turn back
-//! unsent. Each attempt runs on the tier the crawl's tier choice plans for
+//! unsent; one that rule's stop made pending again joins its domain's
+//! queue as that queue is filled again. Each attempt runs on the tier the crawl's tier choice plans for
 //! its Label on its domain (`tier_choice`); a sample's outcome is
 //! classified, and the choice written in the run file, as its attempt
 //! settles, before the next admission.
@@ -1361,7 +1362,8 @@ async fn scored(
 /// `admission`, holding its domain first until the time its response asked
 /// past the Run's longest wait, puts its work item back in its queue when
 /// it was `retried`, takes out of their queues the requests a rule it
-/// taught merged, and fills those queues again.
+/// taught merged, and fills those queues again, which also puts back the
+/// requests a rule it stopped made pending again.
 async fn returned(
     run: &Run,
     admission: &mut Admission,

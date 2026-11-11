@@ -620,7 +620,7 @@ impl Selection {
     /// Evaluation reads it, and `docs` when, of those, it is documents alone;
     /// else `full`.
     fn gate(&self) -> &'static str {
-        if self.takes_the_full_gate() {
+        if self.is_read_by_a_test() {
             "full"
         } else if self.documents_only {
             "docs"
@@ -629,10 +629,11 @@ impl Selection {
         }
     }
 
-    /// Whether the change selects a job other than the docs': a test,
-    /// benchmark, model, container or Evaluation reads it, so its gate is
-    /// `full`.
-    pub(crate) fn takes_the_full_gate(&self) -> bool {
+    /// Whether a test reads the change, in the gate's short for it: the change
+    /// selects a job other than the docs', so a test, benchmark, model,
+    /// container or Evaluation reads it. `xtask affected` prints `gate=full`
+    /// for such a change; which gate it then takes is `just merge`'s to say.
+    pub(crate) fn is_read_by_a_test(&self) -> bool {
         !self.jobs.iter().all(|job| *job == Job::Docs)
     }
 }

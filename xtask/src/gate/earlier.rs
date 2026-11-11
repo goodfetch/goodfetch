@@ -116,8 +116,7 @@ pub(super) fn stress_base(
         base: last_full_gate.clone(),
         head: base.to_owned(),
     };
-    let a_test_reads_it =
-        affected::select_among(root, members, &merged_since)?.takes_the_full_gate();
+    let a_test_reads_it = affected::select_among(root, members, &merged_since)?.is_read_by_a_test();
     Ok(if a_test_reads_it {
         StressBase::LastFullGate(last_full_gate)
     } else {

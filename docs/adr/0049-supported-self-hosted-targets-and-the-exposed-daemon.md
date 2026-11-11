@@ -32,6 +32,8 @@ Crawlee documents AWS Lambda and Cloud Run but tests neither, and its AWS guide 
 - The Daemon terminates TLS itself by default, with certificate files reloaded when they change.
 - A person can opt in to **TLS terminated upstream**: the Daemon then serves plain HTTP, still requires tokens or passkeys, keeps its `Host` and `Origin` checks, trusts `X-Forwarded-*` only from configured proxy addresses, records the setting in the Audit log and shows it in the Console.
 - **Bootstrap.** The first operator enrolls a passkey through a one-time setup link. Its token comes from a Secret reference or, when none is configured, is printed once to the logs. It expires after 24 hours, and the Daemon refuses every other request until setup completes.
+
+  > Note (2026-11-11, consolidated review X-03; the owner's « do as recommended », the choice being the review orchestrator's): the one-time setup link is a one-time setup code sent over a Connection, since no page exists to open a link in (ADR 0137). Its refusal is `setup_required` and its Secret reference `daemon.setup_token` ([#668](https://github.com/goodfetch/goodfetch/issues/668)); the first passkey is enrolled on it ([#1125](https://github.com/goodfetch/goodfetch/issues/1125)).
 - Program tokens (with values as Secret references), OIDC configuration and role mappings can be declared in configuration, so Helm values and GitOps create them. The Console shows them as managed by configuration, not editable there.
 
 **Deployment targets.**

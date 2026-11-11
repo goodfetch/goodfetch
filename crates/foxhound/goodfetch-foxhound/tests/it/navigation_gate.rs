@@ -338,8 +338,9 @@ fn admitted_too_soon(
 }
 
 /// What the site `host` and the navigation gate saw of its domain `domain_key`
-/// under the delay, for a site that was asked for `targets`, its robots.txt
-/// first: how many of them arrived, each once; whether robots.txt did not come
+/// under the delay, for a site that was asked for `targets`, the first of them
+/// first (its robots.txt, when the crawl reads it): how many of them arrived,
+/// each once; whether that first one did not come
 /// first or a later one reached the site before its turn after it
 /// ([`before_their_turn`]); and how many requests the gate admitted.
 fn permits_of(
@@ -361,7 +362,7 @@ fn permits_of(
         .count();
     let arrived_too_soon = arrived
         .first()
-        .is_some_and(|(first, _)| first != "/robots.txt")
+        .is_some_and(|(first, _)| targets.first().is_some_and(|target| first != target))
         || !before_their_turn(&arrived, DELAY_MILLISECONDS * 1_000).is_empty();
     (
         arrived_once,
@@ -513,8 +514,13 @@ fn a_navigation_slow_to_reach_its_site_takes_the_next_ones_permit_no_sooner() {
             }
         },
     );
+    // The Run reads nothing past its proxy, which its start would refuse
+    // (#1640): its documents go through the Session's browser, and no
+    // robots.txt is read.
     let more = json!({
+        "fetch": { "tier": "browser_fetch" },
         "politeness": { "domain": { "delay": DELAY_MILLISECONDS } },
+        "site_preferences": { "respect_robots_txt": false },
         "proxy": { "server": format!("http://{front}") },
     });
 
@@ -551,7 +557,7 @@ fn a_navigation_slow_to_reach_its_site_takes_the_next_ones_permit_no_sooner() {
         &env,
         &proving_ground,
         (HISTORY, "navigation.test"),
-        &["/robots.txt", "/", "/b", "/c"],
+        &["/", "/b", "/c"],
     );
     assert_eq!(
         (
@@ -560,7 +566,7 @@ fn a_navigation_slow_to_reach_its_site_takes_the_next_ones_permit_no_sooner() {
             held.load(Ordering::SeqCst),
             history
         ),
-        (&json!("finished"), Vec::<Value>::new(), true, (4, false, 3))
+        (&json!("finished"), Vec::<Value>::new(), true, (3, false, 3))
     );
 }
 

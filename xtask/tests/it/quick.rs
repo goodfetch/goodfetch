@@ -227,41 +227,23 @@ fn repository_on(workspace: &Workspace, branch: &str) {
     workspace.git(&["branch", "--quiet", "--set-upstream-to=origin/spec"]);
 }
 
-/// Off `main`, a branch's upstream is the integration branch its change goes
-/// into; `main`'s change is read against `origin/main`, as before.
+/// The floor guard, the scan of the change's commits and `xtask affected`
+/// judge the commits of the change `just quick` reads, against its base, `all`
+/// too, which asks `xtask affected` nothing. Without the hook's base, off
+/// `main`, a branch's upstream is the integration branch its change goes
+/// into, so on it the ticket's own commits count, never those of the tickets
+/// merged into it before; `main`'s change is read against `origin/main`.
 #[rstest]
-#[case::a_ticket_branch("ticket", Some("origin/spec"))]
-#[case::main("main", None)]
-fn without_a_base_the_change_is_read_against_the_upstream_off_main(
-    #[case] branch: &str,
-    #[case] since: Option<&str>,
-) {
-    let workspace = Workspace::from_fixture("empty");
-    repository_on(&workspace, branch);
-    let stand_in = stand_ins(&workspace);
-    selection(&stand_in, "docs");
-
-    let run = quick(&workspace, &stand_in, &[]);
-
-    assert_eq!(run.code, Some(0), "{}", run.stderr);
-    let expected = format!("{AFFECTED} {}", since.unwrap_or("origin/main"));
-    assert_eq!(run.cargo_calls, [expected]);
-}
-
-/// The floor guard and the scan of the change's commits judge the commits of
-/// the change `just quick` reads, against its base, `all` too: on an
-/// integration branch, the ticket's own commits, never those of the tickets
-/// merged into it before.
-#[rstest]
-#[case::the_hooks_base("ticket", Some("4b825dc6"), &[], "4b825dc6")]
-#[case::the_upstream_off_main("ticket", None, &[], "origin/spec")]
-#[case::main("main", None, &[], "origin/main")]
-#[case::all("ticket", None, &["all"], "origin/spec")]
-fn the_floor_guard_and_the_commit_scan_judge_the_change_against_its_base(
+#[case::the_hooks_base("ticket", Some("4b825dc6"), &[], "4b825dc6", Some("4b825dc6"))]
+#[case::the_upstream_off_main("ticket", None, &[], "origin/spec", Some("origin/spec"))]
+#[case::main("main", None, &[], "origin/main", Some("origin/main"))]
+#[case::all("ticket", None, &["all"], "origin/spec", None)]
+fn the_floor_guard_the_commit_scan_and_the_selection_judge_the_change_against_its_base(
     #[case] branch: &str,
     #[case] hook_base: Option<&str>,
     #[case] args: &[&str],
     #[case] base: &str,
+    #[case] selection_since: Option<&str>,
 ) {
     let workspace = Workspace::from_fixture("empty");
     repository_on(&workspace, branch);
@@ -283,6 +265,11 @@ fn the_floor_guard_and_the_commit_scan_judge_the_change_against_its_base(
             format!("commit-leaks {base}"),
         ]
     );
+    let selection_calls: Vec<String> = selection_since
+        .map(|since| format!("{AFFECTED} {since}"))
+        .into_iter()
+        .collect();
+    assert_eq!(run.cargo_calls, selection_calls);
 }
 
 /// Any hook may start `just quick` with git's `GIT_DIR` set; no step, and no
@@ -629,44 +616,18 @@ fn a_red_affected_ends_the_tier_before_any_lint() {
 
 /// A selection without the `gate=` line, such as one from an `xtask
 /// affected` whose keys changed, ends the tier before any lint, as a red
-/// `xtask affected` does, instead of taking it for some gate.
-#[test]
-fn a_selection_without_its_gate_ends_the_tier_before_any_lint() {
+/// `xtask affected` does, instead of taking it for some gate. Two `gate=`
+/// lines say neither gate: the reader refuses them as it refuses none, rather
+/// than take the last.
+#[rstest]
+#[case::no_gate("crates=\n")]
+#[case::gate_twice("gate=full\ngate=docs\ncrates=\n")]
+fn a_selection_without_its_gate_or_with_it_twice_ends_the_tier_before_any_lint(
+    #[case] printed: &str,
+) {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = stand_ins(&workspace);
-    selection(&stand_in, "docs");
-    let full = std::fs::read_to_string(stand_in.join("selection")).unwrap();
-    let without: String = full
-        .lines()
-        .filter(|line| !line.starts_with("gate="))
-        .flat_map(|line| [line, "\n"])
-        .collect();
-    std::fs::write(stand_in.join("selection"), without).unwrap();
-
-    let run = quick(&workspace, &stand_in, &[]);
-
-    assert_eq!(run.code, Some(1), "{}", run.stderr);
-    assert_eq!(
-        run.calls,
-        [
-            "compiler-cache",
-            "floor-guard origin/main",
-            "commit-leaks origin/main",
-            "_skips-report"
-        ]
-    );
-    assert!(run.stderr.contains("`gate=`"), "{}", run.stderr);
-}
-
-/// Two `gate=` lines say neither gate: the reader refuses them as it refuses
-/// none, rather than take the last.
-#[test]
-fn a_selection_with_its_gate_twice_ends_the_tier_before_any_lint() {
-    let workspace = Workspace::from_fixture("empty");
-    let stand_in = stand_ins(&workspace);
-    selection(&stand_in, "docs");
-    let full = std::fs::read_to_string(stand_in.join("selection")).unwrap();
-    std::fs::write(stand_in.join("selection"), format!("gate=full\n{full}")).unwrap();
+    std::fs::write(stand_in.join("selection"), printed).unwrap();
 
     let run = quick(&workspace, &stand_in, &[]);
 

@@ -334,8 +334,11 @@ fn each_day_compares_since_the_last_green_run_main_holds(
     assert_ne!(off_main, off_main_head);
     workspace.git(&["switch", "--quiet", "main"]);
     let green = workspace.git(&["rev-parse", "HEAD"]);
-    let (green, off_main) = (green.trim(), off_main_head.trim());
     workspace.git(&["commit", "--quiet", "--allow-empty", "--message", "A merge"]);
+    // A later day that is no green run tested a merge `main` holds, so only
+    // what the day says, not where its commit is, keeps it from counting.
+    let merged = workspace.git(&["rev-parse", "HEAD"]);
+    let (green, merged, off_main) = (green.trim(), merged.trim(), off_main_head.trim());
     workspace.git(&["commit", "--quiet", "--allow-empty", "--message", "Another"]);
     let logs = workspace.path().join("logs");
     std::fs::create_dir_all(&logs).unwrap();
@@ -343,9 +346,9 @@ fn each_day_compares_since_the_last_green_run_main_holds(
         .iter()
         .map(|day| match *day {
             "green" => format!("d {green} gate=pass misses=0 suspects=0 unchecked=0 earned=0\n"),
-            "fail" => format!("d {off_main} gate=fail misses=0 suspects=0 unchecked=0 earned=0\n"),
-            "miss" => format!("d {off_main} gate=pass misses=1 suspects=0 unchecked=0 earned=0\n"),
-            "skipped" => format!("d {off_main} gate=skipped (free disk 1 GB < 2 GB)\n"),
+            "fail" => format!("d {merged} gate=fail misses=0 suspects=0 unchecked=0 earned=0\n"),
+            "miss" => format!("d {merged} gate=pass misses=1 suspects=0 unchecked=0 earned=0\n"),
+            "skipped" => format!("d {merged} gate=skipped (free disk 1 GB < 2 GB)\n"),
             _ => format!("d {off_main} gate=pass misses=0 suspects=0 unchecked=0 earned=0\n"),
         })
         .collect();
@@ -677,7 +680,8 @@ fn each_result_that_counted_earlier_passes_is_stressed_again(
     );
 }
 
-/// With a green full run and no miss, the backstop passes.
+/// With a green full run and no miss, the backstop passes, and reruns no
+/// crate's tests alone and no stress run.
 #[test]
 fn a_backstop_with_no_miss_passes() {
     let workspace = backstop_repository();
@@ -687,7 +691,9 @@ fn a_backstop_with_no_miss_passes() {
 
     assert_eq!(run.code, Some(0), "{}", run.log);
     assert!(
-        !run.calls.iter().any(|call| call.starts_with("repeat ")),
+        !run.calls
+            .iter()
+            .any(|call| call.starts_with("test ") || call.starts_with("stress ")),
         "{:?}",
         run.calls
     );
@@ -698,19 +704,6 @@ fn a_backstop_with_no_miss_passes() {
         run.results
     );
     assert!(run.misses.is_empty(), "{}", run.misses);
-}
-
-/// A red full run fails the backstop.
-#[test]
-fn a_red_full_run_fails_the_backstop() {
-    let workspace = backstop_repository();
-    let stand_in = stand_in_just(&workspace);
-    std::fs::write(stand_in.join("failing"), "pre-merge all\n").unwrap();
-
-    let run = backstop(&workspace, &stand_in);
-
-    assert_eq!(run.code, Some(1), "{}", run.log);
-    assert!(run.results.contains(" gate=fail "), "{}", run.results);
 }
 
 /// The backstop has a switch, `ci/gate-backstop.state` of the commit it
@@ -832,13 +825,15 @@ fn the_backstops_sweeps(workspace: &Workspace) -> Vec<String> {
 /// 2026-11-09). After its full run, green or red, and once its line is
 /// written, the backstop sweeps its worktree's `target/`, still holding the
 /// worktree's lock, so no test-health run builds there meanwhile; the sweep
-/// keeps what the three runs that share the worktree still read.
+/// keeps what the three runs that share the worktree still read. A red full
+/// run fails the backstop, and its line says so.
 #[rstest::rstest]
-#[case::a_green_run(false, Some(0))]
-#[case::a_red_run(true, Some(1))]
+#[case::a_green_run(false, Some(0), " gate=pass ")]
+#[case::a_red_run(true, Some(1), " gate=fail ")]
 fn after_its_full_run_the_backstop_sweeps_its_target_under_its_lock(
     #[case] red: bool,
     #[case] code: Option<i32>,
+    #[case] gate: &str,
 ) {
     let workspace = backstop_repository();
     let stand_in = stand_in_just(&workspace);
@@ -862,6 +857,7 @@ fn after_its_full_run_the_backstop_sweeps_its_target_under_its_lock(
         .unwrap();
     assert!(full_run < first_sweep, "{:?}", run.calls);
     assert_eq!(run.results.lines().count(), 1, "{}", run.results);
+    assert!(run.results.contains(gate), "{}", run.results);
 }
 
 /// A sweep that fails changes no verdict: the run warns, sweeps the other
@@ -977,42 +973,28 @@ fn started_backstop(workspace: &Workspace, stand_in: &Path) -> std::process::Chi
 }
 
 /// A gate that died left its lock behind: it holds no backstop up, and the
-/// backstop does not say it waits.
-#[test]
-fn a_backstop_waits_for_no_gate_that_died() {
+/// backstop does not say it waits. A lock names when its holder started,
+/// beside its process ID, so a process that took a dead gate's number, which
+/// started at another time, holds no backstop up either, where the number
+/// alone would have kept it waiting for ever. `pid` is the lock's process ID,
+/// or, without one, this test's own, a live process.
+#[rstest::rstest]
+#[case::a_gate_that_died(Some(NO_PROCESS), None)]
+#[case::a_process_that_took_a_dead_gates_number(None, Some("Thu Jan  1 00:00:00 1970\n"))]
+fn a_backstop_waits_for_no_gate_that_died(
+    #[case] pid: Option<&str>,
+    #[case] started: Option<&str>,
+) {
     let workspace = backstop_repository();
     let stand_in = stand_in_just(&workspace);
-    workspace.write(
-        ".claude/worktrees/merge-gate.lock/pid",
-        NO_PROCESS.as_bytes(),
-    );
-
-    let run = backstop(&workspace, &stand_in);
-
-    assert_eq!(run.code, Some(0), "{}", run.log);
-    assert!(!run.log.contains("waiting for"), "{}", run.log);
-    assert!(
-        run.calls.contains(&"pre-merge all|1".to_owned()),
-        "{:?}",
-        run.calls
-    );
-}
-
-/// A lock names when its holder started, beside its process ID. A process
-/// that took a dead gate's number started at another time: it holds no
-/// backstop up, where the number alone would have kept it waiting for ever.
-#[test]
-fn a_process_that_took_a_dead_gates_number_holds_no_backstop_up() {
-    let workspace = backstop_repository();
-    let stand_in = stand_in_just(&workspace);
-    workspace.write(
-        ".claude/worktrees/merge-gate.lock/pid",
-        std::process::id().to_string().as_bytes(),
-    );
-    workspace.write(
-        ".claude/worktrees/merge-gate.lock/started",
-        b"Thu Jan  1 00:00:00 1970\n",
-    );
+    let pid = pid.map_or_else(|| std::process::id().to_string(), str::to_owned);
+    workspace.write(".claude/worktrees/merge-gate.lock/pid", pid.as_bytes());
+    if let Some(started) = started {
+        workspace.write(
+            ".claude/worktrees/merge-gate.lock/started",
+            started.as_bytes(),
+        );
+    }
 
     let run = backstop(&workspace, &stand_in);
 

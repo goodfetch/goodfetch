@@ -290,19 +290,19 @@ fn the_page_lists_each_untested_feature_with_its_cause() {
         "A person checks <b>it</b> in the owner test.",
     );
 
-    let (_, report) = report(&workspace, "M1");
+    report(&workspace, "M1");
 
     let page = workspace.read_text(&format!("{OUT}/features.html"));
     assert!(page.starts_with("<!doctype html>"));
-    for entry in report["features"].as_array().unwrap() {
-        if entry["status"] == "untested" {
-            let row = format!(
-                "<tr><td><code>{}</code></td><td>{}</td>",
-                entry["id"].as_str().unwrap(),
-                entry["cause"].as_str().unwrap()
-            );
-            assert!(page.contains(&row), "{row} is not on the page");
-        }
+    for row in [
+        "<tr><td><code>operation:sample.failed</code></td><td>failed</td>",
+        "<tr><td><code>operation:sample.quarantined</code></td><td>quarantined</td>",
+        "<tr><td><code>operation:sample.unrun</code></td><td>not-run</td>",
+        "<tr><td><code>operation:sample.untested</code></td><td>no-test</td>",
+        "<tr><td><code>story:1-2</code></td><td>no-test-above-unit-level</td>",
+        "<tr><td><code>story:1-3</code></td><td>no-covering-journey</td>",
+    ] {
+        assert!(page.contains(row), "{row} is not on the page");
     }
     assert!(page.contains("&lt;b&gt;it&lt;/b&gt;"));
     assert!(!page.contains("<b>it</b>"));

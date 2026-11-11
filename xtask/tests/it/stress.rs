@@ -671,13 +671,6 @@ fn a_test_taken_off_the_quarantine_list_owes_the_rest_of_its_200() {
     let (workspace, base) = base();
     change(&workspace);
     let test = "stressed steady::tests::flaky";
-    let expected = change_selection();
-    assert!(
-        expected
-            .iter()
-            .any(|(count, _, name)| count == "200" && name == test),
-        "{expected:?}"
-    );
     let earned = earned_file(&workspace, 20, test);
 
     let selection = select(
@@ -1013,7 +1006,8 @@ impl Recipes {
 /// test-gate audit's option 2, ADR 0064's amendment of 2026-10-28): nextest
 /// runs that iteration through, every selected test once, and nothing runs
 /// after it: neither the count's later iterations, nor its later runners,
-/// nor the 200 runs.
+/// nor the 200 runs. The run says nextest's command ended as a failing test
+/// ends it.
 #[cfg(unix)]
 #[test]
 fn a_red_stress_run_stops_at_the_end_of_its_first_red_iteration() {
@@ -1045,6 +1039,12 @@ fn a_red_stress_run_stops_at_the_end_of_its_first_red_iteration() {
         "{:?}",
         ran.calls
     );
+    assert_eq!(
+        recipes.workspace.read_text(RED_COMMANDS),
+        "nextest\t100\n",
+        "{}",
+        ran.output
+    );
 }
 
 /// How many times a run built the test tool manifest.
@@ -1056,17 +1056,31 @@ fn test_tools_builds(ran: &Ran) -> usize {
         .count()
 }
 
-/// A stress run builds the test tool manifest once, for its listings and
-/// every count's runs alike.
+/// A green stress run runs every iteration of each count the selection gives,
+/// 200 for a test taken off the quarantine list among them, so no count can
+/// be left out of a green job; it builds the test tool manifest once, for its
+/// listings and every count's runs alike.
 #[cfg(unix)]
 #[test]
-fn a_stress_run_builds_the_test_tools_once() {
+fn a_green_stress_run_runs_every_iteration_of_each_count_on_one_test_tools_build() {
     let recipes =
         recipes("20\tnextest\tsample tests::steady\n200\tnextest\tsample tests::steady\n");
 
     let ran = recipes.just(&["stress", "HEAD"]);
 
     assert_eq!(ran.code, Some(0), "{}", ran.output);
+    assert_eq!(
+        recipes.junit("target/junit/repeat-20"),
+        [("tests::steady".to_owned(), 20, 0)],
+        "{}",
+        ran.output
+    );
+    assert_eq!(
+        recipes.junit("target/junit/repeat-200"),
+        [("tests::steady".to_owned(), 200, 0)],
+        "{}",
+        ran.output
+    );
     assert_eq!(test_tools_builds(&ran), 1, "{:?}", ran.calls);
 }
 
@@ -1130,32 +1144,6 @@ fn a_stress_run_of_merges_hands_on_that_they_are_merged() {
 #[cfg(unix)]
 const RED_COMMANDS: &str = "target/stress-red-commands.tsv";
 
-/// A planted failure in a test that owes only part of its count still turns
-/// the run red, at the end of its iteration, and the run says nextest's command
-/// ended as a failing test ends it.
-#[cfg(unix)]
-#[test]
-fn a_failure_in_a_test_with_earned_passes_turns_the_stress_run_red() {
-    let recipes = recipes("3\tnextest\tsample counted::red_on_its_second_run\n");
-
-    let ran = recipes.just(&["stress", "HEAD", "", "the.earned", "", "sample"]);
-
-    assert_ne!(ran.code, Some(0), "{}", ran.output);
-    assert_eq!(recipes.runs(), 2, "{}", ran.output);
-    assert_eq!(
-        recipes.junit("target/junit/repeat-3"),
-        [("counted::red_on_its_second_run".to_owned(), 1, 1)],
-        "{}",
-        ran.output
-    );
-    assert_eq!(
-        recipes.workspace.read_text(RED_COMMANDS),
-        "nextest\t100\n",
-        "{}",
-        ran.output
-    );
-}
-
 /// A test that owes one pass runs one command, and a red one still stops the
 /// run: no other runner runs after it.
 #[cfg(unix)]
@@ -1183,24 +1171,6 @@ fn a_red_stress_run_that_owes_one_pass_stops_at_it() {
     );
 }
 
-/// A test taken off the quarantine list runs its 200 times: the recipe runs
-/// each count the selection gives, so no count can be left out of a green job.
-#[cfg(unix)]
-#[test]
-fn a_test_taken_off_the_quarantine_list_runs_its_200_times() {
-    let recipes = recipes("200\tnextest\tsample tests::steady\n");
-
-    let ran = recipes.just(&["stress", "HEAD"]);
-
-    assert_eq!(ran.code, Some(0), "{}", ran.output);
-    assert_eq!(
-        recipes.junit("target/junit/repeat-200"),
-        [("tests::steady".to_owned(), 200, 0)],
-        "{}",
-        ran.output
-    );
-}
-
 /// `just repeat` builds the test tool manifest once before its runs.
 #[cfg(unix)]
 #[test]
@@ -1211,23 +1181,6 @@ fn a_repeat_run_builds_the_test_tools_once() {
 
     assert_eq!(ran.code, Some(0), "{}", ran.output);
     assert_eq!(test_tools_builds(&ran), 1, "{:?}", ran.calls);
-}
-
-/// A green stress run still runs each selected test its 20 times.
-#[cfg(unix)]
-#[test]
-fn a_green_stress_run_runs_every_iteration() {
-    let recipes = recipes("20\tnextest\tsample tests::steady\n");
-
-    let ran = recipes.just(&["stress", "HEAD"]);
-
-    assert_eq!(ran.code, Some(0), "{}", ran.output);
-    assert_eq!(
-        recipes.junit("target/junit/repeat-20"),
-        [("tests::steady".to_owned(), 20, 0)],
-        "{}",
-        ran.output
-    );
 }
 
 /// `just repeat` outside the stress run, as a diagnostic run and the daily

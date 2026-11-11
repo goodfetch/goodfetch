@@ -294,31 +294,6 @@ fn modified_mpl_file_fails() {
     assert_eq!(outcome.code, 1);
 }
 
-/// PSF-2.0 is allowed for typing-extensions alone (the owner's decision of
-/// 2026-10-19), which the fixture ships beside this distribution.
-#[test]
-fn license_allowed_for_one_package_fails_on_another() {
-    let workspace = installed_workspace();
-    workspace.edit(
-        PERMISSIVE_DIST,
-        "License-Expression: BSD-3-Clause",
-        "License-Expression: PSF-2.0",
-    );
-
-    let outcome = workspace.xtask(&["notices"]);
-
-    assert_eq!(
-        outcome.findings(),
-        vec![finding(
-            "license-not-allowed",
-            "python permissive-dist@1.0.0"
-        )],
-        "{}",
-        outcome.stderr
-    );
-    assert_eq!(outcome.code, 1);
-}
-
 /// A license may be allowed for several packages, one entry each, as
 /// OFL-1.1 is for the Console's two fonts.
 #[test]

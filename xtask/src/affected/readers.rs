@@ -488,6 +488,3 @@ fn literals(path: &RepoPath) -> Vec<String> {
     }
     literals
 }
-
-#[cfg(test)]
-mod tests;

@@ -319,14 +319,21 @@ fn a_worktree_out_of_sight_keeps_its_record() {
 fn a_base_tree_deleted_without_git_is_checked_out_again() {
     let workspace = Workspace::from_fixture("empty");
     crate_with_bench(&workspace, "instructions");
-    workspace.commit_all();
-    let first = workspace.xtask(&["perf", "build", "--base", "HEAD"]);
+    let base = workspace.commit_all();
+    let first = workspace.xtask(&["perf", "build", "--base", &base]);
     assert_eq!(first.code, 0, "{}", first.stderr);
     workspace.remove_folder("target/perf-base-tree");
 
-    let outcome = workspace.xtask(&["perf", "build", "--base", "HEAD"]);
+    let outcome = workspace.xtask(&["perf", "build", "--base", &base]);
 
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let tree = workspace.path().join("target/perf-base-tree");
+    assert!(
+        tree.join("crates/foxhound/goodfetch-frontier/benches/instructions.rs")
+            .is_file()
+    );
+    let head = workspace.git(&["-C", tree.to_str().unwrap(), "rev-parse", "HEAD"]);
+    assert_eq!(head.trim(), base);
 }
 
 /// The base's tree stays between builds, at a path outside the folder each

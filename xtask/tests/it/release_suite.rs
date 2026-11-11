@@ -307,14 +307,20 @@ fn estimate_comes_from_each_cells_latest_recorded_run_at_its_rate() {
 }
 
 #[rstest]
-#[case::room_left_for_a_run_on_main(vec![], "false")]
+#[case::room_left_for_a_run_on_main(
+    vec![],
+    "false",
+    r#"["linux-x64-gnu","linux-x64-musl","linux-arm64-gnu","linux-arm64-musl","windows-x64"]"#
+)]
 #[case::no_room_left_for_a_run_on_main(
     vec![run(6, "2026-10-12T00:00:00Z", "other", full_run("2026-10-12", 30))],
-    "true"
+    "true",
+    "[]"
 )]
 fn dispatch_off_main_starts_its_hosted_cells_only_when_a_run_on_main_still_fits(
     #[case] more: Vec<Run>,
     #[case] held: &str,
+    #[case] cells: &str,
 ) {
     let workspace = Workspace::from_fixture("empty");
     // Each run: 1 + 4 x 30 + 2 x 30 = 181 minutes. Room left: this run's 180,
@@ -334,12 +340,7 @@ fn dispatch_off_main_starts_its_hosted_cells_only_when_a_run_on_main_still_fits(
     assert_eq!(outcome.code, 0);
     let outputs = outputs(&workspace);
     assert_eq!(outputs["held"], held);
-    let expected_cells = if held == "true" {
-        "[]"
-    } else {
-        r#"["linux-x64-gnu","linux-x64-musl","linux-arm64-gnu","linux-arm64-musl","windows-x64"]"#
-    };
-    assert_eq!(outputs["cells"], expected_cells);
+    assert_eq!(outputs["cells"], cells);
 }
 
 #[test]

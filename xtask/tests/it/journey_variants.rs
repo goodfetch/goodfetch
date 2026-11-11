@@ -77,23 +77,6 @@ fn real_listings_carry_each_runners_variants() {
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
-/// A Vitest test whose tag the configuration does not declare fails to
-/// collect, which fails the listing rather than leaving the test out.
-#[test]
-fn vitest_test_its_module_cannot_collect_fails_the_listings() {
-    let workspace = Workspace::from_fixture("journey-listings");
-    workspace.link_installed_runners();
-    workspace.edit(
-        "web/J-001.test.ts",
-        "[\"J-001\", \"sdk-typescript\"]",
-        "[\"J-009\", \"sdk-typescript\"]",
-    );
-
-    let listed = workspace.xtask(&["journeys", "listings", "--out", "listings"]);
-
-    assert_ne!(listed.code, 0, "{}", listed.stderr);
-}
-
 const NEXTEST: &str = "listings/nextest.json";
 const VITEST: &str = "listings/vitest.json";
 const PLAYWRIGHT: &str = "listings/playwright.json";

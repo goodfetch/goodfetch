@@ -197,6 +197,9 @@ fn outcomes(report: &Value) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// A document the reader refuses, such as J-001@console's, which leaves out
+/// its last step yet says `proved`, makes its variant `rejected`, never
+/// `proved`.
 #[test]
 fn each_variant_gets_its_outcome_from_the_documents_of_mains_latest_release_run() {
     let workspace = Workspace::from_fixture("journeys-report");
@@ -314,37 +317,6 @@ fn a_variant_every_cell_that_ran_it_kept_a_proving_document_for_is_proved() {
 }
 
 #[test]
-fn a_document_the_reader_refuses_is_rejected_never_proved() {
-    let workspace = Workspace::from_fixture("journeys-report");
-    let incomplete = document(
-        "J-003@cli",
-        &[("Start a crawl", "passed")],
-        &[("No Record is delivered twice", "passed")],
-        "proved",
-    );
-    let complete = document(
-        "J-002@cli",
-        &[("Crawl the site", "passed")],
-        &[("Each Record holds its page's Markdown", "passed")],
-        "proved",
-    );
-    let latest = Attempt {
-        kept: vec![
-            kept(LINUX, "J-003@cli", incomplete),
-            kept(LINUX, "J-002@cli", complete),
-        ],
-        ..release_attempt(10, "2026-10-18T03:00:00Z", "c1")
-    };
-    write_store(&workspace, &[latest]);
-
-    let (_, report) = report(&workspace, &["--store", STORE]);
-
-    let outcomes = outcomes(&report);
-    assert_eq!(outcomes["J-002@cli"], "proved");
-    assert_eq!(outcomes["J-003@cli"], "rejected");
-}
-
-#[test]
 fn outcomes_group_by_milestone_area_and_product() {
     let workspace = Workspace::from_fixture("journeys-report");
     fixture_store(&workspace);
@@ -425,12 +397,19 @@ fn without_a_release_run_of_main_every_variant_is_unproved() {
     let (_, report) = report(&workspace, &[]);
 
     assert_eq!(report["release_commit"], Value::Null);
-    assert!(
-        outcomes(&report)
-            .values()
-            .all(|outcome| outcome == "unproved"),
-        "{report}"
-    );
+    let expected: BTreeMap<String, String> = [
+        ("J-001@cli", "unproved"),
+        ("J-001@console", "unproved"),
+        ("J-001@foxhound-cli", "unproved"),
+        ("J-002@cli", "unproved"),
+        ("J-002@sdk-rust", "unproved"),
+        ("J-003@cli", "unproved"),
+        ("J-005@sdk-python", "unproved"),
+    ]
+    .into_iter()
+    .map(|(id, outcome)| (id.to_owned(), outcome.to_owned()))
+    .collect();
+    assert_eq!(outcomes(&report), expected);
 }
 
 #[test]

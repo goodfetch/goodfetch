@@ -1082,7 +1082,11 @@ rss-propose *scenarios:
 # extraction of each page's title and main text to the tool's dataset; 5,
 # headless browser, on its script-rendered site. Foxhound against Spider
 # 2.53.9 (xtask/compare-spider, no workspace member: its HTTP mode, and its
-# `chrome` feature's executable for scenario 5), both built with the
+# `chrome` feature's executable for scenario 5; its main rows read its
+# pages at the smallest channel capacity that loses none, and its
+# sensitivity rows, each labelled, run the capacity of 4,096 it had before,
+# its default features, its `bloom` feature and the allocator its README
+# recommends, each a build of its own), both built with the
 # release profile (`profile` changes it for a quicker try), Crawlee 3.18.2
 # on Node.js (xtask/compare-crawlee: `CheerioCrawler`, and
 # `PlaywrightCrawler` for scenario 5) and Scrapy 2.19.0 on CPython
@@ -1111,9 +1115,13 @@ compare profile="release" *args:
     cargo run --quiet --bin xtask -- test-tools build --cargo-profile {{ profile }} --out "$PWD/target/compare/test-tools.json"
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir target/compare-spider/spider
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features chrome --target-dir target/compare-spider/spider-chrome
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features defaults --target-dir target/compare-spider/spider-defaults
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features bloom --target-dir target/compare-spider/spider-bloom
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features jemalloc --target-dir target/compare-spider/spider-jemalloc
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features mimalloc --target-dir target/compare-spider/spider-mimalloc
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
     uv sync --frozen --quiet --directory xtask/compare-scrapy
-    cargo run --quiet --bin xtask -- compare run --tools target/compare/test-tools.json --spider target/compare-spider/spider/{{ profile }}/goodfetch-compare-spider --spider-chrome target/compare-spider/spider-chrome/{{ profile }}/goodfetch-compare-spider {{ args }}
+    cargo run --quiet --bin xtask -- compare run --tools target/compare/test-tools.json --spider-builds target/compare-spider --spider-profile {{ profile }} {{ args }}
 
 # The Kennel (ADR 0141), from the repository. On macOS: its release
 # executable in `Kennel.app`, signed ad hoc under the stable bundle

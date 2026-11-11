@@ -1,5 +1,30 @@
-use super::order;
-use crate::compare::matrix;
+use std::path::Path;
+
+use super::{order, spider_executable};
+use crate::compare::matrix::{self, SpiderBuild};
+
+/// Each of Spider's side's builds runs the executable Cargo left in the
+/// build's own target folder, under the profile's: the main row's from
+/// `spider`, a feature's from `spider-<feature>`.
+#[test]
+fn each_spider_build_runs_the_executable_built_in_its_own_folder() {
+    let executable = |build| spider_executable(Path::new("/t/compare-spider"), "release", build);
+
+    assert_eq!(
+        (
+            executable(SpiderBuild::Http),
+            executable(SpiderBuild::Chrome),
+            executable(SpiderBuild::Jemalloc),
+        ),
+        (
+            Path::new("/t/compare-spider/spider/release/goodfetch-compare-spider").to_owned(),
+            Path::new("/t/compare-spider/spider-chrome/release/goodfetch-compare-spider")
+                .to_owned(),
+            Path::new("/t/compare-spider/spider-jemalloc/release/goodfetch-compare-spider")
+                .to_owned(),
+        )
+    );
+}
 
 /// Every measured cell's 10 trials run once each, in one order that mixes
 /// the cells: no cell's trials all run before another's start.

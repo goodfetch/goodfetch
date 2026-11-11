@@ -165,14 +165,19 @@ fn side_of(script: &Path) -> &Path {
 }
 
 /// How `config`'s tool runs `executable`: Foxhound's and Spider's are
-/// executables, Crawlee's is its side's script run by Node.js from `PATH`,
-/// and Scrapy's its side's script run by the interpreter of the Python
-/// environment beside it.
+/// executables, Spider's side given its row's page channel capacity,
+/// Crawlee's is its side's script run by Node.js from `PATH`, and Scrapy's
+/// its side's script run by the interpreter of the Python environment
+/// beside it.
 pub(crate) fn invocation(config: Config, executable: &Path) -> Invocation {
     match config {
-        Config::Foxhound { .. } | Config::Spider { .. } => Invocation {
+        Config::Foxhound { .. } => Invocation {
             program: executable.to_owned(),
             arguments: Vec::new(),
+        },
+        Config::Spider { capacity, .. } => Invocation {
+            program: executable.to_owned(),
+            arguments: vec!["--capacity".into(), capacity.to_string().into()],
         },
         Config::Crawlee => Invocation {
             program: on_path(NODE).unwrap_or_else(|| PathBuf::from(NODE)),

@@ -4,7 +4,9 @@
 //! configuration and the report writes that mapping; a tool that cannot do
 //! a scenario has a cell saying so, and a Foxhound value that does not
 //! exist yet is marked pending (the owner's comments of 2026-10-30 on
-//! #1577). `run` crawls each scenario's 1,000-page Proving ground site
+//! #1577). Spider's main rows read its pages at the smallest channel
+//! capacity that loses none, and labelled sensitivity rows beside them run
+//! it one setting apart (#2213). `run` crawls each scenario's 1,000-page Proving ground site
 //! (`scale.test`'s, the multi-domain site for the polite scenario, the
 //! script-rendered site for the headless browser) with each measured cell's
 //! tool in the declared number of trials, interleaved in random order, each
@@ -15,7 +17,8 @@
 //! stalls and leaving its cell not measured, crawls the 100,000-page
 //! site for the growth of resident memory when asked, and counts scenario
 //! 1's instructions per page under Callgrind, which gives
-//! `foxhound.spider_instruction_ratio` (ADR 0140). `report` holds every
+//! `foxhound.spider_instruction_ratio` (ADR 0140) on each tool's main row.
+//! `report` holds every
 //! trial to the same-work check, then writes each cell's median and spread
 //! of every metric, labelled `local-controlled` with the machine and never
 //! published (ADR 0076); otherwise it fails naming each trial that did
@@ -70,13 +73,16 @@ pub(crate) struct RunArguments {
     /// executables.
     #[arg(long)]
     tools: PathBuf,
-    /// Spider's side, `xtask/compare-spider`'s executable.
+    /// The folder of Spider's side's builds: `xtask/compare-spider` built
+    /// once for each build the matrix's Spider rows run, each into the
+    /// target folder of its name under this one (`spider`, `spider-chrome`,
+    /// `spider-bloom` and so on).
     #[arg(long)]
-    spider: PathBuf,
-    /// Spider's side built with its `chrome` feature, for the headless
-    /// browser scenario.
-    #[arg(long)]
-    spider_chrome: PathBuf,
+    spider_builds: PathBuf,
+    /// The folder Cargo names after the profile those builds were made
+    /// with: `release` for the release profile.
+    #[arg(long, default_value = "release")]
+    spider_profile: String,
     /// Chrome for Testing's folder, which every tool of the headless
     /// browser scenario runs: by default, the build Foxhound pins as
     /// Playwright installed it (`PLAYWRIGHT_BROWSERS_PATH`).
@@ -175,8 +181,8 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 &run::Executables {
                     proving_ground: tools.path(Tool::ProvingGround)?,
                     foxhound: tools.path(Tool::Foxhound)?,
-                    spider: &environment.path(&arguments.spider),
-                    spider_chrome: &environment.path(&arguments.spider_chrome),
+                    spider_builds: &environment.path(&arguments.spider_builds),
+                    spider_profile: &arguments.spider_profile,
                     browser: &browser,
                     crawlee: &environment.path(&arguments.crawlee),
                     scrapy: &environment.path(&arguments.scrapy),

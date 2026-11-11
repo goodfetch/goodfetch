@@ -140,6 +140,10 @@ pub(crate) struct Sampled {
     /// time-weighted mean.
     pub(crate) peak_bytes: u64,
     pub(crate) average_bytes: u64,
+    /// The whole tree's PSS at its highest sample: resident memory with
+    /// each page two of its processes share counted once. None when a
+    /// sample could not read a live process's.
+    pub(crate) peak_pss_bytes: Option<u64>,
     /// The most cores the tree used over any window of
     /// [`super::sampler::CORE_WINDOW_SAMPLES`] samples; none for a crawl
     /// that ended within one window.

@@ -492,6 +492,29 @@ fn each_cell_reports_its_trees_peak_pss_beside_its_peak_rss() {
     );
 }
 
+/// A cell with a trial that ended before the sampler's first sample, as a
+/// 100-page crawl does, has no peak PSS, and says that rather than blame
+/// the OS.
+#[test]
+fn a_trial_too_short_to_sample_leaves_its_cell_without_a_peak_pss() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    for trial in trials["trials"].as_array_mut().unwrap() {
+        if trial["scenario"] == "raw" && trial["cell"] == "spider" && trial["number"] == 1 {
+            trial["sampled"]["samples"] = json!(0);
+            trial["sampled"]["peak_pss_bytes"] = json!(null);
+        }
+    }
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(
+        cell(&written(&workspace), 0, "spider")["metrics"]["peak_pss_bytes"],
+        json!({ "status": "not_measured", "reason": "a trial ended before the sampler's first sample of its process tree" })
+    );
+}
+
 /// A crawl that ended within one window of the core sampling, as Spider's
 /// 1,000 pages can, gives no peak of cores rather than none used.
 #[test]

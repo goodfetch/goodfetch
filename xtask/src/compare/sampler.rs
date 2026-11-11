@@ -266,9 +266,13 @@ pub(crate) fn figures(samples: &[Sample], milestones: &[(u64, f64)]) -> Sampled 
             samples.first().map_or(0, |sample| sample.resident_bytes)
         };
     }
+    // No sample read no PSS: none, where the report has the OS's own peak
+    // to fall back on for the RSS.
     figures.peak_pss_bytes = samples
         .iter()
-        .try_fold(0, |peak: u64, sample| Some(peak.max(sample.pss_bytes?)));
+        .map(|sample| sample.pss_bytes)
+        .reduce(|peak, pss| Some(peak?.max(pss?)))
+        .flatten();
     for sample in samples {
         figures.peak_bytes = figures.peak_bytes.max(sample.resident_bytes);
         figures.peak_threads = figures.peak_threads.max(sample.threads);

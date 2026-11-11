@@ -325,6 +325,16 @@ fn metrics(
             None if trials.iter().any(|trial| trial.measured.sampled.is_none()) => {
                 not("this OS has no /proc to sample the process tree from")
             }
+            None if trials.iter().any(|trial| {
+                trial
+                    .measured
+                    .sampled
+                    .as_ref()
+                    .is_some_and(|sampled| sampled.samples == 0)
+            }) =>
+            {
+                not("a trial ended before the sampler's first sample of its process tree")
+            }
             None => not(
                 "a process of the tree kept its PSS from the sampler (its `/proc/<pid>/smaps_rollup` could not be read)",
             ),

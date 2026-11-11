@@ -184,6 +184,37 @@ fn a_raw_trial_that_fetched_a_page_twice_did_other_work() {
     );
 }
 
+/// The bytes every trial is held to are what most main rows' trials were
+/// served: Spider's sensitivity rows, more than the other tools' rows
+/// together in scenario 1, add no vote, so when every Spider trial is
+/// served other bytes, Spider's are the ones named.
+#[test]
+fn sensitivity_rows_do_not_vote_for_the_work_trials_are_held_to() {
+    let mut trials = comparison(|_, _| work(0));
+    for trial in &mut trials.trials {
+        if trial.scenario == Scenario::Raw && trial.tool == matrix::Tool::Spider {
+            trial.measured.work.bytes += 1;
+        }
+    }
+
+    let mut cells: Vec<String> = named(&trials)
+        .into_iter()
+        .map(|(kind, subject)| format!("{kind} {}", &subject[..subject.len() - " trial 1".len()]))
+        .collect();
+    cells.dedup();
+    assert_eq!(
+        cells,
+        [
+            "spider",
+            "spider capacity 4096",
+            "spider default features",
+            "spider bloom",
+            "spider jemalloc",
+        ]
+        .map(|cell| format!("different_bytes raw {cell}"))
+    );
+}
+
 /// A resumed crawl served other bytes for its pages' first answers did
 /// other work.
 #[test]

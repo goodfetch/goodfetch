@@ -39,6 +39,13 @@ fn a_sample_without_a_process_pss_leaves_the_trial_without_a_peak_pss() {
     assert_eq!(sampled.peak_pss_bytes, None);
 }
 
+/// A trial that ended before its first sample read no PSS: none, not a
+/// tree of no size.
+#[test]
+fn a_trial_without_a_sample_has_no_peak_pss() {
+    assert_eq!(figures(&[], &[]).peak_pss_bytes, None);
+}
+
 /// The fixture: a shell whose child, `tail`, holds the last `HELD_BYTES` of
 /// its input in memory until the input ends. The shell itself is small, so
 /// the tree's PSS is the child's known size and little more, which a

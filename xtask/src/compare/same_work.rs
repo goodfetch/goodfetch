@@ -86,6 +86,13 @@ fn of_runs(runs: &[CountedRun]) -> Vec<Done<'_>> {
         .collect()
 }
 
+/// Whether a trial is a main row's.
+fn is_main(done: &Done<'_>) -> bool {
+    matrix::measured().any(|(cell, _)| {
+        cell.scenario == done.scenario && cell.name == done.cell && cell.row == Row::Main
+    })
+}
+
 /// Main and sensitivity rows alike.
 const EVERY_ROW: &[Row] = &[Row::Main, Row::Sensitivity];
 
@@ -267,10 +274,12 @@ fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
         } else {
             "requests served"
         };
-        // The work most of the trials that fetched the site share; none
-        // when two values are shared by as many trials.
+        // The work most of the main rows' trials that fetched the site
+        // share; none when two values are shared by as many trials. A
+        // sensitivity row is held to it without a vote: Spider's would
+        // outnumber the other tools' rows together.
         let mut shared: BTreeMap<(u64, u64), usize> = BTreeMap::new();
-        for done in &whole {
+        for done in whole.iter().filter(|done| is_main(done)) {
             *shared.entry(key(done.work)).or_default() += 1;
         }
         let most = shared.values().copied().max().unwrap_or(0);
@@ -284,7 +293,7 @@ fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
             let message = match reference {
                 Some((work, _)) if work == (count, bytes) => continue,
                 Some(((held_count, held_bytes), trials)) => format!(
-                    "{count} {what} {bytes} bytes, where {trials} of the {} trials that fetched the site had {held_count} {what} {held_bytes}",
+                    "{count} {what} {bytes} bytes, where {trials} of the main rows' {} trials that fetched the site had {held_count} {what} {held_bytes}",
                     shared.values().sum::<usize>()
                 ),
                 None => format!(

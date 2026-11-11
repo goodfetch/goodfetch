@@ -163,6 +163,9 @@ async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
     // (`Website::subscribe`'s example): beside the crawl in one task, it
     // read only when the crawl's own future yielded, and under Callgrind a
     // channel of 64 or of 128 pages lost some (#2213).
+    // A bare `tokio::spawn`: this executable stands outside the workspace
+    // and has no tracker; the task is awaited below, so none outlives the
+    // crawl.
     let mut pages = site.subscribe(arguments.capacity);
     let (done, mut ended) = tokio::sync::oneshot::channel::<()>();
     let reading = tokio::spawn(async move {

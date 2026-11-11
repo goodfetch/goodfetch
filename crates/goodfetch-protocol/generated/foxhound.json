@@ -22849,6 +22849,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Learned cursors refused offset URLs of listings the crawl pages by their cursor instead, counted: `unverified`.",
+      "name": "cursor_pagination",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Every run a Daemon runs.",
       "name": "daemon",
       "product": "collie",

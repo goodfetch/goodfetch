@@ -18,10 +18,11 @@ use url::Url;
 
 use super::{EndMerged, PageSeen, Redirect, learn, learn_redirect};
 use crate::admit::{Candidate, admit};
+use crate::bounds::{self, Bounds};
+use crate::identity;
 use crate::identity::Declared;
 use crate::rules::{self, learned_rules};
 use crate::scope::{self, Narrowing, Patterns, Scope, Strategy};
-use crate::{bounds, identity};
 
 /// A crawl as the Frontier sees it, in a run file in memory: what it
 /// admitted, each URL with its crawl request's ID.
@@ -489,23 +490,43 @@ fn offset_reason() -> Vec<CompletenessReason> {
     }]
 }
 
+/// The Completeness reason of `refused` offset URLs a learned cursor
+/// refused.
+fn cursor_reason(refused: u64, message: &str) -> Vec<CompletenessReason> {
+    vec![CompletenessReason {
+        completeness: Completeness::Unverified,
+        reason: AxisReason {
+            code: "cursor_pagination".to_owned(),
+            message: message.to_owned(),
+            count: Some(refused),
+            call_id: None,
+        },
+    }]
+}
+
 /// An offset parameter, whose values step by one page size on one path,
-/// gives way to a cursor link found on a page of that listing: the offset
-/// URLs not yet fetched are not added, with `duplicate`, the report lists
-/// the rule with what it refused, and the Run is not `unverified` by it.
+/// gives way to a cursor its pages link: a parameter that two pages of
+/// the listing each link with a value of their own. The offset URLs not
+/// yet fetched are then not added, with `duplicate`, the report lists the
+/// rule with its evidence and what it refused, and the Run is `unverified`
+/// by the count of those URLs.
 ///
 /// Covers: story:6-216, story:6-310
 #[test]
 fn a_cursor_found_on_an_offset_listing_is_preferred() {
-    let cursor = format!("{LIST}?after=r-40");
+    let cursors = [format!("{LIST}?after=r-40"), format!("{LIST}?after=r-60")];
     let mut crawl = Crawl::new();
-    crawl_listing(&mut crawl, 3, 20, Some(&cursor));
+    crawl_listing(&mut crawl, 3, 20, None);
+    assert_eq!(crawl.enqueue(&at(1, 20), &cursors[0]), "added");
+    let one_page = crawl.rules();
+    assert_eq!(crawl.enqueue(&at(2, 20), &cursors[1]), "added");
 
     let next = next_offset(&mut crawl, 3, 20);
 
     assert_eq!(
-        (next, crawl.rules(), crawl.completeness()),
+        (one_page, next, crawl.rules(), crawl.completeness()),
         (
+            Vec::new(),
             "duplicate".to_owned(),
             vec![LearnedRule {
                 kind: LearnedRuleKind::CursorPagination,
@@ -515,13 +536,101 @@ fn a_cursor_found_on_an_offset_listing_is_preferred() {
                 form: None,
                 evidence: format!(
                     "`offset` steps by 20 on {LIST} ({LIST}?offset=0, {LIST}?offset=20, \
-                     {LIST}?offset=40), and {LIST}?offset=40 links the cursor {cursor}."
+                     {LIST}?offset=40), and two of its pages each link a value of `after` of \
+                     their own: {LIST}?offset=20 links {}, and {LIST}?offset=40 links {}.",
+                    cursors[0], cursors[1]
                 ),
                 contradiction: None,
                 merged: vec![format!("{LIST}?offset=60")],
             }],
-            Vec::new(),
+            cursor_reason(
+                1,
+                "A learned cursor refused 1 offset URL of a listing the crawl pages by its \
+                 cursor instead."
+            ),
         )
+    );
+}
+
+/// A parameter a listing's pages link is a cursor only on evidence: a
+/// sort that every page links alike, first met once the offset is known,
+/// teaches nothing, and neither does a filter one page links with two
+/// values, nor a view two pages link with one value. Each listing is paged
+/// on by its offset, whose next page is added.
+///
+/// Covers: story:6-216
+#[rstest::rstest]
+#[case::a_sort_every_page_links_alike(&[(0, "sort=price"), (1, "sort=price")])]
+#[case::a_filter_one_page_links_with_two_values(
+    &[(0, "color=red"), (0, "color=blue"), (1, "color=green")]
+)]
+#[case::a_view_two_pages_link_with_one_value(&[(0, "view=grid"), (1, "lang=fr&view=grid")])]
+fn a_parameter_that_does_not_change_from_page_to_page_is_no_cursor(#[case] links: &[(u32, &str)]) {
+    let mut crawl = Crawl::new();
+    crawl.seed(&at(0, 20));
+    crawl.fetched(&at(0, 20), "Rows 0");
+    // The listing's first page links its next two, as a pagination bar
+    // does, so its offset is known before any other link of it is met.
+    for page in [1, 2] {
+        assert_eq!(crawl.enqueue(&at(0, 20), &at(page, 20)), "added");
+    }
+    crawl.fetched(&at(1, 20), "Rows 1");
+    for (page, query) in links {
+        crawl.enqueue(&at(*page, 20), &format!("{LIST}?{query}"));
+    }
+
+    let next = crawl.enqueue(&at(1, 20), &at(3, 20));
+
+    assert_eq!(
+        (next, crawl.rules(), crawl.completeness()),
+        ("added".to_owned(), Vec::new(), offset_reason())
+    );
+}
+
+/// With `frontier.learning` off, admission keeps no evidence of an offset
+/// or of a cursor and no rule refuses a URL: the listing above is paged on
+/// by its offset, the report lists no rule and no reason, and the learned
+/// rules' tables hold no row.
+///
+/// Covers: story:6-216, setting:frontier.learning
+#[test]
+fn with_learning_off_admission_keeps_no_evidence_and_refuses_nothing() {
+    let mut crawl = Crawl::new();
+    Bounds {
+        learning: false,
+        ..Bounds::default()
+    }
+    .record(&crawl.connection)
+    .unwrap();
+    // No page is signed with learning off, so none is handed to `learn`.
+    crawl.seed(&at(0, 20));
+    for page in 0..2 {
+        assert_eq!(crawl.enqueue(&at(page, 20), &at(page + 1, 20)), "added");
+    }
+    crawl.enqueue(&at(1, 20), &format!("{LIST}?after=r-40"));
+    crawl.enqueue(&at(2, 20), &format!("{LIST}?after=r-60"));
+
+    let next = next_offset(&mut crawl, 3, 20);
+
+    let rows: Vec<(String, i64)> = rules::TABLES
+        .statements
+        .iter()
+        .filter_map(|statement| statement.strip_prefix("CREATE TABLE IF NOT EXISTS "))
+        .map(|rest| rest.split_whitespace().next().unwrap().to_owned())
+        .map(|table| {
+            let count = crawl
+                .connection
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            (table, count)
+        })
+        .filter(|(_, count)| *count != 0)
+        .collect();
+    assert_eq!(
+        (next, crawl.rules(), crawl.completeness(), rows),
+        ("added".to_owned(), Vec::new(), Vec::new(), Vec::new())
     );
 }
 

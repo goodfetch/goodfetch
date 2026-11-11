@@ -29,7 +29,7 @@ kept as received (ADR 0079).
 - `decoy`: A trap page a person would never reach; only Foxhound's Frontier produces it.
 """
 
-CompletenessReasonCode: TypeAlias = CollieCompletenessReasonCode | Literal["consent_required", "crawl.max_depth", "crawl.max_path_segments", "crawl.max_requests", "crawl.max_segment_repeats", "crawl.max_url_length", "crawl.path_budgets", "model_allowance", "offset_pagination", "payment_required", "response_unavailable", "trap_path"]
+CompletenessReasonCode: TypeAlias = CollieCompletenessReasonCode | Literal["consent_required", "crawl.max_depth", "crawl.max_path_segments", "crawl.max_requests", "crawl.max_segment_repeats", "crawl.max_url_length", "crawl.path_budgets", "cursor_pagination", "model_allowance", "offset_pagination", "payment_required", "response_unavailable", "trap_path"]
 """A `completeness_reason_code`, a type both Products share (ADR 0095).
 
 Collie's values and Foxhound's own below; a value this package does not know is
@@ -42,6 +42,7 @@ kept as received (ADR 0079).
 - `crawl.max_segment_repeats`: `crawl.max_segment_repeats` refused URLs the crawl would otherwise have admitted, counted: `unverified`.
 - `crawl.max_url_length`: `crawl.max_url_length` refused URLs the crawl would otherwise have admitted, counted: `unverified`.
 - `crawl.path_budgets`: One entry of `crawl.path_budgets` refused URLs past its count, named with its pattern and counted: `incomplete`.
+- `cursor_pagination`: Learned cursors refused offset URLs of listings the crawl pages by their cursor instead, counted: `unverified`.
 - `model_allowance`: The Model allowance skipped requests the crawl would otherwise have handled, counted: `incomplete`.
 - `offset_pagination`: Listings were paged only by an offset parameter, counted: `unverified`.
 - `payment_required`: Pages in the crawl's scope were left `blocked` with `payment_required`, counted: `unverified`.

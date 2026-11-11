@@ -338,11 +338,13 @@ fn a_calendar_trap_closes_after_a_hundred_months_and_leaves_the_run_unverified()
     );
 }
 
-/// A listing paged by `offset` that also links a cursor is read through
-/// the cursor once its offset is known: the offset URLs not yet fetched
-/// are `duplicate`, the Proving ground serves each row's page once, and
-/// the Run is `complete`. The same rows paged by offset alone leave the
-/// Run `unverified`, and two pages of it, one short of an offset, do not.
+/// A listing paged by `offset` whose pages each link a cursor of their
+/// own is read through the cursor once two pages showed it: the offset
+/// URLs not yet fetched are `duplicate`, the Proving ground serves each
+/// row's page once, and the Run is `unverified`, its reason counting the
+/// offset URLs the cursor refused. The same rows paged by offset alone
+/// leave the Run `unverified`, and two pages of it, one short of an
+/// offset, do not.
 ///
 /// Covers: story:6-216, story:6-310, operation:crawl_request.enqueue
 #[test]
@@ -382,16 +384,36 @@ fn an_offset_listing_gives_way_to_its_cursor() {
             &rule["kind"],
             &rule["path"],
             &rule["parameter"],
+            &rule["evidence"],
             &rule["merged"],
             &feed.report["completeness"],
+            &feed.report["completeness_reasons"],
         ),
         (
-            vec![&feed_url("offset=60")],
+            vec![&feed_url("offset=80")],
             &json!("cursor_pagination"),
             &json!("/feed"),
             &json!("offset"),
-            &json!([feed_url("offset=60")]),
-            &json!("complete"),
+            &json!(format!(
+                "`offset` steps by 20 on {} ({}, {}, {}), and two of its pages each link a \
+                 value of `after` of their own: {} links {}, and {} links {}.",
+                proving_ground.url("learning.test", "/feed"),
+                feed_url("offset=0"),
+                feed_url("offset=20"),
+                feed_url("offset=40"),
+                feed_url("offset=20"),
+                feed_url("after=r40"),
+                feed_url("offset=40"),
+                feed_url("after=r60"),
+            )),
+            &json!([feed_url("offset=80")]),
+            &json!("unverified"),
+            &json!([{
+                "code": "cursor_pagination",
+                "message": "A learned cursor refused 1 offset URL of a listing the crawl pages \
+                            by its cursor instead.",
+                "count": 1,
+            }]),
         )
     );
     assert_eq!(
@@ -407,6 +429,51 @@ fn an_offset_listing_gives_way_to_its_cursor() {
             &json!("unverified"),
             &json!("offset_pagination"),
             &json!([]),
+            &json!("complete"),
+        )
+    );
+}
+
+/// With `frontier.learning` off, the listing whose pages link a cursor is
+/// paged by its offset to its end: admission keeps no evidence of the
+/// offset or the cursor, so no offset URL is a `duplicate`, the report
+/// lists no rule beside its `learning_off` warning, and nothing of the
+/// learned rules leaves the Run short of `complete`.
+///
+/// Covers: story:6-216, setting:frontier.learning
+#[test]
+fn with_learning_off_an_offset_listing_is_paged_to_its_end() {
+    let (env, proving_ground) = ground();
+    let feed = crawl_under(
+        &env,
+        &proving_ground,
+        "unlearned-feed",
+        &[("learning.test", "/feed?offset=0")],
+        json!({ "frontier": { "learning": false } }),
+    );
+
+    let offsets: Vec<&String> = feed
+        .answers
+        .iter()
+        .filter(|(url, _)| url.contains("offset="))
+        .map(|(_, answer)| answer)
+        .collect();
+    let warned = feed.report["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|warning| warning["code"] == "learning_off");
+    assert_eq!(
+        (
+            offsets,
+            &feed.report["learned_rules"],
+            warned,
+            &feed.report["completeness"],
+        ),
+        (
+            vec![&"added".to_owned(); 9],
+            &json!([]),
+            true,
             &json!("complete"),
         )
     );

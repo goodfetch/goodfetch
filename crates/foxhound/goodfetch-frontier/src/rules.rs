@@ -13,10 +13,13 @@
 //!   it; its later URLs are refused, which leaves the Run `unverified`.
 //! - **Offset pagination** is a query parameter whose values, on one path,
 //!   step by a fixed page size of 2 or more over at least 3 values; once a
-//!   page of that listing links a cursor (a URL of the same path without
-//!   the offset, with a parameter that does not step), the cursor is
-//!   preferred and later offset URLs are `duplicate`. A listing paged only
-//!   by its offset leaves the Run `unverified`.
+//!   two pages of that listing each link a cursor (a URL of the same path
+//!   without the offset, with a parameter that is no offset, whose value
+//!   is each page's own), the cursor is preferred and later offset URLs
+//!   are `duplicate`, counted, which leaves the Run `unverified`. A
+//!   parameter one page links with two values, or two pages with one, is
+//!   a sort, a filter or a view, and never a cursor. A listing paged only
+//!   by its offset leaves the Run `unverified` too.
 //! - **An equivalent form** (`forms`: `www.`, the scheme, an index file or
 //!   a trailing slash) is learned for a host on 1 redirect from one form
 //!   to the other, or 2 pairs of pages in the two forms with matching
@@ -46,7 +49,8 @@ use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_protocol::foxhound::frontier::NotAddedReason;
 use goodfetch_protocol::foxhound::report::{
-    EquivalentForm, LearnedRule, LearnedRuleKind, OFFSET_PAGINATION, TRAP_PATH as TRAP_PATH_REASON,
+    CURSOR_PAGINATION as CURSOR_PAGINATION_REASON, EquivalentForm, LearnedRule, LearnedRuleKind,
+    OFFSET_PAGINATION, TRAP_PATH as TRAP_PATH_REASON,
 };
 use goodfetch_protocol::run::{AxisReason, Completeness};
 use rusqlite::{Connection, OptionalExtension as _};
@@ -58,7 +62,8 @@ use crate::forms;
 /// are learned from: the pages fetched with their signatures, by their
 /// query without each of their parameters, the pairs those make, the
 /// signatures seen per host, each path pattern's run of pages that brought
-/// nothing new, and each path's integer parameter values.
+/// nothing new, each path's integer parameter values, and the first link
+/// an offset listing's pages gave under each other parameter.
 pub const TABLES: RunStateTables = RunStateTables {
     name: "goodfetch-frontier-rules",
     statements: &[
@@ -146,6 +151,16 @@ pub const TABLES: RunStateTables = RunStateTables {
             high INTEGER NOT NULL,
             count INTEGER NOT NULL,
             paged INTEGER NOT NULL,
+            PRIMARY KEY (host, path, parameter)
+        ) STRICT, WITHOUT ROWID",
+        "CREATE TABLE IF NOT EXISTS rules_cursors (
+            host TEXT NOT NULL,
+            path TEXT NOT NULL,
+            parameter TEXT NOT NULL,
+            value TEXT NOT NULL,
+            page TEXT NOT NULL,
+            url TEXT NOT NULL,
+            refuted INTEGER NOT NULL,
             PRIMARY KEY (host, path, parameter)
         ) STRICT, WITHOUT ROWID",
     ],
@@ -524,7 +539,9 @@ fn by_id(mut rules: Vec<(i64, String)>) -> Vec<(i64, String)> {
 
 /// The learned rule that refuses `key`, if one does, with its reason: a
 /// trap closed over its path pattern refuses it with `trap_path`, and a
-/// cursor learned for its listing refuses an offset URL as a `duplicate`.
+/// cursor learned for its listing refuses an offset URL as a `duplicate`,
+/// unless the Run's admissions do not learn (`learning`,
+/// `frontier.learning`).
 ///
 /// # Errors
 ///
@@ -532,6 +549,7 @@ fn by_id(mut rules: Vec<(i64, String)>) -> Vec<(i64, String)> {
 pub(crate) fn refuses(
     connection: &Connection,
     key: &Url,
+    learning: bool,
 ) -> rusqlite::Result<Option<(NotAddedReason, i64)>> {
     let parts = Parts::of(key);
     let trap = connection
@@ -543,7 +561,7 @@ pub(crate) fn refuses(
     if let Some(rule) = trap {
         return Ok(Some((NotAddedReason::TrapPath, rule)));
     }
-    if parts.pairs.is_empty() {
+    if !learning || parts.pairs.is_empty() {
         return Ok(None);
     }
     let mut statement = connection.prepare_cached(
@@ -707,9 +725,17 @@ fn greatest_common_divisor(step: i64, difference: u64) -> i64 {
     i64::try_from(one).unwrap_or(i64::MAX)
 }
 
-/// Learns that the listing at `parts`' path prefers the cursor `key`,
-/// linked from its page `from`, to each of its offset parameters the
-/// cursor lacks, when the cursor carries a parameter that is no offset.
+/// Counts the link `key`, which the listing's page `from` gave to its own
+/// path `parts`, as evidence of a cursor, and learns that the listing
+/// prefers its cursor to each offset parameter the link lacks once two of
+/// its pages each linked a value of one parameter of their own.
+///
+/// Evidence is a value that changes from page to page, as a token for the
+/// rows after a page does: a parameter that is no offset is a cursor once
+/// a second page links it with another value than the first page did. One
+/// that a page links with two values, as the values of a filter, or that
+/// two pages link with one value, as a sort or a view, is refuted, and no
+/// later link makes it a cursor.
 fn cursor(
     connection: &Connection,
     parts: &Parts<'_>,
@@ -725,14 +751,22 @@ fn cursor(
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let offset_names: BTreeSet<&str> = offsets.iter().map(|(name, _)| name.as_str()).collect();
-    let is_cursor = parts
-        .names()
-        .iter()
-        .any(|name| !offset_names.contains(name));
-    if !is_cursor {
+    if offsets.is_empty() {
         return Ok(());
     }
+    let mut shown = None;
+    for pair in &parts.pairs {
+        let parameter = name(pair);
+        if offsets.iter().any(|(offset, _)| offset == parameter) {
+            continue;
+        }
+        if let Some(first) = cursor_link(connection, parts, pair, from, key)? {
+            shown.get_or_insert((parameter, first));
+        }
+    }
+    let Some((parameter, (first_page, first_link))) = shown else {
+        return Ok(());
+    };
     for (offset, step) in offsets.iter().filter(|(offset, _)| !parts.has(offset)) {
         let mut statement = connection.prepare_cached(
             "SELECT url FROM rules_offset_values
@@ -746,7 +780,7 @@ fn cursor(
         let mut listing = key.clone();
         listing.set_query(None);
         let evidence = format!(
-            "`{offset}` steps by {step} on {listing} ({}), and {from} links the cursor {key}.",
+            "`{offset}` steps by {step} on {listing} ({}), and two of its pages each link a value of `{parameter}` of their own: {first_page} links {first_link}, and {from} links {key}.",
             first.join(", ")
         );
         learn_rule(
@@ -757,6 +791,69 @@ fn cursor(
         )?;
     }
     Ok(())
+}
+
+/// Keeps the link `key` that the page `from` gave under the query pair
+/// `pair` of a listing's path `parts`, the first under its parameter, or
+/// reads it against that first one: answers the first one's page and
+/// link when another page gave it with another value, which shows a
+/// cursor, and refutes the parameter when the same page gave another
+/// value or another page the same one.
+fn cursor_link(
+    connection: &Connection,
+    parts: &Parts<'_>,
+    pair: &str,
+    from: &Url,
+    key: &Url,
+) -> rusqlite::Result<Option<(String, String)>> {
+    let (parameter, value) = (name(pair), value(pair));
+    let first = connection
+        .prepare_cached(
+            "SELECT value, page, url, refuted FROM rules_cursors
+             WHERE host = ?1 AND path = ?2 AND parameter = ?3",
+        )?
+        .query_row((parts.host, parts.path, parameter), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, bool>(3)?,
+            ))
+        })
+        .optional()?;
+    let Some((first_value, first_page, first_link, refuted)) = first else {
+        connection
+            .prepare_cached(
+                "INSERT INTO rules_cursors (host, path, parameter, value, page, url, refuted)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
+            )?
+            .execute((
+                parts.host,
+                parts.path,
+                parameter,
+                value,
+                from.as_str(),
+                key.as_str(),
+            ))?;
+        return Ok(None);
+    };
+    if refuted {
+        return Ok(None);
+    }
+    match (first_page == from.as_str(), first_value == value) {
+        (false, false) => Ok(Some((first_page, first_link))),
+        (true, true) => Ok(None),
+        // One page with two values, or two pages with one: no cursor.
+        (true, false) | (false, true) => {
+            connection
+                .prepare_cached(
+                    "UPDATE rules_cursors SET refuted = 1
+                     WHERE host = ?1 AND path = ?2 AND parameter = ?3",
+                )?
+                .execute((parts.host, parts.path, parameter))?;
+            Ok(None)
+        }
+    }
 }
 
 /// Adds a rule of `kind` on `host` and `path`, about `parameter` and
@@ -1289,15 +1386,24 @@ fn unread(column: usize, error: serde_json::Error) -> rusqlite::Error {
 }
 
 /// Why the learned rules leave a finished crawl `unverified`: the URLs
-/// learned traps refused, and the listings paged only by an offset, each
-/// a reason with its count.
+/// learned traps refused, the offset URLs learned cursors refused, and
+/// the listings paged only by an offset, each a reason with its count.
 ///
 /// # Errors
 ///
 /// When the run file cannot be read.
 pub fn completeness_reasons(connection: &Connection) -> rusqlite::Result<Vec<CompletenessReason>> {
-    let refused: i64 = connection.prepare_cached("SELECT count(*) FROM learned_merges JOIN learned_rules ON learned_rules.id = learned_merges.rule
-         WHERE learned_rules.kind = ?1").and_then(|mut cached| cached.query_row([TRAP_PATH], |row| row.get(0)))?;
+    let refused_by = |kind: &str| -> rusqlite::Result<i64> {
+        connection
+            .prepare_cached(
+                "SELECT count(*) FROM learned_merges
+                 JOIN learned_rules ON learned_rules.id = learned_merges.rule
+                 WHERE learned_rules.kind = ?1",
+            )
+            .and_then(|mut cached| cached.query_row([kind], |row| row.get(0)))
+    };
+    let refused = refused_by(TRAP_PATH)?;
+    let by_cursor = refused_by(CURSOR_PAGINATION)?;
     let offset_only: i64 = connection
         .prepare_cached(
             "SELECT count(*) FROM rules_offsets AS offsets WHERE paged = 1 AND NOT EXISTS
@@ -1318,6 +1424,17 @@ pub fn completeness_reasons(connection: &Connection) -> rusqlite::Result<Vec<Com
             format!("{traps} refused {refused} {urls} the crawl would otherwise have admitted."),
             refused,
         ));
+    }
+    if by_cursor > 0 {
+        let message = if by_cursor == 1 {
+            "A learned cursor refused 1 offset URL of a listing the crawl pages by its cursor instead."
+                .to_owned()
+        } else {
+            format!(
+                "Learned cursors refused {by_cursor} offset URLs of listings the crawl pages by their cursor instead."
+            )
+        };
+        reasons.push(unverified(CURSOR_PAGINATION_REASON, message, by_cursor));
     }
     if offset_only > 0 {
         let (listings, it) = if offset_only == 1 {

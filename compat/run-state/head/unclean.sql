@@ -14,7 +14,8 @@ CREATE TABLE bounds (
             max_requests INTEGER,
             max_url_length INTEGER,
             max_path_segments INTEGER,
-            max_segment_repeats INTEGER
+            max_segment_repeats INTEGER,
+            learning INTEGER NOT NULL
         ) STRICT;
 CREATE TABLE bounds_admitted (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
@@ -159,6 +160,16 @@ CREATE TABLE rules_canonicals (
             url TEXT NOT NULL,
             canonical TEXT NOT NULL,
             PRIMARY KEY (host, form, url)
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE rules_cursors (
+            host TEXT NOT NULL,
+            path TEXT NOT NULL,
+            parameter TEXT NOT NULL,
+            value TEXT NOT NULL,
+            page TEXT NOT NULL,
+            url TEXT NOT NULL,
+            refuted INTEGER NOT NULL,
+            PRIMARY KEY (host, path, parameter)
         ) STRICT, WITHOUT ROWID;
 CREATE TABLE rules_offset_values (
             host TEXT NOT NULL,

@@ -565,7 +565,7 @@ fn a_gzip_and_a_plain_sitemap_seed_and_a_bad_one_never_stops_the_rest() {
                 "out_of_scope",
                 None,
                 &format!(
-                    "The sitemap {elsewhere} is on another host than its sitemap seed's, where only a robots.txt seed's own `Sitemap:` lines name one that is fetched, so it was not fetched."
+                    "The sitemap {elsewhere} is on another host than its sitemap seed's and the sitemap's that names it, where only a robots.txt seed's own `Sitemap:` lines name one that is fetched, so it was not fetched."
                 ),
             ),
         ],

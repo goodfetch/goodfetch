@@ -230,7 +230,9 @@ pub enum NotAddedReason {
     /// The Frontier already admitted a request of the same identity: its
     /// method, its URL's key and its body's hash, or its declared `key`.
     Duplicate,
-    /// Its URL is outside the crawl's scope (`crawl.scope.*`).
+    /// Its URL is outside the crawl's scope (`crawl.scope.*`); or, for a
+    /// nested sitemap, it is on a host its sitemap seed does not read
+    /// sitemaps on.
     OutOfScope,
     /// The Run's domain policy refuses its host.
     DomainPolicy,

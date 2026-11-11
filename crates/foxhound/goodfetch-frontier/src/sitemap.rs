@@ -10,7 +10,8 @@
 //! their own, each one level deeper than the sitemap that names it, the
 //! seed's at level 0: under the domain policy; on the seed's host only,
 //! but for the sitemaps a robots.txt seed's own `Sitemap:` lines
-//! cross-submit on another host, which are read; no deeper than
+//! cross-submit on another host and those such a sitemap names on its
+//! own host, which are read; no deeper than
 //! `crawl.max_sitemap_nesting`; and counted against the crawl's bounds as a
 //! page's fetch is, its level as its depth (ADR 0093's note of
 //! 2026-11-10). A sitemap's entries,
@@ -432,10 +433,11 @@ struct Fetch<'a> {
 struct Nested<'a> {
     /// The seed's work item.
     seed: &'a str,
-    /// The host whose sitemaps the seed reads: its own, or `None` for the
-    /// sitemaps a robots.txt seed's own lines name, which may cross-submit
-    /// one on any host.
-    host: Option<&'a str>,
+    /// The hosts it may be on: its seed's and that of the sitemap naming
+    /// it, which differ only beneath a sitemap a robots.txt seed
+    /// cross-submitted; or `None` for the sitemaps a robots.txt seed's
+    /// own lines name, which may cross-submit one on any host.
+    hosts: Option<[Option<&'a str>; 2]>,
     /// Its nesting level: one more than that of the sitemap naming it.
     level: u64,
     /// The crawl's bounds.
@@ -444,7 +446,7 @@ struct Nested<'a> {
 
 impl Nested<'_> {
     /// Why the fetch of the nested sitemap at `url` is not added, if it is
-    /// not: its host is not the seed's, it is nested past
+    /// not: its host is neither the seed's nor its index's, it is nested past
     /// `crawl.max_sitemap_nesting`, or a bound of the crawl refuses it as
     /// it refuses a page at its level's depth.
     fn refuses(
@@ -453,7 +455,10 @@ impl Nested<'_> {
         url: &Url,
         budget: Option<&PathBudget>,
     ) -> rusqlite::Result<Option<NotAddedReason>> {
-        if self.host.is_some_and(|host| url.host_str() != Some(host)) {
+        if self
+            .hosts
+            .is_some_and(|hosts| !hosts.contains(&url.host_str()))
+        {
             return Ok(Some(NotAddedReason::OutOfScope));
         }
         if self
@@ -634,13 +639,14 @@ pub fn read(
     match document {
         Document::Sitemaps(sitemaps) => {
             // Only a robots.txt seed's own lines cross-submit a sitemap on
-            // another host.
+            // another host; an index names sitemaps on its own host and
+            // on its seed's.
             let seed_url = stored(&seed_url)?;
             let cross_submits = id == seed && is_robots_txt(&base);
             let bounds = Bounds::read(connection)?;
             let nested = Nested {
                 seed: &seed,
-                host: seed_url.host_str().filter(|_| !cross_submits),
+                hosts: (!cross_submits).then(|| [seed_url.host_str(), base.host_str()]),
                 level: u64::try_from(nesting).unwrap_or(u64::MAX).saturating_add(1),
                 bounds: &bounds,
             };
@@ -718,7 +724,7 @@ fn keep_refused_nesting(
             "The Run's domain policy refuses the host of the sitemap {url}, so it was not fetched."
         ),
         (NotAddedReason::OutOfScope, _) => format!(
-            "The sitemap {url} is on another host than its sitemap seed's, where only a robots.txt seed's own `Sitemap:` lines name one that is fetched, so it was not fetched."
+            "The sitemap {url} is on another host than its sitemap seed's and the sitemap's that names it, where only a robots.txt seed's own `Sitemap:` lines name one that is fetched, so it was not fetched."
         ),
         (NotAddedReason::MaxSitemapNesting, _) => format!(
             "The sitemap {url} is nested more levels under its sitemap seed than `crawl.max_sitemap_nesting`, so it was not fetched."

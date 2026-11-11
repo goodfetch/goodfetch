@@ -1233,7 +1233,11 @@ class NotAddedReason(StrEnum):
     method, its URL's key and its body's hash, or its declared `key`.
     """
     out_of_scope = "out_of_scope"
-    """Its URL is outside the crawl's scope (`crawl.scope.*`)."""
+    """
+    Its URL is outside the crawl's scope (`crawl.scope.*`); or, for a
+    nested sitemap, it is on a host its sitemap seed does not read
+    sitemaps on.
+    """
     domain_policy = "domain_policy"
     """The Run's domain policy refuses its host."""
     max_depth = "max_depth"

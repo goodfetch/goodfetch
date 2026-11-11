@@ -6575,7 +6575,7 @@
         },
         {
           "const": "out_of_scope",
-          "description": "Its URL is outside the crawl's scope (`crawl.scope.*`).",
+          "description": "Its URL is outside the crawl's scope (`crawl.scope.*`); or, for a\nnested sitemap, it is on a host its sitemap seed does not read\nsitemaps on.",
           "type": "string"
         },
         {

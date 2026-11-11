@@ -449,8 +449,10 @@ fn an_index_does_not_fetch_a_sitemap_it_names_on_another_host() {
 }
 
 /// A robots.txt seed's `Sitemap:` lines cross-submit a sitemap on another
-/// host, which is fetched; a sitemap that one names on its own host, the
-/// partner's, is not, since only the robots.txt cross-submits.
+/// host, which is fetched; the sitemaps that one names are fetched on its
+/// own host, the partner's, and on the seed's, as sitemaps.org places an
+/// index's sitemaps, and not on a third host, since only the robots.txt
+/// cross-submits.
 ///
 /// Covers: story:6-205
 #[test]
@@ -459,14 +461,24 @@ fn a_robots_txt_seed_fetches_the_sitemap_it_cross_submits_on_another_host() {
     let seed = sitemaps.seed("http://shop.test/robots.txt");
 
     let submitted = sitemaps.read_index(&seed, &["http://partner.test/sitemap.xml"]);
-    let nested = sitemaps.read_index("2", &["http://partner.test/more.xml"]);
+    let nested = sitemaps.read_index(
+        "2",
+        &[
+            "http://partner.test/more.xml",
+            "http://shop.test/own.xml",
+            "http://third.test/sitemap.xml",
+        ],
+    );
 
     assert_eq!(
         (submitted, nested, sitemaps.failures()),
         (
             vec![pair("2", "http://partner.test/sitemap.xml")],
-            Vec::new(),
-            vec![pair("http://partner.test/more.xml", "out_of_scope")],
+            vec![
+                pair("3", "http://partner.test/more.xml"),
+                pair("4", "http://shop.test/own.xml"),
+            ],
+            vec![pair("http://third.test/sitemap.xml", "out_of_scope")],
         )
     );
 }

@@ -68,6 +68,19 @@ const SAMPLE_ECHOED: Event = Event {
     arrived_in: ARRIVED_IN,
 };
 
+/// `sample.echo_repeats`: the sample module's setting, which the sample
+/// operation does not read yet (`settings::unbuilt`).
+pub const SAMPLE_ECHO_REPEATS: Setting = Setting {
+    name: "sample.echo_repeats",
+    description: "How many times the sample operation repeats a text.",
+    kind: crate::catalog::ValueKind::Count,
+    default: one,
+    clearable: false,
+    authority: crate::catalog::Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 fn one() -> serde_json::Value {
     serde_json::json!(1)
 }
@@ -123,16 +136,7 @@ pub const ENTRIES: Entries = Entries {
         stability: Stability::Stable,
         arrived_in: ARRIVED_IN,
     }],
-    settings: &[Setting {
-        name: "sample.echo_repeats",
-        description: "How many times the sample operation repeats a text.",
-        kind: crate::catalog::ValueKind::Count,
-        default: one,
-        clearable: false,
-        authority: crate::catalog::Authority::Every,
-        weakens: None,
-        arrived_in: ARRIVED_IN,
-    }],
+    settings: &[SAMPLE_ECHO_REPEATS],
     hook_stages: &[HookStage {
         name: "sample_before_echo",
         description: "Before the sample operation repeats a text.",

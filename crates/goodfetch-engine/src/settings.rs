@@ -181,7 +181,8 @@ impl Settings {
 
     /// Resolves the settings of a scope that opens with `opening`, against
     /// the machine's layers as they are now; refused before the scope opens
-    /// (ADR 0083).
+    /// (ADR 0083), a setting whose feature the engine does not build yet
+    /// included, when a layer sets it away from its default.
     ///
     /// # Errors
     ///
@@ -228,6 +229,7 @@ impl Settings {
             run,
         };
         let resolved = resolve(&layers, engine, opening.run.unwrap_or(engine))
+            .and_then(|resolved| resolved.refuse_unbuilt().map(|()| resolved))
             .map_err(|error| self.0.files.named_in(error))?;
         Ok((
             RunSettings {

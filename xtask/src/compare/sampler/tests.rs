@@ -4,10 +4,86 @@ fn sample(at: f64, resident_bytes: u64, cpu_seconds: f64) -> Sample {
     Sample {
         at,
         resident_bytes,
+        pss_bytes: Some(resident_bytes / 2),
         cpu_seconds,
         threads: 3,
         open_files: 9,
     }
+}
+
+/// Samples whose tree's PSS is each of `pss`, in turn.
+fn samples_of_pss(pss: &[Option<u64>]) -> Vec<Sample> {
+    pss.iter()
+        .zip(0_u32..)
+        .map(|(&pss_bytes, index)| Sample {
+            pss_bytes,
+            ..sample(f64::from(index) * 0.1, 500, 0.0)
+        })
+        .collect()
+}
+
+/// The tree's peak PSS is its highest sample's, as its peak RSS is.
+#[test]
+fn the_peak_pss_is_the_highest_samples() {
+    let sampled = figures(&samples_of_pss(&[Some(70), Some(90), Some(80)]), &[]);
+
+    assert_eq!(sampled.peak_pss_bytes, Some(90));
+}
+
+/// A sample that could not read a live process's PSS summed less than the
+/// tree's: the trial has no peak PSS rather than one that left it out.
+#[test]
+fn a_sample_without_a_process_pss_leaves_the_trial_without_a_peak_pss() {
+    let sampled = figures(&samples_of_pss(&[Some(70), None, Some(80)]), &[]);
+
+    assert_eq!(sampled.peak_pss_bytes, None);
+}
+
+/// The fixture: a shell whose child, `tail`, holds the last `HELD_BYTES` of
+/// its input in memory until the input ends. The shell itself is small, so
+/// the tree's PSS is the child's known size and little more, which a
+/// reader of the shell's process alone would miss.
+#[cfg(target_os = "linux")]
+const HELD_BYTES: u64 = 64 * 1024 * 1024;
+
+/// The sampler sums the PSS of the followed process and of every process
+/// under it: a child of a known size counts whole.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_child_of_known_size_counts_in_the_trees_pss() {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+
+    // `; :` keeps the shell as `tail`'s parent rather than replaced by it.
+    let mut shell = Command::new("sh")
+        .args(["-c", &format!("tail -c {HELD_BYTES}; :")])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut input = shell.stdin.take().unwrap();
+    // Twice what it holds, so every byte it holds was read before the last
+    // write returns, whatever the pipe still buffers.
+    let block = vec![b'x'; 1024 * 1024];
+    for _ in 0..2 * HELD_BYTES / block.len() as u64 {
+        input.write_all(&block).unwrap();
+    }
+    let sampler = Sampler::start(std::time::Instant::now());
+
+    sampler.follow(shell.id());
+    std::thread::sleep(std::time::Duration::from_millis(
+        4 * super::INTERVAL_MILLISECONDS,
+    ));
+    let taken = sampler.finish().unwrap();
+    drop(input);
+    shell.wait().unwrap();
+
+    let last = taken.last().unwrap();
+    let pss = last.pss_bytes.unwrap();
+    assert!(
+        (HELD_BYTES..HELD_BYTES + HELD_BYTES / 4).contains(&pss) && pss <= last.resident_bytes,
+        "{last:?}"
+    );
 }
 
 /// Six samples 0.1 s apart: 100 bytes resident for the first half second,

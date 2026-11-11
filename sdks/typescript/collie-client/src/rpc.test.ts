@@ -3,8 +3,8 @@
 // sent fails alone.
 import { describe, expect, test } from "vitest";
 import { encodeMessage } from "./framing.ts";
-import { CallCancelledError, ClosedError } from "./generated/index.ts";
-import { Channel, type ChannelOwner, type Transport } from "./rpc.ts";
+import { CallCancelledError, ClosedError, ConnectionOverloadedError } from "./generated/index.ts";
+import { Channel, type ChannelOwner, type Transport, type TransportEnd } from "./rpc.ts";
 
 /** The engine's side of an in-memory transport: what the Client wrote, and what it reads next. */
 interface PlayedEngine {
@@ -121,5 +121,85 @@ describe("a Channel", () => {
     engine.end();
 
     expect(await call).toMatchObject({ code: "closed" });
+  });
+
+  test(
+    "refuses a call past its bound on calls waiting, at once, and answers the earlier ones",
+    { tags: ["error:connection_overloaded"] },
+    async () => {
+      const engine = playedEngine();
+      const channel = new Channel(engine.transport, owner, { maxPendingCalls: 2 });
+      const earlier = [channel.call("sample.echo", {}), channel.call("sample.echo", {})];
+
+      const error = await failure(channel.call("sample.echo", {}));
+      await settled();
+      engine.send({ id: 0, result: "first" });
+      engine.send({ id: 1, result: "second" });
+
+      expect(error).toBeInstanceOf(ConnectionOverloadedError);
+      expect(error).toMatchObject({
+        code: "connection_overloaded",
+        details: { bound: "pending_calls", value: 2 },
+      });
+      expect(await Promise.all(earlier)).toEqual(["first", "second"]);
+      expect(engine.written).toHaveLength(2);
+    },
+  );
+
+  test(
+    "refuses a call past its bound on bytes waiting to be written, and takes one again once they are",
+    { tags: ["error:connection_overloaded"] },
+    async () => {
+      const writes: (() => void)[] = [];
+      const writable = new WritableStream<Uint8Array>(
+        { write: () => new Promise<void>((resolve) => writes.push(resolve)) },
+        new CountQueuingStrategy({ highWaterMark: 16 }),
+      );
+      const transport = { readable: new ReadableStream<Uint8Array>(), writable };
+      const channel = new Channel(transport, owner, { maxQueuedWriteBytes: 100 });
+      const text = "x".repeat(100);
+
+      // One message larger than the bound is taken while nothing waits, or it could never be sent.
+      void channel.call("sample.echo", { text }).catch(() => {});
+      const error = await failure(channel.call("sample.echo", {}));
+      await settled();
+      writes.shift()?.();
+      await settled();
+      void channel.call("sample.echo", {}).catch(() => {});
+      await settled();
+
+      expect(error).toMatchObject({
+        code: "connection_overloaded",
+        details: { bound: "queued_write_bytes", value: 100 },
+      });
+      expect(writes).toHaveLength(1);
+    },
+  );
+
+  test("fails a call in flight with the cause of a write the engine's side rejected, its readable still open", async () => {
+    const refused = new Error("the pipe is broken");
+    const readable = new ReadableStream<Uint8Array>();
+    const writable = new WritableStream<Uint8Array>({
+      write: () => Promise.reject(refused),
+    });
+    const ends: TransportEnd[] = [];
+    const channel = new Channel(
+      { readable, writable },
+      {
+        ...owner,
+        ended: (end) => {
+          ends.push(end);
+          return Promise.resolve(new ClosedError("the transport ended"));
+        },
+      },
+    );
+
+    const error = await failure(channel.call("run.start", {}));
+    await channel.ended;
+
+    expect({ error, ends }).toEqual({
+      error: expect.objectContaining({ code: "closed" }),
+      ends: [{ kind: "write_failed", cause: refused }],
+    });
   });
 });

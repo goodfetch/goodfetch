@@ -178,6 +178,14 @@ class ConnectionLostError(UnavailableError):
         super().__init__(message, code="connection_lost", group="unavailable", retryable=True)
 
 
+class ConnectionOverloadedError(RefusedError):
+    """The Connection already holds as many calls waiting for their answer, or as many bytes waiting to be written to the engine, as its bounds allow, so the call was refused at once and never sent; the calls made before it go on. The details name the bound, `pending_calls` or `queued_write_bytes`, and its value. Wait for earlier calls to end, or raise the bound where the Connection opens."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="connection_overloaded", group="refused", retryable=True)
+
+
 class ConsolePortInUseError(UnavailableError):
     """The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon."""
 
@@ -748,6 +756,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "certificate_invalid": CertificateInvalidError,
     "closed": ClosedError,
     "connection_lost": ConnectionLostError,
+    "connection_overloaded": ConnectionOverloadedError,
     "console_port_in_use": ConsolePortInUseError,
     "daemon_draining": DaemonDrainingError,
     "daemon_unreachable": DaemonUnreachableError,

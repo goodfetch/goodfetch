@@ -7,7 +7,7 @@ import { MessageChannel } from "node:worker_threads";
 import { playScript, test } from "@goodfetch/test-support";
 import { describe, expect, vi } from "vitest";
 import { startAndFinish } from "../tests/programs/tracer.ts";
-import { NotInProductError } from "@goodfetch/collie-client";
+import { EngineExitedError, NotInProductError } from "@goodfetch/collie-client";
 import { Collie } from "./collie.ts";
 import { connectOver } from "./testing.ts";
 
@@ -296,6 +296,68 @@ describe("a Collie Connection", () => {
       expect(played.done()).toEqual({ kind: "exit", code: 101 });
     },
   );
+});
+
+describe("connect() over a transport whose writes the engine's side rejects", () => {
+  test(
+    "fails with the write's cause, though the engine's bytes to read stay open",
+    { tags: ["error:engine_exited"] },
+    async () => {
+      const refused = new Error("the pipe is broken");
+      const transport = {
+        readable: new ReadableStream<Uint8Array>(),
+        writable: new WritableStream<Uint8Array>({ write: () => Promise.reject(refused) }),
+      };
+
+      const error = await failure(connectOver(transport));
+
+      expect(error).toBeInstanceOf(EngineExitedError);
+      expect(error).toMatchObject({ code: "engine_exited", cause: refused });
+    },
+  );
+});
+
+describe("connect() aborted before its hello is answered", () => {
+  test("fails with the signal's reason and leaves neither stream open", async () => {
+    const streams = { cancelled: false, closed: false };
+    const transport = {
+      readable: new ReadableStream<Uint8Array>({
+        cancel: () => {
+          streams.cancelled = true;
+        },
+      }),
+      writable: new WritableStream<Uint8Array>({
+        close: () => {
+          streams.closed = true;
+        },
+      }),
+    };
+    const aborting = new AbortController();
+    const reason = new Error("the program gave up");
+
+    const connecting = failure(connectOver(transport, { signal: aborting.signal }));
+    aborting.abort(reason);
+
+    expect(await connecting).toBe(reason);
+    expect(streams).toEqual({ cancelled: true, closed: true });
+  });
+
+  test("fails with the reason of a signal aborted already, writing nothing", async () => {
+    const written: Uint8Array[] = [];
+    const transport = {
+      readable: new ReadableStream<Uint8Array>(),
+      writable: new WritableStream<Uint8Array>({
+        write: (bytes) => {
+          written.push(bytes);
+        },
+      }),
+    };
+    const reason = new Error("the program gave up");
+
+    const error = await failure(connectOver(transport, { signal: AbortSignal.abort(reason) }));
+
+    expect({ error, written }).toEqual({ error: reason, written: [] });
+  });
 });
 
 describe("a Connection's values", () => {

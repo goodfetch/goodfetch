@@ -14,12 +14,33 @@ import {
   AttachedEngine,
   ClientConnection,
   holdInRealm,
+  type ChannelBounds,
   type Transport,
 } from "@goodfetch/collie-client/runtime";
 import { locateEngine } from "./engine-path.ts";
 
+/** Options of opening a Connection, over an Attached engine's stdio or a transport a test holds. */
+export interface ConnectOverOptions {
+  /**
+   * Cancels the opening: it rejects with the signal's reason, once the
+   * Attached engine it started has stopped and its streams are closed.
+   */
+  readonly signal?: AbortSignal | undefined;
+  /**
+   * How many calls may wait for their answer at once, 10,000 when left
+   * out: past it a new call fails at once with `connection_overloaded`.
+   */
+  readonly maxPendingCalls?: ChannelBounds["maxPendingCalls"];
+  /**
+   * How many bytes may wait to be written to the engine, 64 MiB when left
+   * out: past it a new call fails at once with `connection_overloaded`. One
+   * message larger than this is still taken while nothing waits.
+   */
+  readonly maxQueuedWriteBytes?: ChannelBounds["maxQueuedWriteBytes"];
+}
+
 /** Options of `connect()`. */
-export interface ConnectOptions {
+export interface ConnectOptions extends ConnectOverOptions {
   /**
    * The environment map, read here and never at import: the process's own
    * when left out (ADRs 0062, 0083). Only `GOODFETCH_COLLIE_ENGINE_PATH` is
@@ -53,9 +74,11 @@ export class Collie implements Connection {
   /**
    * Starts Collie's engine as an Attached engine and completes `hello`
    * before returning, so a missing executable (`engine_not_found`) or a
-   * refused Product or version fails here, with a `fix`.
+   * refused Product or version fails here, with a `fix`. An aborted
+   * `signal` fails it with the signal's reason, leaving no engine behind.
    */
   static async connect(options: ConnectOptions = {}): Promise<Collie> {
+    options.signal?.throwIfAborted();
     const env = options.env ?? processEnvironment();
     const location = locateEngine(env);
     const engine = await AttachedEngine.start({
@@ -70,6 +93,7 @@ export class Collie implements Connection {
         engine,
         needs: "collie",
         errorClasses: collieErrorClasses,
+        ...opening(options),
       }),
     );
   }
@@ -108,12 +132,25 @@ export class Collie implements Connection {
  * `connect()`'s, with no process behind it. Programs reach it through
  * `@goodfetch/collie/testing`.
  */
-export function connectOver(transport: Transport): Promise<Collie> {
+export function connectOver(
+  transport: Transport,
+  options: ConnectOverOptions = {},
+): Promise<Collie> {
   return ClientConnection.open({
     transport,
     needs: "collie",
     errorClasses: collieErrorClasses,
+    ...opening(options),
   }).then(open);
+}
+
+/** The common Connection's part of `options`. */
+function opening(options: ConnectOverOptions): {
+  readonly bounds: ChannelBounds;
+  readonly signal: AbortSignal | undefined;
+} {
+  const { signal, maxPendingCalls, maxQueuedWriteBytes } = options;
+  return { bounds: { maxPendingCalls, maxQueuedWriteBytes }, signal };
 }
 
 /** The process's own environment, its unset entries left out. */

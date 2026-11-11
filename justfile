@@ -922,7 +922,7 @@ test-affected suite *change:
 # (`xtask affected`'s `gate=docs`) the checks that read documents, else
 # lints and in-process tests of what changed against the change's base
 # (`all`: every lint and the whole workspace). The pre-push hook runs it,
-# and skips a tree it already passed on.
+# and not on a tree it already passed on.
 quick *all:
     PATH="$(dirname "{{ just_executable() }}"):$PATH" ci/quick.sh {{ all }}
 
@@ -1551,8 +1551,9 @@ floor-guard base="origin/main" head="HEAD":
 proofs:
     ci/proofs/run.sh
 
-# Opts in to the git hooks: pre-commit checks formatting, pre-push runs `just quick`
-# unless it already passed on the pushed tree (TESTING.md, Checks by role).
+# Opts in to the git hooks: pre-commit checks formatting, pre-push checks the
+# pushed commits' sign-offs and subjects, then runs `just quick` unless it
+# already passed on the pushed tree (TESTING.md, Checks by role).
 hooks:
     git config core.hooksPath .githooks
 

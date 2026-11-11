@@ -720,20 +720,10 @@ fn from_the_last_full_gates_head_the_tests_merged_since_run_20_times_with_the_ch
     }
 }
 
-/// The deleted tests are read from that same range, and so are the trailers
-/// that accept them: a test a pull request merged since the last full gate
-/// renamed is accepted by the `Quality-change` trailer of that pull request's
-/// commit, and fails the selection without one, at the next full gate.
-#[rstest]
-#[case::with_its_trailer(
-    "test: rename a test\n\nQuality-change: stressed changed::tests::renamed_before: renamed",
-    true
-)]
-#[case::without_a_trailer("test: rename a test", false)]
-fn a_test_deleted_by_a_merge_since_the_last_full_gate_needs_that_merges_trailer(
-    #[case] message: &str,
-    #[case] accepted: bool,
-) {
+/// The next pull request to take a full gate, on a base where a pull request
+/// merged since the last full gate renamed the test `renamed_before`, its
+/// commit saying `message`. The repository and the last full gate's head.
+fn a_merge_since_the_last_full_gate_renamed_a_test(message: &str) -> (Workspace, String) {
     let (workspace, last_full_gate) = base();
     workspace.edit(
         "src/changed.rs",
@@ -743,6 +733,18 @@ fn a_test_deleted_by_a_merge_since_the_last_full_gate_needs_that_merges_trailer(
     merge_edits(&workspace, "quick-merge", message);
     add_a_steady_test(&workspace, "next_pull_request");
     workspace.commit_all();
+    (workspace, last_full_gate)
+}
+
+/// The deleted tests are read from that same range, and so are the trailers
+/// that accept them: a test a pull request merged since the last full gate
+/// renamed is accepted, at the next full gate, by the `Quality-change` trailer
+/// of that pull request's commit.
+#[test]
+fn a_test_deleted_by_a_merge_since_the_last_full_gate_is_accepted_by_that_merges_trailer() {
+    let (workspace, last_full_gate) = a_merge_since_the_last_full_gate_renamed_a_test(
+        "test: rename a test\n\nQuality-change: stressed changed::tests::renamed_before: renamed",
+    );
 
     let outcome = workspace.xtask(&[
         "stress",
@@ -753,24 +755,44 @@ fn a_test_deleted_by_a_merge_since_the_last_full_gate_needs_that_merges_trailer(
         "stressed",
     ]);
 
-    let deleted = "stressed changed::tests::renamed_before";
-    if accepted {
-        assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-        assert_eq!(
-            outcome.stderr_notes(),
-            [finding("quality-change", deleted)],
-            "{}",
-            outcome.stderr
-        );
-    } else {
-        assert_eq!(outcome.code, 1, "{}", outcome.stderr);
-        assert_eq!(
-            outcome.stderr_findings(),
-            [finding("deleted-test", deleted)],
-            "{}",
-            outcome.stderr
-        );
-    }
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.stderr_notes(),
+        [finding(
+            "quality-change",
+            "stressed changed::tests::renamed_before"
+        )],
+        "{}",
+        outcome.stderr
+    );
+}
+
+/// Without that trailer the renamed test fails the selection at the next full
+/// gate, as a test the gated pull request deleted itself would.
+#[test]
+fn a_test_deleted_by_a_merge_since_the_last_full_gate_fails_the_selection_without_a_trailer() {
+    let (workspace, last_full_gate) =
+        a_merge_since_the_last_full_gate_renamed_a_test("test: rename a test");
+
+    let outcome = workspace.xtask(&[
+        "stress",
+        "select",
+        "--base",
+        &last_full_gate,
+        "--within",
+        "stressed",
+    ]);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.stderr_findings(),
+        [finding(
+            "deleted-test",
+            "stressed changed::tests::renamed_before"
+        )],
+        "{}",
+        outcome.stderr
+    );
 }
 
 /// A test taken off the quarantine list owes the rest of its 200.

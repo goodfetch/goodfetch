@@ -1085,9 +1085,8 @@ rss-propose *scenarios:
 # `chrome` feature's executable for scenario 5; its main rows read its
 # pages at the smallest channel capacity that loses none, and its
 # sensitivity rows, each labelled, run the capacity of 4,096 it had before,
-# its default features, its `bloom` feature, the allocator its README
-# recommends and, in scenario 5, its `smart` feature, each a build of its
-# own), both built with the
+# its default features, its `bloom` feature and the allocator its README
+# recommends, each a build of its own), both built with the
 # release profile (`profile` changes it for a quicker try), Crawlee 3.18.2
 # on Node.js (xtask/compare-crawlee: `CheerioCrawler`, and
 # `PlaywrightCrawler` for scenario 5) and Scrapy 2.19.0 on CPython
@@ -1116,7 +1115,6 @@ compare profile="release" *args:
     cargo run --quiet --bin xtask -- test-tools build --cargo-profile {{ profile }} --out "$PWD/target/compare/test-tools.json"
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir target/compare-spider/spider
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features chrome --target-dir target/compare-spider/spider-chrome
-    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features smart --target-dir target/compare-spider/spider-smart
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features defaults --target-dir target/compare-spider/spider-defaults
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features bloom --target-dir target/compare-spider/spider-bloom
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features jemalloc --target-dir target/compare-spider/spider-jemalloc

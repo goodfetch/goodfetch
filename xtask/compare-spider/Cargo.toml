@@ -31,9 +31,6 @@ mimalloc = { version = "=0.1.52", default-features = false, optional = true }
 # The headless browser scenario's: Spider renders each page in the Chrome
 # `CHROME_BIN` names.
 chrome = ["spider/chrome"]
-# The headless browser scenario's `smart` sensitivity row: `crawl_smart`,
-# HTTP first and Chrome where a page needs it.
-smart = ["chrome", "spider/smart"]
 # Spider as `cargo add spider` builds it: its default features, io_uring
 # among them, on top of the main row's.
 defaults = ["spider/default"]

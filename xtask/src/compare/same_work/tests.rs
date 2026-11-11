@@ -242,7 +242,7 @@ fn a_browser_trial_that_never_rendered_the_links_misses_the_script_rendered_page
                 finding.message.as_str()
             ))
             .collect::<Vec<_>>(),
-        ["foxhound", "spider", "crawlee", "scrapy", "spider smart"]
+        ["foxhound", "spider", "crawlee", "scrapy"]
             .map(|cell| (
                 "unrendered_pages",
                 format!("browser {cell} trial 2"),

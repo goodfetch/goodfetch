@@ -20,7 +20,7 @@ const MIB: u64 = 1024 * 1024;
 
 /// The measured cells: each tool's main rows by scenario, then Spider's
 /// sensitivity rows.
-const CELLS: [(&str, &str, &str); 23] = [
+const CELLS: [(&str, &str, &str); 22] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
     ("raw", "crawlee", "crawlee"),
@@ -43,7 +43,6 @@ const CELLS: [(&str, &str, &str); 23] = [
     ("raw", "spider bloom", "spider"),
     ("raw", "spider jemalloc", "spider"),
     ("extraction", "spider mimalloc", "spider"),
-    ("browser", "spider smart", "spider"),
 ];
 
 /// The work of a trial that fetched each page of the 1,000-page site once,
@@ -316,7 +315,7 @@ fn spiders_sensitivity_rows_are_labelled_and_no_target_reads_them() {
             .as_array()
             .unwrap()
             .iter()
-            .filter(|cell| cell["tool"] == "spider" && cell["status"] == "measured")
+            .filter(|cell| cell["tool"] == "spider")
             .map(|cell| {
                 (
                     cell["cell"].as_str().unwrap(),
@@ -340,6 +339,10 @@ fn spiders_sensitivity_rows_are_labelled_and_no_target_reads_them() {
         )
     );
     assert_eq!(
+        cell(&report, 4, "spider smart")["status"],
+        json!("not_supported")
+    );
+    assert_eq!(
         (
             &cell(&report, 0, "spider capacity 4096")["metrics"]["peak_rss_bytes"]["median"],
             &report["tools"]["spider"],
@@ -357,6 +360,7 @@ fn spiders_sensitivity_rows_are_labelled_and_no_target_reads_them() {
         "- **spider jemalloc** (sensitivity row): ",
         "- **spider mimalloc** (sensitivity row): ",
         "- **spider smart** (sensitivity row): ",
+        "  - not supported: Spider's `crawl_smart()` fetched 1 of the site's 100 pages",
         "| Metric | foxhound | spider | crawlee | scrapy | spider capacity 4096 (sensitivity) | \
          spider default features (sensitivity) | spider bloom (sensitivity) | \
          spider jemalloc (sensitivity) |",
@@ -683,7 +687,7 @@ fn the_report_shows_the_load_each_trial_started_at() {
         "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Peak RSS |",
         "| raw | foxhound | 1 | 6.50 | 1.000 |",
         "| raw | foxhound | 2 | 1.25 | 2.000 |",
-        "1 of the 69 timed trials started above a 1-minute load of 4.",
+        "1 of the 66 timed trials started above a 1-minute load of 4.",
     ] {
         assert!(
             markdown.contains(expected),

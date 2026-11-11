@@ -20,12 +20,13 @@ fn spider_rows(scenario: Scenario) -> Vec<(&'static str, Row, SpiderBuild, usize
 /// also writes each page; the rows beside it are its sensitivity rows, each
 /// one setting apart (#2213): the capacity before, Spider's default
 /// features, `bloom` and the allocator its README recommends, jemalloc for
-/// the pure crawl and mimalloc where each page is also read, and `smart`
-/// in the headless browser scenario.
+/// the pure crawl and mimalloc where each page is also read. Its `smart`
+/// row, in the headless browser scenario, is not supported: it has its own
+/// test.
 #[test]
 fn spiders_main_row_has_its_sensitivity_rows_beside_it() {
     use Row::{Main, Sensitivity};
-    use SpiderBuild::{Bloom, Chrome, Defaults, Http, Jemalloc, Mimalloc, Smart};
+    use SpiderBuild::{Bloom, Chrome, Defaults, Http, Jemalloc, Mimalloc};
 
     assert_eq!(
         (
@@ -45,12 +46,29 @@ fn spiders_main_row_has_its_sensitivity_rows_beside_it() {
                 ("spider", Main, Http, 256),
                 ("spider mimalloc", Sensitivity, Mimalloc, 256),
             ],
-            vec![
-                ("spider", Main, Chrome, 64),
-                ("spider smart", Sensitivity, Smart, 64),
-            ],
+            vec![("spider", Main, Chrome, 64)],
         )
     );
+}
+
+/// Spider's `smart` feature does not do the headless browser scenario's
+/// work, so its sensitivity row stands in the matrix, labelled, with the
+/// reason it has no figures.
+#[test]
+fn spiders_smart_row_is_a_sensitivity_row_that_is_not_supported() {
+    let smart: Vec<(Scenario, Row, bool)> = CELLS
+        .iter()
+        .filter(|cell| cell.name == "spider smart")
+        .map(|cell| {
+            (
+                cell.scenario,
+                cell.row,
+                matches!(cell.status, Status::NotSupported(reason) if reason.contains("`crawl_smart()` fetched 1 of the site's 100 pages")),
+            )
+        })
+        .collect();
+
+    assert_eq!(smart, vec![(Scenario::Browser, Row::Sensitivity, true)]);
 }
 
 /// The report writes each row's mapping, so a Spider row's names the

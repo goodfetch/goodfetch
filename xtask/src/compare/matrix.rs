@@ -185,6 +185,9 @@ impl Scenario {
 /// The smallest at which a 10,000-page crawl lost no page (#2213), on the
 /// gate host on 2026-11-11 at a 1-minute load of 7 to 11: of 40 crawls of
 /// scenario 1 at each capacity, 5 lost pages at 32 and none at 64 or 128.
+/// The figure holds for a machine with cores to spare, which is how the
+/// comparison runs: at a load of 17 to 20 on its 16 cores, 2 of 21 crawls
+/// at 64 lost pages, and a crawl that loses one fails its trial.
 pub(crate) const SPIDER_CAPACITY: usize = 64;
 
 /// The same for the extraction scenario, whose reader also writes each
@@ -204,9 +207,6 @@ pub(crate) enum SpiderBuild {
     Http,
     /// With Spider's `chrome` feature: each page rendered in Chrome.
     Chrome,
-    /// With Spider's `smart` feature: HTTP first, Chrome where a page
-    /// needs it.
-    Smart,
     /// With Spider's default features, `io_uring` among them, on top of
     /// [`Self::Http`]'s.
     Defaults,
@@ -226,7 +226,6 @@ impl SpiderBuild {
         match self {
             Self::Http => None,
             Self::Chrome => Some("chrome"),
-            Self::Smart => Some("smart"),
             Self::Defaults => Some("defaults"),
             Self::Bloom => Some("bloom"),
             Self::Jemalloc => Some("jemalloc"),
@@ -684,18 +683,21 @@ pub(crate) const CELLS: [Cell; 27] = [
         scenario: Scenario::Browser,
         tool: Tool::Spider,
         name: "spider smart",
-        mapping: "the spider row's settings (`subscribe(64)`), built with Spider's `smart` \
-                  feature, `crawl_smart()`: each page fetched over HTTP first and rendered in \
-                  the same headless Chrome for Testing only where Spider finds it needs a \
-                  browser",
+        mapping: "none: Spider's `smart` feature, `crawl_smart()`, which fetches each page over \
+                  HTTP first and renders it in Chrome only where Spider finds it needs a browser",
         pending: &[],
         row: Row::Sensitivity,
-        status: Status::Measured(Config::Spider {
-            build: SpiderBuild::Smart,
-            capacity: SPIDER_CAPACITY,
-        }),
+        status: Status::NotSupported(SPIDER_NOT_SMART),
     },
 ];
+
+/// Why Spider's `smart` row has no figures: what its crawl of the
+/// script-rendered site fetched (#2213).
+const SPIDER_NOT_SMART: &str = "Spider's `crawl_smart()` fetched 1 of the site's 100 pages, which no same-work check \
+     passes: it renders a page only when its signs that the page needs a browser add up to its \
+     threshold, the feed page's did not, and the feed's items are linked by its script alone. \
+     On 2026-11-11 (#2213), 2 of 2 such crawls of Spider 2.53.9, built with its `smart` \
+     feature beside the spider row's settings, ended so, with no Chrome started";
 
 /// Why Spider has no polite cell: what a crawl of the multi-domain site
 /// with its delay and robots.txt showed.

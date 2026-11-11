@@ -5,9 +5,8 @@
 //! names the matrix's scenario: `extraction` also writes each page's URL,
 //! title and HTML as one JSON line to `pages.jsonl` in the working folder,
 //! and `browser` renders each page in Chrome (`CHROME_BIN`), which only the
-//! executable built with the `chrome` feature does, or, built with the
-//! `smart` feature, fetches over HTTP first and renders where a page needs
-//! it (`crawl_smart`); every other scenario crawls in Spider's HTTP mode.
+//! executable built with the `chrome` feature does; every other scenario
+//! crawls in Spider's HTTP mode.
 //!
 //! `--capacity` is the capacity of the broadcast channel Spider sends each
 //! page on. Spider's `Website` keeps a receiver of its own that never
@@ -185,9 +184,7 @@ async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
             }
         }
     });
-    if browser && cfg!(feature = "smart") {
-        site.crawl_smart().await;
-    } else if browser {
+    if browser {
         site.crawl().await;
     } else {
         site.crawl_raw().await;

@@ -413,7 +413,7 @@ fn try_listed_since(
 
 /// The test files no member owns, by the runners' file patterns: each
 /// part reruns them, since no member's result covers them (the review's
-/// F3, `console/screens.spec.ts`).
+/// F3).
 pub(crate) fn unowned_tests(root: &Path, members: &WorkspaceMembers) -> Result<Vec<String>> {
     let text = crate::git::text(root, &["ls-files", "-z"])?;
     Ok(text
@@ -488,12 +488,12 @@ mod tests {
 
     #[test]
     fn test_files_are_known_by_the_runners_patterns_outside_fixtures() {
-        assert!(is_test_file("console/screens.spec.ts"));
+        assert!(is_test_file("website/tests/pages.spec.ts"));
         assert!(is_test_file("sdks/python/x/tests/test_results.py"));
         assert!(!is_test_file(
             "xtask/tests/it/fixtures/stress/web/changed.test.ts"
         ));
         assert!(!is_test_file("ci/proofs/oxlint/a.test.ts"));
-        assert!(!is_test_file("console/collie/src/app.tsx"));
+        assert!(!is_test_file("website/src/theme.tsx"));
     }
 }

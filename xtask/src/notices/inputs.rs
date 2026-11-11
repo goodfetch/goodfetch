@@ -1,6 +1,6 @@
 //! Declared inputs: what no package manager lists, declared in a
-//! `third-party.toml` file beside what uses it (the Console's bundled assets,
-//! the Goodfetch Chromium's third-party inputs, the Clean-up rules' inputs
+//! `third-party.toml` file beside what uses it (the
+//! Goodfetch Chromium's third-party inputs, the Clean-up rules' inputs
 //! and the block-detection rules' sources), or in a further file given on the command line, such as the list
 //! a Chromium build writes.
 #![expect(
@@ -31,7 +31,6 @@ struct File {
 #[derive(Deserialize, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
 enum Set {
-    ConsoleAssets,
     Chromium,
     CleanUpRules,
     BlockDetectionRules,
@@ -40,7 +39,6 @@ enum Set {
 impl From<Set> for Ecosystem {
     fn from(set: Set) -> Self {
         match set {
-            Set::ConsoleAssets => Self::ConsoleAssets,
             Set::Chromium => Self::Chromium,
             Set::CleanUpRules => Self::CleanUpRules,
             Set::BlockDetectionRules => Self::BlockDetectionRules,

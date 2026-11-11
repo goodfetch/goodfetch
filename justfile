@@ -345,8 +345,8 @@ features *change:
 
 # ADR 0072's code coverage, measured and never gated (ci/coverage.sh): the
 # Pre-merge suite's tests of what changed, or of the whole workspace with
-# `all`, with every Rust crate built for coverage (so each SDK, Journey and
-# Console run starts the instrumented executables), Vitest's `v8` provider
+# `all`, with every Rust crate built for coverage (so each SDK and Journey
+# run starts the instrumented executables), Vitest's `v8` provider
 # and coverage.py with branches. Reports go to target/coverage/, written even
 # when a test fails or a profile is unreadable. Takes `xtask affected`'s
 # change, `--local` by default; listed as skipped without cargo-llvm-cov.
@@ -606,12 +606,8 @@ test suite *packages:
             || runner_failed Vitest $?
         fi
         if $playwright_runs; then
-          # The harness reads each `conformance` document the run wrote (ADR 0068).
-          written=$(mktemp)
           pnpm exec playwright test --pass-with-no-tests "${playwright_order[@]}" ${vitest_folders[@]+"${vitest_folders[@]}"} ${playwright_files[@]+"${playwright_files[@]}"} ${select_playwright[@]+"${select_playwright[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"} \
             || runner_failed Playwright $?
-          ci/read-conformance-documents.sh "$written"
-          rm -f "$written"
         fi
         if $python; then
           uv run pytest "${pytest_order[@]}" ${pytest[@]+"${pytest[@]}"} ${select_pytest[@]+"${select_pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} \
@@ -971,7 +967,6 @@ release:
     "$just" rss
     "$just" asan
     "$just" v8-corruption
-    "$just" zap
     "$just" _visual-elsewhere
     echo "skipped: every other OS and runtime cell of the Release suite runs only in CI (just release-ci)"
 
@@ -1184,16 +1179,6 @@ counts *args:
 perf base="":
     ci/perf.sh {{ base }}
 
-# The Console's lab metrics for the Performance series (ADRs 0071 and 0076):
-# Lighthouse 13 against each Product's Console, served by its `ci`-profile
-# executable, Collie's then Foxhound's, the median of 5 runs each, appended
-# to target/perf-series/console-lighthouse.jsonl with the Product and the
-# machine it ran on. On the owner's machine, set
-# GOODFETCH_PERF_MACHINE to its label; it times, so no suite runs it.
-console-lighthouse:
-    cargo run --quiet --bin xtask -- test-tools build --cargo-profile ci --out "$PWD/target/perf-series/test-tools.json"
-    GOODFETCH_TEST_TOOLS="$PWD/target/perf-series/test-tools.json" pnpm exec playwright test --config console/collie/perf/playwright.config.ts
-
 # The Pre-merge suite's tests that only Linux decides (`tc netem`, the
 # Secret Service, the IPv6 Happy Eyeballs check, the extra loopback
 # addresses): on a host that is not Linux, in the pinned CI image through
@@ -1366,11 +1351,6 @@ asan phase="test":
 # (ADR 0067), a slot until that build exists (#210): `fetch` or `test`.
 v8-corruption phase="test":
     ci/v8-corruption.sh {{ phase }}
-
-# The Release suite's ZAP baseline scan of the Console (ADR 0067), a slot
-# until the Console is built: `fetch` or `scan`.
-zap phase="scan":
-    ci/zap.sh {{ phase }}
 
 # The third-party notice inventory (ADRs 0018 and 0047): fails on a
 # dependency of any ecosystem, or an input a `third-party.toml` declares, whose

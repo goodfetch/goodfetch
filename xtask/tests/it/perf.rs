@@ -2,7 +2,7 @@
 //! and 0133): `xtask perf compare` reads gungraun's summaries of the head,
 //! measured against the base's saved baseline, and size-limit's reports of
 //! the base and the head, then reports a figure past its threshold that the
-//! pull request does not accept, and a Console build over its ceiling. Until
+//! pull request does not accept. Until
 //! M1's optimization pass each is a note that fails nothing (ADR 0134, as
 //! amended on 2026-10-22); a benchmark that fails its admission still fails.
 //! The reports here are written the way gungraun (summary format 7) and
@@ -271,94 +271,6 @@ fn entry_grown_past_5_kb_brotli_is_noted(#[case] head: u64, #[case] tripped: boo
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
-#[rstest]
-#[case::collie("collie-console")]
-#[case::foxhound("foxhound-console")]
-fn console_build_over_1_mb_brotli_is_noted(#[case] entry: &str) {
-    let workspace = Workspace::from_fixture("empty");
-    write_bundles(&workspace, &[(entry, 999_000)], &[(entry, 1_000_001)]);
-
-    let outcome = compare(&workspace, &BUNDLES);
-
-    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
-    assert_eq!(
-        outcome.notes(),
-        vec![finding(
-            "over-ceiling",
-            &format!("size-limit/{entry} brotli")
-        )]
-    );
-    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-}
-
-/// A size over its ceiling never shows as at it: brotli kB round up.
-#[test]
-fn console_build_5_bytes_over_its_ceiling_shows_over_it() {
-    let workspace = Workspace::from_fixture("empty");
-    write_bundles(
-        &workspace,
-        &[("collie-console", 999_000)],
-        &[("collie-console", 1_000_005)],
-    );
-
-    let outcome = compare(&workspace, &BUNDLES);
-
-    let row = outcome
-        .stdout
-        .lines()
-        .find(|line| line.starts_with("| size-limit/collie-console | brotli |"))
-        .unwrap_or_default();
-    assert!(row.contains("| 1000.01 kB |"), "{}", outcome.stdout);
-}
-
-#[test]
-fn console_build_of_exactly_1_mb_brotli_passes() {
-    let workspace = Workspace::from_fixture("empty");
-    write_bundles(
-        &workspace,
-        &[("collie-console", 999_000)],
-        &[("collie-console", 1_000_000)],
-    );
-
-    let outcome = compare(&workspace, &BUNDLES);
-
-    assert_eq!(outcome.findings(), vec![]);
-    assert_eq!(outcome.notes(), vec![], "{}", outcome.stdout);
-    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-}
-
-/// Each Product's initial route (what loads before the Runs screen's first
-/// render) has the ceiling the owner approved: 1.25 times its first build's
-/// measure, rounded up (ADR 0071, as amended by ADR 0087): Collie's 111,823
-/// bytes (#937), Foxhound's 128,939 (#1235).
-#[rstest]
-#[case::collie_at_its_ceiling("collie-console-initial-route", 139_779, false)]
-#[case::collie_a_byte_over_it("collie-console-initial-route", 139_780, true)]
-#[case::foxhound_at_its_ceiling("foxhound-console-initial-route", 161_174, false)]
-#[case::foxhound_a_byte_over_it("foxhound-console-initial-route", 161_175, true)]
-fn console_initial_route_over_its_ceiling_is_noted(
-    #[case] entry: &str,
-    #[case] head: u64,
-    #[case] over: bool,
-) {
-    let workspace = Workspace::from_fixture("empty");
-    write_bundles(&workspace, &[(entry, head)], &[(entry, head)]);
-
-    let outcome = compare(&workspace, &BUNDLES);
-
-    let expected = if over {
-        vec![finding(
-            "over-ceiling",
-            &format!("size-limit/{entry} brotli"),
-        )]
-    } else {
-        vec![]
-    };
-    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
-    assert_eq!(outcome.notes(), expected, "{}", outcome.stdout);
-    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-}
-
 pub(crate) const HEAD_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 const OTHER_SHA: &str = "fedcba9876543210fedcba9876543210fedcba98";
 const PULL_REQUEST: &str = "/repos/goodfetch/goodfetch/pulls/7";
@@ -490,32 +402,6 @@ fn entry_grown_past_5_kb_listed_and_accepted_on_the_head_passes() {
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
-#[test]
-fn console_build_over_1_mb_is_noted_whatever_the_pull_request_says() {
-    let workspace = Workspace::from_fixture("empty");
-    write_bundles(
-        &workspace,
-        &[("foxhound-console", 990_000)],
-        &[("foxhound-console", 1_006_000)],
-    );
-    let github = pull_request(
-        "## Performance change\n\n- size-limit/foxhound-console brotli: +16.00 kB, the Runs screen\n",
-        &format!("Performance change accepted for {HEAD_SHA}."),
-    );
-
-    let outcome = compare_for_pull_request(&workspace, &github, &BUNDLES);
-
-    assert_eq!(outcome.findings(), vec![], "{}", outcome.stdout);
-    assert_eq!(
-        outcome.notes(),
-        vec![finding(
-            "over-ceiling",
-            "size-limit/foxhound-console brotli"
-        )]
-    );
-    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-}
-
 /// The admission runs of the head's new benchmark, one gungraun report per
 /// run of one build: every run counts `lowest` instructions but the last,
 /// which counts `highest`.
@@ -644,8 +530,8 @@ fn admission_failure_fails_beside_a_noted_figure_past_its_threshold() {
 }
 
 /// A run of every verdict: the frontier's figures within, past and below
-/// their thresholds, a new benchmark with its admission runs, an entry
-/// accepted and a Console build over its ceiling.
+/// their thresholds, a new benchmark with its admission runs and an entry
+/// accepted.
 fn write_every_verdict(workspace: &Workspace) {
     let frontier = summary(
         "crates/foxhound/goodfetch-frontier",
@@ -684,11 +570,11 @@ fn write_every_verdict(workspace: &Workspace) {
     }
     workspace.write(
         "perf/size-base.json",
-        size_limit(&[("collie-client", 100_000), ("collie-console", 990_000)]).as_bytes(),
+        size_limit(&[("collie-client", 100_000)]).as_bytes(),
     );
     workspace.write(
         "perf/size-head.json",
-        size_limit(&[("collie-client", 106_200), ("collie-console", 1_000_400)]).as_bytes(),
+        size_limit(&[("collie-client", 106_200)]).as_bytes(),
     );
 }
 

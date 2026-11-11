@@ -1215,19 +1215,7 @@ number = 12
 kind = "command"
 prefix = "needs-you"
 
-# Every screen of the Console, whose routes its packages commit (#868).
-[[area]]
-number = 12
-kind = "screen"
-prefix = "/"
-
-# The `console` command that opens it signed in, and the Error code its
-# Client raises when its Connection drops (#817).
-[[area]]
-number = 12
-kind = "command"
-prefix = "console"
-
+# The Error code a Client raises when its Connection drops (#817).
 [[area]]
 number = 12
 kind = "error"

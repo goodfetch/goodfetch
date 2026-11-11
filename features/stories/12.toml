@@ -406,7 +406,8 @@ title = "As a user, I want the Console to load fast and stay under 1 MB brotli, 
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), so no Console build is left to hold under a size ceiling."
 
 [[story]]
 id = 136
@@ -570,5 +571,6 @@ title = "As a user, I want Foxhound's build to stay under 1 MB brotli with its o
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), so no Console build is left to hold under a size ceiling."
 product = "foxhound"

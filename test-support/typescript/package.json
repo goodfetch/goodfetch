@@ -15,8 +15,6 @@
     "./visual-config": "./src/visual-config.ts",
     "./vitest-browser": "./src/vitest-browser.ts",
     "./vitest-browser/setup": "./src/vitest-browser-setup.ts",
-    "./vitest-browser/text-spacing": "./src/vitest-browser-text-spacing.ts",
-    "./vitest-browser/pseudo-locale": "./src/vitest-browser-pseudo-locale.ts",
     "./vitest-browser/commands": "./src/vitest-browser-commands.ts"
   },
   "scripts": {

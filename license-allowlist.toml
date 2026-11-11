@@ -90,25 +90,11 @@ only = "unmodified-files"
 id = "CC-BY-SA-4.0"
 only = "compiled-filter-lists"
 
-# Agent decision, accepted by the owner on 2026-10-22 (#811): Inter and
-# JetBrains Mono, the Console's fonts, ship as font files under the SIL Open
-# Font License, which spec #592 decided (ADR 0073); OFL-1.1 for these two
-# packages alone. Neither declares a Reserved Font Name, so their subsets keep
-# their names. Bundled in the executable, each must ship with its copyright
-# line and the OFL's text (OFL-FAQ 1.20).
-[[license]]
-id = "OFL-1.1"
-only = { ecosystem = "npm", package = "@fontsource-variable/inter" }
-
-[[license]]
-id = "OFL-1.1"
-only = { ecosystem = "npm", package = "@fontsource-variable/jetbrains-mono" }
-
 # Agent decision, accepted by the owner on 2026-10-22 (#811): caniuse-lite's
-# browser data, which Babel reads to pick its targets, comes with
-# `@lingui/core`'s macro package (ADR 0073); it runs at build time and none of
-# it reaches the Console's build, so CC BY's attribution duty, which applies
-# to sharing the data, does not arise.
+# browser data comes with browserslist, a dependency of the Crawlee side of
+# the comparison (`xtask/compare-crawlee`, ADR 0025); it is read on the
+# machine that measures and none of it reaches a Product, so CC BY's
+# attribution duty, which applies to sharing the data, does not arise.
 [[license]]
 id = "CC-BY-4.0"
 only = { ecosystem = "npm", package = "caniuse-lite" }

@@ -69,16 +69,6 @@ fn term_in_markdown_prose_fails(#[case] relative: &str) {
     "crates/goodfetch-protocol/generated/bundle.json",
     &["crates/goodfetch-protocol/generated/bundle.json#/$defs/ProxySettings/properties/bypass/description"; 4]
 )]
-#[case::console_message_catalog(
-    "console-messages.json",
-    "console/messages/en.json",
-    &[
-        "console/messages/en.json#/runs/stealth/0",
-        "console/messages/en.json#/runs/stealth/1",
-        "console/messages/en.json#/runs/stealth/2",
-        "console/messages/en.json#/runs/stealth/3",
-    ]
-)]
 #[case::npm_package_keywords(
     "package-keywords.json",
     "sdks/typescript/collie/package.json",

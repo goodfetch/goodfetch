@@ -31,8 +31,8 @@ const MIB: u64 = 1024 * 1024;
 const IDLE: Duration = Duration::from_secs(1);
 
 /// How long a Daemon stays idle once it printed its runtime file: longer
-/// than an Attached engine, since its listener, Console and timers start
-/// beside it.
+/// than an Attached engine, since its listener and timers start beside
+/// it.
 const DAEMON_IDLE: Duration = Duration::from_secs(3);
 
 /// How long a Daemon may take to exit once it answered `daemon.stop`: the
@@ -189,8 +189,7 @@ fn idle_attached_engine(needs: Product, mut stdin: ChildStdin, stdout: ChildStdo
     Ok(())
 }
 
-/// Waits for the Daemon's runtime file, checks its Console serves, as a
-/// shipped Daemon's does, idles, then stops it over its own endpoint with
+/// Waits for the Daemon's runtime file, idles, then stops it over its own endpoint with
 /// `daemon.stop`, as `daemon stop` does, so no other process the probe
 /// waits for adds to the peak, and waits for it to exit, within
 /// [`STOP_DEADLINE`].

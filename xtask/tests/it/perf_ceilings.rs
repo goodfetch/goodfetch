@@ -10,7 +10,7 @@
 use rstest::rstest;
 
 use crate::perf::{
-    HEAD_SHA, bench_summary, compare, compare_for_pull_request, metric, pull_request, size_limit,
+    HEAD_SHA, bench_summary, compare, compare_for_pull_request, metric, pull_request,
 };
 use crate::workspace::{Workspace, finding};
 
@@ -136,10 +136,6 @@ fn summary_lists_each_ceiling_with_its_derived_head_figure() {
     insta::assert_snapshot!(ceilings, @r#"
     | Benchmark or entry | Figure | Head | Ceiling | Verdict |
     |---|---|---:|---:|---|
-    | size-limit/collie-console | brotli | — | ≤ 1000.00 kB | not run yet |
-    | size-limit/collie-console-initial-route | brotli | — | ≤ 139.78 kB | not run yet |
-    | size-limit/foxhound-console | brotli | — | ≤ 1000.00 kB | not run yet |
-    | size-limit/foxhound-console-initial-route | brotli | — | ≤ 161.18 kB | not run yet |
     | goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls | heap-bytes-per-url | 7.43 bytes | ≤ 8 bytes | within |
     | goodfetch-foxhound/heap::crawl::in_memory_pages | bytes-per-body-byte | 1.24× | ≤ 2× | within |
 
@@ -211,39 +207,6 @@ fn frontier_ceiling_with_a_benchmark_the_head_lacks_fails(
         vec![finding(
             "ceiling-not-measured",
             &format!("{HUNDRED_THOUSAND_URLS} heap-bytes-per-url")
-        )]
-    );
-    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
-}
-
-#[test]
-fn console_entry_the_base_had_and_the_head_lacks_fails() {
-    let workspace = Workspace::from_fixture("empty");
-    workspace.write("perf/head.jsonl", b"");
-    workspace.write(
-        "perf/size-base.json",
-        size_limit(&[("collie-client", 100_000), ("collie-console", 900_000)]).as_bytes(),
-    );
-    workspace.write(
-        "perf/size-head.json",
-        size_limit(&[("collie-client", 100_000), ("collie-ui", 900_000)]).as_bytes(),
-    );
-
-    let outcome = compare(
-        &workspace,
-        &[
-            "--size-base",
-            "perf/size-base.json",
-            "--size-head",
-            "perf/size-head.json",
-        ],
-    );
-
-    assert_eq!(
-        outcome.findings(),
-        vec![finding(
-            "ceiling-not-measured",
-            "size-limit/collie-console brotli"
         )]
     );
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);

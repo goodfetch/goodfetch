@@ -367,11 +367,6 @@ fn defines(packages: &[String], id: &str) -> bool {
         "command" => products::EXECUTABLES
             .iter()
             .any(|executable| crate_(executable.package, executable.folder)),
-        "screen" => packages.iter().any(|package| {
-            package == "console"
-                || package.starts_with("console/")
-                || package.starts_with("@goodfetch/console")
-        }),
         _ => false,
     }
 }

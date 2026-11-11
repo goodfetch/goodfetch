@@ -77,10 +77,6 @@ export type TestSupportErrorCode =
   | "horizontal_scroll"
   /** Text is clipped by its box with no way to read it in full, such as by scrolling (ADR 0073). */
   | "text_clipped"
-  /** Under the `en-XA` pseudo-locale, visible text is neither from the catalog nor inside `translate="no"` (ADR 0073). */
-  | "text_untranslated"
-  /** Under the `ar-XB` pseudo-locale, the document's root does not run right to left (ADR 0073). */
-  | "direction_not_rtl"
   /** `noRunningAnimations` ran on a page whose `prefers-reduced-motion` is not `reduce` (ADR 0073). */
   | "reduced_motion_off"
   /** An animation or transition was still running under `prefers-reduced-motion: reduce` (ADR 0073). */

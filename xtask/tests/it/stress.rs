@@ -665,6 +665,136 @@ fn a_merged_range_notes_what_is_gone_and_stresses_the_rest() {
     }
 }
 
+/// Commits the workspace's edits on a branch `name` with `message`, and merges
+/// it into the branch checked out as `just merge` merges a pull request: with
+/// a merge commit.
+fn merge_edits(workspace: &Workspace, name: &str, message: &str) {
+    workspace.git(&["switch", "--quiet", "--create", name]);
+    workspace.commit_all_with(message);
+    workspace.git(&["switch", "--quiet", "-"]);
+    workspace.git(&["merge", "--quiet", "--no-ff", "--no-edit", name]);
+}
+
+/// Adds a test `name` to the `steady` file's Rust tests, uncommitted.
+fn add_a_steady_test(workspace: &Workspace, name: &str) {
+    workspace.edit(
+        "src/steady.rs",
+        "fn unchanged() {}",
+        &format!("fn unchanged() {{}}\n\n    #[test]\n    fn {name}() {{}}"),
+    );
+}
+
+/// `just merge`'s full gate hands the stress run the head of the last full
+/// gate as its base (ADR 0135's amendment of 2026-11-10, #2455): the tests
+/// two pull requests merged since added, as the quick gate merges them, run
+/// 20 times with the one the gated pull request adds.
+#[test]
+fn from_the_last_full_gates_head_the_tests_merged_since_run_20_times_with_the_changes_own() {
+    let (workspace, last_full_gate) = base();
+    workspace.edit(
+        "src/changed.rs",
+        "fn kept() {}",
+        "fn kept() {}\n\n    #[test]\n    fn first_quick_merge() {}",
+    );
+    merge_edits(&workspace, "first-quick-merge", "test: add a test");
+    workspace.edit(
+        "tests/test_changed.py",
+        "def test_kept()",
+        "def test_second_quick_merge() -> None:\n    \"\"\"Passes.\"\"\"\n\n\ndef test_kept()",
+    );
+    merge_edits(&workspace, "second-quick-merge", "test: add another test");
+    add_a_steady_test(&workspace, "third_pull_request");
+    workspace.commit_all();
+
+    let selection = select(&workspace, &["--base", &last_full_gate]);
+
+    for (runner, test) in [
+        ("nextest", "stressed changed::tests::first_quick_merge"),
+        ("pytest", "tests/test_changed.py::test_second_quick_merge"),
+        ("nextest", "stressed steady::tests::third_pull_request"),
+    ] {
+        assert!(
+            selection.contains(&selected(CHANGED, runner, test)),
+            "{runner} {test} not in {selection:?}"
+        );
+    }
+}
+
+/// The next pull request to take a full gate, on a base where a pull request
+/// merged since the last full gate renamed the test `renamed_before`, its
+/// commit saying `message`. The repository and the last full gate's head.
+fn a_merge_since_the_last_full_gate_renamed_a_test(message: &str) -> (Workspace, String) {
+    let (workspace, last_full_gate) = base();
+    workspace.edit(
+        "src/changed.rs",
+        "fn renamed_before() {}",
+        "fn renamed_after() {}",
+    );
+    merge_edits(&workspace, "quick-merge", message);
+    add_a_steady_test(&workspace, "next_pull_request");
+    workspace.commit_all();
+    (workspace, last_full_gate)
+}
+
+/// The deleted tests are read from that same range, and so are the trailers
+/// that accept them: a test a pull request merged since the last full gate
+/// renamed is accepted, at the next full gate, by the `Quality-change` trailer
+/// of that pull request's commit.
+#[test]
+fn a_test_deleted_by_a_merge_since_the_last_full_gate_is_accepted_by_that_merges_trailer() {
+    let (workspace, last_full_gate) = a_merge_since_the_last_full_gate_renamed_a_test(
+        "test: rename a test\n\nQuality-change: stressed changed::tests::renamed_before: renamed",
+    );
+
+    let outcome = workspace.xtask(&[
+        "stress",
+        "select",
+        "--base",
+        &last_full_gate,
+        "--within",
+        "stressed",
+    ]);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.stderr_notes(),
+        [finding(
+            "quality-change",
+            "stressed changed::tests::renamed_before"
+        )],
+        "{}",
+        outcome.stderr
+    );
+}
+
+/// Without that trailer the renamed test fails the selection at the next full
+/// gate, as a test the gated pull request deleted itself would.
+#[test]
+fn a_test_deleted_by_a_merge_since_the_last_full_gate_fails_the_selection_without_a_trailer() {
+    let (workspace, last_full_gate) =
+        a_merge_since_the_last_full_gate_renamed_a_test("test: rename a test");
+
+    let outcome = workspace.xtask(&[
+        "stress",
+        "select",
+        "--base",
+        &last_full_gate,
+        "--within",
+        "stressed",
+    ]);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.stderr_findings(),
+        [finding(
+            "deleted-test",
+            "stressed changed::tests::renamed_before"
+        )],
+        "{}",
+        outcome.stderr
+    );
+}
+
 /// A test taken off the quarantine list owes the rest of its 200.
 #[test]
 fn a_test_taken_off_the_quarantine_list_owes_the_rest_of_its_200() {

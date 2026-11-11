@@ -55,10 +55,18 @@ impl RepoPath {
 
 /// The selection for `range` in the repository at `root`.
 pub(crate) fn select(cargo: &OsStr, root: &Path, range: &Range) -> Result<Selection> {
+    select_among(root, &WorkspaceMembers::read(cargo, root)?, range)
+}
+
+/// The selection for `range` among `members`, the repository's at `root`.
+pub(crate) fn select_among(
+    root: &Path,
+    members: &WorkspaceMembers,
+    range: &Range,
+) -> Result<Selection> {
     let paths = changed_paths(root, range)?;
-    let members = WorkspaceMembers::read(cargo, root)?;
-    let parts = changed_parts(root, range, &members, &paths)?;
-    select_with_readers(root, &members, &paths, &parts)
+    let parts = changed_parts(root, range, members, &paths)?;
+    select_with_readers(root, members, &paths, &parts)
 }
 
 /// The parts of each changed Markdown file no member owns, read from both

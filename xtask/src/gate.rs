@@ -11,12 +11,14 @@
 //!   and the `just` command of each step (`steps`), which `ci/pre-merge.sh`
 //!   follows.
 //! - **plan**: prints the `previous`, `head`, `members` and `unowned` lines,
-//!   then each step's `<step>.action` (`run`, `part` or `reuse`),
-//!   `<step>.members` and `<step>.why` lines, which `ci/pre-merge.sh` reads
-//!   through `ci/output-value.sh` and follows; says the same in words on
-//!   stderr for the run's log, with the evidence that reaches a member the
-//!   selection misses; and writes the plan and the carried results into the
-//!   run's record.
+//!   the `stress.base` line, then each step's `<step>.action` (`run`, `part`
+//!   or `reuse`), `<step>.members` and `<step>.why` lines, which
+//!   `ci/pre-merge.sh` reads through `ci/output-value.sh` and follows; says
+//!   the same in words on stderr for the run's log, with the evidence that
+//!   reaches a member the selection misses; and writes the plan and the
+//!   carried results into the run's record. `stress.base` is where the stress
+//!   run's range starts when quick merges came since the last full gate: that
+//!   gate's head, so their tests get their runs (`earlier`).
 //! - **record**: appends a step's result to the run's record, only for the
 //!   planned head on a clean tree. A failed step run per member records
 //!   green each crate its nextest JUnit files show passed in full, and its
@@ -38,6 +40,7 @@
 
 mod attribution;
 mod compare;
+mod earlier;
 mod evidence;
 mod plan;
 mod runs;
@@ -57,6 +60,7 @@ use crate::affected::{self, Job, Range, RepoPath, WorkspaceMembers};
 use crate::environment::Environment;
 use crate::{git, metadata, output};
 use attribution::{Evidence, Judged, StressEvidence};
+use earlier::StressBase;
 use evidence::RustInputs;
 use plan::{Action, GateRun, Head, Outcome, Planned, Step, Touched, UNOWNED, short, unit};
 
@@ -319,6 +323,13 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
     let members_read = WorkspaceMembers::read(&environment.cargo, root)?;
     let unowned = evidence::unowned_tests(root, &members_read)?;
     let (members, shuffled) = head_members(&members_read, &unowned);
+    let gated = Head {
+        base: &base,
+        members: &members,
+        shuffled: &shuffled,
+        host: &host,
+        now: options.now,
+    };
     let (previous, no_previous) = if options.full {
         (
             None,
@@ -326,20 +337,9 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
         )
     } else if let Some(assumed) = &options.assume_green {
         let assumed = git::commit(root, assumed)?;
-        let record = assumed_green(
-            root,
-            &assumed,
-            &Head {
-                base: &base,
-                members: &members,
-                shuffled: &shuffled,
-                host: &host,
-                now: options.now,
-            },
-        )?;
-        (Some(record), String::new())
+        (Some(assumed_green(root, &assumed, &gated)?), String::new())
     } else {
-        match nearest(root, records, &head)? {
+        match earlier::nearest(root, records, &head)? {
             Some(record) => (Some(record), String::new()),
             None => (
                 None,
@@ -358,21 +358,19 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
         Some(previous) => reader.touched_by_origin(previous)?,
         None => (BTreeMap::new(), Vec::new()),
     };
-    let planned = plan::plan(
-        &Head {
-            base: &base,
-            members: &members,
-            shuffled: &shuffled,
-            host: &host,
-            now: options.now,
-        },
-        previous.as_ref(),
-        &no_previous,
-        &touched,
-    );
+    let planned = plan::plan(&gated, previous.as_ref(), &no_previous, &touched);
     let previous_head = previous.as_ref().map(|record| record.head.as_str());
-    let machine = render(previous_head, &head, &members, &unowned, &planned);
+    let stress_base = earlier::stress_base(root, &members_read, records, &head, &base)?;
+    let machine = render(
+        previous_head,
+        stress_base.last_full_gate(),
+        &head,
+        &members,
+        &unowned,
+        &planned,
+    );
     let mut log = describe(previous_head, &planned);
+    log.push_str(&describe_stress_base(&stress_base));
     if !beyond.is_empty() {
         log.push_str(
             "Evidence reaches these members, which `xtask affected` does not select (they rerun):\n",
@@ -424,7 +422,7 @@ fn plan_dirty(plan_file: &Path) -> Result<()> {
             earned: BTreeMap::new(),
         })
         .collect();
-    let machine = render(None, NO_HEAD, &BTreeSet::new(), &[], &planned);
+    let machine = render(None, None, NO_HEAD, &BTreeSet::new(), &[], &planned);
     output::line(machine.trim_end());
     Ok(())
 }
@@ -687,37 +685,12 @@ fn assumed_green(root: &Path, assumed: &str, head: &Head<'_>) -> Result<GateRun>
     })
 }
 
-/// The record of the nearest run on `head` or one of its ancestors: the
-/// fewest commits away.
-fn nearest(root: &Path, records: &Path, head: &str) -> Result<Option<GateRun>> {
-    let mut nearest: Option<(u64, String)> = None;
-    for candidate in runs::heads(records)? {
-        let ancestor = git::succeeds(
-            root,
-            &[
-                "merge-base",
-                "--is-ancestor",
-                "--end-of-options",
-                &candidate,
-                head,
-            ],
-        )?;
-        if !ancestor {
-            continue;
-        }
-        let distance: u64 = git::line(
-            root,
-            &["rev-list", "--count", &format!("{candidate}..{head}")],
-        )?
-        .parse()
-        .context("reading git rev-list's count")?;
-        if nearest.as_ref().is_none_or(|(best, _)| distance < *best) {
-            nearest = Some((distance, candidate));
-        }
-    }
-    nearest
-        .map(|(_, candidate)| runs::read(records, &candidate))
-        .transpose()
+/// The items of a list in the plan: none for `-`.
+fn plan_list(text: &str) -> Vec<String> {
+    text.split(' ')
+        .filter(|word| !word.is_empty() && *word != "-")
+        .map(str::to_owned)
+        .collect()
 }
 
 /// The plan's `head` when the run records nothing: its working tree has
@@ -726,12 +699,16 @@ const NO_HEAD: &str = "none";
 
 /// The plan as `ci/pre-merge.sh` reads it, through `ci/output-value.sh`,
 /// and `xtask gate record` (`plan_value`): the `previous`, `head`, `members`
-/// and `unowned` lines, then each step's `<step>.action` (`run`, `part` or
-/// `reuse`), `<step>.members` and `<step>.why` lines, with `<step>.earned`, the
-/// members that keep passes, for a step that counts them. A list is its items
-/// joined by spaces, `-` when it is empty; a value is one line.
+/// and `unowned` lines; the `stress.base` line, the head the stress run
+/// compares this one with in place of the change's base
+/// ([`earlier::stress_base`]), `-` when it is the change's base; then each
+/// step's `<step>.action` (`run`, `part` or `reuse`), `<step>.members` and
+/// `<step>.why` lines, with `<step>.earned`, the members that keep passes, for
+/// a step that counts them. A list is its items joined by spaces, `-` when it
+/// is empty; a value is one line.
 fn render(
     previous: Option<&str>,
+    stress_base: Option<&str>,
     head: &str,
     members: &BTreeSet<String>,
     unowned: &[String],
@@ -759,6 +736,7 @@ fn render(
             unowned.join(" ")
         },
     );
+    line("stress.base", stress_base.unwrap_or("-"));
     for Planned {
         step,
         action,
@@ -796,6 +774,21 @@ fn plan_value<'a>(plan: &'a str, key: &str) -> Result<&'a str> {
         (Some(value), None) => Ok(value),
         (None, _) => bail!("the plan has no `{key}=` line"),
         (Some(_), Some(_)) => bail!("the plan has more than one `{key}=` line"),
+    }
+}
+
+/// The stress run's range in words, for the run's log: the last full gate's
+/// head when the range starts there, and what the range leaves out when no
+/// record says where that gate's stress run ended. Nothing when the change's
+/// base is the whole of it.
+fn describe_stress_base(stress_base: &StressBase) -> String {
+    match stress_base {
+        StressBase::LastFullGate(last_full_gate) => format!(
+            "The stress run compares the head with {}, the head of the last full gate whose stress run passed: a test reads what merged since.\n",
+            short(last_full_gate)
+        ),
+        StressBase::NoFullGateRecorded => "The stress run compares the head with its own base: no record of an earlier full gate whose stress run passed is on the base's history, so the tests merged on the quick gate since are not run their 20 times here.\n".to_owned(),
+        StressBase::RunOnTheBase | StressBase::NoTestReadsWhatMerged => String::new(),
     }
 }
 
@@ -914,17 +907,11 @@ fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
     let value = |key: &str| {
         plan_value(&plan, key).with_context(|| format!("reading {}", plan_file.display()))
     };
-    let words = |text: &str| -> Vec<String> {
-        text.split(' ')
-            .filter(|word| !word.is_empty() && *word != "-")
-            .map(str::to_owned)
-            .collect()
-    };
     let action = value(&format!("{}.action", step.name()))?;
     let members = if step.per_member() {
         match action {
-            "run" => words(value("members")?),
-            "part" => words(value(&format!("{}.members", step.name()))?),
+            "run" => plan_list(value("members")?),
+            "part" => plan_list(value(&format!("{}.members", step.name()))?),
             _ => Vec::new(),
         }
     } else {
@@ -935,7 +922,7 @@ fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
         _ => Judged::default(),
     };
     let earned = if step.counts_passes() {
-        let kept = words(value(&format!("{}.earned", step.name()))?);
+        let kept = plan_list(value(&format!("{}.earned", step.name()))?);
         runs::earned_the_plan_kept(records, head, &kept)
             .with_context(|| format!("{} is not recorded", step.name()))?
     } else {

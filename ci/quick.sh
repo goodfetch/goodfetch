@@ -15,8 +15,11 @@
 #
 # What changed is the working tree against its merge base with the change's
 # base: `GOODFETCH_QUICK_BASE` when the pre-push hook gives it (the commit
-# the push's remote ref holds), else the branch's upstream off `main` (the
-# integration branch a ticket goes into), else `origin/main`. The base is
+# the push's remote ref holds), else the branch's upstream off `main` when
+# it is another branch (the integration branch a ticket goes into), else
+# `origin/main`. The branch's own remote copy, its upstream after `git push
+# -u`, is never the base: against it a pushed branch changed nothing, so no
+# test would run and the run would still record the tree. The base is
 # read once, first, and every step that reads the change's commits gets it:
 # the floor guard, the scan for secrets, `xtask affected` and the Quick
 # suite, `all`'s floor guard and scan too, so on an integration branch they
@@ -82,7 +85,13 @@ base=${GOODFETCH_QUICK_BASE:-}
 if [[ -z $base ]]; then
   branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
   if [[ -n $branch && $branch != main ]]; then
-    base=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)
+    # `git push -u` makes the branch's upstream its own remote copy: the
+    # branch of its name on the remote, which holds the change's own commits.
+    if [[ $(git config --get "branch.$branch.merge" 2>/dev/null || true) == "refs/heads/$branch" ]]; then
+      echo "The upstream of $branch is its own remote copy, which is no base for its change, so the change is read against origin/main. When the branch goes into an integration branch, give that branch as GOODFETCH_QUICK_BASE."
+    else
+      base=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)
+    fi
   fi
 fi
 base=${base:-origin/main}

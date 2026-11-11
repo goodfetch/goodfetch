@@ -3,8 +3,9 @@
 # Actions runs only the Release suite, so no required check can block a
 # merge: this command is the lock instead. In a clean checkout of the pull
 # request's exact head it runs one gate and merges only when it passes.
-# Which gate (ADR 0135's amendment of 2026-11-10, the owner's decision for
-# the refactor: quick per merge, the full gate once per finished spec):
+# Which gate (ADR 0135's amendments of 2026-11-10, the owner's decisions for
+# the refactor: quick per merge, the full gate once per finished spec and on
+# the tenth change a test reads since the last full gate):
 #   - `just pre-merge docs` when `xtask affected` finds the change is
 #     documents alone (`gate=docs`);
 #   - `just pre-merge quick` when it finds that no test, benchmark, model,
@@ -12,7 +13,10 @@
 #   - for a change a test reads (`gate=full`), `just pre-merge all`, which
 #     starts with `just quick all`'s lint and Quick suite, on a spec's pull
 #     request, whose head branch is `spec/<n>` (docs/agents/issue-tracker.md),
-#     and `just pre-merge quick` on every other pull request;
+#     and on the tenth such change since the last full gate, the nine before
+#     it having merged on the quick gate, as the messages of the base's
+#     merges say it (#2457); `just pre-merge quick` on every other pull
+#     request;
 #   - `just pre-merge all` on any pull request when `--full` asks for it.
 # The gate's log and the merge's message name the gate that ran and why, and
 # a quick merge of a change a test reads says what it did not run. First the
@@ -248,18 +252,53 @@ case $affected in
 esac
 # Which gate runs, and why, as the log and the merge's message say it. The
 # full gate runs once per finished spec, on the pull request of its
-# integration branch `spec/<n>`, and when `--full` asks for it; every other
-# change a test reads merges on the quick gate (the owner's decision of
-# 2026-11-10 for the refactor, ADR 0135).
+# integration branch `spec/<n>`, when `--full` asks for it, and on the tenth
+# change a test reads since the last full gate; every other change a test
+# reads merges on the quick gate (the owner's decisions of 2026-11-10 for the
+# refactor and of 2026-11-11 on the tenth, ADR 0135).
+#
+# How a merge's message opens, and how it names the full gate and a quick
+# merge of a change a test reads: the count below reads back the words the
+# message is written with.
+merged_on="Merged on the local gate: "
+the_full_gate="\`just pre-merge all\`"
+quick_of_a_change_a_test_reads="\`just pre-merge quick\` (a test reads the change"
+# The merges on the base's first-parent line, since the last one a full gate
+# passed, that merged a change a test reads on the quick gate, as their
+# messages say it (#2457). A full gate starts the count again whatever asked
+# for it: a spec's, `--full` or the tenth's own. A docs merge and a quick
+# merge of a change no test reads say other words and are not counted, nor is
+# a merge this script did not make, which starts no count either.
+quick_merges_since_the_last_full_gate() {
+  local last_full
+  last_full=$(git rev-list -1 --first-parent --merges --fixed-strings \
+    --grep="$merged_on$the_full_gate" "origin/$base") || return
+  git rev-list --count --first-parent --merges --fixed-strings \
+    --grep="$merged_on$quick_of_a_change_a_test_reads" "origin/$base" ${last_full:+"^$last_full"}
+}
 why_full=""
 if [[ -n $full_asked ]]; then
   why_full="asked for with \`--full\`"
 elif [[ $affected == full && $branch =~ ^spec/[0-9]+$ ]]; then
   why_full="the pull request of a spec's branch, \`$branch\`"
+elif [[ $affected == full ]]; then
+  # More than nine can be there, merged before this script counted or by a
+  # checkout that did not: the next change still takes the full gate, and
+  # says which change it is. A count that cannot be read is refused: taken
+  # for none, it would send the tenth change to the quick gate.
+  if ! quick_merges=$(quick_merges_since_the_last_full_gate) || [[ ! $quick_merges =~ ^(0|[1-9][0-9]*)$ ]]; then
+    echo "error: the changes a test reads that merged on the quick gate since the last full gate could not be counted on origin/$base (the count read \"$quick_merges\", which is no whole number), so nothing says whether this change is the tenth; run the command again, or ask for the full gate with \`--full\`" >&2
+    exit 1
+  fi
+  if ((quick_merges == 9)); then
+    why_full="the tenth change a test reads since the last full gate"
+  elif ((quick_merges > 9)); then
+    why_full="change $((quick_merges + 1)) a test reads since the last full gate, past the tenth"
+  fi
 fi
 if [[ -n $why_full ]]; then
   gate=all
-  ran="\`just pre-merge all\` ($why_full), which starts with \`just quick all\`'s lint and Quick suite,"
+  ran="$the_full_gate ($why_full), which starts with \`just quick all\`'s lint and Quick suite,"
   # `just stress`, after the whole Pre-merge suite, refuses a selected
   # `lazyfs::` test without a LazyFS build (xtask's `repeat`). Which tests it
   # selects takes a build to find, so every full gate on Linux, the one system
@@ -276,7 +315,7 @@ elif [[ $affected == quick ]]; then
   ran="\`just pre-merge quick\` (no test, benchmark, model, container or Evaluation reads the change)"
 else
   gate=quick
-  ran="\`just pre-merge quick\` (a test reads the change, and the full gate runs once per finished spec, on the pull request of its \`spec/<n>\` branch, or with \`--full\`; the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)"
+  ran="$quick_of_a_change_a_test_reads, and the full gate runs once per finished spec, on the pull request of its \`spec/<n>\` branch, or with \`--full\`; the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)"
 fi
 echo "The gate is ${ran%,}"
 echo "Running the local gate ($gate) on #$number at $head in $worktree"
@@ -340,7 +379,7 @@ past=""
 [[ ${#cap[@]} -eq 0 ]] || past=" Merged past the merge cap: the owner passed --past-cap."
 gh pr merge "$number" --merge --match-head-commit "$head" \
   --subject "$title (#$number)" \
-  --body "Merged on the local gate: $ran passed at $head.$past
+  --body "$merged_on$ran passed at $head.$past
 
 Signed-off-by: $(git config user.name) <$(git config user.email)>"
 echo "Merged #$number at $head"

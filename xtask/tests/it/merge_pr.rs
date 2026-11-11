@@ -161,12 +161,96 @@ struct Run {
     calls: Vec<String>,
 }
 
+/// What a quick merge of a change a test reads says of its gate, in the
+/// gate's log and in the merge's message.
+const A_TEST_READS_THE_CHANGE: &str = "`just pre-merge quick` (a test reads the change, and the full gate runs once per finished spec, on the pull request of its `spec/<n>` branch, or with `--full`; the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)";
+
+/// Why the tenth change a test reads takes the full gate, as its gate's log
+/// and its merge's message say it.
+const THE_TENTH_CHANGE: &str = "the tenth change a test reads since the last full gate";
+
+/// A merge `main` holds, by what its message says of the gate it passed, as
+/// `ci/merge-pr.sh` writes it after `Merged on the local gate: `.
+#[derive(Clone, Copy)]
+enum Landed {
+    /// On the quick gate, a change a test reads.
+    ATestReadsTheChange,
+    /// On the quick gate, a change no test reads.
+    NoTestReadsTheChange,
+    /// On the docs gate.
+    DocumentsAlone,
+    /// On the full gate, a spec's pull request.
+    ASpecsFullGate,
+    /// On the full gate, asked for with `--full`.
+    AFullGateAskedFor,
+    /// On the full gate, the tenth change a test reads since the one before.
+    TheTenthsFullGate,
+}
+
+impl Landed {
+    fn said(self) -> String {
+        let full_gate = |why: &str| {
+            format!(
+                "`just pre-merge all` ({why}), which starts with `just quick all`'s lint and Quick suite,"
+            )
+        };
+        match self {
+            Self::ATestReadsTheChange => A_TEST_READS_THE_CHANGE.to_owned(),
+            Self::NoTestReadsTheChange => {
+                "`just pre-merge quick` (no test, benchmark, model, container or Evaluation reads the change)".to_owned()
+            }
+            Self::DocumentsAlone => {
+                "`just pre-merge docs` (the change is documents alone)".to_owned()
+            }
+            Self::ASpecsFullGate => full_gate("the pull request of a spec's branch, `spec/130`"),
+            Self::AFullGateAskedFor => full_gate("asked for with `--full`"),
+            Self::TheTenthsFullGate => full_gate(THE_TENTH_CHANGE),
+        }
+    }
+}
+
+/// Lands a pull request on `main` as `just merge` does: a merge commit whose
+/// message says which gate passed.
+fn land(workspace: &Workspace, landed: Landed) {
+    let main = "refs/heads/main";
+    let tree = format!("{main}^{{tree}}");
+    let change = workspace.git(&["commit-tree", &tree, "-p", main, "-m", "A change"]);
+    let change = change.trim();
+    let message = format!(
+        "A change (#1)\n\nMerged on the local gate: {} passed at {change}.\n\nSigned-off-by: Fixture <fixture@example.invalid>",
+        landed.said()
+    );
+    let merge = workspace.git(&[
+        "commit-tree",
+        &tree,
+        "-p",
+        main,
+        "-p",
+        change,
+        "-m",
+        &message,
+    ]);
+    workspace.git(&["update-ref", main, merge.trim()]);
+}
+
 /// A repository whose `origin` is itself, with pull request #7 at a commit
 /// on `change` that contains `main`; returns it with that head.
 fn pull_request() -> (Workspace, String) {
+    pull_request_after(&[])
+}
+
+/// [`pull_request`], on a `main` that first took these merges, oldest first,
+/// each kind as many times as its count.
+fn pull_request_after(merges: &[(usize, Landed)]) -> (Workspace, String) {
     let workspace = repository();
     let path = workspace.path().display().to_string();
     workspace.git(&["remote", "add", "origin", &path]);
+    for &(count, landed) in merges {
+        for _ in 0..count {
+            land(&workspace, landed);
+        }
+    }
+    workspace.git(&["merge", "--quiet", "--ff-only", "main"]);
     workspace.write("change.txt", b"a change\n");
     commit_all(&workspace, "A change");
     let head = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
@@ -637,7 +721,8 @@ fn a_gate_the_script_does_not_know_merges_nothing() {
 /// owner's decision for the refactor: quick per merge, the full gate once per
 /// finished spec). `xtask affected` says what the change is; a change a test
 /// reads takes the full gate only on a spec's pull request, whose head branch
-/// is `spec/<n>`, or when `--full` asks for it, and the quick gate otherwise.
+/// is `spec/<n>`, or when `--full` asks for it, and the quick gate otherwise,
+/// until nine such changes have merged on it (the tests of the count, below).
 /// A change of documents alone keeps the docs gate, and one no test reads the
 /// quick gate, on any branch. Only the full gate's stress run needs a LazyFS
 /// build, so the quick and docs gates run without one.
@@ -693,7 +778,7 @@ fn a_quick_merge_of_a_change_a_test_reads_says_what_it_did_not_run() {
     );
 
     assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
-    let said = "`just pre-merge quick` (a test reads the change, and the full gate runs once per finished spec, on the pull request of its `spec/<n>` branch, or with `--full`; the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)";
+    let said = A_TEST_READS_THE_CHANGE;
     let merged = run
         .calls
         .iter()
@@ -768,6 +853,189 @@ fn a_gate_says_which_gate_ran_and_why(
         "{}",
         run.stdout
     );
+}
+
+/// The full gate also runs on a count (ADR 0135's amendment of 2026-11-10 and
+/// its note of 2026-11-11, the owner's decisions; #2457): once nine changes a
+/// test reads have merged on the quick gate since the last full gate, the
+/// tenth takes the full gate unasked, on any branch, and the gate's log and
+/// the merge's message say why. The count is read from `main`'s merge
+/// messages. More than nine can be there, merged before `just merge` counted
+/// or by a checkout that did not: the next change still takes the full gate,
+/// and says which change it is instead of calling itself the tenth.
+#[rstest]
+#[case::the_tenth(9, THE_TENTH_CHANGE)]
+#[case::one_past_the_tenth(10, "change 11 a test reads since the last full gate, past the tenth")]
+fn the_tenth_change_a_test_reads_since_the_last_full_gate_takes_the_full_gate(
+    #[case] merged_on_the_quick_gate: usize,
+    #[case] why: &str,
+) {
+    let run = merge_after(
+        &[(merged_on_the_quick_gate, Landed::ATestReadsTheChange)],
+        "full",
+    );
+
+    assert_eq!(forms(&run), ["all"], "{}", run.stdout);
+    let said = format!("`just pre-merge all` ({why})");
+    let merged = run
+        .calls
+        .iter()
+        .find(|call| call.starts_with("gh pr merge "))
+        .unwrap();
+    assert!(
+        merged.contains(&format!("--body Merged on the local gate: {said}")),
+        "{merged}"
+    );
+    assert!(
+        run.stdout.contains(&format!("The gate is {said}")),
+        "{}",
+        run.stdout
+    );
+}
+
+/// Nine merges come before the tenth, and only quick merges of changes a
+/// test reads are among them: with eight the quick gate still runs, and a
+/// merge of documents alone or of a change no test reads, among nine merges,
+/// leaves eight counted.
+#[rstest]
+#[case::eight_such_merges(&[(8, Landed::ATestReadsTheChange)])]
+#[case::a_merge_of_documents_alone_among_nine(&[
+    (4, Landed::ATestReadsTheChange),
+    (1, Landed::DocumentsAlone),
+    (4, Landed::ATestReadsTheChange),
+])]
+#[case::a_merge_of_a_change_no_test_reads_among_nine(&[
+    (4, Landed::ATestReadsTheChange),
+    (1, Landed::NoTestReadsTheChange),
+    (4, Landed::ATestReadsTheChange),
+])]
+fn the_count_holds_only_the_quick_merges_of_changes_a_test_reads(
+    #[case] merges: &[(usize, Landed)],
+) {
+    let run = merge_after(merges, "full");
+
+    assert_eq!(forms(&run), ["quick"], "{}", run.stdout);
+}
+
+/// "Since the last full gate": a spec's full gate, one asked for with
+/// `--full` and the tenth change's own each start the count again, so the
+/// eight changes a test reads that merged after it leave the next on the
+/// quick gate, whatever merged before it.
+#[rstest]
+#[case::a_specs(Landed::ASpecsFullGate)]
+#[case::one_asked_for(Landed::AFullGateAskedFor)]
+#[case::the_tenth_changes_own(Landed::TheTenthsFullGate)]
+fn a_full_gate_starts_the_count_of_changes_a_test_reads_again(#[case] full_gate: Landed) {
+    let run = merge_after(
+        &[
+            (9, Landed::ATestReadsTheChange),
+            (1, full_gate),
+            (8, Landed::ATestReadsTheChange),
+        ],
+        "full",
+    );
+
+    assert_eq!(forms(&run), ["quick"], "{}", run.stdout);
+}
+
+/// The count sends only a change a test reads to the full gate: documents
+/// alone keep the docs gate and a change no test reads the quick gate,
+/// however many changes a test reads have merged since the last full gate.
+#[rstest]
+#[case::documents_alone("docs", "docs")]
+#[case::a_change_no_test_reads("quick", "quick")]
+fn a_change_no_test_reads_never_takes_the_full_gate_whatever_the_count(
+    #[case] affected: &str,
+    #[case] form: &str,
+) {
+    let run = merge_after(&[(12, Landed::ATestReadsTheChange)], affected);
+
+    assert_eq!(forms(&run), [form], "{}", run.stdout);
+}
+
+/// A stand-in `git` that, asked to count the merges whose message matches
+/// (`rev-list --count … --grep=…`, the count of the quick merges since the
+/// last full gate), does `counting` instead; every other call is the system's
+/// `git`.
+fn git_counting_with(stand_in: &Path, counting: &str) {
+    let git = stand_in.join("git");
+    std::fs::write(
+        &git,
+        format!(
+            "#!/bin/sh\n\
+             case \" $* \" in\n\
+               *\" --count \"*\" --grep=\"*) {counting} ;;\n\
+               *) PATH=/usr/bin:/bin exec git \"$@\" ;;\n\
+             esac\n"
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// The count decides whether a change a test reads takes the full gate, so a
+/// count the script cannot read fails before any step: read as none, it would
+/// send the tenth change to the quick gate.
+#[rstest]
+#[case::the_count_fails("exit 128")]
+#[case::it_gives_nothing("exit 0")]
+#[case::it_gives_no_whole_number("echo nine")]
+fn a_count_of_quick_merges_that_cannot_be_read_merges_nothing(#[case] counting: &str) {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("gate"), "full").unwrap();
+    git_counting_with(&stand_in, counting);
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert!(
+        run.stdout.contains("could not be counted"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        !run.calls
+            .iter()
+            .any(|call| call.starts_with("just ") || call.starts_with("gh pr merge")),
+        "{:?}",
+        run.calls
+    );
+    assert!(!gate_lock(&workspace).exists());
+}
+
+/// Runs the gate to its end on pull request #7, from a branch that is no
+/// spec's, whose change `xtask affected` calls `affected`, on a `main` that
+/// first took `merges` ([`pull_request_after`]). A LazyFS build is there for
+/// a full gate to find.
+fn merge_after(merges: &[(usize, Landed)], affected: &str) -> Run {
+    let (workspace, head) = pull_request_after(merges);
+    let stand_in = stand_ins(&workspace, &head);
+    let lazyfs = full_gate_with_lazyfs(&stand_in);
+    std::fs::write(stand_in.join("gate"), affected).unwrap();
+    std::fs::write(stand_in.join("branch"), "change").unwrap();
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[
+            ("GOODFETCH_GATE_MIN_FREE_GB", "0"),
+            ("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()),
+        ],
+    );
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    run
+}
+
+/// The forms of `just pre-merge` a gate ran, in order.
+fn forms(run: &Run) -> Vec<&str> {
+    run.calls
+        .iter()
+        .filter_map(|call| call.strip_prefix("just pre-merge "))
+        .collect()
 }
 
 /// `--full` and `--past-cap` go together in either order, and any other

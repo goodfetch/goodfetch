@@ -17,10 +17,11 @@ const NOW: &str = "1800000000";
 
 /// Each step's `(action, members)` and reason from the plan's
 /// `<step>.action`, `<step>.members` and `<step>.why` lines, and the
-/// `previous` and `head` lines' heads.
+/// `previous`, `head` and `stress.base` lines' heads.
 struct Plan {
     previous: String,
     head: String,
+    stress_base: String,
     steps: BTreeMap<String, (String, String)>,
     why: BTreeMap<String, String>,
 }
@@ -38,6 +39,17 @@ fn plan_in(workspace: &Workspace, records: &Path, environment: &str) -> Plan {
 
 /// Plans as [`plan_in`] does, with these arguments added.
 fn plan_with(workspace: &Workspace, records: &Path, environment: &str, extra: &[&str]) -> Plan {
+    parse(&planned(workspace, records, environment, extra))
+}
+
+/// The plan for the head checked out, as `xtask gate plan` prints it and
+/// `ci/pre-merge.sh` reads it.
+pub(crate) fn plan_text(workspace: &Workspace, records: &Path) -> String {
+    planned(workspace, records, "CI=", &[]).stdout
+}
+
+/// Runs `xtask gate plan` as [`plan_with`] does: its outcome, which passed.
+fn planned(workspace: &Workspace, records: &Path, environment: &str, extra: &[&str]) -> Outcome {
     let target = target(records);
     let records = records.to_string_lossy();
     let target = target.to_string_lossy();
@@ -56,13 +68,14 @@ fn plan_with(workspace: &Workspace, records: &Path, environment: &str, extra: &[
     args.extend(extra);
     let outcome = workspace.xtask(&args);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
-    parse(&outcome)
+    outcome
 }
 
 fn parse(outcome: &Outcome) -> Plan {
     let mut plan = Plan {
         previous: String::new(),
         head: String::new(),
+        stress_base: String::new(),
         steps: BTreeMap::new(),
         why: BTreeMap::new(),
     };
@@ -77,6 +90,7 @@ fn parse(outcome: &Outcome) -> Plan {
                 "members" | "unowned" => {}
                 _ => panic!("an unexpected plan line: {line:?}"),
             },
+            Some(("stress", "base")) => value.clone_into(&mut plan.stress_base),
             Some((step, "action")) => {
                 value.clone_into(&mut plan.steps.entry(step.to_owned()).or_default().0);
             }
@@ -1533,6 +1547,230 @@ fn merged_saying(workspace: &Workspace, head: &str, message: &str) -> String {
     workspace.git(&["switch", "--quiet", "trunk"]);
     workspace.git(&["merge", "--quiet", "--no-ff", "--message", message, head]);
     workspace.git(&["rev-parse", "HEAD"]).trim().to_owned()
+}
+
+/// How `ci/merge-pr.sh` opens the message of a merge the quick gate passed on a
+/// change a test reads. No plan reads a merge's message.
+const QUICK_GATE_MERGE_A_TEST_READS: &str =
+    "Merged on the local gate: `just pre-merge quick` (a test reads the change) passed.";
+
+/// A pull request from `main`'s head, on the branch `name`, checked out: it
+/// adds a test of that name to `source`. Its head.
+fn pull_request_adding_a_test(workspace: &Workspace, name: &str, source: &str) -> String {
+    workspace.git(&["switch", "--quiet", "--create", name, "main"]);
+    workspace.append(
+        source,
+        &format!("#[test]\nfn {}() {{}}\n", name.replace('-', "_")),
+    );
+    commit_all(workspace, name);
+    workspace.git(&["rev-parse", "HEAD"]).trim().to_owned()
+}
+
+/// `head` merged into `main` with `message`, as `just merge` merges, and
+/// `origin/main` moved to the merge.
+fn merged_into_main(workspace: &Workspace, head: &str, message: &str) {
+    workspace.git(&["switch", "--quiet", "main"]);
+    workspace.git(&["merge", "--quiet", "--no-ff", "--message", message, head]);
+    workspace.git(&["update-ref", "refs/remotes/origin/main", "main"]);
+}
+
+/// A pull request that adds a test to the engine, its full gate recorded green
+/// on its head and that head merged into `main`: the gated head.
+fn full_gate_merged(workspace: &Workspace, records: &Path) -> String {
+    let head = pull_request_adding_a_test(
+        workspace,
+        "full-gated",
+        "crates/goodfetch-engine/src/lib.rs",
+    );
+    let gate = plan(workspace, records);
+    record_plan(workspace, records, &gate, &[]);
+    merged_into_main(workspace, &head, FULL_GATE_MERGE);
+    head
+}
+
+/// What `main` took since its last full gate, and the next pull request to
+/// take one: a full gate recorded green on a head that then merged; two pull
+/// requests merged on the quick gate since, each adding a test, which leaves
+/// no record; and a third pull request, which adds a test too, checked out.
+/// The repository, its records' folder with what holds it, and the head the
+/// full gate ran on.
+pub(crate) fn quick_merges_since_a_full_gate() -> (Workspace, tempfile::TempDir, PathBuf, String) {
+    let (workspace, folder, records) = gated_repository(&[]);
+    let full_gate = full_gate_merged(&workspace, &records);
+    for (name, source) in [
+        ("first-quick-merge", "crates/goodfetch-engine/src/lease.rs"),
+        (
+            "second-quick-merge",
+            "crates/goodfetch-conformance/src/lib.rs",
+        ),
+    ] {
+        let head = pull_request_adding_a_test(&workspace, name, source);
+        merged_into_main(&workspace, &head, QUICK_GATE_MERGE_A_TEST_READS);
+    }
+    pull_request_adding_a_test(
+        &workspace,
+        "third-pull-request",
+        "crates/foxhound/goodfetch-frontier/src/lib.rs",
+    );
+    (workspace, folder, records, full_gate)
+}
+
+/// The pull request gated again after a fix reuses what its first run left,
+/// and its stress run still starts where `main`'s last full gate ended: the
+/// tests it added before its first run are new since that head, whatever that
+/// run found, so a record on a head `main` does not hold moves nothing.
+#[test]
+fn a_run_on_the_pull_requests_own_earlier_head_is_not_where_its_stress_run_starts() {
+    let (workspace, _folder, records, full_gate) = quick_merges_since_a_full_gate();
+    let first = plan(&workspace, &records);
+    record_plan(&workspace, &records, &first, &["stress"]);
+    workspace.write("docs/fix.md", b"# A fix\n");
+    commit_all(&workspace, "Fix what the first gate found");
+
+    let second = plan(&workspace, &records);
+
+    assert_eq!(second.previous, first.head);
+    assert_eq!(first.stress_base, full_gate);
+    assert_eq!(second.stress_base, full_gate);
+}
+
+/// A full gate covers the tests up to its head only when its stress run
+/// passed. A pull request whose full gate left its stress run red, or was
+/// stopped before that run ended, and which then merged on the quick gate
+/// after a fix, leaves a record on a head `main` holds: the next full gate's
+/// stress run starts at the full gate before it, whose stress run passed, and
+/// so covers that pull request's tests too.
+#[rstest::rstest]
+#[case::red(Some("fail"))]
+#[case::never_ended(None)]
+fn a_full_gate_whose_stress_run_did_not_pass_is_not_where_the_next_stress_run_starts(
+    #[case] stress: Option<&str>,
+) {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let passed = full_gate_merged(&workspace, &records);
+    pull_request_adding_a_test(
+        &workspace,
+        "gated-red",
+        "crates/goodfetch-engine/src/lease.rs",
+    );
+    let red = plan(&workspace, &records);
+    for step in red.steps.keys().filter(|step| *step != "stress") {
+        record(&workspace, &records, &red.head, step, "pass");
+    }
+    if let Some(status) = stress {
+        record(&workspace, &records, &red.head, "stress", status);
+    }
+    workspace.write("docs/fix.md", b"# A fix\n");
+    commit_all(&workspace, "Fix what the full gate found");
+    let fixed = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    merged_into_main(&workspace, &fixed, QUICK_GATE_MERGE_A_TEST_READS);
+    pull_request_adding_a_test(
+        &workspace,
+        "next-full-gate",
+        "crates/goodfetch-conformance/src/lib.rs",
+    );
+
+    let next = plan(&workspace, &records);
+
+    assert_eq!(next.stress_base, passed);
+}
+
+/// A change no test reads takes no stress run at its own merge (`xtask
+/// affected`'s `gate=docs` or `gate=quick`), so one merged since the last full
+/// gate leaves the next stress run nothing to cover: it compares its head with
+/// the change's base, as before, whose saved listings it can then read.
+#[test]
+fn with_nothing_a_test_reads_merged_since_the_last_full_gate_the_stress_run_keeps_its_base() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    full_gate_merged(&workspace, &records);
+    let documents = change_from(&workspace, "main", "documents");
+    merged_into_main(&workspace, &documents, QUICK_GATE_MERGE);
+    pull_request_adding_a_test(
+        &workspace,
+        "next-full-gate",
+        "crates/goodfetch-conformance/src/lib.rs",
+    );
+
+    let next = plan(&workspace, &records);
+
+    assert_eq!(next.stress_base, "-");
+}
+
+/// With no record of a full gate on a head `main` holds, as before the first
+/// one or once the gate's records are gone, the stress run compares its head
+/// with the change's base, as it did before #2455.
+#[test]
+fn with_no_full_gate_recorded_the_stress_run_keeps_its_base() {
+    let (workspace, _folder, records, _) = quick_merges_since_a_full_gate();
+    std::fs::remove_dir_all(&records).unwrap();
+
+    let next = plan(&workspace, &records);
+
+    assert_eq!(next.previous, "none");
+    assert_eq!(next.stress_base, "-");
+}
+
+/// What the plan's log says when no record shows where the last full gate's
+/// stress run ended.
+const NO_FULL_GATE_RECORDED: &str =
+    "no record of an earlier full gate whose stress run passed is on the base's history";
+
+/// That stress run leaves out the tests merged on the quick gate since the
+/// last full gate, while `just merge` starts its count of quick merges again
+/// at this gate: the plan's log says so, since `stress.base=-` alone does not
+/// tell it from a base nothing a test reads merged on.
+#[test]
+fn with_no_full_gate_recorded_the_plans_log_says_the_stress_run_leaves_the_quick_merges_tests_out()
+{
+    let (workspace, _folder, records, _) = quick_merges_since_a_full_gate();
+    std::fs::remove_dir_all(&records).unwrap();
+
+    let next = planned(&workspace, &records, "CI=", &[]);
+
+    assert!(
+        next.stderr.contains(NO_FULL_GATE_RECORDED),
+        "{}",
+        next.stderr
+    );
+}
+
+/// With the last full gate recorded and nothing a test reads merged since, the
+/// stress run keeps the change's base and leaves no test out: the plan's log
+/// does not say it does.
+#[test]
+fn with_a_full_gate_recorded_the_plans_log_does_not_say_the_stress_run_leaves_tests_out() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    full_gate_merged(&workspace, &records);
+    let documents = change_from(&workspace, "main", "documents");
+    merged_into_main(&workspace, &documents, QUICK_GATE_MERGE);
+    pull_request_adding_a_test(
+        &workspace,
+        "next-full-gate",
+        "crates/goodfetch-conformance/src/lib.rs",
+    );
+
+    let next = planned(&workspace, &records, "CI=", &[]);
+
+    assert_eq!(parse(&next).stress_base, "-");
+    assert!(
+        !next.stderr.contains(NO_FULL_GATE_RECORDED),
+        "{}",
+        next.stderr
+    );
+}
+
+/// A run on `main` itself, as the backstop's full run is, gates no change: its
+/// head is its own base, each merge it holds was judged by its own gate, and
+/// its stress run selects nothing (ADR 0135's amendment of 2026-11-09). The
+/// last full gate moves nothing there.
+#[test]
+fn a_run_on_main_itself_keeps_the_stress_runs_base() {
+    let (workspace, _folder, records, _) = quick_merges_since_a_full_gate();
+    workspace.git(&["switch", "--quiet", "--detach", "main"]);
+
+    let on_main = plan_with(&workspace, &records, "CI=", &["--full"]);
+
+    assert_eq!(on_main.stress_base, "-");
 }
 
 /// The runs the comparison says have no record, `""` for the whole folder.

@@ -22,7 +22,9 @@
 # the whole change (lint, the SDK crates' features, the fuzz targets, the
 # proofs) run before the suites; the stress run of the new and changed tests
 # (`just stress`) runs after the Pre-merge suite, whose build its listings
-# reuse.
+# reuse. In the full gate it takes the tests new and changed since the last
+# full gate's head, when a test reads what merged since (the plan's
+# `stress.base`), so those a quick merge added get their runs there.
 #
 # A red step ends no form of the gate (ADR 0135's amendment of 2026-11-10):
 # every other step still runs, the steps beside to their own end, each step
@@ -261,13 +263,23 @@ os_services
 # is recorded once its whole step has ended (`just _gate-record`), for the
 # planned head only, which is `none` on a working tree with uncommitted
 # changes. Over what changed there is no plan, and every step runs in full.
+#
+# The plan also names the head the stress run compares this one with in
+# place of the change's base (`stress.base`, `-` for the change's base): the
+# head of the last full gate `main` holds, so the run covers the tests the
+# quick merges since then added or changed (ADR 0135's amendment of
+# 2026-11-10). `stress_base` is empty for the change's base, as `just
+# stress` takes it.
 plan=""
 previous=""
 planned=""
+stress_base=""
 if [[ $form == all ]]; then
   plan=$(just _gate-plan)
   previous=$(output_value previous "$plan")
   planned=$(output_value head "$plan")
+  stress_base=$(output_value stress.base "$plan")
+  [[ $stress_base != - ]] || stress_base=""
 fi
 # A step's action in the plan: `run` without one.
 action() {
@@ -394,7 +406,8 @@ pre_merge_suite() {
 # head's order (`--shuffled-all`), and nextest over its crates; the stress
 # run takes the new and changed tests of the members the change since the
 # earlier run reaches, and each test that change changed, each running what
-# its count still owes after the clean passes the plan kept (#2233).
+# its count still owes after the clean passes the plan kept (#2233); new and
+# changed since the plan's `stress.base`, when it names one.
 run_part() {
   local part members=()
   case $1 in
@@ -410,7 +423,7 @@ run_part() {
     stress)
       part=$(output_value stress.members "$plan")
       read -ra members <<<"$part"
-      gated stress just stress "" "$previous" "target/gate-runs/$planned.earned" "" "${members[@]}"
+      gated stress just stress "$stress_base" "$previous" "target/gate-runs/$planned.earned" "" "${members[@]}"
       ;;
     *)
       echo "error: the plan runs a part of $1, which runs no member's tests" >&2
@@ -419,7 +432,8 @@ run_part() {
   esac
 }
 # A step on the host, as its plan has it: reused, run in part, or run in
-# full with its `just` command.
+# full with its `just` command, the stress run's with the plan's
+# `stress.base` when it names one.
 run_step() {
   local step=$1 planned_action
   shift
@@ -430,6 +444,8 @@ run_step() {
     run)
       if [[ $step == pre-merge ]]; then
         pre_merge_suite "$@"
+      elif [[ $step == stress && -n $stress_base ]]; then
+        gated stress just "$@" "$stress_base"
       else
         gated "$step" just "$@"
       fi

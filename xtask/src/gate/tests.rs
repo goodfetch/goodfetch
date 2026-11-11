@@ -1044,7 +1044,7 @@ fn a_plan_reads_back_each_steps_action_members_and_reason() {
     };
     let plan = planned(Some(&record), &touched_since_earlier(touched));
 
-    let text = render(Some(EARLIER), "head", &members(), &[], &plan);
+    let text = render(Some(EARLIER), None, "head", &members(), &[], &plan);
 
     assert_eq!(plan_value(&text, "previous").unwrap(), EARLIER);
     assert_eq!(plan_value(&text, "head").unwrap(), "head");
@@ -1077,7 +1077,7 @@ fn a_reason_over_several_lines_stays_on_its_key_line() {
         earned: BTreeMap::new(),
     }];
 
-    let text = render(None, "head", &BTreeSet::new(), &[], &plan);
+    let text = render(None, None, "head", &BTreeSet::new(), &[], &plan);
 
     assert_eq!(
         plan_value(&text, "lint.why").unwrap(),

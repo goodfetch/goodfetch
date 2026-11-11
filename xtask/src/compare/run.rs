@@ -51,6 +51,10 @@ pub(crate) struct Options {
     pub(crate) spider_pages: Option<u64>,
     /// The scenarios whose cells run.
     pub(crate) scenarios: Vec<Scenario>,
+    /// The folder the Callgrind cell's outputs are kept in, one file a run
+    /// (see [`counted_output`]): a profile by function is read from them,
+    /// and the reports repository files them with the run.
+    pub(crate) callgrind_outputs: PathBuf,
 }
 
 /// Whether each timed trial waits for a quiet machine: only in a run of the
@@ -512,18 +516,47 @@ fn timed(
     Ok((trials, stopped))
 }
 
-/// Runs a counted cell: `runs` runs of each of `cells` under `mode`. Under
-/// strace (`watched`), a run whose crawl stalls is stopped (see
-/// [`stopped`]): its cell is not measured, and its later runs do not run.
+/// The file in `folder` the counting tool of `cell`'s run `number` writes
+/// its output to: named after the run's scenario, cell and number, with no
+/// space in it.
+pub(crate) fn counted_output(folder: &Path, cell: &Cell, number: u32) -> PathBuf {
+    folder.join(format!(
+        "{}-{}-{number}.out",
+        cell.scenario.name(),
+        cell.name.replace(' ', "-")
+    ))
+}
+
+/// Empties `folder` of an earlier run's Callgrind outputs, creating it when
+/// it is not there, so the folder holds one run's outputs.
+fn emptied_of_outputs(folder: &Path) -> Result<()> {
+    std::fs::create_dir_all(folder).with_context(|| format!("creating {}", folder.display()))?;
+    let entries =
+        std::fs::read_dir(folder).with_context(|| format!("reading {}", folder.display()))?;
+    for entry in entries {
+        let path = entry
+            .with_context(|| format!("reading {}", folder.display()))?
+            .path();
+        if path.extension().is_some_and(|extension| extension == "out") {
+            std::fs::remove_file(&path).with_context(|| format!("removing {}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Runs a counted cell: `runs` runs of each of `cells` under `mode`, each
+/// run's counting tool writing its output into `outputs`. Under strace
+/// (`watched`), a run whose crawl stalls is stopped (see [`stopped`]): its
+/// cell is not measured, and its later runs do not run.
 fn counted(
     executables: &Executables<'_>,
     options: &Options,
     cells: &[(&'static Cell, Config)],
     runs: u32,
     (mode, watched): (&str, bool),
+    outputs: &Path,
     state: &mut u64,
 ) -> Result<CountedCell> {
-    let folder = tempfile::tempdir().context("creating the counts' folder")?;
     let mut done = Vec::new();
     let mut stopped: Vec<StoppedRun> = Vec::new();
     for (cell, config, number) in order(cells, runs, state) {
@@ -533,11 +566,7 @@ fn counted(
         {
             continue;
         }
-        let out = folder.path().join(format!(
-            "{}-{}-{number}.out",
-            cell.scenario.name(),
-            cell.name
-        ));
+        let out = counted_output(outputs, cell, number);
         let pages = pages_of(config, SITE_PAGES, options.spider_pages);
         let outcome = trial(
             executables,
@@ -610,14 +639,19 @@ pub(crate) fn run(
             output::line(&format!("The system-call cell does not run: {reason}."));
             CountedCell::NotRun { reason }
         }
-        None => counted(
-            executables,
-            options,
-            &measured,
-            options.trials,
-            ("syscalls", true),
-            &mut state,
-        )?,
+        None => {
+            // strace's counts are read once and kept nowhere.
+            let folder = tempfile::tempdir().context("creating the counts' folder")?;
+            counted(
+                executables,
+                options,
+                &measured,
+                options.trials,
+                ("syscalls", true),
+                folder.path(),
+                &mut state,
+            )?
+        }
     };
     let growth = if options.growth {
         let (trials_run, stopped) =
@@ -655,14 +689,23 @@ pub(crate) fn run(
             output::line(&format!("The Callgrind cell does not run: {reason}."));
             CountedCell::NotRun { reason }
         }
-        None => counted(
-            executables,
-            options,
-            &scenario_1,
-            INSTRUCTION_RUNS,
-            ("callgrind", false),
-            &mut state,
-        )?,
+        None => {
+            emptied_of_outputs(&options.callgrind_outputs)?;
+            let cell = counted(
+                executables,
+                options,
+                &scenario_1,
+                INSTRUCTION_RUNS,
+                ("callgrind", false),
+                &options.callgrind_outputs,
+                &mut state,
+            )?;
+            output::line(&format!(
+                "Callgrind's outputs are kept in {}.",
+                options.callgrind_outputs.display()
+            ));
+            cell
+        }
     };
     Ok(Comparison {
         declared: Declared {

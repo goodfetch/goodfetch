@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{order, spider_executable};
+use super::{counted_output, order, spider_executable};
 use crate::compare::matrix::{self, SpiderBuild};
 
 /// Each of Spider's side's builds runs the executable Cargo left in the
@@ -22,6 +22,31 @@ fn each_spider_build_runs_the_executable_built_in_its_own_folder() {
                 .to_owned(),
             Path::new("/t/compare-spider/spider-jemalloc/release/goodfetch-compare-spider")
                 .to_owned(),
+        )
+    );
+}
+
+/// Each Callgrind run's output is kept in the run's folder under a name of
+/// its own, its scenario, cell and number, with no space in it, so a later
+/// run of the same cell does not replace it and the reports repository
+/// files it (#2281).
+#[test]
+fn each_callgrind_run_keeps_its_output_under_its_scenario_cell_and_number() {
+    let cell = |name| {
+        matrix::cell(matrix::Scenario::Raw, name).expect("invariant: scenario 1 has this cell")
+    };
+    let kept = Path::new("/t/compare/callgrind");
+
+    assert_eq!(
+        (
+            counted_output(kept, cell("foxhound"), 1),
+            counted_output(kept, cell("foxhound"), 3),
+            counted_output(kept, cell("spider capacity 4096"), 2),
+        ),
+        (
+            Path::new("/t/compare/callgrind/raw-foxhound-1.out").to_owned(),
+            Path::new("/t/compare/callgrind/raw-foxhound-3.out").to_owned(),
+            Path::new("/t/compare/callgrind/raw-spider-capacity-4096-2.out").to_owned(),
         )
     );
 }
@@ -63,6 +88,7 @@ fn only_a_run_of_the_full_trials_waits_for_a_quiet_machine() {
             growth: false,
             spider_pages: None,
             scenarios: crate::compare::matrix::Scenario::ALL.to_vec(),
+            callgrind_outputs: Path::new("/t/compare/callgrind").to_owned(),
         })
     };
 

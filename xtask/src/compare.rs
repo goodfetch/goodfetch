@@ -52,6 +52,10 @@ use crate::test_tools::{Tool, ToolManifest};
 use matrix::Scenario;
 use trials::Comparison;
 
+/// The folder beside the trials file where a run keeps the Callgrind cell's
+/// outputs.
+const CALLGRIND_OUTPUTS: &str = "callgrind";
+
 #[derive(Subcommand)]
 pub(crate) enum Command {
     /// Runs every declared trial of every measured cell, writes the trials
@@ -96,7 +100,8 @@ pub(crate) struct RunArguments {
     /// environment `uv sync` makes beside it.
     #[arg(long, default_value = "xtask/compare-scrapy/crawl.py")]
     scrapy: PathBuf,
-    /// The trials file written; the report goes beside it.
+    /// The trials file written; the report goes beside it, and the
+    /// Callgrind cell's outputs into `callgrind/` beside it.
     #[arg(long, default_value = "target/compare/trials.json")]
     out: PathBuf,
     /// Also runs the growth cell: each measured cell crawls the
@@ -177,6 +182,8 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     )
                 })?,
             };
+            let out = environment.path(&arguments.out);
+            let folder = out.parent().unwrap_or_else(|| Path::new("."));
             let trials = run::run(
                 &run::Executables {
                     proving_ground: tools.path(Tool::ProvingGround)?,
@@ -197,13 +204,11 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     } else {
                         arguments.scenarios.clone()
                     },
+                    callgrind_outputs: folder.join(CALLGRIND_OUTPUTS),
                 },
             )?;
-            let out = environment.path(&arguments.out);
-            if let Some(folder) = out.parent() {
-                std::fs::create_dir_all(folder)
-                    .with_context(|| format!("creating {}", folder.display()))?;
-            }
+            std::fs::create_dir_all(folder)
+                .with_context(|| format!("creating {}", folder.display()))?;
             std::fs::write(&out, serde_json::to_vec_pretty(&trials)?)
                 .with_context(|| format!("writing {}", out.display()))?;
             report(&trials, &out)

@@ -23,7 +23,7 @@ ADR 0016 made the costly security controls switchable. At the owner's request th
 
 > Amended by [ADR 0093](0093-a-crawl-declares-its-labels-and-one-handler-each-and-a-handler-reads-collies-page-on-every-fetch-tier.md): the sample comparison row's switch is the setting `fetch.tier`, which forces a tier at any scope down to a crawl's Label, besides per run.
 
-> Note (agent decision, pending owner review), 2026-11-06, [#1577](https://github.com/goodfetch/goodfetch/issues/1577) ([ADR 0138](0138-a-page-is-analysed-once-costly-features-are-settings-and-run-state-commits-in-groups-at-a-chosen-durability-level.md)): switching a control off removes its work as well as its effect. As built, the table gains these rows:
+> Note (agent decision, on a guarantee, not read by the owner but for what lowers the Verdict, decided by the owner on 2026-11-10 below (grilling of G-06, Q3)), 2026-11-06, [#1577](https://github.com/goodfetch/goodfetch/issues/1577) ([ADR 0138](0138-a-page-is-analysed-once-costly-features-are-settings-and-run-state-commits-in-groups-at-a-chosen-durability-level.md)): switching a control off removes its work as well as its effect. As built, the table gains these rows:
 >
 > | Control | When switched off |
 > | --- | --- |
@@ -34,8 +34,11 @@ ADR 0016 made the costly security controls switchable. At the owner's request th
 > | Foxhound's Block classification (ADR 0035), `fetch.block_classification: false` | no request moves to the browser for a Challenge or ends `blocked`, with the warning `block_classification_off` ([#1921](https://github.com/goodfetch/goodfetch/issues/1921)) |
 >
 > Each of the last four is recorded in the Audit log, `frontier.learning` as `learning_switched_off` and the other three as `feature_switched_off`, with its value and its default, and listed in the report's `weakened`. A Durability level below `full` writes no Audit log entry.
+>
+> Note (owner's decision, 2026-11-10, grilling of decision G-06 of the consolidated review: Q3 answered "Yes, all fourteen", on the grilling's recommended option as put; the wording is the grilling session's, and the owner did not read it): of the controls ADR 0023's note of 2026-11-06 adds, only Block classification is a check a Run's results rely on, so `fetch.block_classification: false` gives the Verdict `needs_review`, with a reason naming the key. `frontier.learning`, `provenance.log` and `dataset.records` are listed in `weakened` and do not change the Verdict; nor do the security, durability and politeness switches. Built by [#2308](https://github.com/goodfetch/goodfetch/issues/2308).
 
 - ADR 0028 lets an Operator policy or a Recipe cap or lock these switches; where nothing locks them, a run can still switch them.
+  > Note (a pointer the grilling session of G-06 added on 2026-11-11): a Recipe and a Client acting for a model never switch one off: [ADR 0016](0016-security-safe-by-default-compliance-switchable.md)'s note of 2026-11-10 (the owner's decision, G-06 Q1).
 - The V1 benchmark publishes what each control costs, as it does for the security controls of ADR 0016.
   > Note (owner's decisions, 2026-11-10, grilling of decision G-08 of the consolidated review: Q2 and Q4 answered "yes", each on the grilling's recommended option as put; the wording is the grilling session's, and the owner did not read it): `just compare`'s report states each control's cost before the benchmark does. For Foxhound, a table of the instructions per page each default adds when switched on alone. For Collie, the gap between its Guard-on and Guard-off rows on the same tasks.
 - Later decisions that add a costly control state its switch and its mark.

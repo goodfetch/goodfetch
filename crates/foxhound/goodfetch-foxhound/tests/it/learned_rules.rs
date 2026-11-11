@@ -64,6 +64,20 @@ fn crawl_under(
     seeds: &[(&str, &str)],
     own: Value,
 ) -> Crawled {
+    crawl_keying(env, proving_ground, run_id, seeds, own, None)
+}
+
+/// [`crawl_under`], its handler declaring a key of its own, the link's
+/// URL, for each link that ends with `keyed`: a request the learned rules
+/// never merge (ADR 0120).
+fn crawl_keying(
+    env: &TestEnv,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+    seeds: &[(&str, &str)],
+    own: Value,
+    keyed: Option<&str>,
+) -> Crawled {
     let ip = proving_ground.address().ip().to_string();
     let mut resolve = serde_json::Map::new();
     let seeds: Vec<Value> = seeds
@@ -104,7 +118,22 @@ fn crawl_under(
             );
             let markdown = read["result"]["markdown"].as_str().unwrap_or_default();
             for href in links(markdown) {
-                let answer = inside.enqueue(handle, &href, "page", None);
+                let answer = if keyed.is_some_and(|keyed| href.ends_with(keyed)) {
+                    let reply = inside.call(
+                        "crawl_request.enqueue",
+                        &json!({
+                            "run_id": handle["run_id"],
+                            "crawl_request_id": handle["crawl_request"]["id"],
+                            "lease_epoch": handle["lease_epoch"],
+                            "url": href,
+                            "label": "page",
+                            "key": href,
+                        }),
+                    );
+                    reply["result"].clone()
+                } else {
+                    inside.enqueue(handle, &href, "page", None)
+                };
                 let said = answer
                     .get("reason")
                     .unwrap_or(&answer["kind"])
@@ -195,6 +224,64 @@ fn a_parameter_with_no_effect_merges_its_urls_only_on_its_host() {
                 "evidence": evidence,
                 "merged": [on("learning.test", "/shop/3?n=9")],
             }]),
+            &json!("complete"),
+        )
+    );
+}
+
+/// On the stall, three pairs of items that read alike teach that `ref` has
+/// no effect while item 7 under `ref` is still pending, so the rule ends
+/// it, and item 7 then finds its link to item 1 under `ref` a `duplicate`.
+/// Item 8 under `ref`, enqueued under a key of its own, which no rule
+/// merges, reads otherwise than item 8: the contradicting pair stops the
+/// rule, item 7 under `ref` is pending again and fetched, and its link to
+/// item 1 under `ref` is added and fetched. The report lists the stopped
+/// rule with its pair and what it had merged, and the Run, which got
+/// every URL back, is `complete`.
+///
+/// Covers: story:6-218, story:6-310, operation:crawl_request.enqueue
+#[test]
+fn a_stopped_rule_gives_back_what_it_merged() {
+    let (env, proving_ground) = ground();
+    let crawled = crawl_keying(
+        &env,
+        &proving_ground,
+        "stall",
+        &[("learning.test", "/stall")],
+        json!({}),
+        Some("n=8&ref=8"),
+    );
+
+    let on = |query: &str| proving_ground.url("learning.test", &format!("/stall?{query}"));
+    let handled = |query: &str| crawled.handled.contains(&on(query));
+    let rule = &crawled.report["learned_rules"][0];
+    assert_eq!(
+        (
+            crawled.answers.get(&on("n=1&ref=5")),
+            handled("n=7&ref=7"),
+            handled("n=1&ref=5"),
+            crawled.fetched.get("learning.test"),
+            &rule["parameter"],
+            &rule["contradiction"],
+            &rule["merged"],
+            &crawled.report["requests"]["by_skip_reason"],
+            &crawled.report["completeness"],
+        ),
+        (
+            Some(&"duplicate".to_owned()),
+            true,
+            true,
+            Some(&12),
+            &json!("ref"),
+            &json!(format!(
+                "{} and {}, both fetched and neither redirected, served pages of differing \
+                 signatures.",
+                on("n=8"),
+                on("n=8&ref=8"),
+            )),
+            &json!([on("n=7&ref=7"), on("n=1&ref=5")]),
+            // No request is left `skipped`: the report lists no skip reason.
+            &Value::Null,
             &json!("complete"),
         )
     );
@@ -338,11 +425,13 @@ fn a_calendar_trap_closes_after_a_hundred_months_and_leaves_the_run_unverified()
     );
 }
 
-/// A listing paged by `offset` that also links a cursor is read through
-/// the cursor once its offset is known: the offset URLs not yet fetched
-/// are `duplicate`, the Proving ground serves each row's page once, and
-/// the Run is `complete`. The same rows paged by offset alone leave the
-/// Run `unverified`, and two pages of it, one short of an offset, do not.
+/// A listing paged by `offset` whose pages each link a cursor of their
+/// own is read through the cursor once three pages showed it: the offset
+/// URLs not yet fetched are `duplicate`, the Proving ground serves each
+/// row's page once, and the Run is `unverified`, its reason counting the
+/// offset URLs the cursor refused. The same rows paged by offset alone
+/// leave the Run `unverified`, and two pages of it, one short of an
+/// offset, do not.
 ///
 /// Covers: story:6-216, story:6-310, operation:crawl_request.enqueue
 #[test]
@@ -382,16 +471,38 @@ fn an_offset_listing_gives_way_to_its_cursor() {
             &rule["kind"],
             &rule["path"],
             &rule["parameter"],
+            &rule["evidence"],
             &rule["merged"],
             &feed.report["completeness"],
+            &feed.report["completeness_reasons"],
         ),
         (
-            vec![&feed_url("offset=60")],
+            vec![&feed_url("offset=100")],
             &json!("cursor_pagination"),
             &json!("/feed"),
             &json!("offset"),
-            &json!([feed_url("offset=60")]),
-            &json!("complete"),
+            &json!(format!(
+                "`offset` steps by 20 on {} ({}, {}, {}), and three of its pages each link \
+                 one value of `after` of their own: {} links {}, {} links {}, and {} links {}.",
+                proving_ground.url("learning.test", "/feed"),
+                feed_url("offset=0"),
+                feed_url("offset=20"),
+                feed_url("offset=40"),
+                feed_url("offset=20"),
+                feed_url("after=r40"),
+                feed_url("offset=40"),
+                feed_url("after=r60"),
+                feed_url("offset=60"),
+                feed_url("after=r80"),
+            )),
+            &json!([feed_url("offset=100")]),
+            &json!("unverified"),
+            &json!([{
+                "code": "cursor_pagination",
+                "message": "A learned cursor refused 1 offset URL of a listing the crawl pages \
+                            by its cursor instead.",
+                "count": 1,
+            }]),
         )
     );
     assert_eq!(
@@ -407,6 +518,51 @@ fn an_offset_listing_gives_way_to_its_cursor() {
             &json!("unverified"),
             &json!("offset_pagination"),
             &json!([]),
+            &json!("complete"),
+        )
+    );
+}
+
+/// With `frontier.learning` off, the listing whose pages link a cursor is
+/// paged by its offset to its end: admission keeps no evidence of the
+/// offset or the cursor, so no offset URL is a `duplicate`, the report
+/// lists no rule beside its `learning_off` warning, and nothing of the
+/// learned rules leaves the Run short of `complete`.
+///
+/// Covers: story:6-216, setting:frontier.learning
+#[test]
+fn with_learning_off_an_offset_listing_is_paged_to_its_end() {
+    let (env, proving_ground) = ground();
+    let feed = crawl_under(
+        &env,
+        &proving_ground,
+        "unlearned-feed",
+        &[("learning.test", "/feed?offset=0")],
+        json!({ "frontier": { "learning": false } }),
+    );
+
+    let offsets: Vec<&String> = feed
+        .answers
+        .iter()
+        .filter(|(url, _)| url.contains("offset="))
+        .map(|(_, answer)| answer)
+        .collect();
+    let warned = feed.report["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|warning| warning["code"] == "learning_off");
+    assert_eq!(
+        (
+            offsets,
+            &feed.report["learned_rules"],
+            warned,
+            &feed.report["completeness"],
+        ),
+        (
+            vec![&"added".to_owned(); 9],
+            &json!([]),
+            true,
             &json!("complete"),
         )
     );

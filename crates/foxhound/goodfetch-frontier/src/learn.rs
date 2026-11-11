@@ -8,12 +8,17 @@
 //! `duplicate`, and each request admitted before that it shows to be the
 //! same page as another and that is still pending is handed to the crawl,
 //! which ends it `skipped` with `duplicate`; when a contradicting pair
-//! stops one, the visited set is merged again without it. Only a `GET`
-//! with no body is evidence: another request's page says nothing of its
-//! URL alone.
+//! stops one, the visited set is merged again without it, and each request
+//! it had ended so is handed back to the crawl, which makes it pending
+//! again. What the stopped rule took and the crawl did not get back, a
+//! request it could not make pending or a URL the rule refused as a
+//! `duplicate` and the crawl has not added since, is a Completeness
+//! reason of its own. Only a `GET` with no body is evidence: another
+//! request's page says nothing of its URL alone.
 
 use std::collections::BTreeSet;
 
+use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use rusqlite::Connection;
 use url::Url;
@@ -54,11 +59,21 @@ pub struct Redirect<'a> {
     pub body: Option<&'a [u8]>,
 }
 
+/// A crawl request a learned rule ended before any fetch.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Ended {
+    /// Its ID.
+    pub crawl_request: String,
+    /// Its URL, which the rule records as merged.
+    pub url: String,
+}
+
 /// What the crawl does with the requests a rule learned later merged:
 /// given the IDs of crawl requests a rule just showed to be one page, it
 /// ends each one still pending `skipped` with `duplicate`, keeping the one
-/// it fetched or is fetching, or else the first, and answers the URL of
-/// each it ended, which the rule records as merged.
+/// it fetched or is fetching, or else the first, and answers each it
+/// ended; and once a contradicting pair stopped a rule, it makes pending
+/// again the requests that rule had ended so.
 pub trait EndMerged {
     /// Ends the pending ones of `crawl_requests`.
     ///
@@ -69,7 +84,33 @@ pub trait EndMerged {
         &mut self,
         connection: &Connection,
         crawl_requests: &BTreeSet<String>,
+    ) -> rusqlite::Result<Vec<Ended>>;
+
+    /// Makes pending again each of `crawl_requests`, which a rule since
+    /// stopped had ended, that is still as the rule left it, and answers
+    /// the IDs of those it gave back.
+    ///
+    /// # Errors
+    ///
+    /// When the run file cannot be read or written.
+    fn give_back(
+        &mut self,
+        connection: &Connection,
+        crawl_requests: &[String],
     ) -> rusqlite::Result<Vec<String>>;
+}
+
+/// Why the learned rules leave a finished crawl `unverified`
+/// ([`rules::completeness_reasons`]), a stopped rule's losses read against
+/// the visited set.
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub fn completeness_reasons(connection: &Connection) -> rusqlite::Result<Vec<CompletenessReason>> {
+    rules::completeness_reasons(connection, |identity| {
+        Ok(identity::visitor(connection, identity)?.is_some())
+    })
 }
 
 /// Learns from `page` in the run file `connection` holds, once per crawl
@@ -129,7 +170,8 @@ fn is_evidence(method: &HttpMethod, body: Option<&[u8]>) -> bool {
 }
 
 /// Merges the visited set under each rule learned, ending the pending
-/// requests it merged, and again without each rule stopped.
+/// requests it merged, and again without each rule stopped, whose ended
+/// requests the crawl is handed back.
 fn apply(
     connection: &Connection,
     changes: Vec<Change>,
@@ -138,13 +180,22 @@ fn apply(
     for change in changes {
         match change {
             Change::Learned(merging) => {
-                for group in identity::merge_learned(connection, &merging)? {
-                    for url in pending.end_merged(connection, &group)? {
-                        rules::merged(connection, merging.rule, &url)?;
+                for page in identity::merge_learned(connection, &merging)? {
+                    for ended in pending.end_merged(connection, &page.requests)? {
+                        rules::merged(connection, merging.rule, &ended.url, None)?;
+                        rules::ended(connection, &page.rules, &ended.crawl_request)?;
                     }
                 }
             }
-            Change::Contradicted(merging) => identity::unmerge(connection, &merging)?,
+            Change::Contradicted(merging) => {
+                identity::unmerge(connection, &merging)?;
+                let ended = rules::ended_by(connection, merging.rule)?;
+                if !ended.is_empty() {
+                    for crawl_request in pending.give_back(connection, &ended)? {
+                        rules::given_back(connection, &crawl_request)?;
+                    }
+                }
+            }
         }
     }
     Ok(())

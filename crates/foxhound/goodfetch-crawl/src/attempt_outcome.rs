@@ -25,7 +25,8 @@ use crate::work_items::{self, Unsuccessful};
 
 /// What a fetched page teaches the Frontier (ADRs 0005 and 0120): its page
 /// signature and `rel=canonical`, and the pending requests a rule it
-/// taught merges, ended `skipped` with `duplicate` at `ended_at`.
+/// taught merges, ended `skipped` with `duplicate` at `ended_at`; those a
+/// rule it stopped had ended so are pending again.
 #[derive(Debug)]
 pub(crate) struct Learning {
     pub(crate) request: CrawlRequest,
@@ -38,8 +39,9 @@ pub(crate) struct Learning {
 
 impl Learning {
     /// Teaches it in `connection`'s transaction, answering each pending
-    /// request a rule it taught merged, by ID with the domain key it waits
-    /// under.
+    /// request a rule it taught merged, and each one a rule it stopped
+    /// gave back, by ID with the domain key it waits under: the requests
+    /// whose domain's queue no longer holds what the run file says.
     ///
     /// # Errors
     ///
@@ -54,7 +56,7 @@ impl Learning {
         } = self;
         let mut merged = Merged {
             ended_at,
-            ended: Vec::new(),
+            moved: Vec::new(),
         };
         goodfetch_frontier::learn(
             connection,
@@ -68,7 +70,7 @@ impl Learning {
             },
             &mut merged,
         )?;
-        Ok(merged.ended)
+        Ok(merged.moved)
     }
 
     /// Teaches it as [`Learning::teach`] does, in a savepoint of its own
@@ -103,10 +105,11 @@ impl Learning {
 }
 
 /// The crawl's side of a rule learned later: the pending requests it
-/// merged, ended at `ended_at`, by ID with their domain key.
+/// merged, ended at `ended_at`, and those its stop made pending again, by
+/// ID with their domain key.
 struct Merged {
     ended_at: PointInTime,
-    ended: Vec<(String, String)>,
+    moved: Vec<(String, String)>,
 }
 
 impl EndMerged for Merged {
@@ -114,15 +117,35 @@ impl EndMerged for Merged {
         &mut self,
         connection: &Connection,
         crawl_requests: &BTreeSet<String>,
-    ) -> rusqlite::Result<Vec<String>> {
+    ) -> rusqlite::Result<Vec<goodfetch_frontier::Ended>> {
         let ended = work_items::end_merged(connection, crawl_requests, &self.ended_at)?;
         Ok(ended
             .into_iter()
             .map(|(id, url, key)| {
                 if let Some(key) = key {
-                    self.ended.push((id, key));
+                    self.moved.push((id.clone(), key));
                 }
-                url
+                goodfetch_frontier::Ended {
+                    crawl_request: id,
+                    url,
+                }
+            })
+            .collect())
+    }
+
+    fn give_back(
+        &mut self,
+        connection: &Connection,
+        crawl_requests: &[String],
+    ) -> rusqlite::Result<Vec<String>> {
+        let given = work_items::give_back(connection, crawl_requests)?;
+        Ok(given
+            .into_iter()
+            .map(|(id, key)| {
+                if let Some(key) = key {
+                    self.moved.push((id.clone(), key));
+                }
+                id
             })
             .collect())
     }

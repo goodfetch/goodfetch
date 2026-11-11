@@ -64,8 +64,8 @@ how = "holds no value: robots.txt rules a site published"
 
 [[writer]]
 path = "crates/foxhound/goodfetch-frontier/src/rules.rs"
-count = 10
-how = "holds no value: the crawl's scope and enqueue rules, from its inputs"
+count = 12
+how = "holds no value: the crawl's scope and enqueue rules, from its inputs; the cursor links its listings' pages gave are URLs the crawl met, and the requests a learned rule ended only their IDs"
 
 [[writer]]
 path = "crates/foxhound/goodfetch-frontier/src/scope.rs"

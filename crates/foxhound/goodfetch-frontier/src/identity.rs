@@ -229,6 +229,17 @@ fn learn_identity(
     Ok(())
 }
 
+/// The crawl requests the learned rules show to be one page, and the
+/// rules that say so: each rule that changed the identity of one of them,
+/// so the merge holds only while every one of those rules does.
+#[derive(Debug, Default)]
+pub(crate) struct OnePage {
+    /// The crawl requests' IDs.
+    pub(crate) requests: BTreeSet<String>,
+    /// The rules their merge relies on.
+    pub(crate) rules: BTreeSet<i64>,
+}
+
 /// Gives each visited identity of `merging`'s hosts that its rule changes
 /// its learned identity, so a URL that differs from it only by what the
 /// learned rules merge is a `duplicate` from then on, whichever of the two
@@ -241,25 +252,26 @@ fn learn_identity(
 pub(crate) fn merge_learned(
     connection: &Connection,
     merging: &rules::Merging,
-) -> rusqlite::Result<Vec<BTreeSet<String>>> {
-    let mut pages: BTreeMap<String, (BTreeSet<String>, bool)> = BTreeMap::new();
+) -> rusqlite::Result<Vec<OnePage>> {
+    let mut pages: BTreeMap<String, (OnePage, bool)> = BTreeMap::new();
     for (learned, rules, crawl_request) in visited_on(connection, &merging.hosts)? {
         let changed = rules.contains(&merging.rule);
         if changed {
             learn_identity(connection, &learned, merging.rule, &crawl_request)?;
         }
         let page = pages.entry(learned).or_default();
-        page.0.insert(crawl_request);
+        page.0.requests.insert(crawl_request);
+        page.0.rules.extend(rules);
         page.1 |= changed;
     }
     let mut groups = Vec::new();
-    for (learned, (mut requests, changed)) in pages {
+    for (learned, (mut page, changed)) in pages {
         if !changed {
             continue;
         }
-        requests.extend(visitor(connection, &learned)?);
-        if requests.len() > 1 {
-            groups.push(requests);
+        page.requests.extend(visitor(connection, &learned)?);
+        if page.requests.len() > 1 {
+            groups.push(page);
         }
     }
     Ok(groups)

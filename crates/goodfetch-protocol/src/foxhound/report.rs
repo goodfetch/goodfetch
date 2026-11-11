@@ -50,6 +50,13 @@ pub const LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK: &str = "local_address_rotated_with
 pub const TRAP_PATH: &str = "trap_path";
 /// The Completeness reason of listings paged only by an offset (ADR 0005).
 pub const OFFSET_PAGINATION: &str = "offset_pagination";
+/// The Completeness reason of the offset URLs learned cursors refused
+/// (ADR 0005).
+pub const CURSOR_PAGINATION: &str = "cursor_pagination";
+/// The Completeness reason of the URLs a learned rule merged before a
+/// contradicting pair stopped it, which the crawl did not get back (ADR
+/// 0005).
+pub const LEARNED_RULE_STOPPED: &str = "learned_rule_stopped";
 /// The Completeness reason of the requests the Model allowance skipped
 /// (ADR 0107).
 pub const MODEL_ALLOWANCE: &str = "model_allowance";
@@ -406,6 +413,14 @@ pub const ENTRIES: Entries = Entries {
         reason(
             OFFSET_PAGINATION,
             "Listings were paged only by an offset parameter, counted: `unverified`.",
+        ),
+        reason(
+            CURSOR_PAGINATION,
+            "Learned cursors refused offset URLs of listings the crawl pages by their cursor instead, counted: `unverified`.",
+        ),
+        reason(
+            LEARNED_RULE_STOPPED,
+            "A learned rule that a contradicting pair stopped had merged URLs the crawl did not get back, counted per rule: `unverified`.",
         ),
         reason(
             PAYMENT_REQUIRED,

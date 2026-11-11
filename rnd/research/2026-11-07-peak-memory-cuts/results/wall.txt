@@ -1,0 +1,12 @@
+x 1000 pages CPU s: on median 1.59, off 1.59; paired off-on median -0.00 s [95% -0.07, +0.04] (-0.1%)
+x 1000 pages, 30 pairs: on median 1.007 s (IQR 0.951-1.078), off median 1.014 s (IQR 0.949-1.098); pages/s on 993 off 986; paired off-on median -9.4 ms [95% -36.3, +31.3] (-0.9%); off slower in 13/30, sign test p=0.585
+x 10000 pages CPU s: on median 14.21, off 13.97; paired off-on median +0.32 s [95% -0.67, +0.88] (+2.2%)
+x 10000 pages, 30 pairs: on median 8.740 s (IQR 7.917-8.957), off median 8.511 s (IQR 7.955-9.373); pages/s on 1144 off 1175; paired off-on median +181.0 ms [95% -767.6, +831.5] (+2.1%); off slower in 17/30, sign test p=0.585
+ord 1000 pages CPU s: on median 1.36, off 1.44; paired off-on median +0.00 s [95% -0.01, +0.04] (+0.4%)
+ord 1000 pages, 20 pairs: on median 0.927 s (IQR 0.904-1.018), off median 0.999 s (IQR 0.907-1.007); pages/s on 1079 off 1001; paired off-on median -3.1 ms [95% -20.9, +43.9] (-0.3%); off slower in 10/20, sign test p=1.000
+ord 10000 pages CPU s: on median 13.45, off 13.51; paired off-on median +0.18 s [95% -0.48, +1.05] (+1.4%)
+ord 10000 pages, 10 pairs: on median 8.755 s (IQR 7.717-8.789), off median 8.754 s (IQR 8.442-8.783); pages/s on 1142 off 1142; paired off-on median +39.0 ms [95% -564.9, +1024.8] (+0.4%); off slower in 6/10, sign test p=0.754
+pgo 1000 pages CPU s: on median 1.64, off 1.35; paired off-on median -0.25 s [95% -0.27, -0.24] (-15.4%)
+pgo 1000 pages, 20 pairs: on median 1.035 s (IQR 0.966-1.094), off median 0.918 s (IQR 0.891-1.002); pages/s on 966 off 1089; paired off-on median -80.9 ms [95% -112.1, -54.7] (-7.8%); off slower in 3/20, sign test p=0.003
+pgo 10000 pages CPU s: on median 14.64, off 12.95; paired off-on median -2.24 s [95% -2.67, -1.63] (-15.3%)
+pgo 10000 pages, 20 pairs: on median 8.376 s (IQR 8.281-9.506), off median 8.216 s (IQR 7.659-8.667); pages/s on 1194 off 1217; paired off-on median -639.4 ms [95% -878.2, -89.6] (-7.6%); off slower in 6/20, sign test p=0.115

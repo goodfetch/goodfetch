@@ -1,0 +1,6 @@
+x: 798 s (RUSTFLAGS=)
+# 2026-11-07 03:06 restart after the session switch killed the first rerun: instrumented build reuses its compiled crates (KEEP_TARGET=1), so its time is partial
+pgogen: 924 s (RUSTFLAGS=-Cprofile-generate=/Users/jb/agent-targets/peak-cuts/pgo/raw)
+pgo training+merge: 23 s
+pgo: 751 s (RUSTFLAGS=-Cprofile-use=/Users/jb/agent-targets/peak-cuts/pgo/merged.profdata -Cllvm-args=-no-pgo-warn-mismatch)
+one re-link: 1 s

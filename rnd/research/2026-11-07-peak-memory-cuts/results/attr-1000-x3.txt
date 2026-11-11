@@ -1,0 +1,65 @@
+# ../bin/fh-x-syms
+## sections: static MiB, resident MiB
+.text                       90.38    26.23
+.rodata                     10.82     3.66
+.eh_frame                    6.50     0.00
+.gcc_except_table            4.22     0.05
+.data.rel.ro                 2.10     1.22
+.eh_frame_hdr                0.97     0.02
+.bss                         0.24     0.00
+(between sections)                    0.00
+TOTAL resident                       31.25
+## .text by crate: static MiB, resident MiB
+goodfetch_engine                             7.26     3.98
+goodfetch_protocol                           5.19     2.09
+tokio                                        3.27     1.85
+goodfetch_crawl                              1.44     1.25
+goodfetch_fetch_tier                         1.30     0.94
+std/core/alloc                               1.23     0.91
+goodfetch_page                               3.27     0.90
+serde_json                                   1.45     0.88
+jsonschema                                   1.29     0.82
+zbus                                         1.08     0.78
+(other C symbol)                             1.38     0.72
+goodfetch_collie                             0.92     0.60
+schemars                                     1.51     0.54
+C: sqlite                                    0.56     0.52
+goodfetch_frontier                           0.50     0.48
+regex_syntax                                 0.47     0.43
+tokio_util                                   0.71     0.40
+regex_automata                               0.56     0.39
+clap_builder                                 0.40     0.39
+C++: duckdb                                 35.40     0.35
+moka                                         0.37     0.29
+hyper                                        0.46     0.26
+opentelemetry_sdk                            0.51     0.24
+(no symbol)                                  0.00     0.21
+lol_html                                     0.21     0.21
+rustls                                       0.62     0.20
+hickory_proto                                0.34     0.19
+rusqlite                                     0.26     0.19
+tracing_subscriber                           0.19     0.19
+referencing                                  0.19     0.19
+goodfetch_cli                                0.31     0.18
+hashbrown                                    0.28     0.18
+fancy_regex                                  0.18     0.16
+hickory_resolver                             0.27     0.14
+hyper_util                                   0.15     0.14
+http                                         0.16     0.12
+jiff                                         0.14     0.11
+C++: libstdc++ (static parts)                0.45     0.11
+selectors                                    0.20     0.11
+reqwest                                      0.11     0.11
+html5ever                                    0.66     0.10
+jiff_core                                    0.14     0.10
+dom_query                                    0.22     0.09
+zip                                          0.12     0.09
+goodfetch_secret_providers                   0.11     0.08
+## .rodata by crate: static MiB, resident MiB
+(no symbol)                                  0.00     3.33
+C++: duckdb                                  1.02     0.09
+(other C symbol)                             0.12     0.07
+C: boringssl                                 0.31     0.00
+## .data.rel.ro by crate: static MiB, resident MiB
+(no symbol)                                  0.00     0.95
+C++: duckdb                                  0.42     0.05

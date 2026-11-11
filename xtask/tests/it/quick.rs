@@ -4,7 +4,8 @@
 //! at merge. A change of documents alone (`xtask affected`'s `gate=docs`) takes
 //! the docs gate's checks, as `just merge` does (ADR 0135); any other change,
 //! and `all`, takes every lint and the Quick suite. What changed is read
-//! against the base the hook gives, else the branch's upstream off `main`, else
+//! against the base the hook gives, else the branch's upstream off `main`
+//! when it is another branch, never the branch's own remote copy, else
 //! `origin/main`. A green run on a clean checkout records its tree, and the
 //! hook skips a push of a recorded tree, so `just quick` never runs twice on
 //! one tree (`TESTING.md`, Checks by role). Every step runs even after one
@@ -230,9 +231,11 @@ fn repository_on(workspace: &Workspace, branch: &str) {
 /// The floor guard, the scan of the change's commits and `xtask affected`
 /// judge the commits of the change `just quick` reads, against its base, `all`
 /// too, which asks `xtask affected` nothing. Without the hook's base, off
-/// `main`, a branch's upstream is the integration branch its change goes
-/// into, so on it the ticket's own commits count, never those of the tickets
-/// merged into it before; `main`'s change is read against `origin/main`.
+/// `main`, a branch's upstream that is another branch is the integration
+/// branch its change goes into, so on it the ticket's own commits count,
+/// never those of the tickets merged into it before; it stays the base while
+/// the ticket holds no commit of its own, as here. `main`'s change is read
+/// against `origin/main`.
 #[rstest]
 #[case::the_hooks_base("ticket", Some("4b825dc6"), &[], "4b825dc6", Some("4b825dc6"))]
 #[case::the_upstream_off_main("ticket", None, &[], "origin/spec", Some("origin/spec"))]
@@ -270,6 +273,89 @@ fn the_floor_guard_the_commit_scan_and_the_selection_judge_the_change_against_it
         .into_iter()
         .collect();
     assert_eq!(run.cargo_calls, selection_calls);
+}
+
+/// A repository whose `ticket` branch holds one code change since `main` and
+/// was pushed with `git push -u` to `origin`, a bare repository in the
+/// workspace: `ticket` tracks its own remote copy, which holds its head.
+fn a_ticket_pushed_with_its_upstream_set(workspace: &Workspace) {
+    std::fs::write(
+        workspace.path().join(".gitignore"),
+        "/stand-in/\n/target/\n/origin.git/\n",
+    )
+    .unwrap();
+    workspace.git(&["init", "--quiet", "--initial-branch=main"]);
+    workspace.commit_all();
+    workspace.git(&["init", "--quiet", "--bare", "origin.git"]);
+    let origin = workspace.path().join("origin.git");
+    workspace.git(&["remote", "add", "origin", origin.to_str().unwrap()]);
+    workspace.git(&["push", "--quiet", "origin", "main"]);
+    workspace.git(&["switch", "--quiet", "--create", "ticket"]);
+    workspace.write("src/lib.rs", b"//! A code change.\n");
+    workspace.commit_all();
+    workspace.git(&["push", "--quiet", "--set-upstream", "origin", "ticket"]);
+}
+
+/// Against its own remote copy a pushed branch changed nothing: no step
+/// would judge its commits, no test would run, and the run would still record
+/// the tree. So such a branch's change is read against `origin/main`, as when
+/// it has no upstream, and its tree is recorded once the Quick suite ran over
+/// that change.
+#[test]
+fn a_pushed_branch_is_judged_against_origin_main_never_against_its_own_remote_copy() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_ins(&workspace);
+    a_ticket_pushed_with_its_upstream_set(&workspace);
+    selection(&stand_in, "full");
+
+    let run = quick(&workspace, &stand_in, &[]);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(run.cargo_calls, [format!("{AFFECTED} origin/main")]);
+    assert_eq!(
+        run.calls,
+        [
+            "compiler-cache",
+            "floor-guard origin/main",
+            "commit-leaks origin/main",
+            "lint",
+            "test-affected quick --local --since origin/main",
+            "_skips-report"
+        ]
+    );
+    let tree = workspace.git(&["rev-parse", "HEAD^{tree}"]);
+    assert_eq!(recorded_trees(&workspace).as_deref(), Some(tree.as_str()));
+}
+
+/// The hook's base is the commit the push's remote ref holds, so on a pushed
+/// branch too the steps judge what the push adds.
+#[test]
+fn the_base_the_pre_push_hook_gives_wins_on_a_pushed_branch() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_ins(&workspace);
+    a_ticket_pushed_with_its_upstream_set(&workspace);
+    selection(&stand_in, "full");
+
+    let run = quick_with_env(
+        &workspace,
+        &stand_in,
+        &[],
+        &[("GOODFETCH_QUICK_BASE", "4b825dc6")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    assert_eq!(run.cargo_calls, [format!("{AFFECTED} 4b825dc6")]);
+    assert_eq!(
+        run.calls,
+        [
+            "compiler-cache",
+            "floor-guard 4b825dc6",
+            "commit-leaks 4b825dc6",
+            "lint",
+            "test-affected quick --local --since 4b825dc6",
+            "_skips-report"
+        ]
+    );
 }
 
 /// Any hook may start `just quick` with git's `GIT_DIR` set; no step, and no
@@ -490,7 +576,8 @@ fn a_push_runs_quick_without_the_git_dir_git_gives_the_hook() {
 }
 
 /// A new remote branch holds no commit, so `just quick` takes the branch's
-/// own base: its upstream off `main`, else `origin/main`.
+/// own base: its upstream off `main` when it is another branch, else
+/// `origin/main`.
 #[test]
 fn a_push_of_a_new_branch_runs_quick_against_its_own_base() {
     let workspace = Workspace::from_fixture("empty");

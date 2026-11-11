@@ -12,6 +12,13 @@ versioned format readers, upgrade commands and published-version semantics.
 Nightlies and previews count as publication: if any channel is published while
 this status remains pre-release, ask the owner before a breaking change.
 
+From the first preview, the owner's answer of 2026-11-11 (ADR 0030's note of
+that day) is the owner's word for every break between previews. The next
+preview's `upgrade-files` must upgrade every file the previous preview
+wrote, and its release pull request lists each break for the owner's approval.
+A patch of a preview breaks nothing, and the five add-only files only add.
+Nightlies freeze nothing (ADR 0066) and get no upgrade of their own.
+
 ## Money
 
 Goodfetch has no revenue: spend nothing until the owner says so (ADR 0076). For every runner, credit, account, service or assessment, choose the free tier or a local alternative and record the paid option as declined; never create, enable or list as pending anything that bills. Live model calls go through the Vercel AI Gateway's free tier. The owner approved renting one Hetzner Cloud CCX43 server by the hour (€0.531 an hour including VAT), with its Primary IPv4 and a 200 GB volume (about €10 a month), for the implementation and its gate, until the owner ends it. While it is rented, it also runs the nightly fuzzing, which is no reason to keep it; #2454 builds that job. Each published version's comparison report also comes from it while the owner rents it (ADR 0025).

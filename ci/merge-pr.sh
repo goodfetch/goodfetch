@@ -306,7 +306,7 @@ set -m
     # table: no figure past its threshold fails (ADR 0134, as amended on
     # 2026-10-22). So a read that fails, GitHub's API being down, is said and
     # leaves the verdict to the gate's steps.
-    if GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}" cargo run --quiet --bin xtask -- \
+    if GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token)}" cargo run --quiet --locked --bin xtask -- \
       perf pull-request --number "$number" --save target/perf-pull-request.json; then
       export GOODFETCH_PERF_PULL_REQUEST="$worktree/target/perf-pull-request.json"
     else

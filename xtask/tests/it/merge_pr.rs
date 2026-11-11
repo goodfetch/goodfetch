@@ -913,6 +913,14 @@ fn a_full_gate_hands_its_steps_the_pull_requests_acceptance() {
         "{:?}",
         run.calls
     );
+    // The gate builds the head's lockfile as committed, never one Cargo
+    // rewrote.
+    let unlocked: Vec<&String> = run
+        .calls
+        .iter()
+        .filter(|call| call.starts_with("cargo ") && !call.contains(" --locked "))
+        .collect();
+    assert!(unlocked.is_empty(), "{unlocked:?}");
 }
 
 /// The plan only names the earlier run the merge's message credits, and a

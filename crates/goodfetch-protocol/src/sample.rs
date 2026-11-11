@@ -69,7 +69,7 @@ const SAMPLE_ECHOED: Event = Event {
 };
 
 /// `sample.echo_repeats`: the sample module's setting, which the sample
-/// operation does not read yet (`settings::unbuilt`).
+/// operation does not read yet (the engine's list of unbuilt settings).
 pub const SAMPLE_ECHO_REPEATS: Setting = Setting {
     name: "sample.echo_repeats",
     description: "How many times the sample operation repeats a text.",

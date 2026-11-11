@@ -13,7 +13,6 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
 use goodfetch_protocol::foxhound::frontier::FIXED_FOR_A_RUN;
 use goodfetch_protocol::secret_reference::SecretReference;
-use goodfetch_protocol::settings::unbuilt::UNBUILT;
 use goodfetch_protocol::settings::{
     ExplainedSetting, Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsExplanation,
     SettingsFile, SettingsLayer, WeakenedSetting,
@@ -23,6 +22,7 @@ use serde_json::Value;
 use super::error::SettingsError;
 use super::hosts;
 use super::keys::{self, Key};
+use super::unbuilt::UNBUILT;
 use super::values::{Given, Values};
 
 /// An Operator policy: what it sets, locks and caps.
@@ -304,7 +304,7 @@ impl Resolved {
     }
 
     /// Refuses these settings when one whose feature the engine does not
-    /// build yet (`goodfetch_protocol::settings::unbuilt`) is set away
+    /// build yet (`super::unbuilt`) is set away
     /// from its default: nothing reads it, so the scope would open as if
     /// the value applied (ADR 0083).
     ///

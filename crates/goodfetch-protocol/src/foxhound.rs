@@ -92,7 +92,7 @@ const SAMPLE_CRAWLED: Event = Event {
 };
 
 /// `crawl.sample_pages`: the sample crawl's setting, which the sample
-/// crawl does not read yet (`settings::unbuilt`).
+/// crawl does not read yet (the engine's list of unbuilt settings).
 pub const CRAWL_SAMPLE_PAGES: Setting = Setting {
     name: "crawl.sample_pages",
     description: "How many pages the sample crawl visits.",

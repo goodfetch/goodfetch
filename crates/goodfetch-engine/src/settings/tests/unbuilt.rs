@@ -1,5 +1,5 @@
 //! The list of the settings whose feature is not built
-//! (`goodfetch_protocol::settings::unbuilt`) against the workspace's
+//! (`crate::settings::unbuilt`) against the workspace's
 //! sources (ADR 0083): every catalog setting is read by product code,
 //! listed as unbuilt, or locked at its default for every layer, so no
 //! value a scope sets is accepted and then ignored; and a listed setting
@@ -16,10 +16,14 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use goodfetch_protocol::catalog::Authority;
-use goodfetch_protocol::settings::unbuilt::UNBUILT;
+use goodfetch_protocol::catalog::{Authority, Product};
+use goodfetch_protocol::settings::SettingsLayer;
+use serde_json::json;
 
-use crate::settings::keys;
+use crate::settings::resolve::{Layers, resolve};
+use crate::settings::unbuilt::UNBUILT;
+use crate::settings::values::Values;
+use crate::settings::{SettingsError, keys};
 
 /// The crates that are no product code: test tools and the lint tasks.
 const NOT_PRODUCT: [&str; 5] = [
@@ -32,6 +36,9 @@ const NOT_PRODUCT: [&str; 5] = [
 
 /// The crate that declares the settings.
 const PROTOCOL: &str = "goodfetch-protocol";
+
+/// The list itself, which names each listed setting and reads none.
+const THE_LIST: &str = "goodfetch-engine/src/settings/unbuilt.rs";
 
 /// The Rust sources of the product code under `folder`, a crate's `src` or
 /// a folder beneath one: no test module (`tests.rs`, `tests/`) and no
@@ -65,6 +72,7 @@ fn crates(folder: &Path, into: &mut BTreeMap<String, Vec<String>>) {
             }
             let mut files = Vec::new();
             sources(&path.join("src"), &mut files);
+            files.retain(|file| !file.ends_with(THE_LIST));
             let texts = files
                 .iter()
                 .map(|file| std::fs::read_to_string(file).unwrap())
@@ -164,4 +172,35 @@ fn the_unbuilt_list_names_catalog_settings_each_once() {
     once.dedup();
 
     assert_eq!((listed.len(), known.len()), (once.len(), once.len()));
+}
+
+/// A scope beneath a Run, a Session's, that sets a listed setting away
+/// from its default is refused as the Run is, naming the key, the run
+/// layer and the feature; one that sets it to its default opens.
+///
+/// Covers: story:3-88, setting:security.secure_delete
+#[test]
+fn a_scope_beneath_a_run_that_sets_an_unbuilt_setting_is_refused() {
+    let run = resolve(&Layers::default(), Product::Collie, Product::Collie).unwrap();
+    let own = |secure_delete: bool| {
+        let serde_json::Value::Object(set) =
+            json!({ "security": { "secure_delete": secure_delete } })
+        else {
+            unreachable!("a table")
+        };
+        Values::read(SettingsLayer::Run, &set, Product::Collie).unwrap()
+    };
+
+    let refused = run.beneath(&own(false)).map(|_| ());
+    let at_its_default = run.beneath(&own(true)).map(|_| ());
+
+    assert!(
+        matches!(
+            &refused,
+            Err(SettingsError::Unavailable { key, layer: SettingsLayer::Run, feature, .. })
+                if key == "security.secure_delete" && feature == "plain_delete"
+        ),
+        "{refused:?}"
+    );
+    assert!(at_its_default.is_ok(), "{at_its_default:?}");
 }

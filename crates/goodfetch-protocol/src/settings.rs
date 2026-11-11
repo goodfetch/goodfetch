@@ -24,7 +24,6 @@ mod deployment;
 pub mod edit;
 pub mod page_check;
 pub mod session_source;
-pub mod unbuilt;
 
 pub use deployment::{
     BROWSERS_PATH_VARIABLE, CHANNEL_VARIABLE, COLLIE_ENGINE_PATH_VARIABLE, DAEMON_ADDRESS_VARIABLE,

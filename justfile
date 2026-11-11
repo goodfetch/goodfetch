@@ -927,7 +927,7 @@ quick-steps:
     set -euo pipefail
     just="{{ just_executable() }}"
     echo "# Every step runs even after one failed; the run ends with the list of those that failed (ci/keep-going.sh)."
-    echo "# <base>: GOODFETCH_QUICK_BASE, else the branch's upstream off main, else origin/main."
+    echo "# <base>: GOODFETCH_QUICK_BASE, else the branch's upstream off main when it is another branch (never its own remote copy), else origin/main."
     echo "# First, always:"
     echo "just compiler-cache"
     echo "just floor-guard <base>"

@@ -1,0 +1,6 @@
+pgogen: 1404 s (RUSTFLAGS=-Cprofile-generate=/Users/jb/agent-targets/peak-gap/pgo/raw)
+pgo training+merge: 23 s
+pgo: 748 s (RUSTFLAGS=-Cprofile-use=/Users/jb/agent-targets/peak-gap/pgo/merged.profdata -Cllvm-args=-no-pgo-warn-mismatch)
+knobs: 632 s (RUSTFLAGS=-Cprofile-use=/Users/jb/agent-targets/peak-gap/pgo/merged.profdata -Cllvm-args=-no-pgo-warn-mismatch)
+llvm-bolt fh-2165-q: 174 s
+llvm-bolt fh-pgo-order-q: 81 s

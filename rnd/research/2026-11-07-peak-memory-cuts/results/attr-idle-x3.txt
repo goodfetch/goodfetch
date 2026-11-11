@@ -1,0 +1,59 @@
+# ../bin/fh-x-syms
+## sections: static MiB, resident MiB
+.text                       90.38    10.37
+.rodata                     10.82     3.10
+.eh_frame                    6.50     0.00
+.gcc_except_table            4.22     0.05
+.data.rel.ro                 2.10     1.11
+.eh_frame_hdr                0.97     0.02
+.bss                         0.24     0.00
+(between sections)                    0.00
+TOTAL resident                       14.72
+## .text by crate: static MiB, resident MiB
+goodfetch_engine                             7.26     2.14
+goodfetch_protocol                           5.19     0.96
+tokio                                        3.27     0.87
+std/core/alloc                               1.23     0.60
+goodfetch_collie                             0.92     0.54
+clap_builder                                 0.40     0.39
+C++: duckdb                                 35.40     0.35
+serde_json                                   1.45     0.34
+(other C symbol)                             1.38     0.31
+schemars                                     1.51     0.30
+tokio_util                                   0.71     0.23
+opentelemetry_sdk                            0.51     0.22
+goodfetch_page                               3.27     0.21
+moka                                         0.37     0.19
+C: sqlite                                    0.56     0.18
+goodfetch_cli                                0.31     0.15
+regex_automata                               0.56     0.12
+C++: libstdc++ (static parts)                0.45     0.11
+goodfetch_crawl                              1.44     0.11
+jiff                                         0.14     0.11
+tracing_subscriber                           0.19     0.10
+jiff_core                                    0.14     0.10
+(no symbol)                                  0.00     0.10
+C: mimalloc                                  0.08     0.08
+rusqlite                                     0.26     0.07
+goodfetch_foxhound                           0.07     0.07
+hashbrown                                    0.28     0.06
+C++ (other)                                  0.46     0.06
+goodfetch_frontier                           0.50     0.05
+opentelemetry                                0.13     0.05
+hyper                                        0.46     0.05
+tungstenite                                  0.13     0.04
+adblock                                      0.37     0.04
+brotli_decompressor                          0.14     0.04
+goodfetch_fetch_tier                         1.30     0.03
+zbus                                         1.08     0.03
+hickory_net                                  0.25     0.03
+dom_query                                    0.22     0.03
+http                                         0.16     0.03
+## .rodata by crate: static MiB, resident MiB
+(no symbol)                                  0.00     2.81
+(other C symbol)                             0.12     0.07
+C++: duckdb                                  1.02     0.03
+C: boringssl                                 0.31     0.00
+## .data.rel.ro by crate: static MiB, resident MiB
+(no symbol)                                  0.00     0.85
+C++: duckdb                                  0.42     0.05

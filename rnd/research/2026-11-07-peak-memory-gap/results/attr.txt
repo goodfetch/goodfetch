@@ -1,0 +1,203 @@
+== attr-k-r1-raw-1000-c16: 35.3 MiB resident, 27 threads
+    15.31 MiB   19  other anon rw-p
+     9.82 MiB    1  exe r-xp
+     4.02 MiB   26  stack tokio-rt-worker
+     3.75 MiB    1  exe r--p
+     2.18 MiB    2  exe rw-p
+     0.12 MiB    1  stack main
+     0.09 MiB    2  guarded, no thread sp
+     0.03 MiB    1  file /g/.tmplCz4yx/0.0/runs/crawl/run.sqlite-shm
+     0.01 MiB    1  vdso/vvar
+  threads: tokio-rt-workerx26 fh-kx1
+    other    2e947000000 size 1048576 kB rss  12116 kB rw-p 
+    other    76bb36cb4000 size    1840 kB rss   1456 kB rw-p 
+    other    76bb36e84000 size    1584 kB rss    708 kB rw-p 
+    other    76bb37020000 size    1344 kB rss    392 kB rw-p 
+    other    76bb36830000 size     384 kB rss    264 kB rw-p 
+    other    76bb36760000 size     192 kB rss    140 kB rw-p 
+    other    76bb40770000 size     640 kB rss    116 kB rw-p 
+    other    76bb35ee0000 size     256 kB rss     96 kB rw-p 
+    other    76bb367f0000 size     192 kB rss     88 kB rw-p 
+    guarded  76bb36a9f000 size    2116 kB rss     72 kB rw-p 
+    other    76bb367a0000 size     128 kB rss     68 kB rw-p 
+    other    76bb4062b000 size     240 kB rss     56 kB rw-p 
+    other    76bb367c6000 size      48 kB rss     48 kB rw-p 
+    other    76bb406f0000 size     192 kB rss     48 kB rw-p 
+    other    76bb40680000 size     128 kB rss     28 kB rw-p 
+== attr-k-r1-raw-10000-c16: 39.6 MiB resident, 33 threads
+    20.45 MiB   20  other anon rw-p
+     9.82 MiB    1  exe r-xp
+     3.72 MiB    1  exe r--p
+     2.87 MiB   30  stack tokio-rt-worker
+     2.18 MiB    2  exe rw-p
+     0.18 MiB    1  stack run-state-wal-c
+     0.14 MiB    1  guarded, no thread sp
+     0.12 MiB    1  stack main
+     0.06 MiB    2  file /g/.tmpNCVSDl/0.0/runs/crawl/run.sqlite-shm
+     0.02 MiB    1  stack run-state-write
+     0.01 MiB    1  vdso/vvar
+  threads: tokio-rt-workerx30 fh-kx1 run-state-wal-cx1 run-state-writex1
+    other    22c9dc00000 size 1048576 kB rss  13284 kB rw-p 
+    other    77f2a1af0000 size    3712 kB rss   3128 kB rw-p 
+    other    77f2a25e4000 size    1904 kB rss   1468 kB rw-p 
+    other    77f2a27c4000 size    1520 kB rss    788 kB rw-p 
+    other    77f2a19f0000 size     832 kB rss    680 kB rw-p 
+    other    77f2a2950000 size    1472 kB rss    468 kB rw-p 
+    other    77f2a1990000 size     320 kB rss    264 kB rw-p 
+    other    77f2a2140000 size     384 kB rss    248 kB rw-p 
+    guarded  77f2a1e9f000 size    2244 kB rss    148 kB rw-p 
+    other    77f2ac490000 size     640 kB rss    128 kB rw-p 
+    other    77f2a20da000 size      96 kB rss     96 kB rw-p 
+    other    77f2a10a0000 size     192 kB rss     88 kB rw-p 
+    other    77f2a2110000 size     128 kB rss     84 kB rw-p 
+    other    77f2a1100000 size      64 kB rss     64 kB rw-p 
+    other    77f2a1ad0000 size      64 kB rss     64 kB rw-p 
+== attr-w4-r1-raw-1000-c16: 28.6 MiB resident, 15 threads
+    11.45 MiB   15  other anon rw-p
+     9.82 MiB    1  exe r-xp
+     3.75 MiB    1  exe r--p
+     2.18 MiB    2  exe rw-p
+     0.96 MiB   13  stack tokio-rt-worker
+     0.25 MiB    3  guarded, no thread sp
+     0.12 MiB    1  stack main
+     0.03 MiB    1  file /g/.tmpdo0DIL/0.0/runs/crawl/run.sqlite-shm
+     0.01 MiB    1  vdso/vvar
+  threads: tokio-rt-workerx14 fh-kx1
+    other    23e8b000000 size 1048576 kB rss   8048 kB rw-p 
+    other    792387774000 size    2096 kB rss   1796 kB rw-p 
+    other    792387984000 size    1520 kB rss    588 kB rw-p 
+    other    792386d10000 size     704 kB rss    424 kB rw-p 
+    other    792387b10000 size    1536 kB rss    352 kB rw-p 
+    guarded  7923894ef000 size    2244 kB rss    212 kB rw-p 
+    other    7923872f0000 size     384 kB rss    128 kB rw-p 
+    other    792389730000 size     576 kB rss    124 kB rw-p 
+    other    792387250000 size     256 kB rss    100 kB rw-p 
+    other    79238fc2b000 size     240 kB rss     52 kB rw-p 
+    other    7923872ca000 size      48 kB rss     48 kB rw-p 
+    guarded  79238735c000 size    2052 kB rss     24 kB rw-p 
+    other    7923872a0000 size     128 kB rss     20 kB rw-p 
+    guarded  79238755f000 size    2116 kB rss     20 kB rw-p 
+    other    79238fc70000 size      64 kB rss     20 kB rw-p 
+== attr-w4-r1-raw-10000-c16: 32.5 MiB resident, 17 threads
+    14.96 MiB   18  other anon rw-p
+     9.82 MiB    1  exe r-xp
+     3.75 MiB    1  exe r--p
+     2.18 MiB    2  exe rw-p
+     1.38 MiB   16  stack tokio-rt-worker
+     0.24 MiB    3  guarded, no thread sp
+     0.12 MiB    1  stack main
+     0.06 MiB    2  file /g/.tmp393lgm/0.0/runs/crawl/run.sqlite-shm
+     0.01 MiB    1  vdso/vvar
+  threads: tokio-rt-workerx16 fh-kx1
+    other    2b8aac00000 size 1048576 kB rss   8224 kB rw-p 
+    other    711010730000 size    4416 kB rss   3328 kB rw-p 
+    other    7110112c4000 size    2096 kB rss   1920 kB rw-p 
+    other    7110114d4000 size    1328 kB rss    548 kB rw-p 
+    other    711011630000 size    1408 kB rss    360 kB rw-p 
+    other    711010db4000 size     304 kB rss    236 kB rw-p 
+    other    711010e30000 size     384 kB rss    180 kB rw-p 
+    other    711019920000 size     640 kB rss    168 kB rw-p 
+    guarded  711010b8f000 size    2180 kB rss    140 kB rw-p 
+    other    7110198d0000 size     256 kB rss    112 kB rw-p 
+    other    711010460000 size     128 kB rss     92 kB rw-p 
+    guarded  71101109f000 size    2180 kB rss     84 kB rw-p 
+    other    71101982b000 size     240 kB rss     52 kB rw-p 
+    other    711010e0a000 size      48 kB rss     48 kB rw-p 
+    guarded  711010e9c000 size    2052 kB rss     24 kB rw-p 
+== attr-ovr-r1-raw-1000-c16: 32.2 MiB resident, 27 threads
+    13.89 MiB    6  other anon rw-p
+     9.80 MiB    1  exe r-xp
+     3.75 MiB    1  exe r--p
+     2.35 MiB   26  stack tokio-rt-worker
+     2.18 MiB    2  exe rw-p
+     0.12 MiB    1  stack main
+     0.03 MiB    2  guarded, no thread sp
+     0.03 MiB    1  file /g/.tmp7JIqRH/0.0/runs/crawl/run.sqlite-shm
+     0.01 MiB    1  vdso/vvar
+  threads: tokio-rt-workerx26 fh-k-ovrx1
+    other    3fc1fc00000 size 1048576 kB rss  14148 kB rw-p 
+    other    74005a62a000 size     212 kB rss     52 kB rw-p 
+    guarded  74005096e000 size    2052 kB rss     24 kB rw-p 
+    guarded  740050b71000 size    2052 kB rss      8 kB rw-p 
+    other    7400541c0000 size    2304 kB rss      8 kB rw-p 
+    other    74005a6bd000 size      64 kB rss      8 kB rw-p 
+    other    74005a6d0000 size      64 kB rss      4 kB rw-p 
+    other    74005a6e0000 size       4 kB rss      4 kB rw-p 
+== attr-ovr-r1-raw-10000-c16: 33.6 MiB resident, 34 threads
+    15.13 MiB    5  other anon rw-p
+     9.81 MiB    1  exe r-xp
+     3.75 MiB    1  exe r--p
+     2.48 MiB   30  stack tokio-rt-worker
+     2.18 MiB    2  exe rw-p
+     0.12 MiB    1  stack main
+     0.06 MiB    2  file /g/.tmpUikwvG/0.0/runs/crawl/run.sqlite-shm
+     0.02 MiB    1  guarded, no thread sp
+     0.01 MiB    1  stack politeness-file
+     0.01 MiB    1  stack run-state-wal-c
+     0.01 MiB    1  vdso/vvar
+  threads: tokio-rt-workerx30 fh-k-ovrx1 run-state-wal-cx1 run-state-writex1 politeness-filex1
+    other    2c775c00000 size 1048576 kB rss  15408 kB rw-p 
+    other    7a565942a000 size     212 kB rss     52 kB rw-p 
+    guarded  7a564f971000 size    2052 kB rss     24 kB rw-p 
+    other    7a5659563000 size      64 kB rss     20 kB rw-p 
+    other    7a5652fc0000 size    2304 kB rss      8 kB rw-p 
+    other    7a5659573000 size       4 kB rss      4 kB rw-p 
+== attr-mb4-r1-raw-1000-c16: 32.6 MiB resident, 23 threads
+    14.04 MiB   16  other anon rw-p
+     9.84 MiB    1  exe r-xp
+     3.75 MiB    1  exe r--p
+     2.33 MiB   20  stack tokio-rt-worker
+     2.18 MiB    2  exe rw-p
+     0.26 MiB    2  guarded, no thread sp
+     0.12 MiB    1  stack main
+     0.03 MiB    1  file /g/.tmpHrd1TJ/0.0/runs/crawl/run.sqlite-shm
+     0.03 MiB    1  stack run-state-wal-c
+     0.01 MiB    1  vdso/vvar
+  threads: tokio-rt-workerx20 fh-kx1 run-state-wal-cx1 run-state-writex1
+    other    49c07000000 size 1048576 kB rss  10228 kB rw-p 
+    other    7e7ccb904000 size    2224 kB rss   1948 kB rw-p 
+    other    7e7ccb020000 size    1472 kB rss    684 kB rw-p 
+    other    7e7ccbb34000 size    1392 kB rss    468 kB rw-p 
+    guarded  7e7ccb19f000 size    2436 kB rss    244 kB rw-p 
+    other    7e7cd4a80000 size     640 kB rss    212 kB rw-p 
+    other    7e7ccbca0000 size     896 kB rss    176 kB rw-p 
+    other    7e7ccb490000 size     256 kB rss    164 kB rw-p 
+    other    7e7cd4ba0000 size     640 kB rss    148 kB rw-p 
+    other    7e7ccb424000 size     112 kB rss    112 kB rw-p 
+    other    7e7ccb450000 size     192 kB rss     80 kB rw-p 
+    other    7e7cd4b50000 size     256 kB rss     72 kB rw-p 
+    other    7e7cd4a2b000 size     240 kB rss     52 kB rw-p 
+    guarded  7e7ccb4dc000 size    2052 kB rss     24 kB rw-p 
+    other    7e7cd4b90000 size      64 kB rss     12 kB rw-p 
+== attr-sp-r1-raw-1000-c16: 22.1 MiB resident, 34 threads
+     7.38 MiB   30  guarded, no thread sp
+     3.87 MiB    1  exe r-xp
+     3.03 MiB   12  other anon rw-p
+     1.95 MiB    1  brk heap (musl malloc)
+     1.73 MiB    2  exe r--p
+     1.64 MiB    5  file /usr/lib/x86_64-linux-gnu/libc.so.6
+     1.12 MiB    2  stack tokio-rt-worker
+     0.65 MiB    5  file /usr/lib/x86_64-linux-gnu/libm.so.6
+     0.24 MiB    5  file /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2
+     0.18 MiB    1  stack connect-backgro
+     0.18 MiB    1  stack main
+     0.10 MiB    5  file /usr/lib/x86_64-linux-gnu/libgcc_s.so.1
+     0.03 MiB    1  stack spider
+     0.02 MiB    1  exe rw-p
+     0.01 MiB    1  vdso/vvar
+  threads: tokio-rt-workerx16 connect-backgrox16 spiderx2
+    other    700bc8588000 size    2468 kB rss   2468 kB rw-p 
+    guarded  700b84000000 size     796 kB rss    704 kB rw-p 
+    guarded  700b80000000 size     672 kB rss    600 kB rw-p 
+    guarded  700bac000000 size     672 kB rss    576 kB rw-p 
+    other    700bc4000000 size     640 kB rss    560 kB rw-p 
+    guarded  700b9c000000 size     612 kB rss    552 kB rw-p 
+    guarded  700b98000000 size     624 kB rss    544 kB rw-p 
+    guarded  700b88000000 size     588 kB rss    516 kB rw-p 
+    guarded  700bb4000000 size     600 kB rss    512 kB rw-p 
+    guarded  700b7c000000 size     568 kB rss    500 kB rw-p 
+    guarded  700bb0000000 size     520 kB rss    500 kB rw-p 
+    guarded  700b94000000 size     544 kB rss    488 kB rw-p 
+    guarded  700ba4000000 size     516 kB rss    452 kB rw-p 
+    guarded  700bbc000000 size     488 kB rss    436 kB rw-p 
+    guarded  700ba8000000 size     412 kB rss    356 kB rw-p 

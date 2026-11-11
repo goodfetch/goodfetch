@@ -1555,8 +1555,9 @@ hooks:
 # `gate=docs`), `just pre-merge quick` when no test reads the change
 # (`gate=quick`), and for a change a test reads `just pre-merge all`, which
 # starts with `just quick all`'s lint and Quick suite, on a spec's pull
-# request (head branch `spec/<n>`) and `just pre-merge quick` on any other
-# (ADR 0135's amendment of 2026-11-10); `just merge <number> --full` runs
+# request (head branch `spec/<n>`) and on the tenth such change since the
+# last full gate, and `just pre-merge quick` on any other (ADR 0135's
+# amendments of 2026-11-10); `just merge <number> --full` runs
 # the full gate on any pull request. It refuses once 10 merges have landed on `main` since
 # the backstop's last green run (ci/merge-cap.sh) unless the owner passes
 # `--past-cap`: `just merge <number> --past-cap`. It refuses to start a gate

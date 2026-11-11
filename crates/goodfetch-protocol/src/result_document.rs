@@ -798,8 +798,8 @@ pub struct JourneyFacts {
     pub surface: String,
     /// The executable the variant drove.
     pub executable: Executable,
-    /// The surface's package, for a surface that has one (an SDK, the
-    /// Console's build, an adapter).
+    /// The surface's package, for a surface that has one (an SDK, an
+    /// adapter).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub surface_package: Option<SurfacePackage>,
     /// Where it ran.

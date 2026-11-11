@@ -7,7 +7,6 @@ exit: 0
 ----- stdout -----
 {
   "address": "[address]",
-  "console_url": null,
   "major": "0.0",
   "pid": "[pid]",
   "product": "collie",
@@ -20,7 +19,6 @@ exit: 0
 ----- stdout -----
 {
   "address": "[address]",
-  "console_url": null,
   "major": "0.0",
   "pid": "[pid]",
   "product": "collie",
@@ -33,7 +31,6 @@ exit: 0
 ----- stdout -----
 {
   "address": "[address]",
-  "console_url": null,
   "major": "0.0",
   "pid": "[pid]",
   "product": "collie",
@@ -46,7 +43,6 @@ exit: 0
 ----- stdout -----
 {
   "address": null,
-  "console_url": null,
   "major": "0.0",
   "pid": null,
   "product": null,

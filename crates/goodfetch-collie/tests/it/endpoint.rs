@@ -51,12 +51,7 @@ pub(crate) fn reason(rule: Rule) -> Option<&'static str> {
         Rule::HostForeign => "host_foreign",
         Rule::OriginForeign => "origin_foreign",
         Rule::HelloNotFirst => "hello_not_first",
-        Rule::OriginMissing
-        | Rule::ProbesAnswerStatusOnly
-        | Rule::CsrfTokenMissing
-        | Rule::SignInRevoked
-        | Rule::TokenForAnotherFile
-        | Rule::SignInRateExceeded => return None,
+        Rule::OriginMissing | Rule::ProbesAnswerStatusOnly => return None,
     })
 }
 
@@ -159,8 +154,8 @@ fn names_loopback(value: &Value) -> bool {
 
 /// With nothing configured, every listener binds to loopback or not at
 /// all: the Daemon's socket is a Unix socket (loopback TCP on Windows), an
-/// Attached engine's private endpoint too, `daemon run` and the Console
-/// default to `127.0.0.1`, and no ops listener opens until `ops.address`
+/// Attached engine's private endpoint too, `daemon run`
+/// defaults to `127.0.0.1`, and no ops listener opens until `ops.address`
 /// names one.
 ///
 /// Covers: story:4-21, setting:daemon.address, setting:ops.address
@@ -179,7 +174,6 @@ fn every_listener_binds_to_loopback_unless_configured_otherwise() {
         serde_json::from_value(reply["result"]["private_endpoint"]["address"].clone()).unwrap();
     let defaults = [
         explained(&env, "daemon.address"),
-        explained(&env, "console.address"),
         explained(&env, "ops.address"),
     ];
     let foreground = TestEnv::new();
@@ -197,11 +191,10 @@ fn every_listener_binds_to_loopback_unless_configured_otherwise() {
             on_loopback(&daemon_socket),
             on_loopback(&private_endpoint),
             names_loopback(&defaults[0]),
-            names_loopback(&defaults[1]),
-            defaults[2].clone(),
+            defaults[1].clone(),
             ops_listener_opened,
         ),
-        (true, true, true, true, Value::Null, false)
+        (true, true, true, Value::Null, false)
     );
 }
 

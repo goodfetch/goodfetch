@@ -11,7 +11,7 @@
 //! A pinned host that presents another key, or whose pin row the engine
 //! cannot read, stops with `certificate_changed` until a person accepts the
 //! new key with `certs.accept`; `certs.forget` removes a pin. Both are a
-//! person's answers, offered only in the Console and an interactive CLI
+//! person's answers, offered only in the Kennel and an interactive CLI
 //! prompt (ADRs 0011 and 0042).
 
 use schemars::JsonSchema;
@@ -324,7 +324,7 @@ pub struct CertsAcceptParams {
 /// `certs.accept` (ADR 0042).
 pub const CERTS_ACCEPT: Operation = Operation {
     name: "certs.accept",
-    description: "Pins the changed key that stopped a host with `certificate_changed` in place of its pin, in the caller's partition, and records the accepted change in the Audit log; answers the new pin. Refused unless the key is the change the store holds for the host. A person's answer: offered only in the Console and the interactive CLI prompt.",
+    description: "Pins the changed key that stopped a host with `certificate_changed` in place of its pin, in the caller's partition, and records the accepted change in the Audit log; answers the new pin. Refused unless the key is the change the store holds for the host. A person's answer: offered only in the Kennel and the interactive CLI prompt.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::PersonOnly,
@@ -360,7 +360,7 @@ pub struct CertsForgotten {
 /// `certs.forget` (ADR 0042).
 pub const CERTS_FORGET: Operation = Operation {
     name: "certs.forget",
-    description: "Removes the caller's pin of a host, and any change waiting for it, so its next connection under trust on first use pins again; nothing else removes a pin. A person's answer: offered only in the Console and the interactive CLI prompt.",
+    description: "Removes the caller's pin of a host, and any change waiting for it, so its next connection under trust on first use pins again; nothing else removes a pin. A person's answer: offered only in the Kennel and the interactive CLI prompt.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::PersonOnly,

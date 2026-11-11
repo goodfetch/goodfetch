@@ -240,15 +240,6 @@ export class ConnectionLostError extends UnavailableError {
 }
 
 /**
- * The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon.
- */
-export class ConsolePortInUseError extends UnavailableError {
-  constructor(message: string, fields: ErrorFields = {}) {
-    super(message, { ...fields, code: "console_port_in_use", group: "unavailable", retryable: false });
-  }
-}
-
-/**
  * The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.
  */
 export class DaemonDrainingError extends UnavailableError {
@@ -528,7 +519,7 @@ export class PatternUnsupportedError extends ProgramError {
 }
 
 /**
- * Only a person gives this answer, in the Console, the Kennel or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console or the Kennel, or run the command in a terminal.
+ * Only a person gives this answer, in the Kennel or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Kennel, or run the command in a terminal.
  */
 export class PersonRequiredError extends RefusedError {
   constructor(message: string, fields: ErrorFields = {}) {
@@ -879,7 +870,6 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   certificate_invalid: CertificateInvalidError,
   closed: ClosedError,
   connection_lost: ConnectionLostError,
-  console_port_in_use: ConsolePortInUseError,
   daemon_draining: DaemonDrainingError,
   daemon_unreachable: DaemonUnreachableError,
   dialog_already_handled: DialogAlreadyHandledError,

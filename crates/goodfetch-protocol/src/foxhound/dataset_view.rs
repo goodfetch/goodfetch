@@ -1,4 +1,4 @@
-//! How the Console reads a crawl's Datasets (spec #593, stories 204, 205
+//! How a person surface reads a crawl's Datasets (spec #593, stories 204, 205
 //! and 233; ADRs 0031 and 0103): `dataset.list`, each Dataset a crawl
 //! declares with its JSON Schema, its key and how many Records were
 //! committed, dropped and rejected; and `dataset.page`, one page of a

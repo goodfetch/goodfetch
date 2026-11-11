@@ -4,9 +4,8 @@
 //! one, so both prove the same cases. Each case opens its own Connections as
 //! the Clients it names, each opened with a `hello` that presents the
 //! gateway's token: a Collie or a Foxhound Client, whose runs the routing
-//! rule gives the Product its `hello` needs, a model's Client through the
-//! MCP server, or the Console, whose runs it gives the Product their target
-//! names. A case tells which engine a run landed on from what that engine
+//! rule gives the Product its `hello` needs, or a model's Client through the
+//! MCP server. A case tells which engine a run landed on from what that engine
 //! answers (`not_in_product` naming Collie and no install, worded for the
 //! gateway, comes only from Collie's engine behind the gateway, an answer
 //! to a Foxhound-only call only from Foxhound's), so it asserts only what a
@@ -26,7 +25,7 @@ use goodfetch_protocol::result_document::{
     CaseCheck, ConformanceDocument, ConformanceHeader, Evidence, Suite, Target, TargetIdentity,
 };
 use goodfetch_protocol::run::{RUN_CONFLICT, RUN_START, RUN_USAGE};
-use goodfetch_protocol::settings::{SETTING_LOCKED, SETTING_NOT_APPLICABLE};
+use goodfetch_protocol::settings::SETTING_LOCKED;
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -354,8 +353,6 @@ enum As {
     Program(Product),
     /// The MCP server, a Client acting for a model, that needs Collie.
     Model,
-    /// The Console, served Foxhound's build.
-    Console,
 }
 
 impl<'a> CaseRun<'a> {
@@ -381,7 +378,6 @@ impl<'a> CaseRun<'a> {
         let (product, surface) = match who {
             As::Program(product) => (product, Surface::Rust),
             As::Model => (Product::Collie, Surface::Mcp),
-            As::Console => (Product::Foxhound, Surface::Console),
         };
         let (mut connection, hello) =
             open(self.target, product, surface).map_err(|error| Gone::Failed(error.to_string()))?;
@@ -519,9 +515,6 @@ enum GatewayCase {
     ModelsClient,
     CollieClientsRun,
     FoxhoundClientsRun,
-    ConsoleRunOfCollie,
-    ConsoleCrawlStart,
-    ConsoleCrawlSetting,
     KnownRunId,
     RawCrawlStart,
     CrawlSetting,
@@ -542,13 +535,6 @@ impl GatewayCase {
             "a-models-client-is-held-to-a-models-settings-behind-the-gateway" => Self::ModelsClient,
             "a-collie-clients-run-lands-on-collies-engine" => Self::CollieClientsRun,
             "a-foxhound-clients-run-lands-on-foxhounds-engine" => Self::FoxhoundClientsRun,
-            "a-console-run-naming-nothing-only-foxhound-carries-lands-on-collies-engine" => {
-                Self::ConsoleRunOfCollie
-            }
-            "a-console-crawl-start-lands-on-foxhounds-engine" => Self::ConsoleCrawlStart,
-            "a-console-run-setting-a-crawl-key-lands-on-foxhounds-engine" => {
-                Self::ConsoleCrawlSetting
-            }
             "a-start-naming-a-known-run-id-goes-to-that-runs-engine" => Self::KnownRunId,
             "a-collie-programs-raw-crawl-start-answers-not-in-product-naming-the-runs-product" => {
                 Self::RawCrawlStart
@@ -588,31 +574,6 @@ impl GatewayCase {
                 let foxhound = run.client(As::Program(Product::Foxhound))?;
                 let run_id = run.start(foxhound, RUN_START.name, &json!({}))?;
                 run.landed_on(run_id.as_deref(), Product::Foxhound)
-            }
-            Self::ConsoleRunOfCollie => {
-                let console = run.client(As::Console)?;
-                let run_id = run.start(console, RUN_START.name, &json!({}))?;
-                run.landed_on(run_id.as_deref(), Product::Collie)
-            }
-            Self::ConsoleCrawlStart => {
-                let console = run.client(As::Console)?;
-                let run_id = run.start(console, CRAWL_START, &crawl_of_nothing())?;
-                run.landed_on(run_id.as_deref(), Product::Foxhound)
-            }
-            Self::ConsoleCrawlSetting => {
-                // Foxhound's engine carries the key and refuses it on a run
-                // that is no crawl; Collie's would refuse it as Foxhound's.
-                let console = run.client(As::Console)?;
-                let answer = run.call(
-                    console,
-                    RUN_START.name,
-                    &json!({"settings": {"crawl": {"max_requests": 10}}}),
-                )?;
-                run.check(
-                    "Foxhound's engine answers the start, refusing the crawl key on a run that is no crawl with `setting_not_applicable`",
-                    code_of(&answer) == SETTING_NOT_APPLICABLE.name,
-                );
-                Ok(())
             }
             Self::KnownRunId => known_run_id(run),
             Self::RawCrawlStart => {
@@ -689,18 +650,19 @@ fn clients_per_product(run: &mut CaseRun<'_>) -> Result<(), Gone> {
 }
 
 /// A start naming a Run ID the gateway's index holds goes to that run's
-/// engine: a run the Console started on Foxhound's engine stays there when
-/// the Console starts its Run ID again with nothing only Foxhound carries,
-/// which a new Run ID would put on Collie's. Foxhound's engine answers that
-/// start, whose inputs differ from the run's, with `run_conflict`; a new
-/// engine would start a run of its own.
+/// engine: a run a Foxhound Client started on Foxhound's engine stays there
+/// when a Collie Client starts its Run ID again, which a new Run ID would put
+/// on Collie's. Foxhound's engine answers that start, whose inputs differ
+/// from the run's, with `run_conflict`; a new engine would start a run of
+/// its own.
 fn known_run_id(run: &mut CaseRun<'_>) -> Result<(), Gone> {
-    let console = run.client(As::Console)?;
-    let run_id = run.start(console, CRAWL_START, &crawl_of_nothing())?;
+    let foxhound = run.client(As::Program(Product::Foxhound))?;
+    let run_id = run.start(foxhound, CRAWL_START, &crawl_of_nothing())?;
     let Some(run_id) = run_id else {
         return Ok(());
     };
-    let again = run.call(console, RUN_START.name, &json!({ "run_id": run_id }))?;
+    let collie = run.client(As::Program(Product::Collie))?;
+    let again = run.call(collie, RUN_START.name, &json!({ "run_id": run_id }))?;
     run.check(
         "the start of the known Run ID reaches its run, which answers `run_conflict` for the start's other inputs",
         code_of(&again) == RUN_CONFLICT.name

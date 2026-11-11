@@ -8,7 +8,7 @@
 //! the file kept, after the resolver confirmed that no Operator policy locks
 //! the key, and records the answer in the Audit log with the warning the
 //! person was shown; the item then leaves the list at the source's next read. The catalog marks it person only, so the RPC
-//! layer refuses it to every surface but the Console's and the CLI's.
+//! layer refuses it to every surface but the Kennel's and the CLI's.
 //! The answers to a `wall_refetch_stopped` item, which write
 //! `wall.refetch_domains` and `wall.denied_domains`, are in [`refetch`].
 
@@ -215,7 +215,7 @@ fn allow(editor: &SettingsEditor, domain: &str, warning: &str) -> Result<bool, R
 }
 
 /// What a person takes on by adding `domain`, or `*`, to `consent.domains`
-/// (ADRs 0048 and 0052), in the words the Console shows beside the answer
+/// (ADRs 0048 and 0052), in the words a person surface shows beside the answer
 /// and the Audit log records with it.
 fn consent_domain_warning(domain: &str) -> String {
     if domain == "*" {

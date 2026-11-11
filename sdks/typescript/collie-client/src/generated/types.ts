@@ -49,16 +49,7 @@ export type Actor =
        * Its surface.
        */
       surface:
-        | "sdk_typescript"
-        | "sdk_python"
-        | "rust"
-        | "cli"
-        | "mcp"
-        | "console"
-        | "kennel"
-        | "cloud"
-        | "browser_host"
-        | "worker";
+        "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "kennel" | "cloud" | "browser_host" | "worker";
     }
   | {
       kind: "engine";
@@ -116,7 +107,7 @@ export type RunId = string;
  * via the `definition` "Surface".
  */
 export type Surface =
-  "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "console" | "kennel" | "cloud" | "browser_host" | "worker";
+  "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "kennel" | "cloud" | "browser_host" | "worker";
 /**
  * A browser family, as ADR 0056 names them.
  *
@@ -146,21 +137,6 @@ export type Completeness = "complete" | "incomplete" | "unverified";
  * via the `definition` "RunOrigin".
  */
 export type RunOrigin = "argument" | "settings" | "flag" | "form";
-/**
- * Where a Daemon's Console is, as its runtime file and `daemon status`
- * report it.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "ConsoleState".
- */
-export type ConsoleState =
-  | {
-      serving: string;
-    }
-  | {
-      failed: ConsoleFailure1;
-    }
-  | "absent";
 /**
  * Where a Daemon or an Attached engine's private endpoint listens (ADR
  * 0024): a `0600` Unix socket on macOS and Linux, loopback TCP on
@@ -1217,16 +1193,7 @@ export interface ExportedAuditEntry {
          * Its surface.
          */
         surface:
-          | "sdk_typescript"
-          | "sdk_python"
-          | "rust"
-          | "cli"
-          | "mcp"
-          | "console"
-          | "kennel"
-          | "cloud"
-          | "browser_host"
-          | "worker";
+          "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "kennel" | "cloud" | "browser_host" | "worker";
       }
     | {
         kind: "engine";
@@ -1269,8 +1236,8 @@ export interface ExportedAuditEntry {
    */
   sequence: number;
   /**
-   * The surface the actor acted through, such as `console` for a person
-   * in the Console; none for the engine's own events.
+   * The surface the actor acted through, such as `kennel` for a person
+   * in the Kennel; none for the engine's own events.
    */
   surface?: Surface | null;
   /**
@@ -1720,43 +1687,10 @@ export interface ConsentDomainAllowed {
    */
   layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
   /**
-   * What the person takes on, in plain words, as the Console showed it
+   * What the person takes on, in plain words, as the person surface showed it
    * beside the answer and the Audit log records it.
    */
   warning: string;
-}
-/**
- * Why a Daemon's Console did not start: an Error code, its message and
- * what to do instead.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "ConsoleFailure".
- */
-export interface ConsoleFailure {
-  /**
-   * The Error code, such as `console_port_in_use`.
-   */
-  code: string;
-  /**
-   * What to do instead.
-   */
-  fix: string;
-  /**
-   * What happened.
-   */
-  message: string;
-}
-/**
- * What `console.rotate_key` answers.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "ConsoleKeyRotated".
- */
-export interface ConsoleKeyRotated {
-  /**
-   * How many sign-ins it ended: every one.
-   */
-  signed_out: number;
 }
 /**
  * Where a console message was written: its script's URL and position, as
@@ -1818,31 +1752,6 @@ export interface ConsoleLocation1 {
    * The script's URL; empty for a script the page evaluated.
    */
   url: string;
-}
-/**
- * What `console.rotate_key` takes: nothing.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "ConsoleRotateKeyParams".
- */
-export interface ConsoleRotateKeyParams {}
-/**
- * Why a Daemon's Console did not start: an Error code, its message and
- * what to do instead.
- */
-export interface ConsoleFailure1 {
-  /**
-   * The Error code, such as `console_port_in_use`.
-   */
-  code: string;
-  /**
-   * What to do instead.
-   */
-  fix: string;
-  /**
-   * What happened.
-   */
-  message: string;
 }
 /**
  * The contacts the page shows, each value once, where it first appears.
@@ -2033,20 +1942,9 @@ export interface DaemonParams {}
  */
 export interface DaemonState {
   /**
-   * How many Clients are connected, the caller and Consoles included.
+   * How many Clients are connected, the caller included.
    */
   clients: number;
-  /**
-   * Where its Console is served, or why it is not.
-   */
-  console:
-    | {
-        serving: string;
-      }
-    | {
-        failed: ConsoleFailure1;
-      }
-    | "absent";
   /**
    * Where it listens.
    */
@@ -2788,8 +2686,8 @@ export interface ExplainedSetting {
   products: Product[];
   /**
    * Whether user configuration may set it: its authority lets user
-   * configuration hold it and no lower layer locked it, so the Console
-   * offers its user-level value for editing (ADR 0031).
+   * configuration hold it and no lower layer locked it, so a person
+   * surface may offer its user-level value for editing (ADR 0031).
    */
   user_settable?: boolean;
   /**
@@ -3035,17 +2933,7 @@ export interface HelloParams {
   /**
    * The surface a `hello` comes from (ADR 0024).
    */
-  surface:
-    | "sdk_typescript"
-    | "sdk_python"
-    | "rust"
-    | "cli"
-    | "mcp"
-    | "console"
-    | "kennel"
-    | "cloud"
-    | "browser_host"
-    | "worker";
+  surface: "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "kennel" | "cloud" | "browser_host" | "worker";
   /**
    * The Daemon's token; an Attached engine needs none.
    */
@@ -3058,13 +2946,6 @@ export interface HelloParams {
  * via the `definition` "HelloResult".
  */
 export interface HelloResult {
-  /**
-   * The sign-in link of the Console an Attached engine serves for its
-   * script, which asked for one with a Console address, reported to the
-   * Client of its stdio alone: `<url>#token=<token>`, whose fragment the
-   * page swaps once for its cookie (ADRs 0024 and 0031).
-   */
-  console_link?: string | null;
   /**
    * The engine process, new each time an engine starts: the positions
    * of its events count within it, so a Client that meets a new one
@@ -6300,11 +6181,6 @@ export interface RunReport {
    */
   completeness_reasons?: AxisReason[];
   /**
-   * Its page in the Console, where its Run trace replays, when the
-   * engine knows a Console address (ADR 0031).
-   */
-  console_url?: string | null;
-  /**
    * A point in time in UTC, as RFC 3339.
    */
   ended_at: string;
@@ -7122,75 +6998,6 @@ export interface SettingsFile {
    * Its path.
    */
   path: string;
-}
-/**
- * What `sign_in.list` answers.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "SignInList".
- */
-export interface SignInList {
-  /**
-   * Every sign-in that has not ended, oldest first.
-   */
-  sign_ins: SignInSummary[];
-}
-/**
- * One sign-in, as `sign_in.list` shows it: never its cookie.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "SignInSummary".
- */
-export interface SignInSummary {
-  /**
-   * A point in time in UTC, as RFC 3339.
-   */
-  created: string;
-  /**
-   * Its identifier, which `sign_in.revoke` takes.
-   */
-  id: string;
-  /**
-   * A point in time in UTC, as RFC 3339.
-   */
-  last_used: string;
-  /**
-   * The person it signs in, by the name their account or OS user goes
-   * by.
-   */
-  person: string;
-}
-/**
- * What `sign_in.list` takes: nothing.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "SignInListParams".
- */
-export interface SignInListParams {}
-/**
- * What `sign_in.revoke` takes.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "SignInRevokeParams".
- */
-export interface SignInRevokeParams {
-  /**
-   * The sign-in's identifier, as `sign_in.list` gives it.
-   */
-  id: string;
-}
-/**
- * What `sign_in.revoke` answers.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "SignInRevoked".
- */
-export interface SignInRevoked {
-  /**
-   * Whether a sign-in ended: `false` when none had that identifier, or
-   * it had already ended.
-   */
-  revoked: boolean;
 }
 /**
  * A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,

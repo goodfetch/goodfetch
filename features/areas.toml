@@ -1185,25 +1185,7 @@ number = 5
 kind = "error"
 prefix = "browser_host_outdated"
 
-# Area 12, the Console (spec #592): its address and the Error code of its
-# port taken (#811).
-[[area]]
-number = 12
-kind = "error"
-prefix = "console_"
-
-[[area]]
-number = 12
-kind = "setting"
-prefix = "console."
-
-# Its sign-ins (#826): the person-only `sign_in.*` and `console.rotate_key`,
-# and the accounts store that keeps them.
-[[area]]
-number = 12
-kind = "operation"
-prefix = "sign_in."
-
+# Area 12 (spec #592).
 # Foxhound's Datasets screen (#1211, spec #593): `dataset.list` and
 # `dataset.page`, which the Records grid reads.
 [[area]]
@@ -1232,16 +1214,6 @@ prefix = "needs_you."
 number = 12
 kind = "command"
 prefix = "needs-you"
-
-[[area]]
-number = 12
-kind = "operation"
-prefix = "console."
-
-[[area]]
-number = 12
-kind = "format"
-prefix = "accounts-store"
 
 # Every screen of the Console, whose routes its packages commit (#868).
 [[area]]

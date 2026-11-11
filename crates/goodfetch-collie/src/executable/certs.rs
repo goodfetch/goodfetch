@@ -293,7 +293,7 @@ fn answered(
 fn person_required(operation: &Operation, json: bool, human: &Human) -> ExitCode {
     let command = command_words(operation.name);
     let message = format!(
-        "`{command}` is a person's answer, asked at a terminal: run it in one without `--json`, or answer it in the Console"
+        "`{command}` is a person's answer, asked at a terminal: run it in one without `--json`, or answer it in the Kennel"
     );
     if json {
         output::json(&CommandFailed {

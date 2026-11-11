@@ -1,45 +1,45 @@
 {
   "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py": {
-    "input": "472e44b1b87b4b7fef77d194bcca51974909c44ba6888ecda0d8eec19a97ebc8",
-    "output": "2c38cf968deac2db83461b11c2b44bb6f30eed03451f550c3d5a396e98a0bba5",
+    "input": "924dde3d420deb3df76dbc089afc0b6bd28afd42e3de1ee8a3a52edd957d8052",
+    "output": "f787fe7d2e282390675b81802b71098433347b64e1cf84e8766db39dcf10e4ec",
     "tools": {
       "datamodel-code-generator": "0.86.0",
       "ruff": "0.17.1"
     }
   },
   "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py": {
-    "input": "4c2cfb190fe4f9c19eb96525060a2f8eaaba69210ac843aa57e1247b9b08e0e6",
-    "output": "a443a8be95cdce0e7ce5a20753cdbe1e60562ee9a8390c4c98a78980a3c632ce",
+    "input": "d4478ab42888730380d8e53cac60f777d5f3d9c64fa47d6712e42529c2015bb5",
+    "output": "e72deccbfcc3f922db4ff045528245ae60769007e0fb1caaf2110d831abfdfc4",
     "tools": {
       "datamodel-code-generator": "0.86.0",
       "ruff": "0.17.1"
     }
   },
   "sdks/typescript/collie-client/src/generated/types.ts": {
-    "input": "a908f6efd239bd3ce59825dadb585d556407e66b24b765e152720b9d9b8782c2",
-    "output": "6abc72e0ac4ad5cc4f150a04edca98e2b9fa85314cfbe8e4aed8008d1fd7f969",
+    "input": "605cf05bb79ca82d85d076af36c8a0679cebe332536a323d8a28b0d70ed20887",
+    "output": "5a4be1119dbc694bee741fd6bbdd4044275b2cb001f4bdb32a901840e9956b79",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }
   },
   "sdks/typescript/foxhound/src/generated/types.ts": {
-    "input": "a69ef4a8f270a753292054abb8f6359831efb6b76a9c6e91bcc0c1339cc29904",
-    "output": "521e57ac47cb5cf51dfed54ce7fe55e53288434f4f3d943f584b3bfff2b8ee0a",
+    "input": "b6f0ef77c67338d6ac1589f3f3025e9d77055dc789564cfcfa73bf3a2e86bf54",
+    "output": "a935864643e7868ecb89bf3511b1a1e196120cb0cb6fc713d7d260f9dc7f8c8e",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }
   },
   "test-support/python/src/goodfetch_test_support/generated/result_document.py": {
-    "input": "b9f66555781eda64605539f1f7d03f06c69aaa847c57fdcda3814863692d9e25",
-    "output": "47c0860918773a4fbfea4198bf297f2a834f1d3e9b63a5f7cbe6e135631e180a",
+    "input": "ec524289d978ad9c6d2d07fcf14fcd75ef0a3a9514db10a4ac7e24f47325c3ca",
+    "output": "9294157c923c29bba9f3b69faf5c4f9965f887c670805c5a1bd29e99f8ee3aad",
     "tools": {
       "datamodel-code-generator": "0.86.0",
       "ruff": "0.17.1"
     }
   },
   "test-support/typescript/src/generated/result-document.ts": {
-    "input": "8257d9a62da200f1bef58fcab00c7fdd12142a0dc8465ac3a6d3ca0dfc86992a",
-    "output": "91dbb41f42509aa0c116c3bb208e1cf64990969fbd44196cfd097bd6c29e4e30",
+    "input": "19733594314009103fbf0c3778bb98a38c3a7bc4b3d859a596de3fc31e5bf8b3",
+    "output": "9084afe233a58dc3a178f69f59a4158f84a522f72aed07244ad65b755d214aed",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }

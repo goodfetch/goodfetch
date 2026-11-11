@@ -101,9 +101,6 @@ The gateway cases, with their `covers`:
 - `a-models-client-is-held-to-a-models-settings-behind-the-gateway` (`story:14-14`): a model's Client meets the rules it meets locally (ADR 0092), the gateway naming its surface to the engine (`client_surface`): `proxy.server` on its run and on its Session answers `setting_locked`.
 - `a-collie-clients-run-lands-on-collies-engine` (`story:14-14`): ADR 0096's row for a Client, needing Collie.
 - `a-foxhound-clients-run-lands-on-foxhounds-engine` (`story:14-15`): the same row, needing Foxhound.
-- `a-console-run-naming-nothing-only-foxhound-carries-lands-on-collies-engine` (`story:14-17`): the row for the Console with no Recipe, a target naming nothing of Foxhound's.
-- `a-console-crawl-start-lands-on-foxhounds-engine` (`story:14-17`): the same row, a target naming an operation only Foxhound carries.
-- `a-console-run-setting-a-crawl-key-lands-on-foxhounds-engine` (`story:14-17`): the same row, a setting key only Foxhound carries, which Foxhound's engine answers with `setting_not_applicable` on a run that is no crawl.
 - `a-start-naming-a-known-run-id-goes-to-that-runs-engine` (`story:14-17`): a start naming a Run ID the gateway's index holds stays on that run's engine, which answers it with `run_conflict` for its other inputs.
 - `a-collie-programs-raw-crawl-start-answers-not-in-product-naming-the-runs-product` (`story:14-16`): a Collie Client's `crawl.start` answers `not_in_product` from Collie's engine, naming the run's Product and no install.
 - `a-collie-programs-crawl-setting-answers-not-in-product-naming-the-runs-product` (`story:14-16`): the same for a crawl setting key in a Collie Client's `run.start`.

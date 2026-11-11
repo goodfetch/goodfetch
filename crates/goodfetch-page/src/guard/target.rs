@@ -16,7 +16,6 @@ pub(crate) fn render(surface: Surface, selector: &str, nth: Option<usize>) -> St
         Surface::SdkPython
         | Surface::Cli
         | Surface::Mcp
-        | Surface::Console
         | Surface::Kennel
         | Surface::Cloud
         | Surface::BrowserHost

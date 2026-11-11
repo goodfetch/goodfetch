@@ -178,14 +178,6 @@ class ConnectionLostError(UnavailableError):
         super().__init__(message, code="connection_lost", group="unavailable", retryable=True)
 
 
-class ConsolePortInUseError(UnavailableError):
-    """The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon."""
-
-    def __init__(self, message: str) -> None:
-        """Takes the message the engine rendered."""
-        super().__init__(message, code="console_port_in_use", group="unavailable", retryable=False)
-
-
 class DaemonDrainingError(UnavailableError):
     """The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it."""
 
@@ -435,7 +427,7 @@ class PatternUnsupportedError(ProgramError):
 
 
 class PersonRequiredError(RefusedError):
-    """Only a person gives this answer, in the Console, the Kennel or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console or the Kennel, or run the command in a terminal."""
+    """Only a person gives this answer, in the Kennel or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Kennel, or run the command in a terminal."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
@@ -748,7 +740,6 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "certificate_invalid": CertificateInvalidError,
     "closed": ClosedError,
     "connection_lost": ConnectionLostError,
-    "console_port_in_use": ConsolePortInUseError,
     "daemon_draining": DaemonDrainingError,
     "daemon_unreachable": DaemonUnreachableError,
     "dialog_already_handled": DialogAlreadyHandledError,

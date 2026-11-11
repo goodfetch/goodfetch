@@ -99,7 +99,7 @@ async fn serve(arguments: Arguments, environment: Vec<(OsString, OsString)>) -> 
     let mut entropy =
         Entropy::from_os().map_err(|error| format!("the OS gave no seed: {error}"))?;
     let loopback = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
-    let listener = transport::listen_console(loopback)
+    let listener = transport::listen_gateway(loopback)
         .await
         .map_err(|error| format!("listening for Clients: {error}"))?;
     let owner = Arc::new(TaskOwner::root(BlockingPolicy::Threads));

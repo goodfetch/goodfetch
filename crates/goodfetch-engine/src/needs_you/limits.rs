@@ -4,7 +4,7 @@
 //! Usage ledger says: the Limit's period has not started again since the
 //! stop, and it was not set again since then with something left. Only a
 //! person raises a Limit (`usage.raise`, which the catalog keeps to the
-//! Console and the interactive CLI prompt), so an agent a Limit stopped
+//! Kennel and the interactive CLI prompt), so an agent a Limit stopped
 //! cannot lift it. Once raised, a Recipe's Run is resumed in the Daemon
 //! (`run.resume`, which the item offers beside it), and an SDK script's Run
 //! waits for its script, which resumes it by its Run ID. An item leaves the

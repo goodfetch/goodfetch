@@ -6,9 +6,7 @@
 //! with the Product it needs and its own engine instance, `run.list` from
 //! its own index, and a start (`run.start` or a crawl's) by starting the
 //! run on a new Attached engine of the Product the routing rule picks
-//! (`product_for_run`): the Client's for a Client, and for the Console
-//! Foxhound's when the start's operation or a key of its settings is one
-//! only Foxhound carries. A start that names a Run ID its index holds, or
+//! (`product_for_run`): the Client's. A start that names a Run ID its index holds, or
 //! one another start is starting, goes to that run's engine. Every other
 //! message goes, byte for byte, to the engine that owns the run its params
 //! name, or to an engine of the Client's Product when it names none, each
@@ -33,7 +31,7 @@ use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{
     CANCEL, EngineInstance, HELLO, HelloParams, HelloResult, NOT_IN_PRODUCT, NotInProductDetails,
-    PROTOCOL_VERSION_UNSUPPORTED, Surface,
+    PROTOCOL_VERSION_UNSUPPORTED,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::routing::{RunStart, Starter, Target, product_for_run};
@@ -204,7 +202,7 @@ impl Gateway {
         };
         if let Some(reason) = reason {
             tracing::warn!(
-                listener = Listener::Console.as_str(),
+                listener = Listener::DaemonWebsocket.as_str(),
                 reason = reason.as_str(),
                 "the gateway refused a Connection"
             );
@@ -231,17 +229,11 @@ impl Gateway {
             product_version: version(),
             engine_instance: self.instance.clone(),
             private_endpoint: None,
-            console_link: None,
         };
         let reply = json!({"jsonrpc": "2.0", "id": id, "result": result});
         outgoing.send(reply.to_string()).await.ok()?;
         Some(Client {
             needs,
-            starter: if hello.surface == Surface::Console {
-                Starter::Console
-            } else {
-                Starter::Client { needs }
-            },
             relayed: Relayed {
                 surface: hello.surface,
                 form: hello.form,
@@ -309,7 +301,9 @@ impl Gateway {
                 .as_ref()
                 .and_then(|slot| slot.get())
                 .map(|engine| engine.product()),
-            starter: client.starter,
+            starter: Starter::Client {
+                needs: client.needs,
+            },
             recipe: None,
             target: Target {
                 operations: &[method],
@@ -374,7 +368,6 @@ impl Gateway {
 #[derive(Clone, Copy)]
 struct Client {
     needs: Product,
-    starter: Starter,
     relayed: Relayed,
 }
 

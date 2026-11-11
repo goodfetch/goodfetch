@@ -43,7 +43,7 @@ pub fn of_error(code: &str, group: ErrorGroup) -> u8 {
 }
 
 /// The exit code of a failure that names the Error code `code` without its
-/// group, such as a Daemon's Console that did not start: the code's own
+/// group: the code's own
 /// row, else its declared group's; a code no entry declares, `internal`'s.
 pub fn of_code(code: &str) -> u8 {
     error_code(code).map_or_else(unanswered, |definition| of_error(code, definition.group))

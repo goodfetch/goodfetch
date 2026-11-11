@@ -4,7 +4,7 @@
 //! Limit of the caller's own on its own work, which holds beside the others
 //! so that it can only lower what applies; `usage.raise`, a person's
 //! answer that the dispatch refuses with `person_required` to anything but
-//! the Console and the CLI's interactive prompt, sets a Limit in place of
+//! the Kennel and the CLI's interactive prompt, sets a Limit in place of
 //! the ones of its scope, Usage kind, currency and period. A value only
 //! Foxhound carries, such as the Usage kind `paid_fetch`, is refused by a
 //! Collie engine with `not_in_product` (ADRs 0087 and 0095).

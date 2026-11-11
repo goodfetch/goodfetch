@@ -23,8 +23,6 @@ pub mod client;
 pub mod clock;
 mod composition;
 mod config;
-pub mod console;
-mod content_origin;
 pub mod controls;
 pub mod crash_report;
 pub mod daemon;
@@ -61,8 +59,6 @@ pub mod needs_you;
 mod needs_you_operations;
 pub mod ops;
 pub mod otlp;
-pub mod people;
-mod people_operations;
 pub mod pinned_download;
 pub mod politeness;
 mod product;
@@ -97,8 +93,8 @@ mod usage;
 
 pub use call_error::CallError;
 pub use composition::{
-    CallContext, CallInput, CallStream, Composition, CompositionError, ConsoleBuild, ConsoleFile,
-    Contribution, Driver, Guard, GuardAnswer, Handler,
+    CallContext, CallInput, CallStream, Composition, CompositionError, Contribution, Driver, Guard,
+    GuardAnswer, Handler,
 };
 pub use engine::{Dependencies, Engine};
 pub use engine_context::EngineContext;

@@ -26,7 +26,7 @@ use goodfetch_test_client::DaemonClient;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{Cli, TestEnv, cli};
 #[cfg(unix)]
-use goodfetch_test_support::{ConsoleState, DaemonEndpoint, RuntimeFile};
+use goodfetch_test_support::{DaemonEndpoint, RuntimeFile};
 use serde_json::{Value, json};
 
 use crate::daemon::{short_idle, validate};
@@ -101,7 +101,6 @@ pub(crate) fn service_reach(env: &TestEnv, service: &Value) -> RuntimeFile {
         token,
         version: VERSION.to_owned(),
         pid: 0,
-        console: ConsoleState::Absent,
     }
 }
 
@@ -182,14 +181,6 @@ fn the_first_connection_to_the_installed_services_socket_starts_the_daemon() {
     );
 }
 
-/// A named Console port for the test's process, outside the OS's ephemeral
-/// range (ADR 0031), which only a program naming it takes. The service group
-/// runs one such test at a time.
-#[cfg(unix)]
-fn named_console_address() -> String {
-    format!("127.0.0.1:{}", 20_000 + std::process::id() % 10_000)
-}
-
 /// systemd re-reads each listening socket's path at every reload of the
 /// user's manager, which any program may ask for; the service's
 /// socket still listens after one, though the test home's path holds a
@@ -226,70 +217,6 @@ fn a_reload_of_the_users_systemd_keeps_the_services_socket() {
             socket.parent().unwrap().exists(),
         ),
         (true, json!("collie"), false)
-    );
-}
-
-/// Whether a socket of this user, asking for port reuse when `sharing`,
-/// binds `address`: `Err` names why not.
-#[cfg(target_os = "linux")]
-#[expect(
-    clippy::disallowed_types,
-    reason = "the test is the second listener the Console's port must refuse"
-)]
-fn second_listener(address: &str, sharing: bool) -> Result<(), std::io::ErrorKind> {
-    let binding = || {
-        let socket = tokio::net::TcpSocket::new_v4()?;
-        socket.set_reuseaddr(true)?;
-        socket.set_reuseport(sharing)?;
-        socket.bind(address.parse().unwrap())
-    };
-    binding().map_err(|error: std::io::Error| error.kind())
-}
-
-/// A named Console port takes no port reuse: while the service's socket
-/// listens there, a second listener is refused even when it asks to share,
-/// so a second home's install fails rather than sharing connections.
-///
-/// Covers: story:12-7, command:daemon.install
-#[cfg(target_os = "linux")]
-#[test]
-fn no_second_listener_shares_a_named_consoles_port() {
-    let env = TestEnv::new();
-    let named = named_console_address();
-    env.user_configuration(&format!("console.address = \"{named}\"\n"));
-    let _removes = RemovesTheService(&env);
-
-    let installed = json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
-    let console = installed["service"]["console"].as_str().map(str::to_owned);
-    let plain = second_listener(&named, false);
-    let sharing = second_listener(&named, true);
-
-    assert_eq!(
-        (console.as_deref(), plain, sharing),
-        (
-            Some(named.as_str()),
-            Err(std::io::ErrorKind::AddrInUse),
-            Err(std::io::ErrorKind::AddrInUse),
-        )
-    );
-}
-
-/// The port `daemon install` chose for port 0 stays refused to any other
-/// program once the hold is gone, since systemd listens on it then.
-///
-/// Covers: story:12-7, command:daemon.install
-#[cfg(target_os = "linux")]
-#[test]
-fn no_other_program_can_take_the_consoles_port_once_installed() {
-    let env = TestEnv::new();
-    let _removes = RemovesTheService(&env);
-
-    let installed = json_in_session(&env, COLLIE, &["daemon", "install", "--json"]);
-    let console = installed["service"]["console"].as_str().unwrap();
-
-    assert_eq!(
-        second_listener(console, false),
-        Err(std::io::ErrorKind::AddrInUse)
     );
 }
 

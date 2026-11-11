@@ -8,7 +8,7 @@ use std::io;
 use std::sync::Arc;
 
 use goodfetch_engine::tasks::TaskOwner;
-use goodfetch_engine::transport::ConsoleListener;
+use goodfetch_engine::transport::GatewayListener;
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{self, HeaderValue};
@@ -35,7 +35,7 @@ impl Site {
     /// # Errors
     ///
     /// When the listener has no address.
-    pub(crate) fn new(gateway: Arc<Gateway>, listener: &ConsoleListener) -> io::Result<Self> {
+    pub(crate) fn new(gateway: Arc<Gateway>, listener: &GatewayListener) -> io::Result<Self> {
         Ok(Self {
             gateway,
             address: format!("http://{}", listener.local_address()?),
@@ -48,7 +48,7 @@ impl Site {
     }
 
     /// Serves the listener until `owner` stops.
-    pub(crate) async fn serve(self: Arc<Self>, listener: ConsoleListener, owner: Arc<TaskOwner>) {
+    pub(crate) async fn serve(self: Arc<Self>, listener: GatewayListener, owner: Arc<TaskOwner>) {
         loop {
             let accepted = tokio::select! {
                 () = owner.token().cancelled() => return,

@@ -1156,11 +1156,6 @@ export interface CrawlRunReport {
    */
   completeness_reasons?: AxisReason[];
   /**
-   * Its page in the Console, where its Run trace replays, when the
-   * engine knows a Console address (ADR 0031).
-   */
-  console_url?: string | null;
-  /**
    * When it ended.
    */
   ended_at: PointInTime;

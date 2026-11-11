@@ -50,18 +50,6 @@ id = "a-foxhound-clients-run-lands-on-foxhounds-engine"
 covers = ["story:14-15"]
 
 [[capability.case]]
-id = "a-console-run-naming-nothing-only-foxhound-carries-lands-on-collies-engine"
-covers = ["story:14-17"]
-
-[[capability.case]]
-id = "a-console-crawl-start-lands-on-foxhounds-engine"
-covers = ["story:14-17"]
-
-[[capability.case]]
-id = "a-console-run-setting-a-crawl-key-lands-on-foxhounds-engine"
-covers = ["story:14-17"]
-
-[[capability.case]]
 id = "a-start-naming-a-known-run-id-goes-to-that-runs-engine"
 covers = ["story:14-17"]
 

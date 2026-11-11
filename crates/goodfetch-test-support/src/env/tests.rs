@@ -297,8 +297,7 @@ fn user_configuration_turns_on_the_engines_json_log_with_the_dispatch_and_outcom
 
     assert_eq!(
         user_configuration(&env),
-        "version = \"0.1\"\n\n[settings]\nconsole.address = \"127.0.0.1:0\"\n\
-         governor.host_memory = false\nlog.output = \"file\"\nlog.file.max_files = 10000\n\
+        "version = \"0.1\"\n\n[settings]\ngovernor.host_memory = false\nlog.output = \"file\"\nlog.file.max_files = 10000\n\
          log.level = \"info,goodfetch::rpc::dispatch=trace,goodfetch::run::outcome=trace\"\n"
     );
 }
@@ -312,8 +311,7 @@ fn a_log_level_keeps_the_settings_the_test_wrote_and_its_own_settings_win() {
 
     assert_eq!(
         user_configuration(&env),
-        "version = \"0.1\"\n\n[settings]\nconsole.address = \"127.0.0.1:0\"\n\
-         governor.host_memory = false\nlog.file.max_files = 10000\ndaemon.idle_timeout = 500\n\
+        "version = \"0.1\"\n\n[settings]\ngovernor.host_memory = false\nlog.file.max_files = 10000\ndaemon.idle_timeout = 500\n\
          log.output = \"none\"\nlog.level = \"trace\"\n"
     );
 }
@@ -329,8 +327,7 @@ fn a_setting_that_only_spells_a_defaults_key_keeps_the_default() {
 
     assert_eq!(
         user_configuration(&env),
-        "version = \"0.1\"\n\n[settings]\nconsole.address = \"127.0.0.1:0\"\n\
-         governor.host_memory = false\nlog.output = \"file\"\nlog.file.max_files = 10000\n\
+        "version = \"0.1\"\n\n[settings]\ngovernor.host_memory = false\nlog.output = \"file\"\nlog.file.max_files = 10000\n\
          log.level = \"info,goodfetch::rpc::dispatch=trace,goodfetch::run::outcome=trace\"\n\
          log.output_format = \"json\"\nproxy.note = \"log.level\"\n"
     );
@@ -362,8 +359,7 @@ fn a_log_level_set_while_an_engine_reads_the_user_configuration_never_cuts_it() 
     assert_eq!(read, before);
     assert_eq!(
         user_configuration(&env),
-        "version = \"0.1\"\n\n[settings]\nconsole.address = \"127.0.0.1:0\"\n\
-         governor.host_memory = false\nlog.output = \"file\"\nlog.file.max_files = 10000\n\
+        "version = \"0.1\"\n\n[settings]\ngovernor.host_memory = false\nlog.output = \"file\"\nlog.file.max_files = 10000\n\
          log.level = \"trace\"\n"
     );
 }

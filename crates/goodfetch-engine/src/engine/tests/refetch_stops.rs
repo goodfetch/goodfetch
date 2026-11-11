@@ -8,7 +8,7 @@
 //! removes the domain from that layer (or, when only `*` covers it,
 //! replaces `*` with a list), or denies the domain with a reason; a domain
 //! listed in project configuration is shown with its file, never removed
-//! from the Console.
+//! from the Kennel.
 #![expect(
     clippy::disallowed_methods,
     reason = "the tests write the Goodfetch home's settings files themselves"
@@ -200,7 +200,7 @@ fn a_stopped_refetch_is_listed_with_the_layer_that_lists_its_domain(
         .map(|project| project["path"].as_str().unwrap().to_owned());
 
     let items = attached_on(&stopping_engine(&env), &env, |mut client| async move {
-        opened(&mut client, "console").await;
+        opened(&mut client, "kennel").await;
         let mut seen = Seen::default();
         stopped(&mut client, &mut seen, project).await;
         // Two samples later, every source has read the stop.
@@ -246,7 +246,7 @@ fn a_dismissed_stop_leaves_the_list() {
 
     let (dismissed, after, removed) =
         attached_on(&stopping_engine(&env), &env, |mut client| async move {
-            opened(&mut client, "console").await;
+            opened(&mut client, "kennel").await;
             let mut seen = Seen::default();
             stopped(&mut client, &mut seen, None).await;
             seen.until(&mut client, |items| items.len() == 1).await;
@@ -281,11 +281,11 @@ fn a_dismissed_stop_leaves_the_list() {
     );
 }
 
-/// Answers `method` with `params` from the Console once the stop is
+/// Answers `method` with `params` from the Kennel once the stop is
 /// listed, then waits for the list to empty; answers the answer and each
 /// removal with its reason.
 async fn answered(mut client: Client, method: String, params: Value) -> (Value, Vec<Value>) {
-    opened(&mut client, "console").await;
+    opened(&mut client, "kennel").await;
     let mut seen = Seen::default();
     stopped(&mut client, &mut seen, None).await;
     seen.until(&mut client, |items| items.len() == 1).await;
@@ -376,7 +376,7 @@ fn removal_edits_the_layer_that_lists_the_domain(
             true,
             vec![json!({
                 "kind": "refetch_domain_removed",
-                "surface": "console",
+                "surface": "kennel",
                 "layer": layer,
                 "details": { "domain": STOPPED, "domains": domains },
             })],
@@ -453,7 +453,7 @@ fn denial_writes_wall_denied_domains_with_its_reason() {
 )]
 /// Covers: operation:needs_you.remove_refetch_domain
 #[case::a_star_with_no_list(
-    "console",
+    "kennel",
     "wall.refetch_domains = [\"*\"]\n",
     "",
     "needs_you.remove_refetch_domain",
@@ -462,7 +462,7 @@ fn denial_writes_wall_denied_domains_with_its_reason() {
 )]
 /// Covers: operation:needs_you.deny_wall_domain
 #[case::a_denial_without_a_reason(
-    "console",
+    "kennel",
     "",
     "",
     "needs_you.deny_wall_domain",
@@ -471,7 +471,7 @@ fn denial_writes_wall_denied_domains_with_its_reason() {
 )]
 /// Covers: error:setting_locked, operation:needs_you.deny_wall_domain
 #[case::a_managed_operator_policy(
-    "console",
+    "kennel",
     "",
     "version = \"0.1\"\n\n[managed]\n",
     "needs_you.deny_wall_domain",
@@ -536,7 +536,7 @@ fn a_removal_the_audit_log_cannot_record_is_written_and_says_so() {
     let home = env.home().to_path_buf();
 
     let answer = attached_on(&stopping_engine(&env), &env, |mut client| async move {
-        opened(&mut client, "console").await;
+        opened(&mut client, "kennel").await;
         let mut seen = Seen::default();
         stopped(&mut client, &mut seen, None).await;
         seen.until(&mut client, |items| items.len() == 1).await;

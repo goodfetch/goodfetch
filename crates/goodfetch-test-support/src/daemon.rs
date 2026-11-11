@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 
 use crate::env::TestEnv;
 use crate::process::{Process, ReportedAddressError, first_line_within};
-use crate::runtime_file::{ConsoleState, DaemonEndpoint, RuntimeFile, RuntimeFileError};
+use crate::runtime_file::{DaemonEndpoint, RuntimeFile, RuntimeFileError};
 use crate::tools::{Product, ToolsError, tools};
 
 /// How long the Daemon has to print its runtime file once started.
@@ -47,9 +47,6 @@ pub struct DaemonDescription {
     pub socket: String,
     /// The per-launch token a Client's `hello` carries.
     pub token: String,
-    /// The URL of the Console it serves, `http://127.0.0.1:<port>/` on a
-    /// port of its own; `None` when it serves none.
-    pub console: Option<String>,
 }
 
 /// The Daemon of one test's Goodfetch home. Its process joins the test's
@@ -126,14 +123,9 @@ impl Daemon {
         if published != printed {
             return Err(DaemonError::Unpublished { path });
         }
-        let console = match published.console {
-            ConsoleState::Serving(url) => Some(url),
-            ConsoleState::Failed { .. } | ConsoleState::Absent => None,
-        };
         let description = DaemonDescription {
             socket: published.endpoint.to_string(),
             token: published.token,
-            console,
         };
         Ok((path, description, published.endpoint))
     }

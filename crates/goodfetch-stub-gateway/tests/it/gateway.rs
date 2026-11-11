@@ -96,8 +96,9 @@ impl Gateway {
         tungstenite::client(request, stream).unwrap().0
     }
 
-    /// The Console's Connection, signed in, after its `hello`.
-    fn connection(&self) -> Connection {
+    /// The Connection of a program that needs `needs`, signed in, after
+    /// its `hello`.
+    fn connection(&self, needs: &str) -> Connection {
         let mut connection = Connection {
             socket: self.socket(),
             next: 0,
@@ -106,14 +107,13 @@ impl Gateway {
             "hello",
             &json!({
                 "protocol_version": PROTOCOL_VERSION.to_string(),
-                "surface": "console",
-                "form": "catalog",
+                "surface": "rust",
                 "token": TOKEN,
-                "needs": "foxhound",
+                "needs": needs,
                 "product_version": VERSION,
             }),
         );
-        assert_eq!(hello["result"]["product"], json!("foxhound"), "{hello}");
+        assert_eq!(hello["result"]["product"], json!(needs), "{hello}");
         connection
     }
 }
@@ -127,7 +127,7 @@ impl Drop for Gateway {
     }
 }
 
-/// The Console's Connection to the gateway.
+/// A program's Connection to the gateway.
 struct Connection {
     socket: WebSocket<TcpStream>,
     next: u64,
@@ -174,7 +174,7 @@ impl Connection {
         replies.map(|reply| reply.expect("every reply was read"))
     }
 
-    /// The Run ID of a run the Console starts with `method` and `params`.
+    /// The Run ID of a run the program starts with `method` and `params`.
     fn start(&mut self, method: &str, params: &Value) -> String {
         let started = self.call(method, params);
         started["result"]["run_id"]
@@ -225,13 +225,13 @@ fn serves_no_file() {
 
 /// Covers: story:12-232, error:not_in_product
 #[test]
-fn a_console_run_naming_nothing_of_foxhound_starts_on_collies_engine() {
+fn a_collie_programs_run_starts_on_collies_engine() {
     let env = TestEnv::new();
     let gateway = Gateway::start(&env);
-    let mut console = gateway.connection();
-    let run_id = console.start("run.start", &json!({}));
+    let mut program = gateway.connection("collie");
+    let run_id = program.start("run.start", &json!({}));
 
-    let refused = console.call("run.seeds", &json!({"run_id": run_id}));
+    let refused = program.call("run.seeds", &json!({"run_id": run_id}));
 
     assert_eq!(
         (
@@ -253,12 +253,12 @@ fn a_console_run_naming_nothing_of_foxhound_starts_on_collies_engine() {
 ///
 /// Covers: story:12-232, error:setting_not_applicable
 #[test]
-fn a_console_run_setting_a_crawl_key_starts_on_foxhounds_engine() {
+fn a_foxhound_programs_run_setting_a_crawl_key_starts_on_foxhounds_engine() {
     let env = TestEnv::new();
     let gateway = Gateway::start(&env);
-    let mut console = gateway.connection();
+    let mut program = gateway.connection("foxhound");
 
-    let refused = console.call(
+    let refused = program.call(
         "run.start",
         &json!({"settings": {"crawl": {"max_requests": 10}}}),
     );
@@ -272,13 +272,13 @@ fn a_console_run_setting_a_crawl_key_starts_on_foxhounds_engine() {
 
 /// Covers: story:12-232
 #[test]
-fn a_crawl_the_console_starts_runs_on_foxhounds_engine_which_answers_its_calls() {
+fn a_crawl_a_program_starts_runs_on_foxhounds_engine_which_answers_its_calls() {
     let env = TestEnv::new();
     let gateway = Gateway::start(&env);
-    let mut console = gateway.connection();
-    let run_id = console.start("crawl.start", &crawl_of_nothing());
+    let mut program = gateway.connection("foxhound");
+    let run_id = program.start("crawl.start", &crawl_of_nothing());
 
-    let answered = console.call("run.seeds", &json!({"run_id": run_id}));
+    let answered = program.call("run.seeds", &json!({"run_id": run_id}));
 
     assert!(answered.get("result").is_some(), "{answered}");
 }
@@ -288,11 +288,11 @@ fn a_crawl_the_console_starts_runs_on_foxhounds_engine_which_answers_its_calls()
 fn run_list_answers_every_run_its_index_holds_on_either_engine() {
     let env = TestEnv::new();
     let gateway = Gateway::start(&env);
-    let mut console = gateway.connection();
-    let on_collie = console.start("run.start", &json!({}));
-    let on_foxhound = console.start("crawl.start", &crawl_of_nothing());
+    let on_collie = gateway.connection("collie").start("run.start", &json!({}));
+    let mut program = gateway.connection("foxhound");
+    let on_foxhound = program.start("crawl.start", &crawl_of_nothing());
 
-    let listed = console.call("run.list", &json!({}));
+    let listed = program.call("run.list", &json!({}));
 
     let mut run_ids: Vec<&str> = listed["result"]["runs"]
         .as_array()
@@ -355,14 +355,14 @@ fn a_program_signs_in_with_the_token_its_hello_presents(
 fn two_starts_of_one_new_run_id_at_once_start_one_run() {
     let env = TestEnv::new();
     let gateway = Gateway::start(&env);
-    let mut console = gateway.connection();
+    let mut program = gateway.connection("collie");
     let params = json!({"run_id": "a-run-started-twice"});
     let (first, second) = (
-        console.send("run.start", &params),
-        console.send("run.start", &params),
+        program.send("run.start", &params),
+        program.send("run.start", &params),
     );
 
-    let mut started_as = console.replies([first, second]).map(|reply| {
+    let mut started_as = program.replies([first, second]).map(|reply| {
         reply["result"]["started_as"]
             .as_str()
             .unwrap_or_else(|| panic!("the start failed: {reply}"))
@@ -381,9 +381,10 @@ fn two_starts_of_one_new_run_id_at_once_start_one_run() {
 fn an_interrupted_gateway_exits_once_it_has_reaped_its_engines() {
     let env = TestEnv::new();
     let gateway = Gateway::start(&env);
-    let mut console = gateway.connection();
-    console.start("run.start", &json!({}));
-    console.start("crawl.start", &crawl_of_nothing());
+    let mut on_collie = gateway.connection("collie");
+    on_collie.start("run.start", &json!({}));
+    let mut on_foxhound = gateway.connection("foxhound");
+    on_foxhound.start("crawl.start", &crawl_of_nothing());
     let engines = children_of(gateway.process.child().id());
 
     let status = gateway.process.interrupt_and_wait(STOP_DEADLINE).unwrap();

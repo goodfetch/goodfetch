@@ -260,7 +260,6 @@ impl TakeOver {
             weakened: recorded.weakened.clone(),
             settings: None,
             checkpoint: None,
-            console_url: None,
             limits: Vec::new(),
             error: None,
             finished: Vec::new(),

@@ -753,7 +753,12 @@ impl DirectRead<'_> {
     }
 }
 
-/// Refuses a crawl Run that sets a proxy and can make a direct read: the
+/// Whether one of `seeds` is a sitemap seed.
+fn seeds_a_sitemap<'a>(mut seeds: impl Iterator<Item = &'a Seed>) -> bool {
+    seeds.any(|seed| matches!(seed, Seed::Sitemap(_)))
+}
+
+/// Refuses a crawl Run that sets a proxy and can make the direct `read`: the
 /// Run's HTTP tier connects to sites directly, so a forced `http` tier's
 /// documents, a sitemap seed's sitemaps, robots.txt and the AI-use signal
 /// files would show them the machine's own address the proxy hides, until
@@ -763,15 +768,14 @@ impl DirectRead<'_> {
 ///
 /// `capability_unavailable` naming the `proxy.*` key, the read as its
 /// kind and the value that makes no such read as its fix.
-fn refuse_direct_reads_beside_a_proxy(
+fn refuse_direct_reads_beside_a_proxy<'a>(
     settings: &Resolved,
-    labels: &LabelSettings,
-    seeds_a_sitemap: bool,
+    read: impl FnOnce() -> Option<DirectRead<'a>>,
 ) -> Result<(), CallError> {
     let Some((key, proxied)) = proxied(settings) else {
         return Ok(());
     };
-    let Some(read) = DirectRead::of(settings, labels, seeds_a_sitemap) else {
+    let Some(read) = read() else {
         return Ok(());
     };
     let (made, fix) = read.told();
@@ -944,8 +948,9 @@ impl FetchTiers {
         goodfetch_frontier::refuse_second_copies(settings, &FETCH_TIER_RACE)?;
         refuse_redirect_max(settings)?;
         refuse_light_beside_a_proxy(settings)?;
-        let seeds_a_sitemap = seeds.iter().any(|seed| matches!(seed, Seed::Sitemap(_)));
-        refuse_direct_reads_beside_a_proxy(settings, labels, seeds_a_sitemap)?;
+        refuse_direct_reads_beside_a_proxy(settings, || {
+            DirectRead::of(settings, labels, seeds_a_sitemap(seeds.iter()))
+        })?;
         if let Some(effective) = settings.effective(&FETCH_ENCODING) {
             crate::choice::encoding("the Run", &effective.value)?;
         }
@@ -1001,6 +1006,21 @@ impl FetchTiers {
             ));
         }
         Ok(())
+    }
+
+    /// Checks `seeds` added to a live Run under `settings`, as
+    /// [`FetchTiers::check`] checked the seeds of its start.
+    ///
+    /// # Errors
+    ///
+    /// `capability_unavailable` naming the `proxy.*` key of a Run that
+    /// sets a proxy, for a sitemap seed, whose sitemaps the Run's HTTP
+    /// tier would read past it (#1640).
+    pub fn check_seeds(settings: &Resolved, seeds: &[Seed]) -> Result<(), CallError> {
+        if !seeds_a_sitemap(seeds.iter()) {
+            return Ok(());
+        }
+        refuse_direct_reads_beside_a_proxy(settings, || Some(DirectRead::Sitemap))
     }
 
     /// The Run's own `fetch.tier`: the tier it forces, `auto` set by any

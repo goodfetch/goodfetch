@@ -38,9 +38,9 @@
 # tier cannot tell which checks the change takes.
 #
 # A green run on a clean checkout records its tree in the repository's
-# common folder, shared by its worktrees, and the pre-push hook skips a push
-# of a recorded tree: `just quick` never runs twice on one tree. A tree is
-# recorded only when every step passed.
+# common folder, shared by its worktrees, and the pre-push hook does not run
+# it on a push of a recorded tree: `just quick` never runs twice on one tree.
+# A tree is recorded only when every step passed.
 #
 # Every step runs through the `just` on PATH, where the recipe puts its own.
 # It keeps to bash 3.2, which stock macOS runs.
@@ -73,7 +73,7 @@ record_green() {
   stamps=$common/goodfetch-quick-green
   { tail -n 199 "$stamps" 2>/dev/null || true; echo "$tree"; } > "$stamps.$$"
   mv "$stamps.$$" "$stamps"
-  echo "\`just quick\` passed on tree $tree: the pre-push hook skips a push of it."
+  echo "\`just quick\` passed on tree $tree: the pre-push hook does not run it again on a push of it."
 }
 
 # shellcheck source=ci/keep-going.sh

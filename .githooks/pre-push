@@ -3,16 +3,31 @@
 # it picks the docs gate's checks for a change of documents alone (TESTING.md).
 # It runs no check twice on one tree (TESTING.md, Checks by role): a push whose
 # trees a green `just quick` already recorded (ci/quick.sh, in the repository's
-# common folder) runs nothing. Otherwise `just quick` reads the change against
-# the commit the remote ref holds, so it checks what the push adds.
+# common folder) runs no `just quick`. Otherwise `just quick` reads the change
+# against the commit the remote ref holds, so it checks what the push adds.
+#
+# A recorded tree says nothing of the messages of the commits that hold it,
+# since a reworded commit keeps its tree. So every push first judges the
+# sign-offs (`just dco`) and the subjects (`just commit-messages`) of each
+# pushed head's commits since its merge base with `origin/main`, as the gate
+# does at merge, and a red one refuses the push before `just quick` runs:
+# such a commit is only mended by rewriting it, after which a gate that ran
+# on it reuses nothing (ADR 0135).
 set -euo pipefail
+# git gives this hook the push's GIT_DIR (a linked worktree's), and a build
+# script's `git init` under `just quick` (btls-sys's) would then reinitialize
+# the repository as bare: every `just` here finds the repository from its
+# folder.
+for variable in $(git rev-parse --local-env-vars); do unset "$variable"; done
 stamps="$(git rev-parse --path-format=absolute --git-common-dir)/goodfetch-quick-green"
 head=$(git rev-parse HEAD)
 base=""
 due=0
+pushed=""
 while read -r _local_ref local_oid _remote_ref remote_oid; do
   # A deletion pushes no tree.
   [[ $local_oid =~ ^0+$ ]] && continue
+  pushed="$pushed $local_oid"
   tree=$(git rev-parse "$local_oid^{tree}")
   if grep -qxF "$tree" "$stamps" 2>/dev/null; then
     echo "pre-push: \`just quick\` already passed on tree $tree, so it does not run again."
@@ -23,9 +38,16 @@ while read -r _local_ref local_oid _remote_ref remote_oid; do
     base=$remote_oid
   fi
 done
+# Both checks run on every pushed head even after one failed, so one push
+# names every commit to rewrite. The empty base is the recipes' own.
+commits=0
+for oid in $pushed; do
+  just dco "" "$oid" || commits=1
+  just commit-messages "" "$oid" || commits=1
+done
+if ((commits)); then
+  echo "error: pre-push refuses this push: a commit it adds is not signed off, or its subject is no Conventional Commit (above, CONTRIBUTING.md). Rewrite it and push again; \`just quick\` did not run." >&2
+  exit 1
+fi
 ((due)) || exit 0
-# git gives this hook the push's GIT_DIR (a linked worktree's), and a build
-# script's `git init` under `just quick` (btls-sys's) would then reinitialize
-# the repository as bare: `just quick` finds the repository from its folder.
-for variable in $(git rev-parse --local-env-vars); do unset "$variable"; done
 GOODFETCH_QUICK_BASE=$base exec just quick

@@ -7,8 +7,10 @@
 //! against the base the hook gives, else the branch's upstream off `main`
 //! when it is another branch, never the branch's own remote copy, else
 //! `origin/main`. A green run on a clean checkout records its tree, and the
-//! hook skips a push of a recorded tree, so `just quick` never runs twice on
-//! one tree (`TESTING.md`, Checks by role). Every step runs even after one
+//! hook runs no `just quick` on a push of a recorded tree, so it never runs
+//! twice on one tree (`TESTING.md`, Checks by role). The hook first judges
+//! the sign-offs and subjects of the pushed commits, on every push, since a
+//! tree says nothing of them. Every step runs even after one
 //! failed, through `ci/keep-going.sh`, and the run then names each failed step
 //! and fails. The steps run through a stand-in
 //! `just` that records each call, and `xtask affected` through a stand-in
@@ -443,17 +445,33 @@ fn a_red_run_or_a_run_on_uncommitted_changes_records_no_tree(
 /// base the hook gives `just quick`, and the `GIT_DIR` it inherits
 /// ([`inherited_git_dirs`]).
 fn hook_stand_in(workspace: &Workspace) -> PathBuf {
+    hook_stand_in_failing(workspace, None)
+}
+
+/// [`hook_stand_in`], whose `just` fails when it runs the recipe `failing`.
+fn hook_stand_in_failing(workspace: &Workspace, failing: Option<&str>) -> PathBuf {
     let folder = workspace.path().join("stand-in");
     std::fs::create_dir_all(&folder).unwrap();
     let just = format!(
-        "#!/bin/sh\necho \"$* base=${{GOODFETCH_QUICK_BASE-unset}}\" >>\"{}\"\necho \"${{GIT_DIR-unset}}\" >>\"{}\"\n",
+        "#!/bin/sh\necho \"$* base=${{GOODFETCH_QUICK_BASE-unset}}\" >>\"{}\"\necho \"${{GIT_DIR-unset}}\" >>\"{}\"\n[ \"$1\" != \"{}\" ] || exit 1\n",
         folder.join("calls").display(),
-        folder.join("git-dir").display()
+        folder.join("git-dir").display(),
+        failing.unwrap_or("no recipe")
     );
     let path = folder.join("just");
     std::fs::write(&path, just).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     folder
+}
+
+/// The hook's calls for the commits a push of `head` adds: their sign-offs
+/// and their subjects, each with no base of the hook's, so the recipe takes
+/// its own, the merge base with `origin/main`, as the gate does at merge.
+fn commit_checks(head: &str) -> [String; 2] {
+    [
+        format!("dco  {head} base=unset"),
+        format!("commit-messages  {head} base=unset"),
+    ]
 }
 
 /// Runs `.githooks/pre-push` in the workspace with git's lines for the
@@ -518,8 +536,12 @@ fn two_commits(workspace: &Workspace) -> (String, String) {
     (first, head)
 }
 
+/// A tree `just quick` passed on says nothing of the messages of the commits
+/// that hold it: a reworded commit keeps its tree. So the hook judges the
+/// pushed commits' sign-offs and subjects on every push, and a recorded tree
+/// spares the push `just quick` alone.
 #[test]
-fn a_push_of_a_tree_a_green_run_recorded_runs_no_check() {
+fn a_push_of_a_tree_a_green_run_recorded_checks_its_commits_and_runs_no_quick() {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = hook_stand_in(&workspace);
     let (first, head) = two_commits(&workspace);
@@ -534,8 +556,52 @@ fn a_push_of_a_tree_a_green_run_recorded_runs_no_check() {
     );
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    assert!(run.calls.is_empty(), "{:?}", run.calls);
+    assert_eq!(run.calls, commit_checks(&head));
     assert!(run.stdout.contains("already passed"), "{}", run.stdout);
+}
+
+/// A commit that is not signed off, or whose subject is no Conventional
+/// Commit, is only mended by rewriting it, after which a gate that ran on it
+/// reuses nothing: the push is refused before `just quick` runs, and both
+/// checks have run, so one push names every such commit.
+#[rstest]
+#[case::a_sign_off("dco")]
+#[case::a_subject("commit-messages")]
+fn a_push_whose_commits_fail_a_check_is_refused_before_quick_runs(#[case] failing: &str) {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in_failing(&workspace, Some(failing));
+    let (first, head) = two_commits(&workspace);
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!("refs/heads/ticket {head} refs/heads/ticket {first}\n"),
+    );
+
+    assert_eq!(run.code, Some(1), "{}", run.stderr);
+    assert_eq!(run.calls, commit_checks(&head));
+    assert!(run.stderr.contains("error: "), "{}", run.stderr);
+}
+
+#[test]
+fn a_push_of_two_branches_checks_the_commits_of_each_and_runs_quick_once() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = hook_stand_in(&workspace);
+    let (first, head) = two_commits(&workspace);
+
+    let run = pre_push(
+        &workspace,
+        &stand_in,
+        &format!(
+            "refs/heads/other {first} refs/heads/other {NO_COMMIT}\nrefs/heads/ticket {head} refs/heads/ticket {first}\n"
+        ),
+    );
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let mut calls = commit_checks(&first).to_vec();
+    calls.extend(commit_checks(&head));
+    calls.push(format!("quick base={first}"));
+    assert_eq!(run.calls, calls);
 }
 
 #[test]
@@ -551,14 +617,17 @@ fn a_push_of_another_tree_runs_quick_against_the_commit_the_remote_ref_holds() {
     );
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    assert_eq!(run.calls, [format!("quick base={first}")]);
+    let mut calls = commit_checks(&head).to_vec();
+    calls.push(format!("quick base={first}"));
+    assert_eq!(run.calls, calls);
 }
 
 /// git gives the hook of a push from a linked worktree that worktree's
 /// `GIT_DIR`. `just quick` must not inherit it: a build script's `git init`
-/// (btls-sys's) would then reinitialize the repository as bare.
+/// (btls-sys's) would then reinitialize the repository as bare. Neither do
+/// the two checks of the commits, which build xtask.
 #[test]
-fn a_push_runs_quick_without_the_git_dir_git_gives_the_hook() {
+fn a_push_runs_its_checks_without_the_git_dir_git_gives_the_hook() {
     let workspace = Workspace::from_fixture("empty");
     let stand_in = hook_stand_in(&workspace);
     let (first, head) = two_commits(&workspace);
@@ -572,7 +641,7 @@ fn a_push_runs_quick_without_the_git_dir_git_gives_the_hook() {
     );
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    assert_eq!(inherited_git_dirs(&stand_in), ["unset"]);
+    assert_eq!(inherited_git_dirs(&stand_in), ["unset", "unset", "unset"]);
 }
 
 /// A new remote branch holds no commit, so `just quick` takes the branch's
@@ -591,7 +660,9 @@ fn a_push_of_a_new_branch_runs_quick_against_its_own_base() {
     );
 
     assert_eq!(run.code, Some(0), "{}", run.stderr);
-    assert_eq!(run.calls, ["quick base="]);
+    let mut calls = commit_checks(&head).to_vec();
+    calls.push("quick base=".to_owned());
+    assert_eq!(run.calls, calls);
 }
 
 #[test]

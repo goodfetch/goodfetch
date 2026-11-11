@@ -127,6 +127,8 @@ Decided in [Security testing](https://github.com/goodfetch/goodfetch/issues/288)
   - remote MCP's token audience and no passthrough.
 
   Each refusal is also checked in the Audit log.
+
+  > Note (2026-11-11, consolidated review X-03; the owner's « do as recommended », the choice being the review orchestrator's): the Exposed Daemon's bootstrap link is a one-time setup code sent over a Connection ([ADR 0049](0049-supported-self-hosted-targets-and-the-exposed-daemon.md)'s note of that day), so its row tests the setup code ([#668](https://github.com/goodfetch/goodfetch/issues/668)).
 - **Protocol fuzzing from the schema.** The committed JSON Schema bundle drives `proptest` and `proptest-state-machine` over every operation and transport. Every invalid call gets a typed error and changes no state.
 - **Scanners:**
   - The MCP conformance suite runs against MCP over HTTP, scheduled as [ADR 0070](0070-mcp-adapters-and-integrations-are-tested-through-their-platforms-own-clients-against-a-real-engine.md) decides.

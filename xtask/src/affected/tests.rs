@@ -869,11 +869,18 @@ fn a_tests_file_named_outside_its_folder_keeps_its_crates_reach(
     #[case] changed: &str,
     #[case] wide: bool,
 ) {
+    let (selection, conformance) = selection_with_one_reader(reader, text, changed);
+
+    assert_eq!(conformance, wide, "{selection}");
+}
+
+/// The selection for a change to `changed` in a tree where `reader` holds
+/// `text`, and whether it selects the conformance crate.
+fn selection_with_one_reader(reader: &str, text: &str, changed: &str) -> (Selection, bool) {
     let root = tempfile::tempdir().unwrap();
     write(root.path(), reader, text);
     write(root.path(), changed, "");
     let members = WorkspaceMembers::from_workspace(fixture());
-
     let selection = select_with_readers(
         root.path(),
         &members,
@@ -881,14 +888,52 @@ fn a_tests_file_named_outside_its_folder_keeps_its_crates_reach(
         &ChangedParts::default(),
     )
     .unwrap();
+    let conformance = value(&selection, "crates")
+        .split(' ')
+        .any(|krate| krate == "goodfetch-conformance");
+    (selection, conformance)
+}
 
-    assert_eq!(
-        value(&selection, "crates")
-            .split(' ')
-            .any(|krate| krate == "goodfetch-conformance"),
-        wide,
-        "{selection}"
-    );
+/// A file no member owns and no change to which reaches every member, such
+/// as a TLC model, is read by a member whose code names it in a string
+/// literal: by its file name ending one, or by a folder that holds it, whole
+/// or starting a longer path, in either quote. A literal naming another file
+/// reads nothing.
+#[rstest]
+#[case::its_file_name(
+    "crates/goodfetch-conformance/src/lib.rs",
+    r#"let model = models.join("Sample.tla");"#,
+    true
+)]
+#[case::a_folder_holding_it(
+    "crates/goodfetch-conformance/src/lib.rs",
+    r#"const SUPPORT: &str = "test-support";"#,
+    true
+)]
+#[case::a_path_through_a_folder_holding_it(
+    "crates/goodfetch-conformance/src/lib.rs",
+    r#"const OTHER: &str = "test-support/models/other/Other.tla";"#,
+    true
+)]
+#[case::a_folder_holding_it_in_single_quotes(
+    "crates/goodfetch-conformance/scripts/models.py",
+    "MODEL = ROOT / 'test-support/models/sample/' + NAME\n",
+    true
+)]
+#[case::another_files_name(
+    "crates/goodfetch-conformance/src/lib.rs",
+    r#"let model = models.join("Other.tla");"#,
+    false
+)]
+fn a_file_no_member_owns_is_read_where_code_names_it_or_a_folder_holding_it(
+    #[case] reader: &str,
+    #[case] text: &str,
+    #[case] read: bool,
+) {
+    let (selection, conformance) =
+        selection_with_one_reader(reader, text, "test-support/models/sample/Sample.tla");
+
+    assert_eq!(conformance, read, "{selection}");
 }
 
 #[test]

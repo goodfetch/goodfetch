@@ -345,23 +345,6 @@ fn a_member_whose_files_name_a_changed_file_in_a_literal_reruns() {
     );
 }
 
-#[test]
-fn a_change_to_the_justfile_reruns_every_step_in_full() {
-    let (workspace, _folder, records) = gated_repository(&[]);
-    first_run(&workspace, &records);
-    workspace.write("justfile", b"default:\n    @true\n");
-    commit_all(&workspace, "Change the justfile");
-
-    let second = plan(&workspace, &records);
-
-    assert!(
-        second.steps.values().all(|(action, _)| action == "run"),
-        "{:?}",
-        second.steps
-    );
-    assert!(second.why["perf"].starts_with("justfile changed since "));
-}
-
 /// The fixture with an `xtask` crate of its own, as the repository has, and
 /// its dep-info: a first run green on every step.
 fn green_run_with_xtask(workspace: &Workspace, records: &Path) {
@@ -503,8 +486,10 @@ fn a_ci_file_a_test_names_reaches_that_tests_member() {
 }
 
 /// Any path of the gate's inputs the map does not name still reruns every
-/// step, as does `xtask/src/`, which decides the plan.
+/// step, as does `xtask/src/`, which decides the plan. The reason names the
+/// changed input first.
 #[rstest::rstest]
+#[case::justfile("justfile")]
 #[case::a_script_every_step_needs("ci/pre-merge.sh")]
 #[case::a_new_ci_file("ci/a-new-script.sh")]
 #[case::a_new_ci_folder("ci/a-new-folder/settings.toml")]
@@ -526,7 +511,11 @@ fn a_gate_input_the_map_does_not_name_reruns_every_step(#[case] path: &str) {
         "{:?}",
         second.steps
     );
-    assert!(second.why["perf"].contains(path), "{}", second.why["perf"]);
+    assert!(
+        second.why["perf"].starts_with(&format!("{path} changed since ")),
+        "{}",
+        second.why["perf"]
+    );
 }
 
 #[test]

@@ -134,6 +134,7 @@ fn figure_up_4_9_percent_on_its_base_passes(#[case] key: &str) {
     let outcome = compare(&workspace, &[]);
 
     assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.notes(), vec![], "{}", outcome.stdout);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
@@ -214,6 +215,7 @@ fn benchmark_with_no_base_is_reported_never_gated() {
     let outcome = compare(&workspace, &[]);
 
     assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.notes(), vec![], "{}", outcome.stdout);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
@@ -321,6 +323,7 @@ fn console_build_of_exactly_1_mb_brotli_passes() {
     let outcome = compare(&workspace, &BUNDLES);
 
     assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.notes(), vec![], "{}", outcome.stdout);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
@@ -791,6 +794,7 @@ fn tripped_figure_accepted_in_the_pull_request_that_merged_the_commit_passes() {
     let outcome = compare_for_merge_commit(&workspace, &github);
 
     assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.notes(), vec![], "{}", outcome.stdout);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 

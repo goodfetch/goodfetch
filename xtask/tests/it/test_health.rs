@@ -217,8 +217,10 @@ fn a_run_uses_the_script_of_the_commit_it_tests() {
 
 /// Cron's lines start from `origin/main`'s script, not the checkout's, which on
 /// the day this came in may predate it.
-#[test]
-fn the_crontab_lines_run_the_script_of_origin_main() {
+#[rstest]
+#[case::mutants(0, "mutants")]
+#[case::constrained(1, "constrained")]
+fn a_crontab_line_runs_the_script_of_origin_main(#[case] index: usize, #[case] run: &str) {
     let crontab = std::fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/test-health.crontab"),
     )
@@ -229,32 +231,35 @@ fn the_crontab_lines_run_the_script_of_origin_main() {
         .filter_map(|(_, line)| line.strip_suffix('\''))
         .collect();
     assert_eq!(lines.len(), 2, "{crontab}");
-    for (index, line) in lines.into_iter().enumerate() {
-        let workspace = origin_repository();
-        let stand_in = stand_in_just(&workspace);
-        let marker = workspace.path().join(format!("ran-{index}"));
-        commit_to_main(
-            &workspace,
-            &[(
-                "ci/test-health/scheduled.sh",
-                format!("#!/bin/bash\necho \"$*\" >>\"{}\"\n", marker.display()).as_bytes(),
-            )],
-        );
+    let line = lines[index];
+    assert!(
+        line.ends_with(&format!(" scheduled {run} origin/main")),
+        "{line}"
+    );
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+    let marker = workspace.path().join("ran");
+    commit_to_main(
+        &workspace,
+        &[(
+            "ci/test-health/scheduled.sh",
+            format!("#!/bin/bash\necho \"$*\" >>\"{}\"\n", marker.display()).as_bytes(),
+        )],
+    );
 
-        let output = workspace
-            .command("bash")
-            .args(["-c", line])
-            .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
-            .env("GOODFETCH_CHECKOUT", workspace.path())
-            .env("GOODFETCH_TEST_HEALTH_LOG", workspace.path().join("logs"))
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .output()
-            .unwrap();
+    let output = workspace
+        .command("bash")
+        .args(["-c", line])
+        .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
+        .env("GOODFETCH_CHECKOUT", workspace.path())
+        .env("GOODFETCH_TEST_HEALTH_LOG", workspace.path().join("logs"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .output()
+        .unwrap();
 
-        assert!(output.status.success(), "{line}: {output:?}");
-        assert!(marker.is_file(), "{line}: {output:?}");
-    }
+    assert!(output.status.success(), "{line}: {output:?}");
+    assert!(marker.is_file(), "{line}: {output:?}");
 }
 
 /// On 2026-11-08 the daily mutation run ran beside a gate, and the load it

@@ -483,7 +483,8 @@ fn real_listings_carry_each_runners_declarations() {
 }
 
 /// The Vitest configuration declares the inventory's Feature IDs as tags,
-/// so a tag naming another Feature fails the listing.
+/// so a test tagged with another Feature fails to collect, which fails the
+/// listing rather than leaving the test out.
 #[test]
 fn vitest_tag_the_inventory_does_not_list_fails_the_listing() {
     let workspace = Workspace::from_fixture("feature-listings");
@@ -497,6 +498,11 @@ fn vitest_tag_the_inventory_does_not_list_fails_the_listing() {
     let listed = workspace.xtask(&["journeys", "listings", "--out", LISTINGS]);
 
     assert_ne!(listed.code, 0, "{}", listed.stderr);
+    assert!(
+        listed.stderr.contains("the Vitest listing failed"),
+        "{}",
+        listed.stderr
+    );
 }
 
 const STORIES: &str = "features/stories/1.toml";

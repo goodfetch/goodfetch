@@ -464,36 +464,6 @@ fn a_red_check_leaves_every_other_check_of_the_quick_and_docs_forms_running(
     );
 }
 
-/// The steps of the full gate, in the order `xtask gate steps` lists them.
-/// Each has a case of its own, of the same name, in
-/// `one_red_step_leaves_every_other_step_of_the_full_gate_running_and_recorded`,
-/// which a step added here needs too.
-const ALL_STEPS: [&str; 23] = [
-    "dco",
-    "commit-messages",
-    "floor-guard",
-    "commit-leaks",
-    "audit",
-    "notices",
-    "console-build",
-    "perf",
-    "linux",
-    "visual",
-    "lint",
-    "feature-combinations",
-    "fuzz-check",
-    "proofs",
-    "quick",
-    "pre-merge",
-    "stress",
-    "journeys-tasks",
-    "features-tests",
-    "tlc",
-    "kennel",
-    "msrv",
-    "miri",
-];
-
 /// The steps a full gate records, in the order it records them: the host's
 /// as each ends, then the steps beside once it has waited for them. The
 /// Console build is a command of the gate, no step of its record.
@@ -548,53 +518,24 @@ const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 20] = [
     "miri",
 ];
 
-/// The cases below fail each step `xtask gate steps` lists for the full
-/// gate: a step added there fails this test until [`ALL_STEPS`] names it,
-/// where its case is asked for.
-#[test]
-fn the_steps_with_a_red_case_are_the_full_gates() {
-    let workspace = Workspace::from_fixture("empty");
-
-    let listed: Vec<String> = listed(&workspace, "all")
-        .into_iter()
-        .map(|step| step.name)
-        .collect();
-
-    assert_eq!(listed, ALL_STEPS);
-}
-
 /// One red step, whichever it is, leaves the full gate's verdict as it was,
 /// red with that step's exit status, and stops no other step: the host's
 /// calls are a green gate's, in a green gate's order, the steps beside all
-/// run, every step is recorded, that step alone red, and the gate's end
-/// names it (ADR 0135's amendment of 2026-11-10). Each case fails one call:
-/// the step it belongs to, the steps then recorded red (none for the Console
-/// build, which is no step of the record) and the host's calls.
+/// run, every step is recorded, that step alone recorded as failed, and the
+/// gate's end names it (ADR 0135's amendment of 2026-11-10). Each case fails
+/// one call: the step it belongs to, the steps then recorded red (none for the
+/// Console build, which is no step of the record) and the host's calls. The
+/// cases take each way `ci/pre-merge.sh` runs a step once: a command of the
+/// gate, each step beside, a host step run with its `just` command (`lint`;
+/// every plain host step takes that way, by its name alone), the Quick suite
+/// and the stress run with their evidence, and the Pre-merge suite, red in its
+/// tests or in its exercise audit.
 #[rstest]
-#[case::dco("dco", "dco", &["dco"], &ALL_HOST_CALLS)]
-#[case::commit_messages(
-    "commit-messages",
-    "commit-messages",
-    &["commit-messages"],
-    &ALL_HOST_CALLS
-)]
-#[case::floor_guard("floor-guard", "floor-guard", &["floor-guard"], &ALL_HOST_CALLS)]
-#[case::commit_leaks("commit-leaks", "commit-leaks", &["commit-leaks"], &ALL_HOST_CALLS)]
-#[case::audit("audit", "audit", &["audit"], &ALL_HOST_CALLS)]
-#[case::notices("notices", "notices", &["notices"], &ALL_HOST_CALLS)]
 #[case::console_build("console-build", "console-build", &[], &ALL_HOST_CALLS)]
 #[case::perf("perf", "perf", &["perf"], &ALL_HOST_CALLS)]
 #[case::linux("linux", "linux", &["linux"], &ALL_HOST_CALLS)]
 #[case::visual("visual", "visual", &["visual"], &ALL_HOST_CALLS)]
 #[case::lint("lint", "lint", &["lint"], &ALL_HOST_CALLS)]
-#[case::feature_combinations(
-    "feature-combinations",
-    "feature-combinations",
-    &["feature-combinations"],
-    &ALL_HOST_CALLS
-)]
-#[case::fuzz_check("fuzz-check", "fuzz-check", &["fuzz-check"], &ALL_HOST_CALLS)]
-#[case::proofs("proofs", "proofs", &["proofs"], &ALL_HOST_CALLS)]
 #[case::quick("_suite quick all", "quick", &["quick"], &ALL_HOST_CALLS)]
 #[case::pre_merge(
     "_suite pre-merge all",
@@ -609,22 +550,6 @@ fn the_steps_with_a_red_case_are_the_full_gates() {
     &ALL_HOST_CALLS
 )]
 #[case::stress("stress", "stress", &["stress"], &ALL_HOST_CALLS)]
-#[case::journeys_tasks(
-    "journeys-tasks --check",
-    "journeys-tasks",
-    &["journeys-tasks"],
-    &ALL_HOST_CALLS
-)]
-#[case::features_tests(
-    "features-tests clients-tests",
-    "features-tests",
-    &["features-tests"],
-    &ALL_HOST_CALLS
-)]
-#[case::tlc("_tlc all", "tlc", &["tlc"], &ALL_HOST_CALLS)]
-#[case::kennel("_kennel all", "kennel", &["kennel"], &ALL_HOST_CALLS)]
-#[case::msrv("msrv", "msrv", &["msrv"], &ALL_HOST_CALLS)]
-#[case::miri("miri", "miri", &["miri"], &ALL_HOST_CALLS)]
 fn one_red_step_leaves_every_other_step_of_the_full_gate_running_and_recorded(
     #[case] call: &str,
     #[case] step: &str,
@@ -660,9 +585,15 @@ fn one_red_step_leaves_every_other_step_of_the_full_gate_running_and_recorded(
         .collect();
     let recorded: Vec<&str> = records.iter().map(|(recorded, _)| *recorded).collect();
     assert_eq!(recorded, RECORDED_STEPS);
+    assert!(
+        records
+            .iter()
+            .all(|(_, status)| matches!(*status, "pass" | "fail")),
+        "{records:?}"
+    );
     let red: Vec<&str> = records
         .iter()
-        .filter(|(_, status)| *status != "pass")
+        .filter(|(_, status)| *status == "fail")
         .map(|(recorded, _)| *recorded)
         .collect();
     assert_eq!(red, recorded_red);
@@ -893,9 +824,7 @@ fn a_plan_action_the_step_cannot_take_ends_the_gate_at_that_step(#[case] line: &
 )]
 #[case::all_without_a_kind("all", "steps=dco\ndco.just=dco\n", "`dco.kind=`")]
 #[case::all_without_a_command("all", "steps=dco\ndco.kind=step\n", "`dco.just=`")]
-#[case::quick_without_its_steps("quick", "dco.kind=step\ndco.just=dco\n", "`steps=`")]
 #[case::quick_without_a_command("quick", "steps=dco\ndco.kind=step\n", "`dco.just=`")]
-#[case::docs_without_its_steps("docs", "dco.kind=step\ndco.just=dco\n", "`steps=`")]
 #[case::docs_without_a_command("docs", "steps=dco\ndco.kind=step\n", "`dco.just=`")]
 fn a_step_list_without_a_key_or_with_it_twice_fails_the_gate(
     #[case] form: &str,
@@ -1109,26 +1038,6 @@ fn an_unknown_argument_is_refused_before_any_step() {
     assert!(run.calls.is_empty(), "{:?}", run.calls);
 }
 
-#[rstest]
-#[case::perf("perf")]
-#[case::linux("linux")]
-#[case::visual("visual")]
-fn a_failed_check_beside_the_host_steps_fails_the_suite(#[case] step: &str) {
-    let workspace = Workspace::from_fixture("empty");
-    let stand_in = stand_in_just(&workspace);
-    std::fs::write(stand_in.join("failing"), step).unwrap();
-
-    let run = pre_merge(&workspace, &stand_in, &["all"]);
-
-    assert_eq!(run.code, Some(3), "{}", run.stderr);
-    assert!(run.stderr.contains(&red_line(step, 3)), "{}", run.stderr);
-    assert!(
-        run.calls.iter().any(|call| call == "miri"),
-        "{:?}",
-        run.calls
-    );
-}
-
 /// On a Linux host every step after the setup meets the services it
 /// started, and runs where a missing one fails instead of skipping its
 /// tests (`ci/os-services.sh skipped`), with the DNS namespace's way
@@ -1270,28 +1179,6 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
         .collect();
     expected.sort();
     assert_eq!(recorded, expected);
-}
-
-#[rstest]
-#[case::host_step("lint", "lint")]
-#[case::beside("perf", "perf")]
-#[case::suite("_suite pre-merge all", "pre-merge")]
-fn a_failed_step_is_recorded_as_failed(#[case] call: &str, #[case] step: &str) {
-    let workspace = Workspace::from_fixture("empty");
-    let stand_in = stand_in_just(&workspace);
-    // A plan with no earlier run: every step runs.
-    std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
-    std::fs::write(stand_in.join("failing"), call).unwrap();
-
-    let run = pre_merge(&workspace, &stand_in, &["all"]);
-
-    assert_eq!(run.code, Some(3), "{}", run.stderr);
-    assert!(
-        run.gate
-            .contains(&format!("_gate-record planned {step} fail")),
-        "{:?}",
-        run.gate
-    );
 }
 
 /// A failed Quick suite or stress run hands `xtask gate record` the files

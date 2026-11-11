@@ -74,6 +74,7 @@ fn crawl_at_or_under_twice_its_body_bytes_passes(#[case] total_bytes: u64) {
     let outcome = compare(&workspace, &[]);
 
     assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.notes(), vec![], "{}", outcome.stdout);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
@@ -157,6 +158,7 @@ fn frontier_at_or_under_8_bytes_per_url_passes(#[case] hundred_thousand_urls: u6
     let outcome = compare(&workspace, &[]);
 
     assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.notes(), vec![], "{}", outcome.stdout);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 

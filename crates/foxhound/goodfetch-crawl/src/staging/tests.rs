@@ -543,7 +543,7 @@ fn bounded() -> Connection {
     let connection = leased();
     connection
         .execute_batch(
-            "INSERT INTO bounds (id, max_requests) VALUES (1, 6);
+            "INSERT INTO bounds (id, max_requests, learning) VALUES (1, 6, 1);
              INSERT INTO bounds_path_budgets (position, pattern, max_requests)
              VALUES (0, '/sale/*', 2);",
         )

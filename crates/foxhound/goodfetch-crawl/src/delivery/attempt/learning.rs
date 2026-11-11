@@ -20,7 +20,8 @@ use crate::work_items::Leased;
 pub(in crate::delivery) struct Taught {
     /// The pending requests a rule it taught merged, which it ended
     /// `skipped` with `duplicate`, by ID with their domain key: they leave
-    /// their queues.
+    /// their queues. Beside them, those a rule it stopped made pending
+    /// again, which their queues take back when filled again.
     pub(in crate::delivery) merged: Vec<(String, String)>,
     /// What it teaches in its attempt's outcome, which a code-free attempt
     /// leaves to it.

@@ -27,7 +27,10 @@
 //!
 //! The values live in the run file, recorded when the Run begins and again
 //! when it resumes under its new settings, so every admission point, a
-//! seed added to a running crawl included, reads the same ones.
+//! seed added to a running crawl included, reads the same ones. Beside
+//! them lives `frontier.learning` (ADR 0138), which admission reads with
+//! them: off, an admission keeps no evidence for the learned rules and no
+//! learned cursor refuses a URL.
 
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::runs::CompletenessReason;
@@ -36,7 +39,7 @@ use goodfetch_page::url_pattern::{UnsupportedPattern, UrlPattern};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::foxhound::frontier::{
     CRAWL_MAX_DEPTH, CRAWL_MAX_PATH_SEGMENTS, CRAWL_MAX_REQUESTS, CRAWL_MAX_SEGMENT_REPEATS,
-    CRAWL_MAX_URL_LENGTH, CRAWL_PATH_BUDGETS, NotAddedReason, PathBudget,
+    CRAWL_MAX_URL_LENGTH, CRAWL_PATH_BUDGETS, FRONTIER_LEARNING, NotAddedReason, PathBudget,
 };
 use goodfetch_protocol::run::{AxisReason, Completeness};
 use rusqlite::{Connection, OptionalExtension as _};
@@ -44,7 +47,8 @@ use url::{Position, Url};
 
 use crate::staged::Staged;
 
-/// The bounds' values, one row, and the path budgets, in order; the count
+/// The bounds' values and `frontier.learning`, one row, and the path
+/// budgets, in order; the count
 /// of requests admitted, one row; each bound's count of refusals, by its
 /// setting's name; and each path budget's counts, by its pattern.
 pub const TABLES: RunStateTables = RunStateTables {
@@ -56,7 +60,8 @@ pub const TABLES: RunStateTables = RunStateTables {
             max_requests INTEGER,
             max_url_length INTEGER,
             max_path_segments INTEGER,
-            max_segment_repeats INTEGER
+            max_segment_repeats INTEGER,
+            learning INTEGER NOT NULL
         ) STRICT",
         "CREATE TABLE IF NOT EXISTS bounds_admitted (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
@@ -79,7 +84,8 @@ pub const TABLES: RunStateTables = RunStateTables {
     ],
 };
 
-/// A crawl's bounds and caps, each `None` when off.
+/// A crawl's bounds and caps, each `None` when off, and whether its
+/// admission learns.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bounds {
     /// `crawl.max_depth`.
@@ -94,10 +100,14 @@ pub struct Bounds {
     pub max_segment_repeats: Option<u64>,
     /// `crawl.path_budgets`, in order.
     pub path_budgets: Vec<PathBudget>,
+    /// `frontier.learning`: whether an admission keeps what it shows the
+    /// learned rules and lets a learned cursor refuse a URL.
+    pub learning: bool,
 }
 
 impl Default for Bounds {
-    /// The built-in values: no bound, and each cap at its default.
+    /// The built-in values: no bound, each cap at its default, and
+    /// learning on.
     fn default() -> Self {
         let built_in = |setting: &Setting| (setting.default)().as_u64();
         Self {
@@ -107,6 +117,9 @@ impl Default for Bounds {
             max_path_segments: built_in(&CRAWL_MAX_PATH_SEGMENTS),
             max_segment_repeats: built_in(&CRAWL_MAX_SEGMENT_REPEATS),
             path_budgets: Vec::new(),
+            learning: (FRONTIER_LEARNING.default)()
+                .as_bool()
+                .expect("invariant: `frontier.learning`'s default is a boolean"),
         }
     }
 }
@@ -121,6 +134,7 @@ impl Bounds {
             max_path_segments: settings.get(&CRAWL_MAX_PATH_SEGMENTS),
             max_segment_repeats: settings.get(&CRAWL_MAX_SEGMENT_REPEATS),
             path_budgets: PathBudget::list(settings.value(&CRAWL_PATH_BUDGETS)),
+            learning: settings.get(&FRONTIER_LEARNING),
         }
     }
 
@@ -147,17 +161,19 @@ impl Bounds {
     pub fn record(&self, connection: &Connection) -> rusqlite::Result<()> {
         self.check()
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
-        connection.prepare_cached("INSERT INTO bounds (id, max_depth, max_requests, max_url_length, max_path_segments, max_segment_repeats)
-             VALUES (1, ?1, ?2, ?3, ?4, ?5)
+        connection.prepare_cached("INSERT INTO bounds (id, max_depth, max_requests, max_url_length, max_path_segments, max_segment_repeats, learning)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT (id) DO UPDATE SET max_depth = excluded.max_depth,
                  max_requests = excluded.max_requests, max_url_length = excluded.max_url_length,
                  max_path_segments = excluded.max_path_segments,
-                 max_segment_repeats = excluded.max_segment_repeats").and_then(|mut cached| cached.execute((
+                 max_segment_repeats = excluded.max_segment_repeats,
+                 learning = excluded.learning").and_then(|mut cached| cached.execute((
                 self.max_depth.map(sql),
                 self.max_requests.map(sql),
                 self.max_url_length.map(sql),
                 self.max_path_segments.map(sql),
                 self.max_segment_repeats.map(sql),
+                self.learning,
             )))?;
         connection
             .prepare_cached("DELETE FROM bounds_path_budgets")
@@ -188,7 +204,8 @@ impl Bounds {
     pub fn read(connection: &Connection) -> rusqlite::Result<Self> {
         let recorded = connection
             .prepare_cached(
-                "SELECT max_depth, max_requests, max_url_length, max_path_segments, max_segment_repeats
+                "SELECT max_depth, max_requests, max_url_length, max_path_segments, max_segment_repeats,
+                     learning
                  FROM bounds WHERE id = 1",
             )?
             .query_row([], |row| {
@@ -200,6 +217,7 @@ impl Bounds {
                     max_path_segments: value(3)?,
                     max_segment_repeats: value(4)?,
                     path_budgets: Vec::new(),
+                    learning: row.get(5)?,
                 })
             })
             .optional()?;

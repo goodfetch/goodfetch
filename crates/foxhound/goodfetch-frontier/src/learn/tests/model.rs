@@ -33,7 +33,7 @@ use url::Url;
 use crate::identity::{self, Declared};
 use crate::rules::{self, learned_rules};
 use crate::scope::{self, Scope};
-use crate::{Candidate, EndMerged, PageSeen, admit, bounds, learn};
+use crate::{Candidate, EndMerged, Ended, PageSeen, admit, bounds, learn};
 
 /// The crawl's own table of the test: each request added, by its ID, with
 /// its status: `pending`, `fetched`, or `skipped` once a rule merged it.
@@ -388,7 +388,7 @@ impl EndMerged for Requests {
         &mut self,
         connection: &Connection,
         crawl_requests: &BTreeSet<String>,
-    ) -> rusqlite::Result<Vec<String>> {
+    ) -> rusqlite::Result<Vec<Ended>> {
         let mut rows = Vec::new();
         for id in crawl_requests {
             let id: i64 = id.parse().unwrap();
@@ -416,9 +416,30 @@ impl EndMerged for Requests {
         let mut ended = Vec::new();
         for (id, url, _) in pending {
             connection.execute("UPDATE requests SET status = 'skipped' WHERE id = ?1", [id])?;
-            ended.push(url);
+            ended.push(Ended {
+                crawl_request: id.to_string(),
+                url,
+            });
         }
         Ok(ended)
+    }
+
+    fn give_back(
+        &mut self,
+        connection: &Connection,
+        crawl_requests: &[String],
+    ) -> rusqlite::Result<Vec<String>> {
+        let mut given = Vec::new();
+        for id in crawl_requests {
+            let changed = connection.execute(
+                "UPDATE requests SET status = 'pending' WHERE id = ?1 AND status = 'skipped'",
+                [id.parse::<i64>().unwrap()],
+            )?;
+            if changed == 1 {
+                given.push(id.clone());
+            }
+        }
+        Ok(given)
     }
 }
 

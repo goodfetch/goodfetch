@@ -979,8 +979,9 @@ pub(crate) fn end(
 /// (ADR 0093): given the crawl requests it showed to be one page, each
 /// still pending ends `skipped` with `duplicate` at `ended_at`, its
 /// handler never run, unless none of them was leased or ended otherwise
-/// than so, when the first pending one stays. Answers each one it ended,
-/// with its URL and the domain key it waits under, if keyed.
+/// than so, when the first pending one stays; one ended so and given back
+/// since ([`give_back`]) counts by its latest outcome. Answers each one it
+/// ended, with its URL and the domain key it waits under, if keyed.
 pub(crate) fn end_merged(
     connection: &Connection,
     ids: &BTreeSet<String>,
@@ -990,9 +991,9 @@ pub(crate) fn end_merged(
     for id in ids {
         let member = connection
             .prepare_cached(
-                "SELECT position, status, url, domain_key, EXISTS (
-                     SELECT 1 FROM outcomes WHERE work_item = ?1 AND kind = ?2
-                         AND json_extract(outcome, '$.reason') = 'duplicate')
+                "SELECT position, status, url, domain_key, coalesce((
+                     SELECT kind = ?2 AND json_extract(outcome, '$.reason') = 'duplicate'
+                     FROM outcomes WHERE work_item = ?1 ORDER BY position DESC LIMIT 1), 0)
                  FROM work_items WHERE id = ?1",
             )
             .and_then(|mut cached| {
@@ -1249,6 +1250,69 @@ pub(crate) fn ended_counts(
     Ok((requests, records))
 }
 
+/// Makes pending again each work item of `ids` that a rule the Frontier
+/// had learned ended `skipped` with `duplicate` before any fetch, once a
+/// contradicting pair stopped that rule (ADR 0005), and answers those it
+/// gave back, each with the domain key it waits under, if keyed: each one
+/// still `skipped` whose latest outcome is that ending. Each keeps its ID,
+/// position and domain key, and its outcome leaves the ended requests'
+/// counts until it ends again, as a re-admitted one's does ([`readmit`]).
+pub(crate) fn give_back(
+    connection: &Connection,
+    ids: &[String],
+) -> rusqlite::Result<Vec<(String, Option<String>)>> {
+    let mut given = Vec::new();
+    for id in ids {
+        let skipped: Option<Option<String>> = connection
+            .prepare_cached("SELECT domain_key FROM work_items WHERE id = ?1 AND status = ?2")
+            .and_then(|mut cached| cached.query_row((id, SKIPPED), |row| row.get(0)).optional())?;
+        let Some(key) = skipped else {
+            continue;
+        };
+        let Some(outcome) = latest_outcome(connection, id)? else {
+            continue;
+        };
+        if !matches!(
+            outcome.ending,
+            Ending::Skipped {
+                reason: SkipReason::Duplicate,
+                ..
+            }
+        ) {
+            continue;
+        }
+        connection
+            .prepare_cached("UPDATE work_items SET status = ?1 WHERE id = ?2")
+            .and_then(|mut cached| cached.execute((PENDING, id)))?;
+        count(connection, &outcome.ending, -1)?;
+        given.push((id.clone(), key));
+    }
+    Ok(given)
+}
+
+/// The latest outcome of the work item `id`, if it ended at least once.
+fn latest_outcome(
+    connection: &Connection,
+    id: &str,
+) -> rusqlite::Result<Option<CrawlRequestOutcome>> {
+    let outcome: Option<String> = connection
+        .prepare_cached(
+            "SELECT outcome FROM outcomes WHERE work_item = ?1 ORDER BY position DESC LIMIT 1",
+        )
+        .and_then(|mut cached| cached.query_row([id], |row| row.get(0)).optional())?;
+    outcome
+        .map(|outcome| {
+            serde_json::from_str(&outcome).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })
+        })
+        .transpose()
+}
+
 /// The statuses of the work items `run.retry_failed` re-admits, which
 /// `run.failed_requests` lists: `failed`, and with `blocked`, `blocked`.
 pub(crate) fn readmitted(blocked: bool) -> &'static [&'static str] {
@@ -1299,19 +1363,8 @@ pub(crate) fn readmit(connection: &Connection, blocked: bool) -> rusqlite::Resul
         .query_map([statuses], |row| Ok((row.get::<_, i64>(1)?, row.get(0)?)))?
         .collect::<rusqlite::Result<Vec<(i64, String)>>>()?;
     ids.sort();
-    let mut latest = connection.prepare_cached(
-        "SELECT outcome FROM outcomes WHERE work_item = ?1 ORDER BY position DESC LIMIT 1",
-    )?;
     for (_, id) in &ids {
-        let outcome: Option<String> = latest.query_row([id], |row| row.get(0)).optional()?;
-        if let Some(outcome) = outcome {
-            let outcome: CrawlRequestOutcome = serde_json::from_str(&outcome).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    0,
-                    rusqlite::types::Type::Text,
-                    Box::new(error),
-                )
-            })?;
+        if let Some(outcome) = latest_outcome(connection, id)? {
             count(connection, &outcome.ending, -1)?;
         }
     }

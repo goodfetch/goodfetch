@@ -9,6 +9,12 @@
 //!   differing only by `ref`; the last pair links item 9 with `&ref=late`,
 //!   which links item 9 without it, which links itself. Every link reads
 //!   "More", so an item's text is the same under each of its URLs.
+//! - `/stall` and `/stall?n=<k>`: a stall whose index links, in order,
+//!   items 1 to 3, each without `ref` and then with `&ref=<k>`, three
+//!   pairs that read alike, then items 7 and 8 the same way. Item 7 reads
+//!   alike under both and links item 1 with `&ref=5`; item 8 reads
+//!   otherwise with `ref`, a contradicting pair for a crawl that fetches
+//!   both.
 //! - `/calendar/<yyyy>/<mm>`: an events calendar whose months, all empty
 //!   and alike, page on without end, each linking the next month and the
 //!   home page; `/agenda/<yyyy>/<mm>` is the same for the 100 months from
@@ -68,6 +74,10 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
     }
     if let Some(pairs) = path.strip_prefix("/shop/").and_then(canonical_number) {
         return shop(pairs, request.parameter("n"), request.parameter("ref"))
+            .unwrap_or_else(Page::not_found);
+    }
+    if path == "/stall" {
+        return stall(request.parameter("n"), request.parameter("ref"))
             .unwrap_or_else(Page::not_found);
     }
     for (prefix, last) in [("/calendar/", None), ("/agenda/", Some(AGENDA_MONTHS))] {
@@ -134,6 +144,45 @@ fn shop(pairs: u64, n: Option<&str>, reference: Option<&str>) -> Option<Page> {
             &format!("Item {number} of the club shop."),
             &links,
         ),
+    )))
+}
+
+/// The stall's items: three whose pairs read alike, one a pair of which
+/// stays pending behind them, and one that reads otherwise with `ref`.
+const STALL_ITEMS: [u64; 5] = [1, 2, 3, STALL_PENDING, STALL_SPLIT];
+const STALL_PENDING: u64 = 7;
+const STALL_SPLIT: u64 = 8;
+
+/// The stall's index, or its item `n` as `ref` asks for it.
+fn stall(n: Option<&str>, reference: Option<&str>) -> Option<Page> {
+    let Some(n) = n else {
+        let mut links = String::new();
+        for item in STALL_ITEMS {
+            links.push_str(&link(&format!("/stall?n={item}"), "Item"));
+            links.push_str(&link(&format!("/stall?n={item}&amp;ref={item}"), "Item"));
+        }
+        return reference.is_none().then(|| {
+            Page::ok(document(
+                "Stall",
+                &article("Stall", "Every item of the club stall.", &links),
+            ))
+        });
+    };
+    let number = canonical_number(n).filter(|number| STALL_ITEMS.contains(number))?;
+    let text = if number == STALL_SPLIT && reference.is_some() {
+        format!("Item {number} of the club stall, at the members' price.")
+    } else {
+        format!("Item {number} of the club stall.")
+    };
+    let links = if number == STALL_PENDING {
+        link("/stall?n=1&amp;ref=5", "More")
+    } else {
+        String::new()
+    };
+    let heading = format!("Item {number}");
+    Some(Page::ok(document(
+        &heading,
+        &article(&heading, &text, &links),
     )))
 }
 

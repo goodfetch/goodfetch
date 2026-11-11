@@ -336,43 +336,7 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                     &mut Ending,
                 )?;
             }
-            // The guide redirects to its slashed URL, which teaches the
-            // trailing slash's form, and then both URLs serve pages that
-            // differ, which stops it.
-            let mut statement = connection.prepare(
-                "SELECT id, url FROM work_items WHERE url LIKE 'https://list.test/guide%' ORDER BY position",
-            )?;
-            let guides = statement
-                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            let urls: Vec<goodfetch_frontier::Url> = guides
-                .iter()
-                .map(|(_, url)| goodfetch_frontier::Url::parse(url).expect("a seed's URL parses"))
-                .collect();
-            goodfetch_frontier::learn_redirect(
-                connection,
-                goodfetch_frontier::Redirect {
-                    from: &urls[0],
-                    to: &urls[1],
-                    method: &get,
-                    body: None,
-                },
-                &mut Ending,
-            )?;
-            for (index, ((crawl_request, _), url)) in guides.iter().zip(&urls).enumerate() {
-                goodfetch_frontier::learn(
-                    connection,
-                    PageSeen {
-                        crawl_request,
-                        url,
-                        method: &get,
-                        body: None,
-                        signature: [u8::try_from(index).expect("two guides") + b'g'; 32],
-                        canonical: None,
-                    },
-                    &mut Ending,
-                )?;
-            }
+            learn_guide(connection)?;
             let merged = goodfetch_frontier::admit(
                 connection,
                 &scope,
@@ -392,39 +356,95 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                 matches!(merged, goodfetch_protocol::foxhound::frontier::Enqueued::NotAdded { .. }),
                 "the learned rule merges the seed"
             );
-            // Each page of the listing links the rows after it by a cursor
-            // of its own, a token that ends as the scope's `include` asks,
-            // which the third page's link teaches.
-            for (offset, after) in [(0, "r20"), (20, "r40"), (40, "r60")] {
-                let page =
-                    goodfetch_frontier::Url::parse(&format!("https://list.test/rows?offset={offset}"))
-                        .expect("a listing's page parses");
-                let cursor = goodfetch_frontier::admit(
-                    connection,
-                    &scope,
-                    &policy,
-                    goodfetch_frontier::Candidate::Href {
-                        href: &format!("?after={after}/sale"),
-                        base: &page,
-                        encoding: goodfetch_frontier::Encoding::for_label(b"utf-8")
-                            .expect("UTF-8 is an encoding"),
-                        keeps_fragment: false,
-                        from: &page,
-                        narrowing: goodfetch_frontier::Narrowing::none(),
-                        depth: 1,
-                    },
-                    |url| work_item(connection, url, "succeeded"),
-                )?;
-                assert!(
-                    matches!(cursor, goodfetch_protocol::foxhound::frontier::Enqueued::Added { .. }),
-                    "the cursor link is admitted: {cursor:?}"
-                );
-            }
+            link_cursors(connection, &scope, &policy)?;
             read_sitemap(connection)
         })
         .await
         .expect("the pages are learned from");
     Ok(json!({ "learned": true }))
+}
+
+/// Hands the Frontier the guide of `list.test`: it redirects to its slashed
+/// URL, which teaches the trailing slash's form, and then both URLs serve
+/// pages that differ, which stops it.
+fn learn_guide(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
+    let get = HttpMethod::get();
+    let mut statement = connection.prepare(
+        "SELECT id, url FROM work_items WHERE url LIKE 'https://list.test/guide%' ORDER BY position",
+    )?;
+    let guides = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let urls: Vec<goodfetch_frontier::Url> = guides
+        .iter()
+        .map(|(_, url)| goodfetch_frontier::Url::parse(url).expect("a seed's URL parses"))
+        .collect();
+    goodfetch_frontier::learn_redirect(
+        connection,
+        goodfetch_frontier::Redirect {
+            from: &urls[0],
+            to: &urls[1],
+            method: &get,
+            body: None,
+        },
+        &mut Ending,
+    )?;
+    for (index, ((crawl_request, _), url)) in guides.iter().zip(&urls).enumerate() {
+        goodfetch_frontier::learn(
+            connection,
+            PageSeen {
+                crawl_request,
+                url,
+                method: &get,
+                body: None,
+                signature: [u8::try_from(index).expect("two guides") + b'g'; 32],
+                canonical: None,
+            },
+            &mut Ending,
+        )?;
+    }
+    Ok(())
+}
+
+/// Admits the link each page of the `list.test/rows` listing gives to the
+/// rows after it by a cursor of its own, a token that ends as the scope's
+/// `include` asks, which the third page's link teaches.
+fn link_cursors(
+    connection: &rusqlite::Connection,
+    scope: &goodfetch_frontier::Scope,
+    policy: &goodfetch_engine::egress::Policy,
+) -> rusqlite::Result<()> {
+    for (offset, after) in [(0, "r20"), (20, "r40"), (40, "r60")] {
+        let page =
+            goodfetch_frontier::Url::parse(&format!("https://list.test/rows?offset={offset}"))
+                .expect("a listing's page parses");
+        let cursor = goodfetch_frontier::admit(
+            connection,
+            scope,
+            policy,
+            goodfetch_frontier::Candidate::Href {
+                href: &format!("?after={after}/sale"),
+                base: &page,
+                encoding: goodfetch_frontier::Encoding::for_label(b"utf-8")
+                    .expect("UTF-8 is an encoding"),
+                keeps_fragment: false,
+                from: &page,
+                narrowing: goodfetch_frontier::Narrowing::none(),
+                depth: 1,
+            },
+            |url| work_item(connection, url, "succeeded"),
+        )?;
+        assert!(
+            matches!(
+                cursor,
+                goodfetch_protocol::foxhound::frontier::Enqueued::Added { .. }
+            ),
+            "the cursor link is admitted: {cursor:?}"
+        );
+    }
+    Ok(())
 }
 
 /// Admits a sitemap seed on `maps.test` whose fetch already ended, since

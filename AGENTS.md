@@ -14,9 +14,9 @@ this status remains pre-release, ask the owner before a breaking change.
 
 From the first preview, the owner's answer of 2026-11-11 (ADR 0030's note of
 that day) is the owner's word for every break between previews. The next
-preview's `goodfetch upgrade-files` must upgrade every file the previous preview
+preview's `upgrade-files` must upgrade every file the previous preview
 wrote, and its release pull request lists each break for the owner's approval.
-A patch of a preview breaks nothing, and the add-only family only adds.
+A patch of a preview breaks nothing, and the five add-only files only add.
 Nightlies freeze nothing (ADR 0066) and get no upgrade of their own.
 
 ## Money

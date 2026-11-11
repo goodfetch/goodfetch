@@ -22,7 +22,7 @@ Thirteen kinds:
 | Code source | email or SMS MFA codes (ADR 0006) | — |
 | Notification channel | joins ADR 0027's channels | — |
 
-> Note, 2026-11-11, on the Extractor row (the owner, grilling of decision G-19 of the consolidated review, Q8: « Yes to all », on option (a) as put): "the existing Extractor Plugin kind names the content types it takes" (ADR 0037's matrix, RT-33).
+> Note, 2026-11-11, on the Extractor row (the owner, grilling of decision G-19 of the consolidated review, Q8: « Yes to all », on option (a) as put; the owner did not read this note's wording): "the existing Extractor Plugin kind names the content types it takes" (ADR 0037's matrix, RT-33).
 >
 > Note (the grilling session's own, 2026-11-11, same grilling, awaiting the owner's reading): so a user's converter can take PDFs or any other type while the built-in converters keep the rest (ADR 0119's note of that day).
 

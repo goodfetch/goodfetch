@@ -12,14 +12,14 @@
 //!   in a row brought no new page signature on the host and no URL outside
 //!   it; its later URLs are refused, which leaves the Run `unverified`.
 //! - **Offset pagination** is a query parameter whose values, on one path,
-//!   step by a fixed page size of 2 or more over at least 3 values; once a
-//!   two pages of that listing each link a cursor (a URL of the same path
-//!   without the offset, with a parameter that is no offset, whose value
-//!   is each page's own), the cursor is preferred and later offset URLs
-//!   are `duplicate`, counted, which leaves the Run `unverified`. A
-//!   parameter one page links with two values, or two pages with one, is
-//!   a sort, a filter or a view, and never a cursor. A listing paged only
-//!   by its offset leaves the Run `unverified` too.
+//!   step by a fixed page size of 2 or more over at least 3 values; once
+//!   three pages of that listing each link a cursor (a URL of the same
+//!   path without the offset, with a parameter that is no offset, whose
+//!   one value is each page's own), the cursor is preferred and later
+//!   offset URLs are `duplicate`, counted, which leaves the Run
+//!   `unverified`. A parameter one page links with two values, or two
+//!   pages with one, is a sort, a filter or a view, and never a cursor. A
+//!   listing paged only by its offset leaves the Run `unverified` too.
 //! - **An equivalent form** (`forms`: `www.`, the scheme, an index file or
 //!   a trailing slash) is learned for a host on 1 redirect from one form
 //!   to the other, or 2 pairs of pages in the two forms with matching
@@ -171,6 +171,9 @@ pub const TABLES: RunStateTables = RunStateTables {
             value TEXT NOT NULL,
             page TEXT NOT NULL,
             url TEXT NOT NULL,
+            second_value TEXT,
+            second_page TEXT,
+            second_url TEXT,
             refuted INTEGER NOT NULL,
             PRIMARY KEY (host, path, parameter)
         ) STRICT, WITHOUT ROWID",
@@ -794,15 +797,17 @@ fn greatest_common_divisor(step: i64, difference: u64) -> i64 {
 
 /// Counts the link `key`, which the listing's page `from` gave to its own
 /// path `parts`, as evidence of a cursor, and learns that the listing
-/// prefers its cursor to each offset parameter the link lacks once two of
-/// its pages each linked a value of one parameter of their own.
+/// prefers its cursor to each offset parameter the link lacks once three
+/// of its pages each linked a value of one parameter of their own.
 ///
 /// Evidence is a value that changes from page to page, as a token for the
 /// rows after a page does: a parameter that is no offset is a cursor once
-/// a second page links it with another value than the first page did. One
-/// that a page links with two values, as the values of a filter, or that
-/// two pages link with one value, as a sort or a view, is refuted, and no
-/// later link makes it a cursor.
+/// a third page links it with another value than the first two did, each
+/// with one value of its own. The third page's first link is what shows
+/// that the first two gave all their links, a page's links being admitted
+/// together. One that a page links with two values, as the values of a
+/// filter, or that two pages link with one value, as a sort or a view, is
+/// refuted, and no later link makes it a cursor.
 fn cursor(
     connection: &Connection,
     parts: &Parts<'_>,
@@ -827,11 +832,11 @@ fn cursor(
         if offsets.iter().any(|(offset, _)| offset == parameter) {
             continue;
         }
-        if let Some(first) = cursor_link(connection, parts, pair, from, key)? {
-            shown.get_or_insert((parameter, first));
+        if let Some(earlier) = cursor_link(connection, parts, pair, from, key)? {
+            shown.get_or_insert((parameter, earlier));
         }
     }
-    let Some((parameter, (first_page, first_link))) = shown else {
+    let Some((parameter, [(first_page, first_link), (second_page, second_link)])) = shown else {
         return Ok(());
     };
     for (offset, step) in offsets.iter().filter(|(offset, _)| !parts.has(offset)) {
@@ -847,7 +852,7 @@ fn cursor(
         let mut listing = key.clone();
         listing.set_query(None);
         let evidence = format!(
-            "`{offset}` steps by {step} on {listing} ({}), and two of its pages each link a value of `{parameter}` of their own: {first_page} links {first_link}, and {from} links {key}.",
+            "`{offset}` steps by {step} on {listing} ({}), and three of its pages each link one value of `{parameter}` of their own: {first_page} links {first_link}, {second_page} links {second_link}, and {from} links {key}.",
             first.join(", ")
         );
         learn_rule(
@@ -860,35 +865,38 @@ fn cursor(
     Ok(())
 }
 
-/// Keeps the link `key` that the page `from` gave under the query pair
-/// `pair` of a listing's path `parts`, the first under its parameter, or
-/// reads it against that first one: answers the first one's page and
-/// link when another page gave it with another value, which shows a
-/// cursor, and refutes the parameter when the same page gave another
-/// value or another page the same one.
+/// Reads the link `key` that the page `from` gave under the query pair
+/// `pair` of a listing's path `parts` against the links kept under its
+/// parameter, those of the first two pages that gave one: keeps it when
+/// it is the first or the second page's, answers those two pages, each
+/// with its link, when a third page gave it with a value of its own, which
+/// shows a cursor, and refutes the parameter when one page gave two values
+/// or two pages the same one.
 fn cursor_link(
     connection: &Connection,
     parts: &Parts<'_>,
     pair: &str,
     from: &Url,
     key: &Url,
-) -> rusqlite::Result<Option<(String, String)>> {
+) -> rusqlite::Result<Option<[(String, String); 2]>> {
+    type Link = (String, String, String);
     let (parameter, value) = (name(pair), value(pair));
-    let first = connection
+    let listing = (parts.host, parts.path, parameter);
+    let kept = connection
         .prepare_cached(
-            "SELECT value, page, url, refuted FROM rules_cursors
-             WHERE host = ?1 AND path = ?2 AND parameter = ?3",
+            "SELECT value, page, url, second_value, second_page, second_url, refuted
+             FROM rules_cursors WHERE host = ?1 AND path = ?2 AND parameter = ?3",
         )?
-        .query_row((parts.host, parts.path, parameter), |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, bool>(3)?,
-            ))
+        .query_row(listing, |row| {
+            let first: Link = (row.get(0)?, row.get(1)?, row.get(2)?);
+            let second: Option<Link> = row
+                .get::<_, Option<String>>(3)?
+                .map(|value| Ok::<_, rusqlite::Error>((value, row.get(4)?, row.get(5)?)))
+                .transpose()?;
+            Ok((first, second, row.get::<_, bool>(6)?))
         })
         .optional()?;
-    let Some((first_value, first_page, first_link, refuted)) = first else {
+    let Some((first, second, refuted)) = kept else {
         connection
             .prepare_cached(
                 "INSERT INTO rules_cursors (host, path, parameter, value, page, url, refuted)
@@ -907,20 +915,43 @@ fn cursor_link(
     if refuted {
         return Ok(None);
     }
-    match (first_page == from.as_str(), first_value == value) {
-        (false, false) => Ok(Some((first_page, first_link))),
-        (true, true) => Ok(None),
-        // One page with two values, or two pages with one: no cursor.
-        (true, false) | (false, true) => {
-            connection
-                .prepare_cached(
-                    "UPDATE rules_cursors SET refuted = 1
-                     WHERE host = ?1 AND path = ?2 AND parameter = ?3",
-                )?
-                .execute((parts.host, parts.path, parameter))?;
-            Ok(None)
-        }
+    let pages = std::iter::once(&first).chain(&second);
+    let own = pages.clone().find(|(_, page, _)| page == from.as_str());
+    let consistent = match own {
+        // A page that gave a link already gives the same value again.
+        Some((own, ..)) => own == value,
+        // Another page gives a value no page gave before.
+        None => pages.clone().all(|(other, ..)| other != value),
+    };
+    if !consistent {
+        connection
+            .prepare_cached(
+                "UPDATE rules_cursors SET refuted = 1
+                 WHERE host = ?1 AND path = ?2 AND parameter = ?3",
+            )?
+            .execute(listing)?;
+        return Ok(None);
     }
+    if own.is_some() {
+        return Ok(None);
+    }
+    let Some(second) = second else {
+        connection
+            .prepare_cached(
+                "UPDATE rules_cursors SET second_value = ?4, second_page = ?5, second_url = ?6
+                 WHERE host = ?1 AND path = ?2 AND parameter = ?3",
+            )?
+            .execute((
+                parts.host,
+                parts.path,
+                parameter,
+                value,
+                from.as_str(),
+                key.as_str(),
+            ))?;
+        return Ok(None);
+    };
+    Ok(Some([(first.1, first.2), (second.1, second.2)]))
 }
 
 /// Adds a rule of `kind` on `host` and `path`, about `parameter` and

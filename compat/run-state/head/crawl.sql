@@ -34,7 +34,7 @@ CREATE TABLE bounds_admitted (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             count INTEGER NOT NULL
         ) STRICT;
-INSERT INTO "bounds_admitted" VALUES(1,17);
+INSERT INTO "bounds_admitted" VALUES(1,21);
 CREATE TABLE bounds_path_budgets (
             position INTEGER NOT NULL PRIMARY KEY,
             pattern TEXT NOT NULL,
@@ -95,6 +95,7 @@ CREATE TABLE learned_merges (
             identity TEXT,
             UNIQUE (rule, url)
         ) STRICT;
+INSERT INTO "learned_merges" VALUES(1,'https://list.test/items?n=3&ref=d',NULL);
 INSERT INTO "learned_merges" VALUES(1,'https://list.test/items?n=1&ref=z','GET https://list.test/items?n=1&ref=z');
 CREATE TABLE learned_rules (
             id INTEGER NOT NULL PRIMARY KEY,
@@ -109,6 +110,7 @@ CREATE TABLE learned_rules (
         ) STRICT;
 INSERT INTO "learned_rules" VALUES(1,'no_effect_parameter','list.test','','ref','','3 pairs of URLs differing only by `ref` served pages of matching signatures, and no pair pages of differing ones: https://list.test/items?n=1 and https://list.test/items?n=1&ref=a; https://list.test/items?n=2 and https://list.test/items?n=2&ref=b; https://list.test/items?n=3 and https://list.test/items?n=3&ref=c.',NULL);
 INSERT INTO "learned_rules" VALUES(2,'equivalent_form','list.test','','','trailing_slash','https://list.test/guide redirected to https://list.test/guide/, which differs from it only by a trailing slash.','https://list.test/guide and https://list.test/guide/, both fetched and neither redirected, served pages of differing signatures.');
+INSERT INTO "learned_rules" VALUES(3,'cursor_pagination','list.test','/rows','offset','','`offset` steps by 20 on https://list.test/rows (https://list.test/rows?offset=0, https://list.test/rows?offset=20, https://list.test/rows?offset=40), and three of its pages each link one value of `after` of their own: https://list.test/rows?offset=0 links https://list.test/rows?after=r20/sale, https://list.test/rows?offset=20 links https://list.test/rows?after=r40/sale, and https://list.test/rows?offset=40 links https://list.test/rows?after=r60/sale.',NULL);
 CREATE TABLE outcomes (
             position INTEGER NOT NULL PRIMARY KEY,
             work_item TEXT NOT NULL,
@@ -133,7 +135,7 @@ INSERT INTO "outcomes" VALUES(13,'13','failed','listed',1,'{"position":13,"reque
 INSERT INTO "outcomes" VALUES(14,'15','failed','listed',1,'{"position":14,"request":{"id":"15","url":"https://list.test/guide","label":"listed","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}}');
 INSERT INTO "outcomes" VALUES(15,'16','failed','listed',1,'{"position":15,"request":{"id":"16","url":"https://list.test/guide/","label":"listed","depth":0},"attempts":1,"errors":[{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}],"ended_at":"2026-01-05T09:00:00Z","kind":"failed","error":{"attempt":1,"code":"deadline_exceeded","message":"no first byte","details":{"elapsed":30000,"limit":{"key":"timeout.first_byte","layer":"default","value":30000},"waited_for":"first_byte"}}}');
 INSERT INTO "outcomes" VALUES(16,'1','succeeded','home',1,'{"position":16,"request":{"id":"1","url":"https://shop.test/","label":"home","depth":0},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":1},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
-INSERT INTO "outcomes" VALUES(17,'19','succeeded','home',1,'{"position":17,"request":{"id":"19","url":"https://outlet.test/sale","label":"home","depth":1},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
+INSERT INTO "outcomes" VALUES(17,'23','succeeded','home',1,'{"position":17,"request":{"id":"23","url":"https://outlet.test/sale","label":"home","depth":1},"attempts":1,"errors":[],"ended_at":"2026-01-05T09:00:00Z","kind":"succeeded","records":[{"dataset":"pages","committed":1,"dropped":0,"rejected":0},{"dataset":"links","committed":1,"dropped":0,"rejected":0}]}');
 CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL, source TEXT) STRICT;
 CREATE TABLE payload_cap (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
@@ -217,8 +219,8 @@ INSERT INTO "records" VALUES('pages',2,'14','https://shop.test/pages/1','2026-01
 INSERT INTO "records" VALUES('links',2,'14','https://shop.test/pages/1','2026-01-05T09:00:00Z','{"href":"https://shop.test/broken"}',NULL,'{"clean_up_rules":"sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9","request_id":"14","value_transforms":[]}');
 INSERT INTO "records" VALUES('pages',3,'1','https://shop.test/','2026-01-05T09:00:00Z','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4','{"clean_up_rules":"sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9","request_id":"1","value_transforms":[]}');
 INSERT INTO "records" VALUES('links',3,'1','https://shop.test/','2026-01-05T09:00:00Z','{"href":"https://shop.test/broken"}',NULL,'{"clean_up_rules":"sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9","request_id":"1","value_transforms":[]}');
-INSERT INTO "records" VALUES('pages',4,'19','https://outlet.test/sale','2026-01-05T09:00:00Z','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4','{"clean_up_rules":"sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9","request_id":"19","value_transforms":[]}');
-INSERT INTO "records" VALUES('links',4,'19','https://outlet.test/sale','2026-01-05T09:00:00Z','{"href":"https://shop.test/broken"}',NULL,'{"clean_up_rules":"sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9","request_id":"19","value_transforms":[]}');
+INSERT INTO "records" VALUES('pages',4,'23','https://outlet.test/sale','2026-01-05T09:00:00Z','{"title":"Shop","url":"https://shop.test/"}','0cc5066123c66c6b05b623ef251d6f0ecc72c6335a787255f2d42c7dfb19f1a4','{"clean_up_rules":"sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9","request_id":"23","value_transforms":[]}');
+INSERT INTO "records" VALUES('links',4,'23','https://outlet.test/sale','2026-01-05T09:00:00Z','{"href":"https://shop.test/broken"}',NULL,'{"clean_up_rules":"sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9","request_id":"23","value_transforms":[]}');
 CREATE TABLE rejected_records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,
@@ -253,14 +255,19 @@ CREATE TABLE rules_cursors (
             value TEXT NOT NULL,
             page TEXT NOT NULL,
             url TEXT NOT NULL,
+            second_value TEXT,
+            second_page TEXT,
+            second_url TEXT,
             refuted INTEGER NOT NULL,
             PRIMARY KEY (host, path, parameter)
         ) STRICT, WITHOUT ROWID;
+INSERT INTO "rules_cursors" VALUES('list.test','/rows','after','r20/sale','https://list.test/rows?offset=0','https://list.test/rows?after=r20/sale','r40/sale','https://list.test/rows?offset=20','https://list.test/rows?after=r40/sale',0);
 CREATE TABLE rules_ended (
             crawl_request TEXT NOT NULL,
             rule INTEGER NOT NULL REFERENCES learned_rules (id),
             PRIMARY KEY (crawl_request, rule)
         ) STRICT, WITHOUT ROWID;
+INSERT INTO "rules_ended" VALUES('17',1);
 CREATE TABLE rules_offset_values (
             host TEXT NOT NULL,
             path TEXT NOT NULL,
@@ -384,7 +391,7 @@ CREATE TABLE run (
         report TEXT,
         deferred_charges INTEGER NOT NULL DEFAULT 0
     ) STRICT;
-INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"},{"body":"eyJwYWdlIjoxfQ==","key":"search-1","label":"home","method":"POST","url":"https://api.test/search"},{"label":"guarded","url":"https://guarded.test/"},{"label":"home","url":"https://shop.test/more/more/more/"},{"label":"listed","url":"https://list.test/items?n=1"},{"label":"listed","url":"https://list.test/items?n=1&ref=a"},{"label":"listed","url":"https://list.test/items?n=2"},{"label":"listed","url":"https://list.test/items?n=2&ref=b"},{"label":"listed","url":"https://list.test/items?n=3"},{"label":"listed","url":"https://list.test/items?n=3&ref=c"},{"label":"listed","url":"https://list.test/rows?offset=0"},{"label":"listed","url":"https://list.test/rows?offset=20"},{"label":"listed","url":"https://list.test/rows?offset=40"},{"label":"home","url":"https://shop.test/pages/1"},{"label":"home","url":"https://shop.test/pages/2"},{"label":"listed","url":"https://list.test/guide"},{"label":"listed","url":"https://list.test/guide/"}]}','finished',NULL,'verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',14,NULL,'sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9',0,NULL,NULL,'{"run_id":"crawl","lifecycle":"finished","verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"crawl.max_segment_repeats","message":"`crawl.max_segment_repeats` refused 1 URL the crawl would otherwise have admitted.","count":1},{"code":"crawl.path_budgets","message":"`crawl.path_budgets`''s entry `/pages/*` refused 1 URL past its 1 request the crawl would otherwise have admitted.","count":1},{"code":"offset_pagination","message":"1 listing was paged only by an offset parameter, so a row that moved while the crawl paged it may be missed.","count":1}],"started_at":"2026-01-05T09:00:00Z","ended_at":"2026-01-05T09:00:00Z","usage":{"model":{"calls":0,"tokens":0},"browser_time":0,"proxy_bytes":0,"requests":17,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":983,"set_by":"client"}]},"policy_version":"sha256:0227dc879fda140d","learned_rules":[{"evidence":"3 pairs of URLs differing only by `ref` served pages of matching signatures, and no pair pages of differing ones: https://list.test/items?n=1 and https://list.test/items?n=1&ref=a; https://list.test/items?n=2 and https://list.test/items?n=2&ref=b; https://list.test/items?n=3 and https://list.test/items?n=3&ref=c.","host":"list.test","kind":"no_effect_parameter","merged":["https://list.test/items?n=1&ref=z"],"parameter":"ref"},{"contradiction":"https://list.test/guide and https://list.test/guide/, both fetched and neither redirected, served pages of differing signatures.","evidence":"https://list.test/guide redirected to https://list.test/guide/, which differs from it only by a trailing slash.","form":"trailing_slash","host":"list.test","kind":"equivalent_form","merged":[]}],"records":[{"committed":4,"dataset":"links","dropped":0,"rejected":0},{"committed":4,"dataset":"pages","dropped":0,"rejected":1}],"requests":{"blocked":1,"by_block_cause":[{"count":1,"name":"ip_block"}],"by_error_code":[{"count":12,"name":"deadline_exceeded"}],"failed":12,"pending":0,"skipped":0,"succeeded":4},"sitemaps":[{"added":0,"failed":0,"failures":[],"not_added":2,"not_added_by_reason":[{"count":1,"name":"no_rule"},{"count":1,"name":"out_of_scope"}],"read":1,"seed":"https://maps.test/sitemap.xml"},{"added":0,"failed":1,"failures":[{"code":"response_not_ok","message":"The sitemap https://maps.test/missing.xml answered 404, not a sitemap.","status":404,"url":"https://maps.test/missing.xml"}],"not_added":0,"not_added_by_reason":[],"read":0,"seed":"https://maps.test/missing.xml"}]}',64);
+INSERT INTO "run" VALUES('crawl','crawl','foxhound','os_user',1,'{"seeds":[{"label":"home","payload":{"depth":0},"url":"https://shop.test/"},{"label":"product","url":"https://shop.test/broken"},{"label":"home","url":"https://SHOP.test:443/"},{"body":"eyJwYWdlIjoxfQ==","key":"search-1","label":"home","method":"POST","url":"https://api.test/search"},{"label":"guarded","url":"https://guarded.test/"},{"label":"home","url":"https://shop.test/more/more/more/"},{"label":"listed","url":"https://list.test/items?n=1"},{"label":"listed","url":"https://list.test/items?n=1&ref=a"},{"label":"listed","url":"https://list.test/items?n=2"},{"label":"listed","url":"https://list.test/items?n=2&ref=b"},{"label":"listed","url":"https://list.test/items?n=3"},{"label":"listed","url":"https://list.test/items?n=3&ref=c"},{"label":"listed","url":"https://list.test/rows?offset=0"},{"label":"listed","url":"https://list.test/rows?offset=20"},{"label":"listed","url":"https://list.test/rows?offset=40"},{"label":"home","url":"https://shop.test/pages/1"},{"label":"home","url":"https://shop.test/pages/2"},{"label":"listed","url":"https://list.test/guide"},{"label":"listed","url":"https://list.test/guide/"}]}','finished',NULL,'verified','incomplete','2026-01-05T09:00:00Z','2026-01-05T09:00:00Z','sha256:0227dc879fda140d','[]',14,NULL,'sha256:3c421046adfa879cb53dcf6f36eefe65204f24f04758122788a21c10537dc6b9',0,NULL,NULL,'{"run_id":"crawl","lifecycle":"finished","verdict":"verified","completeness":"incomplete","completeness_reasons":[{"code":"crawl.max_segment_repeats","message":"`crawl.max_segment_repeats` refused 1 URL the crawl would otherwise have admitted.","count":1},{"code":"crawl.path_budgets","message":"`crawl.path_budgets`''s entry `/pages/*` refused 1 URL past its 1 request the crawl would otherwise have admitted.","count":1}],"started_at":"2026-01-05T09:00:00Z","ended_at":"2026-01-05T09:00:00Z","usage":{"model":{"calls":0,"tokens":0},"browser_time":0,"proxy_bytes":0,"requests":17,"limits":[{"scope":{"kind":"install","id":""},"usage_kind":"requests","amount":1000,"left":983,"set_by":"client"}]},"policy_version":"sha256:0227dc879fda140d","learned_rules":[{"evidence":"3 pairs of URLs differing only by `ref` served pages of matching signatures, and no pair pages of differing ones: https://list.test/items?n=1 and https://list.test/items?n=1&ref=a; https://list.test/items?n=2 and https://list.test/items?n=2&ref=b; https://list.test/items?n=3 and https://list.test/items?n=3&ref=c.","host":"list.test","kind":"no_effect_parameter","merged":["https://list.test/items?n=3&ref=d","https://list.test/items?n=1&ref=z"],"parameter":"ref"},{"contradiction":"https://list.test/guide and https://list.test/guide/, both fetched and neither redirected, served pages of differing signatures.","evidence":"https://list.test/guide redirected to https://list.test/guide/, which differs from it only by a trailing slash.","form":"trailing_slash","host":"list.test","kind":"equivalent_form","merged":[]},{"evidence":"`offset` steps by 20 on https://list.test/rows (https://list.test/rows?offset=0, https://list.test/rows?offset=20, https://list.test/rows?offset=40), and three of its pages each link one value of `after` of their own: https://list.test/rows?offset=0 links https://list.test/rows?after=r20/sale, https://list.test/rows?offset=20 links https://list.test/rows?after=r40/sale, and https://list.test/rows?offset=40 links https://list.test/rows?after=r60/sale.","host":"list.test","kind":"cursor_pagination","merged":[],"parameter":"offset","path":"/rows"}],"records":[{"committed":4,"dataset":"links","dropped":0,"rejected":0},{"committed":4,"dataset":"pages","dropped":0,"rejected":1}],"requests":{"blocked":1,"by_block_cause":[{"count":1,"name":"ip_block"}],"by_error_code":[{"count":12,"name":"deadline_exceeded"}],"failed":12,"pending":0,"skipped":0,"succeeded":4},"sitemaps":[{"added":0,"failed":0,"failures":[],"not_added":2,"not_added_by_reason":[{"count":1,"name":"no_rule"},{"count":1,"name":"out_of_scope"}],"read":1,"seed":"https://maps.test/sitemap.xml"},{"added":0,"failed":1,"failures":[{"code":"response_not_ok","message":"The sitemap https://maps.test/missing.xml answered 404, not a sitemap.","status":404,"url":"https://maps.test/missing.xml"}],"not_added":0,"not_added_by_reason":[],"read":0,"seed":"https://maps.test/missing.xml"}]}',64);
 CREATE TABLE run_file_chunks (sha256 TEXT NOT NULL, offset INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY (sha256, offset)) STRICT;
 CREATE TABLE run_files (position INTEGER NOT NULL PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL) STRICT;
 CREATE TABLE run_key (
@@ -440,8 +447,8 @@ CREATE TABLE sitemap_entries (
             count INTEGER NOT NULL,
             PRIMARY KEY (work_item, reason)
         ) STRICT, WITHOUT ROWID;
-INSERT INTO "sitemap_entries" VALUES('17','no_rule',1);
-INSERT INTO "sitemap_entries" VALUES('17','out_of_scope',1);
+INSERT INTO "sitemap_entries" VALUES('21','no_rule',1);
+INSERT INTO "sitemap_entries" VALUES('21','out_of_scope',1);
 CREATE TABLE sitemap_failures (
             url TEXT NOT NULL PRIMARY KEY,
             seed TEXT NOT NULL,
@@ -449,7 +456,7 @@ CREATE TABLE sitemap_failures (
             status INTEGER,
             message TEXT NOT NULL
         ) STRICT;
-INSERT INTO "sitemap_failures" VALUES('https://maps.test/missing.xml','18','response_not_ok',404,'The sitemap https://maps.test/missing.xml answered 404, not a sitemap.');
+INSERT INTO "sitemap_failures" VALUES('https://maps.test/missing.xml','22','response_not_ok',404,'The sitemap https://maps.test/missing.xml answered 404, not a sitemap.');
 CREATE TABLE sitemaps (
             work_item TEXT NOT NULL PRIMARY KEY,
             url TEXT NOT NULL UNIQUE,
@@ -457,8 +464,8 @@ CREATE TABLE sitemaps (
             rules TEXT NOT NULL,
             read INTEGER NOT NULL
         ) STRICT;
-INSERT INTO "sitemaps" VALUES('17','https://maps.test/sitemap.xml','17','[{"pattern":"**/books/*","label":"home"}]',1);
-INSERT INTO "sitemaps" VALUES('18','https://maps.test/missing.xml','18','[{"pattern":"**/books/*","label":"home"}]',0);
+INSERT INTO "sitemaps" VALUES('21','https://maps.test/sitemap.xml','21','[{"pattern":"**/books/*","label":"home"}]',1);
+INSERT INTO "sitemaps" VALUES('22','https://maps.test/missing.xml','22','[{"pattern":"**/books/*","label":"home"}]',0);
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
 INSERT INTO "tags" VALUES(0,'schedule:nightly');
 CREATE TABLE tier_choices (
@@ -511,10 +518,14 @@ INSERT INTO "visited" VALUES('GET https://list.test/items?n=2','7');
 INSERT INTO "visited" VALUES('GET https://list.test/items?n=2&ref=b','8');
 INSERT INTO "visited" VALUES('GET https://list.test/items?n=3','9');
 INSERT INTO "visited" VALUES('GET https://list.test/items?n=3&ref=c','10');
+INSERT INTO "visited" VALUES('GET https://list.test/items?n=3&ref=d','17');
+INSERT INTO "visited" VALUES('GET https://list.test/rows?after=r20/sale','18');
+INSERT INTO "visited" VALUES('GET https://list.test/rows?after=r40/sale','19');
+INSERT INTO "visited" VALUES('GET https://list.test/rows?after=r60/sale','20');
 INSERT INTO "visited" VALUES('GET https://list.test/rows?offset=0','11');
 INSERT INTO "visited" VALUES('GET https://list.test/rows?offset=20','12');
 INSERT INTO "visited" VALUES('GET https://list.test/rows?offset=40','13');
-INSERT INTO "visited" VALUES('GET https://outlet.test/sale','19');
+INSERT INTO "visited" VALUES('GET https://outlet.test/sale','23');
 INSERT INTO "visited" VALUES('GET https://shop.test/','1');
 INSERT INTO "visited" VALUES('GET https://shop.test/broken','2');
 INSERT INTO "visited" VALUES('GET https://shop.test/pages/1','14');
@@ -530,7 +541,7 @@ CREATE TABLE work_item_positions (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             reserved INTEGER NOT NULL
         ) STRICT;
-INSERT INTO "work_item_positions" VALUES(1,19);
+INSERT INTO "work_item_positions" VALUES(1,23);
 CREATE TABLE work_items (
             id TEXT NOT NULL PRIMARY KEY,
             position INTEGER NOT NULL UNIQUE,
@@ -564,9 +575,13 @@ INSERT INTO "work_items" VALUES('13',13,'https://list.test/rows?offset=40','GET'
 INSERT INTO "work_items" VALUES('14',14,'https://shop.test/pages/1','GET',NULL,'home',0,'succeeded',1,0,1,NULL,'shop.test',0,NULL);
 INSERT INTO "work_items" VALUES('15',15,'https://list.test/guide','GET',NULL,'listed',0,'failed',1,0,1,'deadline_exceeded','list.test',0,NULL);
 INSERT INTO "work_items" VALUES('16',16,'https://list.test/guide/','GET',NULL,'listed',0,'failed',1,0,1,'deadline_exceeded','list.test',0,NULL);
-INSERT INTO "work_items" VALUES('17',17,'https://maps.test/sitemap.xml','GET',NULL,'',0,'succeeded',1,0,1,NULL,'maps.test',0,NULL);
-INSERT INTO "work_items" VALUES('18',18,'https://maps.test/missing.xml','GET',NULL,'',0,'failed',1,0,1,NULL,'maps.test',0,NULL);
-INSERT INTO "work_items" VALUES('19',19,'https://outlet.test/sale','GET',NULL,'home',1,'succeeded',1,0,1,NULL,'outlet.test',0,19);
+INSERT INTO "work_items" VALUES('17',17,'https://list.test/items?n=3&ref=d','GET',NULL,'',0,'skipped',1,0,1,NULL,'list.test',0,NULL);
+INSERT INTO "work_items" VALUES('18',18,'https://list.test/rows?after=r20/sale','GET',NULL,'',0,'succeeded',1,0,1,NULL,'list.test',0,NULL);
+INSERT INTO "work_items" VALUES('19',19,'https://list.test/rows?after=r40/sale','GET',NULL,'',0,'succeeded',1,0,1,NULL,'list.test',0,NULL);
+INSERT INTO "work_items" VALUES('20',20,'https://list.test/rows?after=r60/sale','GET',NULL,'',0,'succeeded',1,0,1,NULL,'list.test',0,NULL);
+INSERT INTO "work_items" VALUES('21',21,'https://maps.test/sitemap.xml','GET',NULL,'',0,'succeeded',1,0,1,NULL,'maps.test',0,NULL);
+INSERT INTO "work_items" VALUES('22',22,'https://maps.test/missing.xml','GET',NULL,'',0,'failed',1,0,1,NULL,'maps.test',0,NULL);
+INSERT INTO "work_items" VALUES('23',23,'https://outlet.test/sale','GET',NULL,'home',1,'succeeded',1,0,1,NULL,'outlet.test',0,23);
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX pool_sessions_open ON pool_sessions (pool, position)
             WHERE retired_because IS NULL;

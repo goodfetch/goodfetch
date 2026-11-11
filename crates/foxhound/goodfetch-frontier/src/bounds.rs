@@ -117,7 +117,9 @@ impl Default for Bounds {
             max_path_segments: built_in(&CRAWL_MAX_PATH_SEGMENTS),
             max_segment_repeats: built_in(&CRAWL_MAX_SEGMENT_REPEATS),
             path_budgets: Vec::new(),
-            learning: (FRONTIER_LEARNING.default)().as_bool().unwrap_or(true),
+            learning: (FRONTIER_LEARNING.default)()
+                .as_bool()
+                .expect("invariant: `frontier.learning`'s default is a boolean"),
         }
     }
 }

@@ -515,23 +515,24 @@ fn offset_reason() -> Vec<CompletenessReason> {
     }]
 }
 
-/// The Completeness reason of `refused` offset URLs a learned cursor
-/// refused.
-fn cursor_reason(refused: u64, message: &str) -> Vec<CompletenessReason> {
+/// The Completeness reason `code` of the `count` URLs a learned rule
+/// took from the crawl, which leaves the Run `unverified`.
+fn rule_reason(code: &str, count: u64, message: &str) -> Vec<CompletenessReason> {
     vec![CompletenessReason {
         completeness: Completeness::Unverified,
         reason: AxisReason {
-            code: "cursor_pagination".to_owned(),
+            code: code.to_owned(),
             message: message.to_owned(),
-            count: Some(refused),
+            count: Some(count),
             call_id: None,
         },
     }]
 }
 
 /// An offset parameter, whose values step by one page size on one path,
-/// gives way to a cursor its pages link: a parameter that two pages of
-/// the listing each link with a value of their own. The offset URLs not
+/// gives way to a cursor its pages link: a parameter that three pages of
+/// the listing each link with one value of their own, which two pages do
+/// not show yet. The offset URLs not
 /// yet fetched are then not added, with `duplicate`, the report lists the
 /// rule with its evidence and what it refused, and the Run is `unverified`
 /// by the count of those URLs.
@@ -539,17 +540,18 @@ fn cursor_reason(refused: u64, message: &str) -> Vec<CompletenessReason> {
 /// Covers: story:6-216, story:6-310
 #[test]
 fn a_cursor_found_on_an_offset_listing_is_preferred() {
-    let cursors = [format!("{LIST}?after=r-40"), format!("{LIST}?after=r-60")];
+    let cursors = [20, 40, 60].map(|row| format!("{LIST}?after=r-{row}"));
     let mut crawl = Crawl::new();
     crawl_listing(&mut crawl, 3, 20, None);
-    assert_eq!(crawl.enqueue(&at(1, 20), &cursors[0]), "added");
-    let one_page = crawl.rules();
-    assert_eq!(crawl.enqueue(&at(2, 20), &cursors[1]), "added");
+    assert_eq!(crawl.enqueue(&at(0, 20), &cursors[0]), "added");
+    assert_eq!(crawl.enqueue(&at(1, 20), &cursors[1]), "added");
+    let two_pages = crawl.rules();
+    assert_eq!(crawl.enqueue(&at(2, 20), &cursors[2]), "added");
 
     let next = next_offset(&mut crawl, 3, 20);
 
     assert_eq!(
-        (one_page, next, crawl.rules(), crawl.completeness()),
+        (two_pages, next, crawl.rules(), crawl.completeness()),
         (
             Vec::new(),
             "duplicate".to_owned(),
@@ -561,14 +563,16 @@ fn a_cursor_found_on_an_offset_listing_is_preferred() {
                 form: None,
                 evidence: format!(
                     "`offset` steps by 20 on {LIST} ({LIST}?offset=0, {LIST}?offset=20, \
-                     {LIST}?offset=40), and two of its pages each link a value of `after` of \
-                     their own: {LIST}?offset=20 links {}, and {LIST}?offset=40 links {}.",
-                    cursors[0], cursors[1]
+                     {LIST}?offset=40), and three of its pages each link one value of `after` of \
+                     their own: {LIST}?offset=0 links {}, {LIST}?offset=20 links {}, and \
+                     {LIST}?offset=40 links {}.",
+                    cursors[0], cursors[1], cursors[2]
                 ),
                 contradiction: None,
                 merged: vec![format!("{LIST}?offset=60")],
             }],
-            cursor_reason(
+            rule_reason(
+                "cursor_pagination",
                 1,
                 "A learned cursor refused 1 offset URL of a listing the crawl pages by its \
                  cursor instead."
@@ -580,7 +584,8 @@ fn a_cursor_found_on_an_offset_listing_is_preferred() {
 /// A parameter a listing's pages link is a cursor only on evidence: a
 /// sort that every page links alike, first met once the offset is known,
 /// teaches nothing, and neither does a filter one page links with two
-/// values, nor a view two pages link with one value. Each listing is paged
+/// values, be it the first page that links it or the second, nor a view
+/// two pages link with one value. Each listing is paged
 /// on by its offset, whose next page is added.
 ///
 /// Covers: story:6-216
@@ -588,6 +593,9 @@ fn a_cursor_found_on_an_offset_listing_is_preferred() {
 #[case::a_sort_every_page_links_alike(&[(0, "sort=price"), (1, "sort=price")])]
 #[case::a_filter_one_page_links_with_two_values(
     &[(0, "color=red"), (0, "color=blue"), (1, "color=green")]
+)]
+#[case::a_filter_the_second_page_links_with_two_values(
+    &[(0, "color=red"), (1, "color=green"), (1, "color=blue"), (2, "color=grey")]
 )]
 #[case::a_view_two_pages_link_with_one_value(&[(0, "view=grid"), (1, "lang=fr&view=grid")])]
 fn a_parameter_that_does_not_change_from_page_to_page_is_no_cursor(#[case] links: &[(u32, &str)]) {
@@ -1080,51 +1088,49 @@ fn stopped_after_merging(keeps_ended: bool) -> Crawl {
     crawl
 }
 
-/// The Completeness reason of the `lost` URLs the stopped rule about `ref`
-/// took from the crawl.
-fn stopped_reason(lost: u64, message: &str) -> Vec<CompletenessReason> {
-    vec![CompletenessReason {
-        completeness: Completeness::Unverified,
-        reason: AxisReason {
-            code: "learned_rule_stopped".to_owned(),
-            message: message.to_owned(),
-            count: Some(lost),
-            call_id: None,
-        },
-    }]
-}
-
 /// A learned rule that a contradicting pair stops gives back what it
 /// merged: the pending request it had ended `skipped` with `duplicate` is
 /// pending again. The URL it had refused as a `duplicate`, which no
-/// request holds, is counted in a Completeness reason naming the rule,
-/// until the crawl meets it again and adds it. The report still lists
-/// both among the URLs the rule had merged.
+/// request holds, is counted in a Completeness reason naming the rule.
 ///
 /// Covers: story:6-218, story:6-310
 #[test]
 fn a_stopped_rule_gives_back_the_requests_it_ended_and_counts_the_urls_it_lost() {
+    let crawl = stopped_after_merging(false);
+
+    assert_eq!(
+        (crawl.requests.skipped.clone(), crawl.completeness()),
+        (
+            Vec::new(),
+            rule_reason(
+                "learned_rule_stopped",
+                1,
+                "A contradicting pair stopped the learned rule about `ref` on shop.test, \
+                 which had merged 1 URL the crawl did not get back."
+            ),
+        )
+    );
+}
+
+/// A URL a stopped rule had refused is counted until the crawl meets it
+/// again: it is then added, and the Run is no longer `unverified` by it.
+/// The report still lists it, and the request given back, among the URLs
+/// the rule had merged.
+///
+/// Covers: story:6-218
+#[test]
+fn a_url_a_stopped_rule_refused_is_added_when_met_again_and_no_longer_counted() {
     let mut crawl = stopped_after_merging(false);
 
-    let stopped = (crawl.requests.skipped.clone(), crawl.completeness());
     let met_again = crawl.enqueue(ITEM, &format!("{ITEM}?n=1&ref=z"));
 
     assert_eq!(
         (
-            stopped,
             met_again,
             crawl.completeness(),
             crawl.rules().remove(0).merged
         ),
         (
-            (
-                Vec::new(),
-                stopped_reason(
-                    1,
-                    "A contradicting pair stopped the learned rule about `ref` on shop.test, \
-                     which had merged 1 URL the crawl did not get back."
-                ),
-            ),
             "added".to_owned(),
             Vec::new(),
             strings(&[&format!("{ITEM}?n=8&ref=y"), &format!("{ITEM}?n=1&ref=z")]),
@@ -1144,7 +1150,8 @@ fn a_request_a_stopped_rule_ended_that_is_not_given_back_is_counted() {
         (crawl.requests.skipped.clone(), crawl.completeness()),
         (
             strings(&[&format!("{ITEM}?n=8&ref=y")]),
-            stopped_reason(
+            rule_reason(
+                "learned_rule_stopped",
                 2,
                 "A contradicting pair stopped the learned rule about `ref` on shop.test, \
                  which had merged 2 URLs the crawl did not get back."

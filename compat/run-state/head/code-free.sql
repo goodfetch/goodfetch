@@ -176,6 +176,9 @@ CREATE TABLE rules_cursors (
             value TEXT NOT NULL,
             page TEXT NOT NULL,
             url TEXT NOT NULL,
+            second_value TEXT,
+            second_page TEXT,
+            second_url TEXT,
             refuted INTEGER NOT NULL,
             PRIMARY KEY (host, path, parameter)
         ) STRICT, WITHOUT ROWID;

@@ -11,8 +11,10 @@
 //! a request bound, and eleven more seeds on `list.test`, three pairs of
 //! items with and without `ref`, three offsets of one listing and a guide
 //! with and without its trailing slash, whose pages the writer's own
-//! contribution hands the Frontier, which learns that `ref` has no effect
-//! and merges a seed it admits then, counts item 1's `rel=canonical`, and
+//! contribution hands the Frontier, which learns that `ref` has no effect,
+//! ends a request of item 3 still pending then
+//! and merges a seed it admits then, counts item 1's `rel=canonical`, reads
+//! the cursor each page of the listing links until the third teaches it, and
 //! learns the guide's trailing slash from its redirect until its two pages
 //! differ and stop the rule, and a sitemap seed whose sitemap it reads as
 //! listing an entry no rule matches and one the scope refuses, beside one
@@ -263,9 +265,12 @@ async fn keyed(params: Value, context: CallContext) -> Result<Value, CallError> 
 /// Hands the Frontier of a live crawl the pages of its `list.test/items`
 /// seeds, as a fetch tier would once it fetched them, since none runs over
 /// the in-memory network: item `n`'s page reads alike with or without
-/// `ref`, so `ref` is learned to have no effect, and a seed differing from
+/// `ref`, so `ref` is learned to have no effect, which ends a request of
+/// item 3 admitted pending just before, and a seed differing from
 /// an admitted one only by `ref`, admitted in the same write so that no
-/// attempt of the crawl's runs between, is merged.
+/// attempt of the crawl's runs between, is merged. Each page of the
+/// `list.test/rows` listing then links a cursor of its own, which the
+/// third teaches.
 const LEARNED: Operation = Operation {
     name: "compat.learned",
     description: "Hands a crawl's Frontier the pages of its `list.test/items` seeds.",
@@ -284,6 +289,28 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                 .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             let get = HttpMethod::get();
+            let scope = goodfetch_frontier::Scope::read(connection)?;
+            let policy = goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str])
+                .expect("every host is a policy");
+            let pending = goodfetch_frontier::admit(
+                connection,
+                &scope,
+                &policy,
+                goodfetch_frontier::Candidate::Seed {
+                    url: "https://list.test/items?n=3&ref=d",
+                    declared: goodfetch_frontier::Declared {
+                        method: &get,
+                        body: None,
+                        key: None,
+                        keeps_fragment: false,
+                    },
+                },
+                |url| work_item(connection, url, "pending"),
+            )?;
+            assert!(
+                matches!(pending, goodfetch_protocol::foxhound::frontier::Enqueued::Added { .. }),
+                "the request the rule ends is admitted: {pending:?}"
+            );
             for (crawl_request, url) in pages {
                 let url = goodfetch_frontier::Url::parse(&url).expect("a seed's URL parses");
                 let item = url
@@ -306,7 +333,7 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                         signature: [item; 32],
                         canonical: canonical.as_ref(),
                     },
-                    &mut Unended,
+                    &mut Ending,
                 )?;
             }
             // The guide redirects to its slashed URL, which teaches the
@@ -330,7 +357,7 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                     method: &get,
                     body: None,
                 },
-                &mut Unended,
+                &mut Ending,
             )?;
             for (index, ((crawl_request, _), url)) in guides.iter().zip(&urls).enumerate() {
                 goodfetch_frontier::learn(
@@ -343,14 +370,13 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                         signature: [u8::try_from(index).expect("two guides") + b'g'; 32],
                         canonical: None,
                     },
-                    &mut Unended,
+                    &mut Ending,
                 )?;
             }
             let merged = goodfetch_frontier::admit(
                 connection,
-                &goodfetch_frontier::Scope::read(connection)?,
-                &goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str])
-                    .expect("every host is a policy"),
+                &scope,
+                &policy,
                 goodfetch_frontier::Candidate::Seed {
                     url: "https://list.test/items?n=1&ref=z",
                     declared: goodfetch_frontier::Declared {
@@ -366,6 +392,34 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                 matches!(merged, goodfetch_protocol::foxhound::frontier::Enqueued::NotAdded { .. }),
                 "the learned rule merges the seed"
             );
+            // Each page of the listing links the rows after it by a cursor
+            // of its own, a token that ends as the scope's `include` asks,
+            // which the third page's link teaches.
+            for (offset, after) in [(0, "r20"), (20, "r40"), (40, "r60")] {
+                let page =
+                    goodfetch_frontier::Url::parse(&format!("https://list.test/rows?offset={offset}"))
+                        .expect("a listing's page parses");
+                let cursor = goodfetch_frontier::admit(
+                    connection,
+                    &scope,
+                    &policy,
+                    goodfetch_frontier::Candidate::Href {
+                        href: &format!("?after={after}/sale"),
+                        base: &page,
+                        encoding: goodfetch_frontier::Encoding::for_label(b"utf-8")
+                            .expect("UTF-8 is an encoding"),
+                        keeps_fragment: false,
+                        from: &page,
+                        narrowing: goodfetch_frontier::Narrowing::none(),
+                        depth: 1,
+                    },
+                    |url| work_item(connection, url, "succeeded"),
+                )?;
+                assert!(
+                    matches!(cursor, goodfetch_protocol::foxhound::frontier::Enqueued::Added { .. }),
+                    "the cursor link is admitted: {cursor:?}"
+                );
+            }
             read_sitemap(connection)
         })
         .await
@@ -393,22 +447,9 @@ fn read_sitemap(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
             label: "home".to_owned(),
         }],
     };
-    // Each seed takes the position after every one the run file holds or
-    // an attempt's staged enqueue reserved, as the crawl's own adds do.
     let admit = |seed: &SitemapSeed, status: &str| {
         let answer = sitemap::admit_seed(connection, &policy, seed, |url| {
-            connection.query_row(
-                "INSERT INTO work_items
-                     (id, position, url, method, label, depth, status, attempts, retried_from, lease_epoch, domain_key, priority)
-                 SELECT CAST(next AS TEXT), next, ?1, 'GET', '', 0, ?2, 1, 0, 1, 'maps.test', 0
-                 FROM (SELECT max(
-                     (SELECT coalesce(max(position), 0) FROM work_items),
-                     (SELECT coalesce(max(reserved), 0) FROM work_item_positions)
-                 ) + 1 AS next)
-                 RETURNING id",
-                [url.as_str(), status],
-                |row| row.get(0),
-            )
+            work_item(connection, url, status)
         })?;
         let Enqueued::Added { id, .. } = answer else {
             panic!("the sitemap seed is admitted: {answer:?}");
@@ -450,18 +491,61 @@ fn read_sitemap(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
     )
 }
 
-/// The writer's crawl ends no request a rule it hands the Frontier
-/// merges, so it has none to give back when one stops: its requests stay
-/// as the crawl left them.
-struct Unended;
+/// Adds the work item of `url`, already `status`, as the writer's own
+/// admissions do where no fetch tier runs: at the position after every one
+/// the run file holds or an attempt's staged enqueue reserved, as the
+/// crawl's own adds take theirs. Answers its ID.
+fn work_item(
+    connection: &rusqlite::Connection,
+    url: &goodfetch_frontier::Url,
+    status: &str,
+) -> rusqlite::Result<String> {
+    connection.query_row(
+        "INSERT INTO work_items
+             (id, position, url, method, label, depth, status, attempts, retried_from, lease_epoch, domain_key, priority)
+         SELECT CAST(next AS TEXT), next, ?1, 'GET', '', 0, ?2, 1, 0, 1, ?3, 0
+         FROM (SELECT max(
+             (SELECT coalesce(max(position), 0) FROM work_items),
+             (SELECT coalesce(max(reserved), 0) FROM work_item_positions)
+         ) + 1 AS next)
+         RETURNING id",
+        [url.as_str(), status, url.host_str().unwrap_or_default()],
+        |row| row.get(0),
+    )
+}
 
-impl goodfetch_frontier::EndMerged for Unended {
+/// The writer's side of a rule learned later: of the requests the rule
+/// shows to be one page, it ends each still pending, `skipped`, as the
+/// crawl ends them. The one rule it stops had ended none, so it has none
+/// to give back.
+struct Ending;
+
+impl goodfetch_frontier::EndMerged for Ending {
     fn end_merged(
         &mut self,
-        _: &rusqlite::Connection,
-        _: &std::collections::BTreeSet<String>,
+        connection: &rusqlite::Connection,
+        crawl_requests: &std::collections::BTreeSet<String>,
     ) -> rusqlite::Result<Vec<goodfetch_frontier::Ended>> {
-        Ok(Vec::new())
+        let mut ended = Vec::new();
+        for crawl_request in crawl_requests {
+            let url = connection
+                .query_row(
+                    "UPDATE work_items SET status = 'skipped'
+                     WHERE id = ?1 AND status = 'pending' RETURNING url",
+                    [crawl_request],
+                    |row| row.get(0),
+                )
+                .map(Some)
+                .or_else(|error| match error {
+                    rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                    error => Err(error),
+                })?;
+            ended.extend(url.map(|url| goodfetch_frontier::Ended {
+                crawl_request: crawl_request.clone(),
+                url,
+            }));
+        }
+        Ok(ended)
     }
 
     fn give_back(

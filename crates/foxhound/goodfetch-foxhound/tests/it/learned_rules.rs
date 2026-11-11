@@ -426,7 +426,7 @@ fn a_calendar_trap_closes_after_a_hundred_months_and_leaves_the_run_unverified()
 }
 
 /// A listing paged by `offset` whose pages each link a cursor of their
-/// own is read through the cursor once two pages showed it: the offset
+/// own is read through the cursor once three pages showed it: the offset
 /// URLs not yet fetched are `duplicate`, the Proving ground serves each
 /// row's page once, and the Run is `unverified`, its reason counting the
 /// offset URLs the cursor refused. The same rows paged by offset alone
@@ -477,13 +477,13 @@ fn an_offset_listing_gives_way_to_its_cursor() {
             &feed.report["completeness_reasons"],
         ),
         (
-            vec![&feed_url("offset=80")],
+            vec![&feed_url("offset=100")],
             &json!("cursor_pagination"),
             &json!("/feed"),
             &json!("offset"),
             &json!(format!(
-                "`offset` steps by 20 on {} ({}, {}, {}), and two of its pages each link a \
-                 value of `after` of their own: {} links {}, and {} links {}.",
+                "`offset` steps by 20 on {} ({}, {}, {}), and three of its pages each link \
+                 one value of `after` of their own: {} links {}, {} links {}, and {} links {}.",
                 proving_ground.url("learning.test", "/feed"),
                 feed_url("offset=0"),
                 feed_url("offset=20"),
@@ -492,8 +492,10 @@ fn an_offset_listing_gives_way_to_its_cursor() {
                 feed_url("after=r40"),
                 feed_url("offset=40"),
                 feed_url("after=r60"),
+                feed_url("offset=60"),
+                feed_url("after=r80"),
             )),
-            &json!([feed_url("offset=80")]),
+            &json!([feed_url("offset=100")]),
             &json!("unverified"),
             &json!([{
                 "code": "cursor_pagination",

@@ -25,7 +25,6 @@ use serde_json::{Value, json};
 
 use crate::daemon::{StopsTheDaemon, json_of, runtime_file, short_idle, socket_listener};
 use crate::daemon_run::{ANY_PORT, Foreground, token};
-use crate::lasting_sign_ins::audit_entries;
 use crate::ops::{Browsers, with_ops};
 use goodfetch_test_client::{Attached, hello};
 
@@ -59,6 +58,23 @@ pub(crate) fn reason(rule: Rule) -> Option<&'static str> {
         | Rule::TokenForAnotherFile
         | Rule::SignInRateExceeded => return None,
     })
+}
+
+/// Every Audit log entry of `env`'s home, as JSON.
+fn audit_entries(env: &TestEnv) -> Vec<Value> {
+    let home = Home::new(env.home().to_path_buf());
+    let Ok(connection) = rusqlite::Connection::open(home.audit_log()) else {
+        return Vec::new();
+    };
+    let Ok(mut statement) = connection.prepare("SELECT entry FROM entries ORDER BY sequence")
+    else {
+        return Vec::new();
+    };
+    statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .map(|entry| serde_json::from_str(&entry.unwrap()).unwrap())
+        .collect()
 }
 
 /// How many of the Audit log's entries of `env`'s home record `listener`'s

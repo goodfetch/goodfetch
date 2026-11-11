@@ -40,7 +40,6 @@ use anyhow::{Context as _, Result, bail};
 
 use crate::affected::{Kind, UNOWNED, WorkspaceMembers};
 use crate::check::{self, Finding};
-use crate::console;
 use crate::environment::Environment;
 use crate::gate;
 use crate::git;
@@ -480,9 +479,7 @@ impl<'a> Checkout<'a> {
 
     /// Installs the commit's npm packages and Python environment from its
     /// own lockfiles, as `just fetch` does, from the package store and uv's
-    /// cache where it can, then builds its Consoles, which its Products'
-    /// executables embed (ADR 0057): nextest builds the commit's tests to
-    /// list them, and Collie's fail to compile without its Console build.
+    /// cache where it can.
     /// The head's would not do: pnpm links each workspace package to the
     /// head's sources, and uv installs each workspace member editable from
     /// them, so the commit's Vitest and Playwright configs and its pytest
@@ -493,7 +490,6 @@ impl<'a> Checkout<'a> {
             Process::new("pnpm").args(["install", "--frozen-lockfile", "--prefer-offline"]),
             "pnpm install",
         )?;
-        console::build(&self.path).context("building the Consoles in the checkout of the base")?;
         // A project environment set for the head would be synced to the
         // base's lockfile; the checkout's runners use its own `.venv`.
         self.run_install(

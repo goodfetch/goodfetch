@@ -371,8 +371,8 @@ fn the_bases_tree_is_kept_and_moved_to_the_next_base() {
     assert_eq!(head.trim(), second);
 }
 
-/// A file a build of the kept tree left in it, such as a lent Console build
-/// or installed packages, is gone once the tree moves to the next base, so
+/// A file a build of the kept tree left in it, such as installed packages,
+/// is gone once the tree moves to the next base, so
 /// the base is built from its own files alone.
 #[test]
 fn moving_the_bases_tree_removes_what_an_earlier_build_left_in_it() {

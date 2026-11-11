@@ -88,8 +88,7 @@ lint-documents:
 # and the run ends with the list of those that failed, each with its log
 # under target/steps/lint/ (ci/keep-going.sh). A check that needs an earlier
 # one's output comes after it and is skipped, named so, when it failed:
-# Clippy after the lockfile check, the TypeScript checks after the Console's
-# build, the `xtask` checks after xtask's build.
+# Clippy after the lockfile check, the `xtask` checks after xtask's build.
 lint:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -103,10 +102,9 @@ lint:
     step pnpm-lock 'pnpm install --lockfile-only --frozen-lockfile'
     step uv-lock 'uv lock --check'
     step xtask 'cargo build --quiet --bin xtask'
-    step --after xtask console-build '{{ just_executable() }} console-build'
     step --after cargo-lock clippy 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
-    step --after console-build tsc 'pnpm exec tsc -p tsconfig.json'
-    step --after console-build pnpm-typecheck 'pnpm -r --if-present run typecheck'
+    step tsc 'pnpm exec tsc -p tsconfig.json'
+    step pnpm-typecheck 'pnpm -r --if-present run typecheck'
     step console-messages 'ci/console-messages.sh'
     step oxlint 'pnpm exec oxlint'
     step ruff 'uv run ruff check .'
@@ -387,16 +385,8 @@ fetch:
     uv sync --frozen --all-extras
     ci/lightpanda-fetch.sh
 
-# Collie's Console build, which Collie's executable embeds (ADR 0057):
-# brotli files only, in crates/goodfetch-collie/console-build/; nothing runs
-# when its inputs did not change. Every recipe that builds the executable
-# runs it first, and a `cargo build` without it fails naming it.
-console-build:
-    cargo run --quiet --bin xtask -- console build
-
 # Builds Rust (with the given Cargo profile), TypeScript and Python.
 build profile="dev":
-    {{ just_executable() }} console-build
     cargo build --workspace --all-targets --profile {{ profile }}
     pnpm -r --if-present run build
     uv build --all-packages --out-dir target/python-dist
@@ -1203,7 +1193,6 @@ perf base="":
 # machine it ran on. On the owner's machine, set
 # GOODFETCH_PERF_MACHINE to its label; it times, so no suite runs it.
 console-lighthouse:
-    {{ just_executable() }} console-build
     cargo run --quiet --bin xtask -- test-tools build --cargo-profile ci --out "$PWD/target/perf-series/test-tools.json"
     GOODFETCH_TEST_TOOLS="$PWD/target/perf-series/test-tools.json" pnpm exec playwright test --config console/collie/perf/playwright.config.ts
 
@@ -1278,7 +1267,6 @@ lazyfs-test:
     #!/usr/bin/env bash
     set -euo pipefail
     {{ just_executable() }} lazyfs-fetch
-    {{ just_executable() }} console-build
     GOODFETCH_LAZYFS=$(cargo run --quiet --bin xtask -- lazyfs build)
     export GOODFETCH_LAZYFS GOODFETCH_TEST_SUITE=release
     cargo nextest run -p goodfetch-test-support -p goodfetch-engine -p goodfetch-collie --profile ci \
@@ -1294,7 +1282,6 @@ lazyfs-test:
 # reads a change's base listings (ADR 0064).
 warm:
     pnpm exec tsc -p tsconfig.json
-    {{ just_executable() }} console-build
     cargo clippy --workspace --all-targets --all-features
     cargo build --bin xtask
     cargo nextest run --workspace --profile ci --cargo-profile ci-test --no-run
@@ -1442,7 +1429,6 @@ reports store milestone="M1":
     out="$store/reports/$day"
     rm -rf "$out"
     mkdir -p "$out"
-    {{ just_executable() }} console-build
     cargo run --quiet --locked --bin xtask -- journeys listings --out target/journey-listings \
       --cargo-profile {{ test_profile }}
     cargo run --quiet --locked --bin xtask -- features report --milestone "{{ milestone }}" \
@@ -1465,13 +1451,11 @@ reports store milestone="M1":
 # Builds the workspace with the toolchain of its `rust-version`, the MSRV of
 # ADR 0030 (latest stable minus two).
 msrv:
-    {{ just_executable() }} console-build
     ci/msrv.sh
 
 # cargo-hack over every feature combination of each Product's SDK crate
 # (ADR 0087).
 feature-combinations:
-    {{ just_executable() }} console-build
     ci/tool.sh cargo-hack ci/feature-combinations.sh
 
 # Miri over the pure-Rust `unsafe` modules that opt in through ci/miri.toml

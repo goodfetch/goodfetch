@@ -187,17 +187,6 @@
       ]
     },
     {
-      "id": "command:console",
-      "kind": "command",
-      "area": 12,
-      "milestone": null,
-      "status": "active",
-      "products": [
-        "collie",
-        "foxhound"
-      ]
-    },
-    {
       "id": "command:crawl.start",
       "kind": "command",
       "area": 11,

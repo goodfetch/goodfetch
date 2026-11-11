@@ -1,7 +1,5 @@
-//! The Stub gateway as a browser, the Console's Client and a program reach
-//! it (ADR 0096): Foxhound's Console build under the production headers and
-//! the content origin, a sign-in token swapped for a browser's cookie or
-//! presented in a program's `hello`, `run.list` from its own index, each
+//! The Stub gateway as a Client reaches it (ADR 0096): no file served, a
+//! token presented in the Client's `hello`, `run.list` from its own index, each
 //! run on an Attached engine of the executable its Product needs, one per
 //! Run ID however many starts name it at once, and every other call
 //! forwarded to the engine that owns the run, which takes the gateway's
@@ -20,7 +18,7 @@
 )]
 
 use std::net::TcpStream;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
@@ -40,16 +38,15 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// How long an interrupted gateway has to stop its engines and exit.
 const STOP_DEADLINE: Duration = Duration::from_secs(10);
 
-/// A started gateway and the addresses its ready file reports.
+/// A started gateway and the address its ready file reports.
 pub(crate) struct Gateway {
     process: Process,
-    pub(crate) console: String,
-    content: String,
+    pub(crate) address: String,
 }
 
 impl Gateway {
-    /// Starts the gateway on port 0 with this commit's executables and
-    /// Foxhound's Console build, once it reports its addresses.
+    /// Starts the gateway on port 0 with this commit's executables, once
+    /// it reports its address.
     pub(crate) fn start(env: &TestEnv) -> Self {
         Self::launch(env, true)
     }
@@ -67,8 +64,6 @@ impl Gateway {
         let ready = env.folder().join("ready.json");
         let mut command = env.process_command(GATEWAY);
         command
-            .arg("--console-build")
-            .arg(foxhounds_console_build())
             .arg("--collie")
             .arg(tools.collie.unwrap())
             .arg("--token-file")
@@ -84,39 +79,16 @@ impl Gateway {
         let reported = wait_for(&ready);
         Self {
             process,
-            console: reported["console"].as_str().unwrap().to_owned(),
-            content: reported["content"].as_str().unwrap().to_owned(),
+            address: reported["address"].as_str().unwrap().to_owned(),
         }
     }
 
-    /// The cookie a sign-in with the configured token gives.
-    pub(crate) fn signed_in(&self) -> String {
-        let response = ureq::post(format!("{}/sign-in", self.console))
-            .header("Origin", &self.console)
-            .send(TOKEN)
-            .unwrap();
-        let cookie = response
-            .headers()
-            .get("set-cookie")
-            .unwrap()
-            .to_str()
-            .unwrap();
-        cookie.split(';').next().unwrap().to_owned()
-    }
-
-    /// A WebSocket at `/protocol`: a browser's, on the Console's origin
-    /// with a sign-in's cookie, or else a program's, with neither.
-    pub(crate) fn socket(&self, browser: bool) -> WebSocket<TcpStream> {
-        let address = self.console.trim_start_matches("http://");
-        let mut request = format!("ws://{address}/protocol")
+    /// A Client's WebSocket at `/protocol`.
+    pub(crate) fn socket(&self) -> WebSocket<TcpStream> {
+        let address = self.address.trim_start_matches("http://");
+        let request = format!("ws://{address}/protocol")
             .into_client_request()
             .unwrap();
-        if browser {
-            let cookie = self.signed_in();
-            let headers = request.headers_mut();
-            headers.insert("Origin", self.console.parse().unwrap());
-            headers.insert("Cookie", cookie.parse().unwrap());
-        }
         let stream = TcpStream::connect(address).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(60)))
@@ -127,7 +99,7 @@ impl Gateway {
     /// The Console's Connection, signed in, after its `hello`.
     fn connection(&self) -> Connection {
         let mut connection = Connection {
-            socket: self.socket(true),
+            socket: self.socket(),
             next: 0,
         };
         let hello = connection.call(
@@ -136,6 +108,7 @@ impl Gateway {
                 "protocol_version": PROTOCOL_VERSION.to_string(),
                 "surface": "console",
                 "form": "catalog",
+                "token": TOKEN,
                 "needs": "foxhound",
                 "product_version": VERSION,
             }),
@@ -217,11 +190,6 @@ fn crawl_of_nothing() -> Value {
     json!({"seeds": [{"url": "ftp://example.invalid/", "label": "start"}]})
 }
 
-/// `xtask console build`'s output for Foxhound, which `just test` builds.
-fn foxhounds_console_build() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../foxhound/goodfetch-foxhound/console-build")
-}
-
 /// The JSON the gateway writes at `ready` once it serves.
 fn wait_for(ready: &Path) -> Value {
     for _ in 0..600 {
@@ -237,51 +205,12 @@ fn wait_for(ready: &Path) -> Value {
 
 /// Covers: story:12-232
 #[test]
-fn serves_foxhounds_console_build_under_the_production_headers_and_the_content_origin() {
+fn serves_no_file() {
     let env = TestEnv::new();
     let gateway = Gateway::start(&env);
 
-    let page = ureq::get(format!("{}/runs", gateway.console))
-        .header("Accept-Encoding", "br")
-        .call()
-        .unwrap();
-
-    let header = |name: &str| {
-        page.headers()
-            .get(name)
-            .map(|value| value.to_str().unwrap().to_owned())
-    };
-    assert_eq!(
-        (
-            page.status().as_u16(),
-            header("content-security-policy"),
-            header("referrer-policy"),
-            header("cross-origin-opener-policy"),
-            header("x-content-type-options"),
-        ),
-        (
-            200,
-            Some(goodfetch_engine::console::content_security_policy(Some(
-                &gateway.content
-            ))),
-            Some("no-referrer".to_owned()),
-            Some("same-origin".to_owned()),
-            Some("nosniff".to_owned()),
-        )
-    );
-}
-
-/// Covers: story:12-232
-#[test]
-fn signs_a_client_in_with_its_configured_token_swapped_for_a_cookie() {
-    let env = TestEnv::new();
-    let gateway = Gateway::start(&env);
-    let session = |cookie: Option<&str>| {
-        let mut request = ureq::get(format!("{}/session", gateway.console));
-        if let Some(cookie) = cookie {
-            request = request.header("Cookie", cookie);
-        }
-        request
+    let statuses = ["/", "/index.html", "/runs", "/sign-in", "/session"].map(|path| {
+        ureq::get(format!("{}{path}", gateway.address))
             .config()
             .http_status_as_error(false)
             .build()
@@ -289,23 +218,9 @@ fn signs_a_client_in_with_its_configured_token_swapped_for_a_cookie() {
             .unwrap()
             .status()
             .as_u16()
-    };
-    let wrong = ureq::post(format!("{}/sign-in", gateway.console))
-        .header("Origin", &gateway.console)
-        .config()
-        .http_status_as_error(false)
-        .build()
-        .send("another-token")
-        .unwrap()
-        .status()
-        .as_u16();
+    });
 
-    let cookie = gateway.signed_in();
-
-    assert_eq!(
-        (wrong, session(None), session(Some(&cookie))),
-        (401, 401, 200)
-    );
+    assert_eq!(statuses, [404; 5]);
 }
 
 /// Covers: story:12-232, error:not_in_product
@@ -417,7 +332,7 @@ fn a_program_signs_in_with_the_token_its_hello_presents(
 ) {
     let env = TestEnv::new();
     let gateway = Gateway::start(&env);
-    let mut socket = gateway.socket(false);
+    let mut socket = gateway.socket();
     socket.send(programs_hello(token)).unwrap();
 
     let reply = match socket.read() {

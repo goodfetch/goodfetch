@@ -26,7 +26,6 @@ mod compare;
 mod compat;
 #[cfg(unix)]
 mod compiler_cache;
-mod console;
 mod containment;
 #[cfg(unix)]
 mod counts;

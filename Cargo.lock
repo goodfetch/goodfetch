@@ -8103,7 +8103,6 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "brotli 9.0.0",
  "clap",
  "flate2",
  "glob",

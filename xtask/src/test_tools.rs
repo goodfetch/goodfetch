@@ -8,8 +8,7 @@
 //! them) would reach the executables, which tests then would not run as they
 //! ship, so the crates whose features differ compile twice per suite (ADR
 //! 0094's note).
-//! Each Product's executable embeds its Console build, which it builds
-//! first (`xtask console build`, ADR 0057). `just test` runs it before any
+//! `just test` runs it before any
 //! runner starts. With `--shipped-target`, it builds for the Rust target
 //! the Products ship for on this host, the static musl one on Linux (ADR
 //! 0024), so `just targets` and `just rss` measure what users run. A
@@ -31,7 +30,6 @@ use anyhow::{Context as _, Result, bail};
 use goodfetch_protocol::catalog::Product;
 use serde::{Deserialize, Serialize};
 
-use crate::console;
 use crate::environment::Environment;
 use crate::metadata;
 use crate::output;
@@ -250,15 +248,6 @@ fn build(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
             missing.binary(),
             missing.entry()
         );
-    }
-    // Each Product's executable embeds its Console build, which this
-    // workspace's Console packages make first (ADR 0057).
-    if binaries
-        .iter()
-        .any(|tool| products::is_executable(tool.binary()))
-        && root.join(console::PACKAGE).join("package.json").is_file()
-    {
-        console::build(root)?;
     }
     let mut manifest = ToolManifest::default();
     if !binaries.is_empty() {

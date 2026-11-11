@@ -10,7 +10,6 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
-brotli.workspace = true
 clap.workspace = true
 flate2.workspace = true
 glob.workspace = true

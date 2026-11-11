@@ -121,13 +121,11 @@ pub enum DaemonFile {
     OpsToken,
     /// The HTTP listener's token, mode 0600.
     HttpListenerToken,
-    /// The page that opens the Console's sign-in link in a browser.
-    ConsoleOpener,
 }
 
 impl DaemonFile {
     /// Every one of them.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 8] = [
         Self::RuntimeFile,
         Self::Socket,
         Self::ServingLock,
@@ -136,7 +134,6 @@ impl DaemonFile {
         Self::ServiceRecord,
         Self::OpsToken,
         Self::HttpListenerToken,
-        Self::ConsoleOpener,
     ];
 
     /// Its name in the per-major folder.
@@ -150,7 +147,6 @@ impl DaemonFile {
             Self::ServiceRecord => "daemon-service.json",
             Self::OpsToken => "ops.token",
             Self::HttpListenerToken => "http-listener.token",
-            Self::ConsoleOpener => "console.html",
         }
     }
 

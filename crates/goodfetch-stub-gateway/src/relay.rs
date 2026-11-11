@@ -1,8 +1,8 @@
 //! A Client's Connection through the gateway (ADR 0096), answered as
 //! Goodfetch Cloud's gateway answers it. The gateway accepts Clients per
 //! Product as an engine does, under the Daemon's version rule (ADR 0066),
-//! and signs a program in by the token its `hello` presents, a browser by
-//! its sign-in cookie (spec #586's duty 8). It answers the Client's `hello`
+//! and signs a Client in by the token its `hello` presents (spec #586's
+//! duty 8). It answers the Client's `hello`
 //! with the Product it needs and its own engine instance, `run.list` from
 //! its own index, and a start (`run.start` or a crawl's) by starting the
 //! run on a new Attached engine of the Product the routing rule picks
@@ -55,15 +55,6 @@ const STARTS: [&str; 2] = [RUN_START.name, "crawl.start"];
 /// How many messages wait for a Client's socket before senders wait.
 const OUTGOING: usize = 256;
 
-/// How a Client's WebSocket was signed in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Door {
-    /// A browser, by its sign-in cookie.
-    Cookie,
-    /// A program, by the token its `hello` presents.
-    Hello,
-}
-
 /// The gateway's engines and its own index.
 pub(crate) struct Gateway {
     engines: Engines,
@@ -95,18 +86,14 @@ impl Gateway {
         self.engines.stop().await;
     }
 
-    /// Serves one Client's WebSocket, signed in through `door`, until it
+    /// Serves one Client's WebSocket until it
     /// closes, its tasks `owner`'s.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future closes the Client's Connections to its engines.
-    pub(crate) async fn serve<S>(
-        self: Arc<Self>,
-        socket: WebSocketStream<S>,
-        door: Door,
-        owner: TaskOwner,
-    ) where
+    pub(crate) async fn serve<S>(self: Arc<Self>, socket: WebSocketStream<S>, owner: TaskOwner)
+    where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
         let (mut sink, mut stream) = socket.split();
@@ -119,7 +106,7 @@ impl Gateway {
             }
             let _ = sink.close().await;
         });
-        let Some(client) = self.opened(&mut stream, &outgoing, door).await else {
+        let Some(client) = self.opened(&mut stream, &outgoing).await else {
             return;
         };
         let mut links: BTreeMap<u64, Line> = BTreeMap::new();
@@ -180,7 +167,6 @@ impl Gateway {
         &self,
         stream: &mut futures_util::stream::SplitStream<WebSocketStream<S>>,
         outgoing: &mpsc::Sender<String>,
-        door: Door,
     ) -> Option<Client>
     where
         S: AsyncRead + AsyncWrite + Unpin,
@@ -208,23 +194,21 @@ impl Gateway {
                 .await;
             return None;
         };
-        // A program signs in with the token its `hello` presents; one that
+        // A Client signs in with the token its `hello` presents; one that
         // presents none or another is closed unanswered, as an engine
         // closes it (ADR 0024).
-        if door == Door::Hello {
-            let reason = match hello.token.as_deref() {
-                None => Some(RefusalReason::TokenMissing),
-                Some(token) if !same_token(token, &self.token) => Some(RefusalReason::TokenWrong),
-                Some(_) => None,
-            };
-            if let Some(reason) = reason {
-                tracing::warn!(
-                    listener = Listener::Console.as_str(),
-                    reason = reason.as_str(),
-                    "the gateway refused a Connection"
-                );
-                return None;
-            }
+        let reason = match hello.token.as_deref() {
+            None => Some(RefusalReason::TokenMissing),
+            Some(token) if !same_token(token, &self.token) => Some(RefusalReason::TokenWrong),
+            Some(_) => None,
+        };
+        if let Some(reason) = reason {
+            tracing::warn!(
+                listener = Listener::Console.as_str(),
+                reason = reason.as_str(),
+                "the gateway refused a Connection"
+            );
+            return None;
         }
         if let Some((message, details)) = version_refusal(hello.protocol_version, false) {
             let _ = outgoing

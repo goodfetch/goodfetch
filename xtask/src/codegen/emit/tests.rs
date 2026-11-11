@@ -295,7 +295,6 @@ fn the_bundle_holds_each_commands_json_output() {
             "browser.clean": { "$ref": "#/$defs/BrowserCleaned" },
             "browser.install": { "$ref": "#/$defs/BrowserInstalled" },
             "config.explain": { "$ref": "#/$defs/SettingsExplanation" },
-            "console": { "$ref": "#/$defs/ConsoleOpened" },
             "daemon.health": { "$ref": "#/$defs/DaemonHealthOutput" },
             "daemon.http-listener-token": { "$ref": "#/$defs/HttpListenerToken" },
             "daemon.install": { "$ref": "#/$defs/DaemonStatus" },

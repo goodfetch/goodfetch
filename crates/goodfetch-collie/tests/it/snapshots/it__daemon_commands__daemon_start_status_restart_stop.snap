@@ -7,7 +7,7 @@ exit: 0
 ----- stdout -----
 {
   "address": "[address]",
-  "console_url": "http://127.0.0.1:[PORT]/",
+  "console_url": null,
   "major": "0.0",
   "pid": "[pid]",
   "product": "collie",
@@ -20,7 +20,7 @@ exit: 0
 ----- stdout -----
 {
   "address": "[address]",
-  "console_url": "http://127.0.0.1:[PORT]/",
+  "console_url": null,
   "major": "0.0",
   "pid": "[pid]",
   "product": "collie",
@@ -33,7 +33,7 @@ exit: 0
 ----- stdout -----
 {
   "address": "[address]",
-  "console_url": "http://127.0.0.1:[PORT]/",
+  "console_url": null,
   "major": "0.0",
   "pid": "[pid]",
   "product": "collie",

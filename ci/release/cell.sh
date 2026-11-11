@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # One cell of the Release suite in CI (ADRs 0061, 0094 and 0108), on its
 # runner's own system, after .github/actions/host-tools:
-#   build       before the deny: builds Collie's Console first (`just
-#               console-build`, ADR 0057), as the local gate does, then the
+#   build       before the deny: builds the
 #               target's tests once with `cargo nextest archive`, the test
 #               tool manifest of the executables tests run, and the `ci`
 #               executables with the thin-LTO `ci` profile, both Products'
@@ -80,10 +79,6 @@ skip() {
 
 case "$part" in
   build)
-    # Collie's executable embeds its Console build (ADR 0057), which the
-    # archive's and the `ci` profile's builds of it read: without it they fail
-    # to compile. It builds from the packages `just fetch` installed.
-    just console-build
     # A musl cell builds with the static musl toolchain (ADR 0024's note of
     # 2026-11-06): nextest runs its Cargo, ci/musl/cargo, through `CARGO`,
     # which `cargo nextest` would reset to Cargo itself; `test-tools` picks

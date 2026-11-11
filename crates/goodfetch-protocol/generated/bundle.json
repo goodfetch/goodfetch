@@ -1791,20 +1791,6 @@
       ],
       "type": "object"
     },
-    "ConsoleOpened": {
-      "description": "What `console --json` prints (ADR 0069): the Console's sign-in link,\nwhose fragment carries the token the page swaps once for its cookie\n(ADR 0024), the URL the command opened the browser on, or would have.",
-      "properties": {
-        "url": {
-          "arrived_in": "0.1",
-          "description": "The sign-in link, such as `http://127.0.0.1:7801/#token=…`.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "url"
-      ],
-      "type": "object"
-    },
     "ConsoleRotateKeyParams": {
       "additionalProperties": false,
       "description": "What `console.rotate_key` takes: nothing.",
@@ -25984,9 +25970,6 @@
     },
     "config.explain": {
       "$ref": "#/$defs/SettingsExplanation"
-    },
-    "console": {
-      "$ref": "#/$defs/ConsoleOpened"
     },
     "daemon.health": {
       "$ref": "#/$defs/DaemonHealthOutput"

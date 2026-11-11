@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use rstest::rstest;
 
 use super::selection::{Job, Selection, select};
-use super::workspace::{Crate, Ecosystem, Embedded, Kennel, Package, Workspace};
+use super::workspace::{Crate, Ecosystem, Kennel, Package, Workspace};
 use super::{ChangedParts, RepoPath, WorkspaceMembers, select_with_readers};
 
 fn names(names: &[&str]) -> BTreeSet<String> {
@@ -66,7 +66,6 @@ fn package(ecosystem: Ecosystem, name: &str, folder: &str, dependencies: &[&str]
         name: name.to_owned(),
         folder: RepoPath::new(folder),
         dependencies: names(dependencies),
-        runtime_dependencies: names(dependencies),
         runs: BTreeSet::new(),
         loaded_by_every_run: false,
     }
@@ -95,7 +94,6 @@ fn fixture() -> Workspace {
         packages: packages(),
         visual_tests: vec![RepoPath::new("console/src/screens/run.visual.test.tsx")],
         models: Vec::new(),
-        embedded: Vec::new(),
         kennel: Kennel {
             dependencies: names(&["goodfetch-protocol"]),
             runs: names(&["goodfetch-test-support", "goodfetch-collie"]),
@@ -1011,134 +1009,6 @@ fn a_package_every_run_of_its_runner_loads_reaches_every_package_of_its_ecosyste
     );
 
     assert_eq!(value(&selection, key), expected);
-}
-
-/// Collie's executable embeds the Console's build (ADR 0057): a change to
-/// the Console changes the executable, and so reaches what runs it.
-#[test]
-fn a_console_change_reaches_the_crate_that_embeds_its_build_and_what_runs_it() {
-    let mut workspace = fixture();
-    workspace.embedded = vec![Embedded {
-        package: RepoPath::new("console"),
-        krate: "goodfetch-collie".to_owned(),
-    }];
-
-    let selection = select(
-        &workspace,
-        &[RepoPath::new("console/src/app.tsx")],
-        &ChangedParts::default(),
-    );
-
-    assert_eq!(
-        value(&selection, "crates"),
-        "goodfetch-collie goodfetch-conformance"
-    );
-    assert_eq!(
-        value(&selection, "vitest-packages"),
-        "console test-support/typescript"
-    );
-}
-
-/// Each Product's executable embeds its own Console build (ADR 0087):
-/// Collie's crate Collie's package's, Foxhound's crate Foxhound's.
-#[test]
-fn each_products_executable_embeds_its_own_consoles_build() {
-    let crates = vec![
-        executable("goodfetch-collie", "crates/goodfetch-collie", &[]),
-        executable(
-            "goodfetch-foxhound",
-            "crates/foxhound/goodfetch-foxhound",
-            &[],
-        ),
-    ];
-    let packages = vec![
-        package(
-            Ecosystem::TypeScript,
-            "@goodfetch/console",
-            "console/collie",
-            &[],
-        ),
-        package(
-            Ecosystem::TypeScript,
-            "@goodfetch/console-foxhound",
-            "console/foxhound",
-            &["@goodfetch/console"],
-        ),
-    ];
-
-    let embedded = super::workspace::embedded(&crates, &packages);
-
-    let pairs: Vec<(&str, &str)> = embedded
-        .iter()
-        .map(|embedded| (embedded.package.as_str(), embedded.krate.as_str()))
-        .collect();
-    assert_eq!(
-        pairs,
-        [
-            ("console/collie", "goodfetch-collie"),
-            ("console/foxhound", "goodfetch-foxhound"),
-        ]
-    );
-}
-
-/// A change to Collie's Console reaches Foxhound's executable too, whose
-/// build composes Collie's screens with its own.
-#[test]
-fn a_change_to_collies_console_reaches_foxhounds_executable() {
-    let mut workspace = fixture();
-    for package in &mut workspace.packages {
-        if package.folder.as_str() == "console/foxhound" {
-            package.dependencies = names(&["@goodfetch/console"]);
-            package.runtime_dependencies = names(&["@goodfetch/console"]);
-        }
-    }
-    workspace.embedded = vec![
-        Embedded {
-            package: RepoPath::new("console"),
-            krate: "goodfetch-collie".to_owned(),
-        },
-        Embedded {
-            package: RepoPath::new("console/foxhound"),
-            krate: "goodfetch-foxhound".to_owned(),
-        },
-    ];
-
-    let selection = select(
-        &workspace,
-        &[RepoPath::new("console/src/app.tsx")],
-        &ChangedParts::default(),
-    );
-
-    let crates = value(&selection, "crates");
-    assert!(crates.contains("goodfetch-collie"), "{selection}");
-    assert!(crates.contains("goodfetch-foxhound"), "{selection}");
-}
-
-/// What the Console's tests alone use, here test support, is no part of
-/// its build, so it does not reach the crate that embeds the build.
-#[test]
-fn a_package_the_console_needs_only_for_its_tests_does_not_reach_the_embedder() {
-    let mut workspace = fixture();
-    workspace.embedded = vec![Embedded {
-        package: RepoPath::new("console"),
-        krate: "goodfetch-collie".to_owned(),
-    }];
-    for package in &mut workspace.packages {
-        if package.folder.as_str() == "console" {
-            package.runtime_dependencies.clear();
-        }
-    }
-
-    let selection = select(
-        &workspace,
-        &[RepoPath::new("test-support/typescript/src/screenshot.ts")],
-        &ChangedParts::default(),
-    );
-
-    assert!(
-        !value(&selection, "crates").contains("goodfetch-collie"),
-        "{selection}"
-    );
 }
 
 /// The members that own a visual test, which the visual job runs (the

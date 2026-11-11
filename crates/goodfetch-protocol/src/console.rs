@@ -152,16 +152,6 @@ pub struct ConsoleFailure {
     pub fix: String,
 }
 
-/// What `console --json` prints (ADR 0069): the Console's sign-in link,
-/// whose fragment carries the token the page swaps once for its cookie
-/// (ADR 0024), the URL the command opened the browser on, or would have.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct ConsoleOpened {
-    /// The sign-in link, such as `http://127.0.0.1:7801/#token=…`.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub url: String,
-}
-
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),

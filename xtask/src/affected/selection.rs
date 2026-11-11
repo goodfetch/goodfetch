@@ -346,31 +346,6 @@ fn changed<'a>(workspace: &'a Workspace, paths: &[RepoPath], products: Products)
     if everything {
         change_everything(workspace, products, &mut changed);
     }
-    // A crate that embeds a package's build changes with that package and
-    // with what its build and code depend on, not with what its tests alone
-    // use (ADR 0057's Console in Collie).
-    let all_packages: Vec<&Package> = workspace.packages.iter().collect();
-    let roots = changed
-        .packages
-        .iter()
-        .map(|package| package.name.clone())
-        .collect();
-    let built_packages: BTreeSet<&RepoPath> = with_dependants(
-        &all_packages,
-        &roots,
-        |package| &package.name,
-        |package| &package.runtime_dependencies,
-    )
-    .into_iter()
-    .map(|package| &package.folder)
-    .collect();
-    changed.crates.extend(
-        workspace
-            .embedded
-            .iter()
-            .filter(|embedded| built_packages.contains(&embedded.package))
-            .map(|embedded| embedded.krate.clone()),
-    );
     // A crate's executable changes with it and with what its build depends
     // on, not with its dev-dependencies; a crate or package whose tests run
     // a changed executable through the test tool manifest is reached by it.

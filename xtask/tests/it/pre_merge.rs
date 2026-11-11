@@ -41,14 +41,13 @@ fn listed(workspace: &Workspace, form: &str) -> Vec<Listed> {
 /// that loses `--check` or `all` still runs and passes, with less of a check
 /// behind its green, so it has to fail a test. The Pre-merge suite's step
 /// runs the exercise audit after its suite.
-const ALL_HOST_CALLS: [&str; 21] = [
+const ALL_HOST_CALLS: [&str; 20] = [
     "dco",
     "commit-messages",
     "floor-guard",
     "commit-leaks",
     "audit",
     "notices",
-    "console-build",
     "lint",
     "feature-combinations",
     "fuzz-check",
@@ -66,14 +65,13 @@ const ALL_HOST_CALLS: [&str; 21] = [
 ];
 
 /// The calls `just pre-merge` alone makes on the host, in their order.
-const CHANGED_HOST_CALLS: [&str; 21] = [
+const CHANGED_HOST_CALLS: [&str; 20] = [
     "dco",
     "commit-messages",
     "floor-guard",
     "commit-leaks",
     "audit",
     "notices",
-    "console-build",
     "lint",
     "feature-combinations",
     "fuzz-check",
@@ -467,8 +465,7 @@ fn a_red_check_leaves_every_other_check_of_the_quick_and_docs_forms_running(
 }
 
 /// The steps a full gate records, in the order it records them: the host's
-/// as each ends, then the steps beside once it has waited for them. The
-/// Console build is a command of the gate, no step of its record.
+/// as each ends, then the steps beside once it has waited for them.
 const RECORDED_STEPS: [&str; 22] = [
     "dco",
     "commit-messages",
@@ -497,14 +494,13 @@ const RECORDED_STEPS: [&str; 22] = [
 /// A full gate's calls on the host when its Pre-merge suite's tests fail
 /// outright: a green gate's, without the exercise audit, which runs only
 /// after green tests or after nextest's tests alone failed (status 100).
-const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 20] = [
+const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 19] = [
     "dco",
     "commit-messages",
     "floor-guard",
     "commit-leaks",
     "audit",
     "notices",
-    "console-build",
     "lint",
     "feature-combinations",
     "fuzz-check",
@@ -525,15 +521,14 @@ const HOST_CALLS_WITHOUT_THE_AUDIT: [&str; 20] = [
 /// calls are a green gate's, in a green gate's order, the steps beside all
 /// run, every step is recorded, that step alone recorded as failed, and the
 /// gate's end names it (ADR 0135's amendment of 2026-11-10). Each case fails
-/// one call: the step it belongs to, the steps then recorded red (none for the
-/// Console build, which is no step of the record) and the host's calls. The
-/// cases take each way `ci/pre-merge.sh` runs a step once: a command of the
-/// gate, each step beside, a host step run with its `just` command (`lint`;
+/// one call: the step it belongs to, the steps then recorded red and the
+/// host's calls. The
+/// cases take each way `ci/pre-merge.sh` runs a step once:
+/// each step beside, a host step run with its `just` command (`lint`;
 /// every plain host step takes that way, by its name alone), the Quick suite
 /// and the stress run with their evidence, and the Pre-merge suite, red in its
 /// tests or in its exercise audit.
 #[rstest]
-#[case::console_build("console-build", "console-build", &[], &ALL_HOST_CALLS)]
 #[case::perf("perf", "perf", &["perf"], &ALL_HOST_CALLS)]
 #[case::linux("linux", "linux", &["linux"], &ALL_HOST_CALLS)]
 #[case::visual("visual", "visual", &["visual"], &ALL_HOST_CALLS)]
@@ -730,32 +725,32 @@ fn on_the_host(run: Run) -> Vec<String> {
 /// missing or doubled stops the gate at the step that needs it, rather than
 /// skipping or rerunning that step. `ran` counts the host's calls before it.
 #[rstest]
-#[case::no_action("lint.action=run\n", "", 7, "`lint.action=`")]
+#[case::no_action("lint.action=run\n", "", 6, "`lint.action=`")]
 #[case::its_action_twice(
     "lint.action=run\n",
     "lint.action=run\nlint.action=reuse\n",
-    7,
+    6,
     "`lint.action=`"
 )]
 #[case::no_members_for_a_part(
     "quick.action=run\nquick.members=-\n",
     "quick.action=part\n",
-    11,
+    10,
     "`quick.members=`"
 )]
 #[case::no_reason_for_a_reuse(
     "lint.action=run\nlint.members=-\nlint.why=no earlier run\n",
     "lint.action=reuse\nlint.members=-\n",
-    7,
+    6,
     "`lint.why=`"
 )]
 #[case::no_members_for_a_part_of_the_stress_run(
     "stress.action=run\nstress.members=-\n",
     "stress.action=part\n",
-    14,
+    13,
     "`stress.members=`"
 )]
-#[case::no_action_for_a_step_beside("perf.action=run\n", "", 7, "`perf.action=`")]
+#[case::no_action_for_a_step_beside("perf.action=run\n", "", 6, "`perf.action=`")]
 fn a_plan_without_a_key_or_with_it_twice_ends_the_gate_at_the_step_that_needs_it(
     #[case] from: &str,
     #[case] to: &str,
@@ -812,7 +807,7 @@ fn a_plan_action_the_step_cannot_take_ends_the_gate_at_that_step(#[case] line: &
     assert_eq!(run.code, Some(1), "{}", run.stderr);
     assert_eq!(
         on_the_host(run),
-        calls_between(HOST_SETUP, &ALL_HOST_CALLS[..7], &["_skips-report"])
+        calls_between(HOST_SETUP, &ALL_HOST_CALLS[..6], &["_skips-report"])
     );
 }
 

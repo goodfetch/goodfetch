@@ -23,7 +23,6 @@ mod codegen;
 mod commit_messages;
 mod compare;
 mod compat;
-mod console;
 mod containment;
 mod counts;
 mod dco;
@@ -173,11 +172,6 @@ enum Command {
     Compat {
         #[command(subcommand)]
         command: compat::Command,
-    },
-    /// The Console's build, which each executable embeds (ADR 0057).
-    Console {
-        #[command(subcommand)]
-        command: console::Command,
     },
     /// Fails unless every generated contract of Collie's is in Foxhound's,
     /// unchanged (ADR 0094).
@@ -517,7 +511,6 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         )),
         Command::FloorGuard { base, head } => floor_guard::run(root, &base, &head),
         Command::Compat { command } => compat::run(command, environment),
-        Command::Console { command } => console::run(&command, environment),
         Command::Containment => Ok(check::report(&containment::check(root)?)),
         Command::Counts(arguments) => counts::run(&arguments, environment),
         Command::Dco { base, head } => Ok(check::report(&dco::check(root, &base, &head)?)),

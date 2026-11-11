@@ -53,10 +53,6 @@
         "name": "certs"
       },
       {
-        "commands": [],
-        "name": "console"
-      },
-      {
         "commands": [
           {
             "commands": [],
@@ -405,10 +401,6 @@
           }
         ],
         "name": "certs"
-      },
-      {
-        "commands": [],
-        "name": "console"
       },
       {
         "commands": [

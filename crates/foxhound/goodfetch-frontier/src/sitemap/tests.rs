@@ -1,3 +1,8 @@
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
 use goodfetch_protocol::foxhound::crawl::SitemapRule;
 use rstest::rstest;
 use url::Url;
@@ -10,7 +15,19 @@ use flate2::write::GzEncoder;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_protocol::response_limits::LimitSetting;
 
-use super::{Document, MAX_BYTES, MAX_ENTRIES, Refusal, Rules, Unreadable, parse, read_file};
+use goodfetch_counted_work::CountedWork;
+use goodfetch_engine::egress::Policy;
+use goodfetch_protocol::foxhound::crawl::SitemapSeed;
+use goodfetch_protocol::foxhound::frontier::Enqueued;
+use goodfetch_protocol::run::Completeness;
+use rusqlite::Connection;
+
+use super::{
+    Document, MAX_BYTES, MAX_ENTRIES, Refusal, Rules, Unreadable, admit_seed, parse, read,
+    read_file, reports,
+};
+use crate::bounds::{self, Bounds, completeness_reasons};
+use crate::scope::{self, Patterns, Scope, Strategy};
 
 fn locs(locs: &[&str]) -> Vec<String> {
     locs.iter().map(|loc| (*loc).to_owned()).collect()
@@ -264,4 +281,239 @@ fn a_gzip_file_that_does_not_decode_is_unreadable(#[case] body: Vec<u8>) {
 /// every OS (ADR 0067).
 mod sitemap_target {
     goodfetch_test_support::fuzz_replay!(crate::sitemap::fuzz_sitemap, "fuzz/sitemap");
+}
+
+/// A run file holding the Frontier's sitemaps, in memory, under the domain
+/// policy that allows every host; the work item of each fetch it adds is
+/// numbered from 1.
+struct Sitemaps {
+    connection: Connection,
+    policy: Policy,
+    /// The URL of each fetch added, in order.
+    added: Vec<String>,
+}
+
+impl Sitemaps {
+    /// A run file whose Run recorded `bounds`.
+    fn bounded(bounds: &Bounds) -> Self {
+        let connection = Connection::open_in_memory().unwrap();
+        for statement in crate::identity::TABLES
+            .statements
+            .iter()
+            .chain(scope::TABLES.statements)
+            .chain(bounds::TABLES.statements)
+            .chain(crate::rules::TABLES.statements)
+            .chain(super::TABLES.statements)
+        {
+            connection.execute(statement, []).unwrap();
+        }
+        bounds.record(&connection).unwrap();
+        Self {
+            connection,
+            policy: Policy::new(&["*"], &[] as &[&str]).unwrap(),
+            added: Vec::new(),
+        }
+    }
+
+    /// Admits the sitemap seed at `url`; answers its fetch's work item.
+    fn seed(&mut self, url: &str) -> String {
+        let seed = SitemapSeed {
+            sitemap: url.to_owned(),
+            rules: Vec::new(),
+        };
+        let added = &mut self.added;
+        let answer = admit_seed(&self.connection, &self.policy, &seed, |url| {
+            added.push(url.to_string());
+            Ok(added.len().to_string())
+        })
+        .unwrap();
+        match answer {
+            Enqueued::Added { id, .. } => id,
+            refused @ Enqueued::NotAdded { .. } => panic!("the seed is admitted: {refused:?}"),
+        }
+    }
+
+    /// Reads, as what the fetch of the work item `id` gave, a sitemap
+    /// index that nests `nested`; answers the work item and the URL of
+    /// each fetch that added.
+    fn read_index(&mut self, id: &str, nested: &[&str]) -> Vec<(String, String)> {
+        let scope = Scope::new(
+            Strategy::SameHostname,
+            Patterns::default(),
+            Patterns::default(),
+        );
+        let before = self.added.len();
+        let added = &mut self.added;
+        read(
+            &self.connection,
+            &scope,
+            &self.policy,
+            id,
+            &Document::Sitemaps(locs(nested)),
+            &CountedWork::default(),
+            |url, _| {
+                added.push(url.to_string());
+                Ok(added.len().to_string())
+            },
+        )
+        .unwrap();
+        (before..self.added.len())
+            .map(|at| ((at + 1).to_string(), self.added[at].clone()))
+            .collect()
+    }
+
+    /// Each sitemap the first seed could not read: its URL and its code.
+    fn failures(&self) -> Vec<(String, String)> {
+        reports(&self.connection).unwrap()[0]
+            .failures
+            .iter()
+            .map(|failure| (failure.url.clone(), failure.code.clone()))
+            .collect()
+    }
+
+    /// What the bounds cut, by setting, with the Completeness each gives.
+    fn cut(&self) -> Vec<(String, Completeness)> {
+        completeness_reasons(&self.connection)
+            .unwrap()
+            .into_iter()
+            .map(|reason| (reason.reason.code, reason.completeness))
+            .collect()
+    }
+}
+
+fn pair(id: &str, url: &str) -> (String, String) {
+    (id.to_owned(), url.to_owned())
+}
+
+/// A sitemap index's nested sitemaps are fetched down to
+/// `crawl.max_sitemap_nesting` levels under their seed, 5 by default: one
+/// nested a level past it is not fetched, the seed's report keeps its URL
+/// with `max_sitemap_nesting`, and the bound leaves the Run `incomplete`.
+///
+/// Covers: story:6-204, setting:crawl.max_sitemap_nesting
+#[test]
+fn a_sitemap_nested_past_the_limit_is_not_fetched_and_its_seeds_report_names_it() {
+    let mut sitemaps = Sitemaps::bounded(&Bounds::default());
+    let mut id = sitemaps.seed("http://shop.test/sitemap.xml");
+    let mut fetched = Vec::new();
+
+    for level in 1..=6 {
+        let nested = format!("http://shop.test/level-{level}.xml");
+        let added = sitemaps.read_index(&id, &[&nested]);
+        fetched.push(added.iter().map(|(_, url)| url.clone()).collect::<Vec<_>>());
+        if let Some((next, _)) = added.into_iter().next() {
+            id = next;
+        }
+    }
+
+    assert_eq!(
+        (fetched, sitemaps.failures(), sitemaps.cut()),
+        (
+            vec![
+                vec!["http://shop.test/level-1.xml".to_owned()],
+                vec!["http://shop.test/level-2.xml".to_owned()],
+                vec!["http://shop.test/level-3.xml".to_owned()],
+                vec!["http://shop.test/level-4.xml".to_owned()],
+                vec!["http://shop.test/level-5.xml".to_owned()],
+                Vec::new(),
+            ],
+            vec![pair("http://shop.test/level-6.xml", "max_sitemap_nesting")],
+            vec![(
+                "crawl.max_sitemap_nesting".to_owned(),
+                Completeness::Incomplete
+            )],
+        )
+    );
+}
+
+/// A sitemap index does not fetch a sitemap it names on a host other than
+/// its seed's, though the domain policy allows that host: the seed's
+/// report keeps its URL with `out_of_scope`. One on the seed's host is
+/// fetched.
+///
+/// Covers: story:6-205
+#[test]
+fn an_index_does_not_fetch_a_sitemap_it_names_on_another_host() {
+    let mut sitemaps = Sitemaps::bounded(&Bounds::default());
+    let seed = sitemaps.seed("http://shop.test/sitemap.xml");
+
+    let added = sitemaps.read_index(&seed, &["http://partner.test/sitemap.xml", "/own.xml"]);
+
+    assert_eq!(
+        (added, sitemaps.failures()),
+        (
+            vec![pair("2", "http://shop.test/own.xml")],
+            vec![pair("http://partner.test/sitemap.xml", "out_of_scope")],
+        )
+    );
+}
+
+/// A robots.txt seed's `Sitemap:` lines cross-submit a sitemap on another
+/// host, which is fetched; a sitemap that one names on its own host, the
+/// partner's, is not, since only the robots.txt cross-submits.
+///
+/// Covers: story:6-205
+#[test]
+fn a_robots_txt_seed_fetches_the_sitemap_it_cross_submits_on_another_host() {
+    let mut sitemaps = Sitemaps::bounded(&Bounds::default());
+    let seed = sitemaps.seed("http://shop.test/robots.txt");
+
+    let submitted = sitemaps.read_index(&seed, &["http://partner.test/sitemap.xml"]);
+    let nested = sitemaps.read_index("2", &["http://partner.test/more.xml"]);
+
+    assert_eq!(
+        (submitted, nested, sitemaps.failures()),
+        (
+            vec![pair("2", "http://partner.test/sitemap.xml")],
+            Vec::new(),
+            vec![pair("http://partner.test/more.xml", "out_of_scope")],
+        )
+    );
+}
+
+/// A nested sitemap's fetch counts against the crawl's bounds as a page's
+/// does, its nesting level as its depth: one past `crawl.max_depth` or
+/// `crawl.max_requests` is not fetched, the seed's report keeps its URL
+/// with the bound's name, and the Run is `incomplete`.
+///
+/// Covers: story:6-204
+#[rstest]
+/// Covers: setting:crawl.max_requests
+#[case::max_requests(
+    Bounds { max_requests: Some(1), ..Bounds::default() },
+    vec![pair("2", "http://shop.test/a.xml")],
+    Vec::new(),
+    vec![pair("http://shop.test/b.xml", "max_requests"), pair("http://shop.test/c.xml", "max_requests")],
+    "crawl.max_requests",
+)]
+/// Covers: setting:crawl.max_depth
+#[case::max_depth(
+    Bounds { max_depth: Some(1), ..Bounds::default() },
+    vec![pair("2", "http://shop.test/a.xml"), pair("3", "http://shop.test/b.xml")],
+    Vec::new(),
+    vec![pair("http://shop.test/c.xml", "max_depth")],
+    "crawl.max_depth",
+)]
+fn a_nested_sitemaps_fetch_counts_against_the_crawls_bounds(
+    #[case] bounds: Bounds,
+    #[case] first: Vec<(String, String)>,
+    #[case] second: Vec<(String, String)>,
+    #[case] failures: Vec<(String, String)>,
+    #[case] setting: &str,
+) {
+    let mut sitemaps = Sitemaps::bounded(&bounds);
+    let seed = sitemaps.seed("http://shop.test/sitemap.xml");
+
+    let added = sitemaps.read_index(&seed, &["/a.xml", "/b.xml"]);
+    let deeper = sitemaps.read_index("2", &["/c.xml"]);
+
+    assert_eq!(
+        (added, deeper, sitemaps.failures(), sitemaps.cut()),
+        (
+            first,
+            second,
+            failures,
+            vec![(setting.to_owned(), Completeness::Incomplete)]
+        )
+    );
 }

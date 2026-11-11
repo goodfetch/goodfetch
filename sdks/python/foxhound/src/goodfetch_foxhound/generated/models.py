@@ -866,6 +866,11 @@ class NotAddedReason(StrEnum):
     A segment of its URL's path repeats more than
     `crawl.max_segment_repeats`.
     """
+    max_sitemap_nesting = "max_sitemap_nesting"
+    """
+    A sitemap nested more levels under its sitemap seed than
+    `crawl.max_sitemap_nesting` (ADR 0093).
+    """
     path_budget = "path_budget"
     """
     The first entry of `crawl.path_budgets` whose pattern its URL's path

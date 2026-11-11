@@ -7,8 +7,13 @@
 //! nested one, waits in its domain's queue and goes through Politeness and
 //! robots.txt as a page does (the crawl's delivery); what it read is
 //! [`read`] here: a sitemap index's sitemaps are admitted as fetches of
-//! their own, under the domain policy and never the scope, so a sitemap
-//! the site cross-submits on another host is read; a sitemap's entries,
+//! their own, each one level deeper than the sitemap that names it, the
+//! seed's at level 0: under the domain policy; on the seed's host only,
+//! but for the sitemaps a robots.txt seed's own `Sitemap:` lines
+//! cross-submit on another host, which are read; no deeper than
+//! `crawl.max_sitemap_nesting`; and counted against the crawl's bounds as a
+//! page's fetch is, its level as its depth (ADR 0093's note of
+//! 2026-11-10). A sitemap's entries,
 //! each resolved against its sitemap's URL, are given the Label of the
 //! first rule of the seed whose pattern matches, and checked as an enqueue
 //! is, at depth 0, with no Payload: one no rule matches is not added, with
@@ -35,7 +40,7 @@ use goodfetch_engine::response_limits::{BodyFailure, Decoding, GZIP_MAGIC, Limit
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_page::url_pattern::{UnsupportedPattern, UrlPattern};
 use goodfetch_protocol::foxhound::crawl::{SitemapRule, SitemapSeed};
-use goodfetch_protocol::foxhound::frontier::{Enqueued, NotAddedReason};
+use goodfetch_protocol::foxhound::frontier::{Enqueued, NotAddedReason, PathBudget};
 use goodfetch_protocol::foxhound::outcomes::{Ending, SkipReason};
 use goodfetch_protocol::foxhound::report::{
     CountOf, SITEMAP_FAILURES_LISTED, SitemapFailure, SitemapReport,
@@ -48,12 +53,14 @@ use rusqlite::{Connection, OptionalExtension as _};
 use url::Url;
 
 use crate::admit::{Candidate, admit};
+use crate::bounds::{Bounds, count_admitted, count_refused, cut_by};
 use crate::scope::Scope;
 use crate::staged::Admitting;
 use crate::url::parse as parse_url;
 
 /// The crawl's sitemaps, each the fetch of one work item, with the rules
-/// of the seed it came from, and how many of each one's entries were added
+/// of the seed it came from and its nesting level under it, the seed's
+/// own being 0, and how many of each one's entries were added
 /// and not added, by reason; and each sitemap a seed could not read, by
 /// URL, with why.
 pub const TABLES: RunStateTables = RunStateTables {
@@ -64,7 +71,8 @@ pub const TABLES: RunStateTables = RunStateTables {
             url TEXT NOT NULL UNIQUE,
             seed TEXT NOT NULL,
             rules TEXT NOT NULL,
-            read INTEGER NOT NULL
+            read INTEGER NOT NULL,
+            nesting INTEGER NOT NULL
         ) STRICT",
         "CREATE TABLE IF NOT EXISTS sitemap_entries (
             work_item TEXT NOT NULL,
@@ -395,7 +403,7 @@ pub fn admit_seed_in(
     let fetch = Fetch {
         given: &seed.sitemap,
         base: None,
-        seed: None,
+        nested: None,
         rules: &rules,
     };
     let answer = admit_fetch(connection, policy, fetch, admitting, add)?;
@@ -409,14 +417,55 @@ pub fn admit_seed_in(
 }
 
 /// A sitemap's fetch to admit: the sitemap `given`, resolved against
-/// `base` when given, of the seed `seed` (none for the seed itself), with
-/// `rules`.
+/// `base` when given, `nested` under a seed (not for the seed itself),
+/// with `rules`.
 #[derive(Clone, Copy)]
 struct Fetch<'a> {
     given: &'a str,
     base: Option<&'a Url>,
-    seed: Option<&'a str>,
+    nested: Option<Nested<'a>>,
     rules: &'a str,
+}
+
+/// How a sitemap is nested under its seed, and what bounds its fetch.
+#[derive(Clone, Copy)]
+struct Nested<'a> {
+    /// The seed's work item.
+    seed: &'a str,
+    /// The host whose sitemaps the seed reads: its own, or `None` for the
+    /// sitemaps a robots.txt seed's own lines name, which may cross-submit
+    /// one on any host.
+    host: Option<&'a str>,
+    /// Its nesting level: one more than that of the sitemap naming it.
+    level: u64,
+    /// The crawl's bounds.
+    bounds: &'a Bounds,
+}
+
+impl Nested<'_> {
+    /// Why the fetch of the nested sitemap at `url` is not added, if it is
+    /// not: its host is not the seed's, it is nested past
+    /// `crawl.max_sitemap_nesting`, or a bound of the crawl refuses it as
+    /// it refuses a page at its level's depth.
+    fn refuses(
+        &self,
+        connection: &Connection,
+        url: &Url,
+        budget: Option<&PathBudget>,
+    ) -> rusqlite::Result<Option<NotAddedReason>> {
+        if self.host.is_some_and(|host| url.host_str() != Some(host)) {
+            return Ok(Some(NotAddedReason::OutOfScope));
+        }
+        if self
+            .bounds
+            .max_sitemap_nesting
+            .is_some_and(|max| self.level > max)
+        {
+            return Ok(Some(NotAddedReason::MaxSitemapNesting));
+        }
+        self.bounds
+            .refuses(connection, url, self.level, budget, None)
+    }
 }
 
 /// Admits the sitemap fetch `fetch`, against what `admitting` adds to the
@@ -431,7 +480,7 @@ fn admit_fetch(
     let Fetch {
         given,
         base,
-        seed,
+        nested,
         rules,
     } = fetch;
     let url = match parse_url(given, base) {
@@ -468,12 +517,32 @@ fn admit_fetch(
     if known {
         return Ok(not_added(admitting, NotAddedReason::Duplicate));
     }
+    let budget = nested.and_then(|nested| nested.bounds.budget_of(&url));
+    if let Some(nested) = nested
+        && let Some(reason) = nested.refuses(connection, &url, budget)?
+    {
+        count_refused(connection, reason, budget)?;
+        return Ok(not_added(admitting, reason));
+    }
     let id = add(&url)?;
+    if nested.is_some() {
+        count_admitted(connection, budget)?;
+    }
+    let (seed, level) = nested.map_or((id.as_str(), 0), |nested| (nested.seed, nested.level));
     connection
         .prepare_cached(
-            "INSERT INTO sitemaps (work_item, url, seed, rules, read) VALUES (?1, ?2, ?3, ?4, 0)",
+            "INSERT INTO sitemaps (work_item, url, seed, rules, read, nesting)
+             VALUES (?1, ?2, ?3, ?4, 0, ?5)",
         )
-        .and_then(|mut cached| cached.execute((&id, url.as_str(), seed.unwrap_or(&id), rules)))?;
+        .and_then(|mut cached| {
+            cached.execute((
+                &id,
+                url.as_str(),
+                seed,
+                rules,
+                i64::try_from(level).unwrap_or(i64::MAX),
+            ))
+        })?;
     admitting.sitemap_added(url.as_str());
     Ok(Enqueued::Added {
         id,
@@ -523,14 +592,20 @@ pub fn read(
     work: &CountedWork,
     mut add: impl FnMut(&Url, Adding<'_>) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<()> {
-    let Some((url, seed, given_rules)) = connection
-        .prepare_cached("SELECT url, seed, rules FROM sitemaps WHERE work_item = ?1")
+    let Some((url, seed, given_rules, nesting, seed_url)) = connection
+        .prepare_cached(
+            "SELECT sitemaps.url, sitemaps.seed, sitemaps.rules, sitemaps.nesting, seeds.url
+             FROM sitemaps JOIN sitemaps AS seeds ON seeds.work_item = sitemaps.seed
+             WHERE sitemaps.work_item = ?1",
+        )
         .and_then(|mut cached| {
             cached.query_row([id], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
                 ))
             })
         })
@@ -538,9 +613,16 @@ pub fn read(
     else {
         return Ok(());
     };
-    let base = Url::parse(&url).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(error))
-    })?;
+    let stored = |url: &str| {
+        Url::parse(url).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })
+    };
+    let base = stored(&url)?;
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
     let mut count = |answer: &Enqueued| {
         let name = match answer {
@@ -551,11 +633,22 @@ pub fn read(
     };
     match document {
         Document::Sitemaps(sitemaps) => {
+            // Only a robots.txt seed's own lines cross-submit a sitemap on
+            // another host.
+            let seed_url = stored(&seed_url)?;
+            let cross_submits = id == seed && is_robots_txt(&base);
+            let bounds = Bounds::read(connection)?;
+            let nested = Nested {
+                seed: &seed,
+                host: seed_url.host_str().filter(|_| !cross_submits),
+                level: u64::try_from(nesting).unwrap_or(u64::MAX).saturating_add(1),
+                bounds: &bounds,
+            };
             for given in sitemaps {
                 let fetch = Fetch {
                     given,
                     base: Some(&base),
-                    seed: Some(&seed),
+                    nested: Some(nested),
                     rules: &given_rules,
                 };
                 let answer =
@@ -620,12 +713,24 @@ fn keep_refused_nesting(
         return Ok(());
     }
     let url = parse_url(&url, Some(base)).map_or(url, String::from);
-    let message = if reason == NotAddedReason::DomainPolicy {
-        format!(
+    let message = match (reason, cut_by(reason)) {
+        (NotAddedReason::DomainPolicy, _) => format!(
             "The Run's domain policy refuses the host of the sitemap {url}, so it was not fetched."
-        )
-    } else {
-        format!("The sitemap {url} names no URL the crawl fetches.")
+        ),
+        (NotAddedReason::OutOfScope, _) => format!(
+            "The sitemap {url} is on another host than its sitemap seed's, where only a robots.txt seed's own `Sitemap:` lines name one that is fetched, so it was not fetched."
+        ),
+        (NotAddedReason::MaxSitemapNesting, _) => format!(
+            "The sitemap {url} is nested more levels under its sitemap seed than `crawl.max_sitemap_nesting`, so it was not fetched."
+        ),
+        (NotAddedReason::PathBudget, _) => format!(
+            "A path budget of `crawl.path_budgets` refuses the sitemap {url}, so it was not fetched."
+        ),
+        (_, Some(setting)) => format!(
+            "`{}` refuses the sitemap {url}, so it was not fetched.",
+            setting.name
+        ),
+        (_, None) => format!("The sitemap {url} names no URL the crawl fetches."),
     };
     keep_failure(
         connection,

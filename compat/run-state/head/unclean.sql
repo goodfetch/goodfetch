@@ -14,7 +14,8 @@ CREATE TABLE bounds (
             max_requests INTEGER,
             max_url_length INTEGER,
             max_path_segments INTEGER,
-            max_segment_repeats INTEGER
+            max_segment_repeats INTEGER,
+            max_sitemap_nesting INTEGER
         ) STRICT;
 CREATE TABLE bounds_admitted (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
@@ -286,7 +287,8 @@ CREATE TABLE sitemaps (
             url TEXT NOT NULL UNIQUE,
             seed TEXT NOT NULL,
             rules TEXT NOT NULL,
-            read INTEGER NOT NULL
+            read INTEGER NOT NULL,
+            nesting INTEGER NOT NULL
         ) STRICT;
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
 CREATE TABLE tier_choices (

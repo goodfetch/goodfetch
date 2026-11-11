@@ -1,7 +1,9 @@
 //! A crawl's bounds (ADRs 0005, 0093 and 0120; CO-07, CO-08; pitfalls U01
 //! and U10): `crawl.max_depth`, its seeds at depth 0, and
 //! `crawl.max_requests`, the requests admitted, seeds included, which have
-//! no default; and three caps on a URL's shape, on by default, that end the
+//! no default; `crawl.max_sitemap_nesting`, the levels of sitemaps a
+//! sitemap seed reads under it (5), which the sitemaps' admission checks
+//! (`sitemap`); and three caps on a URL's shape, on by default, that end the
 //! traps no learned rule closed: `crawl.max_url_length` (2,083 characters
 //! as parsed, without the fragment), `crawl.max_path_segments` (20, a
 //! trailing slash not counted) and `crawl.max_segment_repeats` (2: a
@@ -36,7 +38,8 @@ use goodfetch_page::url_pattern::{UnsupportedPattern, UrlPattern};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::foxhound::frontier::{
     CRAWL_MAX_DEPTH, CRAWL_MAX_PATH_SEGMENTS, CRAWL_MAX_REQUESTS, CRAWL_MAX_SEGMENT_REPEATS,
-    CRAWL_MAX_URL_LENGTH, CRAWL_PATH_BUDGETS, NotAddedReason, PathBudget,
+    CRAWL_MAX_SITEMAP_NESTING, CRAWL_MAX_URL_LENGTH, CRAWL_PATH_BUDGETS, NotAddedReason,
+    PathBudget,
 };
 use goodfetch_protocol::run::{AxisReason, Completeness};
 use rusqlite::{Connection, OptionalExtension as _};
@@ -56,7 +59,8 @@ pub const TABLES: RunStateTables = RunStateTables {
             max_requests INTEGER,
             max_url_length INTEGER,
             max_path_segments INTEGER,
-            max_segment_repeats INTEGER
+            max_segment_repeats INTEGER,
+            max_sitemap_nesting INTEGER
         ) STRICT",
         "CREATE TABLE IF NOT EXISTS bounds_admitted (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
@@ -92,6 +96,8 @@ pub struct Bounds {
     pub max_path_segments: Option<u64>,
     /// `crawl.max_segment_repeats`.
     pub max_segment_repeats: Option<u64>,
+    /// `crawl.max_sitemap_nesting`.
+    pub max_sitemap_nesting: Option<u64>,
     /// `crawl.path_budgets`, in order.
     pub path_budgets: Vec<PathBudget>,
 }
@@ -106,6 +112,7 @@ impl Default for Bounds {
             max_url_length: built_in(&CRAWL_MAX_URL_LENGTH),
             max_path_segments: built_in(&CRAWL_MAX_PATH_SEGMENTS),
             max_segment_repeats: built_in(&CRAWL_MAX_SEGMENT_REPEATS),
+            max_sitemap_nesting: built_in(&CRAWL_MAX_SITEMAP_NESTING),
             path_budgets: Vec::new(),
         }
     }
@@ -120,6 +127,7 @@ impl Bounds {
             max_url_length: settings.get(&CRAWL_MAX_URL_LENGTH),
             max_path_segments: settings.get(&CRAWL_MAX_PATH_SEGMENTS),
             max_segment_repeats: settings.get(&CRAWL_MAX_SEGMENT_REPEATS),
+            max_sitemap_nesting: settings.get(&CRAWL_MAX_SITEMAP_NESTING),
             path_budgets: PathBudget::list(settings.value(&CRAWL_PATH_BUDGETS)),
         }
     }
@@ -147,17 +155,19 @@ impl Bounds {
     pub fn record(&self, connection: &Connection) -> rusqlite::Result<()> {
         self.check()
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
-        connection.prepare_cached("INSERT INTO bounds (id, max_depth, max_requests, max_url_length, max_path_segments, max_segment_repeats)
-             VALUES (1, ?1, ?2, ?3, ?4, ?5)
+        connection.prepare_cached("INSERT INTO bounds (id, max_depth, max_requests, max_url_length, max_path_segments, max_segment_repeats, max_sitemap_nesting)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT (id) DO UPDATE SET max_depth = excluded.max_depth,
                  max_requests = excluded.max_requests, max_url_length = excluded.max_url_length,
                  max_path_segments = excluded.max_path_segments,
-                 max_segment_repeats = excluded.max_segment_repeats").and_then(|mut cached| cached.execute((
+                 max_segment_repeats = excluded.max_segment_repeats,
+                 max_sitemap_nesting = excluded.max_sitemap_nesting").and_then(|mut cached| cached.execute((
                 self.max_depth.map(sql),
                 self.max_requests.map(sql),
                 self.max_url_length.map(sql),
                 self.max_path_segments.map(sql),
                 self.max_segment_repeats.map(sql),
+                self.max_sitemap_nesting.map(sql),
             )))?;
         connection
             .prepare_cached("DELETE FROM bounds_path_budgets")
@@ -188,7 +198,8 @@ impl Bounds {
     pub fn read(connection: &Connection) -> rusqlite::Result<Self> {
         let recorded = connection
             .prepare_cached(
-                "SELECT max_depth, max_requests, max_url_length, max_path_segments, max_segment_repeats
+                "SELECT max_depth, max_requests, max_url_length, max_path_segments, max_segment_repeats,
+                     max_sitemap_nesting
                  FROM bounds WHERE id = 1",
             )?
             .query_row([], |row| {
@@ -199,6 +210,7 @@ impl Bounds {
                     max_url_length: value(2)?,
                     max_path_segments: value(3)?,
                     max_segment_repeats: value(4)?,
+                    max_sitemap_nesting: value(5)?,
                     path_budgets: Vec::new(),
                 })
             })
@@ -481,7 +493,7 @@ fn refused_by(name: String, count: u64) -> AxisReason {
 /// Each reason a bound or a cap gives, its setting, and the Completeness a
 /// refusal of it gives a finished Run: a bound ends it early, a cap leaves
 /// it unvouched for.
-const REFUSALS: [(NotAddedReason, Setting, Completeness); 5] = [
+const REFUSALS: [(NotAddedReason, Setting, Completeness); 6] = [
     (
         NotAddedReason::MaxDepth,
         CRAWL_MAX_DEPTH,
@@ -490,6 +502,11 @@ const REFUSALS: [(NotAddedReason, Setting, Completeness); 5] = [
     (
         NotAddedReason::MaxRequests,
         CRAWL_MAX_REQUESTS,
+        Completeness::Incomplete,
+    ),
+    (
+        NotAddedReason::MaxSitemapNesting,
+        CRAWL_MAX_SITEMAP_NESTING,
         Completeness::Incomplete,
     ),
     (
@@ -510,7 +527,7 @@ const REFUSALS: [(NotAddedReason, Setting, Completeness); 5] = [
 ];
 
 /// The setting behind `reason`, when a bound or a cap gave it.
-fn cut_by(reason: NotAddedReason) -> Option<&'static Setting> {
+pub(crate) fn cut_by(reason: NotAddedReason) -> Option<&'static Setting> {
     REFUSALS
         .iter()
         .find(|(refused, _, _)| *refused == reason)

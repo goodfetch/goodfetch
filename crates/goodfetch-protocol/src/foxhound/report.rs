@@ -16,7 +16,7 @@ use crate::run::completeness::reason;
 use super::crawl::RESPONSE_UNAVAILABLE;
 use super::frontier::{
     CRAWL_MAX_DEPTH, CRAWL_MAX_PATH_SEGMENTS, CRAWL_MAX_REQUESTS, CRAWL_MAX_SEGMENT_REPEATS,
-    CRAWL_MAX_URL_LENGTH, CRAWL_PATH_BUDGETS,
+    CRAWL_MAX_SITEMAP_NESTING, CRAWL_MAX_URL_LENGTH, CRAWL_PATH_BUDGETS,
 };
 use super::outcomes::DatasetRecords;
 
@@ -370,6 +370,10 @@ pub const ENTRIES: Entries = Entries {
         reason(
             CRAWL_MAX_REQUESTS.name,
             "`crawl.max_requests` refused URLs the crawl would otherwise have admitted, counted: `incomplete`.",
+        ),
+        reason(
+            CRAWL_MAX_SITEMAP_NESTING.name,
+            "`crawl.max_sitemap_nesting` refused sitemaps nested deeper under their sitemap seed, counted: `incomplete`.",
         ),
         reason(
             CRAWL_PATH_BUDGETS.name,

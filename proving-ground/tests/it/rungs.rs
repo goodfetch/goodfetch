@@ -12,10 +12,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read as _;
-use std::path::Path;
-use std::process::Stdio;
+use std::net::SocketAddr;
+use std::path::PathBuf;
 
-use goodfetch_test_support::{Process, TestEnv, browser_cache, chrome_for_testing};
+use goodfetch_test_support::{Process, TestEnv, browser_cache, chrome_for_testing_dumping_dom};
 use regex::Regex;
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -26,9 +26,6 @@ use crate::proving_ground::ProvingGround;
 const SEED: u64 = 2410;
 
 const HOST: &str = "rungs.localhost";
-
-/// The pages of each kind.
-const PAGES_PER_KIND: u64 = 6;
 
 /// The switch Collie starts its browsers with that changes their TLS
 /// fingerprint: without the field-trial configuration built into the
@@ -58,8 +55,8 @@ fn links(html: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// What reqwest gets for `path` over TLS, on the rustls configuration the
-/// HTTP fetch tier gives it: the status and the body.
+/// What reqwest gets for `path` over TLS, on a rustls configuration with
+/// the ring provider, as the HTTP fetch tier's is: the status and the body.
 fn reqwest_gets(proving_ground: &ProvingGround, path: &str) -> (u16, String) {
     let tls = clients::trusting(&proving_ground.certificate_authority(), &["h2", "http/1.1"]);
     let client = reqwest::Client::builder()
@@ -99,51 +96,36 @@ fn reqwest_gets(proving_ground: &ProvingGround, path: &str) -> (u16, String) {
 struct PinnedBrowser<'a> {
     env: &'a TestEnv,
     proving_ground: &'a ProvingGround,
-    chrome: std::path::PathBuf,
+    cache: PathBuf,
     switches: &'a [&'a str],
 }
 
 impl<'a> PinnedBrowser<'a> {
     fn new(env: &'a TestEnv, proving_ground: &'a ProvingGround, switches: &'a [&'a str]) -> Self {
-        let cache = browser_cache(env).expect("the pinned build is installed");
         Self {
             env,
             proving_ground,
-            chrome: chrome_for_testing(Path::new(&cache)),
+            cache: browser_cache(env).expect("the pinned build is installed"),
             switches,
         }
     }
 
-    /// Starts the browser, headless, on `path` over TLS; it prints the
-    /// page's DOM once loaded, its scripts run, and exits.
+    /// Starts the browser on `path` over TLS; it prints the page's DOM once
+    /// loaded, its scripts run, and exits.
     fn start(&self, path: &str) -> Process {
-        let mut command = self.env.process_command(&self.chrome);
-        command.args([
-            "--headless",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--password-store=basic",
-            "--use-mock-keychain",
-            // The Proving ground's authority is not the system's; skipping
-            // its check changes nothing the ClientHello sends.
-            "--ignore-certificate-errors",
-        ]);
-        command.args(self.switches);
-        command.arg(format!(
-            "--user-data-dir={}",
-            self.env
-                .folder()
-                .join(self.env.unique_name("chrome-profile"))
-                .display()
-        ));
-        command.arg(format!("--host-resolver-rules=MAP {HOST} 127.0.0.1"));
-        command.arg("--dump-dom");
-        command.arg(format!(
-            "https://{HOST}:{}{path}",
-            self.proving_ground.port()
-        ));
-        command.stderr(Stdio::null());
-        self.env.spawn(&mut command).expect("Chrome starts")
+        let address: SocketAddr = self
+            .proving_ground
+            .address()
+            .parse()
+            .expect("a socket address");
+        chrome_for_testing_dumping_dom(
+            self.env,
+            &self.cache,
+            (HOST, address.ip()),
+            self.switches,
+            &format!("https://{HOST}:{}{path}", address.port()),
+        )
+        .expect("Chrome starts")
     }
 
     /// The DOM a started browser printed.
@@ -265,20 +247,34 @@ fn the_manifest_lists_every_page_with_its_kind_and_its_records() {
         })
         .collect();
 
-    let mut expected = vec![("/".to_owned(), "static".to_owned(), vec![])];
-    for (segment, kind) in [
-        ("static", "static"),
-        ("identity", "browser_identity"),
-        ("scripted", "script_rendered"),
-    ] {
-        for number in 1..=PAGES_PER_KIND {
-            expected.push((
-                format!("/{segment}/{number}"),
-                kind.to_owned(),
-                vec![format!("{segment}-{number}")],
-            ));
-        }
-    }
+    let expected = [
+        ("/", "static", None),
+        ("/static/1", "static", Some("static-1")),
+        ("/static/2", "static", Some("static-2")),
+        ("/static/3", "static", Some("static-3")),
+        ("/static/4", "static", Some("static-4")),
+        ("/static/5", "static", Some("static-5")),
+        ("/static/6", "static", Some("static-6")),
+        ("/identity/1", "browser_identity", Some("identity-1")),
+        ("/identity/2", "browser_identity", Some("identity-2")),
+        ("/identity/3", "browser_identity", Some("identity-3")),
+        ("/identity/4", "browser_identity", Some("identity-4")),
+        ("/identity/5", "browser_identity", Some("identity-5")),
+        ("/identity/6", "browser_identity", Some("identity-6")),
+        ("/scripted/1", "script_rendered", Some("scripted-1")),
+        ("/scripted/2", "script_rendered", Some("scripted-2")),
+        ("/scripted/3", "script_rendered", Some("scripted-3")),
+        ("/scripted/4", "script_rendered", Some("scripted-4")),
+        ("/scripted/5", "script_rendered", Some("scripted-5")),
+        ("/scripted/6", "script_rendered", Some("scripted-6")),
+    ]
+    .map(|(path, kind, id)| {
+        (
+            path.to_owned(),
+            kind.to_owned(),
+            id.into_iter().map(str::to_owned).collect::<Vec<_>>(),
+        )
+    });
     assert_eq!(listed, expected);
     let status = |path: &str| proving_ground.get(&proving_ground.url(HOST, path)).status;
     assert_eq!(

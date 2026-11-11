@@ -24,26 +24,6 @@ pub(crate) struct ClientHello {
     pub(crate) signature_algorithms: Vec<u16>,
 }
 
-/// The JA4s, without what a resumed handshake adds, of the Chrome for
-/// Testing build Collie pins (156.0.8078.4, `browsers.toml`), measured on
-/// the Proving ground: as Collie starts it, with
-/// `--disable-field-trial-config`, and with the field-trial configuration
-/// built into the binary, which adds one extension (`0x12e0`). JA4 sorts
-/// the extensions, so Chrome's shuffling of them changes neither. They move
-/// with the pin: the rung site's test of its browser-identity page fails
-/// when the pinned build sends another.
-const PINNED_BROWSER_JA4: [&str; 2] = [
-    "t13d1517h2_8daaf6152771_cb7bf5808d99",
-    "t13d1518h2_8daaf6152771_4980c97edce0",
-];
-
-impl ClientHello {
-    /// Whether the client's TLS fingerprint is the pinned browser's.
-    pub(crate) fn of_the_pinned_browser(&self) -> bool {
-        PINNED_BROWSER_JA4.contains(&self.ja4_base.as_str())
-    }
-}
-
 /// Why the first bytes are no `ClientHello`.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct NotClientHello;

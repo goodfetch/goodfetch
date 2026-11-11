@@ -7,7 +7,7 @@
 //!   every client.
 //! - `/identity/<n>`, **browser identity:** the same markup, answered only
 //!   on a connection whose TLS fingerprint is the pinned browser's
-//!   ([`ClientHello::of_the_pinned_browser`]); any other client, and any
+//!   ([`PINNED_BROWSER_JA4`]); any other client, and any
 //!   request over plain text, gets a `403` that holds no Record. No script
 //!   is needed, so a request sent from inside that browser reads it.
 //! - `/scripted/<n>`, **script-rendered:** an empty `article.item` its
@@ -40,6 +40,24 @@ const FAMILY_PLACE: u64 = 41;
 /// The pages of each kind: past `fetch.sample.count`'s 3, so a Label has
 /// pages left once its samples chose its tier.
 const PAGES_PER_KIND: u64 = 6;
+
+/// The JA4s, without what a resumed handshake adds, of the Chrome for
+/// Testing build Collie pins (156.0.8078.4, `goodfetch-collie`'s
+/// `pins.json`), measured on the Proving ground: as Collie starts it, with
+/// `--disable-field-trial-config`, and with the field-trial configuration
+/// built into the binary, which adds one extension (`0x12e0`). JA4 sorts
+/// the extensions, so Chrome's shuffling of them changes neither. They move
+/// with the pin: the site's test of its browser-identity page fails when
+/// the pinned build sends another.
+const PINNED_BROWSER_JA4: [&str; 2] = [
+    "t13d1517h2_8daaf6152771_cb7bf5808d99",
+    "t13d1518h2_8daaf6152771_4980c97edce0",
+];
+
+/// Whether a connection's TLS fingerprint is the pinned browser's.
+fn of_the_pinned_browser(hello: &ClientHello) -> bool {
+    PINNED_BROWSER_JA4.contains(&hello.ja4_base.as_str())
+}
 
 /// Where the manifest is served.
 const MANIFEST: &str = "/manifest.json";
@@ -199,11 +217,7 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
     match page.kind {
         Kind::Static => Page::ok(in_markup(page)),
         Kind::BrowserIdentity => {
-            if visit
-                .request
-                .tls
-                .is_some_and(ClientHello::of_the_pinned_browser)
-            {
+            if visit.request.tls.is_some_and(of_the_pinned_browser) {
                 Page::ok(in_markup(page))
             } else {
                 refused()

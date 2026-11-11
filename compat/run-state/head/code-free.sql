@@ -71,6 +71,7 @@ CREATE TABLE learned_identities (
 CREATE TABLE learned_merges (
             rule INTEGER NOT NULL REFERENCES learned_rules (id),
             url TEXT NOT NULL,
+            identity TEXT,
             UNIQUE (rule, url)
         ) STRICT;
 CREATE TABLE learned_rules (
@@ -177,6 +178,11 @@ CREATE TABLE rules_cursors (
             url TEXT NOT NULL,
             refuted INTEGER NOT NULL,
             PRIMARY KEY (host, path, parameter)
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE rules_ended (
+            crawl_request TEXT NOT NULL,
+            rule INTEGER NOT NULL REFERENCES learned_rules (id),
+            PRIMARY KEY (crawl_request, rule)
         ) STRICT, WITHOUT ROWID;
 CREATE TABLE rules_offset_values (
             host TEXT NOT NULL,
@@ -378,6 +384,7 @@ CREATE TABLE work_items (
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX pool_sessions_open ON pool_sessions (pool, position)
             WHERE retired_because IS NULL;
+CREATE INDEX rules_ended_by_rule ON rules_ended (rule);
 CREATE INDEX rules_pages_by_query ON rules_pages (host, path, query);
 CREATE INDEX rules_pages_by_url ON rules_pages (url);
 CREATE INDEX rules_residues_by_residue

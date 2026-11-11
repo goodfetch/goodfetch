@@ -9115,6 +9115,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A learned rule that a contradicting pair stopped had merged URLs the crawl did not get back, counted per rule: `unverified`.",
+      "name": "learned_rule_stopped",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The crawl ran with `frontier.learning` off: its Frontier learned no URL rule, so `learned_rules` is empty by the setting, not for want of evidence.",
       "name": "learning_off",
       "product": "foxhound",

@@ -359,7 +359,7 @@ The SHA-256 of a fetched page's title and the text of its main content, white sp
 _Avoid_: fingerprint, content hash, signature (alone)
 
 **Learned rule**:
-A rule the Frontier learns on one host from the pages a crawl fetched and the redirects it followed (a query parameter with no effect, an equivalent form such as `www.` or a trailing slash, a trap path or cursor pagination preferred to offset), kept with its evidence and every URL it merged, and listed in the Run report; a parameter or form a contradicting pair of pages later shows wrong stops merging, and the report says so.
+A rule the Frontier learns on one host from the pages a crawl fetched and the redirects it followed (a query parameter with no effect, an equivalent form such as `www.` or a trailing slash, a trap path or cursor pagination preferred to offset), kept with its evidence and every URL it merged, and listed in the Run report; a parameter or form a contradicting pair of pages later shows wrong stops merging and gives back the requests it had ended, and the report says so.
 _Avoid_: canonicalization rule, URL filter
 
 **Label**:

@@ -31,7 +31,10 @@
 //!   redirect, of differing signatures) keeps a parameter or a form from
 //!   being learned, and stops a learned one: from then on it merges
 //!   nothing more, and the report gives the pair beside the URLs it had
-//!   merged.
+//!   merged. The requests it had ended are given back to the crawl; what
+//!   the crawl does not get back, a request it could not make pending
+//!   again or a URL the rule refused as a `duplicate` that was not added
+//!   since, leaves the Run `unverified`, counted per rule.
 //!
 //! The rules read a URL by its key (`identity`'s fixed rules), so its query
 //! pairs are already normalized and sorted by name. Nothing is held in
@@ -49,8 +52,8 @@ use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_protocol::foxhound::frontier::NotAddedReason;
 use goodfetch_protocol::foxhound::report::{
-    CURSOR_PAGINATION as CURSOR_PAGINATION_REASON, EquivalentForm, LearnedRule, LearnedRuleKind,
-    OFFSET_PAGINATION, TRAP_PATH as TRAP_PATH_REASON,
+    CURSOR_PAGINATION as CURSOR_PAGINATION_REASON, EquivalentForm, LEARNED_RULE_STOPPED,
+    LearnedRule, LearnedRuleKind, OFFSET_PAGINATION, TRAP_PATH as TRAP_PATH_REASON,
 };
 use goodfetch_protocol::run::{AxisReason, Completeness};
 use rusqlite::{Connection, OptionalExtension as _};
@@ -58,8 +61,9 @@ use url::Url;
 
 use crate::forms;
 
-/// The rules learned, each with the URLs it merged, and the evidence they
-/// are learned from: the pages fetched with their signatures, by their
+/// The rules learned, each with the URLs it merged, a URL it made a
+/// `duplicate` at admission with its identity, and the crawl requests each
+/// merging rule's merges ended; and the evidence they are learned from: the pages fetched with their signatures, by their
 /// query without each of their parameters, the pairs those make, the
 /// signatures seen per host, each path pattern's run of pages that brought
 /// nothing new, each path's integer parameter values, and the first link
@@ -81,8 +85,15 @@ pub const TABLES: RunStateTables = RunStateTables {
         "CREATE TABLE IF NOT EXISTS learned_merges (
             rule INTEGER NOT NULL REFERENCES learned_rules (id),
             url TEXT NOT NULL,
+            identity TEXT,
             UNIQUE (rule, url)
         ) STRICT",
+        "CREATE TABLE IF NOT EXISTS rules_ended (
+            crawl_request TEXT NOT NULL,
+            rule INTEGER NOT NULL REFERENCES learned_rules (id),
+            PRIMARY KEY (crawl_request, rule)
+        ) STRICT, WITHOUT ROWID",
+        "CREATE INDEX IF NOT EXISTS rules_ended_by_rule ON rules_ended (rule)",
         "CREATE TABLE IF NOT EXISTS rules_pages (
             crawl_request TEXT NOT NULL PRIMARY KEY,
             host TEXT NOT NULL,
@@ -581,17 +592,73 @@ pub(crate) fn refuses(
         .map(|(rule, _)| (NotAddedReason::Duplicate, rule)))
 }
 
-/// Records that the rule `rule` merged or refused `url`.
+/// Records that the rule `rule` merged or refused `url`; with `identity`,
+/// the URL's own, when the rule made it a `duplicate` at admission, so no
+/// crawl request holds it: the visited set then says whether the crawl
+/// added it since.
 ///
 /// # Errors
 ///
 /// When the run file cannot be written.
-pub(crate) fn merged(connection: &Connection, rule: i64, url: &str) -> rusqlite::Result<()> {
+pub(crate) fn merged(
+    connection: &Connection,
+    rule: i64,
+    url: &str,
+    identity: Option<&str>,
+) -> rusqlite::Result<()> {
     connection
         .prepare_cached(
-            "INSERT INTO learned_merges (rule, url) VALUES (?1, ?2) ON CONFLICT DO NOTHING",
+            "INSERT INTO learned_merges (rule, url, identity) VALUES (?1, ?2, ?3)
+             ON CONFLICT DO NOTHING",
         )?
-        .execute((rule, url))?;
+        .execute((rule, url, identity))?;
+    Ok(())
+}
+
+/// Records that a merge under `rules`, each of which it relied on, ended
+/// the pending crawl request `crawl_request`.
+///
+/// # Errors
+///
+/// When the run file cannot be written.
+pub(crate) fn ended(
+    connection: &Connection,
+    rules: &BTreeSet<i64>,
+    crawl_request: &str,
+) -> rusqlite::Result<()> {
+    let mut statement = connection.prepare_cached(
+        "INSERT INTO rules_ended (crawl_request, rule) VALUES (?1, ?2) ON CONFLICT DO NOTHING",
+    )?;
+    for rule in rules {
+        statement.execute((crawl_request, rule))?;
+    }
+    Ok(())
+}
+
+/// The crawl requests that merges relying on the rule `rule` ended and
+/// the crawl has not been given back, in the order of their IDs' text.
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub(crate) fn ended_by(connection: &Connection, rule: i64) -> rusqlite::Result<Vec<String>> {
+    let mut statement = connection
+        .prepare_cached("SELECT crawl_request FROM rules_ended WHERE rule = ?1 ORDER BY 1")?;
+    statement
+        .query_map([rule], |row| row.get(0))?
+        .collect::<rusqlite::Result<_>>()
+}
+
+/// Records that the crawl made `crawl_request` pending again: no rule's
+/// merge holds it ended any more.
+///
+/// # Errors
+///
+/// When the run file cannot be written.
+pub(crate) fn given_back(connection: &Connection, crawl_request: &str) -> rusqlite::Result<()> {
+    connection
+        .prepare_cached("DELETE FROM rules_ended WHERE crawl_request = ?1")?
+        .execute([crawl_request])?;
     Ok(())
 }
 
@@ -1386,13 +1453,20 @@ fn unread(column: usize, error: serde_json::Error) -> rusqlite::Error {
 }
 
 /// Why the learned rules leave a finished crawl `unverified`: the URLs
-/// learned traps refused, the offset URLs learned cursors refused, and
-/// the listings paged only by an offset, each a reason with its count.
+/// learned traps refused, the offset URLs learned cursors refused, the
+/// listings paged only by an offset, and what each rule a contradicting
+/// pair stopped had merged that the crawl did not get back, each a reason
+/// with its count. `visited` says whether the visited set holds an
+/// identity: a URL a stopped rule refused as a `duplicate` is got back
+/// once the crawl added it.
 ///
 /// # Errors
 ///
 /// When the run file cannot be read.
-pub fn completeness_reasons(connection: &Connection) -> rusqlite::Result<Vec<CompletenessReason>> {
+pub(crate) fn completeness_reasons(
+    connection: &Connection,
+    visited: impl Fn(&str) -> rusqlite::Result<bool>,
+) -> rusqlite::Result<Vec<CompletenessReason>> {
     let refused_by = |kind: &str| -> rusqlite::Result<i64> {
         connection
             .prepare_cached(
@@ -1448,6 +1522,65 @@ pub fn completeness_reasons(connection: &Connection) -> rusqlite::Result<Vec<Com
                 "{offset_only} {listings} paged only by an offset parameter, so a row that moved while the crawl paged {it} may be missed."
             ),
             offset_only,
+        ));
+    }
+    reasons.extend(stopped_reasons(connection, visited)?);
+    Ok(reasons)
+}
+
+/// A reason for each rule a contradicting pair stopped that had merged
+/// URLs the crawl did not get back: the requests its merges ended that
+/// are not pending again, and the URLs it refused as a `duplicate` whose
+/// identity `visited` does not hold.
+fn stopped_reasons(
+    connection: &Connection,
+    visited: impl Fn(&str) -> rusqlite::Result<bool>,
+) -> rusqlite::Result<Vec<CompletenessReason>> {
+    let mut statement = connection.prepare_cached(
+        "SELECT id, host, parameter, form FROM learned_rules
+         WHERE contradiction IS NOT NULL ORDER BY id",
+    )?;
+    let stopped = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut reasons = Vec::new();
+    for (rule, host, parameter, form) in stopped {
+        let mut lost: i64 = connection
+            .prepare_cached("SELECT count(*) FROM rules_ended WHERE rule = ?1")?
+            .query_row([rule], |row| row.get(0))?;
+        let mut refused = connection.prepare_cached(
+            "SELECT identity FROM learned_merges WHERE rule = ?1 AND identity IS NOT NULL",
+        )?;
+        let identities = refused
+            .query_map([rule], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for identity in identities {
+            if !visited(&identity)? {
+                lost += 1;
+            }
+        }
+        if lost == 0 {
+            continue;
+        }
+        let about = if form.is_empty() {
+            format!("`{parameter}`")
+        } else {
+            described(form_named(&form)?).to_owned()
+        };
+        let urls = if lost == 1 { "URL" } else { "URLs" };
+        reasons.push(unverified(
+            LEARNED_RULE_STOPPED,
+            format!(
+                "A contradicting pair stopped the learned rule about {about} on {host}, which had merged {lost} {urls} the crawl did not get back."
+            ),
+            lost,
         ));
     }
     Ok(reasons)

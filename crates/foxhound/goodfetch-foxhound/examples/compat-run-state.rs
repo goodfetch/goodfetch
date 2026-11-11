@@ -451,7 +451,8 @@ fn read_sitemap(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
 }
 
 /// The writer's crawl ends no request a rule it hands the Frontier
-/// merges: its requests stay as the crawl left them.
+/// merges, so it has none to give back when one stops: its requests stay
+/// as the crawl left them.
 struct Unended;
 
 impl goodfetch_frontier::EndMerged for Unended {
@@ -459,6 +460,14 @@ impl goodfetch_frontier::EndMerged for Unended {
         &mut self,
         _: &rusqlite::Connection,
         _: &std::collections::BTreeSet<String>,
+    ) -> rusqlite::Result<Vec<goodfetch_frontier::Ended>> {
+        Ok(Vec::new())
+    }
+
+    fn give_back(
+        &mut self,
+        _: &rusqlite::Connection,
+        _: &[String],
     ) -> rusqlite::Result<Vec<String>> {
         Ok(Vec::new())
     }

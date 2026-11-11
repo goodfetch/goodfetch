@@ -16,7 +16,7 @@ use rusqlite::Connection;
 use sha2::{Digest as _, Sha256};
 use url::Url;
 
-use super::{EndMerged, PageSeen, Redirect, learn, learn_redirect};
+use super::{EndMerged, Ended, PageSeen, Redirect, completeness_reasons, learn, learn_redirect};
 use crate::admit::{Candidate, admit};
 use crate::bounds::{self, Bounds};
 use crate::identity;
@@ -35,12 +35,15 @@ struct Crawl {
 
 /// The crawl's requests as the Frontier's merges end them: those whose
 /// page was fetched, and those a rule learned later ended `skipped` with
-/// `duplicate`, in order.
+/// `duplicate`, in order, until its stop gives them back.
 #[derive(Default)]
 struct Requests {
     urls: BTreeMap<String, String>,
     fetched: BTreeSet<String>,
     skipped: Vec<String>,
+    /// Whether the crawl gives back no request, as one whose work item
+    /// is no longer as the rule left it.
+    keeps_ended: bool,
 }
 
 impl EndMerged for Requests {
@@ -50,7 +53,7 @@ impl EndMerged for Requests {
         &mut self,
         _: &Connection,
         crawl_requests: &BTreeSet<String>,
-    ) -> rusqlite::Result<Vec<String>> {
+    ) -> rusqlite::Result<Vec<Ended>> {
         let mut pending: Vec<&String> = crawl_requests
             .iter()
             .filter(|id| !self.fetched.contains(*id) && !self.skipped.contains(&self.urls[*id]))
@@ -59,9 +62,31 @@ impl EndMerged for Requests {
         if !crawl_requests.iter().any(|id| self.fetched.contains(id)) && !pending.is_empty() {
             pending.remove(0);
         }
-        let ended: Vec<String> = pending.iter().map(|id| self.urls[*id].clone()).collect();
-        self.skipped.extend(ended.iter().cloned());
+        let ended: Vec<Ended> = pending
+            .iter()
+            .map(|id| Ended {
+                crawl_request: (*id).clone(),
+                url: self.urls[*id].clone(),
+            })
+            .collect();
+        self.skipped
+            .extend(ended.iter().map(|ended| ended.url.clone()));
         Ok(ended)
+    }
+
+    /// Makes each of `crawl_requests` pending again, unless it keeps them
+    /// ended.
+    fn give_back(
+        &mut self,
+        _: &Connection,
+        crawl_requests: &[String],
+    ) -> rusqlite::Result<Vec<String>> {
+        if self.keeps_ended {
+            return Ok(Vec::new());
+        }
+        let given: Vec<&String> = crawl_requests.iter().map(|id| &self.urls[id]).collect();
+        self.skipped.retain(|url| !given.contains(&url));
+        Ok(crawl_requests.to_vec())
     }
 }
 
@@ -173,7 +198,7 @@ impl Crawl {
     }
 
     fn completeness(&self) -> Vec<CompletenessReason> {
-        rules::completeness_reasons(&self.connection).unwrap()
+        completeness_reasons(&self.connection).unwrap()
     }
 }
 
@@ -1017,6 +1042,113 @@ fn a_contradicting_pair_stops_a_learned_parameter() {
                  pages of differing signatures."
             )),
             strings(&[&format!("{ITEM}?n=1&ref=z")]),
+        )
+    );
+}
+
+/// The crawl of the stopped parameter above, with a pair of requests
+/// still pending when `ref` is learned, so the rule ends the second, and a
+/// URL the rule then refuses as a `duplicate`; answers it once the pair of
+/// item 7 stopped the rule.
+fn stopped_after_merging(keeps_ended: bool) -> Crawl {
+    let mut crawl = Crawl::new();
+    crawl.requests.keeps_ended = keeps_ended;
+    crawl.seed(&format!("{ITEM}?n=0"));
+    crawl.enqueue(ITEM, &format!("{ITEM}?n=7"));
+    crawl.enqueue(ITEM, &format!("{ITEM}?n=7&ref=x"));
+    crawl.fetched(&format!("{ITEM}?n=7"), "Item 7");
+    let in_flight = crawl.ids[&format!("{ITEM}?n=7&ref=x")].clone();
+    crawl.requests.fetched.insert(in_flight);
+    crawl.enqueue(ITEM, &format!("{ITEM}?n=8"));
+    crawl.enqueue(ITEM, &format!("{ITEM}?n=8&ref=y"));
+    for (number, reference) in [(1, "a"), (2, "b"), (3, "c")] {
+        pair(&mut crawl, number, reference, None);
+    }
+    assert_eq!(
+        (
+            crawl.requests.skipped.clone(),
+            crawl.enqueue(ITEM, &format!("{ITEM}?n=1&ref=z")),
+            crawl.completeness(),
+        ),
+        (
+            strings(&[&format!("{ITEM}?n=8&ref=y")]),
+            "duplicate".to_owned(),
+            Vec::new(),
+        )
+    );
+    crawl.fetched(&format!("{ITEM}?n=7&ref=x"), "Item 7, as x sees it");
+    crawl
+}
+
+/// The Completeness reason of the `lost` URLs the stopped rule about `ref`
+/// took from the crawl.
+fn stopped_reason(lost: u64, message: &str) -> Vec<CompletenessReason> {
+    vec![CompletenessReason {
+        completeness: Completeness::Unverified,
+        reason: AxisReason {
+            code: "learned_rule_stopped".to_owned(),
+            message: message.to_owned(),
+            count: Some(lost),
+            call_id: None,
+        },
+    }]
+}
+
+/// A learned rule that a contradicting pair stops gives back what it
+/// merged: the pending request it had ended `skipped` with `duplicate` is
+/// pending again. The URL it had refused as a `duplicate`, which no
+/// request holds, is counted in a Completeness reason naming the rule,
+/// until the crawl meets it again and adds it. The report still lists
+/// both among the URLs the rule had merged.
+///
+/// Covers: story:6-218, story:6-310
+#[test]
+fn a_stopped_rule_gives_back_the_requests_it_ended_and_counts_the_urls_it_lost() {
+    let mut crawl = stopped_after_merging(false);
+
+    let stopped = (crawl.requests.skipped.clone(), crawl.completeness());
+    let met_again = crawl.enqueue(ITEM, &format!("{ITEM}?n=1&ref=z"));
+
+    assert_eq!(
+        (
+            stopped,
+            met_again,
+            crawl.completeness(),
+            crawl.rules().remove(0).merged
+        ),
+        (
+            (
+                Vec::new(),
+                stopped_reason(
+                    1,
+                    "A contradicting pair stopped the learned rule about `ref` on shop.test, \
+                     which had merged 1 URL the crawl did not get back."
+                ),
+            ),
+            "added".to_owned(),
+            Vec::new(),
+            strings(&[&format!("{ITEM}?n=8&ref=y"), &format!("{ITEM}?n=1&ref=z")]),
+        )
+    );
+}
+
+/// A request the crawl cannot give back, its work item no longer as the
+/// stopped rule left it, is counted with the URLs the rule lost.
+///
+/// Covers: story:6-218
+#[test]
+fn a_request_a_stopped_rule_ended_that_is_not_given_back_is_counted() {
+    let crawl = stopped_after_merging(true);
+
+    assert_eq!(
+        (crawl.requests.skipped.clone(), crawl.completeness()),
+        (
+            strings(&[&format!("{ITEM}?n=8&ref=y")]),
+            stopped_reason(
+                2,
+                "A contradicting pair stopped the learned rule about `ref` on shop.test, \
+                 which had merged 2 URLs the crawl did not get back."
+            ),
         )
     );
 }

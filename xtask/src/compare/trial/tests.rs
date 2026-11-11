@@ -1,31 +1,53 @@
 use std::path::Path;
 
 use super::{instructions_of, invocation, system_calls_of};
-use crate::compare::matrix::Config;
+use crate::compare::matrix::{Config, SpiderBuild};
+
+fn spider(capacity: usize) -> Config {
+    Config::Spider {
+        build: SpiderBuild::Http,
+        capacity,
+    }
+}
 
 /// Foxhound and Spider run as their executables; Crawlee's script runs on
 /// Node.js and Scrapy's on the Python environment beside it, so the tool's
 /// process is the interpreter running the side, with no launcher between.
 #[test]
 fn each_tool_runs_as_its_executable_or_its_sides_interpreter() {
-    let spider = invocation(Config::Spider { chrome: false }, Path::new("/s/spider"));
+    let spider = invocation(spider(64), Path::new("/s/spider"));
     let crawlee = invocation(Config::Crawlee, Path::new("/c/crawl.mjs"));
     let scrapy = invocation(Config::Scrapy, Path::new("/p/crawl.py"));
 
     assert_eq!(
         (
-            (spider.program.as_path(), spider.arguments.len()),
+            spider.program.as_path(),
             crawlee.program.file_name().and_then(|name| name.to_str()),
             crawlee.arguments,
             scrapy.program.as_path(),
             scrapy.arguments,
         ),
         (
-            (Path::new("/s/spider"), 0),
+            Path::new("/s/spider"),
             Some("node"),
             vec!["/c/crawl.mjs".into()],
             Path::new("/p/.venv/bin/python"),
             vec!["/p/crawl.py".into()],
+        )
+    );
+}
+
+/// A Spider row's capacity reaches Spider's side: the row's own, so a
+/// sensitivity row at another capacity runs the same executable with it.
+#[test]
+fn a_spider_row_gives_spiders_side_its_page_channels_capacity() {
+    let arguments = |capacity| invocation(spider(capacity), Path::new("/s/spider")).arguments;
+
+    assert_eq!(
+        (arguments(64), arguments(4096)),
+        (
+            vec!["--capacity".into(), "64".into()],
+            vec!["--capacity".into(), "4096".into()],
         )
     );
 }

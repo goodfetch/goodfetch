@@ -18,8 +18,9 @@ const REPORT: &str = "target/compare/report.json";
 const MARKDOWN: &str = "target/compare/report.md";
 const MIB: u64 = 1024 * 1024;
 
-/// The measured cells, by scenario.
-const CELLS: [(&str, &str, &str); 17] = [
+/// The measured cells: each tool's main rows by scenario, then Spider's
+/// sensitivity rows.
+const CELLS: [(&str, &str, &str); 23] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
     ("raw", "crawlee", "crawlee"),
@@ -37,6 +38,12 @@ const CELLS: [(&str, &str, &str); 17] = [
     ("browser", "spider", "spider"),
     ("browser", "crawlee", "crawlee"),
     ("browser", "scrapy", "scrapy"),
+    ("raw", "spider capacity 4096", "spider"),
+    ("raw", "spider default features", "spider"),
+    ("raw", "spider bloom", "spider"),
+    ("raw", "spider jemalloc", "spider"),
+    ("extraction", "spider mimalloc", "spider"),
+    ("browser", "spider smart", "spider"),
 ];
 
 /// The work of a trial that fetched each page of the 1,000-page site once,
@@ -55,7 +62,7 @@ fn work(again: u64) -> Value {
 /// A trial of `cell` in `seconds`, at `peak_bytes`, that did `work`, its
 /// figures otherwise the same for every trial: 2 s of user and 1 s of
 /// system time, 8 MiB written, 1 MiB left on disk, its tree sampled at
-/// half its peak on average.
+/// half its peak on average, its peak PSS 1 MiB under its peak RSS.
 fn trial(
     scenario: &str,
     cell: &str,
@@ -80,6 +87,7 @@ fn trial(
             "samples": 40,
             "peak_bytes": peak_bytes,
             "average_bytes": peak_bytes / 2,
+            "peak_pss_bytes": peak_bytes - MIB,
             "peak_cores": 1.5,
             "peak_threads": 20,
             "peak_open_files": 30,
@@ -280,6 +288,86 @@ fn trials_of_the_same_work_report_each_cells_medians_with_their_spread() {
     );
 }
 
+/// Spider's sensitivity rows (#2213) stand beside its main row, each
+/// labelled as one in the report and its Markdown, and the figures `just
+/// targets` reads stay the main row's, whatever a sensitivity row measured.
+#[test]
+fn spiders_sensitivity_rows_are_labelled_and_no_target_reads_them() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    for trial in trials["trials"].as_array_mut().unwrap() {
+        if trial["cell"] == "spider capacity 4096" {
+            trial["peak_bytes"] = json!(60 * MIB);
+            trial["sampled"]["peak_bytes"] = json!(60 * MIB);
+        }
+    }
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let report = written(&workspace);
+    let rows = |index: usize| -> Vec<(&str, &str)> {
+        report["scenarios"][index]["cells"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|cell| cell["tool"] == "spider" && cell["status"] == "measured")
+            .map(|cell| {
+                (
+                    cell["cell"].as_str().unwrap(),
+                    cell["row"].as_str().unwrap(),
+                )
+            })
+            .collect()
+    };
+    assert_eq!(
+        (rows(0), rows(3), rows(4)),
+        (
+            vec![
+                ("spider", "main"),
+                ("spider capacity 4096", "sensitivity"),
+                ("spider default features", "sensitivity"),
+                ("spider bloom", "sensitivity"),
+                ("spider jemalloc", "sensitivity"),
+            ],
+            vec![("spider", "main"), ("spider mimalloc", "sensitivity")],
+            vec![("spider", "main"), ("spider smart", "sensitivity")],
+        )
+    );
+    assert_eq!(
+        (
+            &cell(&report, 0, "spider capacity 4096")["metrics"]["peak_rss_bytes"]["median"],
+            &report["tools"]["spider"],
+        ),
+        (
+            &json!(f64::from(60 * 1024 * 1024)),
+            &json!({ "pages_per_second": 500.0, "peak_bytes": 20 * MIB }),
+        )
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    for expected in [
+        "- **spider**: HTTP mode (`crawl_raw`, no `chrome` feature)",
+        "- **spider capacity 4096** (sensitivity row): the spider row's settings with its pages \
+         read from `subscribe(4096)`",
+        "- **spider jemalloc** (sensitivity row): ",
+        "- **spider mimalloc** (sensitivity row): ",
+        "- **spider smart** (sensitivity row): ",
+        "| Metric | foxhound | spider | crawlee | scrapy | spider capacity 4096 (sensitivity) | \
+         spider default features (sensitivity) | spider bloom (sensitivity) | \
+         spider jemalloc (sensitivity) |",
+    ] {
+        assert!(
+            markdown.contains(expected),
+            "{expected} missing:\n{markdown}"
+        );
+    }
+}
+
 /// Every metric of the owner's list has a row in each measured cell.
 #[test]
 fn each_measured_cell_reports_every_metric_of_the_owners_list() {
@@ -303,6 +391,7 @@ fn each_measured_cell_reports_every_metric_of_the_owners_list() {
         "average_cores",
         "peak_cores",
         "peak_rss_bytes",
+        "peak_pss_bytes",
         "average_rss_bytes",
         "rss_per_1000_pages_at_1000",
         "rss_per_1000_pages_at_10000",
@@ -356,6 +445,46 @@ fn a_metric_with_no_figure_says_why() {
             &json!({ "status": "not_measured", "reason": "the growth cell runs with `--growth`" }),
             &json!(f64::from(20 * 1024 * 1024)),
         )
+    );
+}
+
+/// Each cell's peak PSS over its process tree stands beside its peak RSS
+/// (#2213): summed RSS counts a page two processes share twice, PSS once. A
+/// cell with a trial whose sampler was refused a process's PSS says so
+/// rather than give a sum that left the process out.
+#[test]
+fn each_cell_reports_its_trees_peak_pss_beside_its_peak_rss() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    for trial in trials["trials"].as_array_mut().unwrap() {
+        if trial["scenario"] == "browser" && trial["cell"] == "crawlee" && trial["number"] == 2 {
+            trial["sampled"]["peak_pss_bytes"] = json!(null);
+        }
+    }
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let report = written(&workspace);
+    assert_eq!(
+        (
+            &cell(&report, 0, "foxhound")["metrics"]["peak_pss_bytes"],
+            &cell(&report, 4, "crawlee")["metrics"]["peak_pss_bytes"],
+        ),
+        (
+            &json!({ "status": "measured", "median": f64::from(19 * 1024 * 1024), "low": f64::from(9 * 1024 * 1024), "high": f64::from(29 * 1024 * 1024), "unit": "bytes" }),
+            &json!({ "status": "not_measured", "reason": "a process of the tree kept its PSS from the sampler (its `/proc/<pid>/smaps_rollup` could not be read)" }),
+        )
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    let expected = "| Memory: peak RSS of the process tree | 20.0 MiB (10.0 MiB–30.0 MiB) |";
+    let beside = "\n| Memory: peak PSS of the process tree | 19.0 MiB (9.0 MiB–29.0 MiB) |";
+    let rss_line_end = markdown
+        .find(expected)
+        .and_then(|start| markdown[start..].find('\n').map(|end| start + end));
+    assert!(
+        rss_line_end.is_some_and(|end| markdown[end..].starts_with(beside)),
+        "{markdown}"
     );
 }
 
@@ -554,7 +683,7 @@ fn the_report_shows_the_load_each_trial_started_at() {
         "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Peak RSS |",
         "| raw | foxhound | 1 | 6.50 | 1.000 |",
         "| raw | foxhound | 2 | 1.25 | 2.000 |",
-        "1 of the 51 timed trials started above a 1-minute load of 4.",
+        "1 of the 69 timed trials started above a 1-minute load of 4.",
     ] {
         assert!(
             markdown.contains(expected),

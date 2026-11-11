@@ -170,12 +170,17 @@ fn a_raw_trial_that_fetched_a_page_twice_did_other_work() {
 
     assert_eq!(
         named(&trials),
-        vec![
-            ("different_bytes", "raw foxhound trial 2".to_owned()),
-            ("different_bytes", "raw spider trial 2".to_owned()),
-            ("different_bytes", "raw crawlee trial 2".to_owned()),
-            ("different_bytes", "raw scrapy trial 2".to_owned()),
+        [
+            "foxhound",
+            "spider",
+            "crawlee",
+            "scrapy",
+            "spider capacity 4096",
+            "spider default features",
+            "spider bloom",
+            "spider jemalloc",
         ]
+        .map(|cell| ("different_bytes", format!("raw {cell} trial 2")))
     );
 }
 
@@ -237,7 +242,7 @@ fn a_browser_trial_that_never_rendered_the_links_misses_the_script_rendered_page
                 finding.message.as_str()
             ))
             .collect::<Vec<_>>(),
-        ["foxhound", "spider", "crawlee", "scrapy"]
+        ["foxhound", "spider", "crawlee", "scrapy", "spider smart"]
             .map(|cell| (
                 "unrendered_pages",
                 format!("browser {cell} trial 2"),

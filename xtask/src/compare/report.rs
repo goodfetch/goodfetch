@@ -10,7 +10,7 @@ use std::fmt::Write as _;
 
 use serde::Serialize;
 
-use super::matrix::{CELLS, Cell, Scenario, Status};
+use super::matrix::{CELLS, Cell, Row, Scenario, Status};
 use super::sampler::{CORE_WINDOW_SAMPLES, INTERVAL_MILLISECONDS};
 use super::trials::{
     Comparison, CountedCell, CountedRun, Declared, GrowthCell, LatencyEnd, MILESTONES, Machine,
@@ -54,6 +54,8 @@ pub(crate) enum Figure {
 pub(crate) struct CellReport {
     pub(crate) cell: &'static str,
     pub(crate) tool: &'static str,
+    /// Whether its figures are the tool's, or a labelled variant's of them.
+    pub(crate) row: Row,
     pub(crate) mapping: &'static str,
     pub(crate) pending: &'static [&'static str],
     #[serde(flatten)]
@@ -89,8 +91,8 @@ pub(crate) struct ScenarioReport {
     pub(crate) cells: Vec<CellReport>,
 }
 
-/// Scenario 1's figures of a tool, which `just targets` reads (ADR 0138:
-/// the Spider target is read on scenario 1).
+/// Scenario 1's figures of a tool, its main row's, which `just targets`
+/// reads (ADR 0138: the Spider target is read on scenario 1).
 #[derive(Serialize)]
 pub(crate) struct Figures {
     pub(crate) pages_per_second: f64,
@@ -311,6 +313,22 @@ fn metrics(
     put(
         "peak_rss_bytes",
         each(&|trial| float(peak(trial)), Unit::Bytes),
+    );
+    let pss: Option<Vec<f64>> = trials
+        .iter()
+        .map(|trial| trial.measured.sampled.as_ref()?.peak_pss_bytes.map(float))
+        .collect();
+    put(
+        "peak_pss_bytes",
+        match pss {
+            Some(pss) => spread(&pss, Unit::Bytes),
+            None if trials.iter().any(|trial| trial.measured.sampled.is_none()) => {
+                not("this OS has no /proc to sample the process tree from")
+            }
+            None => not(
+                "a process of the tree kept its PSS from the sampler (its `/proc/<pid>/smaps_rollup` could not be read)",
+            ),
+        },
     );
     put(
         "average_rss_bytes",
@@ -539,7 +557,7 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
                         &runs_of(&trials.syscalls, cell),
                         &growth_of(&trials.growth, cell),
                     );
-                    if scenario == Scenario::Raw {
+                    if scenario == Scenario::Raw && cell.row == Row::Main {
                         let mut peaks: Vec<u64> = ran.iter().map(|trial| peak(trial)).collect();
                         peaks.sort_unstable();
                         let middle = peaks.len() / 2;
@@ -590,6 +608,7 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
             cells.push(CellReport {
                 cell: cell.name,
                 tool: cell.tool.name(),
+                row: cell.row,
                 mapping: cell.mapping,
                 pending: cell.pending,
                 status,
@@ -648,6 +667,15 @@ fn cell_text(figure: &Figure) -> String {
     }
 }
 
+/// A cell's column heading in a scenario's tables: its name, labelled when
+/// it is a sensitivity row.
+fn column(cell: &CellReport) -> String {
+    match cell.row {
+        Row::Main => cell.cell.to_owned(),
+        Row::Sensitivity => format!("{} (sensitivity)", cell.cell),
+    }
+}
+
 /// The metrics in the report's order, each with its group and label.
 const ROWS: &[(&str, &str)] = &[
     ("pages_per_second", "Throughput: pages per second"),
@@ -665,6 +693,7 @@ const ROWS: &[(&str, &str)] = &[
     ("average_cores", "CPU: average cores"),
     ("peak_cores", "CPU: peak cores"),
     ("peak_rss_bytes", "Memory: peak RSS of the process tree"),
+    ("peak_pss_bytes", "Memory: peak PSS of the process tree"),
     ("average_rss_bytes", "Memory: time-weighted mean RSS"),
     (
         "rss_per_1000_pages_at_1000",
@@ -753,7 +782,16 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
     for scenario in &report.scenarios {
         let _ = writeln!(text, "\n## {}\n\nThe mapping:\n", scenario.title);
         for cell in &scenario.cells {
-            let _ = writeln!(text, "- **{}**: {}.", cell.cell, cell.mapping);
+            let _ = writeln!(
+                text,
+                "- **{}**{}: {}.",
+                cell.cell,
+                match cell.row {
+                    Row::Main => "",
+                    Row::Sensitivity => " (sensitivity row)",
+                },
+                cell.mapping
+            );
             for pending in cell.pending {
                 let _ = writeln!(text, "  - pending: {pending}.");
             }
@@ -781,7 +819,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             .cells
             .iter()
             .filter_map(|cell| match &cell.status {
-                CellStatus::Measured { metrics, curve, .. } => Some((cell.cell, metrics, curve)),
+                CellStatus::Measured { metrics, curve, .. } => Some((column(cell), metrics, curve)),
                 CellStatus::NotSupported { .. } | CellStatus::NotMeasured { .. } => None,
             })
             .collect();

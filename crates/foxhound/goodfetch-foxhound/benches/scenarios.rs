@@ -146,10 +146,9 @@ struct Site {
     attempts: Arc<AtomicU64>,
     /// Run once per page it serves: the benchmark's own extra unit of work.
     plant: Option<Plant>,
-    /// Whether it also serves [`Frontier`]'s paths.
-    frontier: bool,
-    /// How many of [`Frontier`]'s items it serves.
-    items: usize,
+    /// Whether it also serves [`Frontier`]'s paths, and how many of its
+    /// items with them.
+    frontier: Option<usize>,
     /// Whether each page has no paragraphs, as [`Options::small_pages`] says.
     small_pages: bool,
     hops: Arc<AtomicU64>,
@@ -241,7 +240,7 @@ impl Transport for Site {
             ))));
         }
         let path = hop.url.path();
-        if self.frontier && path == MOVED {
+        if self.frontier.is_some() && path == MOVED {
             self.hops.fetch_add(1, Ordering::Relaxed);
             let location = ("location".to_owned(), MOVED_TO.to_owned());
             return Box::pin(std::future::ready(Ok(plain(
@@ -250,7 +249,7 @@ impl Transport for Site {
                 String::new(),
             ))));
         }
-        if self.frontier && path == SITEMAP {
+        if self.frontier.is_some() && path == SITEMAP {
             self.sitemaps.fetch_add(1, Ordering::Relaxed);
             let body = format!(
                 "<?xml version=\"1.0\"?><urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"><url><loc>http://{HOST}{FROM_SITEMAP}</loc></url></urlset>"
@@ -269,8 +268,8 @@ impl Transport for Site {
             Arc::new(AtomicU64::new(0))
         };
         let page = page
-            .or_else(|| self.frontier.then(|| frontier_page(path)).flatten())
-            .or_else(|| (path == ITEM).then(|| item_page(hop.url.query(), self.items))?)
+            .or_else(|| self.frontier.and_then(|_| frontier_page(path)))
+            .or_else(|| (path == ITEM).then(|| item_page(hop.url.query(), self.frontier?))?)
             .map(|page| Page {
                 paragraphs: if self.small_pages { 0 } else { page.paragraphs },
                 ..page
@@ -607,8 +606,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         sent: Arc::clone(&sent),
         attempts: Arc::clone(&attempts),
         plant,
-        frontier: frontier.is_some(),
-        items: frontier.map_or(0, |frontier| frontier.items_on(linked)),
+        frontier: frontier.map(|frontier| frontier.items_on(linked)),
         small_pages,
         hops: Arc::clone(&hops),
         sitemaps: Arc::clone(&sitemaps),

@@ -333,6 +333,12 @@ const FRONTIER: Option<Frontier> = Some(Frontier {
     items: 0,
 });
 
+/// The Frontier's outcomes with a seed whose Payload has no schema to fit.
+const UNTYPED: Option<Frontier> = Some(Frontier {
+    schema: false,
+    items: 0,
+});
+
 /// How many items the cell [`VARYING_PARAMETER`]'s site serves: as many as
 /// its pages.
 const ITEMS: usize = PAGES.len();
@@ -461,7 +467,6 @@ fn cells() -> Vec<Cell> {
             limit: false,
         },
         learning_off(),
-        varying_parameter(),
         Cell {
             name: "document_tier_handler",
             settings: json!({}),
@@ -483,10 +488,7 @@ fn cells() -> Vec<Cell> {
         Cell {
             name: "payload_schema_off",
             settings: scoped(json!({})),
-            frontier: Some(Frontier {
-                schema: false,
-                items: 0,
-            }),
+            frontier: UNTYPED,
             removes: &[Row::PayloadCompilations, Row::PayloadValidations],
             removes_syncs: false,
             handler: false,
@@ -550,7 +552,7 @@ fn cells() -> Vec<Cell> {
             limit: false,
         },
     ];
-    cells.extend(switched_off());
+    cells.extend(switched_off().into_iter().chain([varying_parameter()]));
     cells
 }
 

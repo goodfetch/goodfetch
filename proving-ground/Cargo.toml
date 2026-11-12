@@ -59,6 +59,9 @@ hmac.workspace = true
 httpdate.workspace = true
 proptest.workspace = true
 regex.workspace = true
+# The HTTP fetch tier's transport, as that tier builds it, for the pages that
+# answer by the client's TLS fingerprint.
+reqwest = { workspace = true, features = ["http2", "rustls-no-provider"] }
 rstest.workspace = true
 sha1.workspace = true
 socket2.workspace = true

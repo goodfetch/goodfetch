@@ -14,7 +14,6 @@
 //! from them.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
@@ -22,7 +21,7 @@ use goodfetch_engine::response_limits::Limits;
 use goodfetch_fetch_tier::{FetchBounds, Hop, HttpProfile, Wreq, fetch};
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use goodfetch_test_support::{
-    CHROME_FOR_TESTING_BUILD, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
+    ProvingGround, ReceivedRequests, TestEnv, browser_cache, chrome_for_testing_dumping_dom,
 };
 use serde_json::Value;
 use url::Url;
@@ -43,59 +42,19 @@ const UNSENDABLE_EXTENSIONS: [u64; 2] = [0xca34, 0x12e0];
 /// 0.5.6 cannot: ML-DSA-44, -65 and -87.
 const UNSENDABLE_SIGNATURE_ALGORITHMS: [u64; 3] = [0x0904, 0x0905, 0x0906];
 
-/// The executable of the Chrome for Testing build in the Browser cache at
-/// `root`, for this platform.
-fn chrome_in(root: &Path) -> PathBuf {
-    let files = root
-        .join("browser")
-        .join("chrome-for-testing")
-        .join(CHROME_FOR_TESTING_BUILD)
-        .join("files");
-    let mac = |folder: &str| {
-        files
-            .join(folder)
-            .join("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
-    };
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        mac("chrome-mac-arm64")
-    } else if cfg!(target_os = "macos") {
-        mac("chrome-mac-x64")
-    } else if cfg!(target_os = "windows") {
-        files.join("chrome-win64").join("chrome.exe")
-    } else {
-        files.join("chrome-linux64").join("chrome")
-    }
-}
-
-/// Loads `url` once in the pinned Chrome for Testing, headless, its hosts
+/// Loads `url` once in the pinned Chrome for Testing, headless, its host
 /// mapped to the Proving ground, and waits for it to exit.
 fn chrome_loads(env: &TestEnv, proving_ground: &ProvingGround, url: &str) {
-    let chrome = chrome_in(&browser_cache(env).unwrap());
-    let mut command = env.process_command(chrome);
-    command.args([
-        "--headless",
-        "--no-first-run",
-        "--no-default-browser-check",
-        "--password-store=basic",
-        "--use-mock-keychain",
-        // The Proving ground's authority is not the system's; skipping its
-        // check changes nothing the ClientHello sends.
-        "--ignore-certificate-errors",
-    ]);
-    command.arg(format!(
-        "--user-data-dir={}",
-        env.folder().join("chrome-profile").display()
-    ));
-    command.arg(format!(
-        "--host-resolver-rules=MAP {HOST} {}",
-        proving_ground.address().ip()
-    ));
-    command.args(["--dump-dom", url]);
-    let status = env
-        .spawn(&mut command)
-        .unwrap()
-        .close_stdin_and_wait()
-        .unwrap();
+    let status = chrome_for_testing_dumping_dom(
+        env,
+        &browser_cache(env).unwrap(),
+        (HOST, proving_ground.address().ip()),
+        &[],
+        url,
+    )
+    .unwrap()
+    .close_stdin_and_wait()
+    .unwrap();
     assert!(status.success(), "Chrome for Testing exited with {status}");
 }
 

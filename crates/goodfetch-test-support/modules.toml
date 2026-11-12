@@ -1,6 +1,6 @@
 # Which of the crate's top-level modules may import which (ADR 0126).
 [modules]
-browsers = ["env", "facts", "variables"]
+browsers = ["env", "facts", "process", "variables"]
 callgrind = []
 canaries = ["proving_ground", "proving_ground_format", "seeded"]
 cli = ["daemon", "env", "exercise", "facts", "locales", "snapshot"]

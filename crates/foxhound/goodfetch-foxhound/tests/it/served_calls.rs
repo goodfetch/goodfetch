@@ -318,7 +318,7 @@ fn under_auto_the_first_call_a_document_tier_cannot_serve_escalates_the_request_
             ],
             vec![json!(["/states", "succeeded", null, 1])],
             vec![
-                json!(["page", "http", "sample", null, null]),
+                json!(["page", "browser_fetch", "sample", null, null]),
                 json!(["page", "browser", "sample", null, "page.evaluate"]),
             ],
         )

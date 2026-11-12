@@ -528,13 +528,13 @@ fn a_marked_request_in_a_sampling_label_is_weighed_and_never_a_decoy() {
                 ("/items/I-0003".to_owned(), succeeded),
             ],
             [
-                "http sample",
+                "browser_fetch sample",
                 "browser sample",
-                "http sample",
+                "browser_fetch sample",
                 "browser sample",
-                "http sample",
+                "browser_fetch sample",
                 "browser sample",
-                "http compared",
+                "browser_fetch compared",
             ]
             .map(str::to_owned)
             .to_vec(),

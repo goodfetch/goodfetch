@@ -43,6 +43,7 @@ use goodfetch_engine::tls::{CertificateChanged, CertificateInvalid, ExceptionUse
 use goodfetch_frontier::backoff_classes::Met;
 use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::dns::IpFamily;
+use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::page::{
     NAVIGATION_FAILED, NavigationFailedDetails, RESPONSE_TRUNCATED, ResponseTruncatedDetails,
 };
@@ -173,6 +174,13 @@ pub trait Transport: Send + Sync {
     fn presents(&self, url: &Url) -> Vec<(String, String)> {
         let _ = url;
         Vec::new()
+    }
+
+    /// The tier its hops are sent on, which Provenance names (ADR 0023):
+    /// `http`, the transport's own client, unless it sends from a
+    /// Session's browser.
+    fn tier(&self) -> FetchTier {
+        FetchTier::Http
     }
 }
 

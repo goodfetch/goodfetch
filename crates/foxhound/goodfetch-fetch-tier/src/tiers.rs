@@ -2332,6 +2332,20 @@ impl HttpTier {
         }
     }
 
+    /// The tier Provenance names for a document this tier fetched under
+    /// the tier choice `chosen` (ADR 0023): the tier that sent its hops,
+    /// `browser_fetch` from inside the Session's browser and `http` on a
+    /// transport of its own, whoever chose it; `chosen` itself where it
+    /// names more than who sends, as `discovered_api` and `light_browser`
+    /// do.
+    #[must_use]
+    pub fn sends(&self, chosen: FetchTier) -> FetchTier {
+        match chosen {
+            FetchTier::Http | FetchTier::BrowserFetch => self.transport.tier(),
+            FetchTier::DiscoveredApi | FetchTier::LightBrowser | FetchTier::Browser => chosen,
+        }
+    }
+
     /// Forgets the cookies of `session`, retired: its jar ends with it.
     pub fn forget_cookies_of(&self, session: &SessionId) {
         self.jars.forget(session);

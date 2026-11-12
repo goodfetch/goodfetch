@@ -64,9 +64,15 @@ impl Children {
         command.process_group(0);
         #[cfg(target_os = "linux")]
         // SAFETY: the closure runs in the child between fork and exec, and
-        // only makes one async-signal-safe system call.
+        // only makes async-signal-safe system calls.
         unsafe {
             command.pre_exec(|| {
+                // The engine's executable may have turned transparent huge
+                // pages off for itself (`governor.huge_pages`), a flag a
+                // child inherits through `exec`: the child keeps the
+                // host's state instead. A kernel without the flag refuses
+                // the call, which leaves nothing to clear.
+                libc::prctl(libc::PR_SET_THP_DISABLE, 0, 0, 0, 0);
                 if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) == 0 {
                     Ok(())
                 } else {

@@ -302,7 +302,7 @@ fn an_operator_policy_switches_the_sandbox_off_audited_and_a_clients_own_switch_
 }
 
 /// The `/proc/<pid>/status` fields of the process `pid` named `names`.
-fn status_of(pid: u32, names: &[&str]) -> Vec<String> {
+pub(crate) fn status_of(pid: u32, names: &[&str]) -> Vec<String> {
     let status = std::fs::read_to_string(format!("/proc/{pid}/status")).unwrap_or_default();
     names
         .iter()
@@ -316,7 +316,7 @@ fn status_of(pid: u32, names: &[&str]) -> Vec<String> {
 }
 
 /// The process IDs of the test's browsers whose command line `matches`.
-fn browser_processes(env: &TestEnv, matches: impl Fn(&str) -> bool) -> Vec<u32> {
+pub(crate) fn browser_processes(env: &TestEnv, matches: impl Fn(&str) -> bool) -> Vec<u32> {
     let name = env.folder().file_name().unwrap().to_string_lossy();
     let marker = name.rsplit(' ').next().unwrap().to_owned();
     let listed = Command::new("ps")

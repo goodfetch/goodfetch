@@ -366,9 +366,16 @@ pub(crate) fn as_sent(method: &str, mut params: Value) -> Value {
     params
 }
 
+/// The path of the one sitemap [`Site`] serves, which lists
+/// [`SITEMAP_PAGES`] pages of `https://shop.test`, as [`seeds`] names them.
+pub(crate) const SITEMAP: &str = "/sitemap.xml";
+
+/// How many pages the sitemap at [`SITEMAP`] lists.
+pub(crate) const SITEMAP_PAGES: usize = 3;
+
 /// The site every crawl of the harness fetches from memory, through the
-/// fetch tiers' test seam: every URL answers one small document, and no
-/// site has a robots.txt.
+/// fetch tiers' test seam: every URL but [`SITEMAP`] answers one small
+/// document, and no site has a robots.txt.
 struct Site;
 
 /// A body sent whole in one chunk.
@@ -386,21 +393,19 @@ impl goodfetch_fetch_tier::Transport for Site {
         hop: &'a goodfetch_fetch_tier::Hop,
         _reuse: goodfetch_fetch_tier::Reuse,
     ) -> goodfetch_fetch_tier::Sending<'a, goodfetch_fetch_tier::Sent> {
-        let (status, body) = if hop.url.path() == "/robots.txt" {
-            (404, "")
-        } else {
-            (
+        let (status, content_type, body) = match hop.url.path() {
+            "/robots.txt" => (404, "text/html; charset=utf-8", ""),
+            SITEMAP => (200, "application/xml", SITEMAP_XML),
+            _ => (
                 200,
+                "text/html; charset=utf-8",
                 "<!doctype html><html><head><title>Page</title></head><body><h1>Page</h1></body></html>",
-            )
+            ),
         };
         Box::pin(std::future::ready(Ok(goodfetch_fetch_tier::Sent {
             status,
             headers: vec![
-                (
-                    "content-type".to_owned(),
-                    "text/html; charset=utf-8".to_owned(),
-                ),
+                ("content-type".to_owned(), content_type.to_owned()),
                 ("content-length".to_owned(), body.len().to_string()),
             ],
             body: Box::new(Whole(Some(bytes::Bytes::from_static(body.as_bytes())))),
@@ -410,6 +415,17 @@ impl goodfetch_fetch_tier::Transport for Site {
         })))
     }
 }
+
+/// The sitemap at [`SITEMAP`]: the first [`SITEMAP_PAGES`] pages
+/// [`seeds`] names.
+const SITEMAP_XML: &str = concat!(
+    r#"<?xml version="1.0" encoding="UTF-8"?>"#,
+    r#"<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">"#,
+    "<url><loc>https://shop.test/page/1</loc></url>",
+    "<url><loc>https://shop.test/page/2</loc></url>",
+    "<url><loc>https://shop.test/page/3</loc></url>",
+    "</urlset>",
+);
 
 /// The fetch tiers of the harness's engine, serving [`Site`] from memory.
 pub(crate) fn tiers() -> goodfetch_fetch_tier::FetchTiers {

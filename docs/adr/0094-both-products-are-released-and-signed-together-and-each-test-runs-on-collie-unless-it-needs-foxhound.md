@@ -58,6 +58,7 @@ Every channel carries both Products, with the same kinds of files, under ADR 009
 - **The release notes list each Product's files with their sizes,** and say when Collie has no change of its own and is released to keep the one Product version.
 - **One `CHANGELOG.md`** (ADR 0030) groups each release's entries in two: changes that reach both Products, and changes that reach Foxhound only. Foxhound's users read both groups and Collie's the first, so a change is never hidden from a Product it reaches, as Crawlee's per-package files hide it.
   - A commit reaches Foxhound only when every path it changes is on Foxhound's side: `crates/foxhound/`, Foxhound's Console package (ADR 0087) and Foxhound's own SDK files.
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no executable embeds a Console build, no Size budget counts one, Foxhound's screens are no workspace package of their own, no release test walks a Console's routes, and no Daemon serves a Console. The Stub gateway stays for the cloud-readiness conformance, without a Console build.
   - The paths decide, not a scope written by hand.
 
 ### `cargo install`
@@ -99,6 +100,7 @@ Every channel carries both Products, with the same kinds of files, under ADR 009
   - uv, Codex and Deno each added their smaller product a year or more after the larger one; uv's first `uv_build` shipped broken.
   - Goodfetch ships both in V1 (ADR 0084), so both exist from the first tracer.
 - **Each owner test of M1, M2 and M3 installs both executables from a local build** and lists the Journeys of both Products due at its milestone. M1's tries Collie's share of M1, the Daemon, the Console and settings (J-001 and J-009), beside Foxhound's crawls.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **M3 is Collie's milestone:** its owner test is the first to try Collie's page automation, which ADR 0058's M3 holds: the guard and the page API, Firefox and WebKit, the Browser host, Session sources and Borrowed browsers, stealth and the Challenge solver, and the Live view with takeover.
 - **Collie's AI actions come with M4,** where ADR 0058 puts AI and Plans, and both Products are first published at M4, since nothing is published before it.
 
@@ -108,6 +110,7 @@ Every channel carries both Products, with the same kinds of files, under ADR 009
   - A test whose setup or steps need Foxhound anywhere, such as ADR 0066's rolling upgrade, whose load includes a Partitioned crawl, runs on Foxhound's.
   - A test that measures an executable itself runs on each: its size (ADR 0087), its startup and its idle memory.
 - **Each package is tested against its own Product's executable:** each executable crate's `tests/it` (its CLI, its MCP server, its exit codes and its `--help` tree), and each Product's SDK packages, Console build, image and chart. Each Product's SDK packages implement every Client conformance case and pass the completeness checks for their own Product's catalog (ADR 0069).
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **One test build per target serves both Products.** CI builds a target's tests once (ADR 0061), in one workspace invocation, so the in-process tests and the executables the tests run share one resolution of features: Collie's executable in a test links the same shared code as Foxhound's.
   - A test build per Product would compile again every crate whose features differ and every crate above it, and Cargo has no stable setting to avoid that.
   - What each Product ships, its own `cargo build -p` (ADR 0087), is checked on its own bytes by the release: the conformance suites and the correctness oracle (ADR 0032) and the run of every file before publish (above).
@@ -121,6 +124,7 @@ Every channel carries both Products, with the same kinds of files, under ADR 009
   1. its engine composition contains Collie's (ADR 0087's test);
   2. every generated contract of Collie's (its catalog entries, setting keys, Error codes, events, CLI commands with their flags, and MCP tools) is in Foxhound's, unchanged, whatever shape [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/goodfetch/issues/458) (ADR 0095) gives the catalogs: a Quick check over `xtask codegen`'s output;
   3. every route of Collie's Console build is in Foxhound's and renders: a served test on Foxhound's executable, in the Pre-merge suite;
+     > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   4. each Collie Journey that has a `cli` variant runs it on Foxhound's executable too, as the variant `J-NNN@foxhound-cli`: the same test given Foxhound's executable, whose CLI keeps Collie's commands, flags, `--json` output and exit codes (ADR 0090). It shows end to end that Foxhound's composition (its admission gates, Hooks and defaults) leaves Collie's behaviour as it is.
 
   These four checks are how [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md)'s rule that a capability Collie carries behaves the same in both Products is tested; that capability's own suites run once, on Collie's executable.
@@ -132,9 +136,11 @@ Every channel carries both Products, with the same kinds of files, under ADR 009
   - ADR 0088's Session ownership and proxy limit cases run on Collie's, for a Session a program or an Agent opened and for a Collie Run's proxy limits; the case of a crawl's Session pool runs on Foxhound's.
 - **The benchmark** (ADR 0025) runs each family on the smallest Product that carries it, and startup and binding overhead on each Product's executable; each published result names its Product. The patch's correctness oracle (ADR 0032) does the same.
 - **Performance budgets** (ADR 0071): each Product's executable crate has its own startup benchmarks, and each Product its own resident-memory ceilings for an idle Attached engine and an idle Daemon; the 1,000-page crawl runs on Foxhound's. The Performance series measures both executables and each Console build.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Skew and upgrades** (ADR 0066):
   - each released minor's Journeys run, with that release's Clients, against the current executable of each Journey's Product;
   - each Product's SDKs run over stdio through its own engine-path variable (ADR 0090), and each Product's Console build is served by its older and current Daemon;
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   - pairs across Products are tested where a promise covers them. [Protocol, Operation catalog and SDKs across two products](https://github.com/goodfetch/goodfetch/issues/458) (ADR 0095) lets a Foxhound engine accept a Collie Client: its Product check in `hello` is tested for every pair of Products with fabricated `hello`s, as version refusals are (ADR 0066), and no released Collie Client runs again against Foxhound's executable, which serves Collie's operations as Collie's does (the containment checks above);
   - an older Collie opens the files the current engine writes in the formats both Products carry, and an older Foxhound those in Foxhound's. Where [Collie and Foxhound installed on one machine](https://github.com/goodfetch/goodfetch/issues/486) (ADR 0098) lets two installs share a file, an older Collie also opens the one the current Foxhound wrote, with Foxhound's own rows in it (such as the Usage ledger's);
   - rolling upgrades and the Helm upgrade run on Foxhound, as above; Collie's chart is the same chart with Collie's image, and the Daemon group's code is the same.
@@ -150,6 +156,7 @@ Every channel carries both Products, with the same kinds of files, under ADR 009
 - **Each Product built in its own job per target,** as Codex builds its app server: rejected. It doubles the release's build jobs against the free plan's five concurrent macOS jobs, and Codex's runners are billed (ADR 0076).
 - **Every test run on both executables:** rejected. It doubles the Release suite against ADR 0061's 60-minute merge-queue budget, to find what the containment checks find in seconds; in one test build, both executables link the same shared code.
 - **Every test run on Foxhound's executable only,** since it contains Collie: rejected. Collie's composition, Console build and embedded data would never run, and Collie's users install them; uv's untested `uv_build` shipped broken.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **A test build per Product,** so that each executable is tested under its own features: rejected. It compiles every crate twice wherever a feature differs, for differences Cargo's additive features should not produce, and the release runs each Product's own bytes before publish. When `resolver.feature-unification` becomes stable (cargo#14774), area 1 may revisit it.
 - **A check that both executables resolve their shared crates with the same features:** rejected. Foxhound's fetch tiers turn on features of shared HTTP crates that Collie need not carry, so the check would need a list of reviewed exceptions, the speed bump ADR 0087 rejected for crates; no project was found running one.
 - **No Journey variant on Foxhound, the composition checks alone:** rejected. They show that Collie's definitions are present in Foxhound, not that Foxhound's admission gates, Hooks and defaults leave Collie's behaviour unchanged.
@@ -165,6 +172,7 @@ Every channel carries both Products, with the same kinds of files, under ADR 009
 - **Collie's executable unsigned, or signed under another account:** rejected. A stock Windows 11 with Smart App Control enforcing refuses to start an unsigned executable (ADR 0039), and another account would add an account and a fee.
 - **Notarizing each executable in its own submission:** rejected. Twice the submissions, toward Apple's 75 a day, where one ZIP holds both.
 - **Collie's executable built only from M3 or M4:** rejected. Foxhound's executable starts from Collie's composition and ADR 0087's checks are rooted at Collie's crate, and Collie's capabilities that M1 builds (the Daemon, the Console, settings) would go untested through its own executable until then.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Collie's AI actions moved from M4 into M3,** so that M3's owner test tries the whole of Collie: rejected. It reorders the milestones the owner set (ADR 0058) and grows M3 by area 9's core, and it moves no release, since nothing is published before M4.
 
 ## Consequences
@@ -179,6 +187,7 @@ Every channel carries both Products, with the same kinds of files, under ADR 009
 - **Amends ADR 0063.** A Journey names its `product`, its surfaces are that Product's, `J-NNN@foxhound-cli` runs each Collie Journey's `cli` variant on Foxhound, J-001 and J-009 are Collie's, and its catalog check accepts `foxhound-cli` only on a Collie Journey that lists `cli`. Notes sit under its file table, its surfaces, its shipped artefacts, its catalog check and its first catalog.
 - **Amends ADR 0066.** Skew runs per Product, a Collie Client on a Foxhound engine is tested at `hello`, files shared across Products follow Collie and Foxhound installed on one machine, rolling and Helm upgrades run on Foxhound, and older engines open files per Product. Notes sit under its skew matrix, its old Clients, its rolling upgrades and its older engines.
 - **Amends ADR 0068.** Each Product's Console build is tested served by its own executable, with a route walk on Foxhound's. A note sits under its served Console.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Amends ADR 0069.** Each Product's SDK packages run against their own executable, and one environment installs both Products. Notes sit under its real binary and its installed packages.
 - **Amends ADR 0071.** Startup benchmarks and idle memory ceilings are per executable, and the crawl's ceiling is Foxhound's. Notes sit under its startup benchmarks and its memory ceilings.
 - **Amends ADR 0072.** A Feature is tested once, not once per Product, and the inventory records each Feature's Products. A note sits under its rule on surfaces.
@@ -187,6 +196,7 @@ Every channel carries both Products, with the same kinds of files, under ADR 009
 - **Earlier test ADRs** (0059, 0062, 0064, 0065, 0067, 0070, 0073, 0074 and 0075) read through ADR 0084's rule and this one: a test of "the binary" runs Collie's executable when Collie carries everything it needs, Foxhound's otherwise.
 - **Glossary.** A **Journey** is reached through a Product's public surfaces. No new term.
 - **`TESTING.md`** gains "Which Product's executable a test runs" under its levels, and rules for Journeys, upgrades, SDKs and the CLI, performance budgets, the served Console, docs samples and Feature coverage.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **ADR 0037.** Rows CL-01 and CL-02 cite this ADR, and areas 1, 2, 3, 11, 12 and 13 list it.
 - **Areas.**
   - Area 1 (Repository, CI and release) builds both executables in each target's job, the release's run of every file, each channel's files per Product, the grouped changelog, the PyPI usage warning per project, and the Quick containment check over generated contracts.
@@ -194,6 +204,7 @@ Every channel carries both Products, with the same kinds of files, under ADR 009
   - Area 3 (Engine runtime) builds the engine tracer's two executables and each Product's startup benchmarks and memory ceilings.
   - Area 11 (Client surfaces) builds each Product's SDK tests and the installed-packages run with both Products.
   - Area 12 (Console) builds each Product's served tests and the route walk on Foxhound's.
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   - Area 13 (Self-hosted deployment and operations) builds both Products' images and charts from one source, their rendering check, and each target's run per Product.
 - **Owner steps.** The two PyPI requests for 100 GiB, each right after its project's first upload. Nothing else: ADR 0039's entity, accounts and fees are unchanged, and the agent registers, requests and pays for nothing (ADR 0076).
 - **Left to other tickets.** What two installs share (Collie and Foxhound installed on one machine) sets the files an older Collie opens from a current Foxhound; which executable and image a Browser host runs is [Which executables the Browser host and Goodfetch Cloud's engines run](https://github.com/goodfetch/goodfetch/issues/498)'s (ADR 0096); how the docs site presents each Product, and so which Product a sample runs on, is [Docs site and positioning of two Products](https://github.com/goodfetch/goodfetch/issues/499)'s (ADR 0097). [Apply the product-line decisions to the affected specs and tickets](https://github.com/goodfetch/goodfetch/issues/460) carries this decision into the specs and tickets.

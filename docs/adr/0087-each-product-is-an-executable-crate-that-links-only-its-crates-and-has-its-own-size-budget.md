@@ -17,6 +17,7 @@ Decided in [How the products are built, and each product's Size budget](https://
 - **No Cargo feature selects a Product,** and none switches a capability within one (ADR 0038, amended below).
 - **This adds no companion executable and no download on first use.** The existing ones are unchanged: the sink processes (ADR 0026), the Linux sandbox helper and the Windows filter broker (ADR 0033), browsers, Plugins and the Clean-up rules' daily channel (ADRs 0024, 0033, 0047).
 - **Each executable embeds only the data its own capabilities use:** its own Console build, its own offline docs and `init` starters, and the Clean-up rules, which both Products render pages with.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no executable embeds a Console build, no Size budget counts one, Foxhound's screens are no workspace package of their own, no release test walks a Console's routes, and no Daemon serves a Console. The Stub gateway stays for the cloud-readiness conformance, without a Console build.
 
 ### Two sides of the crate graph
 
@@ -43,6 +44,7 @@ Every pull request runs the first three, each in seconds; the fourth runs where 
    - Each Product's bans the test-only crates: `goodfetch-test-support`, which builds the Scripted engine, and the crate of turmoil's network adapter (below).
      > Amended by [ADR 0125](0125-a-test-adapter-of-a-goodfetch-interface-is-its-own-test-only-crate-which-no-unit-test-of-a-crate-it-depends-on-takes.md): the bans cover every test adapter crate on ADR 0125's list, `goodfetch-simulation` and `goodfetch-scripted-model` to start with, beside `goodfetch-test-support`.
 3. **The Console's packages** (below): Collie's Console build fails to resolve a package import of Foxhound's screens, and the Console's lint configuration refuses a relative import that leaves its package.
+   > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 4. **Each Product's Size budget** (below), the backstop on the built files.
 
 ### How Foxhound adds to the engine
@@ -71,9 +73,12 @@ Every pull request runs the first three, each in seconds; the fourth runs where 
 - **Simulation scenarios live beside the behaviour they test.** Those that need a Foxhound crate (Partition handoff, the crawl's work-item leases, Sink delivery) are integration tests of the Foxhound crate that holds the behaviour, in its `tests/it/simulation/`, compiled under `cfg(tokio_unstable)` in the same job as `goodfetch-engine`'s. turmoil's network adapter moves out of `goodfetch-engine`'s `tests/it` into a test-only crate of its own outside `crates/foxhound/`, which both sides take as a dev-dependency. It depends on `goodfetch-engine`, whose network interface it implements, so only integration tests take it, where the engine is linked once: a unit test of `goodfetch-engine` would see two copies of the engine's types, and one rule for every crate is simpler (ADR 0062). The "Test infrastructure" spec names it.
   > Amended by [ADR 0125](0125-a-test-adapter-of-a-goodfetch-interface-is-its-own-test-only-crate-which-no-unit-test-of-a-crate-it-depends-on-takes.md): the rule for turmoil's adapter is now ADR 0125's, for every test adapter of a Goodfetch interface: no unit test of a crate the adapter depends on takes it. turmoil's adapter is still taken only by integration tests, because Simulation scenarios are integration tests.
 - **The Console is one codebase with one build per Product.**
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   - Foxhound's screens (Datasets with the SQL tab, Sinks, crawl progress, search across runs) are a workspace package of their own under `console/`, which Collie's Console build does not depend on.
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   - pnpm's default layout links "only the direct dependencies" of a package ([pnpm](https://pnpm.io/motivation)), so Collie's build cannot import them as a package, as Cargo refuses an undeclared crate; a lint rule closes the relative path.
   - Each Product's executable embeds its own Console build. Playwright builds its trace viewer and UI mode the same way, as entries of one package ([vite.config.ts](https://github.com/microsoft/playwright/blob/main/packages/trace-viewer/vite.config.ts)).
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 ### A request for what the running Product lacks
 
@@ -105,8 +110,10 @@ Foxhound contains Collie, so only a Collie engine meets one: a Foxhound SDK or a
 - **Foxhound keeps ADR 0057's numbers.** ADR 0084 moved nothing out of what was the one binary.
 - **Collie's ceilings come from its components,** measured on macOS arm64 with thin LTO, stripped, before the engine's own code (research §7, ADR 0057):
   - the CDP client, SQLite, HTTP with rustls, the HTTP stack that serves the Console, and the extractor, measured as one binary: 16.0 MB raw, 6.8 MB compressed;
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   - the filter list engine of the Clean-up rules: +2.6 MB raw, +1.0 MB compressed;
   - the embedded Clean-up rules and Console: +4.1 MB, already compressed;
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   - V8 for the Script sandbox, which Collie's exact capability set puts in Collie: +42.8 MB prebuilt, up to about +60 MB built from source with its sandbox (Codex's V8 host is 65.4–74.0 MB), about +15 MB compressed prebuilt and about +21 MB from source (the prebuilt ratio, scaled);
   - so 65–83 MB raw and 27–33 MB compressed, or 73–93 MB and 30–37 MB with static musl's 12% more.
 - **Neither Product counts the browser.** The Goodfetch Chromium stays outside every executable (ADR 0084), and its archive keeps the Chromium build gate's own 5 MB threshold (ADR 0074).
@@ -121,6 +128,7 @@ Foxhound contains Collie, so only a Collie engine meets one: a Foxhound SDK or a
     > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; the owner accepts the section when merging.
   - a ceiling moves only by changing the ADR that sets it, with the owner's approval: ADR 0057 for Foxhound's, this ADR for Collie's.
 - **ADR 0071's Console ceiling** (1 MB brotli) and increase check apply to each Product's Console build.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - Competitors at Collie's job: agent-browser is one 15.8–18.3 MB Rust binary, Playwright installs 18.3 MB, Stagehand v4's npm install is 33.0 MB, and Playwright's Python wheels are 33–46 MiB ([browser-automation products](https://github.com/goodfetch/goodfetch/blob/research/browser-automation-products/rnd/research/2026-10-14-browser-automation-products.md)). The browser every Collie user downloads is 124–198 MB compressed (ADR 0057).
 
 ## Considered Options
@@ -139,6 +147,7 @@ Foxhound contains Collie, so only a Collie engine meets one: a Foxhound SDK or a
 - **Per-domain Politeness in Collie, used only by crawls:** rejected. ADR 0084 places it in Foxhound, and Collie's executable would carry code only Foxhound uses.
 - **A gate on every request of the Session:** rejected. It would count subresources, which ADR 0086 does not count.
 - **One Console build in both executables, hiding Foxhound's screens on Collie:** rejected. Collie would ship Foxhound's code in its Console, and the boundary would hold for Rust only.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **What a Collie engine says without this decision** (JSON-RPC's "method not found", `setting_unknown`, the CLI's usage error): rejected. It tells the user their program is wrong when the fix is the other Product.
 - **Ignoring the other Product's settings, or warning and continuing:** rejected by ADR 0083 (G3) for explicit values. **Refusing configuration files that hold them:** rejected; installing Foxhound beside Collie would break Collie on a file both read.
 - **Collie built with `opt-level = "z"`,** as uv builds `uv_build`: rejected for performance. ADR 0057 measured `"s"` and `"z"` 18% and 90% slower on its query, LLRT measured 7% for `"s"`, and Collie's hot paths (CDP messages, the guard, extraction) are what ADR 0071 counts. It would save a quarter of Collie's compressed file, a few MB beside the browser.
@@ -154,6 +163,7 @@ Foxhound contains Collie, so only a Collie engine meets one: a Foxhound SDK or a
 - **Amends ADR 0062.** A second test-only crate, holding turmoil's network adapter, depends on `goodfetch-engine` and is taken only by integration tests. A note sits under its rule that one crate holds every shared helper.
 - **Amends ADR 0086.** The seam it left to this ticket is the navigation gate above, which every page opened from a handler's page, or in its Session by the handler, carries too; on a Collie engine, a key of its table that only Foxhound honours fails with `not_in_product`, its `setting_not_applicable` staying for a Collie Run on a Foxhound engine. Notes sit under its crawl requests, its Collie Runs and its list of what it left to other tickets.
 - **Amends ADR 0071.** Its Console ceiling and increase check apply to each Product's Console build. A note sits under the Console ceiling.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Amends ADR 0083.** The product check comes before the scope check, so a `crawl.*` setting on a Collie engine is `not_in_product`; a configuration file may hold the other Product's keys, which `config explain` lists; and every build of a Product has the same types. Notes sit under its refusal table and the paragraph after it.
 - **Error codes.** `not_in_product` joins `goodfetch-protocol` in the `unavailable` group, not retryable, with an exit code in ADR 0069's table. The settings schema gains, per key, the Products that honour it.
 - **`STYLE.md`.** Members live under `crates/`, `crates/foxhound/` and `crates/foxhound/sinks/`; the enforced direction reads "nothing outside `crates/foxhound/` but `xtask` depends on a crate inside it"; each Product's executable crate is a composition root; the test-only crate of turmoil's adapter has its reason; the Cargo features section is per Product; cargo-deny runs workspace-wide and on what each Product ships.
@@ -167,5 +177,7 @@ Foxhound contains Collie, so only a Collie engine meets one: a Foxhound SDK or a
   - Area 5 (Site access) builds the page's value: the navigation gate in the request interception, the lease check before each command and in the raw CDP relay. Area 6 (Collection) sets it when a handler gets its page.
   - Area 11 (Client surfaces) builds the CLI's refusal of Foxhound's commands.
   - Area 12 (Console) builds the per-Product Console builds.
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Left to other tickets.** Release jobs, signing, debug symbols, the PyPI quota per project and the test suites per Product are [Release, signing and testing of two products](https://github.com/goodfetch/goodfetch/issues/459)'s (ADR 0094). What a Client of one Product does on an engine of the other at `hello` is #458's. Which executable a Browser host and Goodfetch Cloud's engines run, and which Console build Goodfetch Cloud serves, are [Which executables the Browser host and Goodfetch Cloud's engines run](https://github.com/goodfetch/goodfetch/issues/498)'s (ADR 0096). [Apply the product-line decisions to the affected specs and tickets](https://github.com/goodfetch/goodfetch/issues/460) carries all of this into the specs and tickets.
   > Amended by [ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md): at `hello`, a Collie engine refuses a Client that needs Foxhound with `not_in_product`, and a Foxhound engine accepts both Products' Clients.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.

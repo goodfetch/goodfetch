@@ -214,7 +214,10 @@ where
             keep_alive: false,
             holds: Holds::new(),
             succession: Arc::new(ThePick),
-            drain: None,
+            drain: crate::daemon::Drain {
+                asked: None,
+                grace: Duration::from_secs(110),
+            },
             install: Some(install),
             ops: Ops::default(),
             websocket: None,

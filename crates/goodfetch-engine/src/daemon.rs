@@ -13,8 +13,9 @@
 //! (ADR 0128): an end that comes once another is decided changes nothing.
 //!
 //! A failed accept ends that one attempt: it is logged and the Daemon goes
-//! on accepting, waiting a little longer before each new attempt while
-//! they keep failing, as they do while the process has no descriptor left.
+//! on accepting, at once after a stream it had to drop, and waiting a
+//! little longer before each new attempt while accepts keep failing, as
+//! they do while the process has no descriptor left.
 //! Only a listener closed for good ends the Daemon, as a listener failure,
 //! once its Runs drained as on a requested drain, within the drain grace.
 //!
@@ -39,8 +40,8 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{ProductVersion, Surface};
 use goodfetch_protocol::daemon::{
-    DRAIN_GRACE, DaemonEndpoint, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, HEALTH,
-    NOT_A_DAEMON, NotADaemonDetails, STATUS, STOP,
+    DaemonEndpoint, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, HEALTH, NOT_A_DAEMON,
+    NotADaemonDetails, STATUS, STOP,
 };
 use tokio::sync::{Mutex, mpsc, watch};
 use tokio::time::Instant;
@@ -58,7 +59,6 @@ use crate::product::{Channel, Identity};
 use crate::rpc::{self, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::runs::{ConnectionId, Runs};
-use crate::settings::get_or_default;
 use crate::tasks::TaskOwner;
 use crate::transition::engine::{self as table, EngineEvent, EngineState, InvalidEngineTransition};
 use crate::transport::{Connection, DaemonListener, TransportError};
@@ -93,11 +93,9 @@ pub struct DaemonOptions {
     pub holds: Holds,
     /// Which executable is its major's pick, and how it hands over.
     pub succession: Arc<dyn Succession>,
-    /// How it drains when its starter asks, as `daemon run` does on
-    /// `SIGTERM` (ADR 0049); none for a Daemon on the machine, which
-    /// drains only when its listener is closed for good, within the
-    /// default of `daemon.drain_grace`.
-    pub drain: Option<Drain>,
+    /// How it drains: when its starter asks, as `daemon run` does on
+    /// `SIGTERM` (ADR 0049), and once its listener is closed for good.
+    pub drain: Drain,
     /// The install database it keeps every Run's run state in, in the
     /// per-install layout (`run_state.layout`, ADR 0002); none in the
     /// per-run layout.
@@ -111,15 +109,17 @@ pub struct DaemonOptions {
     pub websocket: Option<Authorities>,
 }
 
-/// How a foreground Daemon drains (ADR 0049): once `asked` is cancelled it
-/// takes no Run, stops each live Run at its next safe point with a
-/// Checkpoint, resumable by its Run ID, and ends once every one stopped or
-/// `grace` passed on its `Clock`, whichever comes first; a Run that reached
-/// no safe point by then stays resumable from its run file.
+/// How a Daemon drains (ADR 0049): once `asked` is cancelled, or its
+/// listener is closed for good, it takes no Run, stops each live Run at its
+/// next safe point with a Checkpoint, resumable by its Run ID, and ends
+/// once every one stopped or `grace` passed on its `Clock`, whichever comes
+/// first; a Run that reached no safe point by then stays resumable from its
+/// run file.
 #[derive(Clone, Debug)]
 pub struct Drain {
-    /// Cancelled when the Daemon must drain.
-    pub asked: CancellationToken,
+    /// Cancelled when the Daemon must drain, as `daemon run` asks on
+    /// `SIGTERM`; none for a Daemon on the machine, which no starter asks.
+    pub asked: Option<CancellationToken>,
     /// `daemon.drain_grace`.
     pub grace: Duration,
 }
@@ -466,14 +466,14 @@ pub(crate) async fn serve(
     mut options: DaemonOptions,
     owner: &TaskOwner,
 ) -> DaemonEnd {
-    let drain = options.drain.take();
-    let grace = drain
-        .as_ref()
-        .map_or_else(|| get_or_default(None, &DRAIN_GRACE), |drain| drain.grace);
+    let Drain {
+        asked: drain_asked_by,
+        grace,
+    } = options.drain.clone();
     let ops = options.ops.listener.take();
     let asked = async {
-        match &drain {
-            Some(drain) => drain.asked.cancelled().await,
+        match &drain_asked_by {
+            Some(asked) => asked.cancelled().await,
             None => std::future::pending().await,
         }
     };
@@ -492,7 +492,7 @@ pub(crate) async fn serve(
     let clock = serving.engine.clock();
     let idle = idle(&shared, clock);
     tokio::pin!(idle);
-    let mut accepts = Accepts::from(listener, clock);
+    let mut accepts = Accepts::new(listener, clock);
     let mut idled = false;
     let mut drain_asked = false;
     let end = loop {
@@ -537,13 +537,20 @@ pub(crate) async fn serve(
                     return finish(DaemonEnd::Drained, &connections_owner, &shared).await;
                 }
             }
-            // A listener closed once a handover is decided changes nothing.
-            accepted = accepts.next() => if let Ok(connection) = accepted {
-                admit(&mut open, &mut next, |id| serve_connection(&serving, &shared, &connections_owner, connection, id, ended.clone()));
-            } else if let Ok(EngineState::Draining) = shared.transition(EngineEvent::ListenerFailed).await {
-                drain_runs(&serving, &shared, grace).await;
-                drop(accepts);
-                return finish(DaemonEnd::ListenerFailed, &connections_owner, &shared).await;
+            accepted = accepts.next() => match accepted {
+                Ok(connection) => admit(&mut open, &mut next, |id| serve_connection(&serving, &shared, &connections_owner, connection, id, ended.clone())),
+                // It goes on with its Clients.
+                Err(NoMoreConnections::DialersGone) => {}
+                Err(NoMoreConnections::ListenerClosed(error)) => {
+                    tracing::error!(%error, "the Daemon's listener is closed: it drains its runs and stops");
+                    // A listener closed once a handover is decided changes nothing.
+                    let failed = shared.transition(EngineEvent::ListenerFailed).await;
+                    if let Ok(EngineState::Draining) = failed {
+                        drain_runs(&serving, &shared, grace).await;
+                        drop(accepts);
+                        return finish(DaemonEnd::ListenerFailed, &connections_owner, &shared).await;
+                    }
+                }
             },
         }
     };
@@ -558,12 +565,17 @@ pub(crate) async fn serve(
     finish(end, &connections_owner, &shared).await
 }
 
-/// The Daemon's listener was closed for good.
-struct ListenerClosed;
+/// Why a listener gives no Connection any more.
+pub(crate) enum NoMoreConnections {
+    /// Every in-memory dialer is gone.
+    DialersGone,
+    /// It was closed for good, as the OS said with this failure.
+    ListenerClosed(TransportError),
+}
 
-/// The Connections a Daemon takes from its listener, past each failed
-/// accept.
-struct Accepts {
+/// The Connections an engine takes from a listener, a Daemon's or an
+/// Attached engine's private endpoint's, past each failed accept.
+pub(crate) struct Accepts {
     listener: DaemonListener,
     clock: Clock,
     /// Whether the listener gives no Connection any more.
@@ -575,7 +587,7 @@ struct Accepts {
 }
 
 impl Accepts {
-    fn from(listener: DaemonListener, clock: Clock) -> Self {
+    pub(crate) fn new(listener: DaemonListener, clock: Clock) -> Self {
         Self {
             listener,
             clock,
@@ -586,17 +598,15 @@ impl Accepts {
     }
 
     /// The next Connection. A failed accept ends that attempt alone: it is
-    /// logged, and the next attempt follows, at once after one failure and
-    /// after a wait once failures repeat. Answers `ListenerClosed` once,
-    /// when the listener is closed for good; after that, or once every
-    /// in-memory dialer is gone and the Daemon goes on with its Clients,
-    /// it never resolves.
+    /// logged, and the next attempt follows, at once after a dropped
+    /// stream or one failure, and after a wait once failures repeat. Answers once why the listener
+    /// gives no Connection any more, and never resolves after that.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future loses no Connection, and a wait it began ends
     /// when it would have.
-    async fn next(&mut self) -> Result<Connection, ListenerClosed> {
+    pub(crate) async fn next(&mut self) -> Result<Connection, NoMoreConnections> {
         loop {
             if self.ended {
                 return std::future::pending().await;
@@ -610,21 +620,28 @@ impl Accepts {
                     self.failed = 0;
                     return Ok(connection);
                 }
-                Err(TransportError::DialerClosed) => self.ended = true,
+                Err(TransportError::DialerClosed) => {
+                    self.ended = true;
+                    return Err(NoMoreConnections::DialersGone);
+                }
+                // It says nothing of the next: no wait, however many follow.
+                Err(TransportError::Stream(error)) => {
+                    tracing::warn!(%error, "an accepted stream was dropped: the listener goes on accepting");
+                }
                 Err(TransportError::Accept(error)) => {
                     self.failed = self.failed.saturating_add(1);
                     let wait = wait_after(self.failed);
                     tracing::warn!(
                         %error,
                         retry_in_ms = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX),
-                        "the Daemon failed to accept a Connection: it goes on accepting"
+                        "an accept failed: the listener goes on accepting"
                     );
                     self.again_at = (!wait.is_zero()).then(|| self.clock.now() + wait);
                 }
+                // `EngineGone` is a dialer's, never an accept's.
                 Err(error @ (TransportError::ListenerClosed(_) | TransportError::EngineGone)) => {
-                    tracing::error!(%error, "the Daemon's listener is closed: it drains its runs and stops");
                     self.ended = true;
-                    return Err(ListenerClosed);
+                    return Err(NoMoreConnections::ListenerClosed(error));
                 }
             }
         }

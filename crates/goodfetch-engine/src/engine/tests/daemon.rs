@@ -36,6 +36,9 @@ pub(super) const TOKEN: &str = "the-launch-token";
 
 const MINUTE: Duration = Duration::from_secs(60);
 
+/// `daemon.drain_grace`'s default.
+const DRAIN_GRACE: Duration = Duration::from_secs(110);
+
 /// A Succession whose answer the test fixes, counting the handovers begun.
 struct Fixed {
     pick: bool,
@@ -76,7 +79,10 @@ pub(super) fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
             pick,
             handovers: Arc::clone(handovers),
         }),
-        drain: None,
+        drain: Drain {
+            asked: None,
+            grace: DRAIN_GRACE,
+        },
         install: None,
         ops: Ops::default(),
         websocket: None,
@@ -869,10 +875,10 @@ pub(super) fn stuck() -> Contribution {
 pub(super) fn draining(asked: &CancellationToken) -> DaemonOptions {
     DaemonOptions {
         keep_alive: true,
-        drain: Some(Drain {
-            asked: asked.clone(),
-            grace: Duration::from_secs(110),
-        }),
+        drain: Drain {
+            asked: Some(asked.clone()),
+            grace: DRAIN_GRACE,
+        },
         ..the_pick()
     }
 }

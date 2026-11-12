@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::daemon::{DaemonOptions, Holds, Succession};
+use goodfetch_engine::daemon::{DaemonOptions, Drain, Holds, Succession};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::needs_you::{
@@ -322,7 +322,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             keep_alive: true,
             holds: Holds::new(),
             succession: Arc::new(ThePick),
-            drain: None,
+            drain: Drain {
+                asked: None,
+                grace: Duration::from_secs(110),
+            },
             install: None,
             ops: Ops::default(),
             websocket: None,

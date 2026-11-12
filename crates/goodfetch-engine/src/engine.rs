@@ -690,20 +690,21 @@ async fn private_endpoint(
 /// `owner`, until the listener fails or `owner` stops.
 async fn serve_private_endpoint(
     dispatch: Arc<Dispatch>,
-    mut listener: DaemonListener,
+    listener: DaemonListener,
     token: Arc<str>,
     owner: TaskOwner,
     runs: Runs,
     events: Events,
     context: EngineContext,
 ) {
+    let mut accepts = daemon::Accepts::new(listener, context.clock());
     loop {
         let connection = tokio::select! {
             () = owner.token().cancelled() => return,
-            accepted = listener.accept() => match accepted {
+            accepted = accepts.next() => match accepted {
                 Ok(connection) => connection,
-                Err(TransportError::DialerClosed) => return,
-                Err(error) => {
+                Err(daemon::NoMoreConnections::DialersGone) => return,
+                Err(daemon::NoMoreConnections::ListenerClosed(error)) => {
                     tracing::warn!(%error, "the private endpoint stopped accepting");
                     return;
                 }

@@ -14,10 +14,7 @@ use tokio::time::Instant;
 use super::super::run::{call, run_folder, run_row};
 use super::super::{engine, engine_with};
 use super::{cli_hello, daemon, opened, resumed, stuck, the_pick};
-use crate::daemon::DaemonOptions;
-
-/// `daemon.drain_grace`'s default.
-const DRAIN_GRACE: Duration = Duration::from_secs(110);
+use crate::daemon::{DaemonOptions, Drain};
 
 /// The OS's error for a process with no descriptor left: `EMFILE`, or
 /// Winsock's `WSAEMFILE`.
@@ -36,6 +33,16 @@ fn closed_listener() -> io::Error {
     let code = libc::EBADF;
     #[cfg(not(unix))]
     let code = 10038;
+    io::Error::from_raw_os_error(code)
+}
+
+/// The OS's error for a connection its peer gave up before the accept:
+/// `ECONNABORTED`, or Winsock's `WSAECONNABORTED`.
+fn aborted_connection() -> io::Error {
+    #[cfg(unix)]
+    let code = libc::ECONNABORTED;
+    #[cfg(not(unix))]
+    let code = 10053;
     io::Error::from_raw_os_error(code)
 }
 
@@ -114,6 +121,40 @@ fn a_daemon_whose_accepts_keep_failing_backs_off_and_then_serves() {
     );
 }
 
+/// A connection its peer gave up before the accept is that stream's
+/// failure, which says nothing of the listener: however many follow one
+/// another, the Daemon accepts again at once, so no peer slows it for the
+/// other Clients.
+#[test]
+fn a_daemon_never_waits_after_a_connection_its_peer_gave_up() {
+    let (end, (waited, status)) = daemon(
+        &engine(Product::Collie),
+        &TestEnv::new(),
+        kept_alive(),
+        |dialer| async move {
+            let began = Instant::now();
+            for _ in 0..12 {
+                dialer.fail_accept(aborted_connection()).await.unwrap();
+            }
+            let mut client = opened(&dialer, cli_hello()).await;
+            let waited = began.elapsed();
+            let status = call(&mut client, 1, "daemon.status", json!({})).await;
+            call(&mut client, 2, "daemon.stop", json!({})).await;
+            client.close().await;
+            (waited, status)
+        },
+    );
+
+    assert_eq!(
+        (
+            waited,
+            status["result"]["clients"].clone(),
+            format!("{end:?}")
+        ),
+        (Duration::ZERO, json!(1), "Stopped".to_owned())
+    );
+}
+
 /// A listener closed for good ends the Daemon as a listener failure, once
 /// its Runs drained as on a requested drain: each live Run stops at its
 /// next safe point with a Checkpoint, `stopped` for the drain and resumable
@@ -152,16 +193,22 @@ fn a_daemon_whose_listener_closed_drains_its_runs_and_ends_as_a_listener_failure
     );
 }
 
-/// The drain a closed listener starts ends at the drain grace, the default
-/// of `daemon.drain_grace` when the Daemon's starter gave none: a Run that
-/// reached no safe point by then stays `running`, resumable from its run
-/// file, never stopped as aborted by its Client.
+/// The drain a closed listener starts ends at the Daemon's drain grace,
+/// which a Daemon no starter asks to drain has too: a Run that reached no
+/// safe point by then stays `running`, resumable from its run file, never
+/// stopped as aborted by its Client.
 #[test]
 fn a_daemon_whose_listener_closed_ends_at_its_drain_grace_leaving_a_stuck_run_resumable() {
     let env = TestEnv::new();
     let engine = engine_with(Product::Collie, Some(stuck()));
 
-    let (end, waited) = daemon(&engine, &env, kept_alive(), |dialer| async move {
+    let grace = Duration::from_secs(30);
+    let options = DaemonOptions {
+        drain: Drain { asked: None, grace },
+        ..kept_alive()
+    };
+
+    let (end, waited) = daemon(&engine, &env, options, |dialer| async move {
         let mut client = opened(&dialer, cli_hello()).await;
         call(&mut client, 1, "test.stuck", json!({ "run_id": "stuck" })).await;
         let began = Instant::now();
@@ -179,7 +226,7 @@ fn a_daemon_whose_listener_closed_ends_at_its_drain_grace_leaving_a_stuck_run_re
         ),
         (
             "ListenerFailed".to_owned(),
-            DRAIN_GRACE,
+            grace,
             json!("running"),
             json!("resumed"),
         )

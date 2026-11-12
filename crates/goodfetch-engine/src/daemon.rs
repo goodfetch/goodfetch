@@ -59,7 +59,7 @@ use crate::product::{Channel, Identity};
 use crate::rpc::{self, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::runs::{ConnectionId, Runs};
-use crate::tasks::TaskOwner;
+use crate::tasks::{OwnerKind, TaskOwner};
 use crate::transition::engine::{self as table, EngineEvent, EngineState, InvalidEngineTransition};
 use crate::transport::{Connection, DaemonListener, TransportError};
 
@@ -697,7 +697,7 @@ fn serve_connection(
     );
     let websocket = shared.websocket.clone();
     let runs_held = shared.runs_held.clone();
-    let its_owner = connections.child();
+    let its_owner = connections.child_for(OwnerKind::Connection);
     let cancelled = token.clone();
     connections.spawn(async move {
         let served = async {

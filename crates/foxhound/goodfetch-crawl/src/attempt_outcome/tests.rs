@@ -135,6 +135,7 @@ fn learning(leased: &Leased, signature: u8) -> Learning {
         signature: [signature; 32],
         canonical: None,
         ended_at: ended_at(),
+        work: goodfetch_counted_work::CountedWork::default(),
     }
 }
 

@@ -334,6 +334,7 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                         canonical: canonical.as_ref(),
                     },
                     &mut Ending,
+&goodfetch_counted_work::CountedWork::default(),
                 )?;
             }
             learn_guide(connection)?;
@@ -390,6 +391,7 @@ fn learn_guide(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
             body: None,
         },
         &mut Ending,
+        &goodfetch_counted_work::CountedWork::default(),
     )?;
     for (index, ((crawl_request, _), url)) in guides.iter().zip(&urls).enumerate() {
         goodfetch_frontier::learn(
@@ -403,6 +405,7 @@ fn learn_guide(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
                 canonical: None,
             },
             &mut Ending,
+            &goodfetch_counted_work::CountedWork::default(),
         )?;
     }
     Ok(())

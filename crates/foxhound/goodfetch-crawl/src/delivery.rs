@@ -933,7 +933,10 @@ enum Waited {
 /// it closes its intake in a job of the Run state's writer that looks once
 /// more for a pending work item: a re-admission or a seed added since its
 /// last look is delivered, and one coming later is refused (#914, #1005).
-/// That job, or a batch of its own while the crawl is kept alive, also
+/// That job first gives back each work item still leased, whose attempt
+/// ended with its outcome unwritten: retried, it is delivered, and the
+/// crawl does not finish over it. That job, or a batch of its own while
+/// the crawl is kept alive, also
 /// writes the tier choices' counts `state` holds that the run file has not
 /// heard of: no lease follows the last draws to carry them (ADR 0142).
 async fn drained(
@@ -956,6 +959,14 @@ async fn drained(
         }
     } else if !keeps_alive || run.is_let_finish() {
         let intake = arrivals.intake.clone();
+        let lost = AttemptFailure::outcome_not_written("its attempt ended and left it leased");
+        let unwritten = Failure {
+            code: lost.code,
+            message: lost.message,
+            details: lost.details,
+        };
+        let retry_max = CrawlPolicy::of(resolved).retry_max;
+        let ended_at = run.point_in_time();
         // Its answer promises nothing outside (#2117): the Run's end, which
         // follows it, syncs, and so does a later call's refusal, as its own
         // write commits after the close.
@@ -963,6 +974,10 @@ async fn drained(
             .state()
             .write_deferred(move |connection| {
                 counted.write(&BatchWriter::over(connection))?;
+                // No attempt is in flight: a work item still leased is
+                // one whose attempt ended with its outcome unwritten. It
+                // is retried or fails before the crawl may finish.
+                work_items::recover_leases(connection, &unwritten, retry_max, &ended_at)?;
                 intake.close_if_drained(connection)
             })
             .await
@@ -1554,6 +1569,8 @@ struct QueuedOutcome {
     leased: Leased,
     lease: WorkItemLease,
     run: Run,
+    /// The retry rule its attempt ends under when its job fails.
+    policy: CrawlPolicy,
     /// Whether it commits its answer.
     commits: bool,
     written: Pin<Box<dyn Future<Output = Written> + Send>>,
@@ -1599,6 +1616,7 @@ async fn queue_outcome(
     let (work_item, lease_epoch) = (leased.crawl_request.id.clone(), leased.lease_epoch);
     let masks = run.secrets().mask().masks().clone();
     let tries = leased.tries;
+    let on = (run, policy);
     let failure = move |failure, why: &Why, retryable| {
         retried_or_failed(policy, tries, failure, why, retryable)
     };
@@ -1630,7 +1648,7 @@ async fn queue_outcome(
                 document,
                 work,
             };
-            return queued(run, (leased, lease), (scored, taught, ending), false).await;
+            return queued(on, (leased, lease), (scored, taught, ending), false).await;
         }
         Answer::Handled(handled) => {
             match lease.committing(run.state(), &masks, handled.records, run.point_in_time()) {
@@ -1642,7 +1660,7 @@ async fn queue_outcome(
                             failure(kept, &why, retryable)
                         });
                     let ending = attempt_outcome::Ending::Commit { commit, refused };
-                    return queued(run, (leased, lease), (scored, taught, ending), commits).await;
+                    return queued(on, (leased, lease), (scored, taught, ending), commits).await;
                 }
                 Err(_) => failure(
                     Failure::new(LEASE_LOST.name, LEASE_LOST.description),
@@ -1678,14 +1696,14 @@ async fn queue_outcome(
         unsuccessful,
         ended_at: run.point_in_time(),
     };
-    queued(run, (leased, lease), (scored, taught, ending), commits).await
+    queued(on, (leased, lease), (scored, taught, ending), commits).await
 }
 
 /// Queues the outcome of `leased`'s attempt under `lease`, ending as
 /// `ending` says beside `scored` and what `taught` leaves to it, in the
 /// run state's writer's queue now.
 async fn queued(
-    run: &Run,
+    (run, policy): (&Run, CrawlPolicy),
     (leased, lease): (Leased, WorkItemLease),
     (scored, taught, ending): (Scored, Taught, attempt_outcome::Ending),
     commits: bool,
@@ -1704,6 +1722,7 @@ async fn queued(
         leased,
         lease,
         run: run.clone(),
+        policy,
         commits,
         written,
     }
@@ -1713,12 +1732,15 @@ impl QueuedOutcome {
     /// Waits for its job's answer, then releases its lease and finishes
     /// what the job committed: a committed attempt's suspected trap links'
     /// Provenance and the files it took out, and the failure an attempt
-    /// ended with counted in its Run's outcomes.
+    /// ended with counted in its Run's outcomes. A job that failed ends
+    /// its attempt as one whose outcome was not written, in a job of its
+    /// own ([`outcome_lost`]): its work item never stays leased.
     async fn finished(self) -> Finished {
         let Self {
             leased,
             lease,
             run,
+            policy,
             commits,
             written,
         } = self;
@@ -1733,16 +1755,17 @@ impl QueuedOutcome {
                 ended
             }
             Err(error) => {
+                let cause = error.to_string();
                 if commits {
-                    // Traced as a commit the run file refused, its lease
-                    // left to end.
+                    // Traced as a commit the run file refused.
                     if let Err(CommitError::RunState(error)) = lease.committed(Err(error)) {
                         tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
                     }
                 } else {
-                    lease.release();
                     tracing::warn!(%error, run_id = %run.id(), "an attempt's outcome was not committed");
                 }
+                finished.retried = outcome_lost(&run, policy, &leased, &cause).await;
+                lease.release();
                 return finished;
             }
         };
@@ -1788,6 +1811,50 @@ impl QueuedOutcome {
             }
         }
         finished
+    }
+}
+
+/// Ends the attempt of `leased` whose outcome's job failed for `cause`,
+/// in a job of its own: retried while `policy` leaves it retries, failed
+/// with that cause otherwise, as any attempt that failed. Answers whether
+/// it waits again for a retry. When this job fails too, its work item
+/// stays leased until the crawl's finish, which gives it back
+/// ([`drained`]).
+async fn outcome_lost(run: &Run, policy: CrawlPolicy, leased: &Leased, cause: &str) -> bool {
+    let lost = AttemptFailure::outcome_not_written(cause);
+    let (why, retryable) = (lost.why().clone(), lost.retryable);
+    let masks = run.secrets().mask().masks().clone();
+    let kept = kept_failure(&masks, lost.code, &lost.message, lost.details);
+    let unsuccessful = retried_or_failed(policy, leased.tries, kept, &why, retryable);
+    let (work_item, lease_epoch) = (leased.crawl_request.id.clone(), leased.lease_epoch);
+    let ended_at = run.point_in_time();
+    let ended = run
+        .state()
+        .write(move |connection| {
+            attempt_outcome::end(
+                connection,
+                (&work_item, lease_epoch),
+                unsuccessful,
+                &ended_at,
+            )
+        })
+        .await;
+    match ended {
+        Ok(attempt_outcome::Ended::Unsuccessful {
+            ended: true,
+            recorded,
+            retried,
+        }) => {
+            if let Some(code) = recorded {
+                run.record_outcome(&code);
+            }
+            retried
+        }
+        Ok(_) => false,
+        Err(error) => {
+            tracing::warn!(%error, run_id = %run.id(), work_item = %leased.crawl_request.id, "an attempt whose outcome was not committed was not ended: its work item stays leased until the crawl's finish");
+            false
+        }
     }
 }
 

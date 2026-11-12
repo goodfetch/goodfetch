@@ -4,7 +4,8 @@
 //! the generated script says (Records, a retryable failure, its own
 //! failure, silence until the lease ends, or Records sent only once the
 //! engine cancelled the attempt at its lease's end: a late commit, which
-//! commits nothing), and which may crash or lose power between attempts, or
+//! commits nothing, or Records whose write the run file refuses, an
+//! outcome not written, which ends as a failed attempt), and which may crash or lose power between attempts, or
 //! abort the Run. A reference model of the Run's policy says which work item
 //! and attempt each handler request must be, and which Records each commit
 //! holds; the Run's transition table (ADR 0128) is its reference for the
@@ -60,6 +61,11 @@ enum Behaviour {
     /// Answers this many Records only once the engine cancelled the
     /// attempt at its lease's end: a late commit, which commits nothing.
     Late(u8),
+    /// Answers this many Records, one at least, whose write the run file
+    /// refuses: the attempt's outcome is not written, so it commits
+    /// nothing and ends as a failed attempt, retried while its work item
+    /// has retries left (issue 2320).
+    Unwritten(u8),
 }
 
 #[derive(Clone, Debug)]
@@ -180,6 +186,7 @@ impl ReferenceStateMachine for Model {
             1 => Just(Transition::Deliver(Behaviour::FailsItself)),
             1 => Just(Transition::Deliver(Behaviour::Silent)),
             1 => (1_u8..3).prop_map(|count| Transition::Deliver(Behaviour::Late(count))),
+            1 => (1_u8..3).prop_map(|count| Transition::Deliver(Behaviour::Unwritten(count))),
             1 => prop_oneof![Just(CrashKind::Process), Just(CrashKind::PowerCut)].prop_map(Transition::Crash),
             1 => Just(Transition::Abort),
         ]
@@ -221,7 +228,10 @@ impl ReferenceStateMachine for Model {
                     .map(|number| record(index, attempt, number))
                     .collect();
             }
-            Behaviour::FailsRetryably | Behaviour::Silent | Behaviour::Late(_) => {
+            Behaviour::FailsRetryably
+            | Behaviour::Silent
+            | Behaviour::Late(_)
+            | Behaviour::Unwritten(_) => {
                 item.done = !ONE_AT_A_TIME.may_retry(attempt);
             }
             Behaviour::FailsItself => item.done = true,
@@ -315,6 +325,30 @@ impl Subject {
         self.writer = writer;
         self.silent.clear();
         self.hello();
+    }
+
+    /// Has the run file refuse the Records of the `attempt`th attempt of
+    /// the work item at `index`, through a trigger planted beside the
+    /// writer: a write the run file refuses, with no storage failure.
+    fn refuse_records(&self, index: usize, attempt: u32) {
+        let connection = Connection::open_with_flags_and_vfs(
+            self.path(),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+            self.vfs.name(),
+        )
+        .unwrap();
+        connection
+            .busy_timeout(std::time::Duration::from_secs(10))
+            .unwrap();
+        let item = index + 1;
+        connection
+            .execute_batch(&format!(
+                "CREATE TRIGGER IF NOT EXISTS refuse_{item}_{attempt} BEFORE INSERT ON records
+                 WHEN NEW.work_item = '{item}'
+                     AND (SELECT attempts FROM work_items WHERE id = NEW.work_item) = {attempt}
+                 BEGIN SELECT RAISE(ABORT, 'refused by the model'); END"
+            ))
+            .unwrap();
     }
 
     /// The Records the run file holds now, read beside the writer.
@@ -547,6 +581,11 @@ impl StateMachineTest for Subject {
                     Behaviour::Late(count) => {
                         let records = pushed((0..count).map(|number| record(index, attempt, number)));
                         subject.silent.push((id, records));
+                    }
+                    Behaviour::Unwritten(count) => {
+                        subject.refuse_records(index, attempt);
+                        let records = pushed((0..count).map(|number| record(index, attempt, number)));
+                        subject.send(&json!({ "jsonrpc": "2.0", "id": id, "result": { "records": records } }));
                     }
                 }
             }

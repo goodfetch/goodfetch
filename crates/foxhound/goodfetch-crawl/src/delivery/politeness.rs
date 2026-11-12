@@ -87,6 +87,7 @@ fn failure_ending(answer: &Answer, now: Instant, wall: SystemTime) -> Ended {
         | Why::PageCheckFailed { .. }
         | Why::Proxy
         | Why::Handler
+        | Why::OutcomeNotWritten
         | Why::Other => Ended::Done,
     }
 }

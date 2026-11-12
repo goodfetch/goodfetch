@@ -19,6 +19,7 @@ mod admission;
 mod finishing;
 mod keep_alive;
 mod limits;
+mod lost_outcome;
 mod masking;
 mod metrics;
 mod model;

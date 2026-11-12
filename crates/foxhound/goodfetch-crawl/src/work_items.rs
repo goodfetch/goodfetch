@@ -1448,6 +1448,16 @@ pub(crate) fn recover_leases(
     Ok(())
 }
 
+/// Whether any work item is still pending or leased: what a crawl's
+/// finish waits for.
+pub(crate) fn any_unsettled(connection: &Connection) -> rusqlite::Result<bool> {
+    Ok(connection
+        .prepare_cached("SELECT 1 FROM work_items WHERE status IN (?1, ?2) LIMIT 1")
+        .and_then(|mut cached| cached.query_row([PENDING, LEASED], |_| Ok(())))
+        .optional()?
+        .is_some())
+}
+
 /// Whether any work item is still pending.
 pub(crate) fn any_pending(connection: &Connection) -> rusqlite::Result<bool> {
     Ok(connection

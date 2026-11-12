@@ -18,6 +18,7 @@ use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
 use goodfetch_protocol::foxhound::crawl::{HANDLER_FAILED, RESPONSE_UNAVAILABLE};
 use goodfetch_protocol::page::proxy::{PROXY_AUTH_FAILED, PROXY_UNAVAILABLE};
 use goodfetch_protocol::page::{BLOCKED, NAVIGATION_FAILED, PAGE_CHECK_FAILED};
+use goodfetch_protocol::run::RUN_STATE_UNAVAILABLE;
 use goodfetch_protocol::settings::{TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use serde_json::{Map, Value};
 
@@ -48,6 +49,9 @@ pub(crate) enum Why {
     /// The handler's own failure (`handler_failed`), retried only as
     /// `crawl.retry.handler_failed` says.
     Handler,
+    /// The run file refused the write of the attempt's outcome: the
+    /// attempt is retried as one that failed (issue 2320).
+    OutcomeNotWritten,
     /// Any other failure: nothing but its `retryable` acts on it.
     Other,
 }
@@ -87,6 +91,19 @@ impl AttemptFailure {
     /// A failure the crawl itself names, with no details.
     pub(crate) fn named(code: &str, retryable: bool, message: String) -> Self {
         Self::entered(code.to_owned(), retryable, message, Map::new())
+    }
+
+    /// The failure of an attempt whose outcome the run file did not
+    /// write, for `cause`: retryable, since the attempt's work is lost.
+    pub(crate) fn outcome_not_written(cause: &str) -> Self {
+        Self {
+            why: Why::OutcomeNotWritten,
+            retry_after: None,
+            code: RUN_STATE_UNAVAILABLE.name.to_owned(),
+            retryable: true,
+            message: format!("The attempt's outcome was not written: {cause}."),
+            details: Map::new(),
+        }
     }
 
     /// The failure of a fetch: a transport's failure is classed by what

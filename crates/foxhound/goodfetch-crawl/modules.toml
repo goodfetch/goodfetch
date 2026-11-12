@@ -30,9 +30,10 @@ work_items = ["labels"]
 links = []
 
 [submodules.delivery]
-attempt = []
+attempt = ["failure"]
+failure = []
 pages = ["attempt"]
-politeness = ["attempt"]
+politeness = ["attempt", "failure"]
 
 [submodules.tier_choice]
 weighing = []

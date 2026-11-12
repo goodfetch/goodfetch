@@ -642,6 +642,10 @@ fn bind_device(
 }
 
 impl Transport for Reqwest {
+    fn proxy(&self) -> Option<Url> {
+        self.proxy.clone()
+    }
+
     fn presents(&self, url: &Url) -> Vec<(String, String)> {
         self.document_request
             .as_ref()

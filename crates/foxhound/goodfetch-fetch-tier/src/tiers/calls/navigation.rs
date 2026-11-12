@@ -115,10 +115,10 @@ pub(super) async fn navigate(
         async move {
             let fetched = fetch(http.transport.as_ref(), &hop, &http.bounds, &clock).await;
             drop(held);
-            if let Err(error) = &fetched
-                && error.code() == EGRESS_REFUSED.name
+            if let Err(failure) = &fetched
+                && failure.error().code() == EGRESS_REFUSED.name
             {
-                let _ = refused_at_connection.set(error.clone());
+                let _ = refused_at_connection.set(failure.error().clone());
             }
             fetched
         }
@@ -230,25 +230,25 @@ struct Navigating {
 impl HopGate for Navigating {
     fn admit<'a>(&'a self, hop: &'a Hop) -> Gating<'a, Result<Permit, Stop>> {
         Box::pin(async move {
-            leased(&self.hand_over, self.operation).map_err(Stop::Failed)?;
+            leased(&self.hand_over, self.operation).map_err(Stop::failed)?;
             // The Run's egress policy judges the hop before anything is
             // sent for it, robots.txt included (spec #565).
             self.hand_over
                 .of_run
                 .address_check(&hop.url)
                 .await
-                .map_err(|refused| Stop::Failed(refused.error()))?;
+                .map_err(|refused| Stop::failed(refused.error()))?;
             let permit = {
                 let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
                 Gate::new(Arc::clone(&self.hand_over))
                     .admitted(&hop.url)
                     .await
                     .map_err(|refusal| {
-                        Stop::Failed(refused(hop.url.as_str(), &gate::refusal(refusal)))
+                        Stop::failed(refused(hop.url.as_str(), &gate::refusal(refusal)))
                     })?
             };
             // The wait for the permit may outlast the lease.
-            leased(&self.hand_over, self.operation).map_err(Stop::Failed)?;
+            leased(&self.hand_over, self.operation).map_err(Stop::failed)?;
             Ok(permit)
         })
     }
@@ -282,7 +282,7 @@ impl HopGate for Navigating {
 /// The error a navigation's chain ended with.
 fn stopped(stop: Stop) -> CallError {
     match stop {
-        Stop::Failed(error) => error,
+        Stop::Failed(failure) => failure.into_error(),
         // The navigation's gate refuses with an error, never a skip, and
         // the transport's egress refusal is answered as it is.
         Stop::Skipped(Skip { message, .. }) | Stop::RobotsTxtUnreachable { message, .. } => {

@@ -98,6 +98,8 @@ struct Builder {
     resolver: Arc<Resolver>,
     local: Option<super::LocalSource>,
     proxy: Option<wreq::Proxy>,
+    /// The proxy's URL, as the Session gave it.
+    through: Option<Url>,
     decision: SharedTrust,
     examiner: Arc<Examiner>,
     verdicts: Verdicts,
@@ -186,6 +188,7 @@ impl Wreq {
             resolver: Arc::clone(&resolver),
             local: config.local.clone(),
             proxy,
+            through: config.proxy.clone(),
             decision: decision.clone(),
             examiner: Arc::new(config.trust.examiner(config.clock)),
             verdicts: verdicts.clone(),
@@ -422,6 +425,10 @@ fn bind_device(builder: wreq::ClientBuilder, _interface: Option<&str>) -> wreq::
 }
 
 impl Transport for Wreq {
+    fn proxy(&self) -> Option<Url> {
+        self.builder.through.clone()
+    }
+
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
             self.resolver.before_sending(&hop.url).await?;

@@ -284,7 +284,7 @@ impl HandOver {
     pub(crate) async fn sending(&self, hop: &Hop, lead: bool) -> Result<(), Stop> {
         self.sent(hop.url.as_str(), lead)
             .await
-            .map_err(Stop::Failed)
+            .map_err(Stop::failed)
     }
 
     /// Records the send of a request to `url` as the last start of its
@@ -778,7 +778,7 @@ impl HopGate for ChainGate {
             {
                 Ok(permit) => Ok(permit),
                 Err(site_preferences::NotAllowed::PastALimit(limit)) => {
-                    Err(Stop::Failed(limit.error()))
+                    Err(Stop::failed(limit.error()))
                 }
                 // A crawl request retries a hop's unreachable robots.txt as
                 // it retries its own (ADR 0086).

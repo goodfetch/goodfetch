@@ -80,7 +80,7 @@ use serde_json::{Value, json};
 use url::Url;
 
 use super::{FetchTiers, ServedPage, lock};
-use crate::driver::{Fetched, Hop, fetch};
+use crate::driver::{FetchFailure, Fetched, Hop, fetch};
 use crate::gate::{self, Gate, HandOver};
 use crate::redirects;
 use crate::served_calls::{Row, Verdict, verdict};
@@ -532,7 +532,7 @@ async fn sent(page: &ServedPage, params: &PageRequestParams) -> Result<Fetched, 
         )
         .await;
         drop(permit);
-        let fetched = fetched?;
+        let fetched = fetched.map_err(FetchFailure::into_error)?;
         match location(&fetched) {
             // A count of 0 answers the 3xx itself.
             Some(_) if max_redirects == 0 => {}

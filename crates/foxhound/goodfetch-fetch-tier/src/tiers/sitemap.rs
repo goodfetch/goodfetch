@@ -13,7 +13,7 @@ use url::Url;
 
 use super::HttpTier;
 use crate::chain::{Gating, HopGate, Skip, Stop, follow};
-use crate::driver::{Hop, fetch};
+use crate::driver::{FetchFailure, Hop, fetch};
 use crate::gate::HandOver;
 
 impl HttpTier {
@@ -34,7 +34,7 @@ impl HttpTier {
     /// # Cancel safety
     ///
     /// Dropping the future closes the fetch's connection.
-    pub async fn sitemap(&self, url: &Url, hand_over: &HandOver) -> Result<Bytes, CallError> {
+    pub async fn sitemap(&self, url: &Url, hand_over: &HandOver) -> Result<Bytes, FetchFailure> {
         let clock = hand_over.run().clock();
         let gate = SitemapHops(hand_over);
         let fetched = follow(
@@ -50,7 +50,7 @@ impl HttpTier {
         )
         .await
         .map_err(|stop| match stop {
-            Stop::Failed(error) => error,
+            Stop::Failed(failure) => failure,
             // The open gate skips no hop, and reads no robots.txt.
             Stop::Skipped(Skip { message, .. }) | Stop::RobotsTxtUnreachable { message, .. } => {
                 CallError::new(
@@ -58,6 +58,7 @@ impl HttpTier {
                     message,
                     &serde_json::json!({ "url": url.as_str() }),
                 )
+                .into()
             }
         })?;
         let status = fetched.status;
@@ -66,7 +67,7 @@ impl HttpTier {
         }
         let details = serde_json::json!({ "url": fetched.url.as_str(), "status": status });
         let unavailable = status == 408 || status == 429 || (500..600).contains(&status);
-        Err(if unavailable {
+        Err(FetchFailure::from(if unavailable {
             CallError::new(
                 &RESPONSE_UNAVAILABLE,
                 format!("The sitemap {} answered {status}.", fetched.url),
@@ -81,7 +82,7 @@ impl HttpTier {
                 ),
                 &details,
             )
-        })
+        }))
     }
 }
 

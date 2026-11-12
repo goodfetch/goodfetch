@@ -84,9 +84,9 @@ use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
-    Capture, Chosen, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL, PageFacts,
-    PooledSession, ReplayPlan, Request, Requester, RunHandOver, SitePreferences, Stop, TierChoice,
-    infer_plan, tier_serves,
+    Capture, Chosen, FetchFailure, FetchTiers, HandOver, HttpTier, Judged, PAGE_CHECK_CALL,
+    PageFacts, PooledSession, ReplayPlan, Request, Requester, RunHandOver, SitePreferences, Stop,
+    TierChoice, infer_plan, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -108,9 +108,9 @@ use goodfetch_protocol::settings::SESSION_PAGE_CHECK;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_session_pool::Effect;
 use goodfetch_session_pool::escalation::{self, Action, Met};
-use serde_json::{Map, Value};
 use tokio::sync::{Mutex, oneshot};
 
+use super::failure::{AttemptFailure, Why};
 use crate::code_free::CodeFree;
 use crate::lease::{CommitError, SoFar, WorkItemLease};
 use crate::progress::SharedInFlight;
@@ -143,12 +143,7 @@ pub(super) enum Answer {
     /// The handler answered.
     Handled(CrawlRequestHandled),
     /// The handler failed, or answered no result.
-    Failed {
-        code: String,
-        retryable: bool,
-        message: String,
-        details: Map<String, Value>,
-    },
+    Failed(Box<AttemptFailure>),
     /// The request ended `skipped` before its handler ran: the site's
     /// preferences refused it (its robots.txt, or an AI-use signal its
     /// response carries; ADRs 0086 and 0093), or a hop of its document's
@@ -169,6 +164,13 @@ pub(super) enum Answer {
     LeaseEnded,
     /// The program's Connection ended.
     ClientGone,
+}
+
+impl Answer {
+    /// The answer of an attempt that failed with `failure`.
+    pub(super) fn failed(failure: AttemptFailure) -> Self {
+        Self::Failed(Box::new(failure))
+    }
 }
 
 /// The tier an attempt's request takes and what it is fetched with: the
@@ -432,13 +434,11 @@ pub(super) async fn attempt(
     let mut raced = None;
     let answer = match (&tiering.plan, &tiering.http) {
         (_, Some(http)) if leased.sitemap => on.sitemap(http).await,
-        (_, None) if leased.sitemap => Answer::Failed {
-            code: NAVIGATION_FAILED.name.to_owned(),
-            retryable: true,
-            message: "The crawl's HTTP tier could not be built, so the sitemap was not fetched."
-                .to_owned(),
-            details: Map::new(),
-        },
+        (_, None) if leased.sitemap => Answer::failed(AttemptFailure::named(
+            NAVIGATION_FAILED.name,
+            true,
+            "The crawl's HTTP tier could not be built, so the sitemap was not fetched.".to_owned(),
+        )),
         (AttemptPlan::Alone, _) => {
             let params = on.params(None, None, None);
             let handed_over = tiering.tiers.hand_over(Arc::clone(&hand_over));
@@ -484,13 +484,11 @@ pub(super) async fn attempt(
             | AttemptPlan::Sample(_)
             | AttemptPlan::Race(_),
             None,
-        ) => Answer::Failed {
-            code: NAVIGATION_FAILED.name.to_owned(),
-            retryable: true,
-            message: "The crawl's HTTP tier could not be built, so the request was not fetched."
-                .to_owned(),
-            details: Map::new(),
-        },
+        ) => Answer::failed(AttemptFailure::named(
+            NAVIGATION_FAILED.name,
+            true,
+            "The crawl's HTTP tier could not be built, so the request was not fetched.".to_owned(),
+        )),
     };
     Attempt {
         document: document.into_inner(),
@@ -649,7 +647,8 @@ impl On<'_> {
     /// block that moves the request to the browser ([`On::on_block`]).
     fn moves(&self, answer: &Answer, choice: &TierChoice) -> bool {
         match answer {
-            Answer::Failed { code, details, .. } => block_cause(code, details)
+            Answer::Failed(failure) => failure
+                .block_cause()
                 .is_some_and(|cause| self.on_block(cause, choice) == Action::MoveToBrowser),
             _ => false,
         }
@@ -786,7 +785,11 @@ impl On<'_> {
             .await;
         let browser_staged = self.lease.pushed();
         let weighed = match &browser.answer {
-            Answer::Failed { code, details, .. } if walled(code, details) => Some(Weighed::Walled),
+            Answer::Failed(failure)
+                if failure.block_cause() == Some(BlockCause::ConsentRequired) =>
+            {
+                Some(Weighed::Walled)
+            }
             Answer::Handled(CrawlRequestHandled {
                 records,
                 skipped: None,
@@ -1134,7 +1137,7 @@ impl On<'_> {
                 };
                 served
                     .map_err(|stop| match stop {
-                        Stop::Failed(error) => failed(&error),
+                        Stop::Failed(failure) => fetch_failed(&failure),
                         Stop::RobotsTxtUnreachable {
                             message,
                             on_own_domain: true,
@@ -1377,25 +1380,12 @@ fn matches_browser(
     )
 }
 
-/// Whether a run that failed with `code` and `details` met a consent
-/// wall: `blocked` with `consent_required` (ADR 0048).
-fn walled(code: &str, details: &Map<String, Value>) -> bool {
-    code == BLOCKED
-        && details.get("cause").and_then(Value::as_str)
-            == Some(BlockCause::ConsentRequired.as_str())
-}
-
 /// A run on the `http` tier that escalated at `call` before its handler
 /// ran, its answer failing with `code` and `message`, which the browser's
 /// run replaces.
 fn escalated_unhandled(code: &str, message: &str, call: &'static str) -> HttpRun {
     HttpRun {
-        answer: Answer::Failed {
-            code: code.to_owned(),
-            retryable: false,
-            message: message.to_owned(),
-            details: Map::new(),
-        },
+        answer: Answer::failed(AttemptFailure::named(code, false, message.to_owned())),
         escalated: Some(call),
         document: true,
         encoding: None,
@@ -1445,26 +1435,28 @@ async fn address_check(run: &Run, http: &HttpTier, leased: &Leased) -> Result<()
 /// page marked `noindex` that failed its Page check is a decoy instead
 /// (ADR 0035).
 fn failed(error: &CallError) -> Answer {
-    let details = error.details().cloned().unwrap_or_default();
-    if error.code() == PAGE_CHECK_FAILED
-        && details.get("noindex").and_then(Value::as_bool) == Some(true)
-    {
-        let url = details
-            .get("url")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let status = details
-            .get("status")
-            .and_then(Value::as_u64)
-            .and_then(|status| u16::try_from(status).ok())
-            .unwrap_or_default();
-        return decoy::noindexed(url, status);
-    }
-    Answer::Failed {
-        code: error.code().to_owned(),
-        retryable: error.retryable(),
-        message: error.message().to_owned(),
-        details,
+    ended(AttemptFailure::entered(
+        error.code().to_owned(),
+        error.retryable(),
+        error.message().to_owned(),
+        error.details().cloned().unwrap_or_default(),
+    ))
+}
+
+/// An attempt whose fetch ended with `failure` before its handler was
+/// asked; a decoy as [`failed`] says.
+fn fetch_failed(failure: &FetchFailure) -> Answer {
+    ended(AttemptFailure::of_fetch(failure))
+}
+
+/// The answer of an attempt that failed with `failure`: a page marked
+/// `noindex` that failed its Page check is a decoy instead (ADR 0035).
+fn ended(failure: AttemptFailure) -> Answer {
+    match failure.why() {
+        Why::PageCheckFailed {
+            noindex: Some((url, status)),
+        } => decoy::noindexed(url, *status),
+        _ => Answer::failed(failure),
     }
 }
 
@@ -1548,15 +1540,14 @@ async fn handled(
                 Err(ClientRequestError::Failed { code, retryable, message, details }) => {
                     match escaped_refusal(&code, &details) {
                         Some(reason) => Answer::Refused(reason),
-                        None => Answer::Failed { code, retryable, message, details },
+                        None => Answer::failed(AttemptFailure::entered(
+                            code, retryable, message, details,
+                        )),
                     }
                 }
-                Err(ClientRequestError::Malformed(message)) => Answer::Failed {
-                    code: HANDLER_FAILED.name.to_owned(),
-                    retryable: false,
-                    message,
-                    details: Map::new(),
-                },
+                Err(ClientRequestError::Malformed(message)) => {
+                    Answer::failed(AttemptFailure::named(HANDLER_FAILED.name, false, message))
+                }
                 Err(_) => Answer::ClientGone,
             },
             _ = lease.ended() => {
@@ -1612,10 +1603,10 @@ async fn late(run: Run, lease: WorkItemLease, mut sent: Sent<CrawlRequestHandled
 pub(super) fn effect(answer: &Answer) -> Effect {
     match answer {
         Answer::Handled(CrawlRequestHandled { skipped: None, .. }) => Effect::Success,
-        Answer::Failed { code, details, .. } => match block_cause(code, details) {
-            Some(cause) => Effect::Blocked(cause),
-            None if code == PAGE_CHECK_FAILED => Effect::PageCheckFailed,
-            None => Effect::Neutral,
+        Answer::Failed(failure) => match failure.why() {
+            Why::Blocked(cause) => Effect::Blocked(*cause),
+            Why::PageCheckFailed { .. } => Effect::PageCheckFailed,
+            _ => Effect::Neutral,
         },
         Answer::Handled(CrawlRequestHandled {
             skipped: Some(_), ..
@@ -1627,15 +1618,4 @@ pub(super) fn effect(answer: &Answer) -> Effect {
         | Answer::LeaseEnded
         | Answer::ClientGone => Effect::Neutral,
     }
-}
-
-/// The Block cause of a handler's failure with the Error code `blocked`,
-/// which its details name.
-pub(super) fn block_cause(code: &str, details: &Map<String, Value>) -> Option<BlockCause> {
-    if code != BLOCKED {
-        return None;
-    }
-    details
-        .get("cause")
-        .and_then(|cause| serde_json::from_value(cause.clone()).ok())
 }

@@ -91,8 +91,8 @@ use goodfetch_frontier::Bounds;
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
 use goodfetch_protocol::foxhound::crawl::{
-    CLIENT_GONE, CRAWL_CONTENT_TYPES, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_FAILED,
-    HANDLER_LOST, LEASE_LOST, WORK_ITEM_QUEUED, WORK_ITEM_RETRIED,
+    CLIENT_GONE, CRAWL_CONTENT_TYPES, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_LOST,
+    LEASE_LOST, WORK_ITEM_QUEUED, WORK_ITEM_RETRIED,
 };
 use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_SAMPLE_COUNT, FETCH_SAMPLE_REFRESH_AFTER, FETCH_TIER_RACE, FetchTier,
@@ -135,12 +135,14 @@ use crate::work_items::{self, Failure, Leased, Unsuccessful};
 use goodfetch_protocol::foxhound::progress::{HELD_DOMAINS, InFlightPhase, InFlightRequest};
 
 mod attempt;
+mod failure;
+
+use failure::{AttemptFailure, Why};
 mod pages;
 mod politeness;
 
 use attempt::{
-    Answer, Attempt, Taught, Tiering, block_cause, effect, handler_lease, leased_count,
-    run_hand_over,
+    Answer, Attempt, Taught, Tiering, effect, handler_lease, leased_count, run_hand_over,
 };
 use pages::{Pages, Start};
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
@@ -1605,7 +1607,9 @@ async fn queue_outcome(
     let (work_item, lease_epoch) = (leased.crawl_request.id.clone(), leased.lease_epoch);
     let masks = run.secrets().mask().masks().clone();
     let tries = leased.tries;
-    let failure = move |failure, retryable| retried_or_failed(policy, tries, failure, retryable);
+    let failure = move |failure, why: &Why, retryable| {
+        retried_or_failed(policy, tries, failure, why, retryable)
+    };
     let mut commits = false;
     let unsuccessful = match answer {
         Answer::Handled(CrawlRequestHandled {
@@ -1642,44 +1646,37 @@ async fn queue_outcome(
                     commits = true;
                     let refused: Refusing =
                         Box::new(move |refusal: goodfetch_engine::CallError| {
-                            failure(
-                                kept_failure(
-                                    &masks,
-                                    refusal.code().to_owned(),
-                                    refusal.message(),
-                                    refusal.details().cloned().unwrap_or_default(),
-                                ),
-                                refusal.retryable(),
-                            )
+                            let (kept, why, retryable) = refused_commit(&masks, &refusal);
+                            failure(kept, &why, retryable)
                         });
                     let ending = attempt_outcome::Ending::Commit { commit, refused };
                     return queued(run, (leased, lease), (scored, taught, ending), commits).await;
                 }
                 Err(_) => failure(
                     Failure::new(LEASE_LOST.name, LEASE_LOST.description),
+                    &Why::Other,
                     LEASE_LOST.retryable,
                 ),
             }
         }
         Answer::ClientGone => failure(
             Failure::new(CLIENT_GONE.name, CLIENT_GONE.description),
+            &Why::Other,
             CLIENT_GONE.retryable,
         ),
         Answer::LeaseEnded => failure(
             Failure::new(HANDLER_LOST.name, HANDLER_LOST.description),
+            &Why::Other,
             HANDLER_LOST.retryable,
         ),
-        Answer::Failed {
-            code,
-            retryable,
-            message,
-            details,
-        } => {
-            let failed = kept_failure(&masks, code, &message, details);
-            match block_cause(&failed.code, &failed.details) {
-                Some(cause) => Unsuccessful::Blocked(cause),
-                None if held => Unsuccessful::Failed(failed.with_fix(RETRY_AFTER_FIX)),
-                None => failure(failed, retryable),
+        Answer::Failed(failed) => {
+            let failed = *failed;
+            let (why, retryable) = (failed.why().clone(), failed.retryable);
+            let kept = kept_failure(&masks, failed.code, &failed.message, failed.details);
+            match why {
+                Why::Blocked(cause) => Unsuccessful::Blocked(cause),
+                _ if held => Unsuccessful::Failed(kept.with_fix(RETRY_AFTER_FIX)),
+                why => failure(kept, &why, retryable),
             }
         }
     };
@@ -1822,6 +1819,23 @@ fn kept_failure(
     }
 }
 
+/// The failure of a commit the run file refused with `refusal`, as the
+/// Run's state keeps it, with why and whether it is retryable.
+fn refused_commit(
+    masks: &goodfetch_engine::mask::Masks,
+    refusal: &goodfetch_engine::CallError,
+) -> (Failure, Why, bool) {
+    let refusal = AttemptFailure::entered(
+        refusal.code().to_owned(),
+        refusal.retryable(),
+        refusal.message().to_owned(),
+        refusal.details().cloned().unwrap_or_default(),
+    );
+    let (why, retryable) = (refusal.why().clone(), refusal.retryable);
+    let kept = kept_failure(masks, refusal.code, &refusal.message, refusal.details);
+    (kept, why, retryable)
+}
+
 /// A request the site's preferences refused before its handler ran,
 /// skipped with `reason` (ADR 0086).
 fn refused(reason: SkipReason) -> Unsuccessful {
@@ -1831,21 +1845,21 @@ fn refused(reason: SkipReason) -> Unsuccessful {
     }
 }
 
-/// How `failure` on a work item's `attempt`th attempt since its latest
-/// admission ends it under
-/// `policy`: retried while it is `retryable` and retries are left, failed
-/// otherwise; a handler's own failure is retryable only as
-/// `crawl.retry.handler_failed` says.
+/// How `failure`, which failed for `why`, on a work item's `attempt`th
+/// attempt since its latest admission ends it under `policy`: retried
+/// while it is `retryable` and retries are left, failed otherwise; a
+/// handler's own failure is retryable only as `crawl.retry.handler_failed`
+/// says.
 fn retried_or_failed(
     policy: CrawlPolicy,
     attempt: u32,
     failure: Failure,
+    why: &Why,
     retryable: bool,
 ) -> Unsuccessful {
-    let retryable = if failure.code == HANDLER_FAILED.name {
-        policy.retry_handler_failed
-    } else {
-        retryable
+    let retryable = match why {
+        Why::Handler => policy.retry_handler_failed,
+        _ => retryable,
     };
     if retryable && policy.may_retry(attempt) {
         Unsuccessful::Retried(failure)

@@ -135,7 +135,7 @@ impl HopGate for Recording {
     fn sending<'a>(&'a self, hop: &'a Hop, lead: bool) -> Gating<'a, Result<(), Stop>> {
         Box::pin(async move {
             if self.unrecorded == Some(hop.url.path()) {
-                return Err(Stop::Failed(CallError::new(
+                return Err(Stop::failed(CallError::new(
                     &RESPONSE_UNAVAILABLE,
                     "its start could not be recorded",
                     &serde_json::json!({ "status": null }),
@@ -195,7 +195,7 @@ fn header<'a>(request: &'a Value, name: &str) -> Option<&'a str> {
 
 fn failed(stop: Result<Fetched, Stop>) -> goodfetch_engine::CallError {
     match stop {
-        Err(Stop::Failed(error)) => error,
+        Err(Stop::Failed(failure)) => failure.into_error(),
         other => panic!("not failed: {:?}", other.map(|fetched| fetched.url)),
     }
 }
@@ -783,7 +783,7 @@ fn a_first_hop_refused_at_its_connection_ends_skipped_with_domain_policy() {
         skipped.map(|fetched| fetched.url)
     );
     assert!(
-        matches!(&failed, Err(Stop::Failed(error)) if error.code() == NAVIGATION_FAILED.name),
+        matches!(&failed, Err(Stop::Failed(failure)) if failure.error().code() == NAVIGATION_FAILED.name),
         "{:?}",
         failed.map(|fetched| fetched.url)
     );

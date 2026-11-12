@@ -30,6 +30,34 @@ pub struct RunKey {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Wrapped(Vec<u8>);
 
+/// A field as a secret column of run state holds it: sealed under its
+/// Run's data key for its table, column and row. Only a Run seals one
+/// (`Run::seal`), and SQLite stores and gives back its bytes as a `BLOB`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Sealed(Vec<u8>);
+
+impl Sealed {
+    pub(crate) fn new(sealed: Vec<u8>) -> Self {
+        Self(sealed)
+    }
+
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl rusqlite::ToSql for Sealed {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        self.0.to_sql()
+    }
+}
+
+impl rusqlite::types::FromSql for Sealed {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
+        value.as_blob().map(|sealed| Self(sealed.to_vec()))
+    }
+}
+
 /// Why a key was not made, or a value did not open.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]

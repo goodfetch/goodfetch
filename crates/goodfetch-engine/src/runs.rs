@@ -84,6 +84,7 @@ use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
 use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
 use secrecy::SecretString;
+use secrecy::zeroize::Zeroizing;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
@@ -132,10 +133,11 @@ use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, 
 use crate::robots_txt::{Answer, Copies, Fetched, NotRead, OwnCopies, RunCopies};
 use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport};
 use crate::run_index;
-use crate::run_key::{self, KeyError, RunKey, StoredKey};
+use crate::run_key::{self, KeyError, RunKey, Sealed, StoredKey};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
-    self, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions, RunStateTables, Syncing,
+    self, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions, RunStateTables,
+    SecretColumn, Syncing,
 };
 use crate::run_trace;
 use crate::sandbox_probe::SandboxProbe;
@@ -1377,7 +1379,9 @@ impl Run {
         &self.shared.secrets
     }
 
-    /// Its data key, which seals and opens the fields of its secret tables.
+    /// `plaintext` sealed under its data key for the row `row` of the secret
+    /// column `column`: the only value its owner writes there. Its first
+    /// call makes the data key.
     ///
     /// # Errors
     ///
@@ -1385,11 +1389,49 @@ impl Run {
     ///
     /// # Cancel safety
     ///
+    /// As [`Run::open`]'s.
+    pub async fn seal(
+        &self,
+        column: &SecretColumn,
+        row: &str,
+        plaintext: &[u8],
+    ) -> Result<Sealed, RunKeyError> {
+        let key = self.key().await?;
+        Ok(Sealed::new(key.seal(
+            column.table,
+            column.column,
+            row,
+            plaintext,
+        )?))
+    }
+
+    /// The plaintext of `sealed`, read from the row `row` of the secret
+    /// column `column`, in this Run or after its resume.
+    ///
+    /// # Errors
+    ///
+    /// As [`RunKeyError`] says: `Key` when the value was sealed for another
+    /// place or another Run, or changed since.
+    ///
+    /// # Cancel safety
+    ///
     /// Dropping the future of the caller that makes the key abandons the
     /// making, and the next caller makes one again. A drop once the
     /// wrapped key's write was queued may leave it stored: the next making
     /// then takes that key rather than store another.
-    pub async fn key(&self) -> Result<&RunKey, RunKeyError> {
+    pub async fn open(
+        &self,
+        column: &SecretColumn,
+        row: &str,
+        sealed: &Sealed,
+    ) -> Result<Zeroizing<Vec<u8>>, RunKeyError> {
+        let key = self.key().await?;
+        Ok(key.open(column.table, column.column, row, sealed.as_bytes())?)
+    }
+
+    /// Its data key, which seals and opens the fields of its secret
+    /// columns, made at its first use.
+    async fn key(&self) -> Result<&RunKey, RunKeyError> {
         self.shared.key.get_or_try_init(|| self.make_key()).await
     }
 

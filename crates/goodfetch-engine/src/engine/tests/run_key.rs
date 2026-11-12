@@ -36,7 +36,7 @@ use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::{Dependencies, Engine};
 use crate::home::Home;
 use crate::run_key::{self, sealing};
-use crate::run_state::RunStateTables;
+use crate::run_state::{RunStateTables, SecretColumn};
 use crate::runs::{EndedBy, Run, Start, Started};
 
 /// Starts a Collie Run its program drives, which the tests seal values in.
@@ -87,6 +87,12 @@ const SECRETS: RunStateTables = RunStateTables {
     statements: &[
         "CREATE TABLE IF NOT EXISTS test_secrets (row INTEGER NOT NULL PRIMARY KEY, value BLOB NOT NULL) STRICT",
     ],
+};
+
+/// Its secret column.
+const VALUE: SecretColumn = SecretColumn {
+    table: "test_secrets",
+    column: "value",
 };
 
 /// The Runs `test.keep` started, each held by a task of its own, which its
@@ -141,15 +147,14 @@ fn sealing() -> Contribution {
             |params: Value, context: CallContext| async move {
                 let run = live(&context, &params).await;
                 let row = params["row"].as_i64().unwrap();
-                let key = run.key().await.map_err(|error| no_key(&error))?;
-                let sealed = key
+                let sealed = run
                     .seal(
-                        "test_secrets",
-                        "value",
+                        &VALUE,
                         &row.to_string(),
                         params["value"].as_str().unwrap().as_bytes(),
                     )
-                    .unwrap();
+                    .await
+                    .map_err(|error| no_key(&error))?;
                 let data_key = data_encoding::HEXLOWER.encode(data_key(&run).await.as_slice());
                 run.state()
                     .write(move |connection| {
@@ -172,7 +177,7 @@ fn sealing() -> Contribution {
             |params: Value, context: CallContext| async move {
                 let run = live(&context, &params).await;
                 let row = params["row"].as_i64().unwrap();
-                let sealed: Vec<u8> = run
+                let sealed: crate::run_key::Sealed = run
                     .state()
                     .read(move |connection| {
                         connection.query_row(
@@ -183,10 +188,10 @@ fn sealing() -> Contribution {
                     })
                     .await
                     .unwrap();
-                let key = run.key().await.map_err(|error| no_key(&error))?;
-                let opened = key
-                    .open("test_secrets", "value", &row.to_string(), &sealed)
-                    .unwrap();
+                let opened = run
+                    .open(&VALUE, &row.to_string(), &sealed)
+                    .await
+                    .map_err(|error| no_key(&error))?;
                 Ok::<Value, CallError>(json!({
                     "value": String::from_utf8(opened.to_vec()).unwrap()
                 }))

@@ -42,8 +42,9 @@ use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::home::RUN_TRACE_PROVENANCE;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
-    Answer, BROWSERS_PATH_VARIABLE, Outcome, Process, Redirect, Refusal, Runner, SsrfCase,
-    SsrfTable, TestEnv, browser_cache, chrome_for_testing, reported_debugging_port,
+    Answer, BROWSERS_PATH_VARIABLE, Canaries, Canary, Outcome, Output, Process, Redirect, Refusal,
+    Runner, SecretKind, SsrfCase, SsrfTable, TestEnv, browser_cache, chrome_for_testing,
+    reported_debugging_port,
 };
 use serde_json::{Map, Value, json};
 
@@ -663,6 +664,99 @@ fn a_resumed_run_reopens_a_borrowed_session_on_its_browser() {
         ),
         (&json!("resumed"), true, 0),
         "{page}"
+    );
+}
+
+/// How many data keys the run file of `run_id` holds, wrapped.
+fn data_keys(env: &TestEnv, run_id: &str) -> u32 {
+    rusqlite::Connection::open(HomeLayout::of(env.home()).run_file(run_id))
+        .unwrap()
+        .query_row("SELECT count(*) FROM run_key", [], |row| row.get(0))
+        .unwrap()
+}
+
+/// The `cdp_url` a Session borrows its browser through, which names the
+/// one browser and may carry its provider's access token, is sealed in run
+/// state under the Run's data key: its browser's own name is in no byte of
+/// the run file, its WAL or its Checkpoint, plain or encoded, and the Run
+/// resumed after its engine was killed still opens it, since its Session's
+/// next page opens on that browser. The Run made one data key for it.
+///
+/// Covers: story:4-64, story:5-60, operation:run.resume
+#[cfg(unix)]
+#[test]
+fn a_borrowed_sessions_cdp_url_is_sealed_in_run_state_and_opens_after_a_resume() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let mut canaries = Canaries::new(env.seed());
+    let browser = lent.cdp_url.rsplit('/').next().unwrap();
+    canaries.add(Canary::known("cdp-url", SecretKind::EndpointToken, browser));
+    let mut program = Program::start(&env, &cache, Surface::SdkTypescript);
+    program.run("sealed-source", &[]);
+    let session = program.borrow("sealed-source", &lent.cdp_url)["result"]["session_id"].clone();
+    let _ = program.new_page(&session);
+    let checkpointed = program.call("run.checkpoint", &json!({ "run_id": "sealed-source" }));
+    program.engine.kill();
+
+    let folder = HomeLayout::of(env.home()).run_folder("sealed-source");
+    let files = ["run.sqlite", "run.sqlite-wal", "checkpoint.sqlite"].map(|file| folder.join(file));
+    let held: Vec<Output<'_>> = files
+        .iter()
+        .filter(|file| file.exists())
+        .map(|file| Output::Path(file))
+        .collect();
+    let leaks: Vec<String> = canaries
+        .search(&held)
+        .unwrap()
+        .into_iter()
+        .map(|hit| format!("{} in {}", hit.canary, hit.output))
+        .collect();
+    let keys = data_keys(&env, "sealed-source");
+    let mut resumed = Program::start(&env, &cache, Surface::SdkTypescript);
+    let resume = resumed.call(
+        "run.resume",
+        &json!({ "run_id": "sealed-source", "settings": { "network": { "resolve": {} } } }),
+    );
+    let page = resumed.call("session.new_page", &json!({ "session_id": session }));
+    let launched = launched_by_the_engine(&env);
+    resumed.finish("sealed-source");
+    lent.stop();
+
+    assert_eq!(
+        (
+            leaks,
+            checkpointed.get("result").is_some() && files[2].exists(),
+            keys,
+            &resume["result"]["started_as"],
+            page["result"]["page_id"].is_string(),
+            launched,
+        ),
+        (Vec::new(), true, 1, &json!("resumed"), true, 0),
+        "{page}"
+    );
+}
+
+/// A Run whose Sessions borrow no browser writes no secret column, so it
+/// makes no data key and never reaches the key-encryption key.
+///
+/// Covers: story:4-64
+#[test]
+fn a_run_with_no_borrowed_session_makes_no_data_key() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let mut program = Program::start(&env, &cache, Surface::SdkTypescript);
+    program.run("no-secret", &[]);
+    let session = program.call("run.new_session", &json!({ "run_id": "no-secret" }));
+    program.finish("no-secret");
+
+    assert_eq!(
+        (
+            session["result"]["session_id"].is_string(),
+            data_keys(&env, "no-secret")
+        ),
+        (true, 0),
+        "{session}"
     );
 }
 

@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_engine::browser_cache::{self, MaxUnusedAge};
+use goodfetch_engine::children::give_huge_pages_as_started;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::files::{DaemonFiles, FileLock};
 use goodfetch_engine::daemon::service::LaunchedCommand;
@@ -59,6 +60,7 @@ pub(super) fn launch(
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     detach(&mut command);
+    give_huge_pages_as_started(&mut command);
     let mut child = command
         .spawn()
         .map_err(unavailable("the Daemon's process cannot start"))?;
@@ -397,12 +399,14 @@ fn give_place_to_the_pick(machine: &Machine<'_>) -> Option<ExitCode> {
         version = %picked.product_version,
         "the service starts its major's pick in its place"
     );
-    let error = std::process::Command::new(&executable)
+    let mut command = std::process::Command::new(&executable);
+    command
         .args(LaunchedCommand::of_service(&build, Vec::new()).arguments())
         .env_clear()
         .envs(machine.environment)
-        .current_dir(machine.home.root())
-        .exec();
+        .current_dir(machine.home.root());
+    give_huge_pages_as_started(&mut command);
+    let error = command.exec();
     Some(unavailable("the pick's versioned copy cannot start")(error).report())
 }
 

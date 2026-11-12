@@ -1,4 +1,4 @@
-//! How the Console reads a crawl's Datasets (spec #593, stories 204, 205
+//! How a person surface reads a crawl's Datasets (spec #593, stories 204, 205
 //! and 233; ADRs 0031 and 0103): `dataset.list`, each Dataset a crawl
 //! declares with its JSON Schema, its key and how many Records were
 //! committed, dropped and rejected; and `dataset.page`, one page of a
@@ -81,6 +81,8 @@ pub const DATASET_LIST: Operation = Operation {
     result: schema_of::<DatasetList>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -231,6 +233,8 @@ pub const DATASET_PAGE: Operation = Operation {
     result: schema_of::<DatasetPage>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,

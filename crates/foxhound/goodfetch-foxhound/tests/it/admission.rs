@@ -20,7 +20,8 @@ use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use crate::{attached, run_file};
+use crate::run_file;
+use crate::site::Site;
 
 /// The Resource governor's HTTP admissions, fixed at every crawl's handler
 /// concurrency here or above: under pressure the governor lowers a kind's
@@ -40,12 +41,12 @@ fn seed(url: &str, priority: i64) -> Value {
 /// A quiet stretch would say nothing of the engine's state: a loaded
 /// machine outlasts it between two requests of one turn.
 fn in_flight_at_once(
-    env: &TestEnv,
+    (env, site): (&TestEnv, &Site),
     seeds: &[Value],
     settings: &Value,
 ) -> (Vec<BTreeSet<String>>, Value) {
     env.user_configuration(GOVERNOR);
-    let mut engine = attached(env);
+    let mut engine = site.engine(env);
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
         "params": { "run_id": "fair", "seeds": seeds, "settings": settings },
@@ -138,18 +139,19 @@ fn urls(urls: &[&str]) -> BTreeSet<String> {
 #[test]
 fn each_turn_leases_one_request_per_domain_key_under_the_global_cap() {
     let env = TestEnv::new();
+    let site = Site::start(&env);
     let seeds = [
-        seed("https://heavy.test/1", 0),
-        seed("https://www.heavy.test/2", 0),
-        seed("https://shop.heavy.test/3", 0),
-        seed("https://heavy.test/4", 0),
-        seed("https://heavy.test/urgent", 5),
-        seed("https://alice.github.io/1", 0),
-        seed("https://bob.github.io/1", 0),
+        seed(&site.url("heavy.test", "/1"), 0),
+        seed(&site.url("www.heavy.test", "/2"), 0),
+        seed(&site.url("shop.heavy.test", "/3"), 0),
+        seed(&site.url("heavy.test", "/4"), 0),
+        seed(&site.url("heavy.test", "/urgent"), 5),
+        seed(&site.url("alice.github.io", "/1"), 0),
+        seed(&site.url("bob.github.io", "/1"), 0),
     ];
 
     let (turns, report) = in_flight_at_once(
-        &env,
+        (&env, &site),
         &seeds,
         &json!({ "crawl": { "handler": { "concurrency": 3 } } }),
     );
@@ -170,16 +172,16 @@ fn each_turn_leases_one_request_per_domain_key_under_the_global_cap() {
         (
             vec![
                 urls(&[
-                    "https://heavy.test/urgent",
-                    "https://alice.github.io/1",
-                    "https://bob.github.io/1",
+                    &site.url("heavy.test", "/urgent"),
+                    &site.url("alice.github.io", "/1"),
+                    &site.url("bob.github.io", "/1"),
                 ]),
                 urls(&[
-                    "https://heavy.test/1",
-                    "https://www.heavy.test/2",
-                    "https://shop.heavy.test/3",
+                    &site.url("heavy.test", "/1"),
+                    &site.url("www.heavy.test", "/2"),
+                    &site.url("shop.heavy.test", "/3"),
                 ]),
-                urls(&["https://heavy.test/4"]),
+                urls(&[&site.url("heavy.test", "/4")]),
             ],
             &json!("finished"),
             vec![
@@ -196,14 +198,15 @@ fn each_turn_leases_one_request_per_domain_key_under_the_global_cap() {
 #[test]
 fn a_crawls_own_domain_keys_put_two_sites_in_one_queue() {
     let env = TestEnv::new();
+    let site = Site::start(&env);
     let seeds = [
-        seed("https://alice.github.io/1", 0),
-        seed("https://bob.github.io/1", 0),
-        seed("https://other.test/1", 0),
+        seed(&site.url("alice.github.io", "/1"), 0),
+        seed(&site.url("bob.github.io", "/1"), 0),
+        seed(&site.url("other.test", "/1"), 0),
     ];
 
     let (turns, _) = in_flight_at_once(
-        &env,
+        (&env, &site),
         &seeds,
         &json!({
             "crawl": { "handler": { "concurrency": 2 }, "domain_keys": { "github.io": "github" } },
@@ -213,8 +216,8 @@ fn a_crawls_own_domain_keys_put_two_sites_in_one_queue() {
     assert_eq!(
         turns.first(),
         Some(&urls(&[
-            "https://alice.github.io/1",
-            "https://other.test/1"
+            &site.url("alice.github.io", "/1"),
+            &site.url("other.test", "/1")
         ]))
     );
 }
@@ -234,10 +237,11 @@ fn an_operator_policy_cap_bounds_the_rate_of_a_crawl_that_set_none() {
         "version = \"0.1\"\n\n[cap.admission]\nmax_requests_per_minute = 1\n",
     )
     .unwrap();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": "paced", "seeds": [seed("https://a.test/1", 0), seed("https://b.test/1", 0)] },
+        "params": { "run_id": "paced", "seeds": [seed(&site.url("a.test", "/1"), 0), seed(&site.url("b.test", "/1"), 0)] },
     }));
     let first = loop {
         let message = engine.next().unwrap();
@@ -269,8 +273,8 @@ fn an_operator_policy_cap_bounds_the_rate_of_a_crawl_that_set_none() {
             true,
             &json!("stopped"),
             vec![
-                ("https://a.test/1".to_owned(), "succeeded".to_owned()),
-                ("https://b.test/1".to_owned(), "pending".to_owned()),
+                (site.url("a.test", "/1"), "succeeded".to_owned()),
+                (site.url("b.test", "/1"), "pending".to_owned()),
             ]
         )
     );

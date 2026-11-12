@@ -1,7 +1,0 @@
-{
-  "runs": {
-    "empty": "No run yet.",
-    "stealth": ["Bypass the wall", "Undetectable", "Undetected", "Solve any CAPTCHA"],
-    "title": "Runs"
-  }
-}

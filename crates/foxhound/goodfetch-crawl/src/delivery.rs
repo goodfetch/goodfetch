@@ -111,8 +111,8 @@ use goodfetch_protocol::foxhound::settings::{
     DATASET_RECORDS, FETCH_BLOCK_CLASSIFICATION, PROVENANCE_LOG,
 };
 use goodfetch_protocol::governor::WorkKind;
-use goodfetch_protocol::page::SITE_PREFERENCES_REFUSED;
 use goodfetch_protocol::page::proxy::{PROXY_PROVIDER, PROXY_SERVER};
+use goodfetch_protocol::page::{SITE_PREFERENCES_REFUSED, SessionId};
 use goodfetch_protocol::run::{
     EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, RunWarning, StopReason,
 };
@@ -209,12 +209,7 @@ pub(crate) async fn drive(
         in_flight: 0,
         gone: false,
     }];
-    // A code-free crawl fetches every request: with no tier set, the
-    // engine chooses each, as under `auto` (ADR 0103).
-    let run_tier = match FetchTiers::run_tier(settings.resolved()) {
-        SetTier::Unset if code_free.is_some() => SetTier::Auto,
-        set => set,
-    };
+    let run_tier = FetchTiers::run_tier(settings.resolved());
     let races: bool = settings.resolved().get(&FETCH_TIER_RACE);
     // One HTTP tier for the Run, so its hops share connections (#763); the
     // navigation gate fetches robots.txt on it too, from the first
@@ -226,16 +221,13 @@ pub(crate) async fn drive(
     };
     let http = match built {
         Ok(http) => Some(http),
-        // A request may take the `http` tier: the Run cannot go on.
-        Err(error) if labels.settings.any() || run_tier != SetTier::Unset || races => {
+        // Every request may take the `http` tier, forced or by the engine's
+        // choice: the Run cannot go on.
+        Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the crawl's HTTP tier could not be built");
             run.end(failed(&run, &error)).await;
             crawls.close(run.id()).await;
             return;
-        }
-        Err(error) => {
-            tracing::warn!(%error, run_id = %run.id(), "the navigation gate has no transport for robots.txt; every robots.txt it reads is unreachable");
-            None
         }
     };
     let untouched = Untouched::of(&run, &labels, code_free.as_ref());
@@ -744,14 +736,14 @@ impl Fetching<'_> {
         })
     }
 
-    /// How `leased`'s attempt runs, as `chosen` (its Label and the Run's
-    /// `fetch.tier` chose it as its Session was drawn): a race is timed by
-    /// its Label on its domain's browser-fetch latencies; and what it
-    /// fetches its document with.
+    /// How `leased`'s attempt runs in the pool Session `session`, as
+    /// `chosen` (its Label and the Run's `fetch.tier` chose it as its
+    /// Session was drawn): a race is timed by its Label on its domain's
+    /// browser-fetch latencies; and what it fetches its document with.
     async fn served(
         &self,
         leased: &Leased,
-        (chosen, local): (Chosen, Local),
+        (session, chosen, local): (&SessionId, Chosen, Local),
         second_copies: &SecondCopies,
     ) -> Tiering {
         let request = &leased.crawl_request;
@@ -779,7 +771,7 @@ impl Fetching<'_> {
                 ),
             }),
         };
-        let http = self.session_tier(local);
+        let http = self.session_tier(session, local);
         Tiering::of(
             self.tiers,
             http.as_ref(),
@@ -789,22 +781,22 @@ impl Fetching<'_> {
         )
     }
 
-    /// The Run's HTTP tier as a Session holding `local` sends on it (ADR
-    /// 0044): `None`, which fails the attempt's fetch, when the Session's
-    /// addresses are no longer held or its transport cannot be built,
-    /// rather than sending from an address the OS chooses.
-    fn session_tier(&self, local: Local) -> Option<HttpTier> {
+    /// The Run's HTTP tier as the pool Session `session`, holding `local`,
+    /// sends on it (ADR 0044), through the Session's own proxy when the Run
+    /// sets one (#1640): `None`, which fails the attempt's fetch, when the
+    /// Session's addresses are no longer held or its transport cannot be
+    /// built, rather than sending from an address the OS chooses.
+    fn session_tier(&self, session: &SessionId, local: Local) -> Option<HttpTier> {
         let http = self.http?;
-        let addresses = match local {
-            None => return Some(http.clone()),
-            Some(Ok(addresses)) => addresses,
+        let source = match local {
+            None => None,
+            Some(Ok(addresses)) => Some(LocalSource::new(addresses, self.interface.clone())),
             Some(Err(unavailable)) => {
                 tracing::warn!(entry = %unavailable.entry, "a Session's local addresses are no longer held; its HTTP fetches fail");
                 return None;
             }
         };
-        let source = LocalSource::new(addresses, self.interface.clone());
-        http.from_session(Some(&source))
+        http.of_session(session, source.as_ref())
             .inspect_err(|error| tracing::warn!(%error, "a Session's HTTP transport could not be built; its HTTP fetches fail"))
             .ok()
     }
@@ -813,6 +805,9 @@ impl Fetching<'_> {
     /// attempt holds any more, for the call `context`.
     async fn retire(&self, run: &Run, pool: &mut SessionPool, context: &CallContext) {
         for session in pool.closable() {
+            if let Some(http) = self.http {
+                http.forget_session(&session).await;
+            }
             if let Err(error) = self.tiers.retire_browser(run.id(), &session, context).await {
                 tracing::error!(%error, run_id = %run.id(), session_id = %session.0, "a retired Session's browser context did not close");
             }
@@ -932,11 +927,8 @@ impl Drawing {
         let local = pool.local_addresses(&session.id);
         // A sitemap's fetch runs no handler and takes no tier choice: its
         // attempt fetches it on the Run's HTTP tier.
-        let choosing = if leased.sitemap {
-            Choosing::Alone
-        } else {
-            self.labels.settings.choose(&request.label, self.run_tier)
-        };
+        let choosing =
+            (!leased.sitemap).then(|| self.labels.settings.choose(&request.label, self.run_tier));
         // A request keeping its URL's fragment is served only by a tier
         // that runs the page's scripts, which the engine's choice is then
         // (ADR 0120); the start refused it on any forced tier but those.
@@ -955,17 +947,15 @@ impl Drawing {
             (plan, unit.cloned())
         };
         let (chosen, counted) = match choosing {
-            Choosing::Alone | Choosing::Engine if keeps_fragment => {
-                (Chosen::Planned(browser), None)
-            }
-            Choosing::Alone | Choosing::Engine if self.races && !to_browser && !leased.sitemap => {
+            None => (Chosen::Planned(AttemptPlan::Sitemap), None),
+            Some(Choosing::Engine) if keeps_fragment => (Chosen::Planned(browser), None),
+            Some(Choosing::Engine) if self.races && !to_browser => {
                 let (plan, counted) = learned();
                 (Chosen::Racing(plan), counted)
             }
-            Choosing::Alone => (Chosen::Planned(AttemptPlan::Alone), None),
-            Choosing::Forced(choice) => (Chosen::Planned(AttemptPlan::On(choice)), None),
-            Choosing::Engine if to_browser => (Chosen::Planned(browser), None),
-            Choosing::Engine => {
+            Some(Choosing::Forced(choice)) => (Chosen::Planned(AttemptPlan::On(choice)), None),
+            Some(Choosing::Engine) if to_browser => (Chosen::Planned(browser), None),
+            Some(Choosing::Engine) => {
                 let (plan, counted) = learned();
                 (Chosen::Planned(plan), counted)
             }
@@ -1048,7 +1038,9 @@ async fn lease_to_servers(
             server.in_flight += 1;
             let copies = admission.second_copies();
             let fetching = &pooled.fetching;
-            let tiering = fetching.served(&leased, (chosen, local), &copies).await;
+            let tiering = fetching
+                .served(&leased, (&session.id, chosen, local), &copies)
+                .await;
             let admission = FetchAdmission::holding(
                 permits
                     .pop()

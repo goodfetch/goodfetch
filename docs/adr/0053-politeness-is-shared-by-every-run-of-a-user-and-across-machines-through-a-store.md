@@ -71,4 +71,6 @@ How comparable tools share their limits:
 
 **Several Daemons in a Daemon group** (ADR 0055) share Politeness through a store. A group of more than one Group member, formed by the Helm chart or by `goodfetch group join`, is refused unless a store is set or its Operator policy sets `politeness_sharing: per_daemon`, which every run's result and the Console then show.
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
+
 > Amended by [ADR 0086](0086-a-crawl-obeys-robots-txt-and-sends-one-request-at-a-time-per-domain-by-default-and-pressing-harder-is-recorded.md): the key is `politeness.sharing`.

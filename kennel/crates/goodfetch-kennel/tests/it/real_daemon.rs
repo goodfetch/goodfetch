@@ -21,9 +21,8 @@ use std::time::Duration;
 use goodfetch_kennel::client::{Call, ConnectionChange};
 use goodfetch_kennel::home::Home;
 use goodfetch_protocol::catalog::PROTOCOL_VERSION;
-use goodfetch_protocol::connection::{DaemonEndpoint, ProductVersion};
+use goodfetch_protocol::connection::DaemonEndpoint;
 use goodfetch_protocol::daemon::DaemonRuntimeFile;
-use goodfetch_protocol::home::USER_CONFIGURATION_FILE;
 use goodfetch_protocol::run::{RunAbortParams, RunId, RunParams, RunWaitParams};
 use serde_json::{Value, json};
 
@@ -58,16 +57,6 @@ impl Daemon {
         for (_, path) in &variables {
             std::fs::create_dir_all(path).unwrap();
         }
-        // The Console on a free port, as the root workspace's test homes
-        // have it, so no fixed port is taken (TESTING.md).
-        let major = Self::major_folder(executable, &variables);
-        let configuration = folder.join("home").join(major);
-        std::fs::create_dir_all(&configuration).unwrap();
-        std::fs::write(
-            configuration.join(USER_CONFIGURATION_FILE),
-            "version = \"0.1\"\n\n[settings]\nconsole.address = \"127.0.0.1:0\"\n",
-        )
-        .unwrap();
         let mut child = Self::command(executable, &variables)
             .args(["daemon", "launched", "--keep-alive"])
             .stdin(Stdio::null())
@@ -88,18 +77,6 @@ impl Daemon {
             variables,
             runtime_file,
         }
-    }
-
-    /// The per-major folder of `executable`'s version: `0.y` during `0.y`
-    /// previews, the major otherwise (ADR 0024).
-    fn major_folder(executable: &Path, variables: &[(String, PathBuf)]) -> String {
-        let output = Self::command(executable, variables)
-            .arg("--version")
-            .output()
-            .unwrap();
-        let printed = String::from_utf8(output.stdout).unwrap();
-        let version = printed.split_whitespace().last().unwrap();
-        ProductVersion::parse(version).unwrap().line().to_string()
     }
 
     fn command(executable: &Path, variables: &[(String, PathBuf)]) -> Command {

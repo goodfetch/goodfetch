@@ -64,9 +64,15 @@ goodfetch-workspace-hack.workspace = true
 # The foreground Daemon's reaper: the subreaper, `waitpid` and `kill` (ADR 0049).
 libc = { workspace = true, optional = true }
 
-[build-dependencies]
-# Reads the Console build's routes, `routes.json` (ADR 0072).
-serde_json.workspace = true
+[target.'cfg(all(target_os = "linux", target_env = "musl"))'.dependencies]
+# The static musl executables have one allocator (#2208): Collie's, and
+# Foxhound's, which turns on this crate's `executable` feature. `override`
+# routes the C and C++ code's `malloc` and its siblings (SQLite, BoringSSL,
+# zstd, DuckDB) to mimalloc in place of Zig's libc allocator, whose `malloc`
+# is weak; this crate's and Foxhound's tests built for that target do the
+# same. The gnu builds, where the tests and heap benchmarks count on the
+# system's allocator, and macOS and Windows keep their `malloc`.
+mimalloc = { workspace = true, optional = true, features = ["override"] }
 
 [dev-dependencies]
 # Its own executable, for the integration tests and the startup benchmarks
@@ -103,8 +109,7 @@ serde_json.workspace = true
 tempfile.workspace = true
 # `block_detection`'s check of its rules' sources against its `third-party.toml`.
 toml.workspace = true
-# The Console's headers test, an HTTP Client of the Daemon's Console
-# (tests/it/console.rs), and the pins' lever's download.
+# The tests' HTTP Client, and the pins' lever's download.
 ureq.workspace = true
 # The SSRF table runners' URLs as the WHATWG parser writes them
 # (tests/it/navigation_egress.rs, tests/it/borrowed_browser.rs).

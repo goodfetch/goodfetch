@@ -301,33 +301,6 @@ class Completeness(StrEnum):
     """It finished, but the engine cannot vouch that nothing was missed."""
 
 
-class ConsoleFailure(BaseModel):
-    """
-    Why a Daemon's Console did not start: an Error code, its message and
-    what to do instead.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    code: str
-    """The Error code, such as `console_port_in_use`."""
-    fix: str
-    """What to do instead."""
-    message: str
-    """What happened."""
-
-
-class ConsoleKeyRotated(BaseModel):
-    """What `console.rotate_key` answers."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    signed_out: Annotated[int, Field(ge=0)]
-    """How many sign-ins it ended: every one."""
-
-
 class ConsoleLocation(BaseModel):
     """
     Where a console message was written: its script's URL and position, as
@@ -343,40 +316,6 @@ class ConsoleLocation(BaseModel):
     """The line, from 0."""
     url: str
     """The script's URL; empty for a script the page evaluated."""
-
-
-class ConsoleRotateKeyParams(BaseModel):
-    """What `console.rotate_key` takes: nothing."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-
-
-class ConsoleState1(BaseModel):
-    """The Console is served at this URL, such as `http://127.0.0.1:7801/`."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    serving: str
-
-
-class ConsoleState2(BaseModel):
-    """The Console did not start; the Daemon still serves its Clients."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    failed: ConsoleFailure
-
-
-class ConsoleState(RootModel[ConsoleState1 | ConsoleState2 | Literal["absent"]]):
-    root: ConsoleState1 | ConsoleState2 | Literal["absent"]
-    """
-    Where a Daemon's Console is, as its runtime file and `daemon status`
-    report it.
-    """
 
 
 class Count(BaseModel):
@@ -738,7 +677,7 @@ class Form(StrEnum):
     """The MCP server and the Framework adapters."""
     catalog = "catalog"
     """
-    The catalog's own names: the Console, Integrations and the HTTP
+    The catalog's own names: Integrations and the HTTP
     listener.
     """
 
@@ -949,7 +888,7 @@ class LimitSetter(StrEnum):
     """Who set a Limit, which decides whether it allows paying (ADR 0045)."""
 
     person = "person"
-    """A person, in the Console or an interactive CLI prompt."""
+    """A person, in the Kennel or an interactive CLI prompt."""
     managed_policy = "managed_policy"
     """A managed Operator policy."""
     client = "client"
@@ -2509,56 +2448,6 @@ class SettingsLayer(StrEnum):
     """
 
 
-class SignInListParams(BaseModel):
-    """What `sign_in.list` takes: nothing."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-
-
-class SignInRevokeParams(BaseModel):
-    """What `sign_in.revoke` takes."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    id: str
-    """The sign-in's identifier, as `sign_in.list` gives it."""
-
-
-class SignInRevoked(BaseModel):
-    """What `sign_in.revoke` answers."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    revoked: bool
-    """
-    Whether a sign-in ended: `false` when none had that identifier, or
-    it had already ended.
-    """
-
-
-class SignInSummary(BaseModel):
-    """One sign-in, as `sign_in.list` shows it: never its cookie."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    created: PointInTime
-    """When it was created."""
-    id: str
-    """Its identifier, which `sign_in.revoke` takes."""
-    last_used: PointInTime
-    """When it was last used, from which its idle expiry counts."""
-    person: str
-    """
-    The person it signs in, by the name their account or OS user goes
-    by.
-    """
-
-
 class SitemapRule(BaseModel):
     """
     One rule of a sitemap seed: a URL pattern, a glob as
@@ -2807,8 +2696,6 @@ class Surface(StrEnum):
     """The CLI, as a Client of its own Attached engine or of a Daemon."""
     mcp = "mcp"
     """The MCP server, as a Client of a Daemon."""
-    console = "console"
-    """The Console."""
     kennel = "kennel"
     """
     The Kennel, a person surface that observes the Daemon: its Runs
@@ -2896,7 +2783,12 @@ class TierProvenance(BaseModel):
     forced_by: ForcedBy | None = None
     """What forced it, when `chosen` is `forced`."""
     tier: FetchTier
-    """The tier."""
+    """
+    The tier that sent the document's request, whoever chose it:
+    `browser_fetch` when it left from inside the Session's browser, as
+    under `auto`, and `http` when the Session's own HTTP transport sent
+    it.
+    """
 
 
 class TimeRange(BaseModel):
@@ -3581,7 +3473,7 @@ class ConsentDomainAllowed(BaseModel):
     """The layer written: user configuration."""
     warning: str
     """
-    What the person takes on, in plain words, as the Console showed it
+    What the person takes on, in plain words, as the person surface showed it
     beside the answer and the Audit log records it.
     """
 
@@ -3671,9 +3563,7 @@ class DaemonState(BaseModel):
         extra="allow",
     )
     clients: Annotated[int, Field(ge=0)]
-    """How many Clients are connected, the caller and Consoles included."""
-    console: ConsoleState
-    """Where its Console is served, or why it is not."""
+    """How many Clients are connected, the caller included."""
     endpoint: DaemonEndpoint
     """Where it listens."""
     heap: Annotated[int | None, Field(ge=0)] = None
@@ -3918,8 +3808,8 @@ class ExplainedSetting(BaseModel):
     user_settable: bool | None = None
     """
     Whether user configuration may set it: its authority lets user
-    configuration hold it and no lower layer locked it, so the Console
-    offers its user-level value for editing (ADR 0031).
+    configuration hold it and no lower layer locked it, so a person
+    surface may offer its user-level value for editing (ADR 0031).
     """
     value: Any
     """
@@ -3975,8 +3865,8 @@ class ExportedAuditEntry(BaseModel):
     """Its place in the chain, from 1."""
     surface: Surface | None = None
     """
-    The surface the actor acted through, such as `console` for a person
-    in the Console; none for the engine's own events.
+    The surface the actor acted through, such as `kennel` for a person
+    in the Kennel; none for the engine's own events.
     """
     time: PointInTime
     """When it was recorded."""
@@ -4061,13 +3951,6 @@ class HelloResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
-    console_link: str | None = None
-    """
-    The sign-in link of the Console an Attached engine serves for its
-    script, which asked for one with a Console address, reported to the
-    Client of its stdio alone: `<url>#token=<token>`, whose fragment the
-    page swaps once for its cookie (ADRs 0024 and 0031).
-    """
     engine_instance: EngineInstance
     """
     The engine process, new each time an engine starts: the positions
@@ -5257,16 +5140,6 @@ class SettingsFile(BaseModel):
     """Its path."""
 
 
-class SignInList(BaseModel):
-    """What `sign_in.list` answers."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    sign_ins: list[SignInSummary]
-    """Every sign-in that has not ended, oldest first."""
-
-
 class StopReason1(BaseModel):
     """
     Its program, a person or a Client aborted it, a Connection's close
@@ -5925,7 +5798,7 @@ class RecordProvenance(BaseModel):
     tier: TierProvenance | None = None
     """
     The tier that fetched that request's document, and how it was
-    chosen; none where the handler was given its request alone.
+    chosen; none where no document was fetched.
     """
     unread_fields: list[UnreadField] | None = None
     """
@@ -6228,11 +6101,6 @@ class RunReport(BaseModel):
     """Whether its results cover its scope."""
     completeness_reasons: list[AxisReason] | None = None
     """Why it is not `complete`, when it is not."""
-    console_url: str | None = None
-    """
-    Its page in the Console, where its Run trace replays, when the
-    engine knows a Console address (ADR 0031).
-    """
     ended_at: PointInTime
     """When it ended."""
     error: EndingError | None = None

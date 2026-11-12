@@ -93,7 +93,7 @@ use crate::errors::{
     self, Call, call_error, interrupted, network_error, renderer_crashed, too_many_redirects,
     truncated,
 };
-use crate::launch::launch;
+use crate::launch::{Launcher, launch};
 use crate::page_value::{self, PageValue};
 use crate::proxy::{PROXY_STATUS, Party, ProxyPermit, SessionProxy, party, proxy_error};
 use crate::trace::CommandLog;
@@ -213,6 +213,19 @@ pub(crate) struct Browser {
     /// attempt, by its kind (ADR 0140's C3), or a guard's check; none on
     /// every other handle.
     counting: Option<Row>,
+}
+
+tokio::task_local! {
+    /// Set while a page opens: each command sent meanwhile, awaited in
+    /// turn, counts on `C7.opening_commands` (ADR 0140). Work the opening
+    /// spawns, which it does not await, counts nothing there.
+    static OPENING: ();
+}
+
+/// Runs `opening`, a page's opening, from its target's creation to its last
+/// set-up, counting each command it sends on `C7.opening_commands`.
+pub(crate) async fn counted_as_opening<F: Future>(opening: F) -> F::Output {
+    OPENING.scope((), opening).await
 }
 
 /// A browser's hidden pages (`Target.createTarget`'s `hidden`, as an
@@ -342,10 +355,14 @@ impl Browser {
             .await
     }
 
-    /// Counts one command it sends on the row it counts its commands on.
+    /// Counts one command it sends on the row it counts its commands on,
+    /// and on C7's while a page opens (ADR 0140).
     fn counted(&self) {
         if let Some(row) = self.counting {
             self.log.work().count(row);
+        }
+        if OPENING.try_with(|()| ()).is_ok() {
+            self.log.work().count(Row::PageOpeningCommands);
         }
     }
 
@@ -545,6 +562,7 @@ impl Connect for BorrowedBrowser {
 /// or the pool closes it.
 pub(crate) struct LocalBrowser {
     run: Run,
+    launcher: Launcher,
     home: Home,
     pins: Pins,
     number: u64,
@@ -562,7 +580,7 @@ pub(crate) struct LocalBrowser {
 
 impl LocalBrowser {
     pub(crate) fn new(
-        run: Run,
+        (run, launcher): (Run, Launcher),
         home: Home,
         pins: Pins,
         number: u64,
@@ -572,6 +590,7 @@ impl LocalBrowser {
         let stopping = run.cancellation().child_token();
         Self {
             run,
+            launcher,
             home,
             pins,
             number,
@@ -642,8 +661,7 @@ impl Connect for LocalBrowser {
                 let attempt = self.stopping.child_token();
                 let launched = launch(
                     &self.run,
-                    &self.home,
-                    &self.pins,
+                    (&self.launcher, &self.home, &self.pins),
                     (
                         self.number,
                         self.authority.as_deref().map(Authority::spki_sha256),
@@ -867,6 +885,16 @@ impl<B: Connect> SessionDriver<B> {
     /// deadline its Run's `timeout.navigation`.
     pub(crate) async fn new_page(&self, visibility: Visibility) -> Result<PageDriver, CallError> {
         let browser = self.browser.connect().await?;
+        counted_as_opening(self.new_page_in(browser, visibility)).await
+    }
+
+    /// Opens a page in the Session, of `visibility`, in its browser
+    /// `browser`, once it came up.
+    async fn new_page_in(
+        &self,
+        browser: Browser,
+        visibility: Visibility,
+    ) -> Result<PageDriver, CallError> {
         let opening = browser.opening();
         let context = self.context_in(&browser).await?;
         let created = browser

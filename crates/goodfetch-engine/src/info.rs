@@ -17,8 +17,7 @@ use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine_context::CALLER;
 use crate::{
     audit_operations, certs_operations, config, daemon, key_value_store, needs_you,
-    needs_you_operations, people_operations, robots_txt, rpc, run, run_files, run_files_operations,
-    usage,
+    needs_you_operations, robots_txt, rpc, run, run_files, run_files_operations, usage,
 };
 
 /// What the engine adds to every composition.
@@ -33,7 +32,6 @@ pub fn contribution() -> Contribution {
         .chain(run_files_operations::handlers())
         .chain(audit_operations::handlers())
         .chain(certs_operations::handlers())
-        .chain(people_operations::handlers())
         .chain(needs_you_operations::handlers())
         .fold(
             Contribution::new("goodfetch-engine")

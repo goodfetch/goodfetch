@@ -12,7 +12,7 @@ use goodfetch_test_client::Attached;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use crate::attached;
+use crate::site::Site;
 
 fn one_at_a_time() -> Value {
     json!({ "politeness": { "domain": { "concurrency": 1 } } })
@@ -21,7 +21,7 @@ fn one_at_a_time() -> Value {
 /// Starts a crawl of `urls` as `run_id` under `settings`, and answers the
 /// `crawl_request.handle` requests it sent before the start's reply,
 /// unanswered.
-fn start(engine: &mut Attached, run_id: &str, urls: &[&str], settings: &Value) -> Vec<Value> {
+fn start(engine: &mut Attached, run_id: &str, urls: &[String], settings: &Value) -> Vec<Value> {
     let seeds: Vec<Value> = urls
         .iter()
         .map(|url| json!({ "url": url, "label": "page" }))
@@ -89,7 +89,10 @@ fn settled(engine: &mut Attached, run_id: &str, held: &mut Vec<Value>) -> (u64, 
             .find(|group| group["reason"] == "domain_concurrency")
             .and_then(|group| group["count"].as_u64());
         let requests = &progress["requests"];
-        if waiting.is_some() || requests["pending"] == 0 || progress["last"] == true {
+        // A request still being fetched is not handled yet: the count of
+        // those handled is read once none is.
+        let settled = waiting.is_some() && requests["fetching"] == 0;
+        if settled || requests["pending"] == 0 || progress["last"] == true {
             return (
                 waiting.unwrap_or(0),
                 requests["handling"].as_u64().unwrap_or(0),
@@ -131,18 +134,19 @@ fn finish(engine: &mut Attached, run_id: &str) -> Value {
 #[test]
 fn two_engines_crawling_one_site_never_have_more_in_flight_on_it_than_its_cap() {
     let env = TestEnv::new();
+    let site = Site::start(&env);
     // The first crawl's second request waits for the site from its first's
     // admission only if the governor admits both at once: a governor under
     // pressure lowers its HTTP target towards its floor, one by default
     // (ADR 0040), and the second request would wait for the governor.
     env.user_configuration("governor.http.floor = 2\ngovernor.http.ceiling = 2\n");
-    let mut first = attached(&env);
-    let mut second = attached(&env);
+    let mut first = site.engine(&env);
+    let mut second = site.engine(&env);
 
     let mut held = start(
         &mut first,
         "first",
-        &["https://shop.test/1", "https://shop.test/2"],
+        &[site.page("/1"), site.page("/2")],
         &one_at_a_time(),
     );
     let first_waits = settled(&mut first, "first", &mut held);
@@ -150,7 +154,7 @@ fn two_engines_crawling_one_site_never_have_more_in_flight_on_it_than_its_cap() 
     let mut none_yet = start(
         &mut second,
         "second",
-        &["https://www.shop.test/1"],
+        &[site.url("www.shop.test", "/1")],
         &one_at_a_time(),
     );
     let behind_one = settled(&mut second, "second", &mut none_yet);
@@ -176,9 +180,9 @@ fn two_engines_crawling_one_site_never_have_more_in_flight_on_it_than_its_cap() 
         ),
         (
             [
-                "https://shop.test/1".to_owned(),
-                "https://shop.test/2".to_owned(),
-                "https://www.shop.test/1".to_owned(),
+                site.page("/1"),
+                site.page("/2"),
+                site.url("www.shop.test", "/1"),
             ],
             ((1, 1), (1, 0), (1, 0), 0),
             (json!("finished"), json!("finished")),
@@ -194,14 +198,10 @@ fn two_engines_crawling_one_site_never_have_more_in_flight_on_it_than_its_cap() 
 #[test]
 fn a_crawl_that_shares_no_politeness_goes_beside_another_and_is_marked_in_its_result() {
     let env = TestEnv::new();
-    let mut first = attached(&env);
-    let mut second = attached(&env);
-    let mut held = start(
-        &mut first,
-        "shared",
-        &["https://shop.test/1"],
-        &one_at_a_time(),
-    );
+    let site = Site::start(&env);
+    let mut first = site.engine(&env);
+    let mut second = site.engine(&env);
+    let mut held = start(&mut first, "shared", &[site.page("/1")], &one_at_a_time());
     if held.is_empty() {
         held.push(next_request(&mut first));
     }
@@ -209,7 +209,7 @@ fn a_crawl_that_shares_no_politeness_goes_beside_another_and_is_marked_in_its_re
     let mut own = start(
         &mut second,
         "own",
-        &["https://shop.test/2"],
+        &[site.page("/2")],
         &json!({ "politeness": { "sharing": "run", "domain": { "concurrency": 1 } } }),
     );
     if own.is_empty() {
@@ -222,11 +222,20 @@ fn a_crawl_that_shares_no_politeness_goes_beside_another_and_is_marked_in_its_re
     assert!(first.finished());
     assert!(second.finished());
 
+    // Beside what reaching the test's site weakens.
+    let sharing: Vec<&Value> = report["result"]["weakened"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|weakened| weakened["key"] == "politeness.sharing")
+        .collect();
     assert_eq!(
-        (url(&own[0]), &report["result"]["weakened"]),
+        (url(&own[0]), sharing),
         (
-            "https://shop.test/2".to_owned(),
-            &json!([{ "key": "politeness.sharing", "value": "run", "layer": "run", "origin": "settings" }])
+            site.page("/2"),
+            vec![
+                &json!({ "key": "politeness.sharing", "value": "run", "layer": "run", "origin": "settings" })
+            ]
         )
     );
 }
@@ -238,23 +247,19 @@ fn a_crawl_that_shares_no_politeness_goes_beside_another_and_is_marked_in_its_re
 #[test]
 fn the_permit_of_an_engine_killed_mid_request_is_reclaimed() {
     let env = TestEnv::new();
-    let mut victim = attached(&env);
-    let held = start(
-        &mut victim,
-        "killed",
-        &["https://shop.test/1"],
-        &one_at_a_time(),
-    );
+    let site = Site::start(&env);
+    let mut victim = site.engine(&env);
+    let held = start(&mut victim, "killed", &[site.page("/1")], &one_at_a_time());
     if held.is_empty() {
         next_request(&mut victim);
     }
     victim.kill();
 
-    let mut survivor = attached(&env);
+    let mut survivor = site.engine(&env);
     let mut taken = start(
         &mut survivor,
         "survivor",
-        &["https://shop.test/2"],
+        &[site.page("/2")],
         &one_at_a_time(),
     );
     if taken.is_empty() {
@@ -266,6 +271,6 @@ fn the_permit_of_an_engine_killed_mid_request_is_reclaimed() {
 
     assert_eq!(
         (url(&taken[0]), &report["result"]["lifecycle"]),
-        ("https://shop.test/2".to_owned(), &json!("finished"))
+        (site.page("/2"), &json!("finished"))
     );
 }

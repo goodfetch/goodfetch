@@ -34,7 +34,7 @@ pub(super) fn raise(
 ) -> ExitCode {
     let Some(answer) = human.ask(&format!("{}? [y/N]", question(params))) else {
         human.failure(
-            "`usage raise` is a person's answer, asked at a terminal: run it in one, or raise the Limit in the Console",
+            "`usage raise` is a person's answer, asked at a terminal: run it in one, or raise the Limit in the Kennel",
             &[
                 ("code", PERSON_REQUIRED.name.to_owned()),
                 ("retryable", PERSON_REQUIRED.retryable.to_string()),

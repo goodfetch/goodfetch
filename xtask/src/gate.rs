@@ -319,7 +319,11 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
         root,
         &git::line(root, &["merge-base", BASE_BRANCH, "HEAD"])?,
     )?;
-    let host = host_fingerprint(root, &environment.cargo, &options.variables);
+    let host = host_fingerprint(
+        root,
+        &environment.cargo,
+        &step_variables(&options.variables),
+    );
     let members_read = WorkspaceMembers::read(&environment.cargo, root)?;
     let unowned = evidence::unowned_tests(root, &members_read)?;
     let (members, shuffled) = head_members(&members_read, &unowned);
@@ -614,10 +618,28 @@ impl Reader<'_> {
     }
 }
 
+/// The variables only `ci/merge-pr.sh` reads, before any step starts: they
+/// decide whether a gate begins, never what a step runs or how.
+const LAUNCHER_VARIABLES: [&str; 1] = ["GOODFETCH_GATE_MIN_FREE_GB"];
+
+/// The `NAME=value` lines of `variables` a step can read: the run's
+/// without the launcher's own, so a gate started under another disk floor
+/// still reuses the results of one started without it.
+fn step_variables(variables: &str) -> String {
+    variables
+        .lines()
+        .filter(|line| {
+            let name = line.split_once('=').map_or(*line, |(name, _)| name);
+            !LAUNCHER_VARIABLES.contains(&name)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// The fingerprint of this host and the tools the gate's steps run: the
 /// kernel, the system's packages, the runtimes, the test runners, the
 /// container engines and the toolchain, and the run's environment
-/// `variables`. A command that is missing counts as such. Java is asked
+/// `variables` a step can read ([`step_variables`]). A command that is missing counts as such. Java is asked
 /// without its performance data file: when `/tmp` is full, the JVM warns on
 /// stderr that it cannot write it, naming its own process ID, and each
 /// probe would then fingerprint another host (FQ50).

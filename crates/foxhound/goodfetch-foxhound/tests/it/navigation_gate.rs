@@ -338,9 +338,8 @@ fn admitted_too_soon(
 }
 
 /// What the site `host` and the navigation gate saw of its domain `domain_key`
-/// under the delay, for a site that was asked for `targets`, the first of them
-/// first (its robots.txt, when the crawl reads it): how many of them arrived,
-/// each once; whether that first one did not come
+/// under the delay, for a site that was asked for `targets`, its robots.txt
+/// first: how many of them arrived, each once; whether robots.txt did not come
 /// first or a later one reached the site before its turn after it
 /// ([`before_their_turn`]); and how many requests the gate admitted.
 fn permits_of(
@@ -362,7 +361,7 @@ fn permits_of(
         .count();
     let arrived_too_soon = arrived
         .first()
-        .is_some_and(|(first, _)| targets.first().is_some_and(|target| first != target))
+        .is_some_and(|(first, _)| first != "/robots.txt")
         || !before_their_turn(&arrived, DELAY_MILLISECONDS * 1_000).is_empty();
     (
         arrived_once,
@@ -514,13 +513,8 @@ fn a_navigation_slow_to_reach_its_site_takes_the_next_ones_permit_no_sooner() {
             }
         },
     );
-    // The Run reads nothing past its proxy, which its start would refuse
-    // (#1640): its documents go through the Session's browser, and no
-    // robots.txt is read.
     let more = json!({
-        "fetch": { "tier": "browser_fetch" },
         "politeness": { "domain": { "delay": DELAY_MILLISECONDS } },
-        "site_preferences": { "respect_robots_txt": false },
         "proxy": { "server": format!("http://{front}") },
     });
 
@@ -557,7 +551,7 @@ fn a_navigation_slow_to_reach_its_site_takes_the_next_ones_permit_no_sooner() {
         &env,
         &proving_ground,
         (HISTORY, "navigation.test"),
-        &["/", "/b", "/c"],
+        &["/robots.txt", "/", "/b", "/c"],
     );
     assert_eq!(
         (
@@ -566,7 +560,7 @@ fn a_navigation_slow_to_reach_its_site_takes_the_next_ones_permit_no_sooner() {
             held.load(Ordering::SeqCst),
             history
         ),
-        (&json!("finished"), Vec::<Value>::new(), true, (3, false, 3))
+        (&json!("finished"), Vec::<Value>::new(), true, (4, false, 3))
     );
 }
 
@@ -1446,8 +1440,12 @@ const EIGHT_DELAY_MILLISECONDS: u64 = 3_500;
 /// timed out while its `goto` waits for its permit, though the last waits
 /// longer than its lease was granted for.
 ///
-/// Each seed is on a domain of its own, so the eight are handled at once,
-/// and the engine sends nothing for them under the built-in `fetch.tier`.
+/// Each seed is a page of a plain host of its own, so the eight are
+/// handled at once, and the engine fetches it on the Session's own
+/// transport under the forced `http` tier: nothing of it reaches the
+/// catalog's domain or the browser. An earlier crawl of the same user read
+/// each seed host's robots.txt ([`read_the_seed_hosts_robots_txt`]), so no
+/// seed's fetch waits one delay after that file's.
 /// Each is added once the handler before it opened its page in the Run, so
 /// each page takes the gate and lease of its own attempt, the one handed
 /// over last. Nothing renews a lease while its handler only holds its page,
@@ -1471,7 +1469,10 @@ fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
     let (mut handles, mut opened, mut answers) = (Vec::new(), Vec::new(), Vec::new());
     // The requests delivered so far, the warm-up's first, and those
     // delivered again.
-    let (mut requests, mut again) = (vec![eight_seed(0)["url"].clone()], Vec::new());
+    let (mut requests, mut again) = (
+        vec![eight_seed(&proving_ground, 0)["url"].clone()],
+        Vec::new(),
+    );
     let report = loop {
         let message = engine.next().expect("the engine answers");
         let id = message["id"].as_str().unwrap_or_default().to_owned();
@@ -1499,7 +1500,7 @@ fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
             if opened.len() < HANDLERS {
                 engine.send(&json!({
                     "jsonrpc": "2.0", "id": "add", "method": "run.add_seed",
-                    "params": { "run_id": "eight", "seed": eight_seed(opened.len() + 1) },
+                    "params": { "run_id": "eight", "seed": eight_seed(&proving_ground, opened.len() + 1) },
                 }));
                 continue;
             }
@@ -1560,15 +1561,62 @@ fn eight_handlers_at_once_press_their_domain_one_delay_apart() {
     );
 }
 
+/// The hosts of the seeds of the crawls whose handlers open their own
+/// pages: plain hosts of the Proving ground, each a domain of its own and
+/// none the catalog's, so a seed's fetch, on the Session's own transport
+/// under the forced `http` tier, never presses the domain the handlers'
+/// navigations are paced on, nor passes the browser's egress relay.
+const SEED_HOSTS: [&str; 10] = [
+    "shop.test",
+    "heavy.test",
+    "a.test",
+    "b.test",
+    "api.test",
+    "other.test",
+    "many.test",
+    "capped.test",
+    "alice.github.io",
+    "bob.github.io",
+];
+
+/// The URL of the seed `n` of such a crawl.
+fn seed_url(proving_ground: &ProvingGround, n: usize) -> String {
+    proving_ground.url(SEED_HOSTS[n], "/seed")
+}
+
+/// Crawls one page of each seed host with no delay, as the Run `primed`:
+/// the user's Runs share each host's robots.txt copy from then on (ADR
+/// 0086), so the eight-handler crawl, whose delay would keep each seed's
+/// fetch one delay after its host's robots.txt, sends each seed at once
+/// and its eight openings fit in the first one's lease.
+fn read_the_seed_hosts_robots_txt(engine: &mut Attached, proving_ground: &ProvingGround) {
+    let seeds: Vec<Value> = SEED_HOSTS
+        .iter()
+        .map(|host| json!({ "url": proving_ground.url(host, "/primed"), "label": "page" }))
+        .collect();
+    let report = crawl_with(
+        engine,
+        "primed",
+        &seeds,
+        &settings(
+            proving_ground,
+            &json!({ "politeness": { "domain": { "delay": 0 } } }),
+        ),
+        &mut |_, _| json!({ "result": { "records": [] } }),
+    );
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+}
+
 /// The eight-handler crawl's seed `n`, each on a domain of its own.
-fn eight_seed(n: usize) -> Value {
-    json!({ "url": format!("https://seed-{n}.test/"), "label": "page" })
+fn eight_seed(proving_ground: &ProvingGround, n: usize) -> Value {
+    json!({ "url": seed_url(proving_ground, n), "label": "page" })
 }
 
 /// Starts the eight-handler crawl from its first seed, which [`warm_up`]
 /// handles, then adds the first of the eight.
 fn start_eight(engine: &mut Attached, proving_ground: &ProvingGround) {
-    let mut settings = settings(
+    read_the_seed_hosts_robots_txt(engine, proving_ground);
+    let settings = settings(
         proving_ground,
         &json!({
             // A lease of 15 s plus the 10 s margin, shorter than the last
@@ -1579,19 +1627,14 @@ fn start_eight(engine: &mut Attached, proving_ground: &ProvingGround) {
             "crawl": { "handler": { "concurrency": HANDLERS }, "keep_alive": true },
         }),
     );
-    // The built-in tier: the engine sends nothing for the seeds and hands
-    // each handler its request alone (a set `auto` fetches them first, #767).
-    if let Some(settings) = settings.as_object_mut() {
-        settings.remove("fetch");
-    }
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-        "params": { "run_id": "eight", "seeds": [eight_seed(0)], "settings": settings },
+        "params": { "run_id": "eight", "seeds": [eight_seed(proving_ground, 0)], "settings": settings },
     }));
     warm_up(engine, proving_ground);
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "add", "method": "run.add_seed",
-        "params": { "run_id": "eight", "seed": eight_seed(1) },
+        "params": { "run_id": "eight", "seed": eight_seed(proving_ground, 1) },
     }));
 }
 
@@ -1664,7 +1707,7 @@ fn a_handlers_page_past_its_work_items_lease_sends_nothing_more() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
-    let mut settings = settings(
+    let settings = settings(
         &proving_ground,
         &json!({
             // A lease of 1 s plus the 10 s margin.
@@ -1678,12 +1721,12 @@ fn a_handlers_page_past_its_work_items_lease_sends_nothing_more() {
         &json!({ "network": settings["network"], "egress": settings["egress"] }),
         &mut others,
     );
-    // The built-in tier: the engine sends nothing for the seed, so every
-    // request the site gets is the handler's.
-    if let Some(settings) = settings.as_object_mut() {
-        settings.remove("fetch");
-    }
     let url = |path: &str| proving_ground.url(CATALOG_HOST, path);
+    // The first seed's handler starts the Run's browser: a crawl leases
+    // its seeds in order, one at a time (`crawl_with`'s handler
+    // concurrency of 1), so it opens the Run's first page before the
+    // request under test is leased.
+    let (warm_up_seed, leased_seed) = (seed_url(&proving_ground, 0), seed_url(&proving_ground, 1));
 
     let (mut before, mut refused, mut later, mut requests) = (None, Vec::new(), Vec::new(), None);
     let mut warmed = false;
@@ -1693,17 +1736,17 @@ fn a_handlers_page_past_its_work_items_lease_sends_nothing_more() {
         // The first seed starts the Run's browser; the third keeps the Run
         // going past the second's lease.
         &[
-            json!({ "url": WARM_UP_SEED, "label": "page" }),
-            json!({ "url": "https://seed-1.test/", "label": "page" }),
-            json!({ "url": "https://seed-2.test/", "label": "page" }),
+            json!({ "url": warm_up_seed, "label": "page" }),
+            json!({ "url": leased_seed, "label": "page" }),
+            json!({ "url": seed_url(&proving_ground, 2), "label": "page" }),
         ],
         &settings,
         &mut |inside, handle| {
-            if handle["crawl_request"]["url"] == WARM_UP_SEED && !warmed {
+            if handle["crawl_request"]["url"] == warm_up_seed && !warmed {
                 warmed = true;
                 warm_up_the_browser(inside, handle);
             }
-            if handle["crawl_request"]["url"] != "https://seed-1.test/" {
+            if handle["crawl_request"]["url"] != leased_seed {
                 return json!({ "result": { "records": [] } });
             }
             let pages: Vec<String> = (0..3).map(|_| new_page(inside, handle)).collect();
@@ -1758,12 +1801,6 @@ fn a_handlers_page_past_its_work_items_lease_sends_nothing_more() {
         "{others:?}"
     );
 }
-
-/// The seed whose handler starts a lease case's Run's browser: a crawl
-/// leases its seeds in order, one at a time (`crawl_with`'s handler
-/// concurrency of 1), so this first one's handler opens the Run's first
-/// page before the request under test is leased.
-const WARM_UP_SEED: &str = "https://seed-0.test/";
 
 /// Opens a page in the Run of `handle`'s request and leaves it open, which
 /// launches the Run's browser: under load a launch takes seconds of a lease
@@ -2025,22 +2062,17 @@ fn a_handlers_navigations_through_a_fresh_egress_relay_leave_the_delay_apart() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
-    let mut settings = settings(
+    let settings = settings(
         &proving_ground,
         &json!({ "politeness": { "domain": { "delay": RELAY_DELAY_MILLISECONDS } } }),
     );
-    // The built-in tier: the engine sends nothing for the seed, so the
-    // handler's first navigation is the Session's first request.
-    if let Some(settings) = settings.as_object_mut() {
-        settings.remove("fetch");
-    }
     let pages = ["/catalog/1", "/catalog/2", "/catalog/3"];
 
     let mut statuses = Vec::new();
     let report = crawl_with(
         &mut engine,
         "fresh-relay",
-        &[json!({ "url": "https://seed-1.test/", "label": "page" })],
+        &[json!({ "url": seed_url(&proving_ground, 1), "label": "page" })],
         &settings,
         &mut |inside, handle| {
             let page_id = new_page(inside, handle);

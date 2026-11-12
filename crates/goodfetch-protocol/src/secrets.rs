@@ -218,6 +218,8 @@ pub const RUN_STATE_KEY_REFERENCE: Setting = Setting {
     clearable: true,
     authority: Authority::Configuration,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -230,6 +232,8 @@ pub const TIMEOUT_SECRET: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -248,6 +252,8 @@ pub const SECRET_PROVIDERS_OP_COMMAND: Setting = Setting {
     clearable: true,
     authority: Authority::Configuration,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -261,6 +267,8 @@ pub const SECRET_PROVIDERS_BW_COMMAND: Setting = Setting {
     clearable: true,
     authority: Authority::Configuration,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -275,6 +283,8 @@ pub const SECRET_PROVIDERS_VAULT_ADDRESS: Setting = Setting {
     clearable: true,
     authority: Authority::Configuration,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -305,6 +315,8 @@ pub const SECRET_PROVIDERS_AWS_SM_REGION: Setting = Setting {
     clearable: true,
     authority: Authority::Configuration,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -319,6 +331,8 @@ pub const SECRET_PROVIDERS_AWS_SM_ENDPOINT: Setting = Setting {
     clearable: true,
     authority: Authority::Configuration,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -332,6 +346,8 @@ pub const SECRET_PROVIDERS_GCP_SM_ENDPOINT: Setting = Setting {
     clearable: false,
     authority: Authority::Configuration,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -346,6 +362,8 @@ pub const SECRET_PROVIDERS_AZURE_KV_ENDPOINT: Setting = Setting {
     clearable: false,
     authority: Authority::Configuration,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -360,6 +378,8 @@ pub const SECRET_PROVIDERS_AZURE_KV_AUTHORITY: Setting = Setting {
     clearable: false,
     authority: Authority::Configuration,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -376,6 +396,8 @@ pub const SECRETS_RESOLVE_EACH_USE: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 

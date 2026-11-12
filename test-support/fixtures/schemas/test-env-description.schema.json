@@ -4,13 +4,6 @@
       "additionalProperties": false,
       "description": "A started Daemon, as a test and `goodfetch-test-env`'s description see\nit: what a Client needs to reach it.",
       "properties": {
-        "console": {
-          "description": "The URL of the Console it serves, `http://127.0.0.1:<port>/` on a\nport of its own; `None` when it serves none.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "socket": {
           "description": "Where it listens: its Unix socket's path on macOS and Linux, its\nloopback TCP address (`127.0.0.1:<port>`) on Windows (ADR 0024).",
           "type": "string"
@@ -157,7 +150,7 @@
           "type": "string"
         },
         "stub_gateway": {
-          "description": "`goodfetch-stub-gateway`, the Stub gateway the Console conformance\nsuite runs against (ADR 0096).",
+          "description": "`goodfetch-stub-gateway`, the Stub gateway the Cloud-readiness\nconformance suite runs against (ADR 0096).",
           "type": "string"
         },
         "test_env": {

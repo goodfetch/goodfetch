@@ -1,6 +1,5 @@
 # Which of goodfetch-foxhound's top-level modules may import which (ADR 0126).
 [modules]
 composition = ["sample"]
-console_build = []
 executable = []
 sample = []

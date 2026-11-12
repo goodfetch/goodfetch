@@ -117,6 +117,7 @@ directory = []
 edge = []
 identity = ["shelf"]
 incidents = ["shelf"]
+plain = []
 policy = ["shelf"]
 shelf = []
 

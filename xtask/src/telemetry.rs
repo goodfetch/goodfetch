@@ -2,7 +2,7 @@
 //! of the settings catalog, which both Products' settings schema is
 //! generated from, names telemetry, and no lockfile of the Rust, Python or
 //! pnpm workspace holds an analytics or error-reporting client, so neither
-//! the engine, an SDK nor the Console can send one.
+//! the engine nor an SDK can send one.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"

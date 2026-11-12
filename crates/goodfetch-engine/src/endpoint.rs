@@ -77,28 +77,6 @@ impl Authorities {
         }
     }
 
-    /// These names and `name`.
-    #[must_use]
-    pub(crate) fn with_name(mut self, name: impl Into<String>) -> Self {
-        self.names.push(name.into());
-        self
-    }
-
-    /// Only `name`.
-    pub(crate) fn only(name: impl Into<String>) -> Self {
-        Self {
-            names: vec![name.into()],
-        }
-    }
-
-    /// The origins of these names over `http`, as a CSP source list does.
-    pub(crate) fn origins(&self) -> Vec<String> {
-        self.names
-            .iter()
-            .map(|name| format!("http://{name}"))
-            .collect()
-    }
-
     /// Whether `host`, a request's `Host`, is one of these names.
     pub(crate) fn admits_host(&self, host: &str) -> bool {
         self.names
@@ -133,11 +111,8 @@ pub(crate) enum Origins<'a> {
     Forbidden,
     /// One of these names over `http`, and a missing one is refused: a
     /// request a page of another origin could send, such as a WebSocket
-    /// handshake or a write.
+    /// handshake.
     Required(&'a [&'a Authorities]),
-    /// One of these names over `http`, or none, which a same-origin read
-    /// sends.
-    Allowed(&'a [&'a Authorities]),
 }
 
 /// Why a request was refused for its `Host` or its `Origin`, by its
@@ -183,10 +158,10 @@ pub(crate) fn refusal(
             .any(|authorities| authorities.admits_origin(origin))
     };
     match (origins, origin) {
-        (Origins::Forbidden | Origins::Allowed(_), None) => None,
+        (Origins::Forbidden, None) => None,
         (Origins::Required(_), None) => Some(Refusal::OriginMissing),
         (Origins::Forbidden, Some(_)) => Some(Refusal::OriginForeign),
-        (Origins::Required(among) | Origins::Allowed(among), Some(origin)) => {
+        (Origins::Required(among), Some(origin)) => {
             (!admitted(origin, among)).then_some(Refusal::OriginForeign)
         }
     }

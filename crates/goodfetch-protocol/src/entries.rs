@@ -4,17 +4,16 @@
 
 use crate::catalog::{Entries, ErrorCodeDefinition, Operation, Product, SharedType};
 use crate::{
-    audit, block, browser_cache, checkpoint, connection, console, daemon, dns, download, egress,
-    engine, events, executables, foxhound, governor, hostile_input, key_value_store, log,
-    needs_you, ops, page, people, politeness, response_limits, run, sample, secrets, security,
-    settings, site_preferences, storage, tls, usage, versions,
+    audit, block, browser_cache, checkpoint, connection, daemon, dns, download, egress, engine,
+    events, executables, foxhound, governor, hostile_input, key_value_store, log, needs_you, ops,
+    page, politeness, response_limits, run, sample, secrets, security, settings, site_preferences,
+    storage, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 51] = [
+pub const MODULES: [&Entries; 49] = [
     &connection::ENTRIES,
     &log::ENTRIES,
-    &console::ENTRIES,
     &daemon::ENTRIES,
     &ops::ENTRIES,
     &governor::ENTRIES,
@@ -37,7 +36,6 @@ pub const MODULES: [&Entries; 51] = [
     &key_value_store::ENTRIES,
     &download::ENTRIES,
     &audit::ENTRIES,
-    &people::ENTRIES,
     &secrets::ENTRIES,
     &security::ENTRIES,
     &sample::ENTRIES,
@@ -161,7 +159,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 89] = [
+    const COLLIE: [&str; 86] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -240,9 +238,6 @@ mod tests {
         "download.save_as",
         "audit.export",
         "audit.verify",
-        "sign_in.list",
-        "sign_in.revoke",
-        "console.rotate_key",
         "sample.echo",
         "config.explain",
         "config.policy_read",

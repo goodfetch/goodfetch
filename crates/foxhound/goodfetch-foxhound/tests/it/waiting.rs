@@ -11,8 +11,6 @@
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
-use crate::attached;
-
 /// The Proving ground's seed.
 const SEED: u64 = 1547;
 
@@ -60,7 +58,7 @@ enum Handling {
 fn first_group(seeds: &[String], more: &Value, reason: &str, handling: Handling) -> Value {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let seeds: Vec<Value> = seeds
         .iter()
         .map(|seed| {

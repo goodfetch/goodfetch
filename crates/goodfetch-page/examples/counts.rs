@@ -1,8 +1,9 @@
 //! B2's counts cell (ADR 0140): runs `benches/session.rs`' Session once with
 //! its default features on, once per feature on its paths that can be
 //! switched off, once with no Live view viewer (C6 in ADR 0140: the default
-//! cell is the one with a viewer, which #959 gives it) and once with a Page
-//! check, and prints what each counted as one JSON line, which `xtask counts`
+//! cell is the one with a viewer, which #959 gives it), once with a Page
+//! check and once on a browser pool's pages (C7: a pool its scripted launcher
+//! starts, its pages opened and closed through `BrowserPages`), and prints what each counted as one JSON line, which `xtask counts`
 //! divides and holds to the Quality register's limits. An example and not a
 //! `[[bench]]`, as `xtask perf` runs every bench target under gungraun: counts
 //! need no Valgrind and no optimized build.
@@ -44,11 +45,13 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::metrics::Metrics;
 use serde_json::{Map, Value, json};
 
-/// One cell: a name, the settings it runs with, the rows it must count fewer
-/// of than the default cell, as a feature's work goes with the feature (ADR
-/// 0140), and the rows it must count none of.
+/// One cell: a name, the browsers its pages open in, the settings it runs
+/// with, the rows it must count fewer of than the default cell, as a
+/// feature's work goes with the feature (ADR 0140), and the rows it must count
+/// none of.
 struct Cell {
     name: &'static str,
+    browsers: session::Browsers,
     settings: Value,
     removes: &'static [Row],
     counts_none_of: &'static [Row],
@@ -64,17 +67,19 @@ const LIVE_VIEW_FRAME: &[Row] = &[
     Row::LiveViewSeals,
 ];
 
-fn cells() -> [Cell; 5] {
+fn cells() -> [Cell; 6] {
     [
         // The cell with a viewer, once #959 gives B2's Session one.
         Cell {
             name: "default",
+            browsers: session::Browsers::Borrowed,
             settings: json!({}),
             removes: &[],
             counts_none_of: &[],
         },
         Cell {
             name: "filter_lists_off",
+            browsers: session::Browsers::Borrowed,
             settings: json!({ "filter_lists": {
                 "ads": false, "trackers": false, "annoyances": false, "first_party_scripts": false,
             } }),
@@ -83,6 +88,7 @@ fn cells() -> [Cell; 5] {
         },
         Cell {
             name: "no_viewer",
+            browsers: session::Browsers::Borrowed,
             settings: json!({}),
             removes: &[],
             counts_none_of: LIVE_VIEW_FRAME,
@@ -91,6 +97,7 @@ fn cells() -> [Cell; 5] {
         // off (ADR 0048), so its reads and its entry stay.
         Cell {
             name: "consent_handling_off",
+            browsers: session::Browsers::Borrowed,
             settings: json!({ "consent": { "handling": false } }),
             removes: &[],
             counts_none_of: &[],
@@ -99,8 +106,18 @@ fn cells() -> [Cell; 5] {
         // element, and the built-in detector's entry goes.
         Cell {
             name: "page_check",
+            browsers: session::Browsers::Borrowed,
             settings: session::page_check(),
             removes: &[Row::NavigationProvenanceEntries],
+            counts_none_of: &[],
+        },
+        // The same documents on pages of a browser pool (C7), as Foxhound's
+        // crawl opens them for its handlers.
+        Cell {
+            name: "pool",
+            browsers: session::Browsers::Pool,
+            settings: json!({}),
+            removes: &[],
             counts_none_of: &[],
         },
     ]
@@ -137,6 +154,7 @@ fn bypass(bypass: &str, home: &Path, work: &CountedWork) -> session::Plant {
 /// What one cell counted.
 struct Counted {
     name: &'static str,
+    browsers: session::Browsers,
     session: session::Counted,
     removes: &'static [Row],
     counts_none_of: &'static [Row],
@@ -162,7 +180,8 @@ fn run(cell: Cell, planted: Option<&str>, bypassed: Option<&str>) -> Counted {
     };
     Counted {
         name: cell.name,
-        session: session::counted(home.path(), metrics, settings, plant),
+        browsers: cell.browsers,
+        session: session::counted(cell.browsers, home.path(), metrics, settings, plant),
         removes: cell.removes,
         counts_none_of: cell.counts_none_of,
     }
@@ -245,8 +264,12 @@ fn main() {
             "the cell {} opened no page",
             cell.name
         );
+        // A launched browser's addresses are judged by its Session's egress
+        // relay as it connects, which the scripted browser never reaches:
+        // only a Borrowed browser's paused requests are refused here.
+        let refuses = cell.browsers == session::Browsers::Borrowed;
         assert!(
-            session.requests > 0 && session.refused > 0,
+            session.requests > 0 && (session.refused > 0) == refuses,
             "the cell {} paused {} requests and refused {}",
             cell.name,
             session.requests,

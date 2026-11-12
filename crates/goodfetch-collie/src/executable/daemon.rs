@@ -51,6 +51,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
+use goodfetch_engine::Identity;
 use goodfetch_engine::browser_cache::{self, CacheLocation, HOME_FOLDER, MaxUnusedAge};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::files::DaemonFiles;
@@ -59,11 +60,9 @@ use goodfetch_engine::home::Home;
 use goodfetch_engine::installed::{InstalledList, Seen, fingerprint, pick, stores_floor};
 use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::settings::{Resolved, SettingsError};
-use goodfetch_engine::{CallError, Identity};
 use goodfetch_protocol::browser_cache::MAX_UNUSED_AGE;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{NOT_IN_PRODUCT, PROTOCOL_VERSION_UNSUPPORTED};
-use goodfetch_protocol::console::{ConsoleFailure, ConsoleState};
 use goodfetch_protocol::daemon::{
     DaemonEndpoint, DaemonHealth, DaemonHealthOutput, DaemonRuntimeFile, DaemonState, DaemonStatus,
     DaemonStopping, DaemonToken, HealthProbe, Unready,
@@ -86,7 +85,7 @@ mod reaper;
 mod remote;
 
 use launched::launch;
-pub(super) use launched::{launched, start_console};
+pub(super) use launched::launched;
 
 /// `daemon run`, the foreground Daemon (ADR 0049); on Linux, under its
 /// reaper unless `reaped` says it runs under it already.
@@ -697,26 +696,6 @@ impl Machine<'_> {
         Ok((found.endpoint, found.token))
     }
 
-    /// The Console's sign-in link, `<url>#token=<token>`, starting the
-    /// major's pick unless a Daemon runs: its Console's URL, with the token
-    /// in the fragment, which never reaches a server (ADR 0024).
-    pub(super) fn console_link(&self) -> Result<String, Failure> {
-        let (found, _) = self.running_or_started(false)?;
-        let mut connected = self.connect(true, Product::Collie)?.ok_or_else(|| {
-            Failure::Unavailable("the Daemon stopped as soon as it started".to_owned())
-        })?;
-        let status: DaemonState = connected.call("daemon.status", &serde_json::json!({}))?;
-        connected.close();
-        match status.console {
-            ConsoleState::Serving(url) => Ok(format!("{url}#token={}", found.token.expose())),
-            ConsoleState::Failed(failure) => Err(Failure::of(console_failed(failure))),
-            ConsoleState::Absent => Err(Failure::Unavailable(format!(
-                "the Daemon of major {} serves no Console: its executable carries no Console build",
-                self.major()
-            ))),
-        }
-    }
-
     /// What the running Daemon of the major, or else the foreground Daemon
     /// at `daemon.address`, answers `daemon.health`; `None` when neither
     /// answers.
@@ -794,14 +773,6 @@ impl Machine<'_> {
             product: daemon.map(|daemon| daemon.product),
             version: daemon.map(|daemon| daemon.product_version.clone()),
             address: daemon.map(|daemon| daemon.endpoint.to_string()),
-            console_url: daemon.and_then(|daemon| match &daemon.console {
-                ConsoleState::Serving(url) => Some(url.clone()),
-                ConsoleState::Failed(_) | ConsoleState::Absent => None,
-            }),
-            console_error: daemon.and_then(|daemon| match &daemon.console {
-                ConsoleState::Failed(failure) => Some(failure.clone()),
-                ConsoleState::Serving(_) | ConsoleState::Absent => None,
-            }),
             service: self.files().service().ok().flatten(),
         }
     }
@@ -936,44 +907,9 @@ pub(super) fn start(
                     describe(&daemon)
                 ));
             }
-            console_exit(&daemon.console, json, human)
+            ExitCode::SUCCESS
         }
         Err(failure) => failure.print(json, human),
-    }
-}
-
-/// The exit code of a started Daemon whose Console is `console`: its Error
-/// code's when the Console did not start, which the Daemon's protocol
-/// outlives, else success. Under `json` the status printed carries that
-/// failure as `console_error`; otherwise it prints as a failure does.
-fn console_exit(console: &ConsoleState, json: bool, human: &Human) -> ExitCode {
-    let ConsoleState::Failed(failure) = console else {
-        return ExitCode::SUCCESS;
-    };
-    let exit = exit_codes::of_code(&failure.code);
-    if !json {
-        output::failed(
-            &output::command_failed(console_failed(failure.clone()), None),
-            false,
-            human,
-        );
-    }
-    ExitCode::from(exit)
-}
-
-/// The failure of a Daemon's Console that did not start, `failure`, with
-/// its Error code's group.
-fn console_failed(failure: ConsoleFailure) -> ErrorObject {
-    let mut details = serde_json::Map::new();
-    details.insert("fix".to_owned(), Value::from(failure.fix));
-    match goodfetch_protocol::entries::error_code(&failure.code) {
-        Some(definition) => CallError::new(definition, failure.message, &details).to_error_object(),
-        None => exit_codes::unknown(
-            failure.code,
-            goodfetch_protocol::catalog::ErrorGroup::Unavailable.json_rpc_class(),
-            failure.message,
-            details,
-        ),
     }
 }
 
@@ -1123,13 +1059,8 @@ fn describe(status: &DaemonState) -> String {
             status.idle_timeout / 1000
         )
     };
-    let console = match &status.console {
-        ConsoleState::Serving(url) => format!("its Console at {url}"),
-        ConsoleState::Failed(failure) => format!("no Console ({})", failure.code),
-        ConsoleState::Absent => "no Console".to_owned(),
-    };
     format!(
-        "{} {} (PID {}) at {}, {} Clients, {} live Runs, {idle}, {console}",
+        "{} {} (PID {}) at {}, {} Clients, {} live Runs, {idle}",
         status.product.name(),
         status.product_version,
         status.pid,

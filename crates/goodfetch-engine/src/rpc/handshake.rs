@@ -122,7 +122,6 @@ pub(crate) fn answer(
             product_version: identity.product_version.clone(),
             engine_instance: instance.clone(),
             private_endpoint: None,
-            console_link: None,
         },
         surface,
         behind_gateway,

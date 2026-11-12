@@ -17,9 +17,7 @@ use std::time::Duration;
 use anyhow::{Context as _, Result, bail};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface};
-use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile};
-use goodfetch_protocol::home::{USER_CONFIGURATION_FILE, per_major};
 use goodfetch_protocol::jsonrpc::{Message, Request, RequestId, Version};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -33,8 +31,8 @@ const MIB: u64 = 1024 * 1024;
 const IDLE: Duration = Duration::from_secs(1);
 
 /// How long a Daemon stays idle once it printed its runtime file: longer
-/// than an Attached engine, since its listener, Console and timers start
-/// beside it.
+/// than an Attached engine, since its listener and timers start beside
+/// it.
 const DAEMON_IDLE: Duration = Duration::from_secs(3);
 
 /// How long a Daemon may take to exit once it answered `daemon.stop`: the
@@ -140,28 +138,6 @@ pub(crate) fn as_shipped(command: &mut Command, home: &Path, goodfetch_variables
     command.env(goodfetch_protocol::settings::HOME_VARIABLE, home);
 }
 
-/// The idle-Daemon scenario's user configuration: the Daemon's Console
-/// listens on a port the OS chooses, never on its major's fixed port
-/// (TESTING.md, Isolation), so scenarios run at once and beside a Daemon of
-/// the machine's own.
-const DAEMON_CONFIGURATION: &str =
-    "version = \"0.1\"\n\n[settings]\nconsole.address = \"127.0.0.1:0\"\n";
-
-/// Writes `home`'s user configuration for `scenario`: the idle Daemon's
-/// alone; an Attached engine's home has none, as shipped.
-pub(crate) fn configure(scenario: Scenario, home: &Path) -> Result<()> {
-    if scenario != Scenario::IdleDaemon {
-        return Ok(());
-    }
-    let version = ProductVersion::parse(env!("CARGO_PKG_VERSION"))
-        .context("reading the workspace's Product version")?;
-    let major = per_major(home, &version);
-    std::fs::create_dir_all(&major).with_context(|| format!("creating {}", major.display()))?;
-    let configuration = major.join(USER_CONFIGURATION_FILE);
-    std::fs::write(&configuration, DAEMON_CONFIGURATION)
-        .with_context(|| format!("writing {}", configuration.display()))
-}
-
 /// The `hello` line a Client needing `needs` opens with, as the engine
 /// reads it from its input.
 pub(crate) fn hello_line(needs: Product) -> Result<Vec<u8>> {
@@ -213,8 +189,7 @@ fn idle_attached_engine(needs: Product, mut stdin: ChildStdin, stdout: ChildStdo
     Ok(())
 }
 
-/// Waits for the Daemon's runtime file, checks its Console serves, as a
-/// shipped Daemon's does, idles, then stops it over its own endpoint with
+/// Waits for the Daemon's runtime file, idles, then stops it over its own endpoint with
 /// `daemon.stop`, as `daemon stop` does, so no other process the probe
 /// waits for adds to the peak, and waits for it to exit, within
 /// [`STOP_DEADLINE`].
@@ -239,12 +214,6 @@ fn idle_daemon(
             line.trim_end()
         )
     })?;
-    if !matches!(runtime.console, ConsoleState::Serving(_)) {
-        bail!(
-            "the Daemon's Console does not serve, so it is not the Daemon as shipped: {:?}",
-            runtime.console
-        );
-    }
     std::thread::sleep(DAEMON_IDLE);
     let (reader, mut writer) = connect(&runtime.endpoint)?;
     let mut reader = BufReader::new(reader);

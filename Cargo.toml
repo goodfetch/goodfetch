@@ -71,8 +71,7 @@ windows-native-keyring-store = { version = "1.1.0", default-features = false }
 zbus = { version = "6.0.0", default-features = false }
 # Commands with a cleared environment in tests (goodfetch-test-support, ADR 0062).
 assert_cmd = { version = "2.2.2", default-features = false }
-# `xtask console build` compresses each file of a Console build, which the
-# executables embed and serve as they are (ADR 0057).
+# Brotli bodies the response limits' tests decode (goodfetch-engine).
 brotli = { version = "9.0.0", default-features = false, features = ["std"] }
 # The build scripts of goodfetch-test-support and goodfetch-engine generate
 # SQLite's VFS bindings, loading libclang at run time where the OS keeps it.
@@ -202,6 +201,9 @@ dirs = { version = "7.0.0", default-features = false }
 # Collie's cargo-deny list bans it (ADR 0088).
 duckdb = { version = "1.20000.0", default-features = false }
 data-encoding = { version = "2.11.1", default-features = false, features = ["alloc"] }
+# The cookie jar of a Session's own HTTP transport (issue 1605): RFC 6265's
+# storage model; the public suffix rule is the fetch tier's, over `psl`.
+cookie_store = { version = "0.22.1", default-features = false }
 # The Proving ground's login forms (application/x-www-form-urlencoded).
 form_urlencoded = { version = "1.2.2", default-features = false, features = ["alloc"] }
 flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }

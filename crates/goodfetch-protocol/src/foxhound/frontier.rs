@@ -21,6 +21,9 @@
 //! Schema or is longer than `crawl.payload.max_size`, and a resume whose
 //! Label's Payload schema changed under pending Payloads that fail it with
 //! `payload_schema_changed` (ADR 0082). Foxhound's own.
+//!
+//! Size: one catalog module, the contract of a crawl's Frontier: what it
+//! answers and the settings that bound it, each a flat declaration.
 
 use std::borrow::Cow;
 use std::fmt;
@@ -31,8 +34,8 @@ use serde_json::{Value, json};
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
-    ProtocolVersion, Reach, Setting, SharedType, SharedTypeValue, Stability, ValueKind, ValueShape,
-    schema_of,
+    ProtocolVersion, Reach, Setting, SharedType, SharedTypeValue, Stability, StreamInput,
+    ValueKind, ValueShape, schema_of,
 };
 use crate::foxhound::crawl::Seed;
 use crate::jsonrpc::RequestId;
@@ -505,6 +508,8 @@ pub const RUN_ADD_SEED: Operation = Operation {
     result: schema_of::<Enqueued>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -521,6 +526,11 @@ pub const RUN_ADD_SEEDS: Operation = Operation {
     result: schema_of::<RunSeedsAdded>,
     events: &[],
     cancellable: true,
+    input: Some(StreamInput {
+        notification: SEEDS,
+        field: "seeds",
+    }),
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -537,6 +547,8 @@ pub const RUN_SEEDS: Operation = Operation {
     result: schema_of::<RunSeeds>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -553,6 +565,8 @@ pub const CRAWL_REQUEST_ENQUEUE: Operation = Operation {
     result: schema_of::<Enqueued>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -570,6 +584,8 @@ pub const CRAWL_SCOPE_STRATEGY: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: true,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -582,6 +598,8 @@ pub const CRAWL_SCOPE_INCLUDE: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: true,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -594,6 +612,8 @@ pub const CRAWL_SCOPE_EXCLUDE: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: true,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -606,6 +626,8 @@ pub const CRAWL_MAX_DEPTH: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -618,6 +640,8 @@ pub const CRAWL_MAX_REQUESTS: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -630,6 +654,8 @@ pub const CRAWL_MAX_URL_LENGTH: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -642,6 +668,8 @@ pub const CRAWL_MAX_PATH_SEGMENTS: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -654,6 +682,8 @@ pub const CRAWL_MAX_SEGMENT_REPEATS: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -666,6 +696,8 @@ pub const CRAWL_MAX_SITEMAP_NESTING: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -759,6 +791,8 @@ pub const CRAWL_PATH_BUDGETS: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -771,6 +805,8 @@ pub const CRAWL_KEEP_URL_FRAGMENT: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: true,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -787,6 +823,8 @@ pub const FRONTIER_LEARNING: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: Some(learning_switched_off),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -816,6 +854,8 @@ pub const CRAWL_PAYLOAD_MAX_SIZE: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -961,16 +1001,6 @@ pub const ENTRIES: Entries = Entries {
     hook_stages: &[],
     shared_type_values: &[LEARNING_SWITCHED_OFF],
 };
-
-/// The settings fixed for a Run's life (ADRs 0102 and 0120): those that
-/// decide its scope, and whether a request's identity keeps its URL's
-/// fragment, since the requests it already admitted would no longer match.
-pub const FIXED_FOR_A_RUN: [&Setting; 4] = [
-    &CRAWL_SCOPE_STRATEGY,
-    &CRAWL_SCOPE_INCLUDE,
-    &CRAWL_SCOPE_EXCLUDE,
-    &CRAWL_KEEP_URL_FRAGMENT,
-];
 
 #[cfg(test)]
 mod tests;

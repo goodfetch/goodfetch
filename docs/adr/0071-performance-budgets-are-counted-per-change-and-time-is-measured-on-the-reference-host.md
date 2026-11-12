@@ -2,6 +2,8 @@
 
 Every change is held to a **Performance budget** made only of figures that repeat exactly on a shared runner: instruction counts and heap metrics under Valgrind, compared with the change's base in the same job; counts of protocol messages, bytes and renders, as snapshots; and the Console's bundle bytes. Resident memory has ceilings. Wall time never fails a change: it is measured every night on `main`'s head on the reference host, as the **Performance series**, once the owner approves that use, and at release by ADR 0025's benchmark, whose Δ rule is unchanged.
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no suite, test layout, Journey surface, security boundary, Performance budget, Feature kind (`screen:`) or actor exists for the Console.
+
 > Amended by [ADR 0076](0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md), noted on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): no approval is awaited: the rented reference host is declined, and the Performance series runs on the owner's machine when it is on, labelled with it.
 
 ADR 0025 measures performance on the reference host at each release candidate, and ADR 0057 holds sizes on every change. Nothing held the speed or memory of the code between releases, so a regression would surface weeks after the change that made it. The facts limit what a per-change gate can hold:
@@ -11,6 +13,8 @@ ADR 0025 measures performance on the reference host at each release candidate, a
 - **Counts are blind to some costs:** system calls, I/O, cache behaviour across threads, V8 and the SDK-to-engine round trip. Those need wall time on a quiet machine.
 
 Decided in [Performance regression testing](https://github.com/goodfetch/goodfetch/issues/284) ([grilling record](https://github.com/goodfetch/goodfetch/issues/284#issuecomment-6154117858)), with the agent answering on the owner's delegation. The facts come from [Performance regression testing in CI](https://github.com/goodfetch/goodfetch/issues/272) ([findings](https://github.com/goodfetch/goodfetch/blob/research/performance-testing/rnd/research/2026-10-13-performance-testing.md)) and [Rust test tooling in 2026](https://github.com/goodfetch/goodfetch/issues/263). It builds on ADRs 0060 (runtimes, the `tasks` module's blocking policy), 0061 and 0062, on ADR 0064's Live checks and results store, and on the Console test stack of [Console and docs test stack](https://github.com/goodfetch/goodfetch/issues/282), in review as ADR 0068. The rules every test follows are in `TESTING.md`.
+
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 ## Decision
 
@@ -22,7 +26,9 @@ Decided in [Performance regression testing](https://github.com/goodfetch/goodfet
   - heap metrics per benchmark (DHAT): total allocations, total bytes, and bytes at the global maximum;
   - protocol messages, answers, events and their bytes per scenario, for every surface;
   - React commits and DOM elements per Console action;
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   - bytes of the Console's and the TypeScript packages' entry points, brotli-compressed.
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   > Amended by [ADR 0134](0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md): counted figures per dispatched message, per URL in the Frontier and per crawled page also have absolute ceilings, which no "Performance change" section passes; wall time and resident memory have Performance targets, reported at each owner test and never failing a change.
 - **Resident memory has ceilings,** not per-change thresholds.
 
@@ -66,14 +72,17 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
 - **MCP:** the bytes of `tools/list` and of each tool result in those scenarios. For an agent, bytes are context.
 - **Python import cost:** the set of modules `import goodfetch` loads.
 - **Console render budgets,** in Vitest Browser Mode component tests (ADR 0068): named heavy screens are wrapped in React's `<Profiler>`, and the test snapshots the number of commits per action (an event batch on the Runs screen, opening a run, filtering) and the number of DOM elements a 10,000-row list renders.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 ### Bundle bytes
 
 - **size-limit** (brotli) measures the built Console, and the entry points of the TypeScript SDK, adapters and Integrations with what each imports.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Ceilings:** the whole embedded Console stays under **1 MB** brotli, 2.5 times the prototype's 0.40 MB; it also counts against the binary's Size budget. The Console's initial route (what loads before the Runs screen's first render) gets a ceiling from area 12's first Console build at 1.25 times its measured size, approved by the owner. A ceiling moves only with the owner's approval.
   > Amended by [ADR 0087](0087-each-product-is-an-executable-crate-that-links-only-its-crates-and-has-its-own-size-budget.md): each Product's executable embeds its own Console build, Foxhound's screens being a package Collie's build does not depend on; the 1 MB ceiling, the initial route's ceiling and the increase check apply to each build, which counts against its own Product's Size budget.
   > Note (agent decision, moot: the Console leaves (ADR 0137)), 2026-10-26, [#937](https://github.com/goodfetch/goodfetch/issues/937): Collie's initial route is the page, its entry script and its stylesheet as `xtask console build` compresses them; its first build measured 111,823 bytes brotli, so its ceiling, at the 1.25 times the owner approved, is 139,779 bytes, rounded up, in `xtask perf`'s budget. The Runs screen renders only the rows in view with `@tanstack/react-virtual` (MIT; with the windowing code, 6.5 kB brotli more entry script), so a 10,000-row list stays at a few dozen rows of the DOM. The Console's lab metrics are recorded by `just console-lighthouse` into a local series file labelled with the machine until the series' campaign runner in `bench/` exists.
   > Note (agent decision, moot: the Console leaves (ADR 0137)), 2026-10-27, [#1235](https://github.com/goodfetch/goodfetch/issues/1235): Foxhound's initial route is the page, its entry script, its stylesheet and Foxhound's English catalog, which its entry loads before the first render, as `xtask console build` compresses them (size-limit entry `foxhound-console-initial-route`); its first build measured 128,939 bytes brotli, so its ceiling, at the 1.25 times the owner approved, is 161,174 bytes, rounded up, in `xtask perf`'s budget. `just console-lighthouse` records the lab metrics of each Product's Console, each served by its own executable.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Increase:** `xtask perf` compares each entry with the base build in the same job. Growth over **5 kB** brotli per entry needs the "Performance change" section.
 
 ### Memory beyond the heap
@@ -87,8 +96,10 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
   > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each Product has its own ceilings for an idle Attached engine and an idle Daemon, and the 1,000-page crawl is Foxhound's. The Performance series measures both executables and each Console build.
   > Amended by [ADR 0134](0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md): the ceilings are measured on the build after M1's optimization pass and committed in M1, for the OSes the private-period matrix runs; macOS Intel and Windows arm64 follow in M4.
   > Note (agent decision, accepted by the owner on 2026-10-21), 2026-10-20, [#390](https://github.com/goodfetch/goodfetch/issues/390): the check is `xtask rss` (`just rss`, `just rss-propose`). Ceilings are whole MiB per Product, platform (`<os>-<arch>`, so a target's gnu and musl builds share one) and scenario in `ci/rss-ceilings.toml`, and "rounded up" rounds up to a whole MiB. Each scenario runs on the `ci`-profile executables a Release cell builds, each measurement in a fresh `xtask rss probe` whose only child is the executable, so `getrusage`'s children's maximum resident set is that executable's alone. On Windows the probe reads the child's peak working set (`GetProcessMemoryInfo`) rather than a job object's peak, which counts committed memory, not resident memory. The idle Attached engine idles 1 second after its `hello` is accepted.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **The Console's leak check:** a served Playwright test (ADR 0068) streams 10,000 events into the Runs screen. The JS heap after a forced garbage collection, read over CDP, is within 10% of its value after the first 1,000 events. A ratio, so the machine does not matter.
   > Amended by [ADR 0134](0134-absolute-ceilings-and-performance-targets-join-the-per-change-budget-and-m1-ends-with-an-optimization-pass.md): two more ratio checks join the Release suite: the Frontier at 1,000,000 URLs within 1.5× its peak at 100,000, and a Daemon's RSS after 20 crawls within 10% of its RSS after 3.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 ### The Performance series
 
@@ -99,6 +110,7 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
   - each SDK's small-call round trip against an Attached engine;
   - startup wall time and peak memory of the binary, with hyperfine 2.0;
   - the Console's lab metrics (LCP, CLS, TBT) with Lighthouse 13, driven directly against the binary-served Console, the median of 5 runs against the "good" values: LCP ≤ 2.5 s and CLS ≤ 0.1 from Web Vitals, and TBT ≤ 200 ms from web.dev's TBT guidance (TBT is not a Web Vital; lab tools use it in place of INP). Lighthouse CI is not used: it still bundles Lighthouse 12.
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **It is a paid resource, gated on the owner.** It starts only once the owner approves the reference host's nightly use. Until then it runs nowhere, and the counted gates stand alone. It uses no hosted minutes, so it runs while the repository is private and the nightly tier is off, an exception to ADR 0032's rule like ADR 0064's test-health job.
   > Amended by [ADR 0076](0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md), noted on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): it no longer runs nowhere until approved: it runs on the owner's machine, which costs nothing, when that machine is on, and is never published as the reference class.
 - **It is a Live check** (ADR 0064). It runs through `bench/`'s campaign runner under the reference host's gates, and declares in `bench/` before its first run:
@@ -132,6 +144,8 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
 | Drift check | none: the daily test-health job | Linux |
 | Performance series | none: a nightly Live check, after the owner's approval | reference host |
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
+
 - **`just perf [base]`** runs `xtask perf` over what changed, against the merge base with `origin/main` or the given base, with CI's thresholds. On Linux it runs natively. Elsewhere it runs in the pinned Linux CI image through a container engine; Valgrind supports ARM64 Linux, so Apple-silicon machines run it. Without a container engine it lists itself as skipped, with the reason (ADR 0061). `just pre-merge` includes it.
 - **The comparison job counts against the Pre-merge budget** (each job ≤ 15 min) and shards by bench target when it would not fit.
 
@@ -164,17 +178,20 @@ These are exact by construction, so they are ordinary tests with snapshots (`TES
 - **Amends ADR 0060 and `STYLE.md`:** bench targets may build a Tokio runtime, through the helper tests use. **Amends ADR 0062:** a bench target's root opts into `Clock::paused` and `Entropy::seeded` as a test module does. Notes mark both spots, and `STYLE.md` is edited in place.
 - **Adds to ADR 0025:** the Performance series uses the reference host and `bench/`'s runner, and its figures are never published as benchmark results. The release gate and every Δ are unchanged.
 - **Adds to ADR 0057:** the Console's bundle has its own ceiling and per-change increase check, ahead of the binary's.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Adds to ADR 0061:** the cache-warming job builds the benchmark targets and caches workspace crates; `xtask affected` selects bench targets; `just perf` joins the recipes and `just pre-merge` runs it; the Performance budgets are those its time budgets exclude.
 - **Adds to ADR 0064:** the Performance series joins its table of Live checks (nightly on the reference host, blocking nothing directly, owned by area 2); the drift check runs with the daily test-health job; performance figures join the results store.
 - **Adds to ADR 0068 (in review):** render and DOM counts in component tests, and the leak check in served tests.
 - **Adds to ADR 0030's release notes:** each counted figure that changed by more than 1% since the previous minor.
 - **ADR 0037's area table** lists this ADR in the rows of area 1 (the job, `xtask perf`, `just perf`, the drift check), area 2 (the series in `bench/`), area 3 (the engine's scenarios and resident-memory ceilings), area 11 (the SDK, CLI and MCP counts) and area 12 (the Console's budgets).
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Changes area 1's spec** ([Spec: Repository, CI and release (V1 area 1)](https://github.com/goodfetch/goodfetch/issues/130)): the pull-request and merge-queue tiers run `xtask perf`; Cargo gets a `bench` profile beside `dev`, `test` and `ci-test`; the CI image carries Valgrind and gungraun's runner; the reference host's runner also takes the nightly schedule once approved; the release notes gain the counted figures.
 - **Changes area 2's spec** ([Spec: Proving ground and conformance (V1 area 2)](https://github.com/goodfetch/goodfetch/issues/152)): `bench/` declares and runs the Performance series as a campaign, with Apache Otava for change points.
 - **Area 3's spec** ([Spec: Engine runtime (V1 area 3)](https://github.com/goodfetch/goodfetch/issues/213)) gains benchmark scenarios for its hot paths (framing, dispatch, run-state writes, admission), the startup benchmarks and the three resident-memory scenarios.
 - **Area 12's spec** sets the initial route's ceiling and names the screens with render budgets.
 - **Owner approvals:** the reference host's nightly use, every resident-memory ceiling, and the Console's initial-route ceiling.
   > Amended by [ADR 0076](0076-tests-and-ci-run-on-free-tiers-and-ai-calls-go-through-the-vercel-ai-gateway.md), noted on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): the reference host's nightly use is no longer an owner approval, since the host is declined and the series runs on the owner's machine; the ceilings' approvals remain.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **The "Test infrastructure" spec** builds `xtask perf` and `just perf`, the comparison job and its base build, the admission run, the drift check, the reports, and the resident-memory check.
 
 > Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): the bench target's Tokio runtime is a paused current-thread runtime, built through the helper tests use.

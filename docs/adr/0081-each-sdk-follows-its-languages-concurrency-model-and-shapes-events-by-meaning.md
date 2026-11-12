@@ -67,6 +67,7 @@ Each SDK runs on its language's own model: TypeScript async only; Python an asyn
   - **Side activity on a page** (console, request, response, popup) is observed with a listener in TypeScript and Python, under Playwright's names: `page.on('console', listener)` returns a `Subscription` (S3).
   - **A sequence the program reads to its end** (a Run's Records, an Agent's steps, a Run's progress until it ends) is an async iterator in TypeScript and Python (`for await`, `async for`, and `for` in the sync API).
   - **Rust uses `EventStream` for both** (S1 over S4). `page.events(events::Console)` is Rust's form of `on`. The stream has its own `next()` and also implements `futures_core::Stream`, so no third-party crate is needed (G7).
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
   - **Both subscribe when the method is called**, as TypeScript's waiters arm when called (ADR 0080), so nothing slips through before the first read; a Rust stream too subscribes when its method is called, not when it is first polled.
 
   Playwright offers emitters in all four of its languages and async iterators in none; Stainless's streams are async iterators whose `break` aborts the request; chromiumoxide returns a `Stream`.

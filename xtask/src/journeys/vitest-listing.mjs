@@ -9,8 +9,8 @@ import { createVitest } from "vitest/node";
 
 const out = process.argv[1];
 // Vitest's own commands set these before they load the configuration, and
-// `createVitest` does not: without `VITEST`, Storybook's addon gives no
-// plugin, so the listing would not collect the stories a run collects.
+// `createVitest` does not: a configuration or a plugin that reads them
+// would otherwise collect other tests than a run collects.
 process.env["TEST"] = "true";
 process.env["VITEST"] = "true";
 process.env["NODE_ENV"] ??= "test";

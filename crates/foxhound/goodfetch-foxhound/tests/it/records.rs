@@ -21,7 +21,7 @@ use goodfetch_test_client::Attached;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use crate::attached;
+use crate::site::Site;
 
 /// An Attached engine and what it sent, sorted: each reader's Records by
 /// its call's id, each reply by its id, and the crawl requests not yet
@@ -51,9 +51,9 @@ impl Session {
 
     /// Starts a crawl `run_id` of `pages` seeds declaring `pages`, one
     /// request at a time, and waits for its start's answer.
-    fn crawl(&mut self, run_id: &str, pages: usize) {
+    fn crawl(&mut self, site: &Site, run_id: &str, pages: usize) {
         let seeds: Vec<Value> = (1..=pages)
-            .map(|page| json!({ "url": format!("https://shop.test/{page}"), "label": "page" }))
+            .map(|page| json!({ "url": site.page(&format!("/{page}")), "label": "page" }))
             .collect();
         self.send(
             "start",
@@ -172,8 +172,8 @@ impl Session {
 /// The Record of `pages` the crawl request `n` committed as number
 /// `number`, as a reader reads it, its committed time and Provenance left
 /// out.
-fn page(number: u64, n: u64) -> Value {
-    let url = format!("https://shop.test/{n}");
+fn page(site: &Site, number: u64, n: u64) -> Value {
+    let url = site.page(&format!("/{n}"));
     json!({ "number": number, "value": { "url": url }, "request_id": n.to_string(), "url": url })
 }
 
@@ -186,9 +186,10 @@ fn page(number: u64, n: u64) -> Value {
 #[test]
 fn a_reader_reads_from_the_first_record_and_follows_the_live_run_to_its_end() {
     let env = TestEnv::new();
-    let mut session = Session::new(attached(&env));
+    let site = Site::start(&env);
+    let mut session = Session::new(site.engine(&env));
 
-    session.crawl("followed", 3);
+    session.crawl(&site, "followed", 3);
     session.answer_next();
     session.until(|session| !session.requests.is_empty());
     session.read("reader", "followed", None);
@@ -214,9 +215,9 @@ fn a_reader_reads_from_the_first_record_and_follows_the_live_run_to_its_end() {
         ),
         (
             &json!("finished"),
-            vec![page(1, 1)],
+            vec![page(&site, 1, 1)],
             false,
-            vec![page(1, 1), page(2, 2), page(3, 3)],
+            vec![page(&site, 1, 1), page(&site, 2, 2), page(&site, 3, 3)],
             json!({ "count": 3, "last": 3 }),
         )
     );
@@ -231,9 +232,10 @@ fn a_reader_reads_from_the_first_record_and_follows_the_live_run_to_its_end() {
 #[test]
 fn a_reader_that_reconnects_after_a_number_reads_each_record_once() {
     let env = TestEnv::new();
-    let mut session = Session::new(attached(&env));
+    let site = Site::start(&env);
+    let mut session = Session::new(site.engine(&env));
 
-    session.crawl("resumed", 4);
+    session.crawl(&site, "resumed", 4);
     session.read("first", "resumed", None);
     session.credit("first", 1);
     session.answer_next();
@@ -252,7 +254,7 @@ fn a_reader_that_reconnects_after_a_number_reads_each_record_once() {
     let again = session.replies["again"]["result"].clone();
     assert!(session.engine.finished());
 
-    let mut later = Session::new(attached(&env));
+    let mut later = Session::new(site.engine(&env));
     later.read("ended", "resumed", Some(2));
     later.credit("ended", 10);
     later.until(|session| session.replies.contains_key("ended"));
@@ -266,10 +268,15 @@ fn a_reader_that_reconnects_after_a_number_reads_each_record_once() {
         (&finished["result"]["lifecycle"], read, again, ended),
         (
             &json!("finished"),
-            vec![page(1, 1), page(2, 2), page(3, 3), page(4, 4)],
+            vec![
+                page(&site, 1, 1),
+                page(&site, 2, 2),
+                page(&site, 3, 3),
+                page(&site, 4, 4)
+            ],
             json!({ "count": 3, "last": 4 }),
             (
-                vec![page(3, 3), page(4, 4)],
+                vec![page(&site, 3, 3), page(&site, 4, 4)],
                 json!({ "count": 2, "last": 4 })
             ),
         )
@@ -285,9 +292,10 @@ fn a_reader_that_reconnects_after_a_number_reads_each_record_once() {
 #[test]
 fn a_reader_given_through_answers_once_it_read_through_that_number_while_the_run_is_live() {
     let env = TestEnv::new();
-    let mut session = Session::new(attached(&env));
+    let site = Site::start(&env);
+    let mut session = Session::new(site.engine(&env));
 
-    session.crawl("bounded", 4);
+    session.crawl(&site, "bounded", 4);
     session.answer_next();
     session.answer_next();
     session.until(|session| !session.requests.is_empty());
@@ -319,7 +327,10 @@ fn a_reader_given_through_answers_once_it_read_through_that_number_while_the_run
         (&finished["result"]["lifecycle"], read, replies),
         (
             &json!("finished"),
-            (vec![page(1, 1), page(2, 2)], vec![page(3, 3)]),
+            (
+                vec![page(&site, 1, 1), page(&site, 2, 2)],
+                vec![page(&site, 3, 3)]
+            ),
             (
                 json!({ "count": 2, "last": 2 }),
                 json!({ "count": 1, "last": 3 })
@@ -337,9 +348,10 @@ fn a_reader_given_through_answers_once_it_read_through_that_number_while_the_run
 fn a_reader_that_grants_no_credit_never_holds_the_crawl_back() {
     const PAGES: u64 = 20;
     let env = TestEnv::new();
-    let mut session = Session::new(attached(&env));
+    let site = Site::start(&env);
+    let mut session = Session::new(site.engine(&env));
 
-    session.crawl("lagged", 20);
+    session.crawl(&site, "lagged", 20);
     session.read("stalled", "lagged", None);
     for _ in 0..PAGES {
         session.answer_next();
@@ -361,7 +373,7 @@ fn a_reader_that_grants_no_credit_never_holds_the_crawl_back() {
         (while_stalled, read, reply),
         (
             (json!("finished"), 0, false),
-            (1..=PAGES).map(|n| page(n, n)).collect::<Vec<_>>(),
+            (1..=PAGES).map(|n| page(&site, n, n)).collect::<Vec<_>>(),
             json!({ "count": PAGES, "last": PAGES }),
         )
     );
@@ -374,9 +386,10 @@ fn a_reader_that_grants_no_credit_never_holds_the_crawl_back() {
 #[test]
 fn a_reader_of_a_dataset_the_crawl_does_not_declare_fails_with_dataset_unknown() {
     let env = TestEnv::new();
-    let mut session = Session::new(attached(&env));
+    let site = Site::start(&env);
+    let mut session = Session::new(site.engine(&env));
 
-    session.crawl("declared", 1);
+    session.crawl(&site, "declared", 1);
     session.answer_next();
     session.finish("declared", &[]);
     session.send(
@@ -408,10 +421,11 @@ fn a_reader_of_a_dataset_the_crawl_does_not_declare_fails_with_dataset_unknown()
 #[test]
 fn a_reader_on_another_engine_follows_the_live_run_its_writer_works() {
     let env = TestEnv::new();
-    let mut writer = Session::new(attached(&env));
-    let mut reader = Session::new(attached(&env));
+    let site = Site::start(&env);
+    let mut writer = Session::new(site.engine(&env));
+    let mut reader = Session::new(site.engine(&env));
 
-    writer.crawl("elsewhere", 3);
+    writer.crawl(&site, "elsewhere", 3);
     writer.answer_next();
     writer.until(|session| !session.requests.is_empty());
     reader.read("reader", "elsewhere", None);
@@ -439,7 +453,7 @@ fn a_reader_on_another_engine_follows_the_live_run_its_writer_works() {
         (
             &json!("finished"),
             false,
-            vec![page(1, 1), page(2, 2), page(3, 3)],
+            vec![page(&site, 1, 1), page(&site, 2, 2), page(&site, 3, 3)],
             json!({ "count": 3, "last": 3 }),
         )
     );

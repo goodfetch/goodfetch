@@ -6,8 +6,7 @@
 //! it keeps in every run file and the Politeness file, its gates in
 //! admission, its parts of a Run's report and progress, its Clean-up
 //! versions, its "Needs you" sources, its Secret providers and the
-//! controls and weakenings it records; an executable crate adds its
-//! Console build.
+//! controls and weakenings it records.
 //!
 //! A handler answers a value or a [`CallError`], which only the RPC layer
 //! turns into the wire's error object.
@@ -39,11 +38,10 @@ use crate::engine_context::EngineContext;
 use crate::events::Events;
 use crate::log::ConnectionLog;
 use crate::needs_you::NeedsYouSource;
-use crate::people::SignInDriver;
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
-use crate::runs::{CleanUpVersions, ProgressPart, ReportPart, Run, Runs};
+use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Run, Runs};
 use crate::secrets::ProviderFactory;
 use crate::settings::RunSettings;
 use goodfetch_protocol::run::RunKind;
@@ -104,7 +102,7 @@ pub(crate) struct ConnectionContext {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Holding {
     /// It holds the Daemon off its idle stop, and off a handover to its
-    /// major's pick when its surface does (`Surface::holds_off_handover`).
+    /// major's pick.
     Holds,
     /// It only observes, holding off neither: a Kennel's, unless its
     /// `hello` asks to keep the Daemon alive.
@@ -133,8 +131,6 @@ pub(crate) trait DaemonSide: Send + Sync {
     fn health(&self) -> Answering<'_, DaemonHealth>;
     /// Stops the Daemon once `daemon.stop` has answered what it says.
     fn stop(&self) -> Answering<'_, DaemonStopping>;
-    /// The sign-in driver of the Console it serves, if any.
-    fn sign_ins(&self) -> Option<SignInDriver>;
 }
 
 impl CallContext {
@@ -263,16 +259,10 @@ impl CallContext {
         self.connection.daemon.as_ref()
     }
 
-    /// The person the call acts for, as the Audit log names them: the one
-    /// the Console's sign-in driver signs in where the Daemon serves one,
-    /// else the OS user, its own name on a single-user install (#826).
+    /// The person the call acts for, as the Audit log names them: the OS
+    /// user, its own name on a single-user install (#826).
     pub(crate) fn person(&self) -> String {
-        self.daemon()
-            .and_then(|daemon| daemon.sign_ins())
-            .map_or_else(
-                || self.engine().person().to_owned(),
-                |sign_ins| sign_ins.person().to_owned(),
-            )
+        self.engine().person().to_owned()
     }
 
     /// Cancelled when the call is: a handler that waits watches it at each
@@ -400,7 +390,7 @@ pub struct Contribution {
     handlers: Vec<Handler>,
     run_state_tables: Vec<RunStateTables>,
     politeness_tables: Vec<PolitenessTables>,
-    drivers: Vec<(RunKind, Driver)>,
+    drivers: Vec<(RunKind, Driver, Driving)>,
     admission_gates: Option<Arc<dyn Gates>>,
     report_parts: Vec<Arc<dyn ReportPart>>,
     progress_parts: Vec<Arc<dyn ProgressPart>>,
@@ -485,10 +475,12 @@ impl Contribution {
     }
 
     /// The same, driving the Runs of `kind` it starts with `driver`, which a
-    /// resume starts again (ADR 0102).
+    /// resume starts again (ADR 0102), and saying how such a Run goes with
+    /// `driving`: who ends it, how its start commits and which setting says
+    /// whether it keeps a Provenance log (ADR 0099).
     #[must_use]
-    pub fn with_driver(mut self, kind: RunKind, driver: Driver) -> Self {
-        self.drivers.push((kind, driver));
+    pub fn with_driver(mut self, kind: RunKind, driver: Driver, driving: Driving) -> Self {
+        self.drivers.push((kind, driver, driving));
         self
     }
 
@@ -582,78 +574,10 @@ impl Contribution {
     }
 }
 
-/// One file of a Console build: its path from the build's root, such as
-/// `/assets/index-4f2a.js`, and its bytes, brotli-compressed.
-#[derive(Clone, Copy, Debug)]
-pub struct ConsoleFile {
-    pub(crate) path: &'static str,
-    pub(crate) brotli: &'static [u8],
-}
-
-impl ConsoleFile {
-    /// The file at `path`, such as `/index.html`, holding `brotli`.
-    pub const fn new(path: &'static str, brotli: &'static [u8]) -> Self {
-        Self { path, brotli }
-    }
-}
-
-/// A Product's Console build, as its executable embeds it: brotli files
-/// only, `xtask console build`'s output (ADR 0057), and the routes of its
-/// screens, which its package commits as plain data (ADR 0072).
-#[derive(Debug)]
-pub struct ConsoleBuild {
-    files: &'static [ConsoleFile],
-    routes: &'static [&'static str],
-}
-
-impl ConsoleBuild {
-    /// The build made of `files`, whose page shows each of `routes`, such
-    /// as `/settings`, or `/runs/$run`, whose segment `$run` stands for
-    /// any one segment.
-    pub const fn new(files: &'static [ConsoleFile], routes: &'static [&'static str]) -> Self {
-        Self { files, routes }
-    }
-
-    /// The file a request's path names: `/` and each route of the build
-    /// name the page itself, which shows the route's screen.
-    pub(crate) fn file(&self, path: &str) -> Option<&ConsoleFile> {
-        let path = if path == "/" || self.routes.iter().any(|route| matches_route(route, path)) {
-            "/index.html"
-        } else {
-            path
-        };
-        self.files.iter().find(|file| file.path == path)
-    }
-}
-
-/// Whether `path` is one of `route`'s: the same segments, a segment of
-/// `route` that begins with `$` standing for any one that is not empty.
-fn matches_route(route: &str, path: &str) -> bool {
-    let mut routes = route.split('/');
-    let mut paths = path.split('/');
-    loop {
-        match (routes.next(), paths.next()) {
-            (None, None) => return true,
-            (Some(expected), Some(given)) => {
-                let fits = if expected.starts_with('$') {
-                    !given.is_empty()
-                } else {
-                    expected == given
-                };
-                if !fits {
-                    return false;
-                }
-            }
-            _ => return false,
-        }
-    }
-}
-
 /// The contributions an engine starts with.
 #[derive(Clone, Default)]
 pub struct Composition {
     contributions: Vec<Contribution>,
-    console: Option<&'static ConsoleBuild>,
 }
 
 /// A composition no engine can start from.
@@ -696,20 +620,6 @@ impl Composition {
         self
     }
 
-    /// The same, serving `console` as its Daemon's Console: only an
-    /// executable crate passes one (ADR 0031), so an SDK crate's linked
-    /// engine serves none.
-    #[must_use]
-    pub fn with_console(mut self, console: &'static ConsoleBuild) -> Self {
-        self.console = Some(console);
-        self
-    }
-
-    /// The Console build it serves, if any.
-    pub fn console(&self) -> Option<&'static ConsoleBuild> {
-        self.console
-    }
-
     /// The name of each contribution, in order.
     pub fn contributions(&self) -> impl Iterator<Item = &'static str> + '_ {
         self.contributions.iter().map(Contribution::name)
@@ -744,7 +654,18 @@ impl Composition {
     pub(crate) fn drivers(&self) -> BTreeMap<RunKind, Driver> {
         self.contributions
             .iter()
-            .flat_map(|contribution| contribution.drivers.iter().cloned())
+            .flat_map(|contribution| &contribution.drivers)
+            .map(|(kind, driver, _)| (*kind, Arc::clone(driver)))
+            .collect()
+    }
+
+    /// How the Runs of each kind go, as the last driver given for the kind
+    /// says.
+    pub(crate) fn driving(&self) -> BTreeMap<RunKind, Driving> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| &contribution.drivers)
+            .map(|(kind, _, driving)| (*kind, *driving))
             .collect()
     }
 

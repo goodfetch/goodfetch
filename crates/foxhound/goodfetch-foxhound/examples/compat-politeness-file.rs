@@ -1,7 +1,9 @@
 //! The Politeness file's writer for the Compatibility corpus (ADR 0066):
 //! runs fixed scenarios against Foxhound's engine, whose composition adds
 //! the per-domain limits to the file, over the in-memory network, on the
-//! test `Clock` and a fixed `Entropy` seed, in a home of its own. A crawl of
+//! test `Clock` and a fixed `Entropy` seed, in a home of its own, its crawls
+//! fetching a site served from memory on a forced `http` tier
+//! (`support/site.rs`). A crawl of
 //! `shop.test` under a one-second delay meets a 429 on its first request,
 //! which halves the domain's concurrency and backs it off, and goes on once
 //! the backoff ended, its second page meeting a 503 that backs it off again
@@ -23,6 +25,7 @@
 )]
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_engine::clock::Clock;
@@ -36,6 +39,7 @@ use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Channel, Dependencies, Engine, Identity};
+use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::connection::Surface;
@@ -43,6 +47,9 @@ use goodfetch_protocol::settings::SettingsLayer;
 use goodfetch_test_client::Hello;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWrite, AsyncWriteExt as _, BufReader, Lines};
+
+#[path = "support/site.rs"]
+mod site;
 
 type Messages = Lines<BufReader<goodfetch_engine::transport::ConnectionReader>>;
 
@@ -151,6 +158,10 @@ fn proxy_refusal(home: &Path) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// `shop.test`'s robots.txt, which the site serves the crawl and the
+/// shared copy keeps.
+const SHOP_ROBOTS_TXT: &str = "User-agent: *\nDisallow: /private/\nCrawl-delay: 2\n";
+
 /// The robots.txt copy a crawl's Runs share, in the Politeness file of
 /// `home`, as a second engine of the user: `shop.test` answers a file,
 /// `hold.test` a 404, and a fetch of `shop.test`'s a day later answers a
@@ -186,10 +197,7 @@ async fn robots_txt_copies(home: &Path) -> Result<(), Box<dyn std::error::Error>
     let shop = goodfetch_frontier::Url::parse("https://shop.test/robots.txt")?;
     let hold = goodfetch_frontier::Url::parse("https://hold.test/robots.txt")?;
     copies
-        .copy(
-            &shop,
-            answered(200, b"User-agent: *\nDisallow: /private/\nCrawl-delay: 2\n"),
-        )
+        .copy(&shop, answered(200, SHOP_ROBOTS_TXT.as_bytes()))
         .await;
     goodfetch_frontier::crawl_delay_read(
         &file,
@@ -242,6 +250,25 @@ fn copy_of(home: &Path, copy: &Path) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// The `crawl.start` params of the Run `run_id`: two pages of `host`, on the
+/// site served from memory, under the `politeness.domain` settings
+/// `domain`.
+fn crawl(run_id: &str, host: &str, domain: &Value) -> Value {
+    let (fetch, network) = site::settings(&["shop.test", "hold.test"]);
+    json!({
+        "run_id": run_id,
+        "seeds": [
+            { "url": format!("https://{host}/1"), "label": "page" },
+            { "url": format!("https://{host}/2"), "label": "page" },
+        ],
+        "settings": {
+            "fetch": fetch,
+            "network": network,
+            "politeness": { "domain": domain },
+        },
+    })
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let folder = PathBuf::from(
         std::env::args_os()
@@ -253,7 +280,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         product_version: ProductVersion::parse("0.0.0")?,
         channel: Channel::CratesIo,
     };
-    let engine = Engine::new(identity, &goodfetch_foxhound::composition())?;
+    let tiers = FetchTiers::serving(Arc::new(site::Site::new(
+        Duration::ZERO,
+        &[("shop.test", SHOP_ROBOTS_TXT)],
+    )));
+    let engine = Engine::new(identity, &goodfetch_foxhound::composition_with(tiers))?;
     let home = tempfile::tempdir()?;
     let copy = home.path().join("copy.sqlite");
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -268,11 +299,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             exchange(
                 &mut writer,
                 &mut messages,
-                &call(
-                    0,
-                    "hello",
-                    &hello_params(),
-                ),
+                &call(0, "hello", &hello_params()),
             )
             .await?;
             exchange(
@@ -281,14 +308,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &call(
                     1,
                     "crawl.start",
-                    &json!({
-                        "run_id": "throttled",
-                        "seeds": [
-                            { "url": "https://shop.test/1", "label": "page" },
-                            { "url": "https://shop.test/2", "label": "page" },
-                        ],
-                        "settings": { "politeness": { "domain": { "concurrency": 2, "delay": 1_000, "rate": 30 } } },
-                    }),
+                    &crawl(
+                        "throttled",
+                        "shop.test",
+                        &json!({ "concurrency": 2, "delay": 1_000, "rate": 30 }),
+                    ),
                 ),
             )
             .await?;
@@ -304,14 +328,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &call(
                     3,
                     "crawl.start",
-                    &json!({
-                        "run_id": "holding",
-                        "seeds": [
-                            { "url": "https://hold.test/1", "label": "page" },
-                            { "url": "https://hold.test/2", "label": "page" },
-                        ],
-                        "settings": { "politeness": { "domain": { "concurrency": 1 } } },
-                    }),
+                    &crawl("holding", "hold.test", &json!({ "concurrency": 1 })),
                 ),
             )
             .await?;

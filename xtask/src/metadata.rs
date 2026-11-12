@@ -51,6 +51,10 @@ struct GoodfetchMetadata {
 #[derive(Deserialize)]
 pub(crate) struct Dependency {
     pub(crate) name: String,
+    /// The name the manifest gives it in the package's code, when that is
+    /// not its own (`package = "…"`).
+    #[serde(default)]
+    pub(crate) rename: Option<String>,
     /// `None` for a normal dependency, `dev` or `build` otherwise.
     pub(crate) kind: Option<String>,
 }
@@ -68,6 +72,15 @@ pub(crate) struct Target {
 /// Every member of the workspace at `root`.
 pub(crate) fn packages(cargo: &OsStr, root: &Path) -> Result<Vec<Package>> {
     read(cargo, root).map(|metadata| metadata.packages)
+}
+
+/// Every member of the workspace at `root` and its target folder, as
+/// [`target_directory`] gives it, from one run of Cargo.
+pub(crate) fn packages_and_target_directory(
+    cargo: &OsStr,
+    root: &Path,
+) -> Result<(Vec<Package>, PathBuf)> {
+    read(cargo, root).map(|metadata| (metadata.packages, metadata.target_directory))
 }
 
 /// The workspace's target folder, as Cargo resolves it (`CARGO_TARGET_DIR`

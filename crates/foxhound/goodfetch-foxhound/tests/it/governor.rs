@@ -7,8 +7,8 @@ use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
-use crate::attached;
 use crate::fetch_tiers::settings;
+use crate::site::Site;
 
 /// The user configuration of a home whose engines keep `in_flight` HTTP
 /// admissions at once whatever the machine: each engine is held at
@@ -25,105 +25,106 @@ pub(crate) fn in_flight_whatever_the_machine(in_flight: u32) -> String {
 }
 
 /// Starts the crawl `run_id` of one request on each of `hosts`, up to 3
-/// handlers at once, and answers once the engine took it, with each
-/// handler request it sent meanwhile kept in `held`.
-fn start(engine: &mut Attached, run_id: &str, hosts: &[&str], held: &mut Vec<Value>) {
+/// handlers at once, and answers once the engine took it. Each request is
+/// for its host's held page, `/held/<host>`, which the site sends only
+/// once [`release`] asked for it: until then its attempt is in flight and
+/// keeps its HTTP admission.
+fn start(engine: &mut Attached, site: &Site, run_id: &str, hosts: &[&str]) {
     let seeds: Vec<Value> = hosts
         .iter()
-        .map(|host| json!({ "url": format!("https://{host}/"), "label": "page" }))
+        .map(|host| json!({ "url": site.url(host, &format!("/held/{host}")), "label": "page" }))
         .collect();
-    let id = format!("start-{run_id}");
-    engine.send(&json!({
-        "jsonrpc": "2.0", "id": id, "method": "crawl.start",
-        "params": {
+    let started = engine.call(
+        "start",
+        "crawl.start",
+        &json!({
             "run_id": run_id,
             "seeds": seeds,
             "settings": { "crawl": { "handler": { "concurrency": 3 } } },
-        },
-    }));
-    loop {
-        let message = engine.next().unwrap();
-        if message["method"] == "crawl_request.handle" {
-            held.push(message);
-        } else if message["id"] == id {
-            assert!(message.get("result").is_some(), "{message}");
-            return;
-        }
-    }
-}
-
-/// Every handler request the engine sends, after those already `held`
-/// and with those of `unanswered` not answered yet, until the governor
-/// holds the crawls still: each of `crawls`, a Run ID and its number of
-/// seeds, has all its requests done, waiting or handled by a request held
-/// here, none fetched, and either the governor's `cap` admissions are all
-/// held here or nothing waits. Nothing more comes then until one is
-/// answered; more than `cap` handled then fails at once. It reads the
-/// crawls' progress (`run.progress`) rather than waiting for a quiet
-/// stretch, which a loaded machine outlasts (fix-queue 129).
-fn turn(
-    engine: &mut Attached,
-    (crawls, cap): (&[(&str, u64)], u64),
-    unanswered: &[Value],
-    mut held: Vec<Value>,
-) -> Vec<Value> {
-    loop {
-        let (mut accounted, mut handled, mut waiting) = (true, 0, 0);
-        for &(run_id, seeds) in crawls {
-            let progress = progress(engine, run_id, &mut held);
-            let mine = held
-                .iter()
-                .chain(unanswered)
-                .filter(|request| request["params"]["run_id"] == run_id)
-                .count();
-            let count = |name: &str| progress["requests"][name].as_u64().unwrap_or(0);
-            let done = count("succeeded") + count("failed") + count("skipped") + count("blocked");
-            accounted &= count("fetching") == 0
-                && count("handling") == u64::try_from(mine).unwrap()
-                && done + count("handling") + count("pending") == seeds;
-            handled += count("handling");
-            waiting += count("pending");
-        }
-        if !accounted {
-            continue;
-        }
-        // Accounted for, each request handled is one held here, which
-        // keeps its admission. Past the cap, nothing would ever end the
-        // turn: the governor gave more than its cap, as it once did before
-        // its first sample (#1792), and the test waited for the 300 s kill.
-        assert!(
-            handled <= cap,
-            "the governor admits {handled} past its cap of {cap}"
-        );
-        if handled == cap || waiting == 0 {
-            return held;
-        }
-    }
+        }),
+        &mut |_| Some(json!({ "result": { "records": [] } })),
+    );
+    assert!(started.get("result").is_some(), "{started}");
 }
 
 /// The progress of `run_id` at once, each handler request that comes
-/// meanwhile kept in `held`.
-fn progress(engine: &mut Attached, run_id: &str, held: &mut Vec<Value>) -> Value {
-    let id = format!("progress-{run_id}");
-    engine.send(&json!({
-        "jsonrpc": "2.0", "id": id, "method": "run.progress", "params": { "run_id": run_id },
-    }));
+/// meanwhile answered with no Record.
+fn progress(engine: &mut Attached, run_id: &str) -> Value {
+    engine.call(
+        "progress",
+        "run.progress",
+        &json!({ "run_id": run_id }),
+        &mut |_| Some(json!({ "result": { "records": [] } })),
+    )["result"]
+        .clone()
+}
+
+/// The requests in flight, each as its Run ID and its URL, once the
+/// governor holds the crawls still: `done` requests are done over all of
+/// `crawls`, each a Run ID and its number of seeds, every other is being
+/// fetched or waits, none is with its handler, and either the governor's
+/// `cap` admissions are all taken or nothing waits. Nothing more moves
+/// then until a held page is released; more than `cap` in flight fails at
+/// once. It reads the crawls' progress (`run.progress`) rather than
+/// waiting for a quiet stretch, which a loaded machine outlasts (fix-queue
+/// 129).
+fn in_flight(
+    engine: &mut Attached,
+    (crawls, cap): (&[(&str, u64)], u64),
+    done: u64,
+) -> Vec<(String, String)> {
     loop {
-        let message = engine.next().unwrap();
-        if message["method"] == "crawl_request.handle" {
-            held.push(message);
-        } else if message["id"] == id {
-            return message["result"].clone();
+        let (mut accounted, mut finished, mut waiting) = (true, 0, 0);
+        let mut flying = Vec::new();
+        for &(run_id, seeds) in crawls {
+            let progress = progress(engine, run_id);
+            let count = |name: &str| progress["requests"][name].as_u64().unwrap_or(0);
+            let ended = count("succeeded") + count("failed") + count("skipped") + count("blocked");
+            let entries = progress["in_flight"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            accounted &= count("handling") == 0
+                && count("fetching") == u64::try_from(entries.len()).unwrap()
+                && ended + count("fetching") + count("pending") == seeds;
+            finished += ended;
+            waiting += count("pending");
+            flying.extend(entries.iter().map(|entry| {
+                (
+                    run_id.to_owned(),
+                    entry["url"].as_str().unwrap_or_default().to_owned(),
+                )
+            }));
+        }
+        if !accounted || finished != done {
+            continue;
+        }
+        // Past the cap, nothing would ever end the turn: the governor gave
+        // more than its cap, as it once did before its first sample
+        // (#1792), and the test waited for the 300 s kill.
+        let taken = u64::try_from(flying.len()).unwrap();
+        assert!(
+            taken <= cap,
+            "the governor admits {taken} past its cap of {cap}"
+        );
+        if taken == cap || waiting == 0 {
+            return flying;
         }
     }
 }
 
-/// The Runs `held`'s requests are of, in order.
-fn runs(held: &[Value]) -> Vec<String> {
-    let mut runs: Vec<String> = held
-        .iter()
-        .map(|request| request["params"]["run_id"].as_str().unwrap().to_owned())
-        .collect();
+/// Has the site send the held page of each request of `flying`.
+fn release(site: &Site, flying: &[(String, String)]) {
+    for (_, url) in flying {
+        let (_, key) = url.rsplit_once("/held/").expect("a held page");
+        let released = site.fetch(&site.url("shop.test", &format!("/release/{key}")));
+        assert_eq!(released.status, 200, "{url}");
+    }
+}
+
+/// The Runs `flying`'s requests are of, in order.
+fn runs(flying: &[(String, String)]) -> Vec<String> {
+    let mut runs: Vec<String> = flying.iter().map(|(run_id, _)| run_id.clone()).collect();
     runs.sort();
     runs
 }
@@ -135,49 +136,40 @@ fn answer(engine: &mut Attached, held: Vec<Value>) {
 }
 
 /// With `governor.http` fixed at 2, the crawl that started first takes
-/// both admissions though it could run 3 handlers; the second waits; once
-/// the first gives them back, they go to each crawl in turn, and once the
-/// first is done, both to the second.
+/// both admissions though it could fetch 3 pages at once; the second
+/// waits; once the first gives them back, they go to each crawl in turn,
+/// and once the first is done, both to the second.
 ///
 /// Covers: story:3-55
 #[test]
 fn two_crawls_take_the_governors_http_admissions_in_turn() {
     let env = TestEnv::new();
     env.user_configuration("governor.http.floor = 2\ngovernor.http.ceiling = 2\n");
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+    let crawls: &[(&str, u64)] = &[("first", 3), ("second", 3)];
 
-    let mut alone = Vec::new();
     start(
         &mut engine,
+        &site,
         "first",
-        &["a.test", "b.test", "c.test"],
-        &mut alone,
+        &["a.test", "b.test", "api.test"],
     );
-    let alone = turn(&mut engine, (&[("first", 3)], 2), &[], alone);
-    let mut waiting = Vec::new();
+    let alone = in_flight(&mut engine, (&crawls[..1], 2), 0);
     start(
         &mut engine,
+        &site,
         "second",
-        &["d.test", "e.test", "f.test"],
-        &mut waiting,
+        &["other.test", "many.test", "capped.test"],
     );
-    let waiting = turn(
-        &mut engine,
-        (&[("first", 3), ("second", 3)], 2),
-        &alone,
-        waiting,
-    );
-    let mut turns = vec![runs(&alone), runs(&waiting)];
-    answer(&mut engine, alone);
-    for _ in 0..3 {
-        let held = turn(
-            &mut engine,
-            (&[("first", 3), ("second", 3)], 2),
-            &[],
-            Vec::new(),
-        );
-        turns.push(runs(&held));
-        answer(&mut engine, held);
+    let mut flying = in_flight(&mut engine, (crawls, 2), 0);
+    let mut turns = vec![runs(&alone), runs(&flying)];
+    let mut done = 0;
+    while !flying.is_empty() {
+        release(&site, &flying);
+        done += u64::try_from(flying.len()).unwrap();
+        flying = in_flight(&mut engine, (crawls, 2), done);
+        turns.push(runs(&flying));
     }
     for run_id in ["first", "second"] {
         engine.send(&json!({ "jsonrpc": "2.0", "id": run_id, "method": "run.finish", "params": { "run_id": run_id } }));
@@ -188,7 +180,7 @@ fn two_crawls_take_the_governors_http_admissions_in_turn() {
         turns,
         [
             vec!["first".to_owned(), "first".to_owned()],
-            Vec::new(),
+            vec!["first".to_owned(), "first".to_owned()],
             vec!["first".to_owned(), "second".to_owned()],
             vec!["second".to_owned(), "second".to_owned()],
             Vec::new(),
@@ -230,19 +222,46 @@ fn wait_group(engine: &mut Attached, run_id: &str, reason: &str) -> Value {
 fn a_crawl_the_governor_admits_nothing_more_for_says_its_due_requests_wait_under_governor() {
     let env = TestEnv::new();
     env.user_configuration("governor.http.floor = 1\ngovernor.http.ceiling = 1\n");
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+    let crawl: &[(&str, u64)] = &[("held", 2)];
 
-    let mut held = Vec::new();
-    start(&mut engine, "held", &["a.test", "b.test"], &mut held);
-    let held = turn(&mut engine, (&[("held", 2)], 1), &[], held);
+    start(&mut engine, &site, "held", &["a.test", "b.test"]);
+    let first = in_flight(&mut engine, (crawl, 1), 0);
     let group = wait_group(&mut engine, "held", "governor");
-    answer(&mut engine, held);
-    let _ = turn(&mut engine, (&[("held", 2)], 1), &[], Vec::new());
+    release(&site, &first);
+    let second = in_flight(&mut engine, (crawl, 1), 1);
+    release(&site, &second);
+    let last = in_flight(&mut engine, (crawl, 1), 2);
     assert!(engine.finished());
 
+    // Whichever request took the one admission, the other waits: the
+    // page in flight and the domain that waits are the crawl's two hosts.
+    let mut hosts = vec![
+        first[0]
+            .1
+            .rsplit_once("/held/")
+            .map(|(_, host)| host.to_owned()),
+        group["domains"][0]["domain"].as_str().map(str::to_owned),
+    ];
+    hosts.sort();
     assert_eq!(
-        group,
-        json!({ "reason": "governor", "count": 1, "domains": [{ "domain": "b.test" }] })
+        (
+            &group["reason"],
+            &group["count"],
+            group["domains"].as_array().map(Vec::len),
+            hosts,
+            second.len(),
+            last.len()
+        ),
+        (
+            &json!("governor"),
+            &json!(1),
+            Some(1),
+            vec![Some("a.test".to_owned()), Some("b.test".to_owned())],
+            1,
+            0
+        )
     );
 }
 
@@ -258,7 +277,7 @@ fn a_fetched_page_holds_no_http_admission_while_it_is_handled() {
     let env = TestEnv::new();
     env.user_configuration(&in_flight_whatever_the_machine(1));
     let proving_ground = ProvingGround::start(&env, 1905).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let seeds = [
         proving_ground.url("extraction.test", "/values"),
         proving_ground.url("catalog.test", "/catalog/1"),
@@ -302,6 +321,7 @@ fn a_fetched_page_holds_no_http_admission_while_it_is_handled() {
         }
     }
     answer(&mut engine, held);
-    let _ = turn(&mut engine, (&[("analysed", 2)], 2), &[], Vec::new());
+    let flying = in_flight(&mut engine, (&[("analysed", 2)], 2), 2);
     assert!(engine.finished());
+    assert!(flying.is_empty(), "{flying:?}");
 }

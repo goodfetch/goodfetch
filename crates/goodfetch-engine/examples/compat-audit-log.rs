@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             actor: Actor::Person {
                 name: "os_user".to_owned(),
             },
-            surface: Some(Surface::Console),
+            surface: Some(Surface::Cli),
             layer: None,
             run_id: None,
         },

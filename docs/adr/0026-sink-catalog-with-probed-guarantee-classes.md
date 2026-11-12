@@ -44,6 +44,8 @@ Evidence: [sinks, notifications and integrations research](https://github.com/go
 
 **Reporting the class.** The class appears in `goodfetch sinks list`, in the run report and in the Console. When a retry falls outside a destination's dedup window, that delivery is reported as at-least-once.
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
+
 **Two modes.** A Sink takes Records mode (rows or messages, delivered while the run goes), Files mode, or both. In Files mode, Exports roll into numbered parts by count, size or time, and a final part is written at run end. Each part's key carries the delivery ID and the epoch.
 
 **Write modes.** Every Sink that can supports these, keyed on user-declared fields:
@@ -85,6 +87,8 @@ The last record in a batch wins. "Only new or changed" delivers what change trac
 - **Size limits:** a hard size limit is warned at 80%, then spills into numbered tabs or files.
 
 **Logging and metrics.** Every attempt is logged in the run file. The Console shows each Sink's deliveries as stages from received to delivered. Delivery metrics go to OpenTelemetry.
+
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 **How Sinks are built.**
 - **In the binary:** Export formats, the object stores through `object_store`, SFTP/FTP, PostgreSQL, pgvector, Supabase, MySQL/MariaDB, SQLite, DuckDB, webhooks, SMTP and every Notification channel.

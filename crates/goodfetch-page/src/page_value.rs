@@ -57,6 +57,7 @@ use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::session_source::SessionSource;
 
 use crate::blocks::Block;
+use crate::document_request::DocumentRequest;
 pub use crate::kept_tree::{KeptFrom, KeptTree};
 use crate::url_pattern::UrlPattern;
 
@@ -94,6 +95,12 @@ pub trait BrowserPages: Send + Sync {
 
     /// Closes the page `page_id`, unless it is closed already.
     fn close<'a>(&'a self, page_id: &'a PageId) -> Opening<'a, ()>;
+
+    /// The request a Session's browser sends for a document (ADR 0021),
+    /// read from the build it would launch and never from a launched
+    /// browser, for a tier that sends a Session's HTTP without one: none
+    /// where only a launch tells the build.
+    fn document_request(&self) -> Option<DocumentRequest>;
 
     /// The invalid-certificate exception the browser page `page_id`
     /// reached `host` through: the one its Session's egress relay

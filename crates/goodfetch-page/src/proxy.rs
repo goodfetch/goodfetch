@@ -20,8 +20,10 @@ mod bypass;
 mod limits;
 mod party;
 mod relay;
+mod transport;
 
 pub use relay::accepting;
+pub use transport::{ProxyRoute, TransportPermit, TransportProxy};
 
 use std::net::SocketAddr;
 use std::sync::Arc;

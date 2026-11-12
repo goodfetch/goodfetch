@@ -198,7 +198,7 @@ fn browser_fetch_that_passes_first_wins_and_its_navigation_is_cancelled_both_cou
                 json!(["list", "browser", "sample", null, null]),
                 json!(["list", "browser_fetch", "race", null, null]),
                 json!(["list", "browser_fetch", "race", null, null]),
-                json!(["list", "http", "sample", null, null]),
+                json!(["list", "browser_fetch", "sample", null, null]),
             ],
             // The sample's `http` run, the two races' browser-fetches and
             // each navigation sent: a browser run counts none.

@@ -39,7 +39,6 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 use crate::check::{self, Finding};
-use crate::console;
 use crate::environment::Environment;
 use crate::output;
 use crate::perf::{self, Figure, Measured};
@@ -56,9 +55,6 @@ struct Family {
     /// Its example target: `<target> [--plant <row>]` prints one JSON line
     /// per cell.
     target: &'static str,
-    /// Whether its target's build embeds a Console build, as Foxhound's
-    /// executable does.
-    embeds_console: bool,
     /// Its benchmark under Valgrind, if it has rows read there.
     valgrind: Option<ValgrindBenchmark>,
     /// The bypasses of a counted function its benchmark plants under
@@ -84,7 +80,6 @@ const B1: Family = Family {
     name: "B1",
     package: products::FOXHOUND.package,
     target: "counts",
-    embeds_console: true,
     valgrind: None,
     bypasses: &[strace::OPEN, strace::DIRECTORY, strace::SYNC],
 };
@@ -93,7 +88,6 @@ const B3: Family = Family {
     name: "B3",
     package: "goodfetch-engine",
     target: "counts",
-    embeds_console: false,
     valgrind: Some(ValgrindBenchmark {
         function: "dispatch_messages",
         empty: "no_messages",
@@ -107,7 +101,6 @@ const B2: Family = Family {
     name: "B2",
     package: "goodfetch-page",
     target: "counts",
-    embeds_console: false,
     valgrind: None,
     bypasses: &[strace::OPEN, strace::DIRECTORY],
 };
@@ -179,7 +172,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 96] = [
+const ROWS: [Row; 97] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -356,6 +349,23 @@ const ROWS: [Row; 96] = [
         happens: false,
         valgrind: None,
     },
+    // C7, page opening in the browser pool: B2's pool cell opens its pages
+    // in a pool its scripted launcher starts (ADR 0143); the Borrowed
+    // browser of its other cells skips the pool's walk.
+    Row {
+        name: "C7.pool_walks",
+        family: "B2",
+        unit: "pages_opened",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C7.opening_commands",
+        family: "B2",
+        unit: "pages_opened",
+        happens: true,
+        valgrind: None,
+    },
     Row {
         name: "E4.configuration_reads",
         family: "B3",
@@ -382,13 +392,6 @@ const ROWS: [Row; 96] = [
         family: "B3",
         unit: "process_samples",
         happens: true,
-        valgrind: None,
-    },
-    Row {
-        name: "E4.pool_walks",
-        family: "B2",
-        unit: "pages_opened",
-        happens: false,
         valgrind: None,
     },
     Row {
@@ -1364,17 +1367,6 @@ fn executables(
 
 /// Builds `family`'s target and answers its executable.
 fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
-    // The package's dev-dependency on itself turns its executable on, which
-    // embeds its Console build (ADR 0057).
-    if family.embeds_console
-        && environment
-            .root
-            .join(console::PACKAGE)
-            .join("package.json")
-            .is_file()
-    {
-        console::build(&environment.root)?;
-    }
     let output = crate::child_cargo::command(&environment.cargo)
         .args(["build", "--message-format", "json-render-diagnostics"])
         .args(["-p", family.package, "--example", family.target])

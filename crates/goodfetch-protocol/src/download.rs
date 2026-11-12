@@ -89,6 +89,8 @@ pub const DOWNLOAD_SAVE_AS: Operation = Operation {
     result: schema_of::<DownloadSaved>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,

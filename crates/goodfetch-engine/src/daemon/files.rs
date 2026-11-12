@@ -73,7 +73,6 @@ const TOKEN_FILE: &str = DaemonFile::Token.name();
 const SERVICE_FILE: &str = DaemonFile::ServiceRecord.name();
 const OPS_TOKEN_FILE: &str = DaemonFile::OpsToken.name();
 const HTTP_LISTENER_TOKEN_FILE: &str = DaemonFile::HttpListenerToken.name();
-const CONSOLE_OPENER: &str = DaemonFile::ConsoleOpener.name();
 
 /// The token in the file at `path`, or `None` when there is none.
 fn read_token(path: &Path) -> io::Result<Option<String>> {
@@ -310,30 +309,6 @@ impl DaemonFiles {
         durable::create_folder(&self.folder)?;
         durable::replace(&self.folder.join(name), token.as_bytes())?;
         Ok(token)
-    }
-
-    /// Writes the page that opens the Console's sign-in link `link`,
-    /// readable and writable by its owner alone, as the runtime file that
-    /// holds the same token is, and answers its path: a browser opened on
-    /// it goes on to the link, so the token is never in a command line
-    /// another user's process list shows.
-    ///
-    /// # Errors
-    ///
-    /// When its file cannot be written.
-    pub fn write_console_opener(&self, link: &str) -> io::Result<PathBuf> {
-        let escaped = link
-            .replace('&', "&amp;")
-            .replace('"', "&quot;")
-            .replace('<', "&lt;")
-            .replace('>', "&gt;");
-        let page = format!(
-            "<!doctype html>\n<meta charset=\"utf-8\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<meta http-equiv=\"refresh\" content=\"0;url={escaped}\">\n<title>Console</title>\n<a href=\"{escaped}\" rel=\"noreferrer\">Open the Console</a>\n"
-        );
-        durable::create_folder(&self.folder)?;
-        let path = self.folder.join(CONSOLE_OPENER);
-        durable::replace(&path, page.as_bytes())?;
-        Ok(path)
     }
 
     /// Removes the persistent token.

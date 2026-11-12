@@ -17,7 +17,6 @@
 )]
 
 use std::collections::BTreeMap;
-use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -37,7 +36,9 @@ use goodfetch_page::page_value::ProgramPages;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, ProductVersion};
 use goodfetch_test_client::Hello;
-use goodfetch_test_support::{TestEnv, browser_cache, chrome_for_testing, reported_debugging_port};
+use goodfetch_test_support::{
+    DebuggedBrowser, TestEnv, browser_cache, chrome_for_testing_debugged,
+};
 use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
@@ -285,30 +286,19 @@ async fn behind_a_relay<T>(
     let _subscriber =
         tracing::subscriber::set_default(goodfetch_test_support::subscriber(move || clock.wall()));
     let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
-    let profile = env.folder().join("relayed-browser-profile");
-    let mut command = env.process_command(chrome_for_testing(&cache));
-    command
-        .args(chromium_background_traffic_off())
-        .args([
-            "--headless",
-            "--no-first-run",
-            "--use-mock-keychain",
-            "--password-store=basic",
-            "--remote-debugging-port=0",
-            "--host-resolver-rules=MAP * 127.0.0.1",
-        ])
-        .arg(format!("--user-data-dir={}", profile.display()))
-        .arg("about:blank")
-        .stderr(Stdio::null());
-    let process = env.spawn(&mut command).expect("the browser starts");
-    let port = reported_debugging_port(&profile);
-    let reported = std::fs::read_to_string(profile.join("DevToolsActivePort"))
-        .expect("invariant: it reported its port there");
-    let path = reported
-        .lines()
-        .nth(1)
-        .expect("invariant: its second line is the browser's path");
-    let browser = format!("ws://127.0.0.1:{port}{path}");
+    let DebuggedBrowser {
+        process,
+        url: browser,
+        ..
+    } = chrome_for_testing_debugged(
+        env,
+        &cache,
+        &env.folder().join("relayed-browser-profile"),
+        chromium_background_traffic_off()
+            .into_iter()
+            .chain(["--host-resolver-rules=MAP * 127.0.0.1".to_owned()]),
+    )
+    .expect("the browser starts");
 
     let listener = TcpListener::bind("127.0.0.1:0")
         .await

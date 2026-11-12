@@ -62,6 +62,10 @@ const CHROMIUM_SOCKET: &str = "/.org.chromium.Chromium.XXXXXX/SingletonSocket";
 /// The size of a scripted browser's pipe, each way.
 const SCRIPTED_PIPE: usize = 1 << 16;
 
+/// How many browsers a scripted launcher hands on before the one playing
+/// them took the first: a launch waits for room past it.
+const SCRIPTED_HANDOVERS: usize = 1;
+
 /// The executable a scripted browser names, where a launched one names its
 /// path.
 const SCRIPTED: &str = "scripted";
@@ -71,10 +75,9 @@ const SCRIPTED: &str = "scripted";
 /// pipe, or a scripted browser, which a benchmark or a test plays on the
 /// other end of an in-memory pipe, with no process, Browser data folder or
 /// build of its own.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub enum Launcher {
     /// The Browser cache's build, or the installed browser (ADR 0017).
-    #[default]
     Executable,
     /// A scripted browser: [`Launcher::scripted`].
     Scripted(Scripted),
@@ -84,7 +87,7 @@ pub enum Launcher {
 /// process that browser's memory is read from.
 #[derive(Clone, Debug)]
 pub struct Scripted {
-    browsers: mpsc::UnboundedSender<DuplexStream>,
+    browsers: mpsc::Sender<DuplexStream>,
     process: Option<u32>,
 }
 
@@ -92,11 +95,15 @@ pub struct Scripted {
 /// engine writes each command as JSON followed by a NUL byte, as it writes
 /// to Chromium's debugging pipe, and reads the answers and events so.
 #[derive(Debug)]
-pub struct ScriptedBrowsers(mpsc::UnboundedReceiver<DuplexStream>);
+pub struct ScriptedBrowsers(mpsc::Receiver<DuplexStream>);
 
 impl ScriptedBrowsers {
     /// The next browser launched; `None` once the launcher is gone, with
     /// the engine that held it.
+    ///
+    /// # Cancel safety
+    ///
+    /// Cancel-safe: a browser not yet taken stays for the next call.
     pub async fn next(&mut self) -> Option<DuplexStream> {
         self.0.recv().await
     }
@@ -109,7 +116,7 @@ impl Launcher {
     /// browser's from its process's (ADR 0140's C7): none walks nothing.
     #[must_use]
     pub fn scripted(process: Option<u32>) -> (Self, ScriptedBrowsers) {
-        let (browsers, launched) = mpsc::unbounded_channel();
+        let (browsers, launched) = mpsc::channel(SCRIPTED_HANDOVERS);
         (
             Self::Scripted(Scripted { browsers, process }),
             ScriptedBrowsers(launched),
@@ -273,7 +280,7 @@ pub(crate) async fn launch(
     stopping: CancellationToken,
 ) -> Result<Launched, CallError> {
     if let Launcher::Scripted(scripted) = launcher {
-        return launch_scripted(run, scripted, stopping);
+        return launch_scripted(run, scripted, stopping).await;
     }
     let settings = run.settings().map(RunSettings::resolved);
     // Chromium's sandbox stays on unless switched off; where the startup
@@ -357,14 +364,15 @@ pub(crate) async fn launch(
 }
 
 /// Launches a scripted browser of the Run: its end of a new pipe goes to
-/// `scripted`'s [`ScriptedBrowsers`], and it shows headless or not as the
+/// `scripted`'s [`ScriptedBrowsers`] once the one handed on before was
+/// taken, and it shows headless or not as the
 /// Run's settings say; `stopping` asks it to close, as it asks a launched
 /// one, within the Run's `timeout.close`.
 ///
 /// # Errors
 ///
 /// `browser_launch_failed` once the [`ScriptedBrowsers`] are gone.
-fn launch_scripted(
+async fn launch_scripted(
     run: &Run,
     scripted: &Scripted,
     stopping: CancellationToken,
@@ -374,6 +382,7 @@ fn launch_scripted(
     scripted
         .browsers
         .send(browser)
+        .await
         .map_err(|_| launch_failed(executable, None, "no one plays the scripted browser"))?;
     let (reader, writer) = tokio::io::split(engine);
     let (connection, driver) =

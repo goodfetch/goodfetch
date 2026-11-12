@@ -16,13 +16,12 @@
     reason = "the test builds its own runtime with real time, since the browser answers over a real socket, and starts that browser and reads its port (ADR 0060)"
 )]
 
-use std::process::Stdio;
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use goodfetch_engine::pinned_download::chromium_background_traffic_off;
 use goodfetch_test_support::{
-    ProvingGround, TestEnv, browser_cache, chrome_for_testing, reported_debugging_port,
+    DebuggedBrowser, ProvingGround, TestEnv, browser_cache, chrome_for_testing_debugged,
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -36,8 +35,24 @@ const SEED: u64 = 2337;
 /// The Proving ground's proxy that takes Basic credentials.
 const PROXY: &str = "datacenter";
 
-/// Three hosts of the Proving ground: three origins, a tunnel each.
-const HOSTS: [&str; 3] = ["1.access.test", "2.navigation.test", "fetch-edge.test"];
+/// A page of the Proving ground with a request of its own beside its
+/// document: a script of its host.
+const SCRIPTED_PAGE: (&str, &str) = ("clean-up.test", "/needs-script");
+
+/// A page of the Proving ground with its document alone.
+const PLAIN_PAGE: (&str, &str) = ("1.access.test", "/");
+
+/// A page of the Proving ground another context is sent to.
+const STRANGERS_PAGE: (&str, &str) = ("2.navigation.test", "/");
+
+/// Resources of three origins of the Proving ground that no other page of
+/// a test asks for, so each opens a tunnel of its own: two images and a
+/// script, which a page loads with no check that would refuse them.
+const RESOURCES: [(&str, &str); 3] = [
+    ("clean-up.test", "/img/photo.gif"),
+    ("clean-up-frame.test", "/img/photo.gif"),
+    ("m.stripe.com", "/6"),
+];
 
 /// How long a command, or an event the test waits for, may take.
 const WAIT: Duration = Duration::from_secs(20);
@@ -254,13 +269,19 @@ fn runtime() -> tokio::runtime::Runtime {
         .expect("invariant: the runtime starts")
 }
 
+/// The HTTPS URL of `path` on the Proving ground's `host`, which listens on
+/// `port`.
+fn url(port: u16, (host, path): (&str, &str)) -> String {
+    format!("https://{host}:{port}{path}")
+}
+
 /// Runs `program` on the pinned build, headless and stock but for its
 /// background traffic, no certificate checked (the Proving ground's sites
 /// chain to its own authority), driven by the test over CDP, beside the
-/// Proving ground: the HTTPS URL of each of [`HOSTS`] and the authenticated
-/// proxy's address go to the program.
+/// Proving ground: the Proving ground's port, the authenticated proxy's
+/// address and the Proving ground itself go to the program.
 fn on_the_pinned_build<T>(
-    program: impl AsyncFnOnce(&mut Cdp, [String; 3], String, &ProvingGround) -> T,
+    program: impl AsyncFnOnce(&mut Cdp, u16, String, &ProvingGround) -> T,
 ) -> T {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).expect("the Proving ground starts");
@@ -271,36 +292,24 @@ fn on_the_pinned_build<T>(
         password: fixtures.proxy_credentials.password.clone(),
     };
     let port = proving_ground.address().port();
-    let urls = HOSTS.map(|host| format!("https://{host}:{port}/"));
     let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
-    let profile = env.folder().join("proxy-challenge-profile");
-    let mut command = env.process_command(chrome_for_testing(&cache));
-    command
-        .args(chromium_background_traffic_off())
-        .args([
-            "--headless",
-            "--no-first-run",
-            "--use-mock-keychain",
-            "--password-store=basic",
-            "--ignore-certificate-errors",
-            "--remote-debugging-port=0",
-        ])
-        .arg(format!("--user-data-dir={}", profile.display()))
-        .arg("about:blank")
-        .stderr(Stdio::null());
-    let process = env.spawn(&mut command).expect("the browser starts");
-    let debugging = reported_debugging_port(&profile);
-    let reported = std::fs::read_to_string(profile.join("DevToolsActivePort"))
-        .expect("invariant: it reported its port there");
-    let path = reported
-        .lines()
-        .nth(1)
-        .expect("invariant: its second line is the browser's path");
+    let DebuggedBrowser {
+        process,
+        port: debugging,
+        url: browser,
+    } = chrome_for_testing_debugged(
+        &env,
+        &cache,
+        &env.folder().join("proxy-challenge-profile"),
+        chromium_background_traffic_off()
+            .into_iter()
+            .chain(["--ignore-certificate-errors".to_owned()]),
+    )
+    .expect("the browser starts");
     let found = runtime().block_on(async {
         let dialed = TcpStream::connect(("127.0.0.1", debugging))
             .await
             .expect("the browser listens");
-        let browser = format!("ws://127.0.0.1:{debugging}{path}");
         let (socket, _) = tokio_tungstenite::client_async(browser.as_str(), dialed)
             .await
             .expect("the browser speaks WebSocket");
@@ -310,7 +319,7 @@ fn on_the_pinned_build<T>(
             events: Vec::new(),
             credentials,
         };
-        program(&mut cdp, urls, proxy, &proving_ground).await
+        program(&mut cdp, port, proxy, &proving_ground).await
     });
     let _ = process.interrupt_and_wait(BROWSER_STOP);
     found
@@ -356,7 +365,7 @@ const NO_CREDENTIALS: &str = "net::ERR_INVALID_AUTH_CREDENTIALS";
 /// the page meets the 407 with no challenge raised.
 #[test]
 fn fetch_refuses_authentication_requests_with_no_request_pattern() {
-    let found = on_the_pinned_build(async |cdp, urls, proxy, _| {
+    let found = on_the_pinned_build(async |cdp, port, proxy, _| {
         let context = cdp.context(&proxy).await;
         let page = cdp.page(&context).await;
         let enabled = cdp
@@ -366,7 +375,7 @@ fn fetch_refuses_authentication_requests_with_no_request_pattern() {
                 json!({ "patterns": [], "handleAuthRequests": true }),
             )
             .await;
-        let navigated = cdp.navigate(&page, &urls[0]).await;
+        let navigated = cdp.navigate(&page, &url(port, PLAIN_PAGE)).await;
         let challenges = cdp.raised(&page, "Fetch.authRequired").len();
         (enabled, navigated, challenges)
     });
@@ -384,10 +393,16 @@ fn fetch_refuses_authentication_requests_with_no_request_pattern() {
 /// Case 3: a request raises `Fetch.authRequired` only when a pattern
 /// pauses it at the request stage: the document's request alone does, and
 /// a pattern the page's requests never meet, or one for responses only,
-/// leaves the 407 to fail the navigation. What each pauses is the
-/// page's document (the page has no other request).
+/// leaves the 407 to fail the navigation. What each pauses, of a page with
+/// a script beside its document: every request, the document alone, the
+/// 407 answering the document, or nothing.
 #[rstest]
-#[case::every_request(json!([{ "urlPattern": "*" }]), (None, true), 1, &["Document"])]
+#[case::every_request(
+    json!([{ "urlPattern": "*" }]),
+    (None, true),
+    1,
+    &["Document", "Script"]
+)]
 #[case::documents_alone(json!([{ "resourceType": "Document" }]), (None, true), 1, &["Document"])]
 #[case::responses_alone(
     json!([{ "urlPattern": "*", "requestStage": "Response" }]),
@@ -407,7 +422,7 @@ fn a_request_paused_at_its_request_stage_raises_the_proxy_challenge(
     #[case] challenges: usize,
     #[case] paused: &[&str],
 ) {
-    let found = on_the_pinned_build(async |cdp, urls, proxy, _| {
+    let found = on_the_pinned_build(async |cdp, port, proxy, _| {
         let context = cdp.context(&proxy).await;
         let page = cdp.page(&context).await;
         let enabled = cdp
@@ -417,7 +432,7 @@ fn a_request_paused_at_its_request_stage_raises_the_proxy_challenge(
                 json!({ "patterns": patterns, "handleAuthRequests": true }),
             )
             .await;
-        let navigated = cdp.navigate(&page, &urls[0]).await;
+        let navigated = cdp.navigate(&page, &url(port, SCRIPTED_PAGE)).await;
         let challenges = cdp.raised(&page, "Fetch.authRequired").len();
         let paused: Vec<String> = cdp
             .raised(&page, "Fetch.requestPaused")
@@ -443,12 +458,13 @@ fn a_request_paused_at_its_request_stage_raises_the_proxy_challenge(
 
 /// Case 4: credentials given once per Session. A page of the engine's own
 /// in the context answers the challenge of its document's request; a second
-/// page of the context, with no `Fetch`, then reaches three origins, a
-/// tunnel each, with no challenge and no failed request; another context,
-/// given no credentials, still meets the 407.
+/// page of the context, with no `Fetch`, then loads a page whose resources
+/// come from three other origins, a new tunnel each, with no challenge and
+/// no failed request; another context, given no credentials, still meets
+/// the 407.
 #[test]
 fn credentials_given_once_let_the_contexts_other_pages_through() {
-    let found = on_the_pinned_build(async |cdp, urls, proxy, proving_ground| {
+    let found = on_the_pinned_build(async |cdp, port, proxy, proving_ground| {
         let session = cdp.context(&proxy).await;
         let engine_page = cdp.page(&session).await;
         cdp.call(
@@ -458,33 +474,44 @@ fn credentials_given_once_let_the_contexts_other_pages_through() {
         )
         .await
         .expect("the engine's page takes Fetch");
-        let given = cdp.navigate(&engine_page, &urls[0]).await;
+        let given = cdp.navigate(&engine_page, &url(port, PLAIN_PAGE)).await;
         let challenges = cdp.raised(&engine_page, "Fetch.authRequired").len();
         let before = relays(proving_ground).len();
 
         let page = cdp.page(&session).await;
-        let mut loads = Vec::new();
-        for url in &urls {
-            loads.push(cdp.navigate(&page, url).await);
-        }
-        let failed = cdp.raised(&page, "Network.loadingFailed").len();
-        let asked_again = cdp
-            .raised(&page, "Network.responseReceived")
+        let [image, other_image, script] = RESOURCES.map(|resource| url(port, resource));
+        let document = format!(
+            "data:text/html,<img%20src='{image}'><img%20src='{other_image}'><script%20src='{script}'></script>"
+        );
+        let loaded = cdp.navigate(&page, &document).await;
+        let responses = cdp.raised(&page, "Network.responseReceived");
+        let served = responses
+            .iter()
+            .filter(|event| {
+                let response = &event["params"]["response"];
+                response["status"] == json!(200)
+                    && response["url"]
+                        .as_str()
+                        .is_some_and(|url| url.starts_with("https://"))
+            })
+            .count();
+        let asked_again = responses
             .iter()
             .any(|event| event["params"]["response"]["status"] == json!(407));
+        let failed = cdp.raised(&page, "Network.loadingFailed").len();
         let after = relays(proving_ground);
         let others = after[before..].to_vec();
 
         let other = cdp.context(&proxy).await;
         let stranger = cdp.page(&other).await;
-        let refused = cdp.navigate(&stranger, &urls[1]).await;
+        let refused = cdp.navigate(&stranger, &url(port, STRANGERS_PAGE)).await;
         let strangers = relays(proving_ground)[after.len()..].to_vec();
         (
             (given, challenges),
-            (loads, failed, asked_again),
+            (loaded, served, failed, asked_again),
             (
                 hosts(&others, "proxy_authentication_required"),
-                hosts(&others, "relayed"),
+                sorted(hosts(&others, "relayed")),
             ),
             (
                 refused,
@@ -496,29 +523,33 @@ fn credentials_given_once_let_the_contexts_other_pages_through() {
 
     let (given, others, other_relays, stranger) = found;
     assert_eq!(given, ((None, true), 1), "the engine's page");
+    // Each resource is served, none fails, none meets the 407.
     assert_eq!(
         others,
-        (vec![(None, true); 3], 0, false),
+        ((None, true), RESOURCES.len(), 0, false),
         "the context's other page"
     );
-    // The first origin's tunnel may be the engine page's, still open.
-    assert!(other_relays.0.is_empty(), "{other_relays:?}");
-    assert!(
-        other_relays
-            .1
-            .iter()
-            .all(|host| HOSTS.contains(&host.as_str()))
-            && other_relays.1.iter().any(|host| host == HOSTS[1])
-            && other_relays.1.iter().any(|host| host == HOSTS[2]),
-        "{other_relays:?}"
+    assert_eq!(
+        other_relays,
+        (
+            Vec::<String>::new(),
+            sorted(RESOURCES.map(|(host, _)| host.to_owned()).to_vec())
+        ),
+        "the other page's tunnels"
     );
     assert_eq!(
         stranger,
         (
             (Some(NO_CREDENTIALS.to_owned()), false),
-            vec![HOSTS[1].to_owned()],
+            vec![STRANGERS_PAGE.0.to_owned()],
             Vec::<String>::new()
         ),
         "another context"
     );
+}
+
+/// `hosts`, sorted.
+fn sorted(mut hosts: Vec<String>) -> Vec<String> {
+    hosts.sort();
+    hosts
 }

@@ -5,10 +5,10 @@ goal = """
 A person's program reads the catalog until a Limit stops its run. The \
 stopped run MUST appear in "Needs you" with the Limit that stopped it while \
 that Limit has nothing left; a person MUST be able to raise the Limit at the \
-CLI's prompt, and no program or agent MUST be able to raise it; once it is \
-raised, the run MUST leave "Needs you"; and starting the program again with \
-the run's Run ID MUST resume the run, which then finishes under the raised \
-Limit."""
+CLI's prompt, while a program or agent MUST NOT be able to raise it; once \
+it is raised, the run MUST leave "Needs you"; and starting the program \
+again with the run's Run ID MUST resume the run, which then finishes under \
+the raised Limit."""
 area = 12
 product = "collie"
 status = "active"
@@ -29,6 +29,10 @@ on = "cli"
 
 [[steps]]
 text = "Run a program that reads every product of the catalog under a Run ID of its own, until the Limit stops its run"
+on = "sdk-typescript"
+
+[[steps]]
+text = "Have the program ask to raise the Limit itself"
 on = "sdk-typescript"
 
 [[steps]]

@@ -68,6 +68,7 @@ use crate::driver::{
 use crate::egress_relay::application_settings::ApplicationSettings;
 use crate::egress_relay::authority::Authority;
 use crate::egress_relay::{Local, RelayTls};
+use crate::launch::Launcher;
 use crate::trace::CommandLog;
 pub(crate) use rules::Placement;
 use rules::{Limits, Opens, Seats, Stage, Use};
@@ -122,6 +123,8 @@ const LOSSES: usize = 16;
 
 struct Shared {
     run: Run,
+    /// How its browsers start.
+    launcher: Launcher,
     home: Home,
     pins: Pins,
     limits: Limits,
@@ -240,10 +243,15 @@ fn lock(browsers: &SyncMutex<Browsers>) -> MutexGuard<'_, Browsers> {
 }
 
 impl Pool {
-    /// The browser pool of `run`, whose browsers come from the Browser
-    /// cache of `home` and the builds `pins` names, and where each of its
-    /// browsers that quits or crashes goes, out of service already.
-    pub(crate) fn new(run: Run, home: Home, pins: Pins) -> (Self, mpsc::Receiver<BrowserLoss>) {
+    /// The browser pool of `run`, whose browsers `launcher` starts from the
+    /// Browser cache of `home` and the builds `pins` names, and where each
+    /// of its browsers that quits or crashes goes, out of service already.
+    pub(crate) fn new(
+        run: Run,
+        launcher: Launcher,
+        home: Home,
+        pins: Pins,
+    ) -> (Self, mpsc::Receiver<BrowserLoss>) {
         let (losses, lost) = mpsc::channel(LOSSES);
         let limits = Limits::of(run.settings().map(RunSettings::resolved));
         let exceptions = exceptions_of(&run);
@@ -255,6 +263,7 @@ impl Pool {
         let pool = Self {
             shared: Arc::new(Shared {
                 run,
+                launcher,
                 home,
                 pins,
                 limits,
@@ -503,7 +512,7 @@ impl Pool {
                 number,
                 Pooled {
                     browser: Arc::new(LocalBrowser::new(
-                        self.shared.run.clone(),
+                        (self.shared.run.clone(), self.shared.launcher.clone()),
                         self.shared.home.clone(),
                         self.shared.pins.clone(),
                         number,

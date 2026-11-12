@@ -45,6 +45,7 @@ use super::life::{Ending, PageLife};
 use super::{Opener, Sessions};
 use crate::dialogs::Dialogs;
 use crate::interception::Interception;
+use crate::launch::Launcher;
 use crate::page_events;
 use crate::page_value::ProgramPages;
 
@@ -104,7 +105,7 @@ async fn started(run_id: &RunId, context: &CallContext) -> Result<Run, CallError
 /// A Sessions table of its own for the test's operation.
 fn table() -> Sessions {
     Sessions::new(
-        Vec::new(),
+        (Vec::new(), Launcher::Executable),
         Interception::default(),
         page_events::Table::default(),
         Dialogs::default(),

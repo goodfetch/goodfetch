@@ -31,6 +31,7 @@ use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, ConnectionReader, ConnectionWriter, Network};
 use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
+use goodfetch_page::Launcher;
 use goodfetch_page::blocks::NoBlocks;
 use goodfetch_page::page_value::ProgramPages;
 use goodfetch_protocol::catalog::Product;
@@ -341,7 +342,7 @@ async fn behind_a_relay<T>(
     let composition = Composition::default()
         .with(goodfetch_engine::contribution())
         .with(goodfetch_page::contribution_with(
-            Vec::new(),
+            (Vec::new(), Launcher::Executable),
             ProgramPages,
             Arc::new(NoBlocks),
         ));

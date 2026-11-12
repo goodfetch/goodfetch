@@ -91,11 +91,12 @@ use crate::borrowed::{CdpUrl, Lookups, resolve_of};
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
 use crate::document_request::DocumentRequest;
-use crate::driver::{PageDriver, SessionEgress, Visibility};
+use crate::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::egress_relay::{self, EgressRelay};
 use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::{Hiding, PageHiding};
 use crate::interception::{Interception, SESSION_KEYS};
+use crate::launch::Launcher;
 use crate::page_events;
 use crate::page_functions::{FrameScripts, Injections};
 use crate::page_value::{HandlerPages, PageValue, PooledSession};
@@ -127,6 +128,8 @@ const SESSION_MARK: &str = ".session-";
 pub(crate) struct Sessions {
     state: Arc<Mutex<State>>,
     pins: Vec<PinnedArtifact>,
+    /// How each Run's browsers start.
+    launcher: Launcher,
     interception: Interception,
     /// The Consent prompt runner every page starts.
     consent: Consent,
@@ -375,11 +378,12 @@ impl Drop for EnginePage {
 }
 
 impl Sessions {
-    /// The engine's Sessions, whose browsers come from `pins`, under
-    /// `interception`, their pages' events in `events` and their dialogs in
-    /// `dialogs`, each page's value and response observer from `handler_pages`.
+    /// The engine's Sessions, whose browsers `launcher` starts from `pins`,
+    /// under `interception`, their pages' events in `events` and their
+    /// dialogs in `dialogs`, each page's value and response observer from
+    /// `handler_pages`.
     pub(crate) fn new(
-        pins: Vec<PinnedArtifact>,
+        (pins, launcher): (Vec<PinnedArtifact>, Launcher),
         interception: Interception,
         events: page_events::Table,
         dialogs: Dialogs,
@@ -388,6 +392,7 @@ impl Sessions {
         Self {
             state: Arc::new(Mutex::new(State::default())),
             pins,
+            launcher,
             interception,
             consent: Consent::default(),
             hiding: Hiding::default(),
@@ -625,17 +630,17 @@ impl Sessions {
             .with_value(value, run.clock())
             .with_reader(self.handler_pages.reader(run.id(), session));
         let open_session = Arc::clone(&open);
-        let page = self
-            .adopt(session_pages::Adopting {
-                observer: self.handler_pages.observer(run.id(), session),
-                settings,
-                open,
-                driver,
-                in_browser,
-                admission,
-                events: context.events().clone(),
-            })
-            .await?;
+        // Its set-up is the rest of its opening (ADR 0140's C7).
+        let page = counted_as_opening(self.adopt(session_pages::Adopting {
+            observer: self.handler_pages.observer(run.id(), session),
+            settings,
+            open,
+            driver,
+            in_browser,
+            admission,
+            events: context.events().clone(),
+        }))
+        .await?;
         tracing::Span::current().record("page_id", page.0.as_str());
         mark_egress(&open_session, session).await;
         Ok(PageOpened {
@@ -1033,6 +1038,7 @@ impl Sessions {
             .map_err(|error| unavailable(run, &error, context))?;
         let (pool, losses) = Pool::new(
             run.clone(),
+            self.launcher.clone(),
             context.engine().home().clone(),
             Pins {
                 pinned_by: PinnedBy {

@@ -55,9 +55,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use futures_util::stream::FuturesUnordered;
 use futures_util::{SinkExt as _, StreamExt as _};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::clock::Clock;
@@ -67,15 +68,26 @@ use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
-use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
+use goodfetch_engine::{
+    CallContext, CallError, Channel, Composition, Contribution, Dependencies, Engine, Handler,
+    Identity,
+};
+use goodfetch_page::Launcher;
 use goodfetch_page::blocks::{Block, BlockClassifier};
-use goodfetch_page::page_value::ProgramPages;
-use goodfetch_protocol::catalog::Product;
+use goodfetch_page::page_value::{BrowserPages, HandlerPages, Observer, PageValue, PooledSession};
+use goodfetch_protocol::catalog::{
+    Operation, OperationClass, OperationKind, PROTOCOL_VERSION, Product, Reach, Stability,
+    schema_of,
+};
 use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::page::PageResponse;
+use goodfetch_protocol::page::{PageId, PageResponse, SessionId};
+use goodfetch_protocol::run::RunId;
 use serde_json::{Map, Value, json};
-use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+use tokio::io::{
+    AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, DuplexStream, ReadHalf, WriteHalf,
+};
 use tokio::net::{TcpListener, TcpStream};
+use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 
 /// One extra unit of a row's work, done once per command the browser reads.
@@ -97,7 +109,9 @@ pub(crate) fn counting(work: &CountedWork, row: Row) -> Plant {
 /// The Run the scenario starts.
 const RUN: &str = "session-counts";
 
-/// The browser's one page's session, target and frame.
+/// The browser's one page's target and frame, and the session its events
+/// are written on: each attachment gets a session of its own, as Chromium
+/// gives it, numbered after it (see [`Attachments`]).
 const SESSION: &str = "page-session";
 const TARGET: &str = "page-target";
 const FRAME: &str = TARGET;
@@ -105,6 +119,19 @@ const FRAME: &str = TARGET;
 /// How long the counts must hold still for the Session's work to have ended:
 /// what the engine sends on its own after a call answered.
 const QUIET: Duration = Duration::from_millis(100);
+
+/// The browser a Session's pages open in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Browsers {
+    /// A Borrowed browser the program names, the scripted browser on a
+    /// WebSocket: one page, navigated to each of [`PAGES`] in turn.
+    Borrowed,
+    /// The Run's browser pool, whose launcher starts the scripted browser on
+    /// an in-memory pipe (C7): one page per document of [`PAGES`], each
+    /// opened, navigated and closed through `BrowserPages` in one Session
+    /// of the pool, as Foxhound's crawl opens its handlers' pages.
+    Pool,
+}
 
 /// The pages the scenario navigates to, a navigation in the middle of a
 /// Session's life, the last one showing a Consent prompt. Literal addresses
@@ -259,6 +286,34 @@ struct Reading {
 struct Page {
     loader: String,
     worlds: BTreeMap<u64, (String, String)>,
+}
+
+impl Page {
+    /// A page just opened, on its blank document.
+    fn blank() -> Self {
+        Self {
+            loader: "loader".to_owned(),
+            ..Self::default()
+        }
+    }
+}
+
+/// The scheme of the build's own pages, which a headless browser's
+/// identity read loads one of: no request leaves for it, and its
+/// navigation names no loader to wait on.
+const BUILDS_OWN: &str = "chrome://";
+
+/// What a headless browser's identity read finds its client hints to be.
+fn client_hints() -> Value {
+    json!({
+        "brands": [],
+        "fullVersionList": [],
+        "platform": "Linux",
+        "platformVersion": "",
+        "architecture": "",
+        "model": "",
+        "mobile": false,
+    })
 }
 
 /// The document the browser serializes each page as: the program reads its
@@ -473,7 +528,16 @@ fn answered(method: &str, params: &Value, page: &mut Page) -> Result<(Value, Vec
             Vec::new(),
         ),
         "Target.createBrowserContext" => (json!({ "browserContextId": "context" }), Vec::new()),
-        "Target.createTarget" => (json!({ "targetId": TARGET }), Vec::new()),
+        "Target.createTarget" => {
+            // The pool's pages open one after another, each on its own
+            // blank document; a headless browser's identity read opens one
+            // in the background first.
+            if params["background"] != json!(true) {
+                *page = Page::blank();
+            }
+            (json!({ "targetId": TARGET }), Vec::new())
+        }
+        "Target.closeTarget" => (json!({ "success": true }), Vec::new()),
         "Target.attachToTarget" => (json!({ "sessionId": SESSION }), Vec::new()),
         "Page.getFrameTree" => (
             json!({ "frameTree": { "frame": {
@@ -503,11 +567,21 @@ fn answered(method: &str, params: &Value, page: &mut Page) -> Result<(Value, Vec
         }
         "Runtime.evaluate" => {
             gone(page, &params["contextId"])?;
+            let expression = params["expression"].as_str().unwrap_or_default();
+            if expression.contains("navigator.userAgentData") {
+                return Ok((
+                    json!({ "result": { "type": "object", "value": client_hints() } }),
+                    Vec::new(),
+                ));
+            }
             (json!({ "result": { "type": "undefined" } }), Vec::new())
         }
         "Page.navigate" => {
             let url = params["url"].as_str().unwrap_or_default();
             url.clone_into(&mut page.loader);
+            if url.starts_with(BUILDS_OWN) {
+                return Ok((json!({ "frameId": FRAME }), Vec::new()));
+            }
             (json!({ "frameId": FRAME, "loaderId": url }), Vec::new())
         }
         "DOM.getDocument" => (
@@ -618,6 +692,9 @@ fn called(params: &Value, document: &str) -> (Value, Vec<Value>) {
 fn moved_on(method: &str, params: &Value, requests: &mut Requests, units: &Units) -> Vec<Value> {
     if method == "Page.navigate" {
         let url = params["url"].as_str().unwrap_or_default();
+        if url.starts_with(BUILDS_OWN) {
+            return Vec::new();
+        }
         return requests.pause(url, "Document", url, units);
     }
     match params["requestId"].as_str() {
@@ -727,24 +804,98 @@ struct Heard {
     reading: Arc<Reading>,
 }
 
+/// How the browser hears the engine: a Borrowed browser's WebSocket, or a
+/// launched one's debugging pipe, each message JSON followed by a NUL byte.
+enum Wire {
+    Socket(Box<WebSocketStream<TcpStream>>),
+    Pipe {
+        reader: BufReader<ReadHalf<DuplexStream>>,
+        writer: WriteHalf<DuplexStream>,
+    },
+}
+
+impl Wire {
+    /// The browser's end of a launched browser's pipe.
+    fn pipe(pipe: DuplexStream) -> Self {
+        let (reader, writer) = tokio::io::split(pipe);
+        Self::Pipe {
+            reader: BufReader::new(reader),
+            writer,
+        }
+    }
+
+    /// The engine's next message; `None` once it closed its end.
+    async fn next(&mut self) -> Option<String> {
+        match self {
+            Self::Socket(socket) => loop {
+                match socket.next().await? {
+                    Ok(Message::Text(text)) => return Some(text.as_str().to_owned()),
+                    Ok(_) => {}
+                    Err(_) => return None,
+                }
+            },
+            Self::Pipe { reader, .. } => {
+                let mut message = Vec::new();
+                reader.read_until(0, &mut message).await.ok()?;
+                (message.pop() == Some(0)).then_some(())?;
+                String::from_utf8(message).ok()
+            }
+        }
+    }
+
+    /// Sends `message`: whether the engine still reads.
+    async fn send(&mut self, message: String) -> bool {
+        match self {
+            Self::Socket(socket) => socket.send(Message::text(message)).await.is_ok(),
+            Self::Pipe { writer, .. } => {
+                let mut framed = message.into_bytes();
+                framed.push(0);
+                writer.write_all(&framed).await.is_ok()
+            }
+        }
+    }
+}
+
+/// The sessions a browser's attachments got: one each, as Chromium gives
+/// it, so the events of a pool page closed before do not reach its
+/// successor's. A headless browser's identity read is a background page's,
+/// whose navigation no Session asked for.
+#[derive(Default)]
+struct Attachments {
+    /// The session each `Target.attachToTarget` was answered, by its ID.
+    sessions: BTreeMap<u64, String>,
+    /// Whether the target created last opened in the background.
+    background_next: bool,
+    /// The background pages' sessions.
+    background: BTreeSet<String>,
+}
+
+impl Attachments {
+    /// The session of the attachment the command `id` asked for.
+    fn attach(&mut self, id: u64) -> String {
+        let number = self.sessions.len() + 1;
+        let session = self
+            .sessions
+            .entry(id)
+            .or_insert_with(|| format!("{SESSION}-{number}"))
+            .clone();
+        if self.background_next {
+            self.background.insert(session.clone());
+        }
+        session
+    }
+}
+
 /// The browser: reads each command of its one connection, does `plant`,
-/// answers at once, until the engine closes it.
-async fn browser(stream: TcpStream, counts: Heard, plant: Option<Plant>) {
-    let mut socket = tokio_tungstenite::accept_async(stream)
-        .await
-        .expect("invariant: the engine speaks WebSocket");
+/// answers at once, until the engine closes it or asks it to close. Each
+/// event a command on a page's session leads to goes on that session.
+async fn browser(mut wire: Wire, counts: Heard, plant: Option<Plant>) {
     let mut seen = BTreeSet::new();
-    let mut page = Page {
-        loader: "loader".to_owned(),
-        ..Page::default()
-    };
+    let mut page = Page::blank();
     let mut requests = Requests::default();
-    while let Some(Ok(message)) = socket.next().await {
-        let Message::Text(text) = message else {
-            continue;
-        };
-        let command: Value =
-            serde_json::from_str(text.as_str()).expect("invariant: a command is JSON");
+    let mut attachments = Attachments::default();
+    while let Some(text) = wire.next().await {
+        let command: Value = serde_json::from_str(&text).expect("invariant: a command is JSON");
         let id = command["id"]
             .as_u64()
             .expect("invariant: a command has an ID");
@@ -752,10 +903,19 @@ async fn browser(stream: TcpStream, counts: Heard, plant: Option<Plant>) {
         let first = seen.insert(id);
         if first {
             counts.units.commands.fetch_add(1, Ordering::Relaxed);
+            // A headless browser's identity read opens a page of its own, no
+            // Session's.
             if method == "Target.createTarget" {
-                counts.pages.fetch_add(1, Ordering::Relaxed);
+                let background = command["params"]["background"] == json!(true);
+                attachments.background_next = background;
+                if !background {
+                    counts.pages.fetch_add(1, Ordering::Relaxed);
+                }
             }
-            if method == "Page.navigate" {
+            let on_background = command["sessionId"]
+                .as_str()
+                .is_some_and(|session| attachments.background.contains(session));
+            if method == "Page.navigate" && !on_background {
                 counts.navigations.fetch_add(1, Ordering::Relaxed);
             }
             let reading = &counts.reading;
@@ -803,19 +963,26 @@ async fn browser(stream: TcpStream, counts: Heard, plant: Option<Plant>) {
                 &counts.units,
             ));
         }
+        if method == "Target.attachToTarget" {
+            answer["result"]["sessionId"] = json!(attachments.attach(id));
+        }
         if let Some(session) = command.get("sessionId") {
             answer["sessionId"] = session.clone();
+            for event in &mut events {
+                if event.get("sessionId").is_some() {
+                    event["sessionId"] = session.clone();
+                }
+            }
         }
         let mut messages = vec![answer];
         messages.extend(events);
         for message in messages {
-            if socket
-                .send(Message::text(message.to_string()))
-                .await
-                .is_err()
-            {
+            if !wire.send(message.to_string()).await {
                 return;
             }
+        }
+        if method == "Browser.close" {
+            return;
         }
     }
 }
@@ -860,18 +1027,14 @@ impl Client {
     }
 }
 
-/// What a program does on a Session: opens a page and navigates it to each of
-/// [`PAGES`], so a navigation sits in the middle, reads each document
-/// [`READS`] times once the navigation's own work ended, adding what
-/// [`READ_ROWS`] counted meanwhile to `during_reads`, then its formats once,
-/// adding what [`SERIALIZATION_ROWS`] counted, then on each page but
-/// the Consent prompt's clicks, fills and presses: the prompt's page is C4's,
-/// and its runner's work no action's.
-/// Answers once the browser heard all of it, with the actions the engine
-/// answered, by kind.
+/// What a program does on a Session: on a Borrowed browser, opens a page and
+/// navigates it to each of [`PAGES`], so a navigation sits in the middle; in
+/// the browser pool, opens a page at each and closes it after. On each
+/// document, it does [`on_page`]'s work. Answers once the browser heard all
+/// of it, with the actions the engine answered, by kind.
 async fn program(
     client: &mut Client,
-    (cdp_url, settings): (&str, Map<String, Value>),
+    (browsers, cdp_url, settings): (Browsers, &str, Map<String, Value>),
     (heard, work): (&Heard, &CountedWork),
     during_reads: &mut BTreeMap<&'static str, u64>,
 ) -> BTreeMap<&'static str, u64> {
@@ -884,6 +1047,29 @@ async fn program(
     client
         .call("run.start", &json!({ "run_id": RUN, "settings": settings }))
         .await;
+    let mut attempts = BTreeMap::new();
+    if browsers == Browsers::Pool {
+        for url in PAGES {
+            let opened = client
+                .call(OPEN_POOL_PAGE.name, &json!({ "run_id": RUN, "url": url }))
+                .await;
+            quiet(&heard.units, work).await;
+            on_page(
+                client,
+                (&opened["page_id"], url),
+                (heard, work),
+                (during_reads, &mut attempts),
+            )
+            .await;
+            client
+                .call(
+                    CLOSE_POOL_PAGE.name,
+                    &json!({ "page_id": opened["page_id"] }),
+                )
+                .await;
+        }
+        return attempts;
+    }
     let session = client
         .call(
             "run.new_session",
@@ -896,8 +1082,6 @@ async fn program(
             &json!({ "session_id": session["session_id"] }),
         )
         .await;
-    let locator = json!({ "page_id": opened["page_id"], "selector": FIELD });
-    let mut attempts = BTreeMap::new();
     for url in PAGES {
         client
             .call(
@@ -906,55 +1090,81 @@ async fn program(
             )
             .await;
         quiet(&heard.units, work).await;
-        let before = READ_ROWS.map(|row| work.read(row));
-        let actions_before = ACTION_ROWS.map(|row| work.read(row));
-        heard.reading.now.store(true, Ordering::Relaxed);
-        for _ in 0..READS {
-            client
-                .call(
-                    "locator.wait_for",
-                    &json!({
-                        "locator": { "page_id": opened["page_id"], "selector": "body" },
-                        "state": "attached",
-                    }),
-                )
-                .await;
-        }
-        quiet(&heard.units, work).await;
-        heard.reading.now.store(false, Ordering::Relaxed);
-        let read_rows = READ_ROWS.into_iter().zip(before);
-        for (row, before) in read_rows.chain(ACTION_ROWS.into_iter().zip(actions_before)) {
-            *during_reads.entry(row.name()).or_default() += work.read(row) - before;
-        }
-        let before = SERIALIZATION_ROWS.map(|row| work.read(row));
-        let actions_before = ACTION_ROWS.map(|row| work.read(row));
-        heard.reading.serializing.store(true, Ordering::Relaxed);
-        client
-            .call(
-                "page.formats",
-                &json!({ "page_id": opened["page_id"], "formats": { "links": true } }),
-            )
-            .await;
-        quiet(&heard.units, work).await;
-        heard.reading.serializing.store(false, Ordering::Relaxed);
-        let serialization_rows = SERIALIZATION_ROWS.into_iter().zip(before);
-        for (row, before) in serialization_rows.chain(ACTION_ROWS.into_iter().zip(actions_before)) {
-            *during_reads.entry(row.name()).or_default() += work.read(row) - before;
-        }
-        if url == CONSENT_PAGE {
-            continue;
-        }
-        for (kind, operation) in ACTIONS {
-            let params = match kind {
-                "fill" => json!({ "locator": locator, "value": "typed" }),
-                "press" => json!({ "locator": locator, "key": "Enter" }),
-                _ => json!({ "locator": locator }),
-            };
-            client.call(operation, &params).await;
-            *attempts.entry(kind).or_insert(0) += 1;
-        }
+        on_page(
+            client,
+            (&opened["page_id"], url),
+            (heard, work),
+            (during_reads, &mut attempts),
+        )
+        .await;
     }
     attempts
+}
+
+/// What the program does on the page `page_id` once it shows `url`: reads
+/// its document [`READS`] times once the navigation's own work ended,
+/// adding what [`READ_ROWS`] counted meanwhile to `during_reads`, then its
+/// formats once, adding what [`SERIALIZATION_ROWS`] counted, then, on each
+/// page but the Consent prompt's, clicks, fills and presses, adding each
+/// to `attempts`: the prompt's page is C4's, and its runner's work no
+/// action's.
+async fn on_page(
+    client: &mut Client,
+    (page_id, url): (&Value, &str),
+    (heard, work): (&Heard, &CountedWork),
+    (during_reads, attempts): (
+        &mut BTreeMap<&'static str, u64>,
+        &mut BTreeMap<&'static str, u64>,
+    ),
+) {
+    let locator = json!({ "page_id": page_id, "selector": FIELD });
+    let before = READ_ROWS.map(|row| work.read(row));
+    let actions_before = ACTION_ROWS.map(|row| work.read(row));
+    heard.reading.now.store(true, Ordering::Relaxed);
+    for _ in 0..READS {
+        client
+            .call(
+                "locator.wait_for",
+                &json!({
+                    "locator": { "page_id": page_id, "selector": "body" },
+                    "state": "attached",
+                }),
+            )
+            .await;
+    }
+    quiet(&heard.units, work).await;
+    heard.reading.now.store(false, Ordering::Relaxed);
+    let read_rows = READ_ROWS.into_iter().zip(before);
+    for (row, before) in read_rows.chain(ACTION_ROWS.into_iter().zip(actions_before)) {
+        *during_reads.entry(row.name()).or_default() += work.read(row) - before;
+    }
+    let before = SERIALIZATION_ROWS.map(|row| work.read(row));
+    let actions_before = ACTION_ROWS.map(|row| work.read(row));
+    heard.reading.serializing.store(true, Ordering::Relaxed);
+    client
+        .call(
+            "page.formats",
+            &json!({ "page_id": page_id, "formats": { "links": true } }),
+        )
+        .await;
+    quiet(&heard.units, work).await;
+    heard.reading.serializing.store(false, Ordering::Relaxed);
+    let serialization_rows = SERIALIZATION_ROWS.into_iter().zip(before);
+    for (row, before) in serialization_rows.chain(ACTION_ROWS.into_iter().zip(actions_before)) {
+        *during_reads.entry(row.name()).or_default() += work.read(row) - before;
+    }
+    if url == CONSENT_PAGE {
+        return;
+    }
+    for (kind, operation) in ACTIONS {
+        let params = match kind {
+            "fill" => json!({ "locator": locator, "value": "typed" }),
+            "press" => json!({ "locator": locator, "key": "Enter" }),
+            _ => json!({ "locator": locator }),
+        };
+        client.call(operation, &params).await;
+        *attempts.entry(kind).or_insert(0) += 1;
+    }
 }
 
 /// Waits until nothing is counted or sent any more, as the engine still sends
@@ -975,28 +1185,122 @@ async fn quiet(units: &Units, work: &CountedWork) {
     }
 }
 
+/// The program's way to a page of the Run's browser pool, as Foxhound's
+/// crawl opens one for a handler: `{ run_id, url }`, answered with the page's
+/// `page_id`, which the program then drives as its own.
+const OPEN_POOL_PAGE: Operation = Operation {
+    name: "test.open_pool_page",
+    description: "Opens a page of the Run's Session pool through BrowserPages, navigated to a URL.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<Value>,
+    result: schema_of::<Value>,
+    events: &[],
+    cancellable: false,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: PROTOCOL_VERSION,
+};
+
+/// Closes a page [`OPEN_POOL_PAGE`] opened: `{ page_id }`.
+const CLOSE_POOL_PAGE: Operation = Operation {
+    name: "test.close_pool_page",
+    description: "Closes a page of the Run's Session pool through BrowserPages.",
+    ..OPEN_POOL_PAGE
+};
+
+/// The pool's one Session, a fresh one, as the crawl's Session pool names it.
+fn pooled() -> PooledSession {
+    PooledSession {
+        id: SessionId("pooled".to_owned()),
+        source: Some(None),
+        address_ordinal: None,
+    }
+}
+
+/// The pages a program opens, with an empty value and no observer, as
+/// Collie's, and the handle through which the engine opens pool pages,
+/// once composed.
+#[derive(Clone, Default)]
+struct PoolPages(Arc<OnceLock<Arc<dyn BrowserPages>>>);
+
+impl PoolPages {
+    fn pages(&self) -> Arc<dyn BrowserPages> {
+        Arc::clone(self.0.get().expect("invariant: the engine is composed"))
+    }
+}
+
+impl HandlerPages for PoolPages {
+    fn value(&self, _run: &RunId, _session: &SessionId) -> PageValue {
+        PageValue::empty()
+    }
+
+    fn observer(&self, _run: &RunId, _session: &SessionId) -> Option<Observer> {
+        None
+    }
+
+    fn opened(&self, pages: Arc<dyn BrowserPages>) {
+        let _ = self.0.set(pages);
+    }
+}
+
+/// The program's operations on the browser pool's pages.
+fn pool_pages(pages: &PoolPages) -> Contribution {
+    let (opening, closing) = (pages.clone(), pages.clone());
+    Contribution::new("test")
+        .with_handler(Handler::new(
+            &OPEN_POOL_PAGE,
+            move |params: Value, context: CallContext| {
+                let pages = opening.pages();
+                async move {
+                    let run_id = RunId::parse(params["run_id"].as_str().unwrap_or_default())
+                        .expect("invariant: the program names its Run");
+                    let url = params["url"].as_str().unwrap_or_default();
+                    let (page_id, _) = pages.open(&run_id, &pooled(), url, &context).await?;
+                    Ok::<_, CallError>(json!({ "page_id": page_id }))
+                }
+            },
+        ))
+        .with_handler(Handler::new(
+            &CLOSE_POOL_PAGE,
+            move |params: Value, _context: CallContext| {
+                let pages = closing.pages();
+                async move {
+                    let page_id = PageId(params["page_id"].as_str().unwrap_or_default().to_owned());
+                    pages.close(&page_id).await;
+                    Ok::<_, CallError>(json!({}))
+                }
+            },
+        ))
+}
+
 /// The Collie engine the scenario drives, counting on `metrics`, its pages
-/// judged by [`ReadsMarkers`].
-fn engine(metrics: Metrics) -> Engine {
+/// judged by [`ReadsMarkers`], its Runs' browsers started by `launcher`, and
+/// the program's operations on the pool's pages beside its own.
+fn engine(metrics: Metrics, launcher: Launcher) -> Engine {
     let identity = Identity {
         product: Product::Collie,
         product_version: ProductVersion::parse("0.0.0").expect("invariant: a literal version"),
         channel: Channel::CratesIo,
     };
+    let pages = PoolPages::default();
     let composition = Composition::default()
         .with(goodfetch_engine::contribution())
         .with(goodfetch_page::contribution_with(
-            Vec::new(),
-            ProgramPages,
+            (Vec::new(), launcher),
+            pages.clone(),
             Arc::new(ReadsMarkers),
-        ));
+        ))
+        .with(pool_pages(&pages));
     Engine::new(identity, &composition)
         .expect("invariant: one handler each")
         .with_metrics(metrics)
 }
 
-/// Runs the scenario in the home `home`, with `settings` on its Run, doing
-/// `plant` once per command the browser reads, and answers what it counted.
+/// Runs the scenario on `browsers` in the home `home`, with `settings` on its
+/// Run, doing `plant` once per command the browser reads, and answers what it
+/// counted.
 ///
 /// `metrics` is the engine's, whose [`CountedWork`] counts it all.
 #[expect(
@@ -1004,6 +1308,7 @@ fn engine(metrics: Metrics) -> Engine {
     reason = "a benchmark builds its own runtime, with real time as the browser's socket needs (ADR 0060)"
 )]
 pub(crate) fn counted(
+    browsers: Browsers,
     home: &Path,
     metrics: Metrics,
     mut settings: Map<String, Value>,
@@ -1014,7 +1319,9 @@ pub(crate) fn counted(
         json!({ "private_ranges": [PAGES_RANGE] }),
     );
     let work = metrics.counted_work().clone();
-    let engine = engine(metrics);
+    // The pool reads its scripted browser's memory from this process's.
+    let (launcher, started) = Launcher::scripted(Some(std::process::id()));
+    let engine = engine(metrics, launcher);
     let heard = Heard::default();
     let mut during_reads = BTreeMap::new();
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -1028,7 +1335,10 @@ pub(crate) fn counted(
         let address = listener.local_addr().expect("invariant: it is bound");
         let cdp_url = format!("ws://{address}/devtools/browser/scripted");
         let (network, dialer) = transport::in_memory();
-        let served = browser_end(listener, heard.clone(), plant);
+        let served: std::pin::Pin<Box<dyn Future<Output = ()>>> = match browsers {
+            Browsers::Borrowed => Box::pin(browser_end(listener, heard.clone(), plant)),
+            Browsers::Pool => Box::pin(launched_ends(started, heard.clone(), plant)),
+        };
         let client = async {
             let (reader, writer) = dialer
                 .connect()
@@ -1042,7 +1352,7 @@ pub(crate) fn counted(
             };
             let attempts = program(
                 &mut client,
-                (&cdp_url, settings),
+                (browsers, &cdp_url, settings),
                 (&heard, &work),
                 &mut during_reads,
             )
@@ -1067,11 +1377,18 @@ pub(crate) fn counted(
             run_state: RunStateOptions::default(),
             politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
         };
-        let (engine_ended, attempts, ()) = tokio::join!(
-            engine.run_attached(Network::InMemory(network), dependencies),
-            client,
-            served,
-        );
+        let ran = async {
+            tokio::join!(
+                engine.run_attached(Network::InMemory(network), dependencies),
+                client,
+            )
+        };
+        tokio::pin!(ran);
+        // The pool's browsers are played until the engine is done with them.
+        let (engine_ended, attempts) = tokio::select! {
+            ran = &mut ran => ran,
+            () = served => ran.await,
+        };
         engine_ended.expect("invariant: the engine got its Connection");
         attempts
     });
@@ -1107,5 +1424,28 @@ async fn browser_end(listener: TcpListener, heard: Heard, plant: Option<Plant>) 
         .accept()
         .await
         .expect("invariant: the engine connects");
-    browser(stream, heard, plant).await;
+    let socket = tokio_tungstenite::accept_async(stream)
+        .await
+        .expect("invariant: the engine speaks WebSocket");
+    browser(Wire::Socket(Box::new(socket)), heard, plant).await;
+}
+
+/// Plays each browser the pool launches, all at once, until the launcher is
+/// gone.
+async fn launched_ends(
+    mut launched: goodfetch_page::ScriptedBrowsers,
+    heard: Heard,
+    plant: Option<Plant>,
+) {
+    let mut browsers = FuturesUnordered::new();
+    loop {
+        tokio::select! {
+            pipe = launched.next() => match pipe {
+                Some(pipe) => browsers.push(browser(Wire::pipe(pipe), heard.clone(), plant.clone())),
+                None => break,
+            },
+            Some(()) = browsers.next(), if !browsers.is_empty() => {}
+        }
+    }
+    while browsers.next().await.is_some() {}
 }

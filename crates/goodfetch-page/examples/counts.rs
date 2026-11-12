@@ -103,13 +103,20 @@ fn cells() -> [Cell; 7] {
             counts_none_of: &[],
         },
         // With its handling `off`, nothing of the runner is registered or
-        // started and no cosmetic rule acts (#2434): its detection reads go,
-        // and with them and live hiding's domains, commands to the browser.
+        // started and no cosmetic rule acts (#2434): its detection reads and
+        // its Provenance entry go, and with them, its registration and live
+        // hiding's domains, commands to the browser, the page's opening
+        // ones included.
         Cell {
             name: "consent_handling_off",
             browsers: session::Browsers::Borrowed,
             settings: json!({ "consent": { "handling": "off" } }),
-            removes: &[Row::NavigationDetectionReads, Row::CdpSends],
+            removes: &[
+                Row::NavigationDetectionReads,
+                Row::NavigationProvenanceEntries,
+                Row::CdpSends,
+                Row::PageOpeningCommands,
+            ],
             counts_none_of: &[],
         },
         // Navigations with a Page check: it compiles its glob and reads its

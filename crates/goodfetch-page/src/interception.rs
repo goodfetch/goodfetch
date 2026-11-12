@@ -73,6 +73,7 @@
 mod answers;
 pub(crate) mod authentication;
 mod clean_up;
+pub(crate) use self::clean_up::ConsentHandling;
 mod hops;
 mod navigations;
 mod pipeline;
@@ -117,7 +118,6 @@ pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
 use crate::borrowed::Lookups;
 use crate::clean_up_versions::Versions;
-use crate::consent::Handling;
 use crate::driver::{Child, ChildKind, OnChild, OnWorker, PageDriver, ServiceWorkers};
 use crate::page_events::Refusals;
 use crate::url_pattern::UrlPattern;
@@ -383,7 +383,7 @@ impl Cosmetic {
     /// live or in extracted content, while the lists still block requests
     /// (#2434).
     fn of(blocking: &steps::Blocking, version: Option<String>, run: &Run) -> Option<Self> {
-        if Handling::of(run) == Handling::Off {
+        if ConsentHandling::of(run) == ConsentHandling::Off {
             return None;
         }
         blocking
@@ -846,6 +846,12 @@ impl Interception {
     /// They are made on the Run's first served document and held until the
     /// Run ends, so its Filter lists are compiled once for it.
     pub(crate) async fn served_cosmetic(&self, run: &Run) -> Option<Cosmetic> {
+        // A fetch tier already sent the served document's request, so the
+        // lists' cosmetic rules are all it would take from them: under
+        // `off` it takes nothing, and the lists are not loaded for it.
+        if ConsentHandling::of(run) == ConsentHandling::Off {
+            return None;
+        }
         let cell = {
             let mut served = lock(&self.shared.served);
             served.retain(|_, held| !held.live.is_cancelled());

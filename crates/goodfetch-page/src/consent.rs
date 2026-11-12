@@ -58,11 +58,9 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::get_or_default;
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::settings::{
-    CAPABILITY_UNAVAILABLE, CONSENT_DOMAINS, CONSENT_HANDLING, CONSENT_ON_WALL,
-    CapabilityUnavailableDetails,
+    CAPABILITY_UNAVAILABLE, CONSENT_DOMAINS, CONSENT_ON_WALL, CapabilityUnavailableDetails,
 };
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, OnceCell};
@@ -74,7 +72,7 @@ use self::walls::{Approval, Wall};
 use crate::driver::{Child, ChildKind, GUARD_WORLD, OnChild, PageDriver};
 use crate::guard::{self, Element, Readiness};
 use crate::hiding::{Part, Sheets};
-use crate::interception::domain_key;
+use crate::interception::{ConsentHandling, domain_key};
 use crate::trace;
 
 /// How long the runner's click may wait for its target to be ready.
@@ -122,7 +120,7 @@ impl Consent {
     /// # Errors
     ///
     /// `capability_unavailable` for a Run whose `consent.on_wall` is
-    /// `ask`, until the Human pause takes a person's answer; the code of
+    /// `ask` and whose `consent.handling` is not `off`, until the Human pause takes a person's answer; the code of
     /// opening a page when the browser refuses a command.
     pub(crate) async fn start(
         &self,
@@ -131,6 +129,12 @@ impl Consent {
         run: &Run,
         sheets: &Arc<Sheets>,
     ) -> Result<OnChild, CallError> {
+        let answering = match ConsentHandling::of(run) {
+            ConsentHandling::Answer => true,
+            ConsentHandling::Detect => false,
+            // Nothing judges a wall, so `consent.on_wall` asks nothing either.
+            ConsentHandling::Off => return Ok(Arc::new(|_: &Child| Box::pin(async { true }))),
+        };
         let resolved = run
             .settings()
             .map(goodfetch_engine::settings::RunSettings::resolved);
@@ -152,11 +156,6 @@ impl Consent {
                 },
             ));
         }
-        let answering = match Handling::of(run) {
-            Handling::Answer => true,
-            Handling::Detect => false,
-            Handling::Off => return Ok(Arc::new(|_: &Child| Box::pin(async { true }))),
-        };
         let approval = resolved
             .and_then(|resolved| resolved.effective(&CONSENT_DOMAINS))
             .and_then(|effective| Approval::of(&effective.value, effective.layer));
@@ -205,33 +204,6 @@ impl Consent {
                 true
             })
         }))
-    }
-}
-
-/// What a Run's `consent.handling` says the Consent prompt runner does
-/// (ADR 0048, #2434).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Handling {
-    /// It answers each prompt: the default.
-    Answer,
-    /// It only looks, and still runs the wall test.
-    Detect,
-    /// It is neither registered nor started, and no cosmetic rule acts.
-    Off,
-}
-
-impl Handling {
-    /// `run`'s `consent.handling`.
-    pub(crate) fn of(run: &Run) -> Self {
-        let resolved = run
-            .settings()
-            .map(goodfetch_engine::settings::RunSettings::resolved);
-        match get_or_default::<&str>(resolved, &CONSENT_HANDLING) {
-            "detect" => Self::Detect,
-            "off" => Self::Off,
-            // The resolver takes only the catalog's values: this is `answer`.
-            _ => Self::Answer,
-        }
     }
 }
 

@@ -522,13 +522,14 @@ fn detect(
 
 /// The CDP methods the `off` case counts in a Run's command log: the
 /// page's new-document scripts, where the runner's bundle is registered;
-/// the runner's start in each new document, its world and its binding
-/// before its call; and the `DOM` and `CSS` domains, which live hiding and
-/// the runner's hiding enable.
-const OFF_METHODS: [&str; 5] = [
+/// the runner's start in each new document, its world, its binding and its
+/// call; and the `DOM` and `CSS` domains, which live hiding and the
+/// runner's hiding enable.
+const OFF_METHODS: [&str; 6] = [
     "Page.addScriptToEvaluateOnNewDocument",
     "Page.createIsolatedWorld",
     "Runtime.addBinding",
+    "Runtime.callFunctionOn",
     "DOM.enable",
     "CSS.enable",
 ];
@@ -550,7 +551,7 @@ fn off(
 /// Two Runs open the Clean-up `/ads` page alike, the first under `detect`
 /// as the control: under `off` the page's opening registers one
 /// new-document script fewer, the runner's, no document adds the runner's
-/// binding or makes its world, neither `DOM` nor `CSS` is enabled, and the
+/// binding, makes its world or calls its start, neither `DOM` nor `CSS` is enabled, and the
 /// ad, the tracker and the annoyance still never reach the Proving ground.
 fn off_sends(
     connection: &mut Connection,
@@ -587,8 +588,15 @@ fn off_sends(
         });
     }
     let [
-        [scripts, worlds, bindings, dom, _],
-        [off_scripts, off_worlds, off_bindings, off_dom, off_css],
+        [scripts, worlds, bindings, calls, dom, _],
+        [
+            off_scripts,
+            off_worlds,
+            off_bindings,
+            off_calls,
+            off_dom,
+            off_css,
+        ],
     ] = sent;
     checks.check(
         format!(
@@ -604,9 +612,9 @@ fn off_sends(
     );
     checks.check(
         format!(
-            "under `off`, no document adds the runner's binding or makes its world ({off_bindings} bindings; {off_worlds} worlds against {worlds} under `detect`, {bindings} of them the runner's)"
+            "under `off`, no document adds the runner's binding, makes its world or calls its start ({off_bindings} bindings; {off_worlds} worlds and {off_calls} calls against {worlds} and {calls} under `detect`, {bindings} of each the runner's starts)"
         ),
-        off_bindings == 0 && off_worlds + bindings <= worlds,
+        off_bindings == 0 && off_worlds + bindings <= worlds && off_calls + bindings <= calls,
     );
     checks.check(
         format!("under `off`, neither `DOM` nor `CSS` is enabled ({off_dom} and {off_css})"),

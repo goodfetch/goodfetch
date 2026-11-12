@@ -38,10 +38,6 @@ serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 goodfetch-workspace-hack.workspace = true
 
-[build-dependencies]
-# Reads the Console build's routes, `routes.json` (ADR 0072).
-serde_json.workspace = true
-
 [dev-dependencies]
 # Its own executable, for the integration tests and the startup benchmarks
 # (CARGO_BIN_EXE_goodfetch-foxhound, ADRs 0059 and 0062).

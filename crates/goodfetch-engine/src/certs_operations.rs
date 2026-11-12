@@ -4,7 +4,7 @@
 //! pins the changed key that stopped a host in place of its pin, recorded
 //! in the Audit log, and `certs.forget` removes a pin, recorded too: both are a person's
 //! answers, which the catalog marks person only, so the RPC layer refuses
-//! them to every surface but the Console's and the CLI's with
+//! them to every surface but the Kennel's and the CLI's with
 //! `person_required`. A store of another major is refused with
 //! `format_version_unsupported` (ADR 0066).
 

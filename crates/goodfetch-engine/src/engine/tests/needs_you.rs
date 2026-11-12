@@ -8,7 +8,7 @@
 //! dismisses it. A subscription that cannot resume gets every item in its
 //! `events.resync`. A Run a Limit stopped is listed, offering a person's
 //! `usage.raise` (and `run.resume` for a Recipe's Run), until a person
-//! raises the Limit from the Console (ADRs 0031 and 0041).
+//! raises the Limit from the Kennel (ADRs 0031 and 0041).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -345,7 +345,7 @@ fn a_person_dismisses_a_stopped_run_but_not_a_storage_level() {
 
 /// A Run that `test.charge` stops on the install's monthly Limit of 2
 /// requests, tagged with `tags`, on a disk with room: "Needs you" as it
-/// lists the Run, then as a person's `usage.raise` from the Console leaves
+/// lists the Run, then as a person's `usage.raise` from the Kennel leaves
 /// it, with the reasons of the items removed meanwhile.
 fn stopped_by_limit_then_raised(tags: Value) -> (Vec<Value>, Vec<Value>, Vec<Value>) {
     let env = TestEnv::new();
@@ -355,7 +355,7 @@ fn stopped_by_limit_then_raised(tags: Value) -> (Vec<Value>, Vec<Value>, Vec<Val
 
     attached_on(&engine, &env, |mut client| async move {
         let mut opening = hello("collie", "0.1");
-        opening["params"]["surface"] = json!("console");
+        opening["params"]["surface"] = json!("kennel");
         client.send(&[opening]).await;
         client.next().await.unwrap();
         client

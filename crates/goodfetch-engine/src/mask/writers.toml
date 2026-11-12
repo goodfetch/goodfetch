@@ -168,11 +168,6 @@ count = 1
 how = "holds no value: the lowest-minor marker"
 
 [[writer]]
-path = "crates/goodfetch-engine/src/people/store.rs"
-count = 1
-how = "holds no value: Console sign-ins by verifier, no Run's value"
-
-[[writer]]
 path = "crates/goodfetch-engine/src/pinned_download.rs"
 count = 1
 how = "holds no value: a pinned download's bytes"

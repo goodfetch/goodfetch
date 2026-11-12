@@ -28,6 +28,20 @@ pub(super) enum Stability {
     Experimental,
 }
 
+/// The shape an operation takes on every surface (ADR 0099), the catalog's
+/// `OperationKind`, from which each generator applies its one form.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum Kind {
+    RoundTrip,
+    Query,
+    Read,
+    Opener,
+    Sequence,
+    Waiter,
+    Event,
+}
+
 #[derive(Debug, Deserialize)]
 pub(super) struct Deprecation {
     pub(super) since: String,
@@ -62,6 +76,7 @@ pub(super) struct Operation {
     pub(super) name: String,
     pub(super) product: Product,
     pub(super) description: String,
+    pub(super) kind: Kind,
     pub(super) params: TypeName,
     pub(super) result: TypeName,
     pub(super) cancellable: bool,
@@ -73,8 +88,9 @@ pub(super) struct Operation {
 }
 
 impl Operation {
-    /// Whether an SDK offers it: not a person's answer, which only the
-    /// Console and the CLI's interactive prompt give (ADR 0041).
+    /// Whether an SDK offers it: not a person's answer, which only a
+    /// person's surface, such as the CLI's interactive prompt, gives (ADR
+    /// 0041).
     fn offered(&self) -> bool {
         self.reach.as_deref() != Some("person_only")
     }
@@ -451,6 +467,7 @@ mod tests {
             "name": name,
             "product": product,
             "description": "An operation.",
+            "kind": "round_trip",
             "reach": reach,
             "params": { "$ref": "#/$defs/Empty" },
             "result": { "$ref": "#/$defs/Empty" },

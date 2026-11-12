@@ -27,7 +27,7 @@ use crate::entropy::Entropy;
 use crate::events::Events;
 use crate::run_index;
 use crate::run_state::{self, RunState, RunStateOptions, RunStateTables};
-use crate::tasks::TaskOwner;
+use crate::tasks::{OwnerKind, TaskOwner};
 
 /// An abort that takes the writer role of a Run, and what it needs.
 pub(super) struct TakeOver {
@@ -246,7 +246,7 @@ impl TakeOver {
             run_epoch = epoch,
             "took the Run's writer role to abort it"
         );
-        let writer = self.owner.child();
+        let writer = self.owner.child_for(OwnerKind::Run);
         let state = RunState::open(file, &self.run_state, self.tables.clone(), epoch, &writer)
             .await
             .map_err(|error| self.unavailable(&error))?;
@@ -260,7 +260,6 @@ impl TakeOver {
             weakened: recorded.weakened.clone(),
             settings: None,
             checkpoint: None,
-            console_url: None,
             limits: Vec::new(),
             error: None,
             finished: Vec::new(),

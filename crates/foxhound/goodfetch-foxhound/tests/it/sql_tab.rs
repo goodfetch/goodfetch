@@ -21,8 +21,6 @@ use goodfetch_test_support::{ProvingGround, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::attached;
-
 /// A query that runs for far longer than 200 ms.
 const LONG: &str = "SELECT count(*) FROM range(1000000000000) a WHERE a.range % 7 = 3";
 
@@ -34,11 +32,11 @@ fn book(page: u64) -> Value {
     json!({ "page": page, "title": format!("Café {page}") })
 }
 
-/// Crawls `run_id` to its end: `pages` seeds, each pushing its `books`
-/// Record.
-fn crawled(engine: &mut Attached, run_id: &str, pages: u64) {
+/// Crawls `run_id` to its end: `pages` seeds, pages of `proving_ground`'s
+/// `shop.test`, each pushing its `books` Record.
+fn crawled(engine: &mut Attached, proving_ground: &ProvingGround, run_id: &str, pages: u64) {
     let seeds: Vec<Value> = (1..=pages)
-        .map(|page| json!({ "url": format!("https://shop.test/{page}"), "label": "page" }))
+        .map(|page| json!({ "url": proving_ground.url("shop.test", &format!("/{page}")), "label": "page" }))
         .collect();
     let started = engine.call(
         "start",
@@ -114,9 +112,10 @@ fn records(engine: &mut Attached, run_id: &str) -> Vec<Value> {
 #[test]
 fn a_query_reads_the_records_run_records_reads_only_from_the_runs_it_selected() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
-    crawled(&mut engine, "monday", 2);
-    crawled(&mut engine, "tuesday", 3);
+    let proving_ground = ProvingGround::start(&env, 1208).unwrap();
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
+    crawled(&mut engine, &proving_ground, "monday", 2);
+    crawled(&mut engine, &proving_ground, "tuesday", 3);
     let expected = records(&mut engine, "tuesday");
 
     let read = query(
@@ -209,8 +208,8 @@ fn a_write_attach_install_or_outside_read_is_refused_beside_an_allowed_select(#[
     );
     let outside = env.home().join("outside.csv");
     std::fs::write(&outside, "a,b\n1,2\n").unwrap();
-    let mut engine = attached(&env);
-    crawled(&mut engine, "shop", 2);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
+    crawled(&mut engine, &proving_ground, "shop", 2);
     let before = target_connections(&proving_ground);
 
     let refused = query(
@@ -263,8 +262,9 @@ fn a_heavy_query_ends_at_its_limit_with_its_code(
 ) {
     let env = TestEnv::new();
     env.user_configuration(settings);
-    let mut engine = attached(&env);
-    crawled(&mut engine, "shop", 1);
+    let proving_ground = ProvingGround::start(&env, 1208).unwrap();
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
+    crawled(&mut engine, &proving_ground, "shop", 1);
 
     let ended = query(&mut engine, heavy, &["shop"]);
     let allowed = query(
@@ -293,8 +293,9 @@ fn a_heavy_query_ends_at_its_limit_with_its_code(
 #[test]
 fn an_unrecognised_failure_answers_query_failed() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
-    crawled(&mut engine, "shop", 1);
+    let proving_ground = ProvingGround::start(&env, 1208).unwrap();
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
+    crawled(&mut engine, &proving_ground, "shop", 1);
 
     let failed = query(
         &mut engine,
@@ -324,8 +325,9 @@ fn an_unrecognised_failure_answers_query_failed() {
 fn rows_past_max_rows_are_counted_not_returned() {
     let env = TestEnv::new();
     env.user_configuration("dataset.query.max_rows = 2\n");
-    let mut engine = attached(&env);
-    crawled(&mut engine, "shop", 3);
+    let proving_ground = ProvingGround::start(&env, 1208).unwrap();
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
+    crawled(&mut engine, &proving_ground, "shop", 3);
 
     let limited = query(
         &mut engine,

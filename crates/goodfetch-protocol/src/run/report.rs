@@ -91,11 +91,6 @@ pub struct RunReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub nothing_done: Option<NothingDone>,
-    /// Its page in the Console, where its Run trace replays, when the
-    /// engine knows a Console address (ADR 0031).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub console_url: Option<String>,
     /// Each Effect it left uncertain, until a person reconciles it (ADR
     /// 0106).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -115,6 +110,16 @@ pub struct RunReport {
 }
 
 impl RunReport {
+    /// Gives it the Verdict `needs_review` for `reason`, which it lists
+    /// (ADR 0029). A `rejected` Verdict stays: a failed Success check
+    /// outranks every other reason, and a reason never raises a Verdict.
+    pub fn needs_review(&mut self, reason: AxisReason) {
+        if self.verdict == Verdict::Verified {
+            self.verdict = Verdict::NeedsReview;
+        }
+        self.verdict_reasons.push(reason);
+    }
+
     /// Whether it replayed a Response recording (ADR 0105), which marks it
     /// in its Run index row.
     pub fn replayed(&self) -> bool {
@@ -165,7 +170,7 @@ pub struct EndingError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum LimitSetter {
-    /// A person, in the Console or an interactive CLI prompt.
+    /// A person, in the Kennel or an interactive CLI prompt.
     Person,
     /// A managed Operator policy.
     ManagedPolicy,

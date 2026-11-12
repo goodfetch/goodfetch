@@ -1325,8 +1325,7 @@ fn rewriting_a_shared_file_keeps_every_other_entry_byte_for_byte() {
 
 /// Every test home's user configuration (`TEST_SETTINGS` and the test's
 /// `log.level`) is already in the order the writer keeps: a setting the
-/// Console or `config set` writes leaves every other byte as it was, as
-/// the served Console test of a user-level edit checks.
+/// person surface or `config set` writes leaves every other byte as it was.
 #[rstest]
 #[case::as_created(None)]
 #[case::with_a_log_level_set_since(Some("debug"))]

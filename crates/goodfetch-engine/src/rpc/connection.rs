@@ -5,7 +5,16 @@
 //! every line whole. A refused `hello` is answered before any other message
 //! and the Connection then closes (ADR 0066). At the end of input, calls in
 //! flight are cancelled at their next cancellation point, answered, and the
-//! Connection closes once they all are. A Connection the engine closes
+//! Connection closes once they all are. A call whose handler panics is
+//! answered `engine_panicked` and gives its place in flight back, as any
+//! call that ended (ADR 0148). A Connection whose own task panicked ends
+//! as when its Client goes away, and the panic counts as one that ended a
+//! Connection: its writer's and its log forwarder's, tasks of its owner,
+//! are told to the task that serves it, whose own panic is caught where it
+//! runs, so none reaches the engine. A Connection reads its Client
+//! whatever the number of calls in flight: at its cap only a new call is
+//! refused, with `too_many_calls`, so the `$/cancel`, the `$/credit` or the
+//! reply that frees a call is always read. A Connection the engine closes
 //! while its Client still sends, such as a refused one, ends its sending
 //! side first and drops what still comes until the Client closes too, for a
 //! short while at most, so a Client that wrote behind its `hello` reads the
@@ -25,23 +34,24 @@
 //! Exposed Daemon's address carries its Connections as lines or over
 //! WebSocket (ADR 0049), whose refused handshakes are logged the same way.
 //! Only the Client of an Attached engine's stdio is told its private
-//! endpoint, in the reply to its `hello`. The Console's WebSocket, whose
-//! sign-in its handshake proved, opens with a `hello` that carries no token
-//! (ADR 0031).
+//! endpoint, in the reply to its `hello`.
 //!
 //! Size: one Connection's life, the transition table's states and every
 //! carriage that reaches them, kept whole so each message passes one loop.
 
 use std::collections::BTreeMap;
+use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
+use futures_util::FutureExt as _;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{Product, Reach};
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams,
-    PERSON_REQUIRED, PrivateEndpoint, StoppedBy, Surface,
+    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, ENGINE_PANICKED,
+    EnginePanickedDetails, HELLO, HelloParams, PERSON_REQUIRED, PanicEnded, PrivateEndpoint,
+    StoppedBy, Surface, TOO_MANY_CALLS, TooManyCallsDetails,
 };
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
@@ -54,11 +64,8 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
-use super::event_stream::{EventStream, PostedReader, StreamedWriter};
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
-use super::websocket::{
-    self, ConsoleSocket, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
-};
+use super::websocket::{self, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined};
 use super::{
     failure_line, handshake, line, not_in_product, notification_line, notification_value_line,
     record, record_cancel, success_line, trace_context,
@@ -70,15 +77,16 @@ use crate::composition::{
     CallContext, CallInput, CallNotifier, CallStream, ConnectionContext, DaemonSide, Driver,
     Handler, InputSender,
 };
-use crate::endpoint::{Authorities, REFUSAL_TARGET, same_token};
+use crate::crash_report;
+use crate::endpoint::{Authorities, same_token};
 use crate::engine_context::EngineContext;
 use crate::events::{Credits, Events};
 use crate::log::{ConnectionLog, LogEvents};
 use crate::mask::{Masks, Scope};
-use crate::people::SignInDriver;
+use crate::metrics::Metrics;
 use crate::product::{Identity, Requested};
 use crate::runs::Runs;
-use crate::tasks::TaskOwner;
+use crate::tasks::{OwnerKind, TaskOwner};
 use crate::trace;
 use crate::transition::engine::{
     ConnectionEffect, ConnectionEvent, ConnectionState, InvalidConnectionTransition,
@@ -90,7 +98,8 @@ use goodfetch_protocol::run::RunKind;
 /// How many bytes one read takes from the Connection.
 const READ_CHUNK: usize = 8 * 1024;
 
-/// How many calls one Connection keeps in flight before it stops reading.
+/// How many calls one Connection keeps in flight: one more is refused with
+/// `too_many_calls`, and every other message is still read (issue 2312).
 const MAX_IN_FLIGHT: usize = 256;
 
 /// How many lines wait for the writer before their senders wait.
@@ -121,16 +130,16 @@ pub(crate) struct Dispatch {
     /// The engine's Counted work, what its Connections' messages add to
     /// (ADR 0140's E1).
     pub(crate) work: CountedWork,
+    /// The runtime's metrics, which count a call's panic (ADR 0148).
+    pub(crate) metrics: Metrics,
 }
 
 /// How a Connection reached the engine, which says what its `hello` must
 /// carry and what its reply tells.
 pub(crate) enum Access {
     /// An Attached engine's stdio, or an in-process Connection: no token;
-    /// its reply names the engine's private endpoint, when it has one, and
-    /// the sign-in link of the Console it serves for its script, when it
-    /// serves one.
-    Attached(Option<PrivateEndpoint>, Option<String>),
+    /// its reply names the engine's private endpoint, when it has one.
+    Attached(Option<PrivateEndpoint>),
     /// A Daemon's listener: its token, and what else the Daemon gives.
     Daemon(Arc<dyn DaemonSide>),
     /// An Exposed Daemon's address (ADR 0049): a Daemon's listener that
@@ -139,27 +148,13 @@ pub(crate) enum Access {
     Exposed(Arc<dyn DaemonSide>, Arc<Authorities>),
     /// An Attached engine's private endpoint: its token.
     PrivateEndpoint(Arc<str>),
-    /// The Console's WebSocket on its own origin (ADR 0031): a Connection
-    /// whose sign-in cookie its handshake carried, so its `hello` carries
-    /// no token; the Daemon's, or none on an Attached engine serving its
-    /// script's own Console, and the sign-in driver its refusals are
-    /// recorded through.
-    Console(ConsoleSide),
-}
-
-/// What a Console's Connection reaches beside the engine: the Daemon that
-/// serves the Console, or none on an Attached engine serving its script's
-/// own, and the Console's sign-in driver, which records its refusals.
-pub(crate) struct ConsoleSide {
-    pub(crate) daemon: Option<Arc<dyn DaemonSide>>,
-    pub(crate) sign_ins: SignInDriver,
 }
 
 impl Access {
     /// The token its `hello` must carry, if any.
     fn token(&self) -> Option<&str> {
         match self {
-            Self::Attached(..) | Self::Console(..) => None,
+            Self::Attached(..) => None,
             Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(daemon.token()),
             Self::PrivateEndpoint(token) => Some(token),
         }
@@ -169,7 +164,6 @@ impl Access {
     fn daemon(&self) -> Option<Arc<dyn DaemonSide>> {
         match self {
             Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(Arc::clone(daemon)),
-            Self::Console(side) => side.daemon.clone(),
             Self::Attached(..) | Self::PrivateEndpoint(_) => None,
         }
     }
@@ -182,7 +176,6 @@ impl Access {
             Self::Daemon(_) => Listener::DaemonSocket,
             Self::Exposed(..) => Listener::ExposedDaemon,
             Self::PrivateEndpoint(_) => Listener::PrivateEndpoint,
-            Self::Console(..) => Listener::Console,
         }
     }
 
@@ -190,12 +183,11 @@ impl Access {
     /// no `hello` is closed unanswered on a listener a Client proves
     /// itself to.
     fn guarded(&self) -> bool {
-        self.token().is_some() || matches!(self, Self::Console(..))
+        self.token().is_some()
     }
 }
 
-/// How a Connection's messages arrive: as lines, as WebSocket messages, or
-/// in the Console's `POST` bodies.
+/// How a Connection's messages arrive: as lines or as WebSocket messages.
 enum Reading {
     Lines {
         reader: Prefixed,
@@ -203,7 +195,6 @@ enum Reading {
         chunk: Vec<u8>,
     },
     Messages(MessageReader),
-    Posted(PostedReader),
 }
 
 impl Reading {
@@ -238,17 +229,14 @@ impl Reading {
                 }
             },
             Self::Messages(messages) => messages.read(frames).await,
-            Self::Posted(posted) => posted.read(frames).await,
         }
     }
 }
 
-/// How a Connection's messages leave: as lines, as WebSocket messages, or
-/// as the events of the Console's event stream.
+/// How a Connection's messages leave: as lines or as WebSocket messages.
 enum Writing {
     Lines(ConnectionWriter),
     Messages(MessageWriter),
-    Streamed(StreamedWriter),
 }
 
 /// How `connection`, reached through `access`, carries its messages, and
@@ -315,76 +303,38 @@ pub(crate) async fn serve(
     access: Access,
     engine: EngineContext,
 ) {
-    let Some((reading, writing, listener)) = carriage(connection, &access, &engine).await else {
-        return;
+    let metrics = dispatch.metrics.clone();
+    let serving = async {
+        let Some((reading, writing, listener)) = carriage(connection, &access, &engine).await
+        else {
+            return;
+        };
+        serve_carried(
+            dispatch,
+            Carried {
+                reading,
+                writing,
+                listener,
+            },
+            owner,
+            runs,
+            events,
+            access,
+            engine,
+        )
+        .await;
     };
-    serve_carried(
-        dispatch,
-        Carried {
-            reading,
-            writing,
-            listener,
-        },
-        owner,
-        runs,
-        events,
-        access,
-        engine,
-    )
-    .await;
-}
-
-/// A Connection the Console's server opened on its own origin, its sign-in
-/// already checked, which the Daemon serves (ADR 0031): a WebSocket, or,
-/// where a proxy refuses `WebSocket`s, an event stream and the page's
-/// `POST`s.
-pub(crate) enum ConsoleConnection {
-    WebSocket(ConsoleSocket),
-    EventStream(EventStream),
-}
-
-/// Serves the Console's Connection `console`, a Connection of the Daemon
-/// `daemon` reaches, until it ends, its tasks those of `owner`, its calls
-/// given `engine`, lingering on its clock after the engine closes it.
-///
-/// # Cancel safety
-///
-/// Dropping the future leaves the calls it started to `owner`, which stops
-/// them.
-pub(crate) async fn serve_console(
-    dispatch: Arc<Dispatch>,
-    console: ConsoleConnection,
-    owner: &TaskOwner,
-    runs: Runs,
-    events: Events,
-    side: ConsoleSide,
-    engine: EngineContext,
-) {
-    let (reading, writing) = match console {
-        ConsoleConnection::WebSocket(socket) => (
-            Reading::Messages(socket.reader),
-            Writing::Messages(socket.writer),
-        ),
-        ConsoleConnection::EventStream(stream) => (
-            Reading::Posted(stream.reader),
-            Writing::Streamed(stream.writer),
-        ),
-    };
-    let carried = Carried {
-        reading,
-        writing,
-        listener: Listener::Console,
-    };
-    serve_carried(
-        dispatch,
-        carried,
-        owner,
-        runs,
-        events,
-        Access::Console(side),
-        engine,
-    )
-    .await;
+    // The serving task's watch (ADR 0148): its own panic, such as one
+    // while it handles a message, ends only its Connection, which its
+    // caller then stops as when its Client went away.
+    if AssertUnwindSafe(serving).catch_unwind().await.is_err() {
+        metrics.panicked(PanicEnded::Connection);
+        tracing::error!(
+            owner = OwnerKind::Connection.as_str(),
+            crash_report = crash_report::take_written().as_deref(),
+            "the task that serves a Connection panicked; the Connection ends"
+        );
+    }
 }
 
 /// How a Connection's messages travel, and its listener.
@@ -418,7 +368,20 @@ async fn serve_carried(
         dispatch.masks.clone(),
         dispatch.work.clone(),
     ));
+    let metrics = dispatch.metrics.clone();
     let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
+    // The watch of its own tasks (ADR 0148): a panic of one is told to the
+    // serving loop, which ends the Connection; this ends once that loop
+    // stopped listening.
+    let (panicked, telling) = (owner.panicked(), completed.clone());
+    owner.spawn(async move {
+        tokio::select! {
+            () = panicked => {
+                let _ = telling.send(Told::OwnTaskPanicked).await;
+            }
+            () = telling.closed() => {}
+        }
+    });
     let (client, requests) = Client::new(dispatch.work.clone());
     let daemon = access.daemon();
     let log = dispatch
@@ -456,6 +419,7 @@ async fn serve_carried(
         outgoing,
         completed,
         completions,
+        own_task_panicked: false,
         in_flight: BTreeMap::new(),
         state: ConnectionState::Opening,
         connection,
@@ -471,7 +435,14 @@ async fn serve_carried(
     session.cancel_in_flight();
     drop(session);
     owner.wait().await;
-    if !ended {
+    // Every task of its owner ended, so a panic among them was told, even
+    // one the serving loop met first as its writer gone (ADR 0148): it
+    // counts once, and the Connection ends without lingering.
+    let panicked = owner.has_panicked();
+    if panicked {
+        metrics.panicked(PanicEnded::Connection);
+    }
+    if !ended && !panicked {
         linger(&mut reading, clock).await;
     }
 }
@@ -518,7 +489,6 @@ async fn write_lines(
         let sent = match &mut writing {
             Writing::Lines(writer) => writer.write_all(&line).await.is_ok(),
             Writing::Messages(messages) => messages.feed(line).await,
-            Writing::Streamed(streamed) => streamed.feed(line).await,
         };
         if !sent {
             return;
@@ -527,7 +497,6 @@ async fn write_lines(
             let flushed = match &mut writing {
                 Writing::Lines(writer) => writer.flush().await.is_ok(),
                 Writing::Messages(messages) => messages.flush().await,
-                Writing::Streamed(_) => true,
             };
             if !flushed {
                 return;
@@ -539,7 +508,6 @@ async fn write_lines(
             let _ = writer.shutdown().await;
         }
         Writing::Messages(messages) => messages.close().await,
-        Writing::Streamed(streamed) => streamed.close(),
     }
 }
 
@@ -587,6 +555,14 @@ impl Message {
     }
 }
 
+/// What ended, as the Connection's tasks tell its serving loop.
+enum Told {
+    /// The call of this id, whose answer is on its way.
+    CallEnded(RequestId),
+    /// One of the Connection's own tasks, which panicked.
+    OwnTaskPanicked,
+}
+
 /// Whether the Connection goes on after a message.
 enum Flow {
     Continue,
@@ -597,8 +573,11 @@ struct Session<'owner> {
     dispatch: Arc<Dispatch>,
     owner: &'owner TaskOwner,
     outgoing: mpsc::Sender<Vec<u8>>,
-    completed: mpsc::Sender<RequestId>,
-    completions: mpsc::Receiver<RequestId>,
+    completed: mpsc::Sender<Told>,
+    completions: mpsc::Receiver<Told>,
+    /// Whether one of its own tasks panicked, which ends it as when its
+    /// Client goes away.
+    own_task_panicked: bool,
     in_flight: BTreeMap<RequestId, InFlight>,
     /// Where it is, which only the engine's table changes (ADR 0128).
     state: ConnectionState,
@@ -622,8 +601,9 @@ struct Pending {
 
 impl Session<'_> {
     /// Serves the Connection until the Client's input ended and every call
-    /// was answered, or the engine closed it; answers whether the input
-    /// ended.
+    /// was answered, until one of its own tasks panicked and its calls
+    /// were cancelled, or until the engine closed it; answers whether the
+    /// input ended or a task panicked.
     async fn run(&mut self, reading: &mut Reading) -> bool {
         let mut pending = Vec::new();
         let mut ended = false;
@@ -634,6 +614,7 @@ impl Session<'_> {
                     return ended;
                 }
             }
+            ended |= self.own_task_panicked;
             if ended {
                 if !lost {
                     lost = true;
@@ -652,6 +633,12 @@ impl Session<'_> {
                         }
                     }
                 }
+                // A call's own task may be what panicked, and never
+                // ends in `in_flight`: the calls' tasks are waited for as
+                // the Connection's owner's, once this returns.
+                if self.own_task_panicked {
+                    return true;
+                }
                 if self.in_flight.is_empty() {
                     if let Err(refused) = self.transition(ConnectionEvent::CallsEnded) {
                         let _ = refused.logged();
@@ -659,19 +646,16 @@ impl Session<'_> {
                     return true;
                 }
             }
-            let open = !ended && self.in_flight.len() < MAX_IN_FLIGHT;
             let sending = self.state != ConnectionState::Opening;
             tokio::select! {
                 biased;
-                Some(id) = self.completions.recv() => {
-                    self.in_flight.remove(&id);
-                }
+                Some(told) = self.completions.recv() => self.told(told),
                 Some(request) = self.requests.recv(), if sending => {
                     if let Flow::Close = self.send_request(request).await {
                         return ended;
                     }
                 }
-                more = reading.read(&mut pending), if open => {
+                more = reading.read(&mut pending), if !ended => {
                     ended = !more;
                 }
             }
@@ -926,12 +910,11 @@ impl Session<'_> {
                 let holding = accepted.holding;
                 self.opened_client = daemon.map(|daemon| daemon.opened(surface, holding));
                 let _ = self.connection.behind_gateway.set(accepted.behind_gateway);
-                if let Access::Attached(private_endpoint, console_link) = &self.access {
+                if let Access::Attached(private_endpoint) = &self.access {
                     accepted
                         .result
                         .private_endpoint
                         .clone_from(private_endpoint);
-                    accepted.result.console_link.clone_from(console_link);
                 }
                 self.dispatch.work.count(Row::MessageEncodes);
                 let result = serde_json::to_value(accepted.result)
@@ -988,6 +971,9 @@ impl Session<'_> {
             } else {
                 let handler = handler.clone();
                 match trace_context(params) {
+                    // Refused last, so a call the engine would never start
+                    // keeps its own refusal at the cap.
+                    Ok(_) if self.in_flight.len() >= MAX_IN_FLIGHT => Some(too_many_calls()),
                     Ok((params, meta)) => {
                         self.call(id, &handler, params, meta.as_ref());
                         return Flow::Continue;
@@ -1062,9 +1048,17 @@ impl Session<'_> {
             stream,
             call_input,
         );
-        let answer = handler
-            .call(params.unwrap_or(Value::Object(Map::new())), context)
-            .instrument(span.clone());
+        // The call's watch (ADR 0148): a panic in its handler is answered
+        // here, in the task the call already has, and never reaches the
+        // Connection's owner.
+        let metrics = self.dispatch.metrics.clone();
+        let answer = AssertUnwindSafe(
+            handler
+                .call(params.unwrap_or(Value::Object(Map::new())), context)
+                .instrument(span.clone()),
+        )
+        .catch_unwind()
+        .map(move |answered| answered.unwrap_or_else(|_| Err(engine_panicked(&metrics))));
         self.in_flight.insert(
             id.clone(),
             InFlight {
@@ -1107,7 +1101,7 @@ impl Session<'_> {
             // Ended before its answer is sent: the Client may reuse the id
             // as soon as the answer arrives, and `still_in_flight` then
             // finds this end waiting.
-            let _ = completed.send(id).await;
+            let _ = completed.send(Told::CallEnded(id)).await;
             let _ = outgoing.send(line).await;
         });
     }
@@ -1117,10 +1111,22 @@ impl Session<'_> {
     /// id of a call whose answer the Client read is free again (JSON-RPC
     /// 2.0), however the session's loop was scheduled.
     fn still_in_flight(&mut self, id: &RequestId) -> bool {
-        while let Ok(ended) = self.completions.try_recv() {
-            self.in_flight.remove(&ended);
+        while let Ok(told) = self.completions.try_recv() {
+            self.told(told);
         }
         self.in_flight.contains_key(id)
+    }
+
+    /// Takes in what one of its tasks told: a call that ended gives its
+    /// place in flight back, and a panic of one of its own tasks ends the
+    /// Connection.
+    fn told(&mut self, told: Told) {
+        match told {
+            Told::CallEnded(id) => {
+                self.in_flight.remove(&id);
+            }
+            Told::OwnTaskPanicked => self.own_task_panicked = true,
+        }
     }
 
     fn notification(&mut self, notification: &Notification) {
@@ -1209,31 +1215,55 @@ impl Session<'_> {
     }
 
     /// Logs the listener's refusal of the Connection, with its reason, and
-    /// records it in the Audit log: on the Console's WebSocket through its
-    /// sign-in driver, as the Console's.
+    /// records it in the Audit log.
     async fn refused(&self, reason: RefusalReason) {
-        let listener = self.listener;
-        if let Access::Console(ConsoleSide { sign_ins, .. }) = &self.access {
-            tracing::warn!(target: REFUSAL_TARGET, listener = listener.as_str(), reason = reason.as_str(), "a Connection that did not open with `hello` was closed");
-            sign_ins.refused(listener, reason.as_str()).await;
-        } else {
-            self.connection
-                .engine
-                .refusals()
-                .refused(listener, reason)
-                .await;
-        }
+        self.connection
+            .engine
+            .refusals()
+            .refused(self.listener, reason)
+            .await;
     }
 }
 
-/// `person_required`: `method` is a person's answer, which only the Console
-/// and the CLI's interactive prompt ask for (ADRs 0011 and 0041).
+/// `person_required`: `method` is a person's answer, which only the Kennel
+/// and the CLI's interactive prompt ask for (ADRs 0011, 0041 and 0141).
 fn person_required(method: &str) -> CallError {
     CallError::new(
         &PERSON_REQUIRED,
         format!(
-            "`{method}` is a person's answer: give it in the Console, or in the CLI's interactive prompt"
+            "`{method}` is a person's answer: give it in the Kennel, or in the CLI's interactive prompt"
         ),
         &serde_json::Map::new(),
+    )
+}
+
+/// `too_many_calls`: the Connection holds [`MAX_IN_FLIGHT`] calls in flight,
+/// so one more is refused, the Connection still reading everything else.
+fn too_many_calls() -> CallError {
+    CallError::new(
+        &TOO_MANY_CALLS,
+        format!(
+            "The Connection already has {MAX_IN_FLIGHT} calls in flight: make the call again once one of them ended"
+        ),
+        &TooManyCallsDetails {
+            max: u64::try_from(MAX_IN_FLIGHT).unwrap_or(u64::MAX),
+        },
+    )
+}
+
+/// `engine_panicked` for a call whose handler panicked, counted on
+/// `metrics`: it names the crash report the panic left, when one was
+/// written, and never the panic's own text (ADR 0148). Made where the
+/// panic was caught, on the thread that panicked.
+fn engine_panicked(metrics: &Metrics) -> CallError {
+    metrics.panicked(PanicEnded::Call);
+    CallError::new(
+        &ENGINE_PANICKED,
+        "The engine hit a bug in Goodfetch while it served this call, which ended the call; its Connection goes on",
+        &EnginePanickedDetails {
+            ended: PanicEnded::Call,
+            id: None,
+            crash_report: crash_report::take_written(),
+        },
     )
 }

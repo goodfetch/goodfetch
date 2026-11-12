@@ -14,16 +14,11 @@ Until M1's optimization pass, a figure past its threshold or over its ceiling is
 | goodfetch-frontier/heap::frontier::push | total-bytes | 64000 | 60000 | -6.25% | +5% | improved |
 | goodfetch-frontier/instructions::frontier::push | instructions | 2000000 | 2010000 | +0.50% | +5% | within |
 | size-limit/collie-client | brotli | 100.00 kB | 106.20 kB | +6.20 kB | +5 kB | accepted |
-| size-limit/collie-console | brotli | 990.00 kB | 1000.40 kB | +10.40 kB | +5 kB, ≤ 1000.00 kB | over its ceiling |
 
 #### Absolute ceilings
 
 | Benchmark or entry | Figure | Head | Ceiling | Verdict |
 |---|---|---:|---:|---|
-| size-limit/collie-console | brotli | 1000.40 kB | ≤ 1000.00 kB | over its ceiling |
-| size-limit/collie-console-initial-route | brotli | — | ≤ 139.78 kB | not run yet |
-| size-limit/foxhound-console | brotli | — | ≤ 1000.00 kB | not run yet |
-| size-limit/foxhound-console-initial-route | brotli | — | ≤ 161.18 kB | not run yet |
 | goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls | heap-bytes-per-url | — | ≤ 8 bytes | not run yet |
 | goodfetch-foxhound/heap::crawl::in_memory_pages | bytes-per-body-byte | — | ≤ 2× | not run yet |
 
@@ -39,4 +34,3 @@ A "Performance change" section never passes a ceiling; only the owner moves one 
 |---|---:|---:|---:|---:|---|
 | goodfetch-engine/instructions::dispatch::hello instructions | 20 | 500000 | 501000 | 0.20% | admitted |
 note[performance-change] goodfetch-frontier/heap::frontier::push total-allocations: changed by +20.00% over the base, past its threshold; noted only: until M1's optimization pass, no figure past its threshold or over its ceiling fails a change (ADR 0134, as amended on 2026-10-22)
-note[over-ceiling] size-limit/collie-console brotli: is 1000.40 kB against its ceiling of ≤ 1000.00 kB; noted only: until M1's optimization pass, no figure past its threshold or over its ceiling fails a change (ADR 0134, as amended on 2026-10-22)

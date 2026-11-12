@@ -16,8 +16,8 @@ use goodfetch_test_client::Attached;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use crate::attached;
 use crate::frontier::{Inside, crawl_from};
+use crate::site::Site;
 
 /// The Datasets the crawls declare: `books`, with a schema requiring
 /// `title` and `isbn` and keyed by `isbn`, and `notes`, keyed by `id` with
@@ -119,7 +119,8 @@ fn counts(engine: &mut Attached, run_id: &str) -> Vec<Value> {
 #[test]
 fn a_record_the_engine_rejects_enters_its_datasets_rejection_table_numbered_with_its_request() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     let book = json!({ "title": "Dune", "isbn": "0441013597" });
     let cheap = json!({ "title": "Emma", "price": "cheap" });
     let untitled = json!({ "isbn": "0141439518" });
@@ -131,13 +132,13 @@ fn a_record_the_engine_rejects_enters_its_datasets_rejection_table_numbered_with
         &json!({
             "run_id": "rejecting",
             "seeds": [
-                { "url": "https://shop.test/book", "label": "page" },
-                { "url": "https://shop.test/other", "label": "page" },
+                { "url": site.page("/book"), "label": "page" },
+                { "url": site.page("/other"), "label": "page" },
             ],
             "datasets": declared(),
         }),
         &mut |inside, handle| {
-            if handle["crawl_request"]["url"] == "https://shop.test/book" {
+            if handle["crawl_request"]["url"] == site.page("/book") {
                 push(inside, handle, "books", &book);
                 refusals.push(push(inside, handle, "books", &cheap));
                 refusals.push(push(inside, handle, "notes", &unkeyed));
@@ -153,8 +154,8 @@ fn a_record_the_engine_rejects_enters_its_datasets_rejection_table_numbered_with
     let read = counts(&mut engine, "rejecting");
     assert!(engine.finished());
 
-    let book_url = "https://shop.test/book";
-    let other_url = "https://shop.test/other";
+    let book_url = site.page("/book");
+    let other_url = site.page("/other");
     assert_eq!(
         (
             &report["result"]["lifecycle"],
@@ -166,14 +167,14 @@ fn a_record_the_engine_rejects_enters_its_datasets_rejection_table_numbered_with
             &json!("finished"),
             &json!({
                 "records": [
-                    entry(1, &cheap, &refusals[0], "1", book_url),
-                    entry(2, &untitled, &refusals[2], "2", other_url),
+                    entry(1, &cheap, &refusals[0], "1", &book_url),
+                    entry(2, &untitled, &refusals[2], "2", &other_url),
                 ],
                 "next": 2,
                 "ended": true,
             }),
             &json!({
-                "records": [entry(1, &unkeyed, &refusals[1], "1", book_url)],
+                "records": [entry(1, &unkeyed, &refusals[1], "1", &book_url)],
                 "next": 1,
                 "ended": true,
             }),
@@ -207,7 +208,8 @@ fn a_record_the_engine_rejects_enters_its_datasets_rejection_table_numbered_with
 #[test]
 fn the_rejection_table_is_read_after_a_number_and_holds_only_the_committing_attempts_rejections() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     let unkeyed = |handle: &Value, n: u32| {
         json!({
             "request": handle["crawl_request"]["id"],
@@ -221,13 +223,13 @@ fn the_rejection_table_is_read_after_a_number_and_holds_only_the_committing_atte
         &json!({
             "run_id": "resumed",
             "seeds": [
-                { "url": "https://shop.test/a", "label": "page" },
-                { "url": "https://shop.test/b", "label": "page" },
+                { "url": site.page("/a"), "label": "page" },
+                { "url": site.page("/b"), "label": "page" },
             ],
             "datasets": declared(),
         }),
         &mut |inside, handle| {
-            let a = handle["crawl_request"]["url"] == "https://shop.test/a";
+            let a = handle["crawl_request"]["url"] == site.page("/a");
             if a && handle["attempt"] == 1 {
                 push(inside, handle, "notes", &unkeyed(handle, 1));
                 return json!({ "error": {

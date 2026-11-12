@@ -1,6 +1,7 @@
-# Area 12's user stories (specs #591 and #592, Console, Collie; spec #593,
-# Console, Foxhound, from 201), the declared `story:12-<id>` Features of
-# ADR 0072. Each story's milestone is
+# Area 12's user stories (specs #591 and #592; spec #593 from 201), the
+# declared `story:12-<id>` Features of ADR 0072. ADR 0137 ended the served
+# interface those specs built: the stories it alone served are retired, and
+# those the engine still serves through a Client stay. Each story's milestone is
 # that of the ticket that finishes it; a story without a Journey carries ADR
 # 0075's reason (`actor`, `part` or `reach`). The spec's issue keeps the full
 # text; this copy is the one the Feature check reads. It holds the stories a
@@ -13,7 +14,8 @@ id = 1
 title = "As a user, I want `goodfetch-collie console` to start my major's Daemon if none runs, open my browser on the Console and sign me in once through a token passed in the URL fragment and swapped for an `HttpOnly` cookie, so that I see my runs with no sign-in step on my own machine (ADR 0024; ADR 0037 / CN-03; J-001)."
 milestone = "M1 Core"
 journey = true
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 2
@@ -21,7 +23,8 @@ title = "As a user with both Products, I want `goodfetch-collie console` and `go
 milestone = "M1 Core"
 journey = false
 not_journey = "reach"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 3
@@ -29,7 +32,8 @@ title = "As a user with two majors installed, I want each major's Console on its
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 5
@@ -37,7 +41,8 @@ title = "As a user, I want my Console sign-in to survive Daemon restarts and exp
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 4
@@ -45,14 +50,16 @@ title = "As a developer who wants no Daemon, I want my script's Attached engine 
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 6
 title = "As a user, I want a visible Console tab to keep the Daemon from stopping idle and a hidden one not to, so that the Daemon never stops while I look at it and never runs for a forgotten tab (ADR 0031)."
 milestone = "M1 Core"
 journey = true
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 7
@@ -60,7 +67,8 @@ title = "As a user whose Daemon is installed with socket activation, I want the 
 milestone = "M1 Core"
 journey = false
 not_journey = "reach"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 8
@@ -68,7 +76,8 @@ title = "As a user, I want the Console's first launch to offer a monthly Limit f
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 9
@@ -76,14 +85,16 @@ title = "As a user, I want links in Notifications to point at the Console addres
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 10
 title = "As a user, I want the Runs screen to list every run of my user and major from the Run index, whichever engine or Product ran it, so that one place shows all my work (ADRs 0031, 0098; ADR 0037 / CN-03)."
 milestone = "M1 Core"
 journey = true
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 11
@@ -91,7 +102,8 @@ title = "As a user, I want each run's Lifecycle, Verdict and Completeness shown 
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 12
@@ -115,11 +127,12 @@ title = "As a user, I want a live run's row and page to update as its axes, prog
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 15
-title = "As a user, I want a run's page to show its Run report: the three axes with the reasons it is not `verified` or not `complete`, its stop reason (a `resources` stop naming memory or storage and its folder), its Usage against its Limits, its Model allowance apart from its Limits with what remains, when it was reached and the setting and layer that set it, its Plan report, its warnings with their codes, its uncertain Effects, the settings that weakened a safeguard, its policy version, settings with their layers and Plugins, its last Checkpoint, its start and end, why nothing was done when nothing was, and, when it replayed a Response recording, that mark on its row and page with the recording's mode, file, responses used, when they were fetched and every miss, so that I understand how it ended and never read a replayed run as a live one (ADRs 0102, 0105, 0106, 0107, 0116, 0122; pain K05)."
+title = "As a user, I want to read a run's Run report through a Client: the three axes with the reasons it is not `verified` or not `complete`, its stop reason (a `resources` stop naming memory or storage and its folder), its Usage against its Limits, its Model allowance apart from its Limits with what remains, when it was reached and the setting and layer that set it, its Plan report, its warnings with their codes, its uncertain Effects, the settings that weakened a safeguard, its policy version, settings with their layers and Plugins, its last Checkpoint, its start and end, why nothing was done when nothing was, and, when it replayed a Response recording, that mark on its Run index row and in its report with the recording's mode, file, responses used, when they were fetched and every miss, so that I understand how it ended and never read a replayed run as a live one (ADRs 0102, 0105, 0106, 0107, 0116, 0122; pain K05)."
 milestone = "M3 Browser automation"
 journey = true
 status = "active"
@@ -130,7 +143,8 @@ title = "As a developer, I want the `consoleUrl` of a Run report to open that ru
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 18
@@ -138,7 +152,8 @@ title = "As a user, I want a run marked *uncapped* when it can spend money with 
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 19
@@ -146,7 +161,8 @@ title = "As a user, I want a run's page to show its writer (live or none), its r
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 20
@@ -154,11 +170,12 @@ title = "As a user, I want a live run's page to offer stop and checkpoint, and a
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 23
-title = "As a user, I want one \"Needs you\" list across every run in the index and the stores beside it, counted in the side menu, so that nothing waiting for me is missed (ADR 0031; pain 18)."
+title = "As a user, I want one \"Needs you\" list across every run in the index and the stores beside it, read through a Client, so that nothing waiting for me is missed (ADR 0031; pain 18)."
 milestone = "M1 Core"
 journey = true
 status = "active"
@@ -181,7 +198,7 @@ status = "active"
 
 [[story]]
 id = 27
-title = "As a person, I want a stop of the refetch without the site's stored data listed in \"Needs you\", to dismiss it, remove the domain from the layer of `wall_refetch_domains` that lists it (or, when only `*` covers it, replace `*` with a list), or add it to `wall_denied_domains` with a reason, removal and denial needing the operator role and denial step-up on a Daemon with accounts, and a domain listed in project configuration shown with its file rather than removed from the Console, so that a site's objection is handled where I see it (ADR 0052)."
+title = "As a person, I want a stop of the refetch without the site's stored data listed in \"Needs you\", to dismiss it, remove the domain from the layer of `wall_refetch_domains` that lists it (or, when only `*` covers it, replace `*` with a list), or add it to `wall_denied_domains` with a reason, removal and denial needing the operator role and denial step-up on a Daemon with accounts, and a domain listed in project configuration shown with its file rather than removed, so that a site's objection is handled where I see it (ADR 0052)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -208,11 +225,12 @@ id = 94
 title = "As a user, I want Engine & settings to show every effective value with its layer and lock, as `config explain` does, so that I see where each value comes from (ADR 0031; J-009; ADR 0037 / RT-22)."
 milestone = "M1 Core"
 journey = true
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 95
-title = "As a user, I want to edit user-level values and a run's own values in the Console, never project configuration or Recipe manifests, a value fixed for a run's life shown read-only with its edit pointing to a new run, so that files under version control stay the truth (ADRs 0031, 0102, 0120)."
+title = "As a user, I want to edit user-level values and a run's own values through a Client, never project configuration or Recipe manifests, a value fixed for a run's life shown read-only with its edit pointing to a new run, so that files under version control stay the truth (ADRs 0031, 0102, 0120)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -220,7 +238,7 @@ status = "active"
 
 [[story]]
 id = 96
-title = "As an operator, I want to edit the Operator policy in the Console, written atomically and only if its digest has not changed since I read it, with a before-and-after diff in the Audit log, so that a hand edit is never lost (ADR 0031)."
+title = "As an operator, I want to edit the Operator policy through a Client, written atomically and only if its digest has not changed since I read it, with a before-and-after diff in the Audit log, so that a hand edit is never lost (ADR 0031)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -244,7 +262,7 @@ status = "active"
 
 [[story]]
 id = 100
-title = "As a user, I want to raise a Limit only in the Console or an interactive CLI prompt, raising a run's Limit resuming a Recipe run in the Daemon or marking an SDK script's run as waiting for its script, with **Copy resume command**, so that an agent stopped by a cap cannot lift it (ADRs 0029, 0041, 0102)."
+title = "As a user, I want to raise a Limit only as a person, at an interactive CLI prompt, raising a run's Limit resuming a Recipe run in the Daemon or marking an SDK script's run as waiting for its script, with its resume command, so that an agent stopped by a cap cannot lift it (ADRs 0029, 0041, 0102)."
 milestone = "M1 Core"
 journey = true
 status = "active"
@@ -255,7 +273,8 @@ title = "As a user, I want a setting only Foxhound honours listed as Foxhound's,
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 109
@@ -263,7 +282,8 @@ title = "As a user of a single-user local Daemon, I want my OS user to be the pe
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 110
@@ -271,7 +291,8 @@ title = "As a person, I want sign-in rate-limited, cookies `SameSite=Strict` and
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 111
@@ -279,7 +300,8 @@ title = "As an operator, I want rotating the Console key to sign everyone out, a
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 120
@@ -287,7 +309,8 @@ title = "As a user, I want every run listed with the Product it needs, so that I
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 121
@@ -295,7 +318,8 @@ title = "As a user on a Collie Daemon, I want a run that needs Foxhound to keep 
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 122
@@ -303,7 +327,8 @@ title = "As a user, I want my Console to reconnect by itself when the Daemon han
 milestone = "M1 Core"
 journey = false
 not_journey = "reach"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 123
@@ -311,7 +336,8 @@ title = "As a user, I want the Console to resubscribe from its last position aft
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 124
@@ -319,7 +345,8 @@ title = "As a user behind a proxy that blocks WebSockets, I want the Console to 
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 125
@@ -327,14 +354,16 @@ title = "As a user, I want the tab read-only under a banner while disconnected, 
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 126
 title = "As a user, I want run summaries cached in my browser per major, and Records only when I keep a view offline, encrypted under a key that expires with my sign-in, secret fields never cached, the cache wiped at sign-out, and a setting that turns caching off, so that I can read offline without leaking data (ADR 0031)."
 milestone = "M1 Core"
 journey = true
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 127
@@ -342,7 +371,8 @@ title = "As a user, I want scraped HTML, screenshots and DOM snapshots served fr
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 128
@@ -350,7 +380,8 @@ title = "As a user, I want the Console under a strict Content Security Policy (i
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 129
@@ -358,7 +389,8 @@ title = "As a security reviewer, I want every Console route's headers checked in
 milestone = "M1 Core"
 journey = false
 not_journey = "actor"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 130
@@ -366,7 +398,8 @@ title = "As a person using a screen reader, a keyboard, zoom, high contrast or r
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 131
@@ -374,7 +407,8 @@ title = "As a person, I want \"Needs you\", toasts, errors, run-state changes an
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 132
@@ -382,7 +416,8 @@ title = "As a person reading another language, I want dates, numbers, sizes, dur
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 133
@@ -390,7 +425,8 @@ title = "As a person, I want each Error code shown with a message from the Conso
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 134
@@ -398,7 +434,8 @@ title = "As a person, I want Enter during an IME composition never to submit a f
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 135
@@ -406,7 +443,8 @@ title = "As a user, I want the Console to load fast and stay under 1 MB brotli, 
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), so no Console build is left to hold under a size ceiling."
 
 [[story]]
 id = 136
@@ -414,7 +452,8 @@ title = "As a user, I want the Runs screen to stay smooth with 10,000 runs and a
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 137
@@ -422,7 +461,8 @@ title = "As Goodfetch Cloud, I want the Console to call only catalog operations 
 milestone = "M1 Core"
 journey = false
 not_journey = "actor"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 138
@@ -430,7 +470,8 @@ title = "As a Client author, I want the Console's own use of the protocol to pas
 milestone = "M1 Core"
 journey = false
 not_journey = "actor"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 
 [[story]]
 id = 201
@@ -438,7 +479,8 @@ title = "As a user with Foxhound installed, I want my major's Foxhound Daemon to
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 product = "foxhound"
 
 [[story]]
@@ -447,7 +489,8 @@ title = "As a user, I want every screen of Collie's Console present and unchange
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 product = "foxhound"
 
 [[story]]
@@ -456,14 +499,16 @@ title = "As a user, I want Foxhound's screens shown for every run that needs Fox
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 product = "foxhound"
 
 [[story]]
 id = 204
-title = "As a user, I want a crawl run's page to list its Datasets with their declared schema and their committed, dropped and rejected Record counts, so that I see what the crawl kept (ADR 0103)."
+title = "As a user, I want a crawl's Datasets listed with their declared schema and their committed, dropped and rejected Record counts, so that I see what the crawl kept (ADR 0103)."
 milestone = "M1 Core"
-journey = true
+journey = false
+not_journey = "part"
 status = "active"
 product = "foxhound"
 
@@ -482,7 +527,8 @@ title = "As a user reading text in any script, I want each cell isolated with `d
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 product = "foxhound"
 
 [[story]]
@@ -517,7 +563,8 @@ title = "As a user, I want to keep a Dataset view offline, its Records cached en
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 product = "foxhound"
 
 [[story]]
@@ -525,7 +572,8 @@ id = 217
 title = "As a user, I want a crawl run's page to show its progress live: requests in flight with their phase, tier and attempt; why due requests wait, per reason, with the domains held, when each is next admitted and the setting behind the wait with its value and layer; each sitemap seed's progress; whether a keep-alive crawl is idle; the handlers running against their concurrency and the governor's level; and the program's status message, so that a slow crawl explains itself (ADRs 0102, 0118; ADR 0037 / RT-15)."
 milestone = "M1 Core"
 journey = true
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 product = "foxhound"
 
 [[story]]
@@ -543,12 +591,13 @@ title = "As Goodfetch Cloud, I want Foxhound's Console build to show runs of bot
 milestone = "M1 Core"
 journey = false
 not_journey = "actor"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 product = "foxhound"
 
 [[story]]
 id = 232
-title = "As a maintainer, I want a Stub gateway that serves Foxhound's Console build with the production headers, keeps its own index for `run.list`, starts each run's Attached engine from the executable of the Product that run gets and forwards every other operation, so that the Console is proved to need nothing beyond the catalog (ADRs 0068, 0096)."
+title = "As a maintainer, I want a Stub gateway that serves no file, keeps its own index for `run.list`, starts each run's Attached engine from the executable of the Product that run gets and forwards every other operation, so that a Client is proved to need nothing beyond the catalog (ADRs 0068, 0096)."
 milestone = "M1 Core"
 journey = false
 not_journey = "actor"
@@ -561,7 +610,8 @@ title = "As a user, I want a Records grid of 10,000 rows to render only the rows
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), and this story was its alone."
 product = "foxhound"
 
 [[story]]
@@ -570,5 +620,6 @@ title = "As a user, I want Foxhound's build to stay under 1 MB brotli with its o
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
-status = "active"
+status = "retired"
+reason = "The Console left both Products (ADR 0137), so no Console build is left to hold under a size ceiling."
 product = "foxhound"

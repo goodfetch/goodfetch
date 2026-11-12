@@ -6,8 +6,10 @@
 //! asks of them. Each outcome the path has is in it: small params
 //! (`engine.info`), large params (a `route.fulfill` body), and a Plugin's
 //! messages and events: a call whose handler sends the program a handler
-//! request (`crawl_request.handle`), reads a large Record from its reply,
-//! publishes an event and logs a line. Its Valgrind targets' scenarios
+//! request (`plugin_record.handle`), reads a large Record from its reply,
+//! publishes an event and logs a line. The Plugin's entries are stand-ins
+//! of this file, shaped as a crawl's are: the engine names none of
+//! Foxhound's (ADR 0099). Its Valgrind targets' scenarios
 //! dispatch [`MESSAGES`] messages each beyond [`NO_MESSAGES`], which `xtask
 //! counts` divides by.
 
@@ -26,10 +28,12 @@ use goodfetch_engine::{
     CallContext, CallError, Channel, Composition, Contribution, Dependencies, Engine, Guard,
     Handler, Identity,
 };
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{
+    HandlerRequest, Operation, OperationClass, OperationKind, PROTOCOL_VERSION, Product, Reach,
+    Stability, schema_of,
+};
 use goodfetch_protocol::checkpoint::RUN_CHECKPOINTING;
 use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::foxhound::crawl::{CRAWL_REQUEST_HANDLE, CRAWL_START, CrawlRequestHandled};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::route::{ROUTE_FULFILL, RouteAnswered, RouteFulfillParams};
 use serde_json::{Value, json};
@@ -189,15 +193,71 @@ pub(crate) struct Sent {
     pub(crate) handler_requests: usize,
 }
 
+/// The Plugin's call, which starts its work as a crawl's start does.
+const PLUGIN_CALL: Operation = Operation {
+    name: "plugin.call",
+    description: "Asks the stand-in Plugin to handle one attempt.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<Value>,
+    result: schema_of::<Value>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: PROTOCOL_VERSION,
+};
+
+/// The handler request the Plugin's call sends the program.
+const PLUGIN_HANDLE: HandlerRequest = HandlerRequest {
+    name: "plugin_record.handle",
+    description: "Asks the program's handler to process one attempt.",
+    params: schema_of::<Value>,
+    result: schema_of::<Value>,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: PROTOCOL_VERSION,
+};
+
+/// What the program's handler answers: the Records it pushed, or its skip.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Handled {
+    #[serde(default)]
+    records: Vec<Pushed>,
+    #[serde(default)]
+    #[expect(
+        dead_code,
+        reason = "a handler's answer has the field, which no scenario sets"
+    )]
+    skipped: Option<Value>,
+}
+
+/// One Record a handler pushed into a Dataset.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Pushed {
+    #[expect(
+        dead_code,
+        reason = "read off the wire, as a pushed Record's Dataset is"
+    )]
+    dataset: String,
+    #[expect(dead_code, reason = "read off the wire, as a pushed Record's data is")]
+    data: Value,
+}
+
 /// A call of a Plugin: its handler request, the Record its reply carries,
 /// its event and its log line.
 async fn plugin_call(params: Value, context: CallContext) -> Result<Value, CallError> {
     let failed = |error: goodfetch_engine::client::ClientRequestError| {
         CallError::protocol(ProtocolFailure::InternalError, error.to_string())
     };
-    let handled: CrawlRequestHandled = context
+    let handled: Handled = context
         .client()
-        .send(&CRAWL_REQUEST_HANDLE, &params)
+        .send(&PLUGIN_HANDLE, &params)
         .await
         .map_err(failed)?
         .answer()
@@ -225,7 +285,7 @@ async fn fulfill(
 fn composition(plant: Option<Plant>) -> Composition {
     let stand_ins = Contribution::new("b3-stand-ins")
         .with_handler(Handler::new(&ROUTE_FULFILL, fulfill))
-        .with_handler(Handler::new(&CRAWL_START, plugin_call));
+        .with_handler(Handler::new(&PLUGIN_CALL, plugin_call));
     let engine = goodfetch_engine::contribution();
     match plant {
         None => Composition::default().with(engine).with(stand_ins),
@@ -284,7 +344,7 @@ fn request_lines(traffic: Traffic, logs: Logs) -> Vec<u8> {
     for _ in 0..traffic.plugin {
         lines.extend_from_slice(
             format!(
-                "{{\"jsonrpc\":\"2.0\",\"id\":{},\"method\":\"crawl.start\",\"params\":{{\"attempt\":1}}}}\n",
+                "{{\"jsonrpc\":\"2.0\",\"id\":{},\"method\":\"plugin.call\",\"params\":{{\"attempt\":1}}}}\n",
                 next()
             )
             .as_bytes(),
@@ -335,7 +395,7 @@ async fn client(dialer: InMemoryDialer, lines: &[u8], answers: usize) -> Sent {
                 sent.event_batches += 1;
             } else if start.contains(r#""method":"$/log""#) {
                 sent.log_lines += 1;
-            } else if start.contains(r#""method":"crawl_request.handle""#) {
+            } else if start.contains(r#""method":"plugin_record.handle""#) {
                 let reply = handled_line(sent.handler_requests, &text);
                 sent.handler_requests += 1;
                 replies

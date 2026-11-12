@@ -5,11 +5,13 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 ## Considered Options
 
 - **No scheduler, with documented recipes for cron, systemd timers, Kubernetes CronJobs and workflow tools** (Crawlee, Scrapyd): rejected. Every user would solve overlaps, missed runs, time zones and spend across runs alone, and the Console could show neither upcoming runs nor why one did not happen. `goodfetch run` still works under any external scheduler.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
 - **Scheduling only in Goodfetch Cloud** (Firecrawl, Apify): rejected. It breaks ADR 0001's rule that the cloud does nothing that cannot be reproduced locally.
 - **Scheduling inside the engine's run loop**: rejected. It would tie Schedules to one engine process, while Goodfetch Cloud runs one engine per run.
 - **Several targets per Schedule** (up to 10 Actors and 10 tasks at Apify): rejected. Overlap, failure and history become ambiguous; two Schedules or an after-a-run trigger say the same thing.
 - **Shell commands as targets** (cron, systemd, Kubernetes): rejected. The Daemon would run arbitrary programs with no Recipe, no recorded digest and no confinement, which matters on a shared Daemon.
 - **Schedules only as Daemon objects** (Apify, Temporal, Firecrawl) or **only as files** (Kubernetes CronJobs, GitHub Actions): rejected. Teams want Schedules reviewed in pull requests, while a person in the Console or an agent through MCP wants one call. Both forms exist.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Concurrent runs by default** (Kubernetes `concurrencyPolicy: Allow`, Apify without `isExclusive`): rejected. Runs pile up when one outlasts its period ([oracle-base](https://oracle-base.com/blog/2023/07/14/when-overlapping-jobs-attack/)). Firecrawl (`skipped_overlap`), Zyte and Temporal skip by default.
 - **Backfilling every missed occurrence** (Temporal backfill, Airflow `catchup`): rejected. A late run can only fetch the web as it is now, so ten catch-up runs would collect the same pages ten times.
 - **Waking a sleeping machine** (systemd `WakeSystem=`, macOS `pmset schedule wake`): rejected. Both need root or polkit rights; catch-up on wake covers laptops, and servers do not sleep.
@@ -29,7 +31,9 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 
 **Where Schedules are defined.**
 - **From any Client:** created and changed through `schedules.*` operations, so the SDKs, CLI, MCP server, Console and Integrations all have them. The CLI offers `goodfetch schedules list|show|create|edit|pause|resume|run|delete|apply|preview`.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **From files:** a Schedule file kept in the project, its own contract format (ADR 0030), reconciled into the Daemon by `goodfetch schedules apply`. Such Schedules are marked *from file*: `schedules.edit` and `schedules.delete` refuse them on every surface, and the Console disables those actions as it does for managed policies (ADR 0031), so a later `apply` never silently undoes an edit. Pause, resume and run now still work. A Recipe manifest may suggest a default Schedule but never creates one.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **What `apply` does.** It needs the same role as creating a Schedule and records the person or token that ran it as the creator (see People). It creates and updates the file's Schedules, deletes those it created earlier from the same file that the file no longer holds, and leaves a Schedule's paused or running state alone unless the file sets `enabled`.
 
 **Triggers.**
@@ -50,6 +54,7 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 - Optional jitter, 0 by default, is the same delay at every occurrence of a Schedule (systemd's `FixedRandomDelay=`).
 - No product minimum interval. Operator policy may set one, and Goodfetch Cloud sets its own.
 - The Console and CLI preview the next occurrences in plain words before saving.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 **Overlap.** When an occurrence fires while the Schedule's previous run is live, including one waiting in a Human pause, the Schedule's policy applies:
 - `skip` (the default), recorded as *skipped: overlap*
@@ -61,6 +66,7 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 - An occurrence is missed when the Daemon was not running or the machine slept; the Daemon detects a sleep by the wall clock jumping.
 - On start or wake, the latest missed occurrence runs once if it falls within the catch-up window: by default until the occurrence after it is due, so a weekday 9:00 Schedule missed on Friday can still catch up until Monday 9:00; settable, 0 meaning never. Every other one is recorded as *missed*. This is systemd's `Persistent=`, and n8n 2.36's opt-in run-once policy with a grace period.
 - **Changes ADR 0024:** a Daemon holding an enabled Schedule of the active major (see Product majors) never stops idle. Creating the first Schedule on a Daemon not installed as a service offers `goodfetch daemon install`; until then, the Console and CLI warn that Schedules fire only while the Daemon runs.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 **Limits across runs.**
 - Each run keeps its own Limits. A Schedule may also carry period Limits: caps on the total Usage of its runs per day, week or month, counted in its time zone.
@@ -69,6 +75,7 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 - Once a period's Limit is used up, occurrences are recorded as *skipped: Limit*, one Notification goes out per period, and the Schedule resumes next period, as Firecrawl records `skipped_no_credits`.
 - Operator policy can cap period Limits.
 - A scheduled run also counts against the Limits of ADR 0041 that apply to the Schedule's creator: the install, the Daemon, the person and the named token. A change that raises a period Limit from a surface other than the Console or an interactive CLI prompt, including `goodfetch schedules apply`, waits for a person's confirmation (ADR 0041).
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 **Baseline and soft-delete.** For a Schedule that targets a Partitioned crawl, each rule below reads the whole crawl's three axes and Records (ADR 0054).
 - A Schedule's runs compare against its latest run whose Lifecycle is `finished`, whose Verdict is not `rejected` and whose Completeness is not `incomplete`, unless the Schedule pins a Baseline. A `failed` or `stopped` run never becomes the Baseline.
@@ -110,6 +117,9 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 - **Precedents:** Kubernetes keeps 3 successful and 1 failed Job ([CronJob](https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/)), Apify the 10 most recent runs ([storage](https://docs.apify.com/platform/storage/usage)), and Firecrawl monitor checks for 30 days by default.
 
 **The Console and Notifications.**
+
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
+
 - **A Schedules screen** joins ADR 0029's side menu. Each Schedule shows its target, trigger, timing in plain words, next occurrences, last outcome, period Usage against its period Limit, its state (on, paused, auto-paused) and a *from file* badge where it applies.
 - **A Schedule drawer** shows the occurrence history as a timeline with skip reasons, and offers pause, resume, run now, edit and delete. Edit and delete are disabled for Schedules from files.
 - **Links:** a Recipe's page lists its Schedules, and a run's drawer names the Schedule and occurrence that started it.
@@ -126,6 +136,7 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 **Goodfetch Cloud.**
 - Its gateway implements the `schedules.*` operations with its own durable scheduler and the semantics above.
 - One Schedule conformance suite runs against a Daemon and a stub gateway, as the Console's does.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - Schedules move between a machine and the cloud through the file form and `goodfetch schedules apply`.
 - Cloud-only matters (its minimum interval, pricing, regions) belong to the Cloud map.
 
@@ -134,4 +145,5 @@ The open-source framework schedules runs itself. A Schedule starts runs of one t
 - **One active major.** A per-user marker, outside the per-major folders, names the major whose scheduler fires. The first Schedule created on the machine writes it. Every Daemon reads it before each occurrence, so a Daemon of another major fires nothing, even while it runs and holds its own store's lock; its Schedules neither keep it from stopping idle nor record occurrences as missed.
 - **Creating outside the active major.** Creating or enabling a Schedule in a major the marker does not name warns that it will not fire there and offers to switch.
 - **Switching is its own confirmed step:** `goodfetch schedules activate --major <n>`, also offered as a prompt in the CLI and Console when a newer major's Daemon finds Schedules only in an older one. Switching to a newer major first copies and upgrades the older major's Schedules into the new store, after confirmation; a Schedule whose ID the new store already holds is reported and skipped. The newly active major starts at each Schedule's next occurrence, with no catch-up for the time it was inactive. `goodfetch upgrade-files` upgrades Schedule files in projects but never switches the marker, so trying a `0.y` preview, where each preview minor counts as a major, leaves the Schedules firing where they were. Because it also upgrades Recipe manifests and Plans in place, which the older major then refuses (ADR 0030), it warns when the project holds a Recipe that a Schedule of the active major targets: those Schedules would fail to start until the marker is switched or the files are restored.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Rolling back** is the same command naming the older major. Its store is as it was, so changes made under the newer major are not carried back, and the command says so.

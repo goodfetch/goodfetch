@@ -343,10 +343,10 @@ fn beside_the_run_file(series: BTreeSet<String>) -> BTreeSet<String> {
         .collect()
 }
 
-/// A Collie engine, the registry the Prometheus exporter the executables
-/// use renders its meter into, and the meter's provider, which records only
-/// while it is held.
-fn metered() -> (Engine, prometheus::Registry, SdkMeterProvider) {
+/// The runtime's instruments, the registry the Prometheus exporter the
+/// executables use renders their meter into, and the meter's provider,
+/// which records only while it is held.
+pub(super) fn metering() -> (Metrics, prometheus::Registry, SdkMeterProvider) {
     let registry = prometheus::Registry::new();
     let exporter = opentelemetry_prometheus::exporter()
         .with_registry(registry.clone())
@@ -355,7 +355,15 @@ fn metered() -> (Engine, prometheus::Registry, SdkMeterProvider) {
         .build()
         .unwrap();
     let provider = SdkMeterProvider::builder().with_reader(exporter).build();
-    let engine = engine(Product::Collie).with_metrics(Metrics::new(&provider.meter(METER)));
+    let metrics = Metrics::new(&provider.meter(METER));
+    (metrics, registry, provider)
+}
+
+/// A Collie engine recording on [`metering`]'s instruments, with their
+/// registry and provider.
+fn metered() -> (Engine, prometheus::Registry, SdkMeterProvider) {
+    let (metrics, registry, provider) = metering();
+    let engine = engine(Product::Collie).with_metrics(metrics);
     (engine, registry, provider)
 }
 

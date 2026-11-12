@@ -69,6 +69,7 @@
 //! tier one method of [`On`], kept whole so every tier's run hands its
 //! handler the same request, response and Provenance.
 
+use std::collections::BTreeSet;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime};
 
@@ -208,7 +209,7 @@ impl Tiering {
     /// The tier the attempt starts on, if any.
     pub(super) fn tier(&self) -> Option<FetchTier> {
         match &self.plan {
-            AttemptPlan::Alone => None,
+            AttemptPlan::Sitemap => None,
             AttemptPlan::On(choice) => Some(choice.tier),
             AttemptPlan::Replayed(_) => Some(FetchTier::DiscoveredApi),
             AttemptPlan::Sample(_) | AttemptPlan::Race(_) => Some(FetchTier::Http),
@@ -430,28 +431,14 @@ pub(super) async fn attempt(
     let mut sampled = None;
     let mut raced = None;
     let answer = match (&tiering.plan, &tiering.http) {
-        (_, Some(http)) if leased.sitemap => on.sitemap(http).await,
-        (_, None) if leased.sitemap => Answer::Failed {
+        (AttemptPlan::Sitemap, Some(http)) => on.sitemap(http).await,
+        (AttemptPlan::Sitemap, None) => Answer::Failed {
             code: NAVIGATION_FAILED.name.to_owned(),
             retryable: true,
             message: "The crawl's HTTP tier could not be built, so the sitemap was not fetched."
                 .to_owned(),
             details: Map::new(),
         },
-        (AttemptPlan::Alone, _) => {
-            let params = on.params(None, None, None);
-            let handed_over = tiering.tiers.hand_over(Arc::clone(&hand_over));
-            let answer = handled(
-                &run,
-                &context,
-                code_free.as_deref(),
-                (&params, &sent_at),
-                &lease,
-            )
-            .await;
-            drop(handed_over);
-            answer
-        }
         (AttemptPlan::On(choice), _) if choice.tier == FetchTier::Browser => {
             on.browser(&tiering.tiers, choice, Chosen::AsChosen).await
         }
@@ -792,17 +779,18 @@ impl On<'_> {
             }) => {
                 let browser_records =
                     [browser_staged.records.records(), records.as_slice()].concat();
+                let not_compared = self.not_compared();
                 let browser_run = StagedRun {
                     records: &browser_records,
                     enqueues: &browser_staged.enqueues,
                     ended_at: browser.ended_at.as_deref(),
                     encoding: browser.encoding.as_deref(),
                 };
-                if matches_browser(&run, &cheaper, &browser_run) {
+                if matches_browser(&run, &cheaper, &browser_run, not_compared) {
                     Some(Weighed::Matched)
                 } else {
                     let light = light.as_ref().is_some_and(|(light, staged)| {
-                        matches_browser(light, staged, &browser_run)
+                        matches_browser(light, staged, &browser_run, not_compared)
                     });
                     // `discovered_api` serves the document `http` did, so
                     // its run can only differ from that one where `http`
@@ -860,7 +848,19 @@ impl On<'_> {
         let staged = self.lease.restage();
         self.lease.put_back(browsers);
         let (run, _) = ran.ok()?;
-        matches_browser(&run, &staged, browser).then_some(plan)
+        matches_browser(&run, &staged, browser, self.not_compared()).then_some(plan)
+    }
+
+    /// The fields of a Record that two runs of one attempt never hold
+    /// alike, which a sample's comparison leaves out: a code-free crawl's
+    /// ([`crate::code_free::NOT_COMPARED`]), none of a handler's.
+    fn not_compared(&self) -> &'static BTreeSet<String> {
+        static NONE: BTreeSet<String> = BTreeSet::new();
+        if self.code_free.is_some() {
+            &crate::code_free::NOT_COMPARED
+        } else {
+            &NONE
+        }
     }
 
     /// One run on the `http` tier: its origin's robots.txt read and its
@@ -887,25 +887,32 @@ impl On<'_> {
         // HTTP from inside its browser, so its fingerprint and cookies stay
         // the Session's on both tiers (ADR 0020; pitfall H20), and so does
         // one forced onto `browser_fetch`.
-        let in_browser;
-        let http = if choice.forced.is_none() || choice.tier == FetchTier::BrowserFetch {
-            in_browser = tiers.in_browser(http, run, self.in_browser, hand_over, self.context);
-            &in_browser
+        // A Session forced onto its own transport keeps its cookies in a
+        // jar of its own there (ADR 0021).
+        let http = &if choice.forced.is_none() || choice.tier == FetchTier::BrowserFetch {
+            tiers.in_browser(http, run, self.in_browser, hand_over, self.context)
         } else {
-            http
+            http.keeping_cookies_of(&self.session.id)
         };
         let (served, facts) = self
             .document(tiering, http, choice, hand_over)
             .await
             .map_err(|answer| (answer, Taught::default()))?;
-        let page_id = served.keep();
+        // `served` is held until its handler answered: an attempt abandoned
+        // while its handler runs, as an abort abandons it, closes its page
+        // as it drops, so the page never holds the Run's handles past the
+        // Run.
+        let page_id = served.page_id().clone();
         *self.document.lock().await = facts.response.clone();
         // A `discovered_api` page replays its Label's calls (ADR 0020).
         if let Some(plan) = plan {
             tiers.replay_on(&page_id, plan.clone());
         }
+        // Provenance names the tier that sent the document, whoever chose
+        // it (ADR 0023).
+        let sent = http.sent_on(choice.tier);
         if let Some(ended) = self
-            .ended_unhandled(tiering, &page_id, &facts, (choice, how))
+            .ended_unhandled(tiering, &page_id, &facts, (choice, sent, how))
             .await
         {
             return ended;
@@ -933,7 +940,7 @@ impl On<'_> {
         )
         .await;
         drop(handed_over);
-        let escalated = self.escalated(tiers.close(&page_id));
+        let escalated = self.escalated(tiers.close(&served.keep()));
         Ok((
             HttpRun {
                 answer,
@@ -969,20 +976,24 @@ impl On<'_> {
     /// How the run `how` names on `choice` ends before its handler runs,
     /// its page `page_id` served with `facts`, by what it found of the page
     /// ([`Found`]), the page closed; `None` when its handler runs. Records
-    /// the tier the run took either way.
+    /// the tier that sent the run's document either way, `sent`.
     async fn ended_unhandled(
         &self,
         tiering: &Tiering,
         page_id: &PageId,
         facts: &PageFacts,
-        (choice, how): (&TierChoice, Chosen),
+        (choice, sent, how): (&TierChoice, FetchTier, Chosen),
     ) -> Option<Result<(HttpRun, Taught), (Answer, Taught)>> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
+        let recorded = &TierChoice {
+            tier: sent,
+            ..choice.clone()
+        };
         let tiers = &tiering.tiers;
         match self.found(tiering, page_id, facts).await {
             Found::Unreadable(call) => {
                 tiers.close(page_id);
-                record_tier(run, leased, lease, choice, how, None, None).await;
+                record_tier(run, leased, lease, recorded, how, None, None).await;
                 let message = "The document declares no encoding and is not UTF-8: only the browser reads it.";
                 return Some(Ok((
                     escalated_unhandled(ATTEMPT_ENDED.name, message, call),
@@ -991,7 +1002,7 @@ impl On<'_> {
             }
             Found::Challenge(cause, error) => {
                 tiers.close(page_id);
-                record_tier(run, leased, lease, choice, how, None, None).await;
+                record_tier(run, leased, lease, recorded, how, None, None).await;
                 return Some(match self.on_block(cause, choice) {
                     Action::MoveToBrowser => Ok((
                         escalated_unhandled(
@@ -1010,7 +1021,7 @@ impl On<'_> {
             run,
             leased,
             lease,
-            choice,
+            recorded,
             how,
             facts.encoding.clone(),
             facts.certificate_exception.clone(),
@@ -1321,8 +1332,14 @@ pub(super) fn read_by_browser(
 /// escalated, and the weighing matched what each staged, the Records it
 /// pushed then those of its answer and the requests it enqueued, before
 /// any Hook (ADR 0103), the URL each ended on and the encoding each read
-/// in (ADRs 0118 and 0119).
-fn matches_browser(run: &HttpRun, staged: &SoFar, browser: &StagedRun<'_>) -> bool {
+/// in (ADRs 0118 and 0119), the fields `not_compared` names left out of
+/// every Record.
+fn matches_browser(
+    run: &HttpRun,
+    staged: &SoFar,
+    browser: &StagedRun<'_>,
+    not_compared: &BTreeSet<String>,
+) -> bool {
     let HttpRun {
         answer:
             Answer::Handled(CrawlRequestHandled {
@@ -1336,8 +1353,8 @@ fn matches_browser(run: &HttpRun, staged: &SoFar, browser: &StagedRun<'_>) -> bo
         return false;
     };
     let records = [staged.records.records(), records.as_slice()].concat();
-    // No field is named removed yet: the extraction's removal reports none
-    // per attempt.
+    // The extraction's removal reports no field per attempt yet: the
+    // fields left out are those the runs themselves never hold alike.
     weighing::weigh(
         &StagedRun {
             records: &records,
@@ -1346,7 +1363,7 @@ fn matches_browser(run: &HttpRun, staged: &SoFar, browser: &StagedRun<'_>) -> bo
             encoding: run.encoding.as_deref(),
         },
         browser,
-        &std::collections::BTreeSet::new(),
+        not_compared,
     )
 }
 

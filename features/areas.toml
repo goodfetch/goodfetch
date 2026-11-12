@@ -407,11 +407,24 @@ kind = "format"
 prefix = "usage-ledger"
 
 # Area 3's person-only marker (#232): the refusal of a person's answer
-# asked by any surface but the Console and the CLI's interactive prompt.
+# asked by any surface but a person's, such as the CLI's interactive prompt.
 [[area]]
 number = 3
 kind = "error"
 prefix = "person_required"
+
+# The Error code the engine refuses a new call with on a Connection at its
+# cap of calls in flight (issue 2312).
+[[area]]
+number = 3
+kind = "error"
+prefix = "too_many_calls"
+
+# The Error code of what a panic in the engine ended (ADR 0148, issue 2426).
+[[area]]
+number = 3
+kind = "error"
+prefix = "engine_panicked"
 
 # Area 3's settings (#225): `config.explain`, the refusals of a setting, the
 # Operator policy's and user configuration's formats, and the keys the
@@ -1150,7 +1163,17 @@ prefix = "closed"
 [[area]]
 number = 11
 kind = "error"
-prefix = "engine_"
+prefix = "engine_exited"
+
+[[area]]
+number = 11
+kind = "error"
+prefix = "engine_not_found"
+
+[[area]]
+number = 11
+kind = "error"
+prefix = "engine_output_invalid"
 
 # The Error code a Connection's own bounds refuse a call with (issue 2332).
 [[area]]
@@ -1191,25 +1214,7 @@ number = 5
 kind = "error"
 prefix = "browser_host_outdated"
 
-# Area 12, the Console (spec #592): its address and the Error code of its
-# port taken (#811).
-[[area]]
-number = 12
-kind = "error"
-prefix = "console_"
-
-[[area]]
-number = 12
-kind = "setting"
-prefix = "console."
-
-# Its sign-ins (#826): the person-only `sign_in.*` and `console.rotate_key`,
-# and the accounts store that keeps them.
-[[area]]
-number = 12
-kind = "operation"
-prefix = "sign_in."
-
+# Area 12 (spec #592).
 # Foxhound's Datasets screen (#1211, spec #593): `dataset.list` and
 # `dataset.page`, which the Records grid reads.
 [[area]]
@@ -1239,29 +1244,7 @@ number = 12
 kind = "command"
 prefix = "needs-you"
 
-[[area]]
-number = 12
-kind = "operation"
-prefix = "console."
-
-[[area]]
-number = 12
-kind = "format"
-prefix = "accounts-store"
-
-# Every screen of the Console, whose routes its packages commit (#868).
-[[area]]
-number = 12
-kind = "screen"
-prefix = "/"
-
-# The `console` command that opens it signed in, and the Error code its
-# Client raises when its Connection drops (#817).
-[[area]]
-number = 12
-kind = "command"
-prefix = "console"
-
+# The Error code a Client raises when its Connection drops (#817).
 [[area]]
 number = 12
 kind = "error"

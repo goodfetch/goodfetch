@@ -50,6 +50,7 @@ use goodfetch_engine::tls::{
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_page::blocks::Block;
+use goodfetch_page::document_request::{DocumentRequest, Unread};
 use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, KeptFrom, KeptTree, Observer, PageValue, PooledSession,
     ProgramPages, Reader, ServedDocument,
@@ -58,7 +59,7 @@ use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::crawl::{
-    CRAWL_CONTENT_TYPES, CRAWL_START, CrawlRequest, FieldLocator, Seed, Seeds,
+    CRAWL_CONTENT_TYPES, CRAWL_START, CrawlRequest, FieldLocator,
 };
 use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_HEDGE_ENABLED, FETCH_LIGHT_BROWSER, FETCH_REDIRECT_MAX, FETCH_TIER,
@@ -72,6 +73,7 @@ use goodfetch_protocol::foxhound::provenance::{
 use goodfetch_protocol::foxhound::provenance::{
     EncodingProvenance, EncodingSource, ForcedBy, TierChosen, TierProvenance,
 };
+use goodfetch_protocol::foxhound::report::BROWSER_VERSION_UNREAD;
 use goodfetch_protocol::foxhound::session_pool::SESSION_POOL_MAX_SIZE;
 use goodfetch_protocol::foxhound::settings::FETCH_BLOCK_CLASSIFICATION;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -80,7 +82,7 @@ use goodfetch_protocol::page::{
     BLOCKED, BlockedDetails, BodyHandle, CONTENT_EXTRACTOR, FormatsRequest, Navigated, PageFormats,
     PageId, PageResponse, SessionId,
 };
-use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::run::{RunId, RunWarning};
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SETTING_INVALID, SettingInvalidDetails,
@@ -96,14 +98,15 @@ use crate::choice::{
     ENCODING_CALL, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unserved,
 };
 use crate::content_types::{Accepts, ContentTypes, is_document, typed};
+use crate::cookies::{Jars, WithJar};
 use crate::discovered_api::Plan;
 use crate::document::{self, FieldElement, LocatorInvalid, Matched, SelectorInvalid, matched};
 use crate::driver::{FetchBounds, Hop, Transport, fetch_accepting, fetch_start};
 use crate::expected_page::{self, Verdict};
 use crate::gate::{Admitted, ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::light_browser::LightBrowser;
+use crate::proxied::SessionProxies;
 use crate::redundant::{Redundant, Requester};
-use crate::site_preferences::{Request, SitePreferences};
 use crate::transports::{AddressCheck, BrowserFetch, LocalSource, Reqwest, TransportConfig};
 use crate::untouched::{self, UntouchedReaders};
 use crate::use_signals::UseSignals;
@@ -666,138 +669,10 @@ fn proxied(settings: &Resolved) -> Option<(&'static str, &Effective)> {
     })
 }
 
-/// A read the Run's HTTP tier sends, which leaves directly whatever proxy
-/// the Run sets (#1640).
-enum DirectRead<'a> {
-    /// The documents of a forced `fetch.tier: http`, the Run's or the
-    /// Label's named.
-    Http(Option<&'a str>),
-    /// A sitemap seed's sitemap.
-    Sitemap,
-    /// robots.txt, read for its rules.
-    RobotsTxt,
-    /// robots.txt, read to mark the Records taken against it.
-    RobotsTxtIgnored,
-    /// robots.txt's `Content-Signal` lines and the AI-use signal files.
-    UseSignals,
-}
-
-impl DirectRead<'_> {
-    /// The first direct read a crawl under `settings` can make, whose
-    /// Labels set `labels` and which `seeds_a_sitemap` or not.
-    fn of<'a>(
-        settings: &Resolved,
-        labels: &'a LabelSettings,
-        seeds_a_sitemap: bool,
-    ) -> Option<DirectRead<'a>> {
-        let preferences = SitePreferences::of(settings);
-        if matches!(forced(settings), Some((FetchTier::Http, _))) {
-            Some(DirectRead::Http(None))
-        } else if let Some((label, _)) = labels.forced().find(|(_, tier)| *tier == FetchTier::Http)
-        {
-            Some(DirectRead::Http(Some(label)))
-        } else if seeds_a_sitemap {
-            Some(DirectRead::Sitemap)
-        } else if preferences.respects_robots_txt() {
-            Some(DirectRead::RobotsTxt)
-        } else if preferences.honours_use_signals() {
-            Some(DirectRead::UseSignals)
-        } else if preferences.reads_robots_txt(Request::CrawlRequest) {
-            Some(DirectRead::RobotsTxtIgnored)
-        } else {
-            None
-        }
-    }
-
-    /// What the refusal's details name it.
-    fn kind(&self) -> &'static str {
-        match self {
-            Self::Http(_) => FetchTier::Http.as_str(),
-            Self::Sitemap => "sitemap",
-            Self::RobotsTxt | Self::RobotsTxtIgnored => "robots_txt",
-            Self::UseSignals => "use_signals",
-        }
-    }
-
-    /// What makes it, and the value that does without it.
-    fn told(&self) -> (String, &'static str) {
-        match self {
-            Self::Http(None) => (
-                "`fetch.tier` forces the `http` tier, whose documents are".to_owned(),
-                "`fetch.tier: auto`",
-            ),
-            Self::Http(Some(label)) => (
-                format!(
-                    "the Label `{label}` forces the `http` tier with `fetch.tier`, whose documents are"
-                ),
-                "`fetch.tier: auto`",
-            ),
-            Self::Sitemap => (
-                "a sitemap seed's sitemaps are".to_owned(),
-                "no sitemap seed",
-            ),
-            Self::RobotsTxt => (
-                "`site_preferences.respect_robots_txt` is on, and robots.txt is".to_owned(),
-                "`site_preferences.respect_robots_txt: false`",
-            ),
-            Self::RobotsTxtIgnored => (
-                "`site_preferences.mark_robots_txt_ignored` is on, and robots.txt is".to_owned(),
-                "`site_preferences.mark_robots_txt_ignored: false`",
-            ),
-            Self::UseSignals => (
-                "`site_preferences.respect_use_signals` is on, and robots.txt and the AI-use signal files are"
-                    .to_owned(),
-                "`site_preferences.respect_use_signals: false`",
-            ),
-        }
-    }
-}
-
-/// Whether one of `seeds` is a sitemap seed.
-fn seeds_a_sitemap<'a>(mut seeds: impl Iterator<Item = &'a Seed>) -> bool {
-    seeds.any(|seed| matches!(seed, Seed::Sitemap(_)))
-}
-
-/// Refuses a crawl Run that sets a proxy and can make the direct `read`: the
-/// Run's HTTP tier connects to sites directly, so a forced `http` tier's
-/// documents, a sitemap seed's sitemaps, robots.txt and the AI-use signal
-/// files would show them the machine's own address the proxy hides, until
-/// #1640 sends that tier through the Run's proxy.
-///
-/// # Errors
-///
-/// `capability_unavailable` naming the `proxy.*` key, the read as its
-/// kind and the value that makes no such read as its fix.
-fn refuse_direct_reads_beside_a_proxy<'a>(
-    settings: &Resolved,
-    read: impl FnOnce() -> Option<DirectRead<'a>>,
-) -> Result<(), CallError> {
-    let Some((key, proxied)) = proxied(settings) else {
-        return Ok(());
-    };
-    let Some(read) = read() else {
-        return Ok(());
-    };
-    let (made, fix) = read.told();
-    Err(CallError::new(
-        &CAPABILITY_UNAVAILABLE,
-        format!(
-            "`{key}` sets a proxy in {}, and {made} fetched past it, from the machine's own address: use {fix}, or unset `{key}`.",
-            proxied.layer.as_str()
-        ),
-        &CapabilityUnavailableDetails {
-            key: key.to_owned(),
-            layer: proxied.layer,
-            kind: read.kind().to_owned(),
-            fix: fix.to_owned(),
-        },
-    ))
-}
-
 /// Refuses a Run that allows the light-browser tier beside a proxy: the
 /// light-browser bridge connects to sites directly, so Lightpanda's
 /// requests would show them the machine's own address the proxy hides,
-/// until #1640 chains the bridge through the Session's proxy.
+/// until the bridge chains through the Session's proxy.
 ///
 /// # Errors
 ///
@@ -885,7 +760,8 @@ impl FetchTiers {
     /// through which a crawl is fed from memory with no network (ADRs 0071
     /// and 0134). Its address check and egress policy still judge each URL
     /// first, by the Run's settings; a Session holding its own local
-    /// addresses (`HttpTier::from_session`) still sends on reqwest.
+    /// addresses (`HttpTier::of_session`) still sends on reqwest. Through
+    /// it no hop goes through the Run's proxy.
     pub fn serving(transport: Arc<dyn Transport>) -> Self {
         Self {
             served: Arc::new(Served {
@@ -917,9 +793,7 @@ impl FetchTiers {
 
     /// Refuses a Run whose `fetch.tier`, its own or one of its Labels' in
     /// `labels`, forces a tier this engine does not build yet, with
-    /// `capability_unavailable` naming the setting, one that sets a proxy
-    /// and, starting from `seeds`, can read a site past it, one that
-    /// hedges or
+    /// `capability_unavailable` naming the setting, one that hedges or
     /// races its tiers where the second copy could never start, one
     /// whose `fetch.encoding` names no encoding, and one whose
     /// `crawl.content_types` is no list of media ranges.
@@ -930,27 +804,17 @@ impl FetchTiers {
     /// only a browser sample gives, for `light_browser` where
     /// `fetch.light_browser` does not allow it, and naming
     /// `fetch.light_browser` when it allows the tier beside a proxy, which
-    /// Lightpanda's requests would leave past (#1640), and naming the
-    /// `proxy.*` key of a Run whose HTTP tier would read a site past its
-    /// proxy: a forced `http` tier's documents, a sitemap seed's sitemaps,
-    /// robots.txt or the AI-use signal files (#1640); `setting_invalid`
+    /// Lightpanda's requests would leave past; `setting_invalid`
     /// for a Run's `fetch.encoding` that is no WHATWG Encoding label, its
     /// `crawl.content_types` that is no list of media ranges (ADR 0119)
     /// and a `fetch.redirect.max` outside 1 to 19 (ADR 0118);
     /// `setting_not_applicable` for hedges or `fetch.tier_race` switched on
     /// while a domain admits one request at a time (ADR 0086).
-    pub fn check(
-        settings: &Resolved,
-        labels: &LabelSettings,
-        seeds: &Seeds,
-    ) -> Result<(), CallError> {
+    pub fn check(settings: &Resolved, labels: &LabelSettings) -> Result<(), CallError> {
         goodfetch_frontier::refuse_second_copies(settings, &FETCH_HEDGE_ENABLED)?;
         goodfetch_frontier::refuse_second_copies(settings, &FETCH_TIER_RACE)?;
         refuse_redirect_max(settings)?;
         refuse_light_beside_a_proxy(settings)?;
-        refuse_direct_reads_beside_a_proxy(settings, || {
-            DirectRead::of(settings, labels, seeds_a_sitemap(seeds.iter()))
-        })?;
         if let Some(effective) = settings.effective(&FETCH_ENCODING) {
             crate::choice::encoding("the Run", &effective.value)?;
         }
@@ -1008,38 +872,20 @@ impl FetchTiers {
         Ok(())
     }
 
-    /// Checks `seeds` added to a live Run under `settings`, as
-    /// [`FetchTiers::check`] checked the seeds of its start.
-    ///
-    /// # Errors
-    ///
-    /// `capability_unavailable` naming the `proxy.*` key of a Run that
-    /// sets a proxy, for a sitemap seed, whose sitemaps the Run's HTTP
-    /// tier would read past it (#1640).
-    pub fn check_seeds(settings: &Resolved, seeds: &[Seed]) -> Result<(), CallError> {
-        if !seeds_a_sitemap(seeds.iter()) {
-            return Ok(());
-        }
-        refuse_direct_reads_beside_a_proxy(settings, || Some(DirectRead::Sitemap))
-    }
-
-    /// The Run's own `fetch.tier`: the tier it forces, `auto` set by any
-    /// layer above the built-in default, or the default.
+    /// The Run's own `fetch.tier`: the tier it forces, else `auto`, set or
+    /// the built-in default, under which the engine chooses each request's
+    /// tier.
     pub fn run_tier(settings: &Resolved) -> SetTier {
-        if let Some((tier, _)) = forced(settings) {
-            return SetTier::Forced(tier);
-        }
-        match settings.effective(&FETCH_TIER) {
-            Some(effective) if effective.layer != SettingsLayer::Default => SetTier::Auto,
-            _ => SetTier::Unset,
-        }
+        forced(settings).map_or(SetTier::Auto, |(tier, _)| SetTier::Forced(tier))
     }
 
     /// An HTTP tier for `run` under its settings, one per Run so its hops
     /// share connections: the one its crawl requests on the `http` tier
     /// take, and its navigation gate fetches robots.txt with, sending from
-    /// `local` when the Run sets `egress.local_addresses` (ADR 0044). Each
-    /// Session's own local addresses take [`HttpTier::from_session`].
+    /// `local` when the Run sets `egress.local_addresses` (ADR 0044), and
+    /// through a proxy of its own when the Run sets one (#1640). Each pool
+    /// Session's own local addresses and proxy take
+    /// [`HttpTier::of_session`].
     ///
     /// # Errors
     ///
@@ -1078,23 +924,50 @@ impl FetchTiers {
             resolver: ResolverConfiguration::system().map_err(|error| error.to_string())?,
             local,
         };
-        let reqwest = Reqwest::new(config.clone()).map_err(|error| error.to_string())?;
+        // Every Session of the Run launches one build, so the document
+        // request its own transport presents is read once, here.
+        let presents = match self.served.browser.get() {
+            Some(pages) => match pages.document_request(run).await {
+                Ok(request) => request,
+                Err(unread) => {
+                    warn_version_unread(run, &unread).await;
+                    None
+                }
+            },
+            None => None,
+        };
+        let reqwest = Reqwest::new(config.clone())
+            .map_err(|error| error.to_string())?
+            .presenting(presents.clone());
         let addresses = reqwest.address_check();
-        let transport: Arc<dyn Transport> = match &self.served.transport {
-            Some(transport) => Arc::clone(transport),
-            None => Arc::new(reqwest),
+        let (transport, proxies): (Arc<dyn Transport>, _) = match &self.served.transport {
+            Some(transport) => (Arc::clone(transport), None),
+            None if proxied(settings).is_some() => {
+                let proxies = SessionProxies::new(
+                    run,
+                    settings,
+                    config.clone(),
+                    presents.clone(),
+                    Arc::new(reqwest),
+                );
+                (proxies.of_run(), Some(Arc::new(proxies)))
+            }
+            None => (Arc::new(reqwest), None),
         };
         Ok(HttpTier {
             addresses,
             transport,
+            proxies,
             egress,
             bounds: FetchBounds::of(settings),
             redundant: Arc::new(Redundant::of(settings)),
             following: Following::of(settings),
             sessions: Arc::new(SessionTransports::new(
                 config,
+                presents,
                 usize::try_from(settings.get::<u64>(&SESSION_POOL_MAX_SIZE)).unwrap_or(usize::MAX),
             )),
+            jars: Arc::default(),
         })
     }
 
@@ -2174,6 +2047,21 @@ impl HandlerPages for FetchTiers {
     }
 }
 
+/// Hands the Run's report the warning that the installed browser's version
+/// was not read, so its Sessions' own transport presents no browser
+/// identity (ADR 0021).
+async fn warn_version_unread(run: &Run, unread: &Unread) {
+    let warning = RunWarning {
+        code: BROWSER_VERSION_UNREAD.to_owned(),
+        message: unread.to_string(),
+        sessions: Vec::new(),
+        folder: None,
+    };
+    if let Err(error) = run.warn(warning).await {
+        tracing::warn!(%error, run_id = %run.id(), "the warning that the installed browser's version was not read was not kept");
+    }
+}
+
 /// The HTTP tier of one Run: its transport, whose connections its hops
 /// share, and the engine's timeouts its fetches wait under.
 #[derive(Clone)]
@@ -2194,6 +2082,12 @@ pub struct HttpTier {
     /// The reqwest transports of the Run's Sessions that hold their own
     /// local addresses, which every clone shares.
     sessions: Arc<SessionTransports>,
+    /// The cookie jars of the Run's Sessions that send their HTTP
+    /// themselves, which every clone shares.
+    jars: Arc<Jars>,
+    /// The proxies of the Run's Sessions, when it sets one, which every
+    /// clone shares (#1640).
+    proxies: Option<Arc<SessionProxies>>,
 }
 
 /// The reqwest transport of each local source a Session of the Run sends
@@ -2207,6 +2101,8 @@ pub struct HttpTier {
 struct SessionTransports {
     /// The Run's transport configuration, its `local` replaced for each.
     config: TransportConfig,
+    /// The document request each presents: its Sessions' browser's.
+    presents: Option<DocumentRequest>,
     /// The most transports kept.
     most: usize,
     built: Mutex<Built>,
@@ -2221,9 +2117,10 @@ struct Built {
 }
 
 impl SessionTransports {
-    fn new(config: TransportConfig, most: usize) -> Self {
+    fn new(config: TransportConfig, presents: Option<DocumentRequest>, most: usize) -> Self {
         Self {
             config,
+            presents,
             most: most.max(1),
             built: Mutex::new(Built::default()),
         }
@@ -2251,7 +2148,8 @@ impl SessionTransports {
             local: Some(local.clone()),
             ..self.config.clone()
         })
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())?
+        .presenting(self.presents.clone());
         let addresses = transport.address_check();
         let transport = (Arc::new(transport), addresses);
         if built.transports.len() >= self.most
@@ -2275,26 +2173,88 @@ impl SessionTransports {
 const ROBOTS_TXT_REDIRECTS: usize = 5;
 
 impl HttpTier {
-    /// The tier as a Session holding the local addresses `local` sends on
-    /// it: its connections and DNS queries leave from them (ADR 0044);
-    /// the tier itself for `None`, a Session sending from the Run's.
+    /// The tier as the pool Session `session`, holding the local addresses
+    /// `local`, sends on it: its connections and DNS queries leave from
+    /// them (ADR 0044), from the Run's for `None`, and, when the Run sets
+    /// a proxy, its hops go through the proxy the Session took on its first
+    /// hop, which it holds until it retires (#1640).
     ///
     /// # Errors
     ///
     /// A message when its transport cannot be built.
-    pub fn from_session(&self, local: Option<&LocalSource>) -> Result<HttpTier, String> {
-        let Some(local) = local else {
-            return Ok(self.clone());
+    pub fn of_session(
+        &self,
+        session: &SessionId,
+        local: Option<&LocalSource>,
+    ) -> Result<HttpTier, String> {
+        let own = local.filter(|local| self.sessions.config.local.as_ref() != Some(*local));
+        let (direct, addresses) = match own {
+            Some(local) => {
+                let (transport, addresses) = self.sessions.of(local)?;
+                (Some(transport as Arc<dyn Transport>), addresses)
+            }
+            None => (None, self.addresses.clone()),
         };
-        if self.sessions.config.local.as_ref() == Some(local) {
-            return Ok(self.clone());
-        }
-        let (transport, addresses) = self.sessions.of(local)?;
+        let transport = match (&self.proxies, direct) {
+            (Some(proxies), direct) => {
+                proxies.of(session, own.cloned(), direct) as Arc<dyn Transport>
+            }
+            (None, Some(direct)) => direct,
+            (None, None) => Arc::clone(&self.transport),
+        };
         Ok(HttpTier {
             transport,
             addresses,
             ..self.clone()
         })
+    }
+
+    /// The tier as the pool Session `session` sends on it itself: its
+    /// hops carry the cookies the answers to its earlier hops set, a
+    /// redirect's among them, and keep those their own answers set (RFC
+    /// 6265), in a jar no other Session reads (ADR 0021).
+    #[must_use]
+    pub fn keeping_cookies_of(&self, session: &SessionId) -> HttpTier {
+        HttpTier {
+            transport: Arc::new(WithJar {
+                transport: Arc::clone(&self.transport),
+                jar: self.jars.of(session),
+            }),
+            ..self.clone()
+        }
+    }
+
+    /// The tier Provenance names for a document this tier fetched under
+    /// the tier choice `chosen` (ADR 0023): the tier that sent its hops,
+    /// `browser_fetch` from inside the Session's browser and `http` on a
+    /// transport of its own, whoever chose it; `chosen` itself where it
+    /// names more than who sends, as `discovered_api` and `light_browser`
+    /// do.
+    #[must_use]
+    pub fn sent_on(&self, chosen: FetchTier) -> FetchTier {
+        match chosen {
+            FetchTier::Http | FetchTier::BrowserFetch => self.transport.tier(),
+            FetchTier::DiscoveredApi | FetchTier::LightBrowser | FetchTier::Browser => chosen,
+        }
+    }
+
+    /// Forgets the pool Session `session`, retired: its cookie jar and
+    /// its proxy end with it, the Run warned when it outlived its
+    /// provider's sticky lifetime (#1640).
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the warning unwritten; the jar and
+    /// the proxy are forgotten before its first `.await`.
+    pub async fn forget_session(&self, session: &SessionId) {
+        self.jars.forget(session);
+        let proxy = self
+            .proxies
+            .as_ref()
+            .and_then(|proxies| proxies.forget(session));
+        if let Some(proxy) = proxy {
+            proxy.warn_if_outlived().await;
+        }
     }
 
     /// The address check of the tier's connections, which judges a crawl

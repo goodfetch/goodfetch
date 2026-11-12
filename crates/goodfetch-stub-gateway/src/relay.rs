@@ -1,14 +1,12 @@
 //! A Client's Connection through the gateway (ADR 0096), answered as
 //! Goodfetch Cloud's gateway answers it. The gateway accepts Clients per
 //! Product as an engine does, under the Daemon's version rule (ADR 0066),
-//! and signs a program in by the token its `hello` presents, a browser by
-//! its sign-in cookie (spec #586's duty 8). It answers the Client's `hello`
+//! and signs a Client in by the token its `hello` presents (spec #586's
+//! duty 8). It answers the Client's `hello`
 //! with the Product it needs and its own engine instance, `run.list` from
 //! its own index, and a start (`run.start` or a crawl's) by starting the
 //! run on a new Attached engine of the Product the routing rule picks
-//! (`product_for_run`): the Client's for a Client, and for the Console
-//! Foxhound's when the start's operation or a key of its settings is one
-//! only Foxhound carries. A start that names a Run ID its index holds, or
+//! (`product_for_run`): the Client's. A start that names a Run ID its index holds, or
 //! one another start is starting, goes to that run's engine. Every other
 //! message goes, byte for byte, to the engine that owns the run its params
 //! name, or to an engine of the Client's Product when it names none, each
@@ -29,11 +27,11 @@ use goodfetch_engine::endpoint::same_token;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::rpc::version_refusal;
 use goodfetch_engine::tasks::TaskOwner;
-use goodfetch_protocol::audit::{Listener, RefusalReason};
+use goodfetch_protocol::audit::RefusalReason;
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{
     CANCEL, EngineInstance, HELLO, HelloParams, HelloResult, NOT_IN_PRODUCT, NotInProductDetails,
-    PROTOCOL_VERSION_UNSUPPORTED, Surface,
+    PROTOCOL_VERSION_UNSUPPORTED,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::routing::{RunStart, Starter, Target, product_for_run};
@@ -46,23 +44,20 @@ use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::engines::{Engine, Engines, Line, Relayed, version};
-use crate::index::{RunIndex, setting_keys};
+use crate::index::RunIndex;
 
-/// The operations that start a run, each on the engine the routing rule
-/// picks from the operation and the settings it names: `run.start`, and a
-/// crawl's start, which only Foxhound carries.
+/// The operations that start a run, each on an engine of the Product the
+/// routing rule picks, the Client's for a new run: `run.start`, and a
+/// crawl's start, which only Foxhound carries. The rule reads a start's
+/// target only for a starter the gateway never has, a Schedule or
+/// Goodfetch Cloud (ADR 0096), so the gateway names none.
 const STARTS: [&str; 2] = [RUN_START.name, "crawl.start"];
+/// The gateway's WebSocket listener, as its log records name it: no
+/// listener of an engine's endpoint table (ADR 0067), which the Stub
+/// gateway is not in.
+const LISTENER: &str = "stub_gateway";
 /// How many messages wait for a Client's socket before senders wait.
 const OUTGOING: usize = 256;
-
-/// How a Client's WebSocket was signed in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Door {
-    /// A browser, by its sign-in cookie.
-    Cookie,
-    /// A program, by the token its `hello` presents.
-    Hello,
-}
 
 /// The gateway's engines and its own index.
 pub(crate) struct Gateway {
@@ -95,18 +90,14 @@ impl Gateway {
         self.engines.stop().await;
     }
 
-    /// Serves one Client's WebSocket, signed in through `door`, until it
+    /// Serves one Client's WebSocket until it
     /// closes, its tasks `owner`'s.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future closes the Client's Connections to its engines.
-    pub(crate) async fn serve<S>(
-        self: Arc<Self>,
-        socket: WebSocketStream<S>,
-        door: Door,
-        owner: TaskOwner,
-    ) where
+    pub(crate) async fn serve<S>(self: Arc<Self>, socket: WebSocketStream<S>, owner: TaskOwner)
+    where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
         let (mut sink, mut stream) = socket.split();
@@ -119,7 +110,7 @@ impl Gateway {
             }
             let _ = sink.close().await;
         });
-        let Some(client) = self.opened(&mut stream, &outgoing, door).await else {
+        let Some(client) = self.opened(&mut stream, &outgoing).await else {
             return;
         };
         let mut links: BTreeMap<u64, Line> = BTreeMap::new();
@@ -180,7 +171,6 @@ impl Gateway {
         &self,
         stream: &mut futures_util::stream::SplitStream<WebSocketStream<S>>,
         outgoing: &mpsc::Sender<String>,
-        door: Door,
     ) -> Option<Client>
     where
         S: AsyncRead + AsyncWrite + Unpin,
@@ -208,23 +198,21 @@ impl Gateway {
                 .await;
             return None;
         };
-        // A program signs in with the token its `hello` presents; one that
+        // A Client signs in with the token its `hello` presents; one that
         // presents none or another is closed unanswered, as an engine
         // closes it (ADR 0024).
-        if door == Door::Hello {
-            let reason = match hello.token.as_deref() {
-                None => Some(RefusalReason::TokenMissing),
-                Some(token) if !same_token(token, &self.token) => Some(RefusalReason::TokenWrong),
-                Some(_) => None,
-            };
-            if let Some(reason) = reason {
-                tracing::warn!(
-                    listener = Listener::Console.as_str(),
-                    reason = reason.as_str(),
-                    "the gateway refused a Connection"
-                );
-                return None;
-            }
+        let reason = match hello.token.as_deref() {
+            None => Some(RefusalReason::TokenMissing),
+            Some(token) if !same_token(token, &self.token) => Some(RefusalReason::TokenWrong),
+            Some(_) => None,
+        };
+        if let Some(reason) = reason {
+            tracing::warn!(
+                listener = LISTENER,
+                reason = reason.as_str(),
+                "the gateway refused a Connection"
+            );
+            return None;
         }
         if let Some((message, details)) = version_refusal(hello.protocol_version, false) {
             let _ = outgoing
@@ -247,17 +235,11 @@ impl Gateway {
             product_version: version(),
             engine_instance: self.instance.clone(),
             private_endpoint: None,
-            console_link: None,
         };
         let reply = json!({"jsonrpc": "2.0", "id": id, "result": result});
         outgoing.send(reply.to_string()).await.ok()?;
         Some(Client {
             needs,
-            starter: if hello.surface == Surface::Console {
-                Starter::Console
-            } else {
-                Starter::Client { needs }
-            },
             relayed: Relayed {
                 surface: hello.surface,
                 form: hello.form,
@@ -315,23 +297,16 @@ impl Gateway {
             Some(run_id) => Some(self.index.lock().await.reserve(run_id)),
             None => None,
         };
-        let keys = params["settings"]
-            .as_object()
-            .map(setting_keys)
-            .unwrap_or_default();
-        let keys: Vec<&str> = keys.iter().map(String::as_str).collect();
         let product = product_for_run(&RunStart {
             known_run: slot
                 .as_ref()
                 .and_then(|slot| slot.get())
                 .map(|engine| engine.product()),
-            starter: client.starter,
-            recipe: None,
-            target: Target {
-                operations: &[method],
-                setting_keys: &keys,
-                ..Target::default()
+            starter: Starter::Client {
+                needs: client.needs,
             },
+            recipe: None,
+            target: Target::default(),
         });
         let start = || self.engines.start(product, Some(client.relayed));
         let engine = match &slot {
@@ -390,7 +365,6 @@ impl Gateway {
 #[derive(Clone, Copy)]
 struct Client {
     needs: Product,
-    starter: Starter,
     relayed: Relayed,
 }
 

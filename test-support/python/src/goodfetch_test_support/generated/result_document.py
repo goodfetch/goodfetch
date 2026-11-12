@@ -353,8 +353,8 @@ class JourneyDocument(BaseModel):
     """
     surface_package: SurfacePackage | None = None
     """
-    The surface's package, for a surface that has one (an SDK, the
-    Console's build, an adapter).
+    The surface's package, for a surface that has one (an SDK, an
+    adapter).
     """
     tasks: list[TaskResult]
     """
@@ -400,8 +400,8 @@ class ResultDocument2(BaseModel):
     """
     surface_package: SurfacePackage | None = None
     """
-    The surface's package, for a surface that has one (an SDK, the
-    Console's build, an adapter).
+    The surface's package, for a surface that has one (an SDK, an
+    adapter).
     """
     tasks: list[TaskResult]
     """

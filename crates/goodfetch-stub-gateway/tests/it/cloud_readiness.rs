@@ -49,9 +49,9 @@ enum Reached {
 /// TLS terminator runs on `runtime`.
 fn target(gateway: &Gateway, reached: Reached, runtime: &tokio::runtime::Runtime) -> GatewayTarget {
     let (address, trusted_certificates) = match reached {
-        Reached::Plain => (gateway.console.clone(), Vec::new()),
+        Reached::Plain => (gateway.address.clone(), Vec::new()),
         Reached::BehindTls => {
-            let upstream = gateway.console.trim_start_matches("http://").to_owned();
+            let upstream = gateway.address.trim_start_matches("http://").to_owned();
             let (port, authority) = terminate_tls(runtime, upstream);
             (format!("https://localhost:{port}/"), vec![authority])
         }
@@ -250,7 +250,7 @@ fn testing_md_lists_every_cloud_readiness_case_with_its_covers() {
 fn a_gateway_that_runs_no_foxhound_engine_refuses_a_foxhound_client_at_hello() {
     let env = TestEnv::new();
     let gateway = Gateway::start_without_foxhound(&env);
-    let mut socket = gateway.socket(false);
+    let mut socket = gateway.socket();
     socket
         .send(Message::text(
             json!({"jsonrpc": "2.0", "id": 1, "method": "hello", "params": {

@@ -275,7 +275,7 @@ status = "active"
 
 [[story]]
 id = 34
-title = "As the Console's area, I want pages that try to escape the Console's content origin (ADR 0031), so that its header checks have something to resist."
+title = "As the security area, I want pages that try to escape the frame they are shown in, so that a sandboxed frame's checks have something to resist."
 milestone = "M1 Core"
 journey = false
 not_journey = "actor"
@@ -418,7 +418,7 @@ status = "active"
 
 [[story]]
 id = 52
-title = "As a user, I want conformance results shown in the Plugin index, `plugins list` and the Console (ADR 0033), so that I can require a capability to be proved before a run uses it."
+title = "As a user, I want conformance results shown in the Plugin index and `plugins list` (ADR 0033), so that I can require a capability to be proved before a run uses it."
 milestone = "M4 Everything else"
 journey = true
 status = "active"
@@ -577,7 +577,7 @@ status = "active"
 
 [[story]]
 id = 72
-title = "As the Console area, I want ADR 0029's Verdict (a run's claim about itself) kept separate from the oracle's verified result, so that the two are never conflated in reports."
+title = "As the engine runtime's area, I want ADR 0029's Verdict (a run's claim about itself) kept separate from the oracle's verified result, so that the two are never conflated in reports."
 milestone = "M4 Everything else"
 journey = false
 not_journey = "actor"
@@ -720,7 +720,7 @@ status = "active"
 
 [[story]]
 id = 90
-title = "As the Collection, Sinks and Console areas, I want ADR 0073's encodings family and language family, their expected text held in UTF-8 in the normalization form served, so that every script and encoding survives each step."
+title = "As the Collection and Sinks areas, I want ADR 0073's encodings family and language family, their expected text held in UTF-8 in the normalization form served, so that every script and encoding survives each step."
 milestone = "M1 Core"
 journey = false
 not_journey = "actor"

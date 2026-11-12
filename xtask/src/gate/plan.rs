@@ -249,7 +249,7 @@ const fn read_by(path: &'static str, steps: &'static [Step]) -> Narrowed {
 /// recipe or script names such a file with a root-relative path. A step that
 /// reads one any other way, by a sibling's relative path or from xtask's code,
 /// is out of the guard's sight, so naming a folder here rests on what it holds.
-const NARROWED: [Narrowed; 46] = [
+const NARROWED: [Narrowed; 43] = [
     // xtask's own tests, with their fixtures. `just linux` runs some of them
     // on a host that is not Linux (ci/linux.sh).
     Narrowed {
@@ -282,7 +282,6 @@ const NARROWED: [Narrowed; 46] = [
     read_by("ci/proofs", &[]),
     read_by("ci/deny", &[]),
     read_by("ci/canary-rule.sh", &[]),
-    read_by("ci/console-messages.sh", &[]),
     read_by("ci/ignored-sources.sh", &[]),
     read_by("ci/workspace-hack.sh", &[]),
     read_by("ci/repository-files.sh", &[]),
@@ -304,8 +303,6 @@ const NARROWED: [Narrowed; 46] = [
     read_by("ci/runner/install.sh", &[]),
     read_by("ci/runner/pre-job.sh", &[]),
     read_by("ci/runner/post-job.sh", &[]),
-    read_by("ci/zap.sh", &[]),
-    read_by("ci/zap", &[]),
     read_by("ci/stop-format.sh", &[]),
     read_by("ci/v8-corruption.sh", &[]),
     read_by("ci/junit-summary.sh", &[]),
@@ -336,8 +333,7 @@ pub(crate) fn selected(paths: &[RepoPath]) -> Vec<RepoPath> {
         .collect()
 }
 
-/// The pseudo-member of the tests no workspace member owns, such as
-/// `console/screens.spec.ts`: they rerun whenever a change reaches any
+/// The pseudo-member of the tests no workspace member owns: they rerun whenever a change reaches any
 /// member, or when a runner's own listing since the head says so.
 pub(crate) use crate::affected::UNOWNED;
 

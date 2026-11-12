@@ -81,6 +81,8 @@ pub const DATASET_QUERY: Operation = Operation {
     result: schema_of::<DatasetQueryResult>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -174,6 +176,8 @@ pub const TIMEOUT_DATASET_QUERY: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -186,6 +190,8 @@ pub const DATASET_QUERY_MEMORY_LIMIT: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -198,6 +204,8 @@ pub const DATASET_QUERY_MAX_ROWS: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 

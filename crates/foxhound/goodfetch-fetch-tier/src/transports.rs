@@ -20,7 +20,8 @@
 //!
 //! **Translation point (ADR 0127):** [`classify`] is where reqwest's,
 //! hyper's, rustls's and the OS's failures, and a proxy's answer to the
-//! tunnel request, become a [`TransportFailure`]; any failure it does not
+//! tunnel request, become a [`TransportFailure`], a connection to the
+//! proxy that could not open being the proxy's; any failure it does not
 //! know is the generic [`TransportFailure::Other`] (ADR 0118). A proxy's
 //! refusal of the tunnel is read from hyper-util's tunnel error, whose type
 //! is private, by its text: reqwest keeps no status of the proxy's answer,
@@ -87,8 +88,11 @@ use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificateFailure, ClientCertificates, Decision, SharedTrust,
     Trust, certificate_failure,
 };
+use goodfetch_page::ProxyRoute;
+use goodfetch_page::document_request::DocumentRequest;
 use goodfetch_protocol::dns::IpFamily;
 use rustls::sign::CertifiedKey;
+use secrecy::ExposeSecret as _;
 use url::Url;
 
 use crate::driver::{
@@ -112,8 +116,8 @@ pub struct TransportConfig {
     /// transport that presents none.
     pub client_certificates: Option<ClientCertificates>,
     /// The Session's proxy, whose connections reach it in place of the
-    /// site, `None` to connect directly.
-    pub proxy: Option<Url>,
+    /// site, and the credentials it asks for; `None` to connect directly.
+    pub proxy: Option<ProxyRoute>,
     /// The `network.resolve` mapping: host names and their addresses.
     pub resolve: HostMapping,
     /// The Session's egress policy.
@@ -182,6 +186,20 @@ fn family_of(address: IpAddr) -> IpFamily {
     }
 }
 
+/// The proxy of `route`, made with `all` and given its credentials with
+/// `basic_auth`: reqwest's and `wreq`'s, whose proxies are built alike.
+fn through<P, E>(
+    route: &ProxyRoute,
+    all: impl FnOnce(String) -> Result<P, E>,
+    basic_auth: impl FnOnce(P, &str, &str) -> P,
+) -> Result<P, E> {
+    let proxy = all(route.url.clone())?;
+    Ok(match &route.credentials {
+        Some((username, password)) => basic_auth(proxy, username, password.expose_secret()),
+        None => proxy,
+    })
+}
+
 /// Why a transport could not be built.
 #[derive(Debug, thiserror::Error)]
 pub enum TransportUnavailable {
@@ -210,7 +228,10 @@ pub struct Reqwest {
     interface: Option<String>,
     trust: SharedTrust,
     client_certificates: Option<ClientCertificates>,
-    proxy: Option<Url>,
+    proxy: Option<ProxyRoute>,
+    /// The document request of its Session's browser, which each hop
+    /// presents; none for a transport that presents none.
+    document_request: Option<DocumentRequest>,
 }
 
 /// One local binding of a transport: the family it reaches, the local
@@ -309,6 +330,7 @@ impl Reqwest {
             config.clock,
         );
         let transport = Self {
+            document_request: None,
             scopes: Scopes::default(),
             http1_origins: Http1Origins::default(),
             resolver,
@@ -327,6 +349,15 @@ impl Reqwest {
             .scopes()
             .insert(Scope::Unscoped, Arc::new(unscoped));
         Ok(transport)
+    }
+
+    /// The transport presenting `request`, the document request of its
+    /// Session's browser, on every hop (ADR 0021): a `standard` Session's
+    /// own transport; with none, a hop leaves with its own headers alone.
+    #[must_use]
+    pub fn presenting(mut self, request: Option<DocumentRequest>) -> Self {
+        self.document_request = request;
+        self
     }
 
     /// The clients of a scope presenting `client`: a set for each local
@@ -374,8 +405,8 @@ impl Reqwest {
                     builder.http1_only()
                 };
                 let builder = match &self.proxy {
-                    Some(proxy) => builder.proxy(
-                        reqwest::Proxy::all(proxy.as_str())
+                    Some(route) => builder.proxy(
+                        through(route, reqwest::Proxy::all, reqwest::Proxy::basic_auth)
                             .map_err(|error| TransportUnavailable::Client(error.to_string()))?,
                     ),
                     None => builder.no_proxy(),
@@ -493,6 +524,15 @@ impl Reqwest {
         let reused = reuse == Reuse::Allowed && !connected;
         let response = response.map_err(|error| {
             let failure = match failure_of(&error, &hop.url) {
+                // Every connection a proxied transport opens goes to its
+                // proxy, so one that could not open is the proxy's, never
+                // the site's: a tunnel's says so itself, an `http:` hop's
+                // does not.
+                TransportFailure::ConnectionRefused | TransportFailure::ConnectionTimedOut
+                    if self.proxy.is_some() && error.is_connect() =>
+                {
+                    TransportFailure::ProxyUnreachable
+                }
                 TransportFailure::ConnectionClosed | TransportFailure::ConnectionReset
                     if reused =>
                 {
@@ -628,6 +668,13 @@ fn bind_device(
 }
 
 impl Transport for Reqwest {
+    fn presents(&self, url: &Url) -> Vec<(String, String)> {
+        self.document_request
+            .as_ref()
+            .map(|request| request.headers(url).to_vec())
+            .unwrap_or_default()
+    }
+
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
             self.resolver.before_sending(&hop.url).await?;

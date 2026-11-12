@@ -239,7 +239,11 @@ fn an_infinite_list_compared_against_the_browser_is_served_by_its_replayed_calls
     crawl(&env, &proving_ground, (&on_browser, kind, "browser"));
     let (browsed, _) = later_requests(&proving_ground, kind, seen);
 
-    let sample = ["http sample", "browser sample", "discovered_api sample"];
+    let sample = [
+        "browser_fetch sample",
+        "browser sample",
+        "discovered_api sample",
+    ];
     let expected_chosen: Vec<String> = sample
         .iter()
         .chain(&sample)
@@ -371,7 +375,11 @@ fn a_list_whose_call_carries_a_token_taken_once_stays_on_the_browser() {
 
     crawl(&env, &proving_ground, ("api-signed", "signed", "auto"));
 
-    let sample = ["http sample", "browser sample", "discovered_api sample"];
+    let sample = [
+        "browser_fetch sample",
+        "browser sample",
+        "discovered_api sample",
+    ];
     let expected_chosen: Vec<String> = sample
         .iter()
         .chain(&sample)

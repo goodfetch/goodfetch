@@ -6,6 +6,7 @@ V1 is complete when it covers the core capabilities of Crawlee, Spider-rs and St
 - the Challenge solver (ADR 0035);
 - the user's own proxies (ADR 0021);
 - Run traces and the local Console (ADR 0031);
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): the local Console leaves V1's Product scope and M1's contents. The person-facing capabilities ADR 0037's matrix gives the Console (run status, the Live view, replay) stay in scope through Clients; the hosted dashboard is Goodfetch Cloud's.
 - a Browser host (ADR 0022).
 
 The managed operation behind such a row (a pooled residential IP fleet, keyless model billing, multi-tenant hosting) is Goodfetch Cloud's, as ADR 0018 sells operations, not capabilities. Crawlee's Stagehand integrations are pinned to Stagehand v3, and neither can move to v4 without a rewrite (v4 refuses Playwright pages). The v3 capabilities their users reach therefore count as rows V3-01 to V3-05:
@@ -53,6 +54,8 @@ One spec per area. An area goes to `/to-spec` only after every area whose contra
 | 13 | Self-hosted deployment and operations | 0024, 0049, 0050, 0053, 0055, 0056, 0066, 0088, 0090, 0094, 0096, 0122 |  |
 | 14 | Cloud-readiness contracts | 0001, 0049, 0056, 0068, 0096 |  |
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
+
 > Amended on 2026-11-10, in the grilling of decision G-03 of the consolidated review, by the session's choice under the owner's instruction to « build the thing as best pratice would build it, engine sdk » (accepted by the owner as a batch on 2026-11-10 (grilling of G-06, Q9); the owner changes one by naming it): a spec of Features is cut by what can be built and proved alone, when its line of `docs/agents/rollout-order.md` is next, and no longer by area. On that day 46 open specs blocked one another in one loop holding 1,137 open tickets, and 1,804 of 3,284 open blocker edges crossed a spec boundary, so no order of the area specs let one run whole. The matrix's "Spec area" column keeps naming the area a row belongs to; no row changes status.
 
 Every area also follows ADR 0038, which sets the contracts and code conventions, ADR 0126, which sets how a crate's modules divide their concerns, ADR 0127, which sets where a failure from a party Goodfetch did not write becomes a typed error, and ADR 0129, which sets where the behaviour that several implementations of a contract share lives. Each area's `/to-spec` also reads every ADR that amends ADR 0038, 0126, 0127 or 0129 or one of the ADRs listed in its row, however the amendment is worded ("Changes ADR", "adds to ADR", "amends", "extends", "narrows", "replaces", "an exception to ADR"), so a later decision reaches every area whose ADR it amends without being listed there. This applies to ADRs 0038, 0126, 0127 and 0129 and the ADRs listed in the row, not again to the amending ADRs. A row lists the ADRs whose main decisions that area builds: the pull request that records a new ADR adds it to the rows of the areas that build its main decisions, and its fresh review checks it; the amendment rule brings it to the areas whose listed ADRs it amends, and to every area when it amends ADR 0038, 0126, 0127 or 0129.
@@ -60,6 +63,8 @@ Every area also follows ADR 0038, which sets the contracts and code conventions,
 > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): no fresh review exists; this check is a review standard the `code-review` skill applies, and the owner sees its result before merging.
 
 The Proving ground comes second because it is the oracle every later area's conformance suite runs against. Security precedes Site access because ADR 0017's egress policy wraps every fetch. Scheduling precedes Client surfaces and the Console, which expose its `schedules.*` operations (ADR 0036). Where two areas use each other's contracts, as Scheduling uses the Console's Run index and the Notification events of Client surfaces (ADRs 0031 and 0027), the ADRs already fix the shared contract, and the earlier area's spec builds against it while the later area's spec implements it. Across areas, `/to-issues` blocks each issue on the issues that build the contracts it consumes, whichever area they belong to; when those issues do not exist yet, the later area's `/to-issues` adds the links to the issues already created.
+
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 > Amended by [ADR 0133](0133-agent-work-follows-the-matt-pocock-skills-as-written-and-the-fresh-review-is-retired.md): the skill is now `/to-tickets`, and it blocks each ticket.
 

@@ -7,10 +7,12 @@
 //! enum, [`TransportFailure`], with the Error code each variant ends an
 //! attempt with (ADR 0118). Cancelling a fetch is dropping it. A fetch is
 //! one hop: the `chain` module follows a crawl request's redirects and
-//! refresh stubs over it (#762); retries join with their ticket. A
-//! Session that may move to the browser keeps its cookies in its browser
-//! context, which browser-fetch sends from (`transports`); a Session that
-//! never moves keeps none yet.
+//! refresh stubs over it (#762); retries join with their ticket. Each hop
+//! leaves with the headers its transport's Session presents (ADR 0021),
+//! the hop's own over them. A Session that may move to the browser keeps
+//! its cookies in its browser context, which browser-fetch sends from
+//! (`transports`); one that sends its HTTP itself keeps them in its own
+//! jar (the `cookies` module).
 //!
 //! **Cut bodies (ADR 0118; pitfall H15):** once a hop's head arrived, any
 //! failure of its body, or a compressed stream that stops before its end,
@@ -41,6 +43,7 @@ use goodfetch_engine::tls::{CertificateChanged, CertificateInvalid, ExceptionUse
 use goodfetch_frontier::backoff_classes::Met;
 use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::dns::IpFamily;
+use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::page::{
     NAVIGATION_FAILED, NavigationFailedDetails, RESPONSE_TRUNCATED, ResponseTruncatedDetails,
 };
@@ -162,6 +165,23 @@ pub enum Reuse {
 pub trait Transport: Send + Sync {
     /// Sends `hop` on a connection `reuse` allows and answers its head.
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent>;
+
+    /// The headers its Session presents on a request to `url` beside the
+    /// request's own (ADR 0021), their names in lowercase, in the order
+    /// they leave in: a `standard` Session's own transport presents its
+    /// browser's document request. None by default, for a transport whose
+    /// client presents its own, as the browser does on browser-fetch.
+    fn presents(&self, url: &Url) -> Vec<(String, String)> {
+        let _ = url;
+        Vec::new()
+    }
+
+    /// The tier its hops are sent on, which Provenance names (ADR 0023):
+    /// `http`, the transport's own client, unless it sends from a
+    /// Session's browser.
+    fn tier(&self) -> FetchTier {
+        FetchTier::Http
+    }
 }
 
 /// Why a hop got no whole answer: each transport's library, TLS and HTTP
@@ -240,6 +260,12 @@ pub enum TransportFailure {
     /// The proxy itself could not be reached
     /// (`net::ERR_PROXY_CONNECTION_FAILED`).
     ProxyUnreachable,
+    /// The Session's proxy did not open, or answered or failed the hop
+    /// itself (#1640): the error it ended with, `proxy_unavailable`,
+    /// `proxy_auth_failed` or `proxy_relay_unavailable` among them
+    /// (`net::ERR_PROXY_CONNECTION_FAILED`). The proxy's answer is never
+    /// the site's.
+    Proxy(CallFailure),
     /// A content coding the body is labelled with did not decode
     /// (`net::ERR_CONTENT_DECODING_FAILED`, ADR 0119).
     ContentDecodingFailed,
@@ -358,7 +384,7 @@ impl TransportFailure {
             Self::InvalidResponse => "net::ERR_INVALID_HTTP_RESPONSE",
             Self::TunnelRefused => "net::ERR_TUNNEL_CONNECTION_FAILED",
             Self::ProxyAuthenticationRequired => "net::ERR_PROXY_AUTH_REQUESTED",
-            Self::ProxyUnreachable => "net::ERR_PROXY_CONNECTION_FAILED",
+            Self::ProxyUnreachable | Self::Proxy(_) => "net::ERR_PROXY_CONNECTION_FAILED",
             Self::ContentDecodingFailed => "net::ERR_CONTENT_DECODING_FAILED",
             Self::Browser(_) | Self::Other => "net::ERR_FAILED",
         }
@@ -368,13 +394,14 @@ impl TransportFailure {
     /// the egress policy's refusal, the browser's own error on the
     /// browser-fetch tier, `certificate_invalid` and `certificate_changed`
     /// for a certificate (ADR 0042), neither retryable, the client
-    /// certificate's own error, and `navigation_failed` with its network
+    /// certificate's own error, the error the Session's proxy did not open
+    /// with, and `navigation_failed` with its network
     /// error for every other failure, retryable (ADR 0118).
     pub fn error(&self, url: &str) -> CallError {
         match self {
             Self::Egress(refused) => return refused.error(),
             Self::Browser(failure) => return failure.0.clone(),
-            Self::ClientCertificate(failure) => return failure.0.clone(),
+            Self::ClientCertificate(failure) | Self::Proxy(failure) => return failure.0.clone(),
             Self::CertificateChanged(changed) => return changed.error(),
             Self::CertificateInvalid(failure) => {
                 let host = Url::parse(url)
@@ -589,6 +616,52 @@ pub(crate) async fn fetch_anew(
     fetch_on(transport, hop, Reuse::Never, bounds, clock, accepts, None).await
 }
 
+/// `hop` as it leaves on `transport`: the headers the transport's Session
+/// presents on a request to its URL (ADR 0021), in their order, each name
+/// the hop sets itself carrying the hop's values in its place, then the
+/// hop's other headers, and the codings Chrome asks for when neither names
+/// any.
+fn asked(transport: &dyn Transport, hop: &Hop) -> Hop {
+    fn own<'a>(hop: &'a Hop, name: &'a str) -> impl Iterator<Item = &'a (String, String)> {
+        hop.headers
+            .iter()
+            .filter(move |(header, _)| header.eq_ignore_ascii_case(name))
+    }
+    let presented = transport.presents(&hop.url);
+    let others: Vec<&(String, String)> = hop
+        .headers
+        .iter()
+        .filter(|(header, _)| {
+            !presented
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case(header))
+        })
+        .collect();
+    let mut headers: Vec<(String, String)> =
+        Vec::with_capacity(presented.len() + hop.headers.len() + 1);
+    for (name, value) in presented {
+        if own(hop, &name).next().is_none() {
+            headers.push((name, value));
+        } else if !headers
+            .iter()
+            .any(|(sent, _)| sent.eq_ignore_ascii_case(&name))
+        {
+            headers.extend(own(hop, &name).cloned());
+        }
+    }
+    headers.extend(others.into_iter().cloned());
+    if !headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("accept-encoding"))
+    {
+        headers.push(("accept-encoding".to_owned(), ACCEPT_ENCODING.to_owned()));
+    }
+    Hop {
+        headers,
+        ..hop.clone()
+    }
+}
+
 /// [`fetch`] whose first send goes on a connection `reuse` allows, judged
 /// by `accepts` as [`fetch_accepting`] says, keeping what `keep` says as
 /// [`fetch_start`] does.
@@ -602,21 +675,8 @@ async fn fetch_on(
     keep: Option<usize>,
 ) -> Result<Fetched, CallError> {
     let url = hop.url.as_str();
-    let asked;
-    let hop = if hop
-        .headers
-        .iter()
-        .any(|(name, _)| name.eq_ignore_ascii_case("accept-encoding"))
-    {
-        hop
-    } else {
-        let mut with_codings = hop.clone();
-        with_codings
-            .headers
-            .push(("accept-encoding".to_owned(), ACCEPT_ENCODING.to_owned()));
-        asked = with_codings;
-        &asked
-    };
+    let asked = asked(transport, hop);
+    let hop = &asked;
     let whole = async {
         let mut sent = bounds
             .first_byte

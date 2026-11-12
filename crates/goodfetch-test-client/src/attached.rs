@@ -21,7 +21,7 @@ use goodfetch_protocol::jsonrpc::Message;
 use goodfetch_test_support::{
     AnsweredCalls, MESSAGE_DEADLINE, Process, StrictStdout, TestEnv, record_command_in,
 };
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::handler_request::is_handler_request;
 use crate::hello::Hello;
@@ -30,6 +30,12 @@ use crate::hello::Hello;
 /// default Datasets on. Spelled here: Collie's tests take this crate, and no
 /// crate outside Foxhound's names the `foxhound` module (ADR 0099).
 const CRAWL_START: &str = "crawl.start";
+
+/// An operation that resumes a Run with settings of its own, which
+/// [`Attached::send`] gives its default settings as it does a `crawl.start`.
+const RUN_RESUME: &str = "run.resume";
+/// The other operation that resumes a Run with settings of its own.
+const RUN_RETRY_FAILED: &str = "run.retry_failed";
 
 /// A running Attached engine, started in a test's setup.
 pub struct Attached {
@@ -41,6 +47,9 @@ pub struct Attached {
     engine_instance: Value,
     /// The Datasets a `crawl.start` that declares none declares, if any.
     declared_by_default: Vec<String>,
+    /// The settings each call that takes a Run's settings takes when it
+    /// does not set them, nested by key.
+    settings_by_default: Map<String, Value>,
     /// The test's folder, which holds its answer and command records.
     folder: PathBuf,
     answered: AnsweredCalls,
@@ -111,6 +120,7 @@ impl Attached {
             stdout,
             engine_instance: Value::Null,
             declared_by_default: Vec::new(),
+            settings_by_default: Map::new(),
             folder: env.folder().to_owned(),
             answered: AnsweredCalls::default(),
             exited: false,
@@ -122,6 +132,17 @@ impl Attached {
     #[must_use]
     pub fn declaring_by_default(mut self, datasets: &[&str]) -> Self {
         self.declared_by_default = datasets.iter().map(|name| (*name).to_owned()).collect();
+        self
+    }
+
+    /// The same engine, each call sent through it that takes a Run's
+    /// settings, a `crawl.start`, a `run.resume` or a `run.retry_failed`,
+    /// taking each key of `settings`, nested by key, that it does not set
+    /// itself: the site a test's crawls fetch, such as its forced tier and
+    /// its hosts' addresses.
+    #[must_use]
+    pub fn settings_by_default(mut self, settings: &Value) -> Self {
+        self.settings_by_default = settings.as_object().cloned().unwrap_or_default();
         self
     }
 
@@ -154,6 +175,20 @@ impl Attached {
                 .iter()
                 .map(|name| json!({ "name": name }))
                 .collect();
+        }
+        if !self.settings_by_default.is_empty()
+            && [CRAWL_START, RUN_RESUME, RUN_RETRY_FAILED]
+                .iter()
+                .any(|method| message["method"] == **method)
+        {
+            for (group, keys) in &self.settings_by_default {
+                for (key, value) in keys.as_object().into_iter().flatten() {
+                    let set = &mut message["params"]["settings"][group];
+                    if set.get(key).is_none() {
+                        set[key] = value.clone();
+                    }
+                }
+            }
         }
         self.answered.sent(&message);
         let stdin = self.stdin.as_mut().expect("the engine's input is open");

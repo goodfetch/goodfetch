@@ -12,7 +12,7 @@ use super::plan::{
     gate_input, narrowed, plan, unit,
 };
 use super::steps::{Entry, Form, Kind, entries};
-use super::{plan_value, render, runs};
+use super::{plan_value, render, runs, step_variables};
 use crate::affected::{Job, RepoPath};
 
 const BASE: &str = "base";
@@ -139,6 +139,23 @@ const ALWAYS: [&str; 12] = [
     "journeys-tasks",
     "features-tests",
 ];
+
+#[test]
+fn a_variable_only_the_launcher_reads_is_not_one_of_the_steps() {
+    let launched = "CARGO_INCREMENTAL=0\nGOODFETCH_GATE_MIN_FREE_GB=60\nGOODFETCH_LAZYFS=/lazyfs";
+
+    assert_eq!(
+        step_variables(launched),
+        "CARGO_INCREMENTAL=0\nGOODFETCH_LAZYFS=/lazyfs"
+    );
+}
+
+#[test]
+fn a_variable_whose_name_only_starts_as_the_launchers_stays() {
+    let launched = "GOODFETCH_GATE_MIN_FREE_GB_PER_STEP=2\nNEXTEST_DOUBLE_SPAWN=0";
+
+    assert_eq!(step_variables(launched), launched);
+}
 
 #[test]
 fn without_an_earlier_run_every_step_runs_in_full() {
@@ -423,13 +440,7 @@ fn every_step_a_path_the_map_names_reaches_is_in_the_map() {
     for path in ci_paths_run(
         root,
         &recipes,
-        &[
-            "pre-merge",
-            "_gate-plan",
-            "_gate-record",
-            "_os-services",
-            "console-build",
-        ],
+        &["pre-merge", "_gate-plan", "_gate-record", "_os-services"],
     ) {
         if narrowed(&RepoPath::new(path.as_str())).is_some() {
             wrong.push(format!("every step reads {path}"));
@@ -981,17 +992,17 @@ fn the_full_gate_runs_every_step_once_in_the_order_the_plan_lists_them() {
 #[rstest]
 #[case::all(Form::All)]
 #[case::changed(Form::Changed)]
-fn the_whole_changes_checks_end_the_full_gate_before_the_console_build_and_any_step_beside(
-    #[case] form: Form,
-) {
-    let console = position(form, "console-build");
+fn the_whole_changes_checks_end_the_full_gate_before_any_step_beside(#[case] form: Form) {
+    let last_check = WHOLE_CHANGE_STEPS
+        .map(|step| position(form, step))
+        .into_iter()
+        .max();
+    let first_beside = BESIDE_STEPS
+        .map(|step| position(form, step))
+        .into_iter()
+        .min();
 
-    for step in WHOLE_CHANGE_STEPS {
-        assert!(position(form, step) < console, "{step}");
-    }
-    for step in BESIDE_STEPS {
-        assert!(position(form, step) > console, "{step}");
-    }
+    assert!(last_check < first_beside, "{last_check:?} {first_beside:?}");
 }
 
 #[test]

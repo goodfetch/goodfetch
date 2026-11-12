@@ -24,15 +24,20 @@ use super::run::{call, index_row, run_folder, run_row};
 use super::{Client, attached_on, dependencies, engine, engine_with};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
-use crate::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Drain, Holds, Succession};
+use crate::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, Succession};
 use crate::engine::Engine;
 use crate::ops::Ops;
 use crate::runs::{EndedBy, Start, Started};
 use crate::transport::{self, InMemoryDialer, Network};
 
+mod listener;
+
 pub(super) const TOKEN: &str = "the-launch-token";
 
 const MINUTE: Duration = Duration::from_secs(60);
+
+/// `daemon.drain_grace`'s default.
+const DRAIN_GRACE: Duration = Duration::from_secs(110);
 
 /// A Succession whose answer the test fixes, counting the handovers begun.
 struct Fixed {
@@ -74,8 +79,10 @@ pub(super) fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
             pick,
             handovers: Arc::clone(handovers),
         }),
-        console: DaemonConsole::Absent,
-        drain: None,
+        drain: Drain {
+            asked: None,
+            grace: DRAIN_GRACE,
+        },
         install: None,
         ops: Ops::default(),
         websocket: None,
@@ -156,7 +163,7 @@ pub(super) fn cli_hello() -> Value {
 
 /// The `hello` of an SDK program's Connection, whose Runs end with it
 /// (ADR 0078).
-fn sdk_hello() -> Value {
+pub(super) fn sdk_hello() -> Value {
     hello_with("collie", "0.1", "sdk_typescript", Some(TOKEN))
 }
 
@@ -274,13 +281,13 @@ fn a_daemon_stops_once_no_client_was_connected_for_its_idle_timeout() {
     );
 }
 
-/// A Client keeps the Daemon past its idle timeout while it is connected,
-/// a visible Console tab as much as a script (ADR 0024).
+/// A Client keeps the Daemon past its idle timeout while it is connected
+/// (ADR 0024).
 ///
 /// Covers: story:3-18, story:3-19
 #[rstest]
 #[case::the_cli("cli")]
-#[case::a_console_tab("console")]
+#[case::a_script("sdk_typescript")]
 fn a_connected_client_keeps_the_daemon_past_its_idle_timeout(#[case] surface: &str) {
     let (end, info) = daemon(
         &engine(Product::Collie),
@@ -403,8 +410,7 @@ fn daemon_status_counts_its_clients_and_live_runs() {
         the_pick(),
         |dialer| async move {
             let mut first = opened(&dialer, cli_hello()).await;
-            let mut second =
-                opened(&dialer, hello_with("collie", "0.1", "console", Some(TOKEN))).await;
+            let mut second = opened(&dialer, sdk_hello()).await;
             call(&mut first, 1, "run.start", json!({ "run_id": "one" })).await;
             call(&mut second, 1, "run.start", json!({ "run_id": "two" })).await;
             let status = call(&mut first, 2, "daemon.status", json!({})).await;
@@ -422,7 +428,6 @@ fn daemon_status_counts_its_clients_and_live_runs() {
         json!({
             "product": "collie", "product_version": "1.4.0", "pid": 4242,
             "endpoint": { "unix": "daemon.sock" }, "clients": 2, "live_runs": 2,
-            "console": "absent",
             "kept_alive": false, "idle_timeout": 600_000,
         })
     );
@@ -743,31 +748,31 @@ fn a_refused_client_that_never_closes_is_closed() {
 }
 
 /// A Daemon that is not its major's pick hands over once no Client but a
-/// Console is left and no Run is live (ADR 0098).
+/// Kennel that only observes is left and no Run is live (ADRs 0098 and
+/// 0141).
 ///
 /// Covers: story:3-138
 #[test]
-fn a_daemon_not_the_pick_hands_over_once_only_a_console_is_left() {
+fn a_daemon_not_the_pick_hands_over_once_only_an_observing_kennel_is_left() {
     let handovers = no_handover();
 
-    let (end, console_closed) = daemon(
+    let (end, kennel_closed) = daemon(
         &engine(Product::Collie),
         &TestEnv::new(),
         options(false, &handovers),
         |dialer| async move {
-            let mut console =
-                opened(&dialer, hello_with("collie", "0.1", "console", Some(TOKEN))).await;
+            let mut kennel = opened(&dialer, kennel_hello(false)).await;
             let mut script = opened(&dialer, sdk_hello()).await;
             call(&mut script, 1, "run.start", json!({ "run_id": "busy" })).await;
             script.close().await;
             while script.next().await.is_some() {}
-            console.next().await.is_none()
+            kennel.next().await.is_none()
         },
     );
 
     assert_eq!(
         (
-            console_closed,
+            kennel_closed,
             begun(&handovers),
             matches!(end, DaemonEnd::HandedOver(_))
         ),
@@ -827,6 +832,8 @@ const STUCK: goodfetch_protocol::catalog::Operation = goodfetch_protocol::catalo
     result: goodfetch_protocol::catalog::schema_of::<Value>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: goodfetch_protocol::catalog::Stability::Experimental,
     deprecated: None,
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
@@ -870,10 +877,10 @@ pub(super) fn stuck() -> Contribution {
 pub(super) fn draining(asked: &CancellationToken) -> DaemonOptions {
     DaemonOptions {
         keep_alive: true,
-        drain: Some(Drain {
-            asked: asked.clone(),
-            grace: Duration::from_secs(110),
-        }),
+        drain: Drain {
+            asked: Some(asked.clone()),
+            grace: DRAIN_GRACE,
+        },
         ..the_pick()
     }
 }

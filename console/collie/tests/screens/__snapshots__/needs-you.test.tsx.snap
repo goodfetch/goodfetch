@@ -1,8 +1,0 @@
-// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
-
-exports[`the render budget of Needs you: commits for an item added and for one resolved 1`] = `
-{
-  "added": 1,
-  "resolved": 1,
-}
-`;

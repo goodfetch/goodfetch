@@ -18,6 +18,7 @@
 )]
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -26,18 +27,21 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_engine::runs::Run;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::tls::ExceptionUsed;
 use goodfetch_engine::transport::{self, ConnectionReader, ConnectionWriter, Network};
 use goodfetch_engine::{CallContext, CallError, Channel, Dependencies, Engine, Identity};
 use goodfetch_fetch_tier::{Body, FetchTiers, Hop, PooledSession, Reuse, Sending, Sent, Transport};
 use goodfetch_page::blocks::Block;
+use goodfetch_page::document_request::{DocumentRequest, Unread};
 use goodfetch_page::page_value::{
     BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages as _, Opening, PageValue,
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::foxhound::report::BROWSER_VERSION_UNREAD;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::{
     FormatsRequest, Navigated, PageFormats, PageId, PageResponse, SessionId,
@@ -74,11 +78,16 @@ struct Asked {
     fetched: Vec<String>,
     /// Each path a navigation opened, the race's or a browser run's.
     opened: Vec<String>,
+    /// How many times the document request was asked for.
+    document_requests: usize,
 }
 
 /// The scripted browser.
 struct Scripted {
     site: Site,
+    /// Why its document request was not read, as an installed browser
+    /// whose version could not be; none where it was.
+    unread: Option<Unread>,
     asked: Mutex<Asked>,
     pages: Mutex<u64>,
 }
@@ -135,6 +144,15 @@ impl BrowserPages for Scripted {
 
     fn close<'a>(&'a self, _page_id: &'a PageId) -> Opening<'a, ()> {
         Box::pin(async {})
+    }
+
+    fn document_request<'a>(
+        &'a self,
+        _run: &'a Run,
+    ) -> Opening<'a, Result<Option<DocumentRequest>, Unread>> {
+        self.ask(|asked| asked.document_requests += 1);
+        let read = self.unread.clone().map_or(Ok(None), Err);
+        Box::pin(std::future::ready(read))
     }
 
     fn certificate_exception<'a>(
@@ -260,6 +278,7 @@ pub(super) struct Ended {
     /// What the scripted browser was asked.
     fetched: Vec<String>,
     opened: Vec<String>,
+    document_requests: usize,
     /// `run.finish`'s result, none when it never answered.
     finished: Option<Value>,
     /// Whether the engine ended once its Connection closed.
@@ -327,8 +346,21 @@ fn start(seeds: &[Value], settings: &Value) -> Value {
 /// the scripted browser serving `site`, with `settings` over a racing
 /// Run's, then finishes the Run.
 fn crawl(env: &TestEnv, site: Site, seeds: &[Value], settings: &Value) -> Ended {
+    crawl_unread(env, site, None, seeds, settings)
+}
+
+/// As [`crawl`], the scripted browser's document request not read for
+/// `unread`, where some.
+fn crawl_unread(
+    env: &TestEnv,
+    site: Site,
+    unread: Option<Unread>,
+    seeds: &[Value],
+    settings: &Value,
+) -> Ended {
     let scripted = Arc::new(Scripted {
         site,
+        unread,
         asked: Mutex::new(Asked::default()),
         pages: Mutex::new(0),
     });
@@ -384,6 +416,7 @@ fn crawl(env: &TestEnv, site: Site, seeds: &[Value], settings: &Value) -> Ended 
     Ended {
         fetched: asked.fetched,
         opened: asked.opened,
+        document_requests: asked.document_requests,
         finished,
         exited,
         left_open,
@@ -566,6 +599,90 @@ fn a_race_opens_no_navigation_for_a_request_a_hidden_link_reached() {
                 .map(|report| report["lifecycle"].clone()),
         ),
         (true, true, false, Some(json!("finished"))),
+        "{ended:?}"
+    );
+}
+
+/// A site of two pages a crawl forced onto `http` fetches.
+fn forced_site() -> Site {
+    Site::from([
+        ("/one", page("<p>one</p>", Duration::ZERO)),
+        ("/two", page("<p>two</p>", Duration::ZERO)),
+    ])
+}
+
+/// The settings of a crawl forced onto `http`, with no tier race.
+fn forced() -> Value {
+    json!({ "fetch": { "tier": "http" } })
+}
+
+/// A crawl forced onto `http` asks its browser for the document request
+/// its Sessions' own transport presents, once for the Run, and for nothing
+/// else: no navigation opens and nothing is sent from inside the browser,
+/// so no browser is launched (issue 2532).
+///
+/// Covers: story:5-121
+#[test]
+fn a_crawl_forced_onto_http_asks_its_browser_for_its_document_request_alone() {
+    let env = TestEnv::new();
+
+    let ended = crawl(
+        &env,
+        forced_site(),
+        &[seed("/one", "list"), seed("/two", "list")],
+        &forced(),
+    );
+
+    assert_eq!(
+        (
+            ended.document_requests,
+            ended.opened.clone(),
+            ended.fetched.clone(),
+            ended
+                .finished
+                .as_ref()
+                .map(|report| report["lifecycle"].clone()),
+        ),
+        (1, Vec::new(), Vec::new(), Some(json!("finished"))),
+        "{ended:?}"
+    );
+}
+
+/// Where the installed browser's version was not read, the Run is warned
+/// once with `browser_version_unread`, its message why and the fix, and a
+/// crawl forced onto `http`, which needs no browser, still crawls to its
+/// end (issue 2532).
+///
+/// Covers: story:5-121
+#[test]
+fn a_run_whose_browsers_version_was_not_read_is_warned_and_still_crawls() {
+    let env = TestEnv::new();
+    let unread = Unread::NoVersion {
+        executable: PathBuf::from("/usr/bin/chromium"),
+    };
+
+    let ended = crawl_unread(
+        &env,
+        forced_site(),
+        Some(unread.clone()),
+        &[seed("/one", "list"), seed("/two", "list")],
+        &forced(),
+    );
+
+    let report = ended.finished.clone().unwrap_or_default();
+    let warned: Vec<Value> = report["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|warning| warning["code"] == BROWSER_VERSION_UNREAD)
+        .map(|warning| json!([warning["code"], warning["message"]]))
+        .collect();
+    assert_eq!(
+        (warned, report["lifecycle"].clone()),
+        (
+            vec![json!([BROWSER_VERSION_UNREAD, unread.to_string()])],
+            json!("finished")
+        ),
         "{ended:?}"
     );
 }

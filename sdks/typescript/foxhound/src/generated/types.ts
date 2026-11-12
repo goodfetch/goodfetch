@@ -1160,11 +1160,6 @@ export interface CrawlRunReport {
    */
   completeness_reasons?: AxisReason[];
   /**
-   * Its page in the Console, where its Run trace replays, when the
-   * engine knows a Console address (ADR 0031).
-   */
-  console_url?: string | null;
-  /**
    * When it ended.
    */
   ended_at: PointInTime;
@@ -1793,7 +1788,7 @@ export interface RecordProvenance {
   robots_txt?: RobotsTxtMark | null;
   /**
    * The tier that fetched that request's document, and how it was
-   * chosen; none where the handler was given its request alone.
+   * chosen; none where no document was fetched.
    */
   tier?: TierProvenance | null;
   /**
@@ -1875,7 +1870,10 @@ export interface TierProvenance {
    */
   forced_by?: ForcedBy | null;
   /**
-   * The tier.
+   * The tier that sent the document's request, whoever chose it:
+   * `browser_fetch` when it left from inside the Session's browser, as
+   * under `auto`, and `http` when the Session's own HTTP transport sent
+   * it.
    */
   tier: "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
 }
@@ -2320,7 +2318,7 @@ export interface RecordProvenance1 {
   robots_txt?: RobotsTxtMark | null;
   /**
    * The tier that fetched that request's document, and how it was
-   * chosen; none where the handler was given its request alone.
+   * chosen; none where no document was fetched.
    */
   tier?: TierProvenance | null;
   /**

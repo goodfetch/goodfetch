@@ -23,17 +23,14 @@
     reason = "the CLI writes the service's files and runs its service manager before and outside any async worker (ADR 0060)"
 )]
 
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
 
 use goodfetch_engine::browser_cache;
 use goodfetch_engine::daemon::service::{
-    self, ConsoleSocket, ManagerCommand, ServiceRequest, activates_sockets, manager_of_this_os,
+    self, ManagerCommand, ServiceRequest, activates_sockets, manager_of_this_os,
 };
 use goodfetch_engine::installed::fingerprint;
-use goodfetch_engine::settings::Resolved;
-use goodfetch_protocol::console::ADDRESS as CONSOLE_ADDRESS;
 use goodfetch_protocol::daemon::{
     DaemonStopping, DaemonToken, DaemonUninstallOutput, HttpListenerToken, InstalledService,
     ServiceManager, TokenRotated,
@@ -157,7 +154,7 @@ pub(super) fn describe(service: &InstalledService) -> String {
 
 fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonStopping>), Failure> {
     // The service's Daemon starts only on settings it can read.
-    let settings = machine.settings()?;
+    machine.settings()?;
     let manager = manager_of_this_os().ok_or_else(|| {
         Failure::Unavailable("this OS has no service manager Goodfetch registers with".to_owned())
     })?;
@@ -194,12 +191,6 @@ fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonSt
     } else {
         None
     };
-    // Held until the service manager listens on it, so no other program
-    // takes a port chosen for port 0 in between (#1821).
-    let console = match &socket {
-        Some(_) => console_socket(settings, manager),
-        None => None,
-    };
     let domain = launchd_domain(machine, manager)?;
     let plan = service::plan(&ServiceRequest {
         manager,
@@ -208,7 +199,6 @@ fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonSt
         executable: &copy.executable,
         build: &copy.id.build,
         socket: socket.as_deref(),
-        console: console.as_ref(),
         environment: machine.environment,
         launchd_domain: domain.as_deref(),
     })
@@ -230,31 +220,7 @@ fn installed(machine: &Machine<'_>) -> Result<(InstalledService, Option<DaemonSt
         }
         return Err(failure);
     }
-    drop(console);
     Ok((plan.service, stopped))
-}
-
-/// What the service manager listens on for the Console for the Daemon it
-/// starts (ADR 0031): `console.address` from the machine's `settings`, as
-/// [`ConsoleSocket::of`] says; none, and the Console's address left to the
-/// Daemon, when it is no `host:port` or no port can be held.
-fn console_socket(settings: &Resolved, manager: ServiceManager) -> Option<ConsoleSocket> {
-    let configured = settings.get::<&str>(&CONSOLE_ADDRESS);
-    let Ok(address) = configured.parse::<SocketAddr>() else {
-        tracing::warn!(address = %configured, "`console.address` is no `host:port`, so the first visit to the Console does not start the Daemon");
-        return None;
-    };
-    match ConsoleSocket::of(manager, address) {
-        Ok(None) => {
-            tracing::warn!(%address, "this service manager listens on no port chosen for port 0, so the first visit to the Console does not start the Daemon");
-            None
-        }
-        Ok(console) => console,
-        Err(error) => {
-            tracing::warn!(%error, %address, "no port can be held for the Console, so the first visit to the Console does not start the Daemon");
-            None
-        }
-    }
 }
 
 fn uninstalled(machine: &Machine<'_>) -> Result<DaemonUninstallOutput, Failure> {

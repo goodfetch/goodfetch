@@ -45,6 +45,7 @@ use super::life::{Ending, PageLife};
 use super::{Opener, Sessions};
 use crate::dialogs::Dialogs;
 use crate::interception::Interception;
+use crate::launch::Launcher;
 use crate::page_events;
 use crate::page_value::ProgramPages;
 
@@ -60,6 +61,8 @@ const STOPPED_OPEN: Operation = Operation {
     result: schema_of::<Value>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
@@ -104,7 +107,7 @@ async fn started(run_id: &RunId, context: &CallContext) -> Result<Run, CallError
 /// A Sessions table of its own for the test's operation.
 fn table() -> Sessions {
     Sessions::new(
-        Vec::new(),
+        (Vec::new(), Launcher::Executable),
         Interception::default(),
         page_events::Table::default(),
         Dialogs::default(),

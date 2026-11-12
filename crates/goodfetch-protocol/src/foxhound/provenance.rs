@@ -25,7 +25,7 @@ pub struct RecordProvenance {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub request_id: String,
     /// The tier that fetched that request's document, and how it was
-    /// chosen; none where the handler was given its request alone.
+    /// chosen; none where no document was fetched.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub tier: Option<TierProvenance>,
@@ -114,7 +114,10 @@ pub enum UnreadReason {
 /// The tier that fetched a Record's document and how it was chosen.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct TierProvenance {
-    /// The tier.
+    /// The tier that sent the document's request, whoever chose it:
+    /// `browser_fetch` when it left from inside the Session's browser, as
+    /// under `auto`, and `http` when the Session's own HTTP transport sent
+    /// it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub tier: FetchTier,
     /// How it was chosen.

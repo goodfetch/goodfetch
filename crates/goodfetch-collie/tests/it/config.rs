@@ -193,6 +193,33 @@ fn config_explain_lists_a_named_project_file_that_is_missing_as_not_found(#[case
     );
 }
 
+/// `governor.huge_pages`, read once as the engine starts, shows off by
+/// default (issue 2199).
+/// Covers: command:config.explain
+#[test]
+fn config_explain_shows_huge_pages_off_by_default() {
+    let env = TestEnv::new();
+
+    let (stdout, _, succeeded) = explain(&env, Mode::Attached, &["governor.huge_pages", "--json"]);
+
+    assert!(succeeded);
+    let output: Value = serde_json::from_str(&stdout).unwrap();
+    let shown: Vec<(&Value, &Value, &Value)> = output["settings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|setting| (&setting["key"], &setting["layer"], &setting["value"]))
+        .collect();
+    assert_eq!(
+        shown,
+        [(
+            &json!("governor.huge_pages"),
+            &json!("default"),
+            &json!(false)
+        )]
+    );
+}
+
 /// Covers: story:3-89, command:config.explain
 #[rstest]
 #[case::attached(Mode::Attached)]

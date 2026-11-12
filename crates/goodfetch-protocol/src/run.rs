@@ -348,6 +348,10 @@ pub enum Verdict {
     NeedsReview,
 }
 
+/// The code of the Verdict reason a Run that left an Effect uncertain is
+/// given, `needs_review` (ADR 0029).
+pub const UNCERTAIN_EFFECTS: &str = "uncertain_effects";
+
 impl Verdict {
     /// Every value, in declaration order.
     pub const ALL: [Self; 3] = [Self::Verified, Self::Rejected, Self::NeedsReview];
@@ -750,6 +754,8 @@ pub const RUN_SET_PROGRESS_MESSAGE: Operation = Operation {
     result: schema_of::<RunProgress>,
     events: &[&RUN_PROGRESS],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -766,6 +772,8 @@ pub const RUN_START: Operation = Operation {
     result: schema_of::<RunStarted>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -782,6 +790,8 @@ pub const RUN_FINISH: Operation = Operation {
     result: schema_of::<RunReport>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -798,6 +808,8 @@ pub const RUN_STOP: Operation = Operation {
     result: schema_of::<RunReport>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -814,6 +826,8 @@ pub const RUN_USAGE: Operation = Operation {
     result: schema_of::<RunUsage>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -830,6 +844,8 @@ pub const RUN_ABORT: Operation = Operation {
     result: schema_of::<RunReport>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -846,6 +862,8 @@ pub const RUN_DISCARD: Operation = Operation {
     result: schema_of::<RunDiscarded>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -1045,6 +1063,8 @@ pub const RUN_STATE_LOCATION: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1084,6 +1104,8 @@ pub const RUN_STATE_DURABILITY: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: Some(below_full),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1100,6 +1122,8 @@ pub const RUN_STATE_COMMIT_INTERVAL: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1122,6 +1146,8 @@ pub const RUN_STATE_LAYOUT: Setting = Setting {
     clearable: false,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 

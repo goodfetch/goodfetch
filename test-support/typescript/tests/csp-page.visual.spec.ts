@@ -1,5 +1,5 @@
 // A served visual case (ADR 0073): a fixture page served under the
-// production CSP, as every Console visual case is, so the repeatability
+// production CSP, as every served visual case is, so the repeatability
 // measurement covers what a served screenshot meets on each browser, such as
 // WebKit's screenshot style the CSP refuses (`known-issues.ts`).
 import { test as served } from "@goodfetch/test-support/playwright";

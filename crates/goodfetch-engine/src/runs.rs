@@ -55,14 +55,13 @@ use std::time::Duration;
 use tracing::Instrument as _;
 
 use goodfetch_protocol::audit::{Actor, CERTIFICATE_EXCEPTIONS_USED};
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::checkpoint::{
     RUN_ABORTING, RUN_CHECKPOINTING, RUN_MIGRATING, RUN_STOPPING, RunAborting, RunBinding,
     RunCheckpointing, RunMigrating, RunStopping,
 };
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::formats::Compatibility;
-use goodfetch_protocol::foxhound::settings::PROVENANCE_LOG;
 use goodfetch_protocol::governor::{RUN_SHARE, SystemInfo};
 use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::page::BodyHandle;
@@ -80,11 +79,14 @@ use goodfetch_protocol::secrets::{
     KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE, SecretFailure, TIMEOUT_SECRET,
 };
 use goodfetch_protocol::security::SECURITY_REDACTION;
-use goodfetch_protocol::settings::{SettingsLayer, WALL_REFETCH_DOMAINS, WeakenedSetting};
+use goodfetch_protocol::settings::{
+    ExplainedSetting, SettingsLayer, WALL_REFETCH_DOMAINS, WeakenedSetting,
+};
 use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
 use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
 use secrecy::SecretString;
+use secrecy::zeroize::Zeroizing;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
@@ -133,17 +135,18 @@ use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, 
 use crate::robots_txt::{Answer, Copies, Fetched, NotRead, OwnCopies, RunCopies};
 use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport};
 use crate::run_index;
-use crate::run_key::{self, KeyError, RunKey, StoredKey};
+use crate::run_key::{self, KeyError, RunKey, Sealed, StoredKey};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
-    self, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions, RunStateTables, Syncing,
+    self, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions, RunStateTables,
+    SecretColumn, Syncing,
 };
 use crate::run_trace;
 use crate::sandbox_probe::SandboxProbe;
 use crate::secrets::{Purpose, RunSecrets, SecretError, Secrets, is_engine_key};
 use crate::settings::{Resolved, RunSettings, get_or_default};
 use crate::staging::AttemptWrites;
-use crate::tasks::TaskOwner;
+use crate::tasks::{OwnerKind, TaskOwner};
 use crate::trace::Link;
 use crate::transition;
 
@@ -179,6 +182,8 @@ pub(crate) struct RunsSetup {
     pub(crate) install: Option<Arc<InstallDatabase>>,
     /// The tables the composition adds to every run file.
     pub(crate) tables: Vec<RunStateTables>,
+    /// How the Runs of each kind the composition registers a driver for go.
+    pub(crate) driving: BTreeMap<RunKind, Driving>,
     /// The gate in admission the composition passes in, if any.
     pub(crate) gates: Option<Arc<dyn Gates>>,
     /// How the per-user Politeness file opens.
@@ -210,9 +215,6 @@ pub(crate) struct RunsSetup {
     /// The composition's Clean-up rules, which choose the version each new
     /// Run holds to (ADR 0047), if it has any.
     pub(crate) clean_up: Option<Arc<dyn CleanUpVersions>>,
-    /// The Console's address, when this engine serves one (ADR 0031): each
-    /// Run's report names its page there.
-    pub(crate) console: Option<String>,
     /// The switchable controls the composition registered, which each new
     /// Run reports when its settings switch one off.
     pub(crate) controls: Controls,
@@ -261,6 +263,33 @@ pub enum EndedBy {
     /// Its driver ends it once its work is done, and `run.finish` waits for
     /// that: a crawl.
     Driver,
+}
+
+/// How the Runs of a kind go, which the contribution that registers the
+/// kind's driver says (ADR 0099): the engine names no kind's own settings
+/// or habits. A kind no contribution registers goes as [`Driving::default`]
+/// says: a Run its program drives.
+#[derive(Clone, Copy)]
+pub struct Driving {
+    /// Who ends a Run of the kind that a resume starts again.
+    pub ended_by: EndedBy,
+    /// Whether its claims defer their charges (ADR 0138's note of #1926):
+    /// its start then declares their bound in its own synced commit rather
+    /// than its first claim's (#2117).
+    pub defers_charges: bool,
+    /// The setting that says whether its Run trace keeps a Provenance log
+    /// (ADR 0138); none when it always does.
+    pub provenance_log: Option<&'static Setting>,
+}
+
+impl Default for Driving {
+    fn default() -> Self {
+        Self {
+            ended_by: EndedBy::Finish,
+            defers_charges: false,
+            provenance_log: None,
+        }
+    }
 }
 
 /// What a start asks for.
@@ -1352,7 +1381,9 @@ impl Run {
         &self.shared.secrets
     }
 
-    /// Its data key, which seals and opens the fields of its secret tables.
+    /// `plaintext` sealed under its data key for the row `row` of the secret
+    /// column `column`: the only value its owner writes there. Its first
+    /// call makes the data key.
     ///
     /// # Errors
     ///
@@ -1364,8 +1395,75 @@ impl Run {
     /// making, and the next caller makes one again. A drop once the
     /// wrapped key's write was queued may leave it stored: the next making
     /// then takes that key rather than store another.
-    pub async fn key(&self) -> Result<&RunKey, RunKeyError> {
+    pub async fn seal(
+        &self,
+        column: &SecretColumn,
+        row: &str,
+        plaintext: &[u8],
+    ) -> Result<Sealed, RunKeyError> {
+        let key = self.key().await?;
+        Ok(Sealed::new(key.seal(
+            column.table,
+            column.column,
+            row,
+            plaintext,
+        )?))
+    }
+
+    /// The plaintext of `sealed`, read from the row `row` of the secret
+    /// column `column`, in this Run or after its resume. It never makes a
+    /// data key: a Run with none held, unwrapped at its resume or stored
+    /// by a making whose caller was dropped, sealed nothing, so nothing it
+    /// holds opens.
+    ///
+    /// # Errors
+    ///
+    /// `Key` when the value was sealed for another place or another Run,
+    /// or changed since, or when the Run has no data key.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping its future abandons the read of the stored key, which
+    /// writes nothing; the next call reads it again.
+    pub async fn open(
+        &self,
+        column: &SecretColumn,
+        row: &str,
+        sealed: &Sealed,
+    ) -> Result<Zeroizing<Vec<u8>>, RunKeyError> {
+        let key = self
+            .shared
+            .key
+            .get_or_try_init(|| self.stored_key())
+            .await?;
+        Ok(key.open(column.table, column.column, row, sealed.as_bytes())?)
+    }
+
+    /// Its data key, which seals and opens the fields of its secret
+    /// columns, made at its first use.
+    async fn key(&self) -> Result<&RunKey, RunKeyError> {
         self.shared.key.get_or_try_init(|| self.make_key()).await
+    }
+
+    /// The data key its run state holds wrapped, which a making whose
+    /// caller was dropped stored without the Run taking it, unwrapped by
+    /// the key-encryption key its settings name; it never makes one, nor
+    /// the engine's default key-encryption key.
+    async fn stored_key(&self) -> Result<RunKey, RunKeyError> {
+        let stored = self
+            .state
+            .read(run_key::stored)
+            .await?
+            .ok_or(KeyError::DoesNotOpen)?;
+        let kek = if let Some(kek) = self.secrets().held_for(RUN_STATE_KEY_REFERENCE.name).await {
+            kek
+        } else {
+            let (reference, layer) = self.runs.key_reference(self.settings()).await;
+            self.runs
+                .key_encryption_key(self.secrets(), &reference, layer, &self.id, Making::No)
+                .await?
+        };
+        Ok(RunKey::unwrap(self.id.clone(), &stored.wrapped, &kek)?)
     }
 
     /// Makes its data key, stored only wrapped by the key-encryption key
@@ -2805,15 +2903,7 @@ impl Runs {
         // Only a reference a layer set resolves here: the default's item,
         // in the OS keychain or the encrypted local file, is the engine's
         // own, made when run state first wraps a data key with it (#617).
-        if let Some((reference, layer)) = start.settings.as_ref().and_then(|settings| {
-            let resolved = settings.resolved();
-            let layer = resolved.effective(&RUN_STATE_KEY_REFERENCE)?.layer;
-            (layer != SettingsLayer::Default).then_some(())?;
-            Some((
-                resolved.get::<Option<SecretReference>>(&RUN_STATE_KEY_REFERENCE)?,
-                layer,
-            ))
-        }) {
+        if let Some((reference, layer)) = layer_set_key_reference(start.settings.as_ref()) {
             // The key-encryption key is used as the Run starts, to wrap its
             // data key (ADR 0015), so it resolves now, before the Run exists.
             secrets
@@ -3211,18 +3301,14 @@ impl Runs {
 
     /// The Secret reference of the key-encryption key of a Run whose
     /// settings resolved as `settings`, and the layer that set it: this
-    /// host's default where none did, or where a layer cleared it.
+    /// host's default where none did, or where a layer cleared it, asked
+    /// for here, so the OS keychain opens only once a Run first needs its
+    /// key, not as its settings open (issue 2204).
     async fn key_reference(
         &self,
         settings: Option<&RunSettings>,
     ) -> (SecretReference, SettingsLayer) {
-        if let Some((reference, layer)) = settings.and_then(|settings| {
-            let resolved = settings.resolved();
-            Some((
-                resolved.get::<Option<SecretReference>>(&RUN_STATE_KEY_REFERENCE)?,
-                resolved.effective(&RUN_STATE_KEY_REFERENCE)?.layer,
-            ))
-        }) {
+        if let Some((reference, layer)) = layer_set_key_reference(settings) {
             return (reference, layer);
         }
         let default = self
@@ -5010,7 +5096,7 @@ impl Registry {
         self.check_index().await?;
         self.may_start(&run_id, connection).await?;
         let lock = self.lock(&run_id, &folder).await?;
-        let writer = Arc::new(self.owner.child());
+        let writer = Arc::new(self.owner.child_for(OwnerKind::Run));
         let state = RunState::open(
             folder.join(RUN_FILE),
             &self.opened_with(start.settings.as_ref()),
@@ -5038,7 +5124,7 @@ impl Registry {
         let tags = start.tags.clone();
         let initialize = start.initialize;
         state
-            .write_with(start_syncing(start.kind), move |connection| {
+            .write_with(self.start_syncing(start.kind), move |connection| {
                 row.insert(connection)?;
                 for (position, tag) in tags.iter().enumerate() {
                     connection.execute(
@@ -5053,7 +5139,7 @@ impl Registry {
             })
             .await
             .map_err(|error| unavailable(error.to_string()))?;
-        let run = self.new_run(&run_id, &folder, state, connection, start.settings, keys);
+        let run = self.new_run(&run_id, start.kind, state, connection, start.settings, keys);
         let live = Live {
             id: run_id.clone(),
             progress: run.shared.progress.clone(),
@@ -5275,26 +5361,45 @@ impl Registry {
             .map_or_else(|| folder.to_owned(), |install| install.folder().to_owned())
     }
 
-    /// A handle to the registry for a Run of `connection`.
-    /// The live Run `run_id` as its driver holds it, writing `state` in
-    /// `folder`, under its resolved `settings`, resolving its Secret
-    /// references through `secrets`.
+    /// How the Runs of `kind` go, as the contribution that registers the
+    /// kind's driver says.
+    fn driving(&self, kind: RunKind) -> Driving {
+        self.setup.driving.get(&kind).copied().unwrap_or_default()
+    }
+
+    /// How the start of a Run of `kind` commits: synced, and declaring the
+    /// bound of its deferred charges when its claims defer them.
+    fn start_syncing(&self, kind: RunKind) -> Syncing {
+        if self.driving(kind).defers_charges {
+            Syncing::Declaring
+        } else {
+            Syncing::Required
+        }
+    }
+
+    /// The live Run `run_id`, of `kind`, as its driver holds it, writing
+    /// `state` in its folder, under its resolved `settings`, resolving its
+    /// Secret references through `keys`.
     fn new_run(
         &mut self,
         run_id: &RunId,
-        folder: &Path,
+        kind: RunKind,
         state: RunState,
         connection: Option<ConnectionId>,
         settings: Option<RunSettings>,
         keys: Keys,
     ) -> Run {
+        let folder = &self.folder(run_id);
         let epoch = state.epoch();
         let progress = self.progress(run_id, Progressing::live(epoch, Lifecycle::Running, None));
         let resolved = settings.as_ref().map(RunSettings::resolved);
         let share = get_or_default(resolved, &RUN_SHARE);
-        // `provenance.log`, Foxhound's (ADR 0138): a Run whose Product holds
-        // no such key logs its Provenance, the key's catalog default.
-        let logs_provenance = get_or_default(resolved, &PROVENANCE_LOG);
+        // A kind whose contribution names no setting for it logs its
+        // Provenance (ADR 0138).
+        let logs_provenance = self
+            .driving(kind)
+            .provenance_log
+            .is_none_or(|setting| get_or_default(resolved, setting));
         Run {
             id: run_id.clone(),
             folder: folder.to_owned(),
@@ -5329,7 +5434,7 @@ impl Registry {
                 attempt_writes: std::sync::OnceLock::new(),
                 provenance: run_trace::Provenance::logging(folder, logs_provenance),
             }),
-            owner: Arc::new(self.owner.child()),
+            owner: Arc::new(self.owner.child_for(OwnerKind::Run)),
             runs: self.handle(connection),
             settings: settings.map(Arc::new),
             entropy: Arc::new(tokio::sync::Mutex::new(self.setup.entropy.fork())),
@@ -5425,11 +5530,6 @@ impl Registry {
             events: events.clone(),
             governor: self.setup.governor.clone(),
         });
-        let console_url = self
-            .setup
-            .console
-            .as_ref()
-            .map(|console| format!("{}/runs/{run_id}", console.trim_end_matches('/')));
         let closing = Closing {
             run,
             writer: Arc::clone(&live.writer),
@@ -5443,7 +5543,6 @@ impl Registry {
             checkpoint_to,
             last_checkpoint: live.checkpoint.clone(),
             parts: self.setup.report_parts.clone(),
-            console_url,
             governor: self.setup.governor.clone(),
         };
         let recording = Recording {
@@ -5744,7 +5843,7 @@ impl Registry {
         let weakened = joined_weakened(&listed, settings.as_ref(), &state)
             .await
             .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
-        let run = self.new_run(&run_id, &folder, state, connection, settings, keys);
+        let run = self.new_run(&run_id, recorded.kind, state, connection, settings, keys);
         if held.lifecycle == Lifecycle::Running {
             warn_over_charged(&run).await;
         }
@@ -5760,10 +5859,7 @@ impl Registry {
             needs: recorded.needs,
             tags: recorded.tags,
             inputs: recorded.inputs,
-            ended_by: match recorded.kind {
-                RunKind::Collie => EndedBy::Finish,
-                RunKind::Crawl => EndedBy::Driver,
-            },
+            ended_by: self.driving(recorded.kind).ended_by,
             started_at: recorded.started_at,
             policy_version: recorded.policy_version,
             weakened,
@@ -5950,7 +6046,7 @@ impl Registry {
             run_epoch = epoch,
             "took the Run's writer role to resume it"
         );
-        let writer = Arc::new(self.owner.child());
+        let writer = Arc::new(self.owner.child_for(OwnerKind::Run));
         let state = RunState::open(file, options, self.setup.tables.clone(), epoch, &writer)
             .await
             .map_err(|error| RunError::of_state(run_id, &folder, error))?;
@@ -5994,17 +6090,6 @@ impl Registry {
         }
         let row = self.index_row(&self.live[run_id], Lifecycle::Running, None);
         self.write_index(row).await;
-    }
-}
-
-/// How a Run of `kind`'s start commits: a crawl's claims defer their
-/// charges (ADR 0138's note of #1926), so its start declares their bound in
-/// its own synced commit rather than its first claim's (#2117); another
-/// Run's declares none.
-fn start_syncing(kind: RunKind) -> Syncing {
-    match kind {
-        RunKind::Crawl => Syncing::Declaring,
-        RunKind::Collie => Syncing::Required,
     }
 }
 
@@ -6345,6 +6430,38 @@ impl Recording {
     }
 }
 
+/// The settings `run`'s report keeps, explained. The host's default of
+/// `run_state.key_reference` shows only once the Run holds its data key,
+/// when the host has answered it; before, the catalog's shows, since
+/// asking for it here would open the OS keychain (issue 2204).
+fn kept_settings(run: &Run) -> Option<Vec<ExplainedSetting>> {
+    let mut settings = run.settings()?.resolved().explain(&[], Vec::new()).settings;
+    if run.shared.key.get().is_some()
+        && let Some(known) = run.runs.engine.settings().known_host_defaults()
+        && let Some(default) = settings.iter_mut().find(|explained| {
+            explained.key == RUN_STATE_KEY_REFERENCE.name
+                && explained.layer == SettingsLayer::Default
+        })
+    {
+        default.value = known.of(&RUN_STATE_KEY_REFERENCE);
+    }
+    Some(settings)
+}
+
+/// The Secret reference of the key-encryption key that a layer of
+/// `settings` set, and that layer; none where the default stands.
+fn layer_set_key_reference(
+    settings: Option<&RunSettings>,
+) -> Option<(SecretReference, SettingsLayer)> {
+    let resolved = settings?.resolved();
+    let layer = resolved.effective(&RUN_STATE_KEY_REFERENCE)?.layer;
+    (layer != SettingsLayer::Default).then_some(())?;
+    Some((
+        resolved.get::<Option<SecretReference>>(&RUN_STATE_KEY_REFERENCE)?,
+        layer,
+    ))
+}
+
 /// A Run on its way to its end.
 struct Closing {
     run: Run,
@@ -6363,8 +6480,6 @@ struct Closing {
     last_checkpoint: Option<Checkpoint>,
     /// What the composition's areas add to its report.
     parts: Vec<Arc<dyn ReportPart>>,
-    /// Its page in the Console, when the engine serves one.
-    console_url: Option<String>,
     /// What reads the filesystem of a stop its run file could not record.
     governor: Governor,
 }
@@ -6395,7 +6510,6 @@ impl Closing {
             checkpoint_to,
             last_checkpoint,
             parts,
-            console_url,
             governor,
         } = self;
         run.owner.stop().await;
@@ -6414,11 +6528,8 @@ impl Closing {
             ended_at: clock.point_in_time(),
             policy_version,
             weakened,
-            settings: run
-                .settings()
-                .map(|settings| settings.resolved().explain(&[], Vec::new()).settings),
+            settings: kept_settings(&run),
             checkpoint: None,
-            console_url,
             limits,
             error,
             finished,

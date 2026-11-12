@@ -100,11 +100,6 @@
           "const": "block-cause",
           "description": "A Block cause.",
           "type": "string"
-        },
-        {
-          "const": "screen",
-          "description": "A Console route.",
-          "type": "string"
         }
       ]
     },

@@ -1,8 +1,9 @@
 //! The delivery cases (ADRs 0003 and 0093), which need a crawl and so run
 //! on Foxhound's executable (ADR 0094): at-least-once delivery, exactly-once
-//! commits and a late commit refused. Each starts a crawl whose handler is
-//! the harness, with a 1 ms `timeout.handler`, so a lease lasts its 10 s
-//! margin and a little more. The harness names the crawl's operations by
+//! commits and a late commit refused. Each starts a crawl of pages of the
+//! Proving ground's plain host `shop.test`, fetched on a forced `http`
+//! tier, whose handler is the harness, with a 1 ms `timeout.handler`, so a
+//! lease lasts its 10 s margin and a little more. The harness names the crawl's operations by
 //! their wire names, since only `goodfetch-protocol` names its Foxhound
 //! module (ADR 0099). Each case reads the Run's Records back through
 //! `run.records` once the Run finished, so it checks what committed: the
@@ -18,7 +19,7 @@ use goodfetch_protocol::events::CREDIT;
 use goodfetch_protocol::run::RUN_FINISH;
 use serde_json::{Value, json};
 
-use super::Checks;
+use super::{Checks, Site};
 use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::foxhound::{
     CRAWL_REQUEST_HANDLE, CRAWL_START, RECORD, RUN_OUTCOMES, RUN_RECORDS,
@@ -28,6 +29,9 @@ use crate::protocol::target::DEADLINE;
 /// How long the harness waits for a lease to end: its 10 s margin over the
 /// 1 ms handler timeout, and room for a loaded machine.
 const LEASE_WAIT: Duration = Duration::from_secs(30);
+
+/// The Proving ground's plain host the crawls fetch: every path is a page.
+pub(super) const PLAIN_HOST: &str = "shop.test";
 
 /// A crawl the harness handles: its Run ID, the engine's requests and
 /// notifications not yet read, and the position after which the next
@@ -39,24 +43,30 @@ struct Crawl {
 }
 
 impl Crawl {
-    /// Starts a crawl of `seeds` pages under `run_id`, declaring the
-    /// Dataset `pages`, its handler timeout 1 ms.
+    /// Starts a crawl of `seeds` pages of `site` under `run_id`, declaring
+    /// the Dataset `pages`, its handler timeout 1 ms.
     fn start(
-        connection: &mut Connection,
+        (connection, site): (&mut Connection, &Site),
         run_id: &'static str,
         seeds: usize,
         checks: &mut Checks,
     ) -> Result<Self, Gone> {
         let seeds: Vec<Value> = (1..=seeds)
-            .map(|page| json!({ "url": format!("https://shop.test/{page}"), "label": "page" }))
+            .map(|page| {
+                json!({ "url": site.named_url(PLAIN_HOST, &format!("/{page}")), "label": "page" })
+            })
             .collect();
+        let settings = site.mapped(
+            &json!({ "fetch": { "tier": "http" }, "timeout": { "handler": 1 } }),
+            connection.acts_for_model(),
+        );
         let id = connection.request(
             CRAWL_START,
             &json!({
                 "run_id": run_id,
                 "seeds": seeds,
                 "datasets": [{ "name": "pages" }],
-                "settings": { "timeout": { "handler": 1 } },
+                "settings": settings,
             }),
         )?;
         let answer = connection.answer(id)?;
@@ -222,8 +232,12 @@ fn lost_then_retried(
 
 /// A work item whose attempt goes unanswered is delivered again once its
 /// lease ends, and the retry's commit finishes the Run.
-pub(super) fn at_least_once(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
-    let mut crawl = Crawl::start(connection, "at-least-once", 1, checks)?;
+pub(super) fn at_least_once(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let mut crawl = Crawl::start((connection, site), "at-least-once", 1, checks)?;
     let (_, second) = lost_then_retried(connection, &mut crawl, checks)?;
     connection.reply(&second["id"], &records(&json!({ "page": 1 })))?;
     let (answer, sent) = crawl.finish(connection)?;
@@ -240,8 +254,12 @@ pub(super) fn at_least_once(connection: &mut Connection, checks: &mut Checks) ->
 /// never cancelled, and the Run finishes complete. The second work item's
 /// answer commits first: the harness answers the first only once the
 /// engine committed the second's, so commit order is never ask order.
-pub(super) fn exactly_once(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
-    let mut crawl = Crawl::start(connection, "exactly-once", 2, checks)?;
+pub(super) fn exactly_once(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let mut crawl = Crawl::start((connection, site), "exactly-once", 2, checks)?;
     let mut asked = Vec::new();
     for _ in 0..2 {
         let request = crawl.next(connection, DEADLINE)?;
@@ -288,8 +306,12 @@ pub(super) fn exactly_once(connection: &mut Connection, checks: &mut Checks) -> 
 /// The answer to an attempt cancelled at its lease's end is a late commit:
 /// it is refused, so it changes nothing; the retry's commit is the one that
 /// counts.
-pub(super) fn late_commit(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
-    let mut crawl = Crawl::start(connection, "late-commit", 1, checks)?;
+pub(super) fn late_commit(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let mut crawl = Crawl::start((connection, site), "late-commit", 1, checks)?;
     let (first, second) = lost_then_retried(connection, &mut crawl, checks)?;
     connection.reply(&first["id"], &records(&json!({ "late": true })))?;
     connection.reply(&second["id"], &records(&json!({ "late": false })))?;

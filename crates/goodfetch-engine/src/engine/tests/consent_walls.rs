@@ -5,7 +5,7 @@
 //! call), is listed with the offer to add it to `consent.domains` for the
 //! next runs, a domain in `wall.denied_domains` too, one already in
 //! `consent.domains` not. A person's answer, `needs_you.allow_consent_domain`
-//! from the Console, writes the domain, or `*`, in user configuration in one
+//! from the Kennel, writes the domain, or `*`, in user configuration in one
 //! call, records it in the Audit log with the warning the person was shown,
 //! and the item leaves the list, resolved.
 #![expect(
@@ -54,6 +54,8 @@ const CONSENT_WALL: Operation = Operation {
     result: schema_of::<Value>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
@@ -211,7 +213,7 @@ fn a_domain_that_showed_a_consent_wall_is_offered_for_consent_domains(
     }
 
     let items = attached_on(&walled_engine(&env), &env, |mut client| async move {
-        opened(&mut client, "console").await;
+        opened(&mut client, "kennel").await;
         let mut seen = Seen::default();
         met_walls(&mut client, &mut seen).await;
         // Two samples later, every source has read the walls.
@@ -235,7 +237,7 @@ fn a_domain_that_showed_a_consent_wall_is_offered_for_consent_domains(
 /// the three answers, `config.explain` of `consent.domains`, the list left
 /// and each removal with its reason.
 async fn answered(mut client: Client) -> ([Value; 3], Value, Vec<Value>, Vec<Value>) {
-    opened(&mut client, "console").await;
+    opened(&mut client, "kennel").await;
     let mut seen = Seen::default();
     met_walls(&mut client, &mut seen).await;
     seen.until(&mut client, |items| items.len() == 2).await;
@@ -291,7 +293,7 @@ async fn answered(mut client: Client) -> ([Value; 3], Value, Vec<Value>, Vec<Val
     )
 }
 
-/// A person's answer from the Console writes the domain in user
+/// A person's answer from the Kennel writes the domain in user
 /// configuration's `consent.domains` in one call, with no confirmation
 /// asked, records it in the Audit log with the warning shown, and the item
 /// leaves the list, resolved; the same answer again adds nothing and
@@ -354,14 +356,14 @@ fn a_persons_answer_writes_consent_domains_records_its_warning_and_resolves_the_
                 json!({
                     "kind": "consent_domain_allowed",
                     "actor": { "kind": "person", "name": "os_user" },
-                    "surface": "console",
+                    "surface": "kennel",
                     "layer": "user_configuration",
                     "details": { "domain": "walled.test", "warning": warning },
                 }),
                 json!({
                     "kind": "consent_domain_allowed",
                     "actor": { "kind": "person", "name": "os_user" },
-                    "surface": "console",
+                    "surface": "kennel",
                     "layer": "user_configuration",
                     "details": { "domain": "*", "warning": star_warning },
                 }),
@@ -384,10 +386,10 @@ fn a_persons_answer_writes_consent_domains_records_its_warning_and_resolves_the_
 #[rstest]
 /// Covers: error:person_required
 #[case::from_an_agent_surface("sdk_typescript", "walled.test", "", "person_required")]
-#[case::naming_no_domain("console", "https://walled.test/", "", "invalid_params")]
+#[case::naming_no_domain("kennel", "https://walled.test/", "", "invalid_params")]
 /// Covers: error:setting_locked
 #[case::under_a_lock(
-    "console",
+    "kennel",
     "walled.test",
     "version = \"0.1\"\n\n[lock.consent]\ndomains = []\n",
     "setting_locked"
@@ -449,7 +451,7 @@ fn an_answer_the_audit_log_cannot_record_is_written_and_says_so() {
     let home = env.home().to_path_buf();
 
     let answer = attached_on(&walled_engine(&env), &env, |mut client| async move {
-        opened(&mut client, "console").await;
+        opened(&mut client, "kennel").await;
         unrecordable(&home);
         call(
             &mut client,
@@ -473,7 +475,7 @@ fn an_answer_the_audit_log_cannot_record_is_written_and_says_so() {
 }
 
 /// The Kennel is a person surface (ADR 0141): its answer is admitted, as
-/// the CLI's and the Console's are, and the Audit log records it as the
+/// the CLI's is, and the Audit log records it as the
 /// Kennel's; an SDK's is still refused with `person_required` and writes
 /// nothing.
 ///

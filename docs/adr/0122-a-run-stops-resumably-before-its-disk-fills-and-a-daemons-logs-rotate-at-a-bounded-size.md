@@ -57,6 +57,7 @@ Decided in [A disk that fills under a long Run, and log volume](https://github.c
   - `run.progress()` carries `storage`: the worst level among the filesystems the Run writes to, with that filesystem's folder and free space.
   - A change of level is logged at warning, or at info on the way back.
   - The Console's "Needs you" lists a filesystem at `low` or `critical`, with its folder.
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
 
 ### At `low`: shed what a Run can do without
 
@@ -142,6 +143,7 @@ ADR 0040 named the code without a group. It is an `UnavailableError`, not retrya
 - **Engines that write no log file by default.** An Attached engine sends its logs only as log events (ADR 0078), and writes JSON lines to the Goodfetch home's log folder only when `log.output` is `file` in its configuration, as test support sets it for ADR 0072's exercise audit. A Rust program's linked engine logs through the program's own `tracing` subscriber. The CLI's output is the CLI's design.
   > Agent decision, accepted by the owner on 2026-10-21 (#353): until the engine reads its configuration and the `log.*` settings (#1566), the executable's `GOODFETCH_LOG_OUTPUT` stands in for `log.output`, as `GOODFETCH_LOG` already stands in for `log.level`: `file` writes the JSON lines to `<Goodfetch home>/logs/<executable>-<process ID>.jsonl` beside the text on stderr, `none` or unset writes no file, and any other value fails the start. `TestEnv`'s map sets `GOODFETCH_LOG_OUTPUT=file` and a `GOODFETCH_LOG` that adds the dispatch records at `trace`, the level `rpc` records them at today. Both variables go when the settings arrive, and test support then writes `log.output: file` and the level into the test's configuration instead.
 - **The default level is `info`,** and `info` logs state changes only. Examples are a Run started, resumed or stopped, a domain backing off (ADR 0102), a storage level changing, and a Daemon draining. A line per request, per fetch or per command is `debug` or below. So at the default level the volume follows what happens to Runs, never the number of requests; Scrapy's `DEBUG` default is the opposite. What a Run did per request stays in its run state and its Run trace, read through `outcomes()` and the Console (ADR 0102).
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Settings,** in a new `log.*` area, applying where an engine process reads its configuration (ADR 0028):
 
   | Key | Default |
@@ -215,6 +217,7 @@ ADR 0040 named the code without a group. It is an `UnavailableError`, not retrya
   - **Area 6 (Collection)** builds the committed WARC length and the cut back on resume.
   - **Area 13 (Self-hosted deployment and operations)** builds the logging driver in the Docker and Compose guides, the `/readyz` condition and the metrics, and documents the log folder for each OS.
   - **Area 12 (Console)** builds the "Needs you" entry.
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   - Each lists this ADR.
 - **The pitfall catalog's rows O03 and O10** become Handled, proved by the storage and Daemon log cases.
 - **The `prototype/sdk-api` sketch** holds `resource` and its folder in `RunStopReason`, `storage` in `RunProgress`, the `storage_low` warning, and `ResourcesExhaustedError` with its details, in each language.

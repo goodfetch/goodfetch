@@ -95,6 +95,8 @@ pub const RUN_REJECTED_RECORDS: Operation = Operation {
     result: schema_of::<RejectedRecords>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,

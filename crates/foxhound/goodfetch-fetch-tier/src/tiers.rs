@@ -43,7 +43,7 @@ use goodfetch_engine::known_certificates::ExceptionKind;
 use goodfetch_engine::retry_after::{self, RetryAfter};
 use goodfetch_engine::robots_txt::{Answer, MAX_SIZE};
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::settings::{Resolved, RunSettings, get_or_default};
+use goodfetch_engine::settings::{Effective, Resolved, RunSettings, get_or_default};
 use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, Trust,
 };
@@ -58,7 +58,7 @@ use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::crawl::{
-    CRAWL_CONTENT_TYPES, CRAWL_START, CrawlRequest, FieldLocator,
+    CRAWL_CONTENT_TYPES, CRAWL_START, CrawlRequest, FieldLocator, Seed, Seeds,
 };
 use goodfetch_protocol::foxhound::fetch::{
     FETCH_ENCODING, FETCH_HEDGE_ENABLED, FETCH_LIGHT_BROWSER, FETCH_REDIRECT_MAX, FETCH_TIER,
@@ -103,6 +103,7 @@ use crate::expected_page::{self, Verdict};
 use crate::gate::{Admitted, ChainGate, Gate, HandOver, Lease, RobotsTxtFetch};
 use crate::light_browser::LightBrowser;
 use crate::redundant::{Redundant, Requester};
+use crate::site_preferences::{Request, SitePreferences};
 use crate::transports::{AddressCheck, BrowserFetch, LocalSource, Reqwest, TransportConfig};
 use crate::untouched::{self, UntouchedReaders};
 use crate::use_signals::UseSignals;
@@ -651,12 +652,147 @@ pub struct Signed {
     pub canonical: Option<Url>,
 }
 
-/// `capability_unavailable` for `fetch.tier: light_browser` forced in
-/// `layer`, or by `label`, where `settings` do not allow the tier: naming
-/// `fetch.light_browser` while it is off, else this platform, for which
-/// Lightpanda builds nothing (ADRs 0020 and 0093).
 /// The `proxy.*` keys that send a Run's Sessions through a proxy.
 const PROXY_KEYS: [&Setting; 3] = [&PROXY_SERVER, &PROXY_PROVIDER, &PROXY_KIND];
+
+/// The first `proxy.*` key `settings` send the Run's Sessions through a
+/// proxy with, and how it is set.
+fn proxied(settings: &Resolved) -> Option<(&'static str, &Effective)> {
+    PROXY_KEYS.iter().find_map(|setting| {
+        settings
+            .effective(setting)
+            .filter(|effective| !effective.value.is_null())
+            .map(|effective| (setting.name, effective))
+    })
+}
+
+/// A read the Run's HTTP tier sends, which leaves directly whatever proxy
+/// the Run sets (#1640).
+enum DirectRead<'a> {
+    /// The documents of a forced `fetch.tier: http`, the Run's or the
+    /// Label's named.
+    Http(Option<&'a str>),
+    /// A sitemap seed's sitemap.
+    Sitemap,
+    /// robots.txt, read for its rules.
+    RobotsTxt,
+    /// robots.txt, read to mark the Records taken against it.
+    RobotsTxtIgnored,
+    /// robots.txt's `Content-Signal` lines and the AI-use signal files.
+    UseSignals,
+}
+
+impl DirectRead<'_> {
+    /// The first direct read a crawl under `settings` can make, whose
+    /// Labels set `labels` and which `seeds_a_sitemap` or not.
+    fn of<'a>(
+        settings: &Resolved,
+        labels: &'a LabelSettings,
+        seeds_a_sitemap: bool,
+    ) -> Option<DirectRead<'a>> {
+        let preferences = SitePreferences::of(settings);
+        if matches!(forced(settings), Some((FetchTier::Http, _))) {
+            Some(DirectRead::Http(None))
+        } else if let Some((label, _)) = labels.forced().find(|(_, tier)| *tier == FetchTier::Http)
+        {
+            Some(DirectRead::Http(Some(label)))
+        } else if seeds_a_sitemap {
+            Some(DirectRead::Sitemap)
+        } else if preferences.respects_robots_txt() {
+            Some(DirectRead::RobotsTxt)
+        } else if preferences.honours_use_signals() {
+            Some(DirectRead::UseSignals)
+        } else if preferences.reads_robots_txt(Request::CrawlRequest) {
+            Some(DirectRead::RobotsTxtIgnored)
+        } else {
+            None
+        }
+    }
+
+    /// What the refusal's details name it.
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Http(_) => FetchTier::Http.as_str(),
+            Self::Sitemap => "sitemap",
+            Self::RobotsTxt | Self::RobotsTxtIgnored => "robots_txt",
+            Self::UseSignals => "use_signals",
+        }
+    }
+
+    /// What makes it, and the value that does without it.
+    fn told(&self) -> (String, &'static str) {
+        match self {
+            Self::Http(None) => (
+                "`fetch.tier` forces the `http` tier, whose documents are".to_owned(),
+                "`fetch.tier: auto`",
+            ),
+            Self::Http(Some(label)) => (
+                format!(
+                    "the Label `{label}` forces the `http` tier with `fetch.tier`, whose documents are"
+                ),
+                "`fetch.tier: auto`",
+            ),
+            Self::Sitemap => (
+                "a sitemap seed's sitemaps are".to_owned(),
+                "no sitemap seed",
+            ),
+            Self::RobotsTxt => (
+                "`site_preferences.respect_robots_txt` is on, and robots.txt is".to_owned(),
+                "`site_preferences.respect_robots_txt: false`",
+            ),
+            Self::RobotsTxtIgnored => (
+                "`site_preferences.mark_robots_txt_ignored` is on, and robots.txt is".to_owned(),
+                "`site_preferences.mark_robots_txt_ignored: false`",
+            ),
+            Self::UseSignals => (
+                "`site_preferences.respect_use_signals` is on, and robots.txt and the AI-use signal files are"
+                    .to_owned(),
+                "`site_preferences.respect_use_signals: false`",
+            ),
+        }
+    }
+}
+
+/// Whether one of `seeds` is a sitemap seed.
+fn seeds_a_sitemap<'a>(mut seeds: impl Iterator<Item = &'a Seed>) -> bool {
+    seeds.any(|seed| matches!(seed, Seed::Sitemap(_)))
+}
+
+/// Refuses a crawl Run that sets a proxy and can make the direct `read`: the
+/// Run's HTTP tier connects to sites directly, so a forced `http` tier's
+/// documents, a sitemap seed's sitemaps, robots.txt and the AI-use signal
+/// files would show them the machine's own address the proxy hides, until
+/// #1640 sends that tier through the Run's proxy.
+///
+/// # Errors
+///
+/// `capability_unavailable` naming the `proxy.*` key, the read as its
+/// kind and the value that makes no such read as its fix.
+fn refuse_direct_reads_beside_a_proxy<'a>(
+    settings: &Resolved,
+    read: impl FnOnce() -> Option<DirectRead<'a>>,
+) -> Result<(), CallError> {
+    let Some((key, proxied)) = proxied(settings) else {
+        return Ok(());
+    };
+    let Some(read) = read() else {
+        return Ok(());
+    };
+    let (made, fix) = read.told();
+    Err(CallError::new(
+        &CAPABILITY_UNAVAILABLE,
+        format!(
+            "`{key}` sets a proxy in {}, and {made} fetched past it, from the machine's own address: use {fix}, or unset `{key}`.",
+            proxied.layer.as_str()
+        ),
+        &CapabilityUnavailableDetails {
+            key: key.to_owned(),
+            layer: proxied.layer,
+            kind: read.kind().to_owned(),
+            fix: fix.to_owned(),
+        },
+    ))
+}
 
 /// Refuses a Run that allows the light-browser tier beside a proxy: the
 /// light-browser bridge connects to sites directly, so Lightpanda's
@@ -673,12 +809,7 @@ fn refuse_light_beside_a_proxy(settings: &Resolved) -> Result<(), CallError> {
     else {
         return Ok(());
     };
-    let Some((key, proxied)) = PROXY_KEYS.iter().find_map(|setting| {
-        settings
-            .effective(setting)
-            .filter(|effective| !effective.value.is_null())
-            .map(|effective| (setting.name, effective))
-    }) else {
+    let Some((key, proxied)) = proxied(settings) else {
         return Ok(());
     };
     Err(CallError::new(
@@ -697,6 +828,10 @@ fn refuse_light_beside_a_proxy(settings: &Resolved) -> Result<(), CallError> {
     ))
 }
 
+/// `capability_unavailable` for `fetch.tier: light_browser` forced in
+/// `layer`, or by `label`, where `settings` do not allow the tier: naming
+/// `fetch.light_browser` while it is off, else this platform, for which
+/// Lightpanda builds nothing (ADRs 0020 and 0093).
 fn light_unavailable(settings: &Resolved, layer: SettingsLayer, label: Option<&str>) -> CallError {
     let set = label.map_or_else(
         || layer.as_str().to_owned(),
@@ -782,7 +917,9 @@ impl FetchTiers {
 
     /// Refuses a Run whose `fetch.tier`, its own or one of its Labels' in
     /// `labels`, forces a tier this engine does not build yet, with
-    /// `capability_unavailable` naming the setting, one that hedges or
+    /// `capability_unavailable` naming the setting, one that sets a proxy
+    /// and, starting from `seeds`, can read a site past it, one that
+    /// hedges or
     /// races its tiers where the second copy could never start, one
     /// whose `fetch.encoding` names no encoding, and one whose
     /// `crawl.content_types` is no list of media ranges.
@@ -793,17 +930,27 @@ impl FetchTiers {
     /// only a browser sample gives, for `light_browser` where
     /// `fetch.light_browser` does not allow it, and naming
     /// `fetch.light_browser` when it allows the tier beside a proxy, which
-    /// Lightpanda's requests would leave past (#1640); `setting_invalid`
+    /// Lightpanda's requests would leave past (#1640), and naming the
+    /// `proxy.*` key of a Run whose HTTP tier would read a site past its
+    /// proxy: a forced `http` tier's documents, a sitemap seed's sitemaps,
+    /// robots.txt or the AI-use signal files (#1640); `setting_invalid`
     /// for a Run's `fetch.encoding` that is no WHATWG Encoding label, its
     /// `crawl.content_types` that is no list of media ranges (ADR 0119)
     /// and a `fetch.redirect.max` outside 1 to 19 (ADR 0118);
     /// `setting_not_applicable` for hedges or `fetch.tier_race` switched on
     /// while a domain admits one request at a time (ADR 0086).
-    pub fn check(settings: &Resolved, labels: &LabelSettings) -> Result<(), CallError> {
+    pub fn check(
+        settings: &Resolved,
+        labels: &LabelSettings,
+        seeds: &Seeds,
+    ) -> Result<(), CallError> {
         goodfetch_frontier::refuse_second_copies(settings, &FETCH_HEDGE_ENABLED)?;
         goodfetch_frontier::refuse_second_copies(settings, &FETCH_TIER_RACE)?;
         refuse_redirect_max(settings)?;
         refuse_light_beside_a_proxy(settings)?;
+        refuse_direct_reads_beside_a_proxy(settings, || {
+            DirectRead::of(settings, labels, seeds_a_sitemap(seeds.iter()))
+        })?;
         if let Some(effective) = settings.effective(&FETCH_ENCODING) {
             crate::choice::encoding("the Run", &effective.value)?;
         }
@@ -859,6 +1006,21 @@ impl FetchTiers {
             ));
         }
         Ok(())
+    }
+
+    /// Checks `seeds` added to a live Run under `settings`, as
+    /// [`FetchTiers::check`] checked the seeds of its start.
+    ///
+    /// # Errors
+    ///
+    /// `capability_unavailable` naming the `proxy.*` key of a Run that
+    /// sets a proxy, for a sitemap seed, whose sitemaps the Run's HTTP
+    /// tier would read past it (#1640).
+    pub fn check_seeds(settings: &Resolved, seeds: &[Seed]) -> Result<(), CallError> {
+        if !seeds_a_sitemap(seeds.iter()) {
+            return Ok(());
+        }
+        refuse_direct_reads_beside_a_proxy(settings, || Some(DirectRead::Sitemap))
     }
 
     /// The Run's own `fetch.tier`: the tier it forces, `auto` set by any

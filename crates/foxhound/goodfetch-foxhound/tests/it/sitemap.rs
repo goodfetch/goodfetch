@@ -259,6 +259,60 @@ fn a_sitemap_index_seeds_its_entries_with_the_first_matching_rules_label() {
     );
 }
 
+/// A sitemap index's sitemaps are nested one level under their seed: with
+/// `crawl.max_sitemap_nesting` at 0 neither of the index's two is fetched,
+/// the seed's report keeps each with `max_sitemap_nesting`, no entry is
+/// seeded and the Run ends `incomplete`, the bound named.
+///
+/// Covers: story:6-204, setting:crawl.max_sitemap_nesting
+#[test]
+fn a_sitemap_nested_deeper_than_crawl_max_sitemap_nesting_is_not_fetched() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let seed = json!({
+        "sitemap": proving_ground.url(SITE, "/sitemap-index.xml"),
+        "rules": [{ "pattern": "**/books/*", "label": "book" }],
+    });
+
+    let crawled = crawl_sitemap(
+        &proving_ground,
+        &seed,
+        &json!({ "crawl": { "max_sitemap_nesting": 0 } }),
+    );
+
+    let sitemaps = &crawled.report["sitemaps"][0];
+    let refused: Vec<&Value> = sitemaps["failures"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|failure| &failure["code"])
+        .collect();
+    let reasons: Vec<&Value> = crawled.report["completeness_reasons"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|reason| &reason["code"])
+        .collect();
+    assert_eq!(
+        (
+            crawled.handled,
+            &sitemaps["read"],
+            refused,
+            &crawled.report["completeness"],
+            reasons,
+            targets(&crawled.observations, SITE),
+        ),
+        (
+            Vec::new(),
+            &json!(1),
+            vec![&json!("max_sitemap_nesting"), &json!("max_sitemap_nesting")],
+            &json!("incomplete"),
+            vec![&json!("crawl.max_sitemap_nesting")],
+            vec!["/robots.txt".to_owned(), "/sitemap-index.xml".to_owned()],
+        )
+    );
+}
+
 /// A seed naming a site's robots.txt reads the sitemap its `Sitemap:` line
 /// cross-submits on another host: it admits the site's own entries from
 /// it, and the other host's are `out_of_scope`, so the partner's sitemap
@@ -394,12 +448,58 @@ fn a_sitemaps_own_fetches_obey_the_domain_policy_politeness_and_robots_txt() {
     );
 }
 
+/// A sitemap index past sitemaps.org's 50,000 URLs is not read: its seed's
+/// report keeps it with why, and none of the sitemaps it lists is fetched.
+///
+/// Covers: story:6-207
+#[test]
+fn a_sitemap_index_past_fifty_thousand_sitemaps_is_reported_unread() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let index = proving_ground.url(OVER_LIMIT, "/sitemap-index.xml");
+    let seed = json!({
+        "sitemap": index,
+        "rules": [{ "pattern": "**/books/*", "label": "book" }],
+    });
+
+    let crawled = crawl_sitemap(
+        &proving_ground,
+        &seed,
+        &json!({ "crawl": { "retry": { "max": 0 } } }),
+    );
+
+    assert_eq!(
+        (
+            crawled.report["sitemaps"].clone(),
+            targets(&crawled.observations, OVER_LIMIT),
+        ),
+        (
+            json!([counts(
+                &index,
+                0,
+                &[failure(
+                    &index,
+                    "response_not_ok",
+                    None,
+                    &format!(
+                        "The sitemap {index} could not be read: it lists more than sitemaps.org's 50,000 URLs."
+                    ),
+                )],
+                0,
+                &[],
+            )]),
+            vec!["/robots.txt".to_owned(), "/sitemap-index.xml".to_owned()],
+        )
+    );
+}
+
 /// Sitemaps are read plain and gzip-compressed alike, and one past
-/// sitemaps.org's 50,000 URLs or 50 MB uncompressed, a decompression bomb,
-/// broken XML, a 500 and a 404 are each reported with its URL and why, in
-/// the report and the progress alike, while the other sitemaps still seed
-/// (pitfall U19): the seed's counts give the sitemaps read, those that
-/// failed, with their status, and the entries added, never listing one.
+/// sitemaps.org's 50 MB uncompressed, a decompression bomb, broken XML, a
+/// 500 and a 404 are each reported with its URL and why, as is one the
+/// index names on another host, which is not fetched, in the report and
+/// the progress alike, while the other sitemaps still seed (pitfall U19):
+/// the seed's counts give the sitemaps read, those that failed, with
+/// their status, and the entries added, never listing one.
 ///
 /// Covers: story:6-206, story:6-207, setting:network.max_decompression_ratio, operation:run.progress
 #[test]
@@ -421,7 +521,7 @@ fn a_gzip_and_a_plain_sitemap_seed_and_a_bad_one_never_stops_the_rest() {
             &format!("The sitemap {at} could not be read: {why}."),
         )
     };
-    let over_limit = url(OVER_LIMIT, "/sitemap-index.xml");
+    let elsewhere = url(OVER_LIMIT, "/sitemap-index.xml");
     let bomb = url(SITE, "/sitemaps/bomb.xml.gz");
     let error = url(SITE, "/sitemaps/error.xml");
     let missing = url(SITE, "/sitemaps/missing.xml");
@@ -460,7 +560,14 @@ fn a_gzip_and_a_plain_sitemap_seed_and_a_bad_one_never_stops_the_rest() {
                 &url(SITE, "/sitemaps/oversized.xml"),
                 "it is larger than sitemaps.org's 50 MB (52,428,800 bytes) uncompressed",
             ),
-            unreadable(&over_limit, "it lists more than sitemaps.org's 50,000 URLs"),
+            failure(
+                &elsewhere,
+                "out_of_scope",
+                None,
+                &format!(
+                    "The sitemap {elsewhere} is on another host than its sitemap seed's and the sitemap's that names it, where only a robots.txt seed's own `Sitemap:` lines name one that is fetched, so it was not fetched."
+                ),
+            ),
         ],
         4,
         &[],

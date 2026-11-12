@@ -6,12 +6,25 @@
 //! title and HTML as one JSON line to `pages.jsonl` in the working folder,
 //! and `browser` renders each page in Chrome (`CHROME_BIN`), which only the
 //! executable built with the `chrome` feature does; every other scenario
-//! crawls in Spider's HTTP mode. It prints one line, `pages=<n>
-//! body_bytes=<n>`, what Spider says it fetched; the comparison's
-//! same-work check reads the Proving ground's own observations instead.
+//! crawls in Spider's HTTP mode.
+//!
+//! `--capacity` is the capacity of the broadcast channel Spider sends each
+//! page on. Spider's `Website` keeps a receiver of its own that never
+//! reads, and Tokio frees a slot only once every receiver has read it, so
+//! the channel keeps that many whole pages alive: the capacity is part of
+//! Spider's memory, and the comparison's matrix chooses it (#2213). Each
+//! page is read as it arrives, and a page the channel dropped before it was
+//! read (`Lagged`) fails the crawl, so a crawl that ends well lost none.
+//!
+//! The `jemalloc` and `mimalloc` features set the global allocator Spider's
+//! README recommends; without either, the system's serves.
+//!
+//! It prints one line, `pages=<n> body_bytes=<n>`, what Spider says it
+//! fetched; the comparison's same-work check reads the Proving ground's own
+//! observations instead.
 //!
 //!   goodfetch-compare-spider --url http://127.0.0.1:<port>/sites/1000/1 \
-//!     --host scale.test:<port> --concurrency 16 --scenario raw
+//!     --host scale.test:<port> --concurrency 16 --scenario raw --capacity 64
 
 use std::io::Write as _;
 use std::process::ExitCode;
@@ -19,6 +32,14 @@ use std::process::ExitCode;
 use spider::reqwest::header::{HOST, HeaderMap, HeaderValue};
 use spider::website::Website;
 use tokio::sync::broadcast::error::{RecvError, TryRecvError};
+
+#[cfg(feature = "jemalloc")]
+#[global_allocator]
+static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 /// The file the `extraction` scenario writes each page to.
 const PAGES_FILE: &str = "pages.jsonl";
@@ -68,14 +89,18 @@ struct Arguments {
     host: Option<String>,
     concurrency: usize,
     scenario: String,
+    /// The page channel's capacity, at least 1: Spider reads 0 as its own
+    /// default.
+    capacity: usize,
 }
 
 fn arguments() -> Result<Arguments, String> {
-    let usage = "usage: goodfetch-compare-spider --url <url> [--host <host:port>] --concurrency <n> --scenario <name>";
+    let usage = "usage: goodfetch-compare-spider --url <url> [--host <host:port>] --concurrency <n> --scenario <name> --capacity <n>";
     let mut url = None;
     let mut host = None;
     let mut concurrency = None;
     let mut scenario = None;
+    let mut capacity = None;
     let mut given = std::env::args().skip(1);
     while let Some(name) = given.next() {
         let value = given.next().ok_or(usage)?;
@@ -86,6 +111,15 @@ fn arguments() -> Result<Arguments, String> {
                 concurrency = Some(value.parse().map_err(|_| "--concurrency takes a count")?);
             }
             "--scenario" => scenario = Some(value),
+            "--capacity" => {
+                capacity = Some(
+                    value
+                        .parse()
+                        .ok()
+                        .filter(|capacity| *capacity > 0)
+                        .ok_or("--capacity takes a count of at least 1")?,
+                );
+            }
             _ => return Err(usage.to_owned()),
         }
     }
@@ -94,6 +128,7 @@ fn arguments() -> Result<Arguments, String> {
         host,
         concurrency: concurrency.ok_or(usage)?,
         scenario: scenario.ok_or(usage)?,
+        capacity: capacity.ok_or(usage)?,
     })
 }
 
@@ -124,18 +159,16 @@ async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
     };
     // Every page is read from the stream, drained once the crawl ends:
     // the lab found the crawl's end may come before its last page is read.
-    let mut pages = site.subscribe(4096);
+    // The reader is a task of its own, as Spider's documentation subscribes
+    // (`Website::subscribe`'s example): beside the crawl in one task, it
+    // read only when the crawl's own future yielded, and under Callgrind a
+    // channel of 64 or of 128 pages lost some (#2213).
+    // A bare `tokio::spawn`: this executable stands outside the workspace
+    // and has no tracker; the task is awaited below, so none outlives the
+    // crawl.
+    let mut pages = site.subscribe(arguments.capacity);
     let (done, mut ended) = tokio::sync::oneshot::channel::<()>();
-    let crawling = async {
-        if browser {
-            site.crawl().await;
-        } else {
-            site.crawl_raw().await;
-        }
-        // The receiver lives until the stream is drained.
-        let _ = done.send(());
-    };
-    let reading = async {
+    let reading = tokio::spawn(async move {
         let mut fetched = Fetched { written, ..Fetched::default() };
         loop {
             tokio::select! {
@@ -153,9 +186,17 @@ async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
                 },
             }
         }
-    };
-    let ((), fetched) = tokio::join!(crawling, reading);
-    fetched
+    });
+    if browser {
+        site.crawl().await;
+    } else {
+        site.crawl_raw().await;
+    }
+    // The receiver lives until the stream is drained.
+    let _ = done.send(());
+    reading
+        .await
+        .map_err(|error| format!("reading the page stream: {error}"))?
 }
 
 #[tokio::main]

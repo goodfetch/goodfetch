@@ -58,9 +58,10 @@ use goodfetch_protocol::secrets::{
     SecretInputRefusedDetails, SecretUnavailableDetails,
 };
 use goodfetch_protocol::settings::{
-    RunOrigin, SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_APPLICABLE, SETTING_UNKNOWN,
-    SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails,
-    SettingUnknownDetails, SettingsLayer, TIMEOUT_CLOSE, TIMEOUT_RUN,
+    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, RunOrigin, SETTING_INVALID,
+    SETTING_LOCKED, SETTING_NOT_APPLICABLE, SETTING_UNKNOWN, SettingInvalidDetails,
+    SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SettingsLayer,
+    TIMEOUT_CLOSE, TIMEOUT_RUN,
 };
 
 use crate::call_error::CallError;
@@ -355,6 +356,26 @@ pub fn local_settings_error(error: &SettingsError, identity: &Identity) -> CallE
     translated(error, identity, false)
 }
 
+/// `capability_unavailable` for the setting `key`, set in `layer`, whose
+/// `feature` the engine does not build yet, with its default as the `fix`.
+fn unbuilt(
+    message: String,
+    (key, layer): (&str, SettingsLayer),
+    feature: &str,
+    fix: &str,
+) -> CallError {
+    CallError::new(
+        &CAPABILITY_UNAVAILABLE,
+        message,
+        &CapabilityUnavailableDetails {
+            key: key.to_owned(),
+            layer,
+            kind: feature.to_owned(),
+            fix: fix.to_owned(),
+        },
+    )
+}
+
 /// [`settings_error`]'s translation, for the engine `identity` names,
 /// behind Goodfetch Cloud's gateway or not.
 fn translated(error: &SettingsError, identity: &Identity, behind_gateway: bool) -> CallError {
@@ -406,6 +427,12 @@ fn translated(error: &SettingsError, identity: &Identity, behind_gateway: bool) 
                 fix: fix.clone(),
             },
         ),
+        SettingsError::Unavailable {
+            key,
+            layer,
+            feature,
+            fix,
+        } => unbuilt(message, (key, *layer), feature, fix),
         SettingsError::NotInProduct { key, needs } => {
             let (message, details) =
                 identity.not_in_product(Requested::Name(key), *needs, behind_gateway);

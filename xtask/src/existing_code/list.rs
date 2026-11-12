@@ -108,7 +108,6 @@ fn quoted(text: &str) -> Vec<String> {
 
 /// A citation's parts: a path from the repository's root, an optional line or
 /// range of lines and an optional symbol.
-#[derive(Clone)]
 pub(super) struct Citation {
     /// As written, for the output.
     pub(super) written: String,
@@ -168,6 +167,8 @@ fn range(text: &str) -> Option<(usize, usize)> {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::{Citation, find};
 
     #[test]
@@ -189,34 +190,42 @@ mod tests {
         assert_eq!(list.items[0].quoted, ["a/b.rs:3", "c.rs"]);
     }
 
+    #[rstest]
+    #[case::too_short_a_commit("Read at `95935d`.")]
+    #[case::a_commit_out_of_backticks("Read at 95935d9b2.")]
+    #[case::an_item("- One. `a.rs`")]
+    fn a_first_line_that_is_no_read_commit_leaves_none(#[case] first: &str) {
+        let list = find(&format!("## Existing code\n\n{first}\n")).unwrap();
+
+        assert_eq!(list.read_at, None);
+    }
+
     #[test]
-    fn a_first_line_that_is_no_read_commit_leaves_none() {
-        for first in ["Read at `95935d`.", "Read at 95935d9b2.", "- One. `a.rs`"] {
-            let list = find(&format!("## Existing code\n\n{first}\n")).unwrap();
-            assert_eq!(list.read_at, None, "{first}");
-        }
+    fn a_heading_that_only_starts_with_existing_code_holds_no_list() {
         assert!(find("## Existing code paths\n").is_none());
     }
 
     #[test]
     fn a_citation_has_a_path_lines_and_a_symbol() {
         let citation = Citation::parse("xtask/src/issues.rs:24-29#fn keep").unwrap();
+
         assert_eq!(citation.path, "xtask/src/issues.rs");
         assert_eq!(citation.lines, Some((24, 29)));
         assert_eq!(citation.symbol.as_deref(), Some("fn keep"));
         assert_eq!(citation.top(), "xtask");
         assert_eq!(Citation::parse("ci/musl/cargo").unwrap().lines, None);
-        for other in [
-            "page.on()",
-            "https://example.com",
-            "a:0",
-            "a:5-4",
-            "#2242",
-            "/etc/hosts",
-            "../a",
-            "a b",
-        ] {
-            assert!(Citation::parse(other).is_none(), "{other}");
-        }
+    }
+
+    #[rstest]
+    #[case::a_call("page.on()")]
+    #[case::an_address("https://example.com")]
+    #[case::line_zero("a:0")]
+    #[case::a_backward_range("a:5-4")]
+    #[case::an_issue("#2242")]
+    #[case::an_absolute_path("/etc/hosts")]
+    #[case::a_parent_folder("../a")]
+    #[case::a_space("a b")]
+    fn other_forms_are_no_citation(#[case] quoted: &str) {
+        assert!(Citation::parse(quoted).is_none());
     }
 }

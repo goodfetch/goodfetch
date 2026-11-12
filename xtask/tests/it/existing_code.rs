@@ -14,7 +14,8 @@ const READY: &str =
     "/repos/goodfetch/goodfetch/issues?labels=ready-for-agent&state=open&per_page=100&page=1";
 const COMMENTS: &str = "/repos/goodfetch/goodfetch/issues/7/comments?per_page=100&page=1";
 const POST_COMMENT: &str = "POST /repos/goodfetch/goodfetch/issues/7/comments";
-const PATCH_ISSUE: &str = "PATCH /repos/goodfetch/goodfetch/issues/7";
+const ADD_LABEL: &str = "POST /repos/goodfetch/goodfetch/issues/7/labels";
+const REMOVE_LABEL: &str = "DELETE /repos/goodfetch/goodfetch/issues/7/labels/ready-for-agent";
 
 /// `keep` is lines 3 to 5.
 const LIBRARY: &str = "fn first() {}\n\nfn keep() {\n    1\n}\n";
@@ -236,11 +237,6 @@ fn cited_lines_that_changed_fail_naming_the_merge_that_changed_them() {
 
 #[rstest]
 #[case::path("`src/gone.rs:1`", "existing-code-missing-path", "#7 src/gone.rs:1")]
-#[case::symbol(
-    "`src/lib.rs#kept`",
-    "existing-code-missing-symbol",
-    "#7 src/lib.rs#kept"
-)]
 #[case::lines(
     "`src/lib.rs:9-12`",
     "existing-code-unknown-lines",
@@ -260,6 +256,36 @@ fn an_item_whose_citation_does_not_hold_fails(
 
     assert_eq!(outcome.findings(), vec![finding(kind, subject)]);
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+}
+
+/// A symbol holds while its file names each of its parts, split at `::` and
+/// `.`, as a whole word.
+#[rstest]
+#[case::a_call("keep(", true)]
+#[case::a_definition("fn keep", true)]
+#[case::a_path("first::keep", true)]
+#[case::the_start_of_a_word("kee", false)]
+#[case::the_end_of_a_word("eep", false)]
+#[case::a_path_with_a_missing_part("keep::second", false)]
+fn a_symbol_holds_while_its_file_names_it_in_whole_words(
+    #[case] symbol: &str,
+    #[case] holds: bool,
+) {
+    let (workspace, read) = repository();
+    merge(&workspace, "Nothing (#10)");
+    let citation = format!("src/lib.rs#{symbol}");
+    let body = listed(&read, &[&format!("The library holds it. `{citation}`")]);
+
+    let outcome = check(&workspace, &ticket(body));
+
+    let (expected, code) = if holds {
+        (vec![], 0)
+    } else {
+        let subject = format!("#7 {citation}");
+        (vec![finding("existing-code-missing-symbol", &subject)], 1)
+    };
+    assert_eq!(outcome.findings(), expected, "{}", outcome.stdout);
+    assert_eq!(outcome.code, code, "{}", outcome.stderr);
 }
 
 /// Words in backticks that name no path of the repository are not
@@ -336,15 +362,18 @@ fn a_read_commit_main_does_not_hold_fails() {
 }
 
 /// A spec: titled "Spec:" or holding sub-issues, published on or after
-/// 2026-11-10 or listed in `docs/agents/rollout-order.md`.
+/// 2026-11-10, even once its run started, or listed in
+/// `docs/agents/rollout-order.md` before its run starts.
 #[rstest]
-#[case::titled("Spec: something", "2026-11-10T00:00:00Z", 0, None)]
-#[case::with_sub_issues("Something", "2026-11-12T00:00:00Z", 3, None)]
+#[case::titled("Spec: something", "2026-11-10T00:00:00Z", 0, None, false)]
+#[case::with_sub_issues("Something", "2026-11-12T00:00:00Z", 3, None, false)]
+#[case::published_since_whose_run_started("Spec: something", "2026-11-11T00:00:00Z", 0, None, true)]
 #[case::older_spec_a_step_opens_with(
     "Spec: something",
     "2026-11-01T00:00:00Z",
     0,
-    Some(ROLLOUT_ORDER_LISTS_7)
+    Some(ROLLOUT_ORDER_LISTS_7),
+    false
 )]
 #[case::older_spec_linked_under_its_title(
     "Spec: something",
@@ -352,19 +381,25 @@ fn a_read_commit_main_does_not_hold_fails() {
     0,
     Some(
         "2. **The tickets first:**\n   - [#9](https://github.com/goodfetch/goodfetch/issues/9), of [Spec: something](https://github.com/goodfetch/goodfetch/issues/7).\n"
-    )
+    ),
+    false
 )]
 fn a_spec_with_no_list_fails(
     #[case] title: &str,
     #[case] created_at: &str,
     #[case] sub_issues: u64,
     #[case] rollout_order: Option<&str>,
+    #[case] started: bool,
 ) {
     let (workspace, _) = repository();
     if let Some(rollout_order) = rollout_order {
         workspace.write("docs/agents/rollout-order.md", rollout_order.as_bytes());
     }
     merge(&workspace, "Nothing (#10)");
+    if started {
+        let run = commit_off_main(&workspace);
+        workspace.git(&["update-ref", "refs/heads/spec/7", &run]);
+    }
     let spec = Issue {
         title,
         created_at,
@@ -471,9 +506,16 @@ fn the_sweep_without_apply_writes_nothing() {
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
 }
 
-/// It comments once with the item, its citation and the merge, then moves the
-/// labels in one write; on the state that leaves, a second sweep, which no
-/// longer lists the issue, writes nothing.
+fn methods_and_paths(requests: &[Request]) -> Vec<(&str, &str)> {
+    requests
+        .iter()
+        .map(|request| (request.method.as_str(), request.path.as_str()))
+        .collect()
+}
+
+/// It comments once with the item, its citation and the merge, then applies
+/// `needs-triage` and removes `ready-for-agent`; on the state that leaves, a
+/// second sweep, which no longer lists the issue, writes nothing.
 #[test]
 fn the_sweep_sets_a_failing_issue_aside_once() {
     let (workspace, issue, changed) = moved_evidence();
@@ -482,7 +524,8 @@ fn the_sweep_sets_a_failing_issue_aside_once() {
         (READY, &listing),
         (COMMENTS, "[]"),
         (POST_COMMENT, "{}"),
-        (PATCH_ISSUE, "{}"),
+        (ADD_LABEL, "[]"),
+        (REMOVE_LABEL, "[]"),
     ]);
 
     let outcome = sweep(&workspace, &github, true);
@@ -490,19 +533,18 @@ fn the_sweep_sets_a_failing_issue_aside_once() {
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     let writes = github.writes();
     assert_eq!(
-        writes
-            .iter()
-            .map(|write| (write.method.as_str(), write.path.as_str()))
-            .collect::<Vec<_>>(),
+        methods_and_paths(&writes),
         vec![
             ("POST", "/repos/goodfetch/goodfetch/issues/7/comments"),
-            ("PATCH", "/repos/goodfetch/goodfetch/issues/7"),
+            ("POST", "/repos/goodfetch/goodfetch/issues/7/labels"),
+            (
+                "DELETE",
+                "/repos/goodfetch/goodfetch/issues/7/labels/ready-for-agent"
+            ),
         ]
     );
-    let comment = written(&writes, "POST")[0]["body"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let posted = written(&writes, "POST");
+    let comment = posted[0]["body"].as_str().unwrap().to_owned();
     for expected in [
         "The library keeps one thing.",
         "`src/lib.rs:3-5#keep`",
@@ -512,10 +554,7 @@ fn the_sweep_sets_a_failing_issue_aside_once() {
         assert!(comment.contains(expected), "{expected:?} in {comment}");
     }
     assert!(!comment.contains("false"), "{comment}");
-    assert_eq!(
-        written(&writes, "PATCH")[0],
-        json!({ "labels": ["enhancement", "needs-triage"] })
-    );
+    assert_eq!(posted[1], json!({ "labels": ["needs-triage"] }));
 
     let after = GitHub::serving(&[(READY, "[]")]);
     let again = sweep(&workspace, &after, true);
@@ -539,19 +578,56 @@ fn the_sweep_comments_no_second_time() {
         (READY, &listing),
         (COMMENTS, &comments),
         (POST_COMMENT, "{}"),
-        (PATCH_ISSUE, "{}"),
+        (ADD_LABEL, "[]"),
+        (REMOVE_LABEL, "[]"),
     ]);
 
     let outcome = sweep(&workspace, &second, true);
 
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     assert_eq!(
-        second
-            .writes()
-            .iter()
-            .map(|write| write.method.as_str())
-            .collect::<Vec<_>>(),
-        vec!["PATCH"]
+        methods_and_paths(&second.writes()),
+        vec![
+            ("POST", "/repos/goodfetch/goodfetch/issues/7/labels"),
+            (
+                "DELETE",
+                "/repos/goodfetch/goodfetch/issues/7/labels/ready-for-agent"
+            ),
+        ]
+    );
+}
+
+/// Every issue gets its comment before any label moves: a sweep that fails
+/// commenting on a second issue has moved no label of the first.
+#[test]
+fn the_sweep_moves_no_label_before_every_comment_is_written() {
+    let (workspace, issue, _) = moved_evidence();
+    let other = Issue {
+        number: 8,
+        ..ticket(issue.body.clone())
+    };
+    let listing = ready(&[&issue, &other]);
+    let github = GitHub::serving(&[
+        (READY, &listing),
+        (COMMENTS, "[]"),
+        (
+            "/repos/goodfetch/goodfetch/issues/8/comments?per_page=100&page=1",
+            "[]",
+        ),
+        (POST_COMMENT, "{}"),
+        (ADD_LABEL, "[]"),
+        (REMOVE_LABEL, "[]"),
+    ]);
+
+    let outcome = sweep(&workspace, &github, true);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stdout);
+    assert_eq!(
+        methods_and_paths(&github.writes()),
+        vec![
+            ("POST", "/repos/goodfetch/goodfetch/issues/7/comments"),
+            ("POST", "/repos/goodfetch/goodfetch/issues/8/comments"),
+        ]
     );
 }
 
@@ -581,7 +657,8 @@ fn the_sweep_leaves_alone_an_issue_whose_specs_run_started(
         (READY, &listing),
         (COMMENTS, "[]"),
         (POST_COMMENT, "{}"),
-        (PATCH_ISSUE, "{}"),
+        (ADD_LABEL, "[]"),
+        (REMOVE_LABEL, "[]"),
     ]);
 
     let outcome = sweep(&workspace, &github, true);
@@ -612,7 +689,7 @@ fn a_tracker_failure_fails_the_sweep_and_moves_no_label(#[case] routes: &[(&str,
                 },
             )
         })
-        .chain([(PATCH_ISSUE, "{}")])
+        .chain([(ADD_LABEL, "[]"), (REMOVE_LABEL, "[]")])
         .collect();
     let github = GitHub::serving(&routes);
 
@@ -621,7 +698,10 @@ fn a_tracker_failure_fails_the_sweep_and_moves_no_label(#[case] routes: &[(&str,
     assert_eq!(outcome.code, 2, "{}", outcome.stdout);
     assert!(outcome.stderr.starts_with("error:"), "{}", outcome.stderr);
     assert!(
-        github.writes().iter().all(|write| write.method != "PATCH"),
+        github
+            .writes()
+            .iter()
+            .all(|write| !write.path.contains("/labels")),
         "{:?}",
         github.writes()
     );

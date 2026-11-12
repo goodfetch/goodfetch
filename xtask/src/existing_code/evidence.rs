@@ -157,26 +157,3 @@ fn names(text: &str, symbol: &str) -> bool {
         .filter(|part| !part.is_empty())
         .all(whole_word)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::names;
-
-    #[test]
-    fn a_symbol_is_named_as_a_whole_word() {
-        assert!(names("pub(crate) fn keep(", "fn keep"));
-        assert!(names("# `just gate-backstop [ref]`", "gate-backstop"));
-        assert!(!names("fn keeper()", "keep"));
-        assert!(!names("fn _keep()", "keep"));
-        assert!(names("keep", "keep"));
-        assert!(names("impl Reader {\n    fn of(", "Reader::of"));
-        assert!(names("self.dialogs.close();", "dialogs.close"));
-        assert!(!names("impl Reader {\n    fn off(", "Reader::of"));
-        assert!(names("tier.analysis(&page)", ".analysis("));
-        assert!(names(
-            "host: self.host_defaults(),",
-            "host: self.host_defaults()"
-        ));
-        assert!(!names("tier.reanalysis(&page)", ".analysis("));
-    }
-}

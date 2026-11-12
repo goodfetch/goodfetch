@@ -186,6 +186,8 @@ pub const EVENTS_SUBSCRIBE: Operation = Operation {
     result: schema_of::<SubscriptionEnded>,
     events: &[&RESYNC, &RUN_AXES_CHANGED, &NEEDS_YOU_CHANGED, &SYSTEM_INFO],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,

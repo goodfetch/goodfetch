@@ -21,9 +21,9 @@ use std::ffi::OsString;
 use std::sync::{Arc, Mutex};
 
 use goodfetch_protocol::catalog::{
-    Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
+    Operation, OperationClass, OperationKind, Product, Reach, SharedType, SharedTypeValue,
+    Stability, schema_of,
 };
-use goodfetch_protocol::foxhound::settings::POLITENESS_WEAKENED;
 use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{RUN_STATE_DURABILITY, RunId};
 use goodfetch_test_support::{Canaries, SecretKind, TestEnv};
@@ -388,6 +388,14 @@ fn recorded(env: &TestEnv) -> Vec<Value> {
         .collect()
 }
 
+/// The Audit log kind the test's composition records its weakening as.
+const PRESSED_HARDER: SharedTypeValue = SharedTypeValue {
+    shared_type: SharedType::AuditKind,
+    name: "test_pressed_harder",
+    description: "A run set a value that presses a site harder than its built-in default.",
+    arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+};
+
 /// A key a composition registers as a weakening recorded as a kind of its
 /// own, as Foxhound's composition registers its Politeness values (ADR
 /// 0086), is recorded once per Run as that kind, with its value, its
@@ -401,7 +409,7 @@ fn a_registered_weakening_is_recorded_once_as_its_kind_with_its_default_and_laye
     let registering = || {
         Contribution::new("test-politeness").with_recorded_weakening(
             &POLITENESS_SHARING,
-            &POLITENESS_WEAKENED,
+            &PRESSED_HARDER,
             POLITENESS_SHARING.default,
         )
     };
@@ -432,7 +440,7 @@ fn a_registered_weakening_is_recorded_once_as_its_kind_with_its_default_and_laye
                 }]),
                 vec!["politeness.sharing".to_owned()],
                 vec![json!([
-                    "politeness_weakened",
+                    "test_pressed_harder",
                     "switched",
                     "run",
                     { "setting": "politeness.sharing", "value": "run", "default": "shared" },
@@ -456,6 +464,8 @@ const REACH: Operation = Operation {
     result: schema_of::<Value>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,

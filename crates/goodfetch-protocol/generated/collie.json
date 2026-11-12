@@ -9375,6 +9375,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A bug in Goodfetch made the engine panic, which ended what `ended` names and only that: for `call`, this call, while its Connection, its Run and its Page go on. Making the same call again is likely to hit the same bug. Report it with the crash report `crash_report` names, a file in the engine's crash-report folder on its machine.",
+      "exit_code": null,
+      "group": "internal",
+      "json_rpc_class": -32007,
+      "name": "engine_panicked",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Windows refused to start the file: Smart App Control, or another App Control policy, blocks executables without a signature or reputation it trusts. Goodfetch never re-signs a file it did not build. For a browser, use the Goodfetch Chromium or an installed Chrome by channel; otherwise turn Smart App Control off, or ask the device's administrator to allow the file.",
       "exit_code": null,
       "group": "refused",
@@ -10744,6 +10754,30 @@
       "product": "collie",
       "stability": "stable",
       "unit": "{daemon}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The panics in the engine, each a bug in Goodfetch with a crash report on the machine, by what it ended: a call, an attempt, a Page, a Session, a browser, a Run, a Connection or the engine (ADR 0148).",
+      "instrument": "counter",
+      "labels": [
+        {
+          "name": "ended",
+          "values": [
+            "call",
+            "attempt",
+            "page",
+            "session",
+            "browser",
+            "run",
+            "connection",
+            "engine"
+          ]
+        }
+      ],
+      "name": "goodfetch.engine.panics",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "{panic}"
     },
     {
       "arrived_in": "0.1",
@@ -12986,7 +13020,7 @@
       "authority": "machine",
       "clearable": false,
       "default": 110000,
-      "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+      "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
       "name": "daemon.drain_grace",
       "product": "collie",
       "products": [
@@ -13522,6 +13556,23 @@
       "value": {
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": false,
+      "description": "Whether the engine's own memory may be backed by the operating system's transparent huge pages: off, so the allocator reserves no memory the engine never touches, and the engine's resident memory is smaller. On, huge pages may back it, which is faster for some workloads and holds more memory. Read once, when the engine starts, on Linux; elsewhere it changes nothing. The browsers and other programs the engine starts keep the state the engine itself was started with either way.",
+      "name": "governor.huge_pages",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
       },
       "weakens": false
     },

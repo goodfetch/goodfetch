@@ -71,6 +71,7 @@ use goodfetch_engine::{Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::cli::ATTACHED_ENGINE;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::governor::HUGE_PAGES;
 use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, HOME_VARIABLE};
 use identity::{Refused, identity, refuse};
 use output::{ColourChoice, ColourFlag, Human};
@@ -383,6 +384,12 @@ pub fn main(start: &Start) -> ExitCode {
     let home = home(&environment);
     // Read once, before any command builds its runtime (#2200).
     let settings = machine_settings(start, home.as_ref());
+    // Before anything starts a thread: mimalloc's options are not set
+    // thread-safely. Settings that cannot be read keep the default, off.
+    let read = settings.as_ref().and_then(|read| read.as_ref().ok());
+    if read.is_some_and(|read| read.get::<bool>(&HUGE_PAGES)) {
+        allocator::huge_pages_on();
+    }
     let clock = Clock::system();
     let log_events = LogEvents::new();
     let masks = Masks::new();
@@ -468,6 +475,16 @@ fn machine_settings(start: &Start, home: Option<&Home>) -> Option<Result<Resolve
 /// usage error's, or `not_in_product`'s when it names what only Foxhound
 /// carries and the executable is not Foxhound's (ADR 0087).
 fn parse(start: &Start) -> Result<(String, Parsed, ColourChoice), ExitCode> {
+    if let Some(color) = attached_engine(&start.arguments) {
+        let command = Command::AttachedEngine {
+            _colour: ColourFlag { color },
+        };
+        return Ok((
+            start.product.executable_name().to_owned(),
+            Parsed::HandWritten(command),
+            color,
+        ));
+    }
     let (command_line, generated) = command_line(start.product, start.commands);
     let mut command_line = command_line.version(start.version);
     let binary = command_line.get_name().to_owned();
@@ -490,6 +507,27 @@ fn parse(start: &Start) -> Result<(String, Parsed, ColourChoice), ExitCode> {
             ExitCode::from(u8::try_from(error.exit_code()).unwrap_or(2))
         })
     })
+}
+
+/// The colour of an Attached engine started as an SDK starts it, `attached-
+/// engine` alone or with `--color`, read without building the command line
+/// (issue 2204): what the command line would parse from those arguments.
+/// None for anything else, which the command line parses, refuses or
+/// helps with.
+fn attached_engine(arguments: &[OsString]) -> Option<ColourChoice> {
+    let [_, command, flag @ ..] = arguments else {
+        return None;
+    };
+    if command.to_str()? != ATTACHED_ENGINE {
+        return None;
+    }
+    let value = match flag {
+        [] => return Some(ColourChoice::default()),
+        [name, value] if name == "--color" => value.to_str()?,
+        [joined] => joined.to_str()?.strip_prefix("--color=")?,
+        _ => return None,
+    };
+    <ColourChoice as clap::ValueEnum>::from_str(value, false).ok()
 }
 
 /// `engine`, its Connections receiving `log_events`, its Resource governor

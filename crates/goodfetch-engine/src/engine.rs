@@ -21,7 +21,7 @@ use std::sync::Arc;
 use goodfetch_protocol::connection::PrivateEndpoint;
 use goodfetch_protocol::connection::{EngineInstance, ProductVersion};
 use goodfetch_protocol::governor::{SYSTEM_INFO, SystemInfo};
-use goodfetch_protocol::run::RunOwner;
+use goodfetch_protocol::run::{RunKind, RunOwner};
 use goodfetch_protocol::secret_reference::Provider;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -50,10 +50,10 @@ use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
-use crate::runs::{CleanUpVersions, ProgressPart, ReportPart, Runs, RunsSetup};
+use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Runs, RunsSetup};
 use crate::sandbox_probe::{self, SandboxProbe};
 use crate::secrets::{self, Carried, Keychain, ProviderFactory, Secrets};
-use crate::settings::{Settings, SettingsFiles};
+use crate::settings::{HostDefaults, HostSearch, Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 use crate::transition::{
     self,
@@ -66,6 +66,7 @@ use crate::transport::{Connection, DaemonListener, Network, TransportError};
 pub struct Engine {
     dispatch: Arc<Dispatch>,
     tables: Vec<RunStateTables>,
+    driving: BTreeMap<RunKind, Driving>,
     politeness_tables: Vec<PolitenessTables>,
     report_parts: Vec<Arc<dyn ReportPart>>,
     progress_parts: Vec<Arc<dyn ProgressPart>>,
@@ -117,8 +118,10 @@ impl Engine {
                 log_events: None,
                 masks: Masks::new(),
                 work: CountedWork::default(),
+                metrics: Metrics::none(),
             }),
             tables: composition.run_state_tables(),
+            driving: composition.driving(),
             politeness_tables: composition.politeness_tables(),
             report_parts: composition.report_parts(),
             progress_parts: composition.progress_parts(),
@@ -137,7 +140,9 @@ impl Engine {
     /// The same, recording the runtime's metrics on `metrics` (ADR 0050).
     #[must_use]
     pub fn with_metrics(mut self, metrics: Metrics) -> Self {
-        Arc::make_mut(&mut self.dispatch).work = metrics.counted_work().clone();
+        let dispatch = Arc::make_mut(&mut self.dispatch);
+        dispatch.work = metrics.counted_work().clone();
+        dispatch.metrics = metrics.clone();
         self.metrics = metrics;
         self
     }
@@ -250,7 +255,7 @@ impl Engine {
             &owner,
         )
         .await;
-        if matches!(ended, DaemonEnd::Drained) {
+        if matches!(ended, DaemonEnd::Drained | DaemonEnd::ListenerFailed) {
             // Its process exits now, within its drain grace: a Run whose
             // tasks did not stop in time stays as it is, resumable from its
             // run file, and nothing waits for them.
@@ -376,6 +381,7 @@ impl Engine {
                 },
                 install: install.map(Arc::new),
                 tables: self.tables.clone(),
+                driving: self.driving.clone(),
                 report_parts: self.report_parts.clone(),
                 progress_parts: self.progress_parts.clone(),
                 clean_up: self.clean_up.clone(),
@@ -600,10 +606,13 @@ async fn write_managed(context: EngineContext, version: ProductVersion) {
     }
 }
 
-/// The engine's settings, whose host defaults are `keychain`'s and those of
-/// `probe`, Chromium's sandbox's, their reads counted on `work`. The probe
-/// starts now, at startup (ADR 0049); the host's defaults wait for its
-/// answer, which each browser launch reads.
+/// The engine's settings, whose host defaults are those of `probe`,
+/// Chromium's sandbox's, and `keychain`'s, their reads counted on `work`.
+/// The probe starts now, at startup (ADR 0049); every opening of a Run's
+/// settings waits for its answer, which each browser launch reads. The
+/// keychain's are only asked for where they are needed, such as where a
+/// Run first makes its data key, so that an opening opens no OS keychain
+/// (issue 2204).
 fn host_settings(
     files: SettingsFiles,
     product: goodfetch_protocol::catalog::Product,
@@ -622,14 +631,22 @@ fn host_settings(
                 .await;
         });
     }
-    Settings::with_host(files, product, owner.child(), work, move || {
-        let keychain = keychain.clone();
+    let asking = keychain.clone();
+    let search = HostSearch::opening(move || {
         let (probing, probe) = (Arc::clone(&probing), probe.clone());
         Box::pin(async move {
             let probed = probing.blocking(move || probe.probed().clone()).await;
-            sandbox_probe::host_defaults(secrets::host_defaults(&keychain).await, &probed)
+            sandbox_probe::host_defaults(HostDefaults::default(), &probed)
         })
     })
+    .asking(
+        move || {
+            let keychain = asking.clone();
+            Box::pin(async move { secrets::host_defaults(&keychain).await })
+        },
+        move || secrets::known_host_defaults(&keychain),
+    );
+    Settings::with_host(files, product, owner.child(), work, search)
 }
 
 /// Sends each of the Resource governor's samples as `engine.system_info`
@@ -690,20 +707,21 @@ async fn private_endpoint(
 /// `owner`, until the listener fails or `owner` stops.
 async fn serve_private_endpoint(
     dispatch: Arc<Dispatch>,
-    mut listener: DaemonListener,
+    listener: DaemonListener,
     token: Arc<str>,
     owner: TaskOwner,
     runs: Runs,
     events: Events,
     context: EngineContext,
 ) {
+    let mut accepts = daemon::Accepts::new(listener, context.clock());
     loop {
         let connection = tokio::select! {
             () = owner.token().cancelled() => return,
-            accepted = listener.accept() => match accepted {
+            accepted = accepts.next() => match accepted {
                 Ok(connection) => connection,
-                Err(TransportError::DialerClosed) => return,
-                Err(error) => {
+                Err(daemon::NoMoreConnections::DialersGone) => return,
+                Err(daemon::NoMoreConnections::ListenerClosed(error)) => {
                     tracing::warn!(%error, "the private endpoint stopped accepting");
                     return;
                 }

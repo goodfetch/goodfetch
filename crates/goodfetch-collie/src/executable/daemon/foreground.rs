@@ -181,10 +181,10 @@ pub(in crate::executable) fn run(
             keep_alive: true,
             holds: Holds::new(),
             succession: Arc::new(TheOperatorsChoice),
-            drain: Some(Drain {
-                asked: asked.clone(),
+            drain: Drain {
+                asked: Some(asked.clone()),
                 grace: configured.drain_grace,
-            }),
+            },
             install,
             ops: Ops {
                 listener: ops,

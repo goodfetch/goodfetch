@@ -5,7 +5,8 @@
 use clap::Command;
 use clap::error::ErrorKind;
 use goodfetch_protocol::catalog::{
-    Operation, OperationClass, OperationKind, Product, ProtocolVersion, Reach, Stability, schema_of,
+    Bound, Operation, OperationClass, OperationKind, Product, ProtocolVersion, Reach, Stability,
+    StreamInput, schema_of,
 };
 use goodfetch_protocol::entries::operations_of;
 use proptest::prelude::{prop, prop_assert_eq, proptest};
@@ -15,8 +16,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::{
-    BOUND, Call, Generated, NAMESPACES, Namespace, Offer, OwnCommands, bound_of, command, duration,
-    member, members_of, offer,
+    Call, Generated, NAMESPACES, Namespace, Offer, OwnCommands, command, duration, member,
+    members_of, offer,
 };
 use crate::executable::engine_choice::{Choice, Lifetime};
 
@@ -46,11 +47,17 @@ const fn operation(name: &'static str, kind: OperationKind, reach: Reach) -> Ope
         result: schema_of::<WidgetResult>,
         events: &[],
         cancellable: false,
+        input: None,
+        bound: None,
         stability: Stability::Experimental,
         deprecated: None,
         arrived_in: ProtocolVersion { major: 0, minor: 1 },
     }
 }
+
+/// The read that bounds a made-up sequence.
+const WIDGET_PAGE: Operation =
+    operation("widget.page", OperationKind::RoundTrip, Reach::AllSurfaces);
 
 #[rstest]
 #[case::round_trip(
@@ -72,6 +79,20 @@ const fn operation(name: &'static str, kind: OperationKind, reach: Reach) -> Ope
 #[case::sequence(
     operation("widget.frames", OperationKind::Sequence, Reach::AllSurfaces),
     Some(Offer::Follow)
+)]
+#[case::sequence_taking_a_stream(
+    Operation {
+        input: Some(StreamInput { notification: "$/widgets", field: "widgets" }),
+        ..operation("widget.add", OperationKind::Sequence, Reach::AllSurfaces)
+    },
+    Some(Offer::Input)
+)]
+#[case::sequence_of_what_a_run_committed(
+    Operation {
+        bound: Some(Bound { read: &WIDGET_PAGE, params: Value::clone, through: "through" }),
+        ..operation("widget.spins", OperationKind::Sequence, Reach::AllSurfaces)
+    },
+    Some(Offer::Committed)
 )]
 #[case::waiter(
     operation("widget.wait_for_stop", OperationKind::Waiter, Reach::AllSurfaces),
@@ -102,14 +123,6 @@ fn an_operation_is_a_command_by_its_kind_and_reach(
     #[case] offered: Option<Offer>,
 ) {
     assert_eq!(offer(&operation), offered);
-}
-
-/// The read that bounds a sequence of what a crawl committed is written by
-/// its name here, so a rename fails on this test and not on the first crawl
-/// that reads such a sequence.
-#[test]
-fn the_read_that_bounds_a_committed_sequence_is_one_of_foxhounds_operations() {
-    assert_eq!(bound_of(Product::Foxhound).name, BOUND);
 }
 
 /// Covers: story:11-198, story:11-218

@@ -63,6 +63,11 @@ mod extra_loopback;
 #[cfg(target_os = "linux")]
 mod governor;
 mod help;
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+mod huge_pages;
 mod human_output;
 mod invalid_calls;
 mod journeys;

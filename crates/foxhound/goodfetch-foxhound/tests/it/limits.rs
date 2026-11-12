@@ -8,7 +8,7 @@
 //! Attached engine, which reclaims them when it opens the ledger, and a
 //! crawl on the Daemon then crawl at once until the Limit stops both at
 //! their next safe point. What the ledger charged and holds never exceeds
-//! the Limit, the killed run is charged what it journaled, and no run
+//! the Limit, the killed run is charged no less than it journaled, and no run
 //! committed more than was charged. A crawl needs Foxhound, so every engine
 //! is Foxhound's (ADR 0094). Fixed seeds run in the Pre-merge suite; the
 //! case seeded by `GOODFETCH_TEST_SEED` takes new seeds in the nightly-only
@@ -34,6 +34,7 @@ use serde_json::{Value, json};
 
 use crate::attached;
 use crate::governor::in_flight_whatever_the_machine;
+use crate::site::Site;
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
@@ -51,10 +52,18 @@ const SEEDS: u64 = 60;
 /// home's governors keep this many in flight whatever the machine.
 const OCCURRENCES: u32 = 5;
 
-fn seeds(site: &str, count: u64) -> Value {
-    (1..=count)
-        .map(|n| json!({ "url": format!("https://{site}.test/{n}"), "label": "page" }))
-        .collect()
+/// The `crawl.start` of the crawl `run_id`: `count` pages of `host`, one of
+/// `site`'s, fetched under its settings.
+fn crawl_of(site: &Site, run_id: &str, host: &str, count: u64) -> Value {
+    let seeds: Vec<Value> = (1..=count)
+        .map(|n| json!({ "url": site.url(host, &format!("/{n}")), "label": "page" }))
+        .collect();
+    json!({
+        "run_id": run_id,
+        "seeds": seeds,
+        "datasets": [{ "name": "pages" }],
+        "settings": site.settings(),
+    })
 }
 
 fn line(message: &Value) -> Vec<u8> {
@@ -63,9 +72,9 @@ fn line(message: &Value) -> Vec<u8> {
     line
 }
 
-/// Starts an Attached engine that sets the install Limit and starts a
-/// crawl whose handler never answers, and kills it at `moment`.
-fn killed_at(env: &TestEnv, moment: &Moment, log: &mut ObservationLog<Value>) {
+/// Starts an Attached engine that sets the install Limit and starts the
+/// crawl `crawl`, whose handler never answers, and kills it at `moment`.
+fn killed_at(env: &TestEnv, crawl: &Value, moment: &Moment, log: &mut ObservationLog<Value>) {
     env.log_level("trace");
     let mut command = env.process_command(FOXHOUND);
     command.arg("attached-engine").stderr(Stdio::null());
@@ -79,10 +88,7 @@ fn killed_at(env: &TestEnv, moment: &Moment, log: &mut ObservationLog<Value>) {
                 "jsonrpc": "2.0", "id": "limit", "method": "usage.set",
                 "params": { "scope": "install", "usage_kind": "requests", "amount": LIMIT },
             }),
-            json!({
-                "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-                "params": { "run_id": "victim", "seeds": seeds("victim", VICTIM_SEEDS), "datasets": [{ "name": "pages" }] },
-            }),
+            json!({ "jsonrpc": "2.0", "id": "start", "method": "crawl.start", "params": crawl }),
         ] {
             stdin.write_all(&line(&message)).unwrap();
         }
@@ -97,43 +103,33 @@ fn handled(params: &Value) -> Value {
     json!({ "result": { "records": [{ "dataset": "pages", "data": { "url": params["crawl_request"]["url"] } }] } })
 }
 
-/// Crawls `site` on the Attached engine `engine` until its Run ends, and
-/// answers its Run report.
-fn crawled_attached(mut engine: Attached, site: &str) -> Value {
-    engine.call(
-        "start",
-        "crawl.start",
-        &json!({ "run_id": site, "seeds": seeds(site, SEEDS), "datasets": [{ "name": "pages" }] }),
-        &mut |_| None,
-    );
+/// Runs the crawl `crawl` on the Attached engine `engine` until its Run
+/// ends, and answers its Run report.
+fn crawled_attached(mut engine: Attached, crawl: &Value) -> Value {
+    engine.call("start", "crawl.start", crawl, &mut |_| None);
     let report = engine.call(
         "finish",
         "run.finish",
-        &json!({ "run_id": site }),
+        &json!({ "run_id": crawl["run_id"] }),
         &mut |params| Some(handled(params)),
     );
     assert!(engine.finished(), "the Attached engine failed");
     report["result"].clone()
 }
 
-/// Crawls `site` on the Daemon until its Run ends, and answers its Run
-/// report.
-fn crawled_on_the_daemon(endpoint: &DaemonEndpoint, token: &str, site: &str) -> Value {
+/// Runs the crawl `crawl` on the Daemon until its Run ends, and answers
+/// its Run report.
+fn crawled_on_the_daemon(endpoint: &DaemonEndpoint, token: &str, crawl: &Value) -> Value {
     let mut client = DaemonClient::opened(
         endpoint,
         &Hello::needing(Product::Foxhound).id("hello").token(token),
     );
     let mut handler = |params: &Value| Some(handled(params));
-    client.call_handling(
-        "start",
-        "crawl.start",
-        &json!({ "run_id": site, "seeds": seeds(site, SEEDS), "datasets": [{ "name": "pages" }] }),
-        &mut handler,
-    );
+    client.call_handling("start", "crawl.start", crawl, &mut handler);
     client.call_handling(
         "finish",
         "run.finish",
-        &json!({ "run_id": site }),
+        &json!({ "run_id": crawl["run_id"] }),
         &mut handler,
     )["result"]
         .clone()
@@ -190,11 +186,19 @@ fn engines_of_one_user_never_charge_past_a_limit_through_a_killed_engine(
         OCCURRENCES,
     );
     let mut log = ObservationLog::<Value>::for_test(&env);
-    killed_at(&env, &moment, &mut log);
+    let site = Site::start(&env);
+    let on_attached = crawl_of(&site, "attached", "a.test", SEEDS);
+    let on_daemon = crawl_of(&site, "daemon", "b.test", SEEDS);
+    killed_at(
+        &env,
+        &crawl_of(&site, "victim", "shop.test", VICTIM_SEEDS),
+        &moment,
+        &mut log,
+    );
 
     let (attached, on_the_daemon) = std::thread::scope(|scope| {
-        let on_the_daemon = scope.spawn(|| crawled_on_the_daemon(&endpoint, &token, "daemon"));
-        let attached = crawled_attached(attached(&env), "attached");
+        let on_the_daemon = scope.spawn(|| crawled_on_the_daemon(&endpoint, &token, &on_daemon));
+        let attached = crawled_attached(attached(&env), &on_attached);
         (attached, on_the_daemon.join().unwrap())
     });
     daemon.stop(&env).unwrap();
@@ -226,7 +230,18 @@ fn engines_of_one_user_never_charge_past_a_limit_through_a_killed_engine(
             ));
         }
     }
-    let charged: i64 = slices.iter().filter_map(|(_, charged, _)| *charged).sum();
+    // A Slice the killed engine took and had not journaled when it died,
+    // its request still being fetched, is reclaimed whole (ADR 0041): the
+    // reclaim charges no less than the victim journaled, and a Slice a
+    // survivor returned is charged what its Run journaled.
+    let charged_as = |as_state: &str| -> i64 {
+        slices
+            .iter()
+            .filter(|(_, _, state)| state == as_state)
+            .filter_map(|(_, charged, _)| *charged)
+            .sum()
+    };
+    let (reclaimed, returned) = (charged_as("reclaimed"), charged_as("returned"));
     let (victim, _) = journaled_and_committed(&env, "victim");
     let (attached_used, attached_committed) = journaled_and_committed(&env, "attached");
     let (daemon_used, daemon_committed) = journaled_and_committed(&env, "daemon");
@@ -242,14 +257,16 @@ fn engines_of_one_user_never_charge_past_a_limit_through_a_killed_engine(
                 .iter()
                 .filter(|(_, _, state)| state == "held")
                 .count(),
-            charged,
+            returned,
+            victim <= reclaimed,
             attached_committed <= attached_used && daemon_committed <= daemon_used,
         ),
         (
             (&json!("stopped"), &json!("limit")),
             (&json!("stopped"), &json!("limit")),
             0,
-            victim + attached_used + daemon_used,
+            attached_used + daemon_used,
+            true,
             true,
         ),
         "{slices:?}"

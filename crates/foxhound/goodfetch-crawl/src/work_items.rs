@@ -793,7 +793,7 @@ fn still_leased(connection: &Connection, id: &str, lease_epoch: u64) -> rusqlite
 }
 
 /// How an attempt's run fetched its document, as its Records' Provenance
-/// names it: nothing where the handler was given its request alone.
+/// names it: nothing until a run fetched one.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Fetched {
     /// The tier, and how it was chosen.

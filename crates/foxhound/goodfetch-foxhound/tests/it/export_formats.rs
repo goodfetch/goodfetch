@@ -24,11 +24,11 @@ use quick_xml::escape::resolve_predefined_entity;
 use quick_xml::events::Event;
 use serde_json::{Map, Value, json};
 
-use crate::attached;
 use crate::exports::{
     book, crawl, csv_rows, export_under, finish, html_rows, markdown_rows, saved, table_of,
     third_book, unicode_value, xlsx_rows,
 };
+use crate::site::Site;
 
 /// The twelve formats.
 const FORMATS: [&str; 12] = [
@@ -474,8 +474,9 @@ fn typed_columns(columns: &[&str]) -> Vec<Value> {
 #[test]
 fn every_format_plain_gzip_and_zstd_opens_in_a_reference_reader_and_gives_the_records_back() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
-    crawl(&mut engine, "formats", 3);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+    crawl((&mut engine, &site), "formats", 3);
     let [first, second, third] = three();
     finish(&mut engine, "formats", |page| match page {
         1 => first.clone(),
@@ -623,8 +624,9 @@ fn wall_in(format: &str, bytes: Vec<u8>) -> Value {
 #[test]
 fn a_record_read_past_a_wall_carries_its_marker_in_every_format_and_filters() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
-    crawl(&mut engine, "walls", 3);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+    crawl((&mut engine, &site), "walls", 3);
     finish(&mut engine, "walls", book);
     mark_wall(&env, "walls", 2);
     let all = read_walls(&mut engine, "walls", None);
@@ -673,12 +675,13 @@ fn a_record_read_past_a_wall_carries_its_marker_in_every_format_and_filters() {
 #[test]
 fn the_export_settings_shape_json_xml_parquet_and_the_feeds() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
-    crawl(&mut engine, "shapes", 2);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+    crawl((&mut engine, &site), "shapes", 2);
     finish(&mut engine, "shapes", |page| {
         json!({
             "name": format!("Livre {page}"),
-            "href": format!("https://shop.test/{page}"),
+            "href": site.page(&format!("/{page}")),
             "date": "2026-01-02T08:00:00Z",
             "text": "Résumé",
         })
@@ -758,9 +761,9 @@ fn the_export_settings_shape_json_xml_parquet_and_the_feeds() {
                 "UNCOMPRESSED".to_owned()
             ],
             json!({
-                "id": "https://shop.test/1",
+                "id": site.page("/1"),
                 "title": "Livre 1",
-                "link": "https://shop.test/1",
+                "link": site.page("/1"),
                 "published": "2026-01-02T08:00:00Z",
                 "updated": "2026-01-02T08:00:00Z",
                 "summary": "Résumé",

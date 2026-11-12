@@ -15,7 +15,6 @@ use goodfetch_test_client::Attached;
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
-use crate::attached;
 use crate::fetch_tiers::settings;
 use crate::frontier::crawl_from;
 use crate::provenance::{push, records};
@@ -165,7 +164,7 @@ fn an_invalid_certificate_fails_its_request_unretried_and_its_exception_marks_th
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     env.user_configuration(&trusting(&proving_ground));
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let (expired, verified) = (
         https(&proving_ground, EXPIRED),
         https(&proving_ground, VERIFIED),

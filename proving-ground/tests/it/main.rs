@@ -52,6 +52,7 @@ mod oracle;
 mod pacing;
 mod pages;
 mod parameters;
+mod plain_hosts;
 mod portal;
 mod printing;
 mod protection;

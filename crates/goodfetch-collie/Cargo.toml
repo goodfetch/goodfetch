@@ -64,6 +64,15 @@ goodfetch-workspace-hack.workspace = true
 # The foreground Daemon's reaper: the subreaper, `waitpid` and `kill` (ADR 0049).
 libc = { workspace = true, optional = true }
 
+[target.'cfg(all(target_os = "linux", target_env = "musl"))'.dependencies]
+# The static musl executables, Collie's and Foxhound's, which takes this
+# crate's `executable`, have one allocator (issue 2208): `override` routes
+# the C and C++ code's `malloc` and its siblings (SQLite, BoringSSL, zstd,
+# DuckDB) to mimalloc in place of Zig's libc allocator, whose `malloc` is
+# weak. The gnu builds, where the tests and heap benchmarks count on the
+# system's allocator, and macOS and Windows keep their `malloc`.
+mimalloc = { workspace = true, optional = true, features = ["override"] }
+
 [dev-dependencies]
 # Its own executable, for the integration tests and the startup benchmarks
 # (CARGO_BIN_EXE_goodfetch-collie, ADRs 0059 and 0062).

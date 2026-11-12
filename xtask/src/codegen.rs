@@ -47,6 +47,7 @@ mod emit;
 mod emitter;
 mod executables;
 mod facts;
+mod handles;
 mod helpers;
 mod layer;
 mod names;
@@ -417,7 +418,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     for package in &PACKAGES {
         let layer = Layer::new(&bundle, &collie, &foxhound, package.product, &version)?;
         let generated = match package.language {
-            Language::TypeScript => typescript::generate(&layer),
+            Language::TypeScript => typescript::generate(&layer)?,
             Language::Python => python::generate(&layer),
         };
         for (name, text) in generated.files {

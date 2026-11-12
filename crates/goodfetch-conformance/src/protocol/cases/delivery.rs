@@ -31,7 +31,7 @@ use crate::protocol::target::DEADLINE;
 const LEASE_WAIT: Duration = Duration::from_secs(30);
 
 /// The Proving ground's plain host the crawls fetch: every path is a page.
-const PLAIN_HOST: &str = "shop.test";
+pub(super) const PLAIN_HOST: &str = "shop.test";
 
 /// A crawl the harness handles: its Run ID, the engine's requests and
 /// notifications not yet read, and the position after which the next

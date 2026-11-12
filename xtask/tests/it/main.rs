@@ -93,6 +93,7 @@ mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;
+mod static_pie;
 mod stress;
 mod sweep_target;
 mod targets;

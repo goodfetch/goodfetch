@@ -9,7 +9,10 @@
 #               among them, from one invocation (ADR 0094), with the manifest
 #               the resident-memory check runs and the size report reads;
 #   size        writes the target's size report of both Products, keyed by
-#               the tree the cell tested (`xtask size`, ADR 0061);
+#               the tree the cell tested (`xtask size`, ADR 0061), and on a
+#               musl cell fails on an executable of theirs that is no
+#               static-PIE with packed relocations (`xtask static-pie`, ADR
+#               0024);
 #   rust        one shard of the archive (`--partition hash:<k>/<n>`, never
 #               by timings), then the doctests;
 #   typescript  Vitest and Playwright, `--shard <k>/<n>`, on each Node line
@@ -112,6 +115,11 @@ case "$part" in
     cargo run --quiet --locked --bin xtask -- size estimate \
       --files target/release-suite/size-files.toml \
       --save "target/release-suite/size-report-$tree-$target.json"
+    # A musl cell's executables, both Products', are static-PIEs with
+    # packed relocations (ADR 0024's note of 2026-11-12); the other cells'
+    # are not read.
+    cargo run --quiet --locked --bin xtask -- static-pie --target "$target" \
+      --files target/release-suite/size-files.toml
     ;;
   rust)
     # Each test leaves its exercise record here, which `just features-audit`

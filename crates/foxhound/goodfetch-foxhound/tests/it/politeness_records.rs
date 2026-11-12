@@ -21,7 +21,6 @@ use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv, cli};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::attached;
 use crate::frontier::{Inside, crawl_from};
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
@@ -152,7 +151,7 @@ fn a_value_pressing_a_site_harder_is_recorded_once_with_its_default_and_layer(
 ) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let report = crawl(
         &mut engine,
@@ -185,7 +184,7 @@ fn a_value_pressing_a_site_harder_is_recorded_once_with_its_default_and_layer(
 fn the_built_in_default_or_a_gentler_value_records_nothing() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let report = crawl(
         &mut engine,
@@ -220,7 +219,7 @@ fn a_value_from_user_configuration_is_recorded_with_its_layer() {
     let env = TestEnv::new();
     env.user_configuration("politeness.domain.concurrency = 3\n");
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let report = crawl(
         &mut engine,
@@ -319,7 +318,7 @@ fn a_record_fetched_against_robots_txt_is_marked_ignored_in_its_provenance() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let paths = ["/catalog/1", "/private/catalog/1"];
 
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     crawl(
         &mut engine,
         &proving_ground,

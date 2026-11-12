@@ -17,19 +17,32 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use goodfetch_test_client::HomeLayout;
+use goodfetch_test_client::{Attached, HomeLayout};
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::attached;
-use crate::frontier::{Inside, added, attributes, crawl_with, fetch, not_added};
+use crate::frontier::{Inside, added, attributes, crawl_with, not_added};
 
 /// The Proving ground's seed.
 const SEED: u64 = 840;
 
-/// Crawls the seed `path` on `host` under the `crawl` settings `settings`: its handler fetches
-/// each `http` page it is given (it speaks no TLS) and, on the seed's
+/// Foxhound's Attached engine, whose crawls reach `proving_ground` on a
+/// forced `http` tier and take the certificate of `scope.test`, which the
+/// Proving ground signs itself, for its one `https` page.
+fn engine(env: &TestEnv, proving_ground: &ProvingGround) -> Attached {
+    attached(env).settings_by_default(&crate::fetch_tiers::settings(
+        proving_ground,
+        &json!({
+            "fetch": { "tier": "http" },
+            "tls": { "accept_invalid_certs": { "scope.test": null } },
+        }),
+    ))
+}
+
+/// Crawls the seed `path` on `host` under the `crawl` settings `settings`: its handler reads
+/// each page the engine fetched and, on the seed's
 /// page, enqueues every link it holds. Answers each enqueue's answer, as
 /// `added` or the reason it was not, and the hosts the Proving ground
 /// received, each once, sorted.
@@ -43,7 +56,7 @@ fn crawl_scope_with(host: &str, path: &str, settings: &Value) -> (Vec<String>, V
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let seeds = [json!({ "url": proving_ground.url(host, path), "label": "seed" })];
-    let mut engine = attached(&env);
+    let mut engine = engine(&env, &proving_ground);
 
     let mut answers = Vec::new();
     let report = crawl_with(
@@ -52,14 +65,9 @@ fn crawl_scope_with(host: &str, path: &str, settings: &Value) -> (Vec<String>, V
         &seeds,
         settings,
         &mut |inside: &mut Inside<'_>, handle: &Value| {
-            let url = handle["crawl_request"]["url"].as_str().unwrap();
-            if !url.starts_with("http://") {
-                return json!({ "result": { "records": [] } });
-            }
-            let page = fetch(&proving_ground, url);
-            assert_eq!(page.status, 200, "{url}");
+            let body = crate::site::html_of(inside, handle);
             if handle["crawl_request"]["label"] == "seed" {
-                for href in attributes(&page.body, "a href") {
+                for href in attributes(&body, "a href") {
                     let answer = inside.enqueue(handle, &href, "page", None);
                     answers.push(
                         answer
@@ -305,10 +313,10 @@ fn a_link_the_domain_policy_refuses_is_not_added_after_the_scope_and_never_fetch
 /// A seed, a `run.add_seed` and a handler's enqueue whose host
 /// `egress.blocked_domains` refuses are each answered "not added" with
 /// `domain_policy`, and no handler is given them, so the Proving ground
-/// receives no request for the refused host and its connection record
-/// holds only the connections of the allowed pages' requests; an
-/// allowed seed, an allowed added seed and an allowed link are added
-/// (positive controls).
+/// receives no request for the refused host; an allowed seed, an allowed
+/// added seed and an allowed link are added (positive controls). The
+/// engine fetches the pages, on connections it keeps and opens ahead of
+/// need, so the connection record no longer counts one per request.
 ///
 /// Covers: story:4-96, setting:egress.blocked_domains, operation:crawl.start, operation:run.seeds, operation:run.add_seed, operation:crawl_request.enqueue
 #[test]
@@ -327,7 +335,7 @@ fn a_seed_an_added_seed_and_an_enqueue_the_domain_policy_refuses_are_not_added_a
         "crawl": { "scope": { "strategy": "all" } },
         "egress": { "blocked_domains": ["elsewhere.test"] },
     });
-    let mut engine = attached(&env);
+    let mut engine = engine(&env, &proving_ground);
 
     let mut enqueued = Vec::new();
     let mut seeded = Vec::new();
@@ -337,14 +345,9 @@ fn a_seed_an_added_seed_and_an_enqueue_the_domain_policy_refuses_are_not_added_a
         &seeds,
         &settings,
         &mut |inside: &mut Inside<'_>, handle: &Value| {
-            let url = handle["crawl_request"]["url"].as_str().unwrap();
-            if !url.starts_with("http://") {
-                return json!({ "result": { "records": [] } });
-            }
-            let page = fetch(&proving_ground, url);
-            assert_eq!(page.status, 200, "{url}");
+            let body = crate::site::html_of(inside, handle);
             if handle["crawl_request"]["label"] == "seed" {
-                for href in attributes(&page.body, "a href") {
+                for href in attributes(&body, "a href") {
                     enqueued.push(inside.enqueue(handle, &href, "page", None));
                 }
                 for url in [&refused_added, &allowed_added] {
@@ -372,8 +375,6 @@ fn a_seed_an_added_seed_and_an_enqueue_the_domain_policy_refuses_are_not_added_a
         .every()
         .filter(|request| request.host == "elsewhere.test")
         .count();
-    // Every connection but the observations' own read carried one request.
-    let connections = observations["connections"].as_array().unwrap().len() - 1;
     assert_eq!(
         (
             &report["result"]["lifecycle"],
@@ -381,7 +382,6 @@ fn a_seed_an_added_seed_and_an_enqueue_the_domain_policy_refuses_are_not_added_a
             enqueued.last(),
             &seeded,
             refused_hosts,
-            connections,
         ),
         (
             &json!("finished"),
@@ -392,7 +392,6 @@ fn a_seed_an_added_seed_and_an_enqueue_the_domain_policy_refuses_are_not_added_a
                 added("7", &allowed_added),
             ],
             0,
-            requests.every().count(),
         )
     );
 }

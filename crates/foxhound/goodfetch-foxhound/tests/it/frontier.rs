@@ -26,7 +26,7 @@ use goodfetch_test_support::{ProvingGround, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::attached;
+use crate::site::Site;
 
 /// The Proving ground's seed.
 const SEED: u64 = 828;
@@ -268,7 +268,7 @@ fn each_seed_is_answered_as_an_enqueue_is_and_run_seeds_lists_the_answers() {
     .into_iter()
     .map(|url| json!({ "url": url, "label": "shelf" }))
     .collect();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut enqueued = Vec::new();
     let report = crawl(&mut engine, "seeds", &seeds, &mut |inside, handle| {
@@ -342,7 +342,7 @@ fn a_crawl_whose_every_seed_is_refused_finishes_at_once_and_says_why() {
     .into_iter()
     .map(|url| json!({ "url": url, "label": "page" }))
     .collect();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut handled = 0;
     let report = crawl(&mut engine, "nothing", &seeds, &mut |_, _| {
@@ -388,7 +388,7 @@ fn an_enqueue_resolves_against_its_documents_base_href_and_the_url_it_was_redire
         json!({ "url": proving_ground.url("1.links.test", "/guide/"), "label": "shelf" }),
         json!({ "url": proving_ground.url("2.links.test", "/old/shelf"), "label": "shelf" }),
     ];
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut enqueued = Vec::new();
     let report = crawl(&mut engine, "links", &seeds, &mut |inside, handle| {
@@ -443,15 +443,16 @@ fn an_enqueue_resolves_against_its_documents_base_href_and_the_url_it_was_redire
 #[test]
 fn an_enqueue_from_an_attempt_that_ended_fails_with_attempt_ended() {
     let env = TestEnv::new();
-    let seeds = [json!({ "url": "https://shop.test/a", "label": "page" })];
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let seeds = [json!({ "url": site.page("/a"), "label": "page" })];
+    let mut engine = site.engine(&env);
 
     let mut handles = Vec::new();
     let mut answers = Vec::new();
     crawl(&mut engine, "ended", &seeds, &mut |inside, handle| {
         let mut stale = handle.clone();
         stale["lease_epoch"] = json!(handle["lease_epoch"].as_u64().unwrap() + 1);
-        answers.push(inside.enqueue(&stale, "https://shop.test/b", "page", None));
+        answers.push(inside.enqueue(&stale, &site.page("/b"), "page", None));
         handles.push(handle.clone());
         json!({ "result": { "records": [] } })
     });
@@ -460,7 +461,7 @@ fn an_enqueue_from_an_attempt_that_ended_fails_with_attempt_ended() {
         "crawl_request.enqueue",
         &json!({
             "run_id": "ended", "crawl_request_id": handles[0]["crawl_request"]["id"],
-            "lease_epoch": handles[0]["lease_epoch"], "url": "https://shop.test/c", "label": "page",
+            "lease_epoch": handles[0]["lease_epoch"], "url": site.page("/c"), "label": "page",
         }),
         &mut |_| None,
     );
@@ -496,14 +497,10 @@ fn tracking_parameters_order_sessions_and_fragments_never_split_a_page_fetched_a
         .map(|url| json!({ "url": url, "label": "guide" }))
         .collect();
     let linked = format!("{guide}?fbclid=y&a=1&b=2#reviews");
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut enqueued = Vec::new();
     let report = crawl(&mut engine, "keys", &seeds, &mut |inside, handle| {
-        fetch(
-            &proving_ground,
-            handle["crawl_request"]["url"].as_str().unwrap(),
-        );
         enqueued.push(inside.enqueue(handle, &linked, "guide", None));
         json!({ "result": { "records": [] } })
     });
@@ -541,6 +538,7 @@ fn tracking_parameters_order_sessions_and_fragments_never_split_a_page_fetched_a
                 not_added("duplicate", &linked)
             ]),
             vec![
+                json!(["1.links.test", "/robots.txt"]),
                 json!(["1.links.test", "/guide/?utm_source=news&b=2&a=1"]),
                 json!(["1.links.test", "/guide/?a=2&b=1"]),
             ]
@@ -558,17 +556,18 @@ fn tracking_parameters_order_sessions_and_fragments_never_split_a_page_fetched_a
 #[test]
 fn a_post_with_two_bodies_is_two_requests_and_a_declared_key_replaces_the_identity() {
     let env = TestEnv::new();
-    let search = "https://api.test/search";
+    let site = Site::start(&env);
+    let search = site.url("api.test", "/search");
     let (first, second) = ("eyJwYWdlIjoxfQ==", "eyJwYWdlIjoyfQ==");
     let seeds = [
         json!({ "url": search, "label": "search", "method": "POST", "body": first }),
         json!({ "url": search, "label": "search", "method": "post", "body": second }),
         json!({ "url": search, "label": "search", "method": "POST", "body": first }),
         json!({ "url": search, "label": "search" }),
-        json!({ "url": "https://api.test/item/1?ref=home", "label": "item", "key": "item-1" }),
-        json!({ "url": "https://api.test/item/1?ref=search", "label": "item", "key": "item-1" }),
+        json!({ "url": site.url("api.test", "/item/1?ref=home"), "label": "item", "key": "item-1" }),
+        json!({ "url": site.url("api.test", "/item/1?ref=search"), "label": "item", "key": "item-1" }),
     ];
-    let mut engine = attached(&env);
+    let mut engine = site.engine(&env);
 
     let mut handled = Vec::new();
     crawl(&mut engine, "bodies", &seeds, &mut |_, handle| {
@@ -588,18 +587,18 @@ fn a_post_with_two_bodies_is_two_requests_and_a_declared_key_replaces_the_identi
         (&answers["result"]["seeds"], handled),
         (
             &json!([
-                added("1", search),
-                added("2", search),
-                not_added("duplicate", search),
-                added("3", search),
-                added("4", "https://api.test/item/1?ref=home"),
-                not_added("duplicate", "https://api.test/item/1?ref=search"),
+                added("1", &search),
+                added("2", &search),
+                not_added("duplicate", &search),
+                added("3", &search),
+                added("4", &site.url("api.test", "/item/1?ref=home")),
+                not_added("duplicate", &site.url("api.test", "/item/1?ref=search")),
             ]),
             vec![
                 json!([search, "POST", first]),
                 json!([search, "POST", second]),
                 json!([search, "GET", null]),
-                json!(["https://api.test/item/1?ref=home", "GET", null]),
+                json!([site.url("api.test", "/item/1?ref=home"), "GET", null]),
             ]
         )
     );
@@ -615,21 +614,22 @@ fn a_post_with_two_bodies_is_two_requests_and_a_declared_key_replaces_the_identi
 #[test]
 fn priority_and_forefront_order_a_domains_requests_and_never_the_domains_turns() {
     let env = TestEnv::new();
+    let site = Site::start(&env);
     let seeds = [
-        json!({ "url": "https://a.test/start", "label": "page" }),
-        json!({ "url": "https://b.test/start", "label": "page" }),
+        json!({ "url": site.url("a.test", "/start"), "label": "page" }),
+        json!({ "url": site.url("b.test", "/start"), "label": "page" }),
     ];
-    let mut engine = attached(&env);
+    let mut engine = site.engine(&env);
 
     let mut handled = Vec::new();
     let report = crawl(&mut engine, "ordered", &seeds, &mut |inside, handle| {
         let url = handle["crawl_request"]["url"].as_str().unwrap().to_owned();
-        if url == "https://a.test/start" {
+        if url == site.url("a.test", "/start") {
             for (enqueued, priority, forefront) in [
-                ("https://a.test/low", 0, false),
-                ("https://a.test/high", 5, false),
-                ("https://a.test/front", -5, true),
-                ("https://b.test/urgent", 100, false),
+                (site.url("a.test", "/low"), 0, false),
+                (site.url("a.test", "/high"), 5, false),
+                (site.url("a.test", "/front"), -5, true),
+                (site.url("b.test", "/urgent"), 100, false),
             ] {
                 let reply = inside.call(
                     "crawl_request.enqueue",
@@ -656,14 +656,13 @@ fn priority_and_forefront_order_a_domains_requests_and_never_the_domains_turns()
         (
             &json!("finished"),
             [
-                "https://a.test/start",
-                "https://b.test/urgent",
-                "https://a.test/front",
-                "https://b.test/start",
-                "https://a.test/high",
-                "https://a.test/low",
+                site.url("a.test", "/start"),
+                site.url("b.test", "/urgent"),
+                site.url("a.test", "/front"),
+                site.url("b.test", "/start"),
+                site.url("a.test", "/high"),
+                site.url("a.test", "/low"),
             ]
-            .map(str::to_owned)
             .to_vec()
         )
     );

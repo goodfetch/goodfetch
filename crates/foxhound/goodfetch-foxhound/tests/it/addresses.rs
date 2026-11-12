@@ -19,7 +19,6 @@
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
-use crate::attached;
 use crate::frontier::crawl_with;
 
 /// The Proving ground's seed.
@@ -52,7 +51,7 @@ fn a_redirect_to_a_name_that_resolves_to_a_private_address_ends_skipped_with_dom
         "network": { "resolve": { "fetch-edge.test": [proving_ground.address().ip().to_string()] } },
         "egress": { "private_ranges": ["fetch-edge.test"] },
     });
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut handled = Vec::new();
     crawl_with(
@@ -187,7 +186,7 @@ fn a_seed_whose_name_resolves_to_a_private_address_ends_skipped_with_domain_poli
         "network": { "resolve": { "scope.test": [proving_ground.address().ip().to_string()] } },
         "egress": { "private_ranges": ["scope.test"] },
     });
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut handled = Vec::new();
     let report = crawl_with(
@@ -275,7 +274,7 @@ fn served_calls(calls: &dyn Fn(&str) -> Vec<(&'static str, Value)>) -> (Vec<Valu
         "network": { "resolve": { "scope.test": [proving_ground.address().ip().to_string()] } },
         "egress": { "private_ranges": ["scope.test"] },
     });
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut answers = Vec::new();
     let report = crawl_with(
@@ -384,7 +383,7 @@ fn a_sitemap_seed_whose_name_resolves_to_a_private_address_ends_skipped_unsent()
         "fetch": { "tier": "http" },
         "crawl": { "retry": { "max": 2 } },
     });
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let report = crawl_with(
         &mut engine,

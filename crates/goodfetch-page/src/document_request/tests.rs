@@ -1,8 +1,10 @@
+use std::path::PathBuf;
+
 use goodfetch_engine::browser_cache::BuildPlatform;
 use rstest::rstest;
 use url::Url;
 
-use super::DocumentRequest;
+use super::{DocumentRequest, Unread};
 
 /// The value of `name` among the headers `request` sends to `url`.
 fn header(request: &DocumentRequest, url: &str, name: &str) -> Option<String> {
@@ -93,4 +95,22 @@ fn a_build_id_with_no_major_gives_no_request() {
         DocumentRequest::of_build("stable", BuildPlatform::LinuxX64),
         None
     );
+}
+
+/// Each reason's message, the warning a Run gets, names why and the fix.
+#[rstest]
+#[case::not_installed(
+    Unread::NotInstalled { looked_in: vec![PathBuf::from("/usr/bin/chromium"), PathBuf::from("/usr/bin/chromium-browser")] },
+    "No browser is installed at /usr/bin/chromium, /usr/bin/chromium-browser, so a `standard` Session's own HTTP transport presents no browser identity: install the distribution's Chromium package."
+)]
+#[case::unstarted(
+    Unread::Unstarted { executable: PathBuf::from("/usr/bin/chromium"), error: "Permission denied (os error 13)".to_owned() },
+    "The browser at /usr/bin/chromium could not be started for `--version` (Permission denied (os error 13)), so a `standard` Session's own HTTP transport presents no browser identity: let the engine's user run it, or reinstall the distribution's Chromium package."
+)]
+#[case::no_version(
+    Unread::NoVersion { executable: PathBuf::from("/usr/bin/chromium") },
+    "The browser at /usr/bin/chromium printed no version for `--version`, so a `standard` Session's own HTTP transport presents no browser identity: reinstall the distribution's Chromium package."
+)]
+fn the_message_names_why_and_the_fix(#[case] unread: Unread, #[case] message: &str) {
+    assert_eq!(unread.to_string(), message);
 }

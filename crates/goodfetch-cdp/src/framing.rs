@@ -12,8 +12,8 @@ use bytes::{Buf as _, Bytes, BytesMut};
 /// Base64 stays well below it.
 pub const MAX_FRAME: usize = 256 * 1024 * 1024;
 
-/// The room the buffer keeps between messages: past it, a large message's
-/// room goes with it once it was read.
+/// The most room the buffer keeps between messages: past it, a large
+/// message's room goes with it once it was read.
 const KEPT: usize = 1024 * 1024;
 
 /// How an answer opens as Chromium writes it: its command's ID first.
@@ -39,6 +39,9 @@ pub struct Framer {
     /// Where the next search for a NUL starts: bytes before it hold none.
     searched: usize,
     limit: usize,
+    /// The room the buffer keeps between messages: [`KEPT`], or the limit
+    /// when it is smaller, since no message takes more.
+    kept: usize,
     /// Whether the bytes up to the next NUL belong to a message past the
     /// limit, which is dropped.
     dropping: bool,
@@ -58,6 +61,7 @@ impl Framer {
             buffer: BytesMut::new(),
             searched: 0,
             limit,
+            kept: limit.min(KEPT),
             dropping: false,
         }
     }
@@ -115,7 +119,7 @@ impl Framer {
     /// Lets go of the room a large message took, once the buffer holds
     /// little.
     fn let_go(&mut self) {
-        if self.buffer.capacity() > KEPT && self.buffer.len() <= KEPT {
+        if self.buffer.capacity() > self.kept && self.buffer.len() <= self.kept {
             self.buffer = BytesMut::from(&self.buffer[..]);
         }
     }
@@ -127,6 +131,130 @@ fn answering(bytes: &[u8]) -> Option<u64> {
     let rest = bytes.strip_prefix(ANSWER_OPENING)?;
     let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
     std::str::from_utf8(rest.get(..digits)?).ok()?.parse().ok()
+}
+
+/// The framing half of the fuzz target's body (ADR 0067): feeds `stream`
+/// to a framer of at most `limit` bytes in chunks of the lengths `cuts`
+/// gives in turn, each byte one more than its value (the whole stream at
+/// once when there are none), and reads every whole message after each
+/// chunk, as the driver does after each read. It checks the framer against
+/// the stream cut at its NULs: each message comes out once, whole and in
+/// order, unless the framer held more than the limit of it before its NUL,
+/// whatever the chunks; such a message, ended or not, is dropped once,
+/// naming the command it answers, and the next one reads on; and once
+/// what the buffer holds fits the room it keeps, it keeps no more. It
+/// answers the messages that came out, in order, and panics only on a bug.
+pub(crate) fn fuzz_frames(stream: &[u8], cuts: &[u8], limit: usize) -> Vec<Bytes> {
+    let mut lengths = cuts.iter().map(|cut| usize::from(*cut) + 1).cycle();
+    let mut chunks = Vec::new();
+    let mut rest = stream;
+    while !rest.is_empty() {
+        let length = lengths.next().unwrap_or(rest.len()).min(rest.len());
+        let (chunk, after) = rest.split_at(length);
+        chunks.push(chunk);
+        rest = after;
+    }
+    // Where each chunk ends in the stream: the framer reads after each.
+    let ends: Vec<usize> = chunks
+        .iter()
+        .scan(0, |end, chunk| {
+            *end += chunk.len();
+            Some(*end)
+        })
+        .collect();
+    // Each message, with whether the framer held more than the limit of it
+    // before its NUL, or before the stream's end for the last, unended one.
+    let mut start = 0;
+    let mut messages: Vec<(&[u8], bool)> = stream
+        .split(|byte| *byte == 0)
+        .map(|message| {
+            let nul = start + message.len();
+            let held = ends
+                .iter()
+                .rev()
+                .find(|end| **end <= nul)
+                .map_or(0, |end| end.saturating_sub(start));
+            start = nul + 1;
+            (message, held > limit)
+        })
+        .collect();
+    let (unended, unended_held_past) = messages
+        .pop()
+        .expect("invariant: a split yields at least one part");
+    let mut framer = Framer::with_limit(limit);
+    let mut read = Vec::new();
+    let mut next = 0;
+    let mut unended_dropped = false;
+    for chunk in chunks {
+        framer.push(chunk);
+        let mut came_out = false;
+        loop {
+            match framer.next_frame() {
+                Ok(None) => break,
+                Ok(Some(frame)) => {
+                    assert_eq!(
+                        messages.get(next).copied(),
+                        Some((&frame[..], false)),
+                        "a message comes out once, whole and in order, unless held past the limit"
+                    );
+                    next += 1;
+                    read.push(frame);
+                }
+                Err(FramingError::TooLarge { answering: named }) => {
+                    let (message, held_past) = if let Some(message) = messages.get(next) {
+                        next += 1;
+                        *message
+                    } else {
+                        assert!(!unended_dropped, "a message is dropped once");
+                        unended_dropped = true;
+                        (unended, unended_held_past)
+                    };
+                    assert!(held_past, "only a message held past the limit is dropped");
+                    assert_names(named, message, limit);
+                }
+            }
+            came_out = true;
+        }
+        assert!(
+            !came_out
+                || framer.buffer.len() > framer.kept
+                || framer.buffer.capacity() <= framer.kept,
+            "the buffer lets go of a large message's room once it was read"
+        );
+    }
+    assert_eq!(
+        next,
+        messages.len(),
+        "every whole message comes out or is dropped"
+    );
+    assert_eq!(
+        unended_dropped, unended_held_past,
+        "an unended message held past the limit is dropped"
+    );
+    read
+}
+
+/// Checks that a message past `limit`, `message`, dropped naming `named`,
+/// named the command it answers: the ID it opens with, when its digits end
+/// within the bytes the framer held when it dropped it, and none when it
+/// does not open as an answer.
+fn assert_names(named: Option<u64>, message: &[u8], limit: usize) {
+    let Some(rest) = message.strip_prefix(ANSWER_OPENING) else {
+        assert_eq!(
+            named, None,
+            "a message that answers nothing names no command"
+        );
+        return;
+    };
+    let digits_end =
+        ANSWER_OPENING.len() + rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
+    if digits_end <= limit {
+        assert_eq!(
+            named,
+            answering(message),
+            "a dropped answer names its command"
+        );
+    }
 }
 
 /// `message` as the pipe carries it: its JSON, then a NUL.

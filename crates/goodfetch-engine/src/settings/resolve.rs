@@ -5,6 +5,10 @@
 //! Operator policy's cap, a Recipe's exposed bounds and the key's own
 //! authority: which layers may set it, and whether a Recipe or the run
 //! may only narrow it. A pure function of its layers.
+//!
+//! Size: one concern, the order of the layers and every rule that limits
+//! one over another, so a key's authority, caps and bounds read side by
+//! side.
 
 use std::collections::BTreeMap;
 use std::net::IpAddr;

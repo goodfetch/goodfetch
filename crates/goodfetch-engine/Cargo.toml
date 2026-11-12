@@ -37,7 +37,7 @@ hkdf.workspace = true
 # Names from outside input in Unicode's composed form (ADR 0067).
 icu_normalizer.workspace = true
 # The engine's own HTTP client (ADRs 0043 and 0060), HTTPS over HTTP/1.1
-# (ADR 0057).
+# (ADR 0057), and the ops listener's server, HTTP/1.1 (`ops`).
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["client", "http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }

@@ -21,14 +21,8 @@ export type TestSupportErrorCode =
   | "proving_ground_unseeded"
   /** A test took `daemon` without setting `withDaemon`. */
   | "daemon_not_requested"
-  /** A served test asked for a size-capped filesystem where test support makes none: off Linux (ADR 0122). */
-  | "size_capped_unsupported"
   /** A Playwright test gave its context a `storageState`, which no test may set (ADR 0068). */
   | "storage_state_refused"
-  /** The catalog's file of one Journey's ID holds another Journey (ADR 0063). */
-  | "other_journey"
-  /** A Journey helper was asked for a surface its Journey has no variant on (ADR 0063). */
-  | "unlisted_surface"
   /** `goodfetch-test-env` exited with a failure when its stdin closed. */
   | "teardown_failed"
   /** A process the test started through test support was alive after teardown (ADR 0069). */

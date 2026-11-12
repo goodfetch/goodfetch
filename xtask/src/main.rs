@@ -72,6 +72,7 @@ mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;
+mod static_pie;
 mod stress;
 mod sweep_target;
 mod targets;
@@ -325,6 +326,18 @@ enum Command {
         #[command(subcommand)]
         mode: size::Command,
     },
+    /// Fails on a Product's executable built for a static musl target that is
+    /// no static-PIE with packed relative relocations (ADR 0024).
+    StaticPie {
+        /// The Rust target the cell built for; nothing is read for one that
+        /// is no `*-linux-musl` target.
+        #[arg(long)]
+        target: String,
+        /// The TOML manifest naming each built file's Product, target, kind
+        /// and path, as `xtask size` reads it.
+        #[arg(long)]
+        files: PathBuf,
+    },
     /// The stress run before merge (ADR 0064): each new
     /// or changed test runs 20 times, and a test taken off the quarantine
     /// list 200 times.
@@ -547,6 +560,9 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
+        Command::StaticPie { target, files } => {
+            Ok(check::report(&static_pie::check(root, &files, &target)?))
+        }
         Command::Stress { command } => stress::run(command, environment),
         Command::SweepTarget(arguments) => sweep_target::run(&arguments, environment),
         Command::Targets { command } => targets::run(command, environment),

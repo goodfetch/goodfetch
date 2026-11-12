@@ -53,6 +53,7 @@ The `goodfetch` binary keeps every capability built in, V8 and DuckDB included, 
 ### Release builds
 
 - The release profile uses fat LTO with one codegen unit, `opt-level = 3`, unwinding on panic, and `strip`. Pull-request and merge-queue builds keep thin LTO.
+  > Note (the owner's decision of 2026-11-07, [#2165](https://github.com/goodfetch/goodfetch/issues/2165)), 2026-11-12, [#2202](https://github.com/goodfetch/goodfetch/issues/2202): on Linux, the release profile's static musl executable is a static-PIE with packed relative relocations (`-pie`, `-z pack-relative-relocs`), so it has address-space layout randomisation. The link is not a setting of the profile: `ci/musl/link-cc` makes it for every profile of a musl build, the thin-LTO `ci` one included, which is the one a Release cell checks with `xtask static-pie` (ADR 0024's note of 2026-11-12).
 - Each release publishes the debug symbols of every binary beside it (split DWARF or `.dSYM` on Unix, `.pdb` on Windows), Sigstore-signed and attested like the binaries, so a crash backtrace can be read. **Changes ADR 0030.**
   > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each Product's executable has its own debug symbols per target, named after it.
 

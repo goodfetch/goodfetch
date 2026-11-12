@@ -33,6 +33,7 @@ use crate::{github, output};
 
 use budget::{Bytes, Limit};
 use files::Measured;
+pub(crate) use files::executables;
 use table::{Row, Verdict};
 
 /// What a table without `main`'s report says under it (ADR 0061).

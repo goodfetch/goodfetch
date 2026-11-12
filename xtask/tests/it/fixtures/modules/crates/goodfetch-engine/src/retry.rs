@@ -3,9 +3,11 @@
 mod backoff;
 mod policy;
 
+use crate::Tick;
 use crate::clock;
 
 pub(crate) fn retry() -> u64 {
+    let _beat = Tick;
     clock::now() + backoff::delay()
 }
 

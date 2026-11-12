@@ -44,6 +44,10 @@ use goodfetch_test_support::{
     about = "Prepares one test's setup and prints its description",
     args_conflicts_with_subcommands = true
 )]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each is a switch of the command line, which clap reads as a bool"
+)]
 struct Arguments {
     #[cfg(target_os = "linux")]
     #[command(subcommand)]

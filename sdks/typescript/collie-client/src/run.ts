@@ -124,9 +124,10 @@ function hostIn<Id>(
       }
       // A close the engine refuses, or that was never sent, closed nothing:
       // the next one sends again.
-      value.closing ??= calls.call(operation, params, {}).then(() => {
+      value.closing ??= (async (): Promise<void> => {
+        await calls.call(operation, params, {});
         value.closed = true;
-      });
+      })();
       try {
         await value.closing;
       } catch (error) {

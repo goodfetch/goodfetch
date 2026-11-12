@@ -21,7 +21,7 @@ Nightlies freeze nothing (ADR 0066) and get no upgrade of their own.
 
 ## Money
 
-Goodfetch has no revenue: spend nothing until the owner says so (ADR 0076). For every runner, credit, account, service or assessment, choose the free tier or a local alternative and record the paid option as declined; never create, enable or list as pending anything that bills. Live model calls go through the Vercel AI Gateway's free tier. The owner approved renting one Hetzner Cloud CCX43 server by the hour (€0.531 an hour including VAT), with its Primary IPv4 and a 300 GB volume (about €15 a month; the owner enlarged it from 200 GB on 2026-11-12), for the implementation and its gate, until the owner ends it. While it is rented, it also runs the nightly fuzzing, which is no reason to keep it; #2454 builds that job. Each published version's comparison report also comes from it while the owner rents it (ADR 0025).
+Goodfetch has no revenue: spend nothing until the owner says so (ADR 0076). For every runner, credit, account, service or assessment, choose the free tier or a local alternative and record the paid option as declined; never create, enable or list as pending anything that bills. Live model calls go through the Vercel AI Gateway's free tier. The owner approved renting one Hetzner Cloud CCX43 server by the hour (€0.531 an hour including VAT), with its Primary IPv4 and a 400 GB volume (about €20 a month; the owner enlarged it from 200 GB to 300 GB, then to 400 GB, on 2026-11-12), for the implementation and its gate, until the owner ends it. While it is rented, it also runs the nightly fuzzing, which is no reason to keep it; #2454 builds that job. Each published version's comparison report also comes from it while the owner rents it (ADR 0025).
 
 ## Secrets
 

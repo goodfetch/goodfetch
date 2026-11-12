@@ -50,7 +50,7 @@ use goodfetch_engine::tls::{
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_page::blocks::Block;
-use goodfetch_page::document_request::DocumentRequest;
+use goodfetch_page::document_request::{DocumentRequest, Unread};
 use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, KeptFrom, KeptTree, Observer, PageValue, PooledSession,
     ProgramPages, Reader, ServedDocument,
@@ -73,6 +73,7 @@ use goodfetch_protocol::foxhound::provenance::{
 use goodfetch_protocol::foxhound::provenance::{
     EncodingProvenance, EncodingSource, ForcedBy, TierChosen, TierProvenance,
 };
+use goodfetch_protocol::foxhound::report::BROWSER_VERSION_UNREAD;
 use goodfetch_protocol::foxhound::session_pool::SESSION_POOL_MAX_SIZE;
 use goodfetch_protocol::foxhound::settings::FETCH_BLOCK_CLASSIFICATION;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -81,7 +82,7 @@ use goodfetch_protocol::page::{
     BLOCKED, BlockedDetails, BodyHandle, CONTENT_EXTRACTOR, FormatsRequest, Navigated, PageFormats,
     PageId, PageResponse, SessionId,
 };
-use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::run::{RunId, RunWarning};
 use goodfetch_protocol::settings::page_check::PageCheck;
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SETTING_INVALID, SettingInvalidDetails,
@@ -926,7 +927,13 @@ impl FetchTiers {
         // Every Session of the Run launches one build, so the document
         // request its own transport presents is read once, here.
         let presents = match self.served.browser.get() {
-            Some(pages) => pages.document_request(run).await,
+            Some(pages) => match pages.document_request(run).await {
+                Ok(request) => request,
+                Err(unread) => {
+                    warn_version_unread(run, &unread).await;
+                    None
+                }
+            },
             None => None,
         };
         let reqwest = Reqwest::new(config.clone())
@@ -2037,6 +2044,21 @@ impl HandlerPages for FetchTiers {
     fn opened(&self, pages: Arc<dyn BrowserPages>) {
         // A second composition of the same value keeps the first's pages.
         let _ = self.served.browser.set(pages);
+    }
+}
+
+/// Hands the Run's report the warning that the installed browser's version
+/// was not read, so its Sessions' own transport presents no browser
+/// identity (ADR 0021).
+async fn warn_version_unread(run: &Run, unread: &Unread) {
+    let warning = RunWarning {
+        code: BROWSER_VERSION_UNREAD.to_owned(),
+        message: unread.to_string(),
+        sessions: Vec::new(),
+        folder: None,
+    };
+    if let Err(error) = run.warn(warning).await {
+        tracing::warn!(%error, run_id = %run.id(), "the warning that the installed browser's version was not read was not kept");
     }
 }
 

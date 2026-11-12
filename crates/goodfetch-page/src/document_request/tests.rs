@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use goodfetch_engine::browser_cache::BuildPlatform;
-use goodfetch_protocol::foxhound::report::BROWSER_VERSION_UNREAD;
 use rstest::rstest;
 use url::Url;
 
@@ -98,7 +97,7 @@ fn a_build_id_with_no_major_gives_no_request() {
     );
 }
 
-/// The warning a Run gets for each reason names the fix.
+/// Each reason's message, the warning a Run gets, names why and the fix.
 #[rstest]
 #[case::not_installed(
     Unread::NotInstalled { looked_in: vec![PathBuf::from("/usr/bin/chromium"), PathBuf::from("/usr/bin/chromium-browser")] },
@@ -112,11 +111,6 @@ fn a_build_id_with_no_major_gives_no_request() {
     Unread::NoVersion { executable: PathBuf::from("/usr/bin/chromium") },
     "The browser at /usr/bin/chromium printed no version for `--version`, so a `standard` Session's own HTTP transport presents no browser identity: reinstall the distribution's Chromium package."
 )]
-fn the_runs_warning_names_why_and_the_fix(#[case] unread: Unread, #[case] message: &str) {
-    let warning = unread.warning();
-
-    assert_eq!(
-        (warning.code.as_str(), warning.message.as_str()),
-        (BROWSER_VERSION_UNREAD, message)
-    );
+fn the_message_names_why_and_the_fix(#[case] unread: Unread, #[case] message: &str) {
+    assert_eq!(unread.to_string(), message);
 }

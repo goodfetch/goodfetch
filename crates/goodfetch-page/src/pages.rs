@@ -98,7 +98,7 @@ use serde_json::Value;
 use crate::blocks::{Block, BlockClassifier, NoBlocks};
 use crate::browser_fetch;
 use crate::dialogs::{self, Dialogs};
-use crate::document_request::DocumentRequest;
+use crate::document_request::{DocumentRequest, Unread};
 use crate::driver::{Destination, SerializedDocument};
 use crate::guard::{self, Action, Request, Window};
 use crate::hiding::Hidden;
@@ -876,7 +876,10 @@ impl BrowserPages for Opener {
         })
     }
 
-    fn document_request<'a>(&'a self, run: &'a Run) -> Opening<'a, Option<DocumentRequest>> {
+    fn document_request<'a>(
+        &'a self,
+        run: &'a Run,
+    ) -> Opening<'a, Result<Option<DocumentRequest>, Unread>> {
         Box::pin(self.pages.sessions.document_request(run))
     }
 

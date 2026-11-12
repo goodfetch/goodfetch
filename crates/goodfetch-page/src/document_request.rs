@@ -36,8 +36,6 @@ use goodfetch_engine::runs::Run;
 use goodfetch_engine::tasks::BlockingThreads;
 use goodfetch_protocol::browser_cache::ArtifactKind;
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::foxhound::report::BROWSER_VERSION_UNREAD;
-use goodfetch_protocol::run::RunWarning;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
@@ -157,29 +155,27 @@ impl DocumentRequest {
     /// The document request of the browser a Session of `run` would
     /// launch, among `pins`: the pinned build's, or the installed
     /// browser's, read from the version its executable prints. None where
-    /// neither tells it, of which `run` is warned.
+    /// no pinned build tells it.
+    ///
+    /// # Errors
+    ///
+    /// [`Unread`] where the browser is an installed one whose version could
+    /// not be read.
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future kills the version read's processes and may leave
-    /// the warning unwritten.
-    pub async fn of_browser(pins: &[PinnedArtifact], run: &Run) -> Option<Self> {
+    /// Dropping the future kills the version read's processes.
+    pub async fn of_browser(pins: &[PinnedArtifact], run: &Run) -> Result<Option<Self>, Unread> {
         let BrowserSource::Installed { candidates, .. } = browser_source(
             Platform::current(),
             &BrowserChoice::Default,
             &BTreeMap::new(),
         ) else {
-            return Self::of_pinned(pins);
+            return Ok(Self::of_pinned(pins));
         };
-        match Self::of_installed(&candidates, &run.owner().blocking_threads(), &run.clock()).await {
-            Ok(request) => Some(request),
-            Err(unread) => {
-                if let Err(error) = run.warn(unread.warning()).await {
-                    tracing::warn!(%error, "the warning that the installed browser's version was not read was not kept");
-                }
-                None
-            }
-        }
+        Self::of_installed(&candidates, &run.owner().blocking_threads(), &run.clock())
+            .await
+            .map(Some)
     }
 
     /// The document request of the browser installed at the first of
@@ -266,13 +262,12 @@ pub enum Unread {
     },
 }
 
-impl Unread {
-    /// The warning a Run gets for it (`browser_version_unread`), naming the
-    /// fix.
-    #[must_use]
-    pub fn warning(&self) -> RunWarning {
-        let message = match self {
-            Self::NotInstalled { looked_in } => format!(
+/// The message names why and the fix, for the warning the Run gets.
+impl std::fmt::Display for Unread {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotInstalled { looked_in } => write!(
+                f,
                 "No browser is installed at {}, so a `standard` Session's own HTTP transport presents no browser identity: install the distribution's Chromium package.",
                 looked_in
                     .iter()
@@ -280,23 +275,21 @@ impl Unread {
                     .collect::<Vec<_>>()
                     .join(", "),
             ),
-            Self::Unstarted { executable, error } => format!(
+            Self::Unstarted { executable, error } => write!(
+                f,
                 "The browser at {} could not be started for `--version` ({error}), so a `standard` Session's own HTTP transport presents no browser identity: let the engine's user run it, or reinstall the distribution's Chromium package.",
                 executable.display(),
             ),
-            Self::NoVersion { executable } => format!(
+            Self::NoVersion { executable } => write!(
+                f,
                 "The browser at {} printed no version for `--version`, so a `standard` Session's own HTTP transport presents no browser identity: reinstall the distribution's Chromium package.",
                 executable.display(),
             ),
-        };
-        RunWarning {
-            code: BROWSER_VERSION_UNREAD.to_owned(),
-            message,
-            sessions: Vec::new(),
-            folder: None,
         }
     }
 }
+
+impl std::error::Error for Unread {}
 
 /// The platform whose user agent and `Sec-CH-UA-Platform` a browser on
 /// `platform` presents: Chrome's reduced user agent names one platform for

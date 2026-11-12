@@ -141,8 +141,14 @@ impl BrowserPages for Scripted {
     fn document_request<'a>(
         &'a self,
         _run: &'a Run,
-    ) -> Opening<'a, Option<goodfetch_page::document_request::DocumentRequest>> {
-        Box::pin(async { None })
+    ) -> Opening<
+        'a,
+        Result<
+            Option<goodfetch_page::document_request::DocumentRequest>,
+            goodfetch_page::document_request::Unread,
+        >,
+    > {
+        Box::pin(async { Ok(None) })
     }
 
     fn certificate_exception<'a>(

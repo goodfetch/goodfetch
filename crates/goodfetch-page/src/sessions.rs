@@ -91,7 +91,7 @@ use self::lifecycle::{
 use crate::borrowed::{CdpUrl, Lookups, resolve_of};
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
-use crate::document_request::DocumentRequest;
+use crate::document_request::{DocumentRequest, Unread};
 use crate::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::egress_relay::{self, EgressRelay};
 use crate::errors::{cancelled, invalid_transition};
@@ -414,7 +414,10 @@ impl Sessions {
 
     /// The request a Session's browser sends for a document, read from
     /// the build it would launch, pinned or installed, for `run`.
-    pub(crate) async fn document_request(&self, run: &Run) -> Option<DocumentRequest> {
+    pub(crate) async fn document_request(
+        &self,
+        run: &Run,
+    ) -> Result<Option<DocumentRequest>, Unread> {
         DocumentRequest::of_browser(&self.pins, run).await
     }
 

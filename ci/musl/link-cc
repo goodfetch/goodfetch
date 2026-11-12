@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# rustc's linker for the static musl build (ADR 0024's note of 2026-11-12):
+# an executable links as a static-PIE with packed relative relocations
+# (`DT_RELR`), so it loads at a randomised base. ci/musl/cargo names this
+# script as the target's linker, and cargo-zigbuild, which keeps a linker
+# already named, still sets `CC_<target>` to its wrapper of Zig's `cc`. Its
+# name ends in `-cc` so that rustc, which reads a linker's kind from its
+# name, passes it a C compiler's arguments.
+#
+# Zig's `cc` alone cannot make that link: it ignores rustc's `-static-pie`
+# and links a non-PIE at a fixed base, and it refuses
+# `-z pack-relative-relocs`. So the link runs twice. Zig's `cc` first links
+# with `-pie`, which makes it pick musl's self-relocating `rcrt1.o` and its
+# runtime archives built position-independent, and prints the command it
+# ran its bundled LLD with (`ZIG_VERBOSE_LINK`). That command then runs
+# again through `zig ld.lld` with `-z pack-relative-relocs` added, over the
+# first link's output. A link rustc does not ask a static-PIE for goes to
+# Zig's `cc` unchanged.
+set -euo pipefail
+
+target=${GOODFETCH_MUSL_LINK_TARGET:?ci/musl/cargo sets the target this links for}
+variable=CC_${target//-/_}
+cc=${!variable:?cargo-zigbuild sets $variable to its wrapper of Zig\'s cc}
+zig=${CARGO_ZIGBUILD_ZIG_PATH:?ci/musl/cargo sets the path of Zig}
+
+# rustc asks for a static-PIE with `-static-pie`, among its arguments or in
+# the response file it passes them in when they are too long for a command.
+static_pie=false
+for argument in "$@"; do
+  if [[ "$argument" == -static-pie ]]; then
+    static_pie=true
+  elif [[ "$argument" == @* && -f "${argument#@}" ]] && grep -qx -e '-static-pie' -e '"-static-pie"' "${argument#@}"; then
+    static_pie=true
+  fi
+done
+if [[ "$static_pie" == false ]]; then
+  exec "$cc" "$@"
+fi
+
+log=$(mktemp)
+trap 'rm -f "$log"' EXIT
+status=0
+ZIG_VERBOSE_LINK=1 "$cc" "$@" -pie 2>"$log" || status=$?
+# What Zig's `cc` wrote beside the commands it printed: its errors and
+# warnings, which rustc shows.
+grep -v -e '^ld\.lld ' -e '^ar rcs ' "$log" >&2 || true
+[[ "$status" -eq 0 ]] || exit "$status"
+
+# The executable's link is the last LLD command Zig ran; the ones before it
+# build Zig's own runtime objects, on a first link.
+command=$(grep '^ld\.lld ' "$log" | tail -n 1 || true)
+if [[ " $command " != *" -static -pie "* ]]; then
+  echo "error: Zig's cc did not link $target's executable as a static-PIE: its LLD command has no \`-static -pie\`: ${command:-none printed}" >&2
+  exit 1
+fi
+# Zig prints the arguments separated by spaces and unquoted, so a path
+# holding a space splits here and LLD fails on a file it cannot open.
+read -r -a arguments <<<"${command#ld.lld }"
+"$zig" ld.lld "${arguments[@]}" -z pack-relative-relocs

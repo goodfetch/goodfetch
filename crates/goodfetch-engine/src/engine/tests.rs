@@ -34,6 +34,7 @@ mod log;
 mod masking;
 mod needs_you;
 mod ops;
+mod panics;
 mod pauses;
 mod progress;
 mod refetch_stops;

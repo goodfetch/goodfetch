@@ -972,6 +972,7 @@ pub const ENTRIES: Entries = Entries {
         DEADLINE_EXCEEDED,
         CLOSED,
         INTERNAL,
+        ENGINE_PANICKED,
         CONNECTION_OVERLOADED,
         TOO_MANY_CALLS,
         ENGINE_NOT_FOUND,
@@ -986,6 +987,10 @@ pub const ENTRIES: Entries = Entries {
     hook_stages: &[],
     shared_type_values: &[],
 };
+
+mod engine_panicked;
+
+pub use engine_panicked::{ENGINE_PANICKED, EnginePanickedDetails, PanicEnded};
 
 #[cfg(test)]
 mod tests;

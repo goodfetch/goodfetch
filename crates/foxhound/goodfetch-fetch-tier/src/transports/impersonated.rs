@@ -173,7 +173,9 @@ impl Wreq {
         let proxy = config
             .proxy
             .as_ref()
-            .map(|proxy| wreq::Proxy::all(proxy.as_str()).map_err(refused))
+            .map(|route| {
+                super::through(route, wreq::Proxy::all, wreq::Proxy::basic_auth).map_err(refused)
+            })
             .transpose()?;
         let decision = SharedTrust::new(
             config.trust.clone(),

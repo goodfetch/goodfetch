@@ -42,8 +42,9 @@ use goodfetch_protocol::page::{
 };
 use goodfetch_protocol::security::{SECURITY_BROWSER_SANDBOX, SECURITY_RAW_CDP_EGRESS_PROXY};
 use goodfetch_protocol::settings::TIMEOUT_CLOSE;
+use tokio::io::DuplexStream;
 use tokio::process::{Child, Command};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 /// The folder of the Run's Browser data folders, in its folder: one per
@@ -57,6 +58,71 @@ const DEFAULT_PROFILE: &str = "Default";
 /// it stops on when that path is too long for the OS: the longest of the
 /// browsers the engine starts (Chrome's folder is `.com.google.Chrome.*`).
 const CHROMIUM_SOCKET: &str = "/.org.chromium.Chromium.XXXXXX/SingletonSocket";
+
+/// The size of a scripted browser's pipe, each way.
+const SCRIPTED_PIPE: usize = 1 << 16;
+
+/// How many browsers a scripted launcher hands on before the one playing
+/// them took the first: a launch waits for room past it.
+const SCRIPTED_HANDOVERS: usize = 1;
+
+/// The executable a scripted browser names, where a launched one names its
+/// path.
+const SCRIPTED: &str = "scripted";
+
+/// How the engine starts a Run's browser, a value its composition chooses
+/// (ADR 0059): the Browser cache's build, as a process over its debugging
+/// pipe, or a scripted browser, which a benchmark or a test plays on the
+/// other end of an in-memory pipe, with no process, Browser data folder or
+/// build of its own.
+#[derive(Clone, Debug)]
+pub enum Launcher {
+    /// The Browser cache's build, or the installed browser (ADR 0017).
+    Executable,
+    /// A scripted browser: [`Launcher::scripted`].
+    Scripted(Scripted),
+}
+
+/// Where a scripted launcher hands each browser it launches, and the
+/// process that browser's memory is read from.
+#[derive(Clone, Debug)]
+pub struct Scripted {
+    browsers: mpsc::Sender<DuplexStream>,
+    process: Option<u32>,
+}
+
+/// The browsers a scripted launcher launched, each its end of its pipe: the
+/// engine writes each command as JSON followed by a NUL byte, as it writes
+/// to Chromium's debugging pipe, and reads the answers and events so.
+#[derive(Debug)]
+pub struct ScriptedBrowsers(mpsc::Receiver<DuplexStream>);
+
+impl ScriptedBrowsers {
+    /// The next browser launched; `None` once the launcher is gone, with
+    /// the engine that held it.
+    ///
+    /// # Cancel safety
+    ///
+    /// Cancel-safe: a browser not yet taken stays for the next call.
+    pub async fn next(&mut self) -> Option<DuplexStream> {
+        self.0.recv().await
+    }
+}
+
+impl Launcher {
+    /// A launcher of scripted browsers, each handed to the
+    /// [`ScriptedBrowsers`] it answers with as it launches, whose memory
+    /// the browser pool reads from `process`, as it reads a launched
+    /// browser's from its process's (ADR 0140's C7): none walks nothing.
+    #[must_use]
+    pub fn scripted(process: Option<u32>) -> (Self, ScriptedBrowsers) {
+        let (browsers, launched) = mpsc::channel(SCRIPTED_HANDOVERS);
+        (
+            Self::Scripted(Scripted { browsers, process }),
+            ScriptedBrowsers(launched),
+        )
+    }
+}
 
 /// A launched browser: its connection, how its process ended once it did,
 /// and its executable.
@@ -193,7 +259,7 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 /// the Run's settings, on the Browser data folder numbered `number` in the Run's
 /// folder, trusting `relay_authority`, the egress relay's key hash, when the Run has one;
 /// its tasks are the Run's, and `stopping`, cancelled when the Run stops,
-/// closes it.
+/// closes it. A scripted `launcher` hands its browser on instead.
 ///
 /// # Errors
 ///
@@ -209,11 +275,13 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 /// the Run's stop closes it.
 pub(crate) async fn launch(
     run: &Run,
-    home: &Home,
-    pins: &Pins,
+    (launcher, home, pins): (&Launcher, &Home, &Pins),
     (number, relay_authority): (u64, Option<&str>),
     stopping: CancellationToken,
 ) -> Result<Launched, CallError> {
+    if let Launcher::Scripted(scripted) = launcher {
+        return launch_scripted(run, scripted, stopping).await;
+    }
     let settings = run.settings().map(RunSettings::resolved);
     // Chromium's sandbox stays on unless switched off; where the startup
     // probe refused it, no browser starts (ADR 0049).
@@ -293,6 +361,81 @@ pub(crate) async fn launch(
         process,
         released,
     })
+}
+
+/// Launches a scripted browser of the Run: its end of a new pipe goes to
+/// `scripted`'s [`ScriptedBrowsers`] once the one handed on before was
+/// taken, and it shows headless or not as the
+/// Run's settings say; `stopping` asks it to close, as it asks a launched
+/// one, within the Run's `timeout.close`.
+///
+/// # Errors
+///
+/// `browser_launch_failed` once the [`ScriptedBrowsers`] are gone.
+async fn launch_scripted(
+    run: &Run,
+    scripted: &Scripted,
+    stopping: CancellationToken,
+) -> Result<Launched, CallError> {
+    let executable = Path::new(SCRIPTED);
+    let (engine, browser) = tokio::io::duplex(SCRIPTED_PIPE);
+    scripted
+        .browsers
+        .send(browser)
+        .await
+        .map_err(|_| launch_failed(executable, None, "no one plays the scripted browser"))?;
+    let (reader, writer) = tokio::io::split(engine);
+    let (connection, driver) =
+        Connection::new(reader, writer, run.metrics().counted_work().clone());
+    let (exits, exit) = watch::channel(None);
+    let released = CancellationToken::new();
+    run.spawn(supervise_scripted(
+        run.clone(),
+        (connection.clone(), Box::pin(driver.run())),
+        stopping,
+        (exits, released.clone()),
+    ));
+    Ok(Launched {
+        connection,
+        exit,
+        executable: executable.to_path_buf(),
+        headless: get_or_default(run.settings().map(RunSettings::resolved), &BROWSER_HEADLESS),
+        process: scripted.process,
+        released,
+    })
+}
+
+/// Runs a scripted browser's connection until it ends or `stopping`, which
+/// asks it to close within the Run's `timeout.close`; then says how it
+/// ended, a clean exit once asked to close, and releases it.
+async fn supervise_scripted(
+    run: Run,
+    (connection, driver): (Connection, Driving),
+    stopping: CancellationToken,
+    (exits, released): (watch::Sender<Option<BrowserExit>>, CancellationToken),
+) {
+    let close = Deadline::of_resolved(run.settings().map(RunSettings::resolved), &TIMEOUT_CLOSE);
+    let closed = async {
+        stopping.cancelled().await;
+        let _ = connection
+            .send_raw(
+                "Browser.close",
+                None,
+                serde_json::json!({}),
+                close.duration(),
+            )
+            .await;
+    };
+    tokio::select! {
+        _ = driver => {}
+        () = closed => {}
+    }
+    drop(connection);
+    exits.send_replace(Some(BrowserExit {
+        code: stopping.is_cancelled().then_some(0),
+        signal: None,
+    }));
+    released.cancel();
 }
 
 /// Writes the starting preferences of the default profile in

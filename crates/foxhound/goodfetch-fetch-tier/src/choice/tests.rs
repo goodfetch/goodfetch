@@ -62,6 +62,9 @@ fn forced(tier: FetchTier, label: Option<&str>) -> TierChoice {
     SetTier::Forced(FetchTier::Browser),
     Choosing::Engine
 )]
+#[case::an_auto_the_label_set_under_the_default("auto", SetTier::Unset, Choosing::Engine)]
+#[case::the_default_is_the_engines_choice("page", SetTier::Unset, Choosing::Engine)]
+#[case::undeclared_under_the_default("other", SetTier::Unset, Choosing::Engine)]
 #[case::undeclared_under_a_forced_run(
     "other",
     SetTier::Forced(FetchTier::Http),

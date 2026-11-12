@@ -17,18 +17,29 @@ const SEED: u64 = 1602;
 const NOT_SENT_WITHIN: Duration = Duration::from_millis(300);
 
 #[test]
-fn every_path_of_a_plain_host_is_a_small_page_and_none_has_a_robots_txt() {
+fn any_path_of_a_plain_host_is_a_small_page_that_names_it() {
     let proving_ground = ProvingGround::start(SEED);
 
     let page = raw_clients::get(&proving_ground, "shop.test", "/any/path", &[]);
-    let robots = raw_clients::get(&proving_ground, "bob.github.io", "/robots.txt", &[]);
 
-    assert_eq!((page.status(), robots.status()), (Some(200), Some(404)));
-    assert!(
-        String::from_utf8_lossy(page.body()).contains("A page at /any/path."),
+    assert_eq!(
+        (
+            page.status(),
+            String::from_utf8_lossy(page.body()).contains("A page at /any/path.")
+        ),
+        (Some(200), true),
         "{:?}",
         page.body()
     );
+}
+
+#[test]
+fn a_plain_host_has_no_robots_txt() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let robots = raw_clients::get(&proving_ground, "bob.github.io", "/robots.txt", &[]);
+
+    assert_eq!(robots.status(), Some(404));
 }
 
 #[test]

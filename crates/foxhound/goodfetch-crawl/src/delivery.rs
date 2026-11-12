@@ -925,7 +925,10 @@ impl Drawing {
         };
         let to_browser = pool.browser(&leased.waiting.key);
         let local = pool.local_addresses(&session.id);
-        let choosing = self.labels.settings.choose(&request.label, self.run_tier);
+        // A sitemap's fetch runs no handler and takes no tier choice: its
+        // attempt fetches it on the Run's HTTP tier.
+        let choosing =
+            (!leased.sitemap).then(|| self.labels.settings.choose(&request.label, self.run_tier));
         // A request keeping its URL's fragment is served only by a tier
         // that runs the page's scripts, which the engine's choice is then
         // (ADR 0120); the start refused it on any forced tier but those.
@@ -944,17 +947,15 @@ impl Drawing {
             (plan, unit.cloned())
         };
         let (chosen, counted) = match choosing {
-            // A sitemap's fetch runs no handler and takes no tier choice:
-            // its attempt fetches it on the Run's HTTP tier.
-            _ if leased.sitemap => (Chosen::Planned(AttemptPlan::Sitemap), None),
-            Choosing::Engine if keeps_fragment => (Chosen::Planned(browser), None),
-            Choosing::Engine if self.races && !to_browser => {
+            None => (Chosen::Planned(AttemptPlan::Sitemap), None),
+            Some(Choosing::Engine) if keeps_fragment => (Chosen::Planned(browser), None),
+            Some(Choosing::Engine) if self.races && !to_browser => {
                 let (plan, counted) = learned();
                 (Chosen::Racing(plan), counted)
             }
-            Choosing::Forced(choice) => (Chosen::Planned(AttemptPlan::On(choice)), None),
-            Choosing::Engine if to_browser => (Chosen::Planned(browser), None),
-            Choosing::Engine => {
+            Some(Choosing::Forced(choice)) => (Chosen::Planned(AttemptPlan::On(choice)), None),
+            Some(Choosing::Engine) if to_browser => (Chosen::Planned(browser), None),
+            Some(Choosing::Engine) => {
                 let (plan, counted) = learned();
                 (Chosen::Planned(plan), counted)
             }

@@ -235,15 +235,30 @@ fn a_crawl_the_governor_admits_nothing_more_for_says_its_due_requests_wait_under
     let last = in_flight(&mut engine, (crawl, 1), 2);
     assert!(engine.finished());
 
-    let waits = if first[0].1.contains("//a.test") {
-        "b.test"
-    } else {
-        "a.test"
-    };
+    // Whichever request took the one admission, the other waits: the
+    // page in flight and the domain that waits are the crawl's two hosts.
+    let mut hosts = vec![
+        first[0]
+            .1
+            .rsplit_once("/held/")
+            .map(|(_, host)| host.to_owned()),
+        group["domains"][0]["domain"].as_str().map(str::to_owned),
+    ];
+    hosts.sort();
     assert_eq!(
-        (group, second.len(), last.len()),
         (
-            json!({ "reason": "governor", "count": 1, "domains": [{ "domain": waits }] }),
+            &group["reason"],
+            &group["count"],
+            group["domains"].as_array().map(Vec::len),
+            hosts,
+            second.len(),
+            last.len()
+        ),
+        (
+            &json!("governor"),
+            &json!(1),
+            Some(1),
+            vec![Some("a.test".to_owned()), Some("b.test".to_owned())],
             1,
             0
         )

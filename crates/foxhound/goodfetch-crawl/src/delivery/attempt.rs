@@ -898,9 +898,10 @@ impl On<'_> {
             .document(tiering, http, choice, hand_over)
             .await
             .map_err(|answer| (answer, Taught::default()))?;
-        // `served` is held to the run's end: an attempt abandoned while its
-        // handler runs, as an abort abandons it, closes its page as it
-        // drops, so the page never holds the Run's handles past the Run.
+        // `served` is held until its handler answered: an attempt abandoned
+        // while its handler runs, as an abort abandons it, closes its page
+        // as it drops, so the page never holds the Run's handles past the
+        // Run.
         let page_id = served.page_id().clone();
         *self.document.lock().await = facts.response.clone();
         // A `discovered_api` page replays its Label's calls (ADR 0020).
@@ -939,7 +940,7 @@ impl On<'_> {
         )
         .await;
         drop(handed_over);
-        let escalated = self.escalated(tiers.close(&page_id));
+        let escalated = self.escalated(tiers.close(&served.keep()));
         Ok((
             HttpRun {
                 answer,

@@ -31,9 +31,10 @@ use crate::hello::Hello;
 /// crate outside Foxhound's names the `foxhound` module (ADR 0099).
 const CRAWL_START: &str = "crawl.start";
 
-/// The operations that resume a Run with settings of their own, which
+/// An operation that resumes a Run with settings of its own, which
 /// [`Attached::send`] gives its default settings as it does a `crawl.start`.
 const RUN_RESUME: &str = "run.resume";
+/// The other operation that resumes a Run with settings of its own.
 const RUN_RETRY_FAILED: &str = "run.retry_failed";
 
 /// A running Attached engine, started in a test's setup.

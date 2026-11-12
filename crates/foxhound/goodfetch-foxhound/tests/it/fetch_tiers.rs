@@ -199,9 +199,16 @@ pub(crate) fn outcomes(engine: &mut Attached, run_id: &str) -> Vec<(String, Valu
 /// records each run as a sample, the feed's browser run naming the call
 /// its HTTP run could not serve.
 ///
+/// A Run that sets no `fetch.tier` is served the same way: `auto` is the
+/// built-in default, and no handler is given its request alone (issue 1602).
+///
 /// Covers: story:5-115, story:5-118, story:6-257, operation:locator.wait_for_count, error:attempt_ended
-#[test]
-fn one_handler_runs_a_sample_of_a_static_page_and_of_a_scripted_one_on_both_tiers_under_auto() {
+#[rstest::rstest]
+#[case::set(json!({ "fetch": { "tier": "auto" } }))]
+#[case::the_built_in_default(json!({}))]
+fn one_handler_runs_a_sample_of_a_static_page_and_of_a_scripted_one_on_both_tiers_under_auto(
+    #[case] tier: Value,
+) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
@@ -217,7 +224,7 @@ fn one_handler_runs_a_sample_of_a_static_page_and_of_a_scripted_one_on_both_tier
             json!({ "url": feed, "label": "page" }),
         ],
         &json!({ "page": {} }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &settings(&proving_ground, &tier),
         &mut handler(&mut seen),
     );
     let ended = outcomes(&mut engine, "tiers-auto");

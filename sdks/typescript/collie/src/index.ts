@@ -11,4 +11,4 @@
 // `GOODFETCH_COLLIE_ENGINE_PATH`. Importing it reads, patches and logs
 // nothing (ADR 0078).
 export * from "@goodfetch/collie-client";
-export { Collie, type ConnectOptions } from "./collie.ts";
+export { Collie, type ConnectOptions, type ConnectOverOptions } from "./collie.ts";

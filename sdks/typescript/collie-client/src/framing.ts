@@ -90,27 +90,46 @@ function lineOf(bytes: Uint8Array): Line {
   return message === undefined ? { kind: "invalid", line } : { kind: "message", message };
 }
 
+/** The bytes of `parts` then `last`, copied once; `last` itself when there are no `parts`. */
+function joined(parts: readonly Uint8Array[], last: Uint8Array): Uint8Array {
+  if (parts.length === 0) {
+    return last;
+  }
+  const length = parts.reduce((sum, part) => sum + part.length, last.length);
+  const whole = new Uint8Array(length);
+  let offset = 0;
+  for (const part of parts) {
+    whole.set(part, offset);
+    offset += part.length;
+  }
+  whole.set(last, offset);
+  return whole;
+}
+
 /**
  * Each whole line the engine's bytes hold, in order, until they end. Lines
  * are split on bytes, so a character split across chunks stays whole, and
- * each is decoded strictly. Unlike `StrictStdout`, a partial line at the
- * end is dropped rather than reported: the engine stopped mid-write, and
- * its end, with its exit status, says more than the partial line would.
+ * each is decoded strictly. A partial line is kept as the chunks that hold
+ * it and joined once, when its line feed arrives, and only the new chunk is
+ * searched for one: reading a line costs time linear in its size, however
+ * many chunks deliver it. Unlike `StrictStdout`, a partial line at the end
+ * is dropped rather than reported: the engine stopped mid-write, and its
+ * end, with its exit status, says more than the partial line would.
  */
-export async function* readLines(readable: ReadableStream<Uint8Array>): AsyncGenerator<Line> {
-  let pending = new Uint8Array(0);
-  for await (const bytes of readable) {
-    const joined = new Uint8Array(pending.length + bytes.length);
-    joined.set(pending);
-    joined.set(bytes, pending.length);
+export async function* readLines(chunks: AsyncIterable<Uint8Array>): AsyncGenerator<Line> {
+  const partial: Uint8Array[] = [];
+  for await (const bytes of chunks) {
     let start = 0;
-    let end = joined.indexOf(LINE_FEED);
+    let end = bytes.indexOf(LINE_FEED);
     while (end !== -1) {
-      yield lineOf(joined.subarray(start, end));
+      yield lineOf(joined(partial, bytes.subarray(start, end)));
+      partial.length = 0;
       start = end + 1;
-      end = joined.indexOf(LINE_FEED, start);
+      end = bytes.indexOf(LINE_FEED, start);
     }
-    pending = joined.slice(start);
+    if (start < bytes.length) {
+      partial.push(bytes.subarray(start));
+    }
   }
 }
 

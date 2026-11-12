@@ -315,6 +315,29 @@ describe("an Attached engine that exits before its hello is answered", () => {
   );
 });
 
+describe("connect() aborted while its Attached engine has not answered hello", () => {
+  test("fails with the signal's reason and leaves no engine process", async ({ testEnv }) => {
+    const pidFile = join(testEnv.folder, "silent-engine.pid");
+    const env = {
+      GOODFETCH_COLLIE_ENGINE_PATH: join(import.meta.dirname, "fixtures", "silent-engine.ts"),
+      PATH: dirname(process.execPath),
+      SILENT_ENGINE_PID_FILE: pidFile,
+    };
+    const aborting = new AbortController();
+    const reason = new Error("the program gave up");
+
+    // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+    const connecting = failure(Collie.connect({ env, signal: aborting.signal }));
+    await expect.poll(() => existsSync(pidFile)).toBe(true);
+    aborting.abort(reason);
+    const error = await connecting;
+
+    const pid = Number(readFileSync(pidFile, "utf8"));
+    expect(error).toBe(reason);
+    expect(isRunning(pid)).toBe(false);
+  });
+});
+
 describe("the goodfetch-collie bin", () => {
   test(
     "runs Collie's executable with its arguments and exit code",
@@ -383,6 +406,16 @@ describe("the goodfetch-collie bin", () => {
     },
   );
 });
+
+/** Whether a process of this ID exists. */
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** Runs the goodfetch-collie bin with `args` and `env`, keeping what it wrote. */
 async function runBin(

@@ -111,8 +111,8 @@ use goodfetch_protocol::foxhound::settings::{
     DATASET_RECORDS, FETCH_BLOCK_CLASSIFICATION, PROVENANCE_LOG,
 };
 use goodfetch_protocol::governor::WorkKind;
-use goodfetch_protocol::page::SITE_PREFERENCES_REFUSED;
 use goodfetch_protocol::page::proxy::{PROXY_PROVIDER, PROXY_SERVER};
+use goodfetch_protocol::page::{SITE_PREFERENCES_REFUSED, SessionId};
 use goodfetch_protocol::run::{
     EndingError, NothingDone, RUN_STATE_UNAVAILABLE, RunDetails, RunWarning, StopReason,
 };
@@ -736,14 +736,14 @@ impl Fetching<'_> {
         })
     }
 
-    /// How `leased`'s attempt runs, as `chosen` (its Label and the Run's
-    /// `fetch.tier` chose it as its Session was drawn): a race is timed by
-    /// its Label on its domain's browser-fetch latencies; and what it
-    /// fetches its document with.
+    /// How `leased`'s attempt runs in the pool Session `session`, as
+    /// `chosen` (its Label and the Run's `fetch.tier` chose it as its
+    /// Session was drawn): a race is timed by its Label on its domain's
+    /// browser-fetch latencies; and what it fetches its document with.
     async fn served(
         &self,
         leased: &Leased,
-        (chosen, local): (Chosen, Local),
+        (session, chosen, local): (&SessionId, Chosen, Local),
         second_copies: &SecondCopies,
     ) -> Tiering {
         let request = &leased.crawl_request;
@@ -771,7 +771,7 @@ impl Fetching<'_> {
                 ),
             }),
         };
-        let http = self.session_tier(local);
+        let http = self.session_tier(session, local);
         Tiering::of(
             self.tiers,
             http.as_ref(),
@@ -781,22 +781,22 @@ impl Fetching<'_> {
         )
     }
 
-    /// The Run's HTTP tier as a Session holding `local` sends on it (ADR
-    /// 0044): `None`, which fails the attempt's fetch, when the Session's
-    /// addresses are no longer held or its transport cannot be built,
-    /// rather than sending from an address the OS chooses.
-    fn session_tier(&self, local: Local) -> Option<HttpTier> {
+    /// The Run's HTTP tier as the pool Session `session`, holding `local`,
+    /// sends on it (ADR 0044), through the Session's own proxy when the Run
+    /// sets one (#1640): `None`, which fails the attempt's fetch, when the
+    /// Session's addresses are no longer held or its transport cannot be
+    /// built, rather than sending from an address the OS chooses.
+    fn session_tier(&self, session: &SessionId, local: Local) -> Option<HttpTier> {
         let http = self.http?;
-        let addresses = match local {
-            None => return Some(http.clone()),
-            Some(Ok(addresses)) => addresses,
+        let source = match local {
+            None => None,
+            Some(Ok(addresses)) => Some(LocalSource::new(addresses, self.interface.clone())),
             Some(Err(unavailable)) => {
                 tracing::warn!(entry = %unavailable.entry, "a Session's local addresses are no longer held; its HTTP fetches fail");
                 return None;
             }
         };
-        let source = LocalSource::new(addresses, self.interface.clone());
-        http.from_session(Some(&source))
+        http.of_session(session, source.as_ref())
             .inspect_err(|error| tracing::warn!(%error, "a Session's HTTP transport could not be built; its HTTP fetches fail"))
             .ok()
     }
@@ -806,7 +806,7 @@ impl Fetching<'_> {
     async fn retire(&self, run: &Run, pool: &mut SessionPool, context: &CallContext) {
         for session in pool.closable() {
             if let Some(http) = self.http {
-                http.forget_cookies_of(&session);
+                http.forget_session(&session).await;
             }
             if let Err(error) = self.tiers.retire_browser(run.id(), &session, context).await {
                 tracing::error!(%error, run_id = %run.id(), session_id = %session.0, "a retired Session's browser context did not close");
@@ -1038,7 +1038,9 @@ async fn lease_to_servers(
             server.in_flight += 1;
             let copies = admission.second_copies();
             let fetching = &pooled.fetching;
-            let tiering = fetching.served(&leased, (chosen, local), &copies).await;
+            let tiering = fetching
+                .served(&leased, (&session.id, chosen, local), &copies)
+                .await;
             let admission = FetchAdmission::holding(
                 permits
                     .pop()

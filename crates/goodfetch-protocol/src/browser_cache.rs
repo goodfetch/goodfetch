@@ -294,6 +294,8 @@ pub const MAX_UNUSED_AGE: Setting = Setting {
     clearable: true,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 

@@ -40,6 +40,8 @@ pub const TLS_TRUSTED_CAS: Setting = Setting {
     clearable: false,
     authority: Authority::Configuration,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -62,6 +64,8 @@ pub const TLS_ACCEPT_INVALID_CERTS: Setting = Setting {
     clearable: false,
     authority: Authority::ConfigurationExcept(trust_on_first_use_only),
     weakens: Some(accepts_any_invalid_certificate),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -164,6 +168,8 @@ pub const TLS_CLIENT_CERTIFICATES: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -332,6 +338,8 @@ pub const CERTS_ACCEPT: Operation = Operation {
     result: schema_of::<CertificatePin>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -368,6 +376,8 @@ pub const CERTS_FORGET: Operation = Operation {
     result: schema_of::<CertsForgotten>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -397,6 +407,8 @@ pub const CERTS_LIST: Operation = Operation {
     result: schema_of::<CertsListed>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,

@@ -40,6 +40,8 @@ pub const POLITENESS_SHARING: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: Some(not_shared),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -52,6 +54,8 @@ pub const POLITENESS_PROXY_CONCURRENCY: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -64,6 +68,8 @@ pub const POLITENESS_PROXY_RATE: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 

@@ -88,6 +88,8 @@ pub const IDLE_TIMEOUT: Setting = Setting {
     clearable: false,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -121,6 +123,8 @@ pub const ADDRESS: Setting = Setting {
     clearable: false,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -128,15 +132,19 @@ fn hundred_and_ten_seconds() -> serde_json::Value {
     serde_json::json!(110_u64 * 1000)
 }
 
-/// `daemon.drain_grace` (ADR 0049): how long the foreground Daemon drains.
+/// `daemon.drain_grace` (ADR 0049): how long a Daemon drains, the
+/// foreground Daemon on `SIGTERM` and any Daemon whose listener is closed
+/// for good.
 pub const DRAIN_GRACE: Setting = Setting {
     name: "daemon.drain_grace",
-    description: "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+    description: "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
     kind: ValueKind::Duration,
     default: hundred_and_ten_seconds,
     clearable: false,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -260,6 +268,8 @@ pub const STATUS: Operation = Operation {
     result: schema_of::<DaemonState>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Stable,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -276,6 +286,8 @@ pub const STOP: Operation = Operation {
     result: schema_of::<DaemonStopping>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Stable,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -331,6 +343,8 @@ pub const HEALTH: Operation = Operation {
     result: schema_of::<DaemonHealth>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Stable,
     deprecated: None,
     arrived_in: ARRIVED_IN,

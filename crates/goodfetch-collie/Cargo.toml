@@ -65,11 +65,12 @@ goodfetch-workspace-hack.workspace = true
 libc = { workspace = true, optional = true }
 
 [target.'cfg(all(target_os = "linux", target_env = "musl"))'.dependencies]
-# The static musl executables, Collie's and Foxhound's, which takes this
-# crate's `executable`, have one allocator (issue 2208): `override` routes
-# the C and C++ code's `malloc` and its siblings (SQLite, BoringSSL, zstd,
-# DuckDB) to mimalloc in place of Zig's libc allocator, whose `malloc` is
-# weak. The gnu builds, where the tests and heap benchmarks count on the
+# The static musl executables have one allocator (#2208): Collie's, and
+# Foxhound's, which turns on this crate's `executable` feature. `override`
+# routes the C and C++ code's `malloc` and its siblings (SQLite, BoringSSL,
+# zstd, DuckDB) to mimalloc in place of Zig's libc allocator, whose `malloc`
+# is weak; this crate's and Foxhound's tests built for that target do the
+# same. The gnu builds, where the tests and heap benchmarks count on the
 # system's allocator, and macOS and Windows keep their `malloc`.
 mimalloc = { workspace = true, optional = true, features = ["override"] }
 

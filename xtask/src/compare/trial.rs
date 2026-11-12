@@ -226,11 +226,12 @@ const CHROME_FOLDER: &str = if cfg!(target_arch = "aarch64") {
     "chrome-mac-x64"
 };
 #[cfg(target_os = "macos")]
-const CHROME: &str = "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
+pub(crate) const CHROME: &str =
+    "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing";
 #[cfg(not(target_os = "macos"))]
 const CHROME_FOLDER: &str = "chrome-linux64";
 #[cfg(not(target_os = "macos"))]
-const CHROME: &str = "chrome";
+pub(crate) const CHROME: &str = "chrome";
 
 /// The folder of the Chrome for Testing build Playwright installed
 /// (`PLAYWRIGHT_BROWSERS_PATH`, else its default folder), which the

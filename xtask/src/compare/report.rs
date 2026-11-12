@@ -135,7 +135,7 @@ pub(crate) struct Report<'a> {
 }
 
 /// The median of `values`, the mean of the middle two for an even count.
-fn median(values: &[f64]) -> f64 {
+pub(super) fn median(values: &[f64]) -> f64 {
     let mut sorted = values.to_vec();
     sorted.sort_by(f64::total_cmp);
     let middle = sorted.len() / 2;
@@ -155,7 +155,7 @@ fn float(count: u64) -> f64 {
     count as f64
 }
 
-fn spread(values: &[f64], unit: Unit) -> Figure {
+pub(super) fn spread(values: &[f64], unit: Unit) -> Figure {
     if values.is_empty() || values.iter().any(|value| !value.is_finite()) {
         return Figure::NotMeasured {
             reason: "a trial gave no value".to_owned(),
@@ -660,7 +660,7 @@ fn shown(value: f64, unit: Unit) -> String {
     }
 }
 
-fn cell_text(figure: &Figure) -> String {
+pub(super) fn cell_text(figure: &Figure) -> String {
     match figure {
         Figure::Measured {
             median,

@@ -109,6 +109,23 @@ pub(crate) fn tree(pid: u32) -> Vec<u32> {
     tree
 }
 
+/// The CPU seconds the live processes of the tree under `pid` have spent
+/// so far, user and system: zero on an OS without `/proc`.
+pub(crate) fn cpu_seconds(pid: u32) -> f64 {
+    let (ticks_per_second, page) = system();
+    let ticks: u64 = tree(pid)
+        .into_iter()
+        .filter_map(|pid| process(pid, page))
+        .map(|process| process.cpu_ticks)
+        .sum();
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "clock ticks stay far below 2^52"
+    )]
+    let ticks = ticks as f64;
+    ticks / ticks_per_second
+}
+
 /// What one sample reads of one process.
 struct Process {
     resident_bytes: u64,

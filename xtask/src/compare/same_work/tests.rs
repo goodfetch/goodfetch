@@ -1,8 +1,8 @@
 use super::{check, strace_runs_of_other_work_set_aside};
 use crate::compare::matrix::{self, Row, Scenario};
 use crate::compare::trials::{
-    Comparison, CountedCell, CountedRun, Declared, GrowthCell, INSTRUCTION_TOOLS, Machine,
-    Measured, Tool, Trial, Work,
+    CollieCell, Comparison, CountedCell, CountedRun, Declared, GrowthCell, INSTRUCTION_TOOLS,
+    Machine, Measured, Tool, Trial, Work,
 };
 
 /// The work of a trial that fetched every page of the 4-page site once,
@@ -73,6 +73,9 @@ fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
             reason: "a test".to_owned(),
         },
         instructions: CountedCell::NotRun {
+            reason: "a test".to_owned(),
+        },
+        collie: CollieCell::NotRun {
             reason: "a test".to_owned(),
         },
     }

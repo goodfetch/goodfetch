@@ -1,5 +1,6 @@
 //! `run`: every measured cell's declared trials in one random order, each
-//! against a fresh Proving ground, then the system-call cell's, the growth
+//! against a fresh Proving ground, then the Collie scenario's (when asked
+//! for), the system-call cell's, the growth
 //! cell's (when asked for) and the Callgrind cell's runs in the same way,
 //! written to the trials file.
 
@@ -13,14 +14,15 @@ use anyhow::{Context as _, Result, bail};
 use crate::output;
 use crate::rss::crawl::serve;
 
+use super::collie;
 use super::matrix::{self, Cell, Config, Row, Scenario, SpiderBuild};
 use super::sampler;
 use super::trial::{self, Counted, callgrind_missing, strace_missing};
 use super::trials::{
-    CONCURRENCY, CRAWLEE_VERSION, Comparison, CountedCell, CountedRun, Declared, GROWTH_PAGES,
-    GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_TOOLS, Machine, Measured, PLAYWRIGHT_VERSION,
-    QUIET_LOAD, QUIET_WAIT_SECONDS, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES,
-    SPIDER_VERSION, STATISTIC, StoppedRun, Trial,
+    CONCURRENCY, CRAWLEE_VERSION, CollieCell, Comparison, CountedCell, CountedRun, Declared,
+    GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_TOOLS, Machine, Measured,
+    PLAYWRIGHT_VERSION, QUIET_LOAD, QUIET_WAIT_SECONDS, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION,
+    SITE_PAGES, SPIDER_VERSION, STATISTIC, StoppedRun, Trial,
 };
 
 /// The executables a run takes.
@@ -38,6 +40,8 @@ pub(crate) struct Executables<'a> {
     /// Chrome for Testing's folder, which every tool of the headless
     /// browser scenario runs.
     pub(crate) browser: &'a Path,
+    /// The Collie scenario's, when the run asked for it.
+    pub(crate) collie: Option<collie::Tools<'a>>,
 }
 
 /// What a run was asked for.
@@ -664,10 +668,55 @@ fn not_reached(cell: &str) -> String {
     format!("the run ended before its {cell} cell")
 }
 
+/// The Collie scenario's trials, when the run asked for it (`tools`):
+/// `options.trials` of each tool in each of its cells, in one random order
+/// drawn from `state`, each waiting for a quiet machine as a timed trial
+/// does.
+fn collie_trials(
+    tools: Option<&collie::Tools<'_>>,
+    options: &Options,
+    state: &mut u64,
+) -> Result<CollieCell> {
+    let Some(tools) = tools else {
+        return Ok(CollieCell::NotRun {
+            reason: "the run asked for no Collie cell".to_owned(),
+        });
+    };
+    let mut trials_run = Vec::new();
+    for (exercise, tool, number) in collie::order(options.trials, state, next) {
+        let load = if waits_for_quiet(options) {
+            quiet()
+        } else {
+            load()
+        };
+        let done = collie::trial(tools, exercise, tool, number, load).with_context(|| {
+            format!(
+                "running the Collie scenario's {} cell, {} trial {number}",
+                exercise.name(),
+                tool.name()
+            )
+        })?;
+        output::line(&format!(
+            "collie {} {} trial {number}: {} actions, {} CDP commands in {:.3} s, peak {} bytes",
+            exercise.name(),
+            tool.name(),
+            done.actions,
+            done.commands,
+            done.wall_seconds,
+            done.peak_bytes,
+        ));
+        trials_run.push(done);
+    }
+    Ok(CollieCell::Measured {
+        trials: options.trials,
+        trials_run,
+    })
+}
+
 /// Runs every declared trial and returns the trials file's contents. `keep`
-/// is handed them as they stand once the timed trials are in, and again
-/// once the system-call cell is, so a failure in a later cell loses
-/// neither.
+/// is handed them as they stand once the timed trials are in, again once
+/// the Collie scenario's are, and once the system-call cell is, so a
+/// failure in a later cell loses none of them.
 pub(crate) fn run(
     executables: &Executables<'_>,
     commit: String,
@@ -694,7 +743,12 @@ pub(crate) fn run(
         instructions: CountedCell::NotRun {
             reason: not_reached("Callgrind"),
         },
+        collie: CollieCell::NotRun {
+            reason: not_reached("Collie"),
+        },
     };
+    keep(&comparison)?;
+    comparison.collie = collie_trials(executables.collie.as_ref(), options, &mut state)?;
     keep(&comparison)?;
     let measured = measured(options);
     comparison.syscalls = if let Some(reason) = strace_missing() {

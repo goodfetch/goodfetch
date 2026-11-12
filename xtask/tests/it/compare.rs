@@ -7,7 +7,9 @@
 //! other work, and writes no figure. A cell a tool cannot run says so, a
 //! Foxhound value that does not exist yet is pending, and the Callgrind
 //! cell gives `foxhound.spider_instruction_ratio` under the same check (ADR
-//! 0140). Trials are fixtures here.
+//! 0140). The Collie scenario (issue 2282) gives Collie's CDP commands per
+//! action over Playwright's, held to its register row's Today, under a
+//! same-work check of its own. Trials are fixtures here.
 
 use serde_json::{Value, json};
 
@@ -176,6 +178,7 @@ fn trials() -> Value {
         "syscalls": not_run("strace is not installed on this host"),
         "growth": not_run("the growth cell runs with `--growth`"),
         "instructions": not_run("valgrind is not installed on this host"),
+        "collie": not_run("the run asked for no Collie cell"),
     })
 }
 
@@ -1140,4 +1143,135 @@ fn a_tool_that_counted_no_instructions_fails() {
         "{}",
         outcome.stderr
     );
+}
+
+/// The Collie scenario's cells, each with its pages and actions.
+const COLLIE_CELLS: [(&str, &str, &[u32], u64); 5] = [
+    (
+        "click",
+        "actionability",
+        &[1, 2, 3, 4, 5, 6, 7, 8, 9, 18, 19, 26, 27],
+        62,
+    ),
+    ("form", "actionability", &[20, 21, 22, 23, 24, 28], 22),
+    ("navigation", "portal", &[6, 7, 8, 9, 10, 11, 12, 13], 8),
+    ("sessions", "", &[], 10),
+    (
+        "at_once",
+        "actionability",
+        &[1, 2, 3, 4, 5, 6, 15, 18, 26, 27, 20, 21, 22, 23, 24, 28],
+        81,
+    ),
+];
+
+/// A Collie scenario of two trials of each tool in each cell, every page
+/// done and verified, Collie sending `collie` commands per action and
+/// Playwright one.
+fn collie(collie: u64) -> Value {
+    let mut trials_run = Vec::new();
+    for (exercise, family, numbers, actions) in COLLIE_CELLS {
+        for (tool, per_action) in [("collie", collie), ("playwright", 1)] {
+            for number in 1..=2 {
+                let pages: Vec<Value> = numbers
+                    .iter()
+                    .map(|page| {
+                        let task = format!("{family}/{page}");
+                        json!({
+                            "task": task,
+                            "ended": "success",
+                            "status": 200,
+                            "read": (family == "portal").then(|| format!("digest of {task}")),
+                            "error": null,
+                            "verdict": (family == "actionability").then_some("verified"),
+                        })
+                    })
+                    .collect();
+                trials_run.push(json!({
+                    "exercise": exercise,
+                    "tool": tool,
+                    "number": number,
+                    "actions": actions,
+                    "sessions": if exercise == "sessions" { 10 } else { 0 },
+                    "commands": actions * per_action,
+                    "cpu_seconds": 0.5,
+                    "wall_seconds": 1.0,
+                    "peak_bytes": 100 * MIB,
+                    "pages": pages,
+                }));
+            }
+        }
+    }
+    json!({ "status": "measured", "trials": 2, "trials_run": trials_run })
+}
+
+/// TESTING.md's register, its Collie row's Today `today`.
+fn register(today: &str) -> String {
+    format!(
+        "# Testing\n\n## Quality register\n\n### Enforced\n\n| Dimension | Rule | Checked by |\n|---|---|---|\n| a | b | c |\n\n### Measured, not yet enforced\n\n| Row | Metric, per unit | Contract | Today | Benchmark | Ratchet | Checked by | Run by |\n|---|---|---|---|---|---|---|---|\n| `collie.playwright_command_ratio` | Collie's CDP commands per action over Playwright's | ≤ 1 | {today} | the Collie scenario | must not grow | `just compare` | owner's report |\n\n### Exceptions\n\n| ID | Rule | Expires |\n|---|---|---|\n| x | y | z |\n"
+    )
+}
+
+#[test]
+fn the_collie_scenario_reports_its_command_ratio_against_the_rows_today() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write("TESTING.md", register("1.000").as_bytes());
+    let mut trials = trials();
+    trials["collie"] = collie(2);
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let section = &written(&workspace)["collie"];
+    assert_eq!(section["status"], "measured");
+    assert_eq!(section["ratios"][0]["exercise"], "click");
+    assert_eq!(section["ratios"][0]["ratio"], 2.0);
+    assert_eq!(section["ratios"][0]["over_today"], true);
+    assert_eq!(
+        section["pages_right"]["collie"],
+        json!({"right": 20, "ran": 20, "not_right": []})
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    assert!(
+        markdown.contains("over the row's Today, 1.000, in: click (2.000), form (2.000)"),
+        "{markdown}"
+    );
+}
+
+#[test]
+fn a_collie_trial_of_other_work_fails_the_same_work_check_and_reports_no_figure() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    let mut cell = collie(1);
+    // Playwright's second trial read another text on a portal page.
+    let run = cell["trials_run"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|run| {
+            run["exercise"] == "navigation" && run["tool"] == "playwright" && run["number"] == 2
+        })
+        .unwrap();
+    run["pages"][0]["read"] = json!("another digest");
+    trials["collie"] = cell;
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (
+            vec![finding(
+                "different_work",
+                "collie navigation playwright trial 2"
+            )],
+            1
+        ),
+        "{}",
+        outcome.stdout
+    );
+    assert!(workspace.read(REPORT).is_none());
 }

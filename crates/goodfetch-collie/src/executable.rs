@@ -499,6 +499,10 @@ fn parse(start: &Start) -> Result<(String, Parsed, ColourChoice), ExitCode> {
     })
 }
 
+fn attached_engine(_arguments: &[OsString]) -> Option<ColourChoice> {
+    None
+}
+
 /// `engine`, its Connections receiving `log_events`, its Resource governor
 /// reading the OS it runs on (ADR 0040) and its Audit log also sending each
 /// new entry to `audit_events`, if anywhere.

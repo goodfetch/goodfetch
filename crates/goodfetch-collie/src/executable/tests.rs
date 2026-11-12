@@ -23,7 +23,7 @@ use super::catalog_commands::members;
 use super::daemon_command::DaemonCommand;
 use super::log_file::{LogFile, Rotation};
 use super::logs::Masked;
-use super::{COLOR, Command, CommandLine, OwnCommands, command, command_line};
+use super::{COLOR, Command, CommandLine, OwnCommands, attached_engine, command, command_line};
 
 /// Foxhound's catalog's generated commands, none written by hand: Foxhound's
 /// executable's command line but for its own commands, which Foxhound's
@@ -124,6 +124,44 @@ fn color_is_taken_wherever_it_is_given(
         matches.get_one::<ColourChoice>(COLOR).copied(),
         Some(expected)
     );
+}
+
+/// An Attached engine started as an SDK starts it is recognised before any
+/// command line is built (#2204), as the command line parses it, its colour
+/// included; anything else it is given is left to the command line.
+#[rstest]
+#[case::as_an_sdk_starts_it(&["attached-engine"], Some(ColourChoice::Auto))]
+#[case::coloured(&["attached-engine", "--color", "always"], Some(ColourChoice::Always))]
+#[case::coloured_in_one_argument(&["attached-engine", "--color=never"], Some(ColourChoice::Never))]
+#[case::coloured_before_it(&["--color", "never", "attached-engine"], None)]
+#[case::its_help(&["attached-engine", "--help"], None)]
+#[case::a_flag_it_lacks(&["attached-engine", "--json"], None)]
+#[case::a_colour_none_names(&["attached-engine", "--color", "pink"], None)]
+#[case::another_command(&["daemon", "status"], None)]
+fn an_attached_engine_is_recognised_before_the_command_line_is_built(
+    #[values(Product::Collie, Product::Foxhound)] product: Product,
+    #[case] arguments: &[&str],
+    #[case] expected: Option<ColourChoice>,
+) {
+    let arguments: Vec<std::ffi::OsString> = std::iter::once("goodfetch")
+        .chain(arguments.iter().copied())
+        .map(std::ffi::OsString::from)
+        .collect();
+
+    let recognised = attached_engine(&arguments);
+
+    let (command_line, _) = command_line(product, own(product));
+    let parsed = command_line
+        .try_get_matches_from(&arguments)
+        .ok()
+        .and_then(|matches| {
+            let colour = matches.get_one::<ColourChoice>(COLOR).copied()?;
+            match CommandLine::from_arg_matches(&matches).ok()?.command {
+                Command::AttachedEngine { .. } => Some(colour),
+                _ => None,
+            }
+        });
+    assert_eq!((recognised, expected.and(parsed)), (expected, expected));
 }
 
 /// `daemon launched`'s arguments as `product`'s command line reads them:

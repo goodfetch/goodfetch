@@ -12,6 +12,8 @@
 #[cfg(target_os = "linux")]
 pub(super) mod secret_service;
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use goodfetch_protocol::secret_reference::SecretReference;
@@ -28,11 +30,15 @@ use crate::tasks::TaskOwner;
 pub struct Keychain(Arc<Opening>);
 
 enum Opening {
-    /// This OS's keychain, opened on first use; none where it does not open.
-    Os(OnceCell<Option<Backend>>),
+    /// This OS's keychain, opened on first use by its opener; none where it
+    /// does not open.
+    Os(OnceCell<Option<Backend>>, Opener),
     /// A keychain chosen for the engine, or none.
     Chosen(Option<Backend>),
 }
+
+/// What opens the OS keychain: [`open_os`], or a test's stand-in.
+type Opener = Box<dyn Fn() -> Pin<Box<dyn Future<Output = Option<Backend>> + Send>> + Send + Sync>;
 
 /// What reaches a keychain's items.
 #[derive(Clone)]
@@ -47,7 +53,7 @@ enum Backend {
 impl std::fmt::Debug for Keychain {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let opening = match &*self.0 {
-            Opening::Os(_) => "os",
+            Opening::Os(..) => "os",
             Opening::Chosen(Some(_)) => "chosen",
             Opening::Chosen(None) => "absent",
         };
@@ -58,7 +64,23 @@ impl std::fmt::Debug for Keychain {
 impl Keychain {
     /// This OS's keychain, opened on first use.
     pub fn os() -> Self {
-        Self(Arc::new(Opening::Os(OnceCell::new())))
+        Self(Arc::new(Opening::Os(
+            OnceCell::new(),
+            Box::new(|| Box::pin(open_os())),
+        )))
+    }
+
+    /// A keychain opened on first use as this OS's is, by `open`, which
+    /// answers the store it opened, or none where it does not open: a
+    /// test's view of when, and how often, the OS keychain opens.
+    #[cfg(test)]
+    pub(crate) fn opened_by(
+        open: impl Fn() -> Option<Arc<CredentialStore>> + Send + Sync + 'static,
+    ) -> Self {
+        Self(Arc::new(Opening::Os(
+            OnceCell::new(),
+            Box::new(move || Box::pin(std::future::ready(open().map(Backend::Store)))),
+        )))
     }
 
     /// No keychain, as on a host without one.
@@ -184,7 +206,7 @@ impl Keychain {
 
     async fn backend(&self) -> Option<Backend> {
         match &*self.0 {
-            Opening::Os(opened) => opened.get_or_init(open_os).await.clone(),
+            Opening::Os(opened, open) => opened.get_or_init(open).await.clone(),
             Opening::Chosen(backend) => backend.clone(),
         }
     }

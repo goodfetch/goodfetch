@@ -2504,7 +2504,7 @@ class RecordProvenance(BaseModel):
     tier: TierProvenance | None = None
     """
     The tier that fetched that request's document, and how it was
-    chosen; none where the handler was given its request alone.
+    chosen; none where no document was fetched.
     """
     unread_fields: list[UnreadField] | None = None
     """

@@ -396,8 +396,10 @@ pub(crate) fn user_configuration(settings: &str) -> String {
 /// consent pages' two hosts (ADR 0048), the `body-limits` family's host
 /// whose robots.txt is past the size limit, the `access-policy` family's
 /// host whose robots.txt answers late, and the `bombs` family's own
-/// host, whose zstd frame asks for a window past 8 MB (ADR 0067).
-const NAMED_HOSTS: [&str; 11] = [
+/// host, whose zstd frame asks for a window past 8 MB (ADR 0067); and the
+/// delivery cases' plain host, which an engine would otherwise look up.
+const NAMED_HOSTS: [&str; 12] = [
+    delivery::PLAIN_HOST,
     "fetch-edge.test",
     "scope.test",
     "elsewhere.test",
@@ -602,9 +604,9 @@ impl Case {
             Self::CancelInFlight => cancel_in_flight(connection, checks),
             Self::CancelAnswered => cancel_answered(connection, checks),
             Self::FabricatedHello => fabricated_hello(connection, target, hello, checks),
-            Self::AtLeastOnce => delivery::at_least_once(connection, checks),
-            Self::ExactlyOnce => delivery::exactly_once(connection, checks),
-            Self::LateCommit => delivery::late_commit(connection, checks),
+            Self::AtLeastOnce => delivery::at_least_once(connection, site, checks),
+            Self::ExactlyOnce => delivery::exactly_once(connection, site, checks),
+            Self::LateCommit => delivery::late_commit(connection, site, checks),
             Self::PagesShareTheDefaultSession => default_session(connection, site, checks),
             Self::GotoAnswersTheResponse => goto(connection, site, checks),
             Self::ErrorStatusesAreResponses => navigation::error_statuses(connection, site, checks),

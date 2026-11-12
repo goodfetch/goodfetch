@@ -18,7 +18,7 @@ use goodfetch_test_client::Attached;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use crate::attached;
+use crate::site::{Site, path_of};
 
 /// The Run ID of the crawl the cases retry.
 const RUN_ID: &str = "retried";
@@ -159,7 +159,8 @@ fn latest(outcomes: &Value) -> BTreeMap<String, Value> {
 )]
 fn retry_failed_re_admits_only_the_failures_with_their_identity_and_a_fresh_retry_budget() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     let book = json!({ "isbn": "9780000000001" });
     let flaky = json!({ "note": "Ünïcødé ✓" });
     let mut first = Handed::default();
@@ -168,18 +169,18 @@ fn retry_failed_re_admits_only_the_failures_with_their_identity_and_a_fresh_retr
         "datasets": [{ "name": "pages" }],
         "labels": { "shelf": {}, "book": {} },
         "seeds": [
-            { "url": "https://shop.test/shelf", "label": "shelf" },
-            { "url": "https://shop.test/flaky", "label": "book", "payload": flaky },
-            { "url": "https://shop.test/skipped", "label": "book" },
-            { "url": "https://shop.test/blocked", "label": "book" },
+            { "url": site.page("/shelf"), "label": "shelf" },
+            { "url": site.page("/flaky"), "label": "book", "payload": flaky },
+            { "url": site.page("/skipped"), "label": "book" },
+            { "url": site.page("/blocked"), "label": "book" },
         ],
         "settings": settings(),
     });
     let failing = |engine: &mut Attached, handle: &Value, handed: &mut Handed| {
         let request = &handle["crawl_request"];
         handed.note(request);
-        match request["url"].as_str().unwrap() {
-            "https://shop.test/shelf" => {
+        match path_of(&request["url"]) {
+            "/shelf" => {
                 let enqueued = serve(
                     engine,
                     "enqueue",
@@ -188,7 +189,7 @@ fn retry_failed_re_admits_only_the_failures_with_their_identity_and_a_fresh_retr
                         "run_id": handle["run_id"],
                         "crawl_request_id": request["id"],
                         "lease_epoch": handle["lease_epoch"],
-                        "url": "https://shop.test/book/1",
+                        "url": site.page("/book/1"),
                         "label": "book",
                         "payload": book,
                     }),
@@ -197,10 +198,10 @@ fn retry_failed_re_admits_only_the_failures_with_their_identity_and_a_fresh_retr
                 assert_eq!(enqueued["result"]["kind"], json!("added"), "{enqueued}");
                 kept(request)
             }
-            "https://shop.test/skipped" => {
+            "/skipped" => {
                 json!({ "result": { "skipped": { "message": "out of season" } } })
             }
-            "https://shop.test/blocked" => failure("blocked", &json!({ "cause": "captcha" })),
+            "/blocked" => failure("blocked", &json!({ "cause": "captcha" })),
             _ => failure("handler_failed", &json!({})),
         }
     };
@@ -281,8 +282,8 @@ fn retry_failed_re_admits_only_the_failures_with_their_identity_and_a_fresh_retr
             .unwrap()
     };
     let (book_1, flaky_seed) = (
-        first_of("https://shop.test/book/1"),
-        first_of("https://shop.test/flaky"),
+        first_of(&site.page("/book/1")),
+        first_of(&site.page("/flaky")),
     );
     // Each failure handed again as it was first: its ID, Label and Payload.
     assert_eq!(
@@ -297,10 +298,7 @@ fn retry_failed_re_admits_only_the_failures_with_their_identity_and_a_fresh_retr
         (
             &json!({ "readmitted": 2 }),
             &json!("finished"),
-            BTreeMap::from([
-                ("https://shop.test/book/1".to_owned(), 2),
-                ("https://shop.test/flaky".to_owned(), 2),
-            ]),
+            BTreeMap::from([(site.page("/book/1"), 2), (site.page("/flaky"), 2),]),
             true,
             &book,
             &flaky,
@@ -310,10 +308,10 @@ fn retry_failed_re_admits_only_the_failures_with_their_identity_and_a_fresh_retr
     // A fresh budget: two attempts more, counted on from the first two.
     assert_eq!(
         (
-            &after_second["https://shop.test/book/1"],
-            &after_second["https://shop.test/flaky"],
-            &after_second["https://shop.test/blocked"]["kind"],
-            &after_second["https://shop.test/skipped"]["kind"],
+            &after_second[&site.page("/book/1")],
+            &after_second[&site.page("/flaky")],
+            &after_second[&site.page("/blocked")]["kind"],
+            &after_second[&site.page("/skipped")]["kind"],
         ),
         (
             &json!({ "kind": "failed", "id": book_1["id"], "label": "book", "depth": 1, "attempts": 4 }),
@@ -328,8 +326,8 @@ fn retry_failed_re_admits_only_the_failures_with_their_identity_and_a_fresh_retr
             &retried_blocked["result"],
             &last["result"]["lifecycle"],
             third.counts(),
-            &after_third["https://shop.test/book/1"]["depth"],
-            &after_third["https://shop.test/blocked"]["id"],
+            &after_third[&site.page("/book/1")]["depth"],
+            &after_third[&site.page("/blocked")]["id"],
             &failed["result"]["requests"],
             &nothing["result"],
             &report["result"]["lifecycle"],
@@ -338,12 +336,12 @@ fn retry_failed_re_admits_only_the_failures_with_their_identity_and_a_fresh_retr
             &json!({ "readmitted": 3 }),
             &json!("finished"),
             BTreeMap::from([
-                ("https://shop.test/blocked".to_owned(), 1),
-                ("https://shop.test/book/1".to_owned(), 1),
-                ("https://shop.test/flaky".to_owned(), 1),
+                (site.page("/blocked"), 1),
+                (site.page("/book/1"), 1),
+                (site.page("/flaky"), 1),
             ]),
             &json!(1),
-            &first_of("https://shop.test/blocked")["id"],
+            &first_of(&site.page("/blocked"))["id"],
             &json!([]),
             &json!({ "readmitted": 0 }),
             &json!("finished"),
@@ -367,7 +365,8 @@ fn retry_failed_re_admits_only_the_failures_with_their_identity_and_a_fresh_retr
 #[test]
 fn retry_failed_re_admits_a_failure_into_a_crawl_still_running() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     let mut handed = Handed::default();
     let mut handle = |_: &mut Attached, handle: &Value| {
         let request = &handle["crawl_request"];
@@ -381,7 +380,7 @@ fn retry_failed_re_admits_a_failure_into_a_crawl_still_running() {
     let start = json!({
         "run_id": "live",
         "datasets": [{ "name": "pages" }],
-        "seeds": [{ "url": "https://shop.test/once", "label": "page" }],
+        "seeds": [{ "url": site.page("/once"), "label": "page" }],
         "settings": { "crawl": { "keep_alive": true, "retry": { "max": 0 } } },
     });
     serve(&mut engine, "start", "crawl.start", &start, &mut handle);
@@ -428,7 +427,7 @@ fn retry_failed_re_admits_a_failure_into_a_crawl_still_running() {
         (
             &json!("failed"),
             &json!({ "readmitted": 1 }),
-            BTreeMap::from([("https://shop.test/once".to_owned(), 2)]),
+            BTreeMap::from([(site.page("/once"), 2)]),
             true,
             &handed.0[0]["id"],
             &json!("finished"),

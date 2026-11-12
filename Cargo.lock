@@ -2791,6 +2791,7 @@ dependencies = [
  "pulldown-cmark",
  "rcgen",
  "regex",
+ "reqwest",
  "rstest",
  "rustls",
  "schemars",

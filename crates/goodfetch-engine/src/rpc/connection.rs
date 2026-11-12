@@ -892,8 +892,6 @@ impl Session<'_> {
                 ProtocolFailure::InvalidRequest,
                 format!("a call with the id {id:?} is already in flight"),
             ))
-        } else if self.in_flight.len() >= MAX_IN_FLIGHT {
-            Some(too_many_calls())
         } else if let Some(handler) = self.dispatch.handlers.get(method.as_str()) {
             if handler.operation().reach == Reach::PersonOnly
                 && !self
@@ -907,6 +905,9 @@ impl Session<'_> {
             } else {
                 let handler = handler.clone();
                 match trace_context(params) {
+                    // Refused last, so a call the engine would never start
+                    // keeps its own refusal at the cap.
+                    Ok(_) if self.in_flight.len() >= MAX_IN_FLIGHT => Some(too_many_calls()),
                     Ok((params, meta)) => {
                         self.call(id, &handler, params, meta.as_ref());
                         return Flow::Continue;

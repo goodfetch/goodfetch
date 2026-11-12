@@ -23,12 +23,19 @@ export {
 } from "./key-value-store.ts";
 export * from "./generated/errors.ts";
 export type {
+  Acted,
   BlockCause,
   CallOptions,
   Completeness,
+  FormatsRequest,
   Lifecycle,
+  Navigated,
+  PageClosed,
+  PageFormats,
+  PageResponse,
   Product,
   RunReport,
+  SessionClosed,
   StartedAs,
   StopReason,
   StoppedBy,

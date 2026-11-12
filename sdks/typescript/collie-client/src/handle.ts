@@ -11,8 +11,12 @@ export interface HandleHost<
 > extends Caller<Types> {
   /** The ID each of the handle's calls carries. */
   readonly id: Id;
-  /** The host of a handle this one opens or builds, whose calls carry `id`. */
-  child<ChildId>(id: ChildId): HandleHost<ChildId, Types>;
+  /**
+   * The host of a handle this one opens or builds: `namespace` names its
+   * operations, among them the `close` that closes it, and its calls carry
+   * `id`.
+   */
+  child<ChildId>(namespace: string, id: ChildId): HandleHost<ChildId, Types>;
 }
 
 /** `Params` without the entries a caller left out. */

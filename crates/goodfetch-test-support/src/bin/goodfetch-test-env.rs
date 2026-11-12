@@ -13,6 +13,12 @@
 //! `--console-port <port>` has its Console serve on that port, which a test
 //! that restarts the Daemon names so that no other program can take it in
 //! between, instead of one the OS chooses.
+//! `--browser` prepares the home for an engine that launches a browser, as
+//! an SDK's Attached engine does for a program that opens a page: it lays
+//! out the Browser cache there, so nothing is downloaded, and, with
+//! `--proving-ground`, its user configuration maps the Proving ground's
+//! hosts and lists them in `egress.private_ranges`, as a Rust test's Run
+//! settings do.
 //! `--print-schemas` prints the JSON
 //! Schemas of the crate's file types for `xtask codegen` and starts nothing;
 //! `--print-canary-rule` prints the Secret canaries' `gitleaks` rule for it,
@@ -28,7 +34,8 @@ use std::process::ExitCode;
 use clap::Parser;
 use goodfetch_test_support::{
     DAEMON_DEADLINE, Daemon, Description, PROVING_GROUND_DEADLINE, Product, ProvingGround,
-    SecretKind, TestEnv, Tool, Variables, gitleaks_rule, schemas, tools,
+    ProvingGroundDescription, SecretKind, TestEnv, Tool, Variables, browser_cache_in_home,
+    gitleaks_rule, schemas, tools,
 };
 
 #[derive(Parser)]
@@ -69,6 +76,10 @@ struct Arguments {
     /// The port the Daemon's Console serves on, instead of one the OS chooses.
     #[arg(long, value_name = "PORT", requires = "daemon")]
     console_port: Option<u16>,
+    /// Lays out the Browser cache in the test's home and, with
+    /// `--proving-ground`, lets the home's engines reach its hosts.
+    #[arg(long)]
+    browser: bool,
     /// Prints the JSON Schemas of test support's file types, keyed by their
     /// paths under `test-support/fixtures/`, and starts nothing.
     #[arg(long, exclusive = true)]
@@ -207,11 +218,21 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
         }
         None => None,
     };
+    let mut settings = Vec::new();
+    if arguments.browser {
+        browser_cache_in_home(&env)?;
+        if let Some(started) = &proving_ground {
+            settings.push(reaching(started.description()));
+        }
+    }
+    if let Some(port) = arguments.console_port {
+        settings.push(format!("console.address = \"127.0.0.1:{port}\"\n"));
+    }
+    if !settings.is_empty() {
+        env.user_configuration(&settings.concat());
+    }
     let daemon = match arguments.daemon {
         Some(product) => {
-            if let Some(port) = arguments.console_port {
-                env.user_configuration(&format!("console.address = \"127.0.0.1:{port}\"\n"));
-            }
             // Its process joins the TestEnv's record too.
             let started =
                 Daemon::start_program(&env, tools.path(product.tool())?, DAEMON_DEADLINE)?;
@@ -242,6 +263,28 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
     drop(proving_ground);
     drop(env);
     Ok(())
+}
+
+/// The settings, lines of a user configuration, with which an engine
+/// reaches `proving_ground`'s hosts: each mapped to its address, and listed
+/// in `egress.private_ranges`, since that address is loopback and listing
+/// the names keeps `localhost` and literal loopback addresses refused.
+fn reaching(proving_ground: &ProvingGroundDescription) -> String {
+    let hosts: Vec<String> = proving_ground
+        .resolve
+        .keys()
+        .map(|host| format!("{host:?}"))
+        .collect();
+    let mapping: Vec<String> = proving_ground
+        .resolve
+        .iter()
+        .map(|(host, address)| format!("{host:?} = [{address:?}]"))
+        .collect();
+    format!(
+        "egress.private_ranges = [{}]\nnetwork.resolve = {{ {} }}\n",
+        hosts.join(", "),
+        mapping.join(", ")
+    )
 }
 
 fn write_line(line: &str) -> Result<(), Failure> {

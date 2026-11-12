@@ -65,7 +65,7 @@ export class Run {
    */
   async newPage(options: { readonly settings?: types.NewPageParams["settings"] | undefined } = {}): Promise<Page> {
     const opened = await this.#host.call("run.new_page", defined({ run_id: this.#host.id, settings: options.settings }), {});
-    return new Page(this.#host.child(opened.page_id));
+    return new Page(this.#host.child("page", opened.page_id));
   }
 
   /**
@@ -75,7 +75,7 @@ export class Run {
    */
   async newSession(options: { readonly settings?: types.NewSessionParams["settings"] | undefined; readonly source?: types.NewSessionParams["source"] | undefined } = {}): Promise<Session> {
     const opened = await this.#host.call("run.new_session", defined({ run_id: this.#host.id, settings: options.settings, source: options.source }), {});
-    return new Session(this.#host.child(opened.session_id));
+    return new Session(this.#host.child("session", opened.session_id));
   }
 
   /**
@@ -158,7 +158,7 @@ export class Session implements AsyncDisposable {
    */
   async newPage(options: { readonly settings?: types.NewSessionPageParams["settings"] | undefined } = {}): Promise<Page> {
     const opened = await this.#host.call("session.new_page", defined({ session_id: this.#host.id, settings: options.settings }), {});
-    return new Page(this.#host.child(opened.page_id));
+    return new Page(this.#host.child("page", opened.page_id));
   }
 
   /**
@@ -318,7 +318,7 @@ export class Page implements AsyncDisposable {
    * Built without a call (ADR 0099).
    */
   locator(selector: types.Locator["selector"]): Locator {
-    return new Locator(this.#host.child<types.Locator>({ page_id: this.#host.id, selector }));
+    return new Locator(this.#host.child<types.Locator>("locator", { page_id: this.#host.id, selector }));
   }
 
   async [Symbol.asyncDispose](): Promise<void> {

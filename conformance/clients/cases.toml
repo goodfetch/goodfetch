@@ -20,7 +20,7 @@
 
 [suite]
 name = "clients"
-version = "6"
+version = "7"
 
 [[capability]]
 name = "lifecycle"
@@ -58,6 +58,37 @@ name = "catalog-mapping"
 [[capability.case]]
 id = "catalog-mapping"
 covers = ["story:11-178"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+# A program's first pages (issue 2400): opened, navigated, acted on through
+# locators, read and closed, on the Proving ground through Collie's
+# executable. TypeScript leads; the Python and Rust SDKs join with their
+# parts of issues 1236 and 1237.
+[[capability]]
+name = "page"
+
+[[capability.case]]
+id = "page-form-program"
+covers = ["story:11-77"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "goto-404-returns-the-response"
+covers = ["story:11-84"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "second-new-page-in-the-default-session"
+covers = ["story:11-77"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+[[capability.case]]
+id = "closed-page-raises-closed"
+covers = ["story:11-77"]
 surfaces = ["sdk-typescript"]
 modes = ["attached"]
 

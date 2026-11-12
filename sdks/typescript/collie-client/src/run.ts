@@ -35,6 +35,17 @@ interface RunScope {
   state: "running" | "ended" | "closed";
 }
 
+/** A value a program holds under a Run: a Session, a page, or a Locator built on one. */
+interface ValueScope {
+  /** The namespace of its operations, such as `page`. */
+  readonly namespace: string;
+  readonly id: unknown;
+  /** The value that opened or built it, when the Run did not. */
+  readonly parent: ValueScope | undefined;
+  /** Its `close`'s answer, from the moment its program closes it. */
+  closing: Promise<unknown> | undefined;
+}
+
 function ensureOpen(scope: RunScope, operation: string): void {
   if (scope.state === "closed") {
     throw new ClosedError(
@@ -43,6 +54,18 @@ function ensureOpen(scope: RunScope, operation: string): void {
         fix: "Start the Run again by its Run ID to reach it.",
       },
     );
+  }
+}
+
+/** Fails with `closed` when `value`, or a value it was opened or built by, is closed. */
+function ensureValueOpen(value: ValueScope | undefined, operation: string): void {
+  for (let held = value; held !== undefined; held = held.parent) {
+    if (held.closing !== undefined) {
+      const named = typeof held.id === "string" ? `${held.namespace} ${held.id}` : held.namespace;
+      throw new ClosedError(`${operation}: the ${named} is closed; a closed value never reopens`, {
+        fix: `Open another ${held.namespace} from its Run: a closed one never reopens.`,
+      });
+    }
   }
 }
 
@@ -57,16 +80,18 @@ function saysEnded(result: unknown): boolean {
 }
 
 /**
- * What a handle of ID `id` in the Run of `scope` reaches the engine
- * through: each call fails with `closed` once the Run is closed. The Run's
- * own calls (`ofRun`) also read their answer, since a Run report says when
- * the Run ended.
+ * What a handle of ID `id` in the Run of `run` reaches the engine through
+ * (ADR 0078): each call fails with `closed`, with no round trip, once the
+ * Run, the handle's `value` or a value above it is closed. A value's own
+ * `close` is idempotent: it is sent once, and each later one answers what
+ * the first did. The Run's own calls, which have no `value`, also read
+ * their answer, since a Run report says when the Run ended.
  */
 function hostIn<Id>(
   calls: Caller<CollieOperationTypes>,
-  scope: RunScope,
+  run: RunScope,
+  value: ValueScope | undefined,
   id: Id,
-  ofRun: boolean,
 ): HandleHost<Id, CollieOperationTypes> {
   return {
     id,
@@ -75,14 +100,27 @@ function hostIn<Id>(
       params: CollieOperationTypes[Name]["params"],
       options: CallOptions,
     ): Promise<CollieOperationTypes[Name]["result"]> {
-      ensureOpen(scope, operation);
-      const result = await calls.call(operation, params, options);
-      if (ofRun && scope.state === "running" && saysEnded(result)) {
-        scope.state = "ended";
+      ensureOpen(run, operation);
+      if (value === undefined) {
+        const result = await calls.call(operation, params, options);
+        if (run.state === "running" && saysEnded(result)) {
+          run.state = "ended";
+        }
+        return result;
       }
-      return result;
+      if (operation !== `${value.namespace}.close`) {
+        ensureValueOpen(value, operation);
+        return calls.call(operation, params, options);
+      }
+      if (value.closing === undefined) {
+        ensureValueOpen(value.parent, operation);
+        value.closing = calls.call(operation, params, options);
+      }
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `closing` holds the answer of this same operation, the value's own `close`, sent once.
+      return value.closing as Promise<CollieOperationTypes[Name]["result"]>;
     },
-    child: <ChildId>(childId: ChildId) => hostIn(calls, scope, childId, false),
+    child: <ChildId>(namespace: string, childId: ChildId) =>
+      hostIn(calls, run, { namespace, id: childId, parent: value, closing: undefined }, childId),
   };
 }
 
@@ -101,7 +139,7 @@ export class Run extends RunMembers implements AsyncDisposable {
       id: started.run_id,
       state: started.lifecycle === "running" ? "running" : "ended",
     };
-    super(hostIn(host.calls, scope, started.run_id, true));
+    super(hostIn(host.calls, scope, undefined, started.run_id));
     this.#host = host;
     this.#scope = scope;
     this.#startedAs = started.started_as;

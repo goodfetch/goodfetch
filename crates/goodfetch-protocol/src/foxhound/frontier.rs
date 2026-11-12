@@ -230,7 +230,9 @@ pub enum NotAddedReason {
     /// The Frontier already admitted a request of the same identity: its
     /// method, its URL's key and its body's hash, or its declared `key`.
     Duplicate,
-    /// Its URL is outside the crawl's scope (`crawl.scope.*`).
+    /// Its URL is outside the crawl's scope (`crawl.scope.*`); or, for a
+    /// nested sitemap, it is on a host its sitemap seed does not read
+    /// sitemaps on.
     OutOfScope,
     /// The Run's domain policy refuses its host.
     DomainPolicy,
@@ -251,6 +253,9 @@ pub enum NotAddedReason {
     /// A segment of its URL's path repeats more than
     /// `crawl.max_segment_repeats`.
     MaxSegmentRepeats,
+    /// A sitemap nested more levels under its sitemap seed than
+    /// `crawl.max_sitemap_nesting` (ADR 0093).
+    MaxSitemapNesting,
     /// The first entry of `crawl.path_budgets` whose pattern its URL's path
     /// and query match already counted that entry's `max_requests`.
     PathBudget,
@@ -652,6 +657,18 @@ pub const CRAWL_MAX_SEGMENT_REPEATS: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `crawl.max_sitemap_nesting` (ADR 0093's note of 2026-11-10).
+pub const CRAWL_MAX_SITEMAP_NESTING: Setting = Setting {
+    name: "crawl.max_sitemap_nesting",
+    description: "How many levels of sitemaps a sitemap seed reads under the sitemap or robots.txt it names, each sitemap an index or a robots.txt names one level deeper than it: a sitemap nested deeper is not fetched, the seed's report keeps its URL with `max_sitemap_nesting`, and a Run that refused one ends `incomplete`. 5 by default; `null` turns the bound off.",
+    kind: ValueKind::Count,
+    default: max_sitemap_nesting,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// One entry of `crawl.path_budgets` (CO-08): a pattern, a glob read as
 /// Playwright reads one and matched in the engine against a URL's path and
 /// query, and how many requests it admits.
@@ -906,6 +923,10 @@ fn max_segment_repeats() -> Value {
     Value::from(2)
 }
 
+fn max_sitemap_nesting() -> Value {
+    Value::from(5)
+}
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -931,6 +952,7 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_MAX_URL_LENGTH,
         CRAWL_MAX_PATH_SEGMENTS,
         CRAWL_MAX_SEGMENT_REPEATS,
+        CRAWL_MAX_SITEMAP_NESTING,
         CRAWL_PATH_BUDGETS,
         CRAWL_PAYLOAD_MAX_SIZE,
         CRAWL_KEEP_URL_FRAGMENT,

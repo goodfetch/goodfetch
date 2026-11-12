@@ -18,6 +18,7 @@ use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, bro
 use rstest::rstest;
 use serde_json::{Value, json};
 
+use crate::attached;
 use crate::attached_with;
 use crate::fetch_tiers::settings;
 use crate::frontier::crawl_declaring;
@@ -116,6 +117,9 @@ fn every_session_of_a_runs_pools_leaves_from_a_proxy_of_the_runs_kind_and_provid
             &json!({
                 "fetch": { "tier": "browser" },
                 "session": { "pool": { "max_size": 1 } },
+                // A robots.txt would be read past the proxy, which the
+                // start refuses (#1640).
+                "site_preferences": { "respect_robots_txt": false },
                 "proxy": { "provider": "list", "kind": "isp" },
             }),
         ),
@@ -172,5 +176,194 @@ fn a_label_setting_a_proxy_key_fails_the_start(#[case] label: Value, #[case] key
     assert_eq!(
         refusal,
         (json!(["setting_not_applicable", key]), Vec::<String>::new())
+    );
+}
+
+/// What a crawl's start under `run` settings, from `seed`, with the Label
+/// `page` setting `label`, was refused with, its Error code, key and kind,
+/// and how many requests the Proving ground received, through a proxy or
+/// not.
+fn start_beside_a_proxy(run: &Value, seed: fn(&ProvingGround) -> Value, label: &Value) -> Value {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = attached(&env);
+    let mut run = run.clone();
+    run["proxy"] = json!({
+        "server": format!("http://{}", proving_ground.description().fixtures.proxies["open"]),
+    });
+
+    let started = engine.call(
+        "start",
+        "crawl.start",
+        &json!({
+            "run_id": "past-the-proxy",
+            "seeds": [seed(&proving_ground)],
+            "labels": { "page": { "settings": label } },
+            "settings": settings(&proving_ground, &run),
+        }),
+        &mut |_| None,
+    );
+    assert!(engine.finished());
+    let refusal = &started["error"]["data"];
+    json!([
+        refusal["code"],
+        refusal["key"],
+        refusal["kind"],
+        proving_ground.received_requests().unwrap().every().count(),
+    ])
+}
+
+/// A crawl request of the Label `page`.
+fn page_seed(proving_ground: &ProvingGround) -> Value {
+    json!({ "url": proving_ground.url("access.test", "/version"), "label": "page" })
+}
+
+/// A sitemap seed whose entries take the Label `page`.
+fn sitemap_seed(proving_ground: &ProvingGround) -> Value {
+    json!({
+        "sitemap": proving_ground.url("sitemap-seed.test", "/sitemap-index.xml"),
+        "rules": [{ "pattern": "**", "label": "page" }],
+    })
+}
+
+/// A crawl Run that sets a proxy and can read a site past it fails its
+/// start with `capability_unavailable` naming the proxy key and the read,
+/// before the Run begins (#1640's interim refusal): a document a forced
+/// `fetch.tier: http` fetches, the Run's or a Label's, a sitemap seed's
+/// sitemap, a robots.txt and an AI-use signal file are fetched on the
+/// Run's HTTP tier, which leaves directly and would show the site the
+/// address the proxy hides. The Proving ground receives nothing.
+///
+/// Covers: setting:proxy.server, error:capability_unavailable
+#[rstest]
+#[case::the_run_forces_the_http_tier(
+    json!({ "fetch": { "tier": "http" }, "site_preferences": { "respect_robots_txt": false } }),
+    page_seed,
+    json!({}),
+    "http"
+)]
+#[case::a_label_forces_the_http_tier(
+    json!({ "site_preferences": { "respect_robots_txt": false } }),
+    page_seed,
+    json!({ "fetch": { "tier": "http" } }),
+    "http"
+)]
+#[case::a_sitemap_seed(
+    json!({ "fetch": { "tier": "browser" }, "site_preferences": { "respect_robots_txt": false } }),
+    sitemap_seed,
+    json!({}),
+    "sitemap"
+)]
+#[case::robots_txt_is_respected(json!({ "fetch": { "tier": "browser" } }), page_seed, json!({}), "robots_txt")]
+#[case::robots_txt_marks_the_records_taken_against_it(
+    json!({
+        "fetch": { "tier": "browser" },
+        "site_preferences": { "respect_robots_txt": false, "mark_robots_txt_ignored": true },
+    }),
+    page_seed,
+    json!({}),
+    "robots_txt"
+)]
+#[case::the_use_signals_are_honoured(
+    json!({
+        "fetch": { "tier": "browser" },
+        "site_preferences": {
+            "respect_robots_txt": false, "respect_use_signals": true, "purpose": "ai-train",
+        },
+    }),
+    page_seed,
+    json!({}),
+    "use_signals"
+)]
+fn a_run_that_can_read_a_site_past_its_proxy_fails_its_start(
+    #[case] run: Value,
+    #[case] seed: fn(&ProvingGround) -> Value,
+    #[case] label: Value,
+    #[case] kind: &str,
+) {
+    let refused = start_beside_a_proxy(&run, seed, &label);
+
+    assert_eq!(
+        refused,
+        json!(["capability_unavailable", "proxy.server", kind, 0])
+    );
+}
+
+/// A sitemap seed added to a live crawl Run that sets a proxy is refused
+/// as the start refuses it (#1640's interim refusal), by `run.add_seed`
+/// and by `run.add_seeds` alike: its sitemap would be fetched past the
+/// proxy. Nothing is added, and the Proving ground receives nothing.
+///
+/// Covers: setting:proxy.server, error:capability_unavailable, operation:run.add_seed, operation:run.add_seeds
+#[test]
+fn a_sitemap_seed_added_to_a_live_run_that_sets_a_proxy_is_refused() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = attached(&env);
+    let run = json!({
+        "crawl": { "keep_alive": true },
+        "fetch": { "tier": "browser" },
+        "site_preferences": { "respect_robots_txt": false },
+        "proxy": {
+            "server": format!("http://{}", proving_ground.description().fixtures.proxies["open"]),
+        },
+    });
+    let started = engine.call(
+        "start",
+        "crawl.start",
+        &json!({
+            "run_id": "live",
+            "seeds": [{ "url": "ftp://access.test/", "label": "page" }],
+            "labels": { "page": {} },
+            "settings": settings(&proving_ground, &run),
+        }),
+        &mut |_| None,
+    );
+    assert_eq!(started["result"]["run_id"], "live", "{started}");
+    let refusal = |reply: &Value| {
+        let data = &reply["error"]["data"];
+        json!([data["code"], data["key"], data["kind"]])
+    };
+
+    let added = engine.call(
+        "add",
+        "run.add_seed",
+        &json!({ "run_id": "live", "seed": sitemap_seed(&proving_ground) }),
+        &mut |_| None,
+    );
+    engine.send(&json!({
+        "jsonrpc": "2.0", "id": "stream", "method": "run.add_seeds",
+        "params": { "run_id": "live" },
+    }));
+    engine.send(&json!({
+        "jsonrpc": "2.0", "method": "$/seeds",
+        "params": { "id": "stream", "seeds": [sitemap_seed(&proving_ground)], "end": true },
+    }));
+    let streamed = loop {
+        let message = engine.next().expect("the engine closed in a stream");
+        if message["id"] == "stream" {
+            break message;
+        }
+    };
+    let finished = engine.call(
+        "finish",
+        "run.finish",
+        &json!({ "run_id": "live" }),
+        &mut |_| None,
+    );
+    assert!(finished.get("result").is_some(), "{finished}");
+    assert!(engine.finished());
+
+    assert_eq!(
+        json!([
+            refusal(&added),
+            refusal(&streamed),
+            proving_ground.received_requests().unwrap().every().count(),
+        ]),
+        json!([
+            ["capability_unavailable", "proxy.server", "sitemap"],
+            ["capability_unavailable", "proxy.server", "sitemap"],
+            0,
+        ])
     );
 }

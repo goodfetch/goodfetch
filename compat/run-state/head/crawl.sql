@@ -27,9 +27,10 @@ CREATE TABLE bounds (
             max_url_length INTEGER,
             max_path_segments INTEGER,
             max_segment_repeats INTEGER,
+            max_sitemap_nesting INTEGER,
             learning INTEGER NOT NULL
         ) STRICT;
-INSERT INTO "bounds" VALUES(1,3,100,2083,20,2,1);
+INSERT INTO "bounds" VALUES(1,3,100,2083,20,2,5,1);
 CREATE TABLE bounds_admitted (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             count INTEGER NOT NULL
@@ -462,10 +463,11 @@ CREATE TABLE sitemaps (
             url TEXT NOT NULL UNIQUE,
             seed TEXT NOT NULL,
             rules TEXT NOT NULL,
-            read INTEGER NOT NULL
+            read INTEGER NOT NULL,
+            nesting INTEGER NOT NULL
         ) STRICT;
-INSERT INTO "sitemaps" VALUES('21','https://maps.test/sitemap.xml','21','[{"pattern":"**/books/*","label":"home"}]',1);
-INSERT INTO "sitemaps" VALUES('22','https://maps.test/missing.xml','22','[{"pattern":"**/books/*","label":"home"}]',0);
+INSERT INTO "sitemaps" VALUES('21','https://maps.test/sitemap.xml','21','[{"pattern":"**/books/*","label":"home"}]',1,0);
+INSERT INTO "sitemaps" VALUES('22','https://maps.test/missing.xml','22','[{"pattern":"**/books/*","label":"home"}]',0,0);
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
 INSERT INTO "tags" VALUES(0,'schedule:nightly');
 CREATE TABLE tier_choices (

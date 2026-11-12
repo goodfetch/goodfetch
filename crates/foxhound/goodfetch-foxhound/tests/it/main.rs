@@ -178,6 +178,7 @@ mod sql_tab;
 mod staging;
 mod tier_race;
 mod trap_links;
+mod unbuilt_settings;
 mod url_fragments;
 mod use_signals;
 mod waiting;

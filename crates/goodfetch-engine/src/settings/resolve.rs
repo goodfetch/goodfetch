@@ -22,6 +22,7 @@ use serde_json::Value;
 use super::error::SettingsError;
 use super::hosts;
 use super::keys::{self, Key};
+use super::unbuilt::UNBUILT;
 use super::values::{Given, Values};
 
 /// An Operator policy: what it sets, locks and caps.
@@ -261,7 +262,9 @@ impl Resolved {
     ///
     /// `setting_locked` for a value a lower layer locked or capped, or that
     /// its key's authority refuses `own`; `setting_not_applicable` for a key
-    /// these settings' Product does not honour.
+    /// these settings' Product does not honour; `capability_unavailable`
+    /// for a key whose feature the engine does not build yet
+    /// ([`Resolved::refuse_unbuilt`]).
     pub fn beneath(&self, own: &Values) -> Result<Self, SettingsError> {
         let mut beneath = self.clone();
         for (name, value) in &own.applied {
@@ -296,7 +299,37 @@ impl Resolved {
                 .is_some_and(|weakens| weakens(&state.effective.value));
             beneath.settings.insert(name, state.effective);
         }
+        beneath.refuse_unbuilt()?;
         Ok(beneath)
+    }
+
+    /// Refuses these settings when one whose feature the engine does not
+    /// build yet (`super::unbuilt`) is set away
+    /// from its default: nothing reads it, so the scope would open as if
+    /// the value applied (ADR 0083).
+    ///
+    /// # Errors
+    ///
+    /// `capability_unavailable` naming the first such key, the layer that
+    /// set it and its default.
+    pub fn refuse_unbuilt(&self) -> Result<(), SettingsError> {
+        for unbuilt in &UNBUILT {
+            let setting = unbuilt.setting;
+            let Some(effective) = self.settings.get(setting.name) else {
+                continue;
+            };
+            let default = (setting.default)();
+            if effective.layer == SettingsLayer::Default || effective.value == default {
+                continue;
+            }
+            return Err(SettingsError::Unavailable {
+                key: setting.name.to_owned(),
+                layer: effective.layer,
+                feature: unbuilt.feature.to_owned(),
+                fix: format!("`{}: {default}`", setting.name),
+            });
+        }
+        Ok(())
     }
 
     /// Whether the Run is a Recipe's.

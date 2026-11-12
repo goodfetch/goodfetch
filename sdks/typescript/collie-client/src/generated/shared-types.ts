@@ -81,6 +81,7 @@ export type NeedsYouKind = "certificate_changed" | "consent_wall" | "run_stopped
  * - `browser_build_outdated`: A Session's browser build is outdated.
  * - `browser_build_plugin`: A Session ran a browser build a Plugin gave.
  * - `browser_build_third_party`: A Session ran a third party's browser build.
+ * - `browser_version_unread`: The installed browser's version could not be read, so a `standard` Session's own HTTP transport presented no browser identity.
  * - `clean_up_rules_fallback`: The Run holds to other Clean-up rules than `clean_up.update` or `clean_up.version` ask for, such as the embedded part when the daily channel cannot be reached; Provenance names both.
  * - `clean_up_rules_stale`: The Run's Clean-up rules are older than 14 days.
  * - `cpu_throttled`: The host throttled the engine's CPU.
@@ -98,7 +99,7 @@ export type NeedsYouKind = "certificate_changed" | "consent_wall" | "run_stopped
  * - `proxy_exit_may_change`: A Session's proxy exit may change between its requests.
  * - `storage_low`: The Run met the `low` storage level: the folder, its free space and what was shed.
  */
-export type RunWarningCode = "baseline_unavailable" | "block_resources_visible" | "browser_build_firefox" | "browser_build_outdated" | "browser_build_plugin" | "browser_build_third_party" | "clean_up_rules_fallback" | "clean_up_rules_stale" | "cpu_throttled" | "file_write_failed" | "filter_vendor_flagged" | "fingerprint_basic" | "fingerprint_basic_fallback" | "fingerprint_js_injection" | "fingerprint_none" | "human_input_fallback" | "path_not_writable" | "plugin_figures" | "plugin_quantity_above_maximum" | "politeness_store_degraded" | "proxy_exit_may_change" | "storage_low" | (string & {});
+export type RunWarningCode = "baseline_unavailable" | "block_resources_visible" | "browser_build_firefox" | "browser_build_outdated" | "browser_build_plugin" | "browser_build_third_party" | "browser_version_unread" | "clean_up_rules_fallback" | "clean_up_rules_stale" | "cpu_throttled" | "file_write_failed" | "filter_vendor_flagged" | "fingerprint_basic" | "fingerprint_basic_fallback" | "fingerprint_js_injection" | "fingerprint_none" | "human_input_fallback" | "path_not_writable" | "plugin_figures" | "plugin_quantity_above_maximum" | "politeness_store_degraded" | "proxy_exit_may_change" | "storage_low" | (string & {});
 
 /**
  * A `usage_kind`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).

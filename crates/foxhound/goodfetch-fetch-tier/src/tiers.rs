@@ -925,11 +925,10 @@ impl FetchTiers {
         };
         // Every Session of the Run launches one build, so the document
         // request its own transport presents is read once, here.
-        let presents = self
-            .served
-            .browser
-            .get()
-            .and_then(|pages| pages.document_request());
+        let presents = match self.served.browser.get() {
+            Some(pages) => pages.document_request(run).await,
+            None => None,
+        };
         let reqwest = Reqwest::new(config.clone())
             .map_err(|error| error.to_string())?
             .presenting(presents.clone());

@@ -26,6 +26,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::run_state::RunStateOptions;
+use goodfetch_engine::runs::Run;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::tls::ExceptionUsed;
 use goodfetch_engine::transport::{self, ConnectionReader, ConnectionWriter, Network};
@@ -137,8 +138,11 @@ impl BrowserPages for Scripted {
         Box::pin(async {})
     }
 
-    fn document_request(&self) -> Option<goodfetch_page::document_request::DocumentRequest> {
-        None
+    fn document_request<'a>(
+        &'a self,
+        _run: &'a Run,
+    ) -> Opening<'a, Option<goodfetch_page::document_request::DocumentRequest>> {
+        Box::pin(async { None })
     }
 
     fn certificate_exception<'a>(

@@ -5,8 +5,10 @@
 //!
 //! It is read from the build the Session's browser would launch, never
 //! from a launched browser, so a Session that only ever sends HTTP starts
-//! none. Chrome for Testing fixes all of it by its major version and its
-//! platform:
+//! none: the pinned build's ID, or, where the browser is an installed one
+//! (the distribution's Chromium on Linux arm64 and musl), the version its
+//! executable prints for `--version`, read once per Run (issue 2532).
+//! Chromium fixes all of it by its major version and its platform:
 //!
 //! - **The user agent** is Chrome's reduced one, the window's (the
 //!   `driver`'s `identity` module gives a headless page the same): its
@@ -25,11 +27,28 @@
 //! browser sends another request fails it.
 
 use goodfetch_engine::browser_cache::{
-    BrowserChoice, BrowserSource, BuildPlatform, PinnedArtifact, Platform, browser_source,
+    BrowserChoice, BrowserSource, BuildPlatform, Os, PinnedArtifact, Platform, browser_source,
 };
+use goodfetch_engine::children::Children;
+use goodfetch_engine::clock::Clock;
+use goodfetch_engine::runs::Run;
+use goodfetch_engine::tasks::BlockingThreads;
 use goodfetch_protocol::browser_cache::ArtifactKind;
+use goodfetch_protocol::run::RunWarning;
+use goodfetch_protocol::run::warning::BROWSER_VERSION_UNREAD;
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::process::{ExitStatus, Stdio};
+use std::time::Duration;
+use tokio::io::AsyncReadExt as _;
+use tokio::process::Command;
 use url::{Host, Url};
+
+/// How long an installed browser has to print its version and exit.
+pub const VERSION_READ: Duration = Duration::from_secs(10);
+
+/// The most of a browser's `--version` output read.
+const PRINTED_MOST: u64 = 4096;
 
 /// What Chrome accepts for a document.
 const ACCEPT: &str = "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7";
@@ -57,7 +76,7 @@ impl DocumentRequest {
     /// this platform, among `pins`: none where the platform has no pinned
     /// build and the browser is an installed one, whose version only a
     /// launch tells.
-    pub fn of_pinned(pins: &[PinnedArtifact]) -> Option<Self> {
+    fn of_pinned(pins: &[PinnedArtifact]) -> Option<Self> {
         let BrowserSource::Pinned { name, platform, .. } = browser_source(
             Platform::current(),
             &BrowserChoice::Default,
@@ -133,6 +152,70 @@ impl DocumentRequest {
         })
     }
 
+    /// The document request of the browser a Session of `run` would
+    /// launch, among `pins`: the pinned build's, or the installed
+    /// browser's, read from the version its executable prints. None where
+    /// neither tells it, of which `run` is warned.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future kills the version read's processes and may leave
+    /// the warning unwritten.
+    pub async fn of_browser(pins: &[PinnedArtifact], run: &Run) -> Option<Self> {
+        let BrowserSource::Installed { candidates, .. } = browser_source(
+            Platform::current(),
+            &BrowserChoice::Default,
+            &BTreeMap::new(),
+        ) else {
+            return Self::of_pinned(pins);
+        };
+        match Self::of_installed(&candidates, &run.owner().blocking_threads(), &run.clock()).await {
+            Ok(request) => Some(request),
+            Err(unread) => {
+                if let Err(error) = run.warn(unread.warning()).await {
+                    tracing::warn!(%error, "the warning that the installed browser's version was not read was not kept");
+                }
+                None
+            }
+        }
+    }
+
+    /// The document request of the browser installed at the first of
+    /// `candidates` that exists, on this platform: that of the version its
+    /// executable prints for `--version`, which prints it and exits
+    /// without starting a browser. The executable has [`VERSION_READ`] to
+    /// exit, and no process it started outlives the read.
+    ///
+    /// # Errors
+    ///
+    /// [`Unread`] when no candidate exists, or the executable printed no
+    /// version, exited with an error or did not exit in time.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future kills the executable and every process it
+    /// started.
+    pub async fn of_installed(
+        candidates: &[PathBuf],
+        blocking: &BlockingThreads,
+        clock: &Clock,
+    ) -> Result<Self, Unread> {
+        let looked_in = candidates.to_vec();
+        let found = blocking
+            .run(move || looked_in.into_iter().find(|path| path.is_file()))
+            .await
+            .ok_or_else(|| Unread::NotInstalled {
+                looked_in: candidates.to_vec(),
+            })?;
+        let platform = user_agent_platform(Platform::current());
+        printed_version(&found, clock)
+            .await
+            .and_then(|printed| {
+                version_in(&printed).and_then(|version| Self::of_build(version, platform))
+            })
+            .ok_or(Unread::NoVersion { executable: found })
+    }
+
     /// The headers of the request for the document at `url`, their names
     /// in lowercase, in the browser's order.
     #[must_use]
@@ -143,6 +226,104 @@ impl DocumentRequest {
             &self.elsewhere
         }
     }
+}
+
+/// Why an installed browser's document request could not be read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Unread {
+    /// No browser is installed at any of the paths.
+    NotInstalled {
+        /// The paths, in the order they were looked in.
+        looked_in: Vec<PathBuf>,
+    },
+    /// The executable printed no version for `--version` and exited.
+    NoVersion {
+        /// The executable.
+        executable: PathBuf,
+    },
+}
+
+impl Unread {
+    /// The warning a Run gets for it (`browser_version_unread`), naming the
+    /// fix.
+    #[must_use]
+    pub fn warning(&self) -> RunWarning {
+        let message = match self {
+            Self::NotInstalled { looked_in } => format!(
+                "No browser is installed at {}, so a `standard` Session's own HTTP transport presents no browser identity: install the distribution's Chromium package.",
+                looked_in
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ),
+            Self::NoVersion { executable } => format!(
+                "The browser at {} printed no version for `--version`, so a `standard` Session's own HTTP transport presents no browser identity: reinstall the distribution's Chromium package.",
+                executable.display(),
+            ),
+        };
+        RunWarning {
+            code: BROWSER_VERSION_UNREAD.to_owned(),
+            message,
+            sessions: Vec::new(),
+            folder: None,
+        }
+    }
+}
+
+/// The platform whose user agent and `Sec-CH-UA-Platform` a browser on
+/// `platform` presents: Chrome's reduced user agent names one platform for
+/// each operating system, whatever its processor.
+fn user_agent_platform(platform: Platform) -> BuildPlatform {
+    match platform.os {
+        Os::LinuxGnu | Os::LinuxMusl => BuildPlatform::LinuxX64,
+        Os::Mac => BuildPlatform::MacArm64,
+        Os::Windows => BuildPlatform::WindowsX64,
+    }
+}
+
+/// What the browser at `executable` printed for `--version` before it
+/// exited with success within [`VERSION_READ`]; none otherwise. Its process
+/// group goes once it exited or its time ran out, every process it started
+/// with it.
+async fn printed_version(executable: &Path, clock: &Clock) -> Option<String> {
+    let mut command = Command::new(executable);
+    command
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let mut group = Children::new().ok()?;
+    let mut child = group.spawn(command).ok()?;
+    let mut stdout = child.stdout.take()?.take(PRINTED_MOST);
+    let deadline = clock.now() + VERSION_READ;
+    let exited = tokio::select! {
+        status = child.wait() => status.ok().filter(ExitStatus::success),
+        () = clock.sleep_until(deadline) => None,
+    };
+    // A process the browser left behind holds its output open: it goes with
+    // the group, which ends the output.
+    group.kill_all();
+    let mut printed = Vec::new();
+    let read = tokio::select! {
+        read = stdout.read_to_end(&mut printed) => read.ok(),
+        () = clock.sleep_until(deadline) => None,
+    };
+    let _ = child.wait().await;
+    exited.and(read)?;
+    String::from_utf8(printed).ok()
+}
+
+/// The version in what a browser printed for `--version`, such as
+/// `141.0.7390.54` in `Chromium 141.0.7390.54 built on Debian 12.7`: its
+/// first word of numbers joined by dots.
+fn version_in(printed: &str) -> Option<&str> {
+    printed.split_whitespace().find(|word| {
+        word.contains('.')
+            && word
+                .split('.')
+                .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+    })
 }
 
 /// The `Sec-CH-UA` brands of Chromium `major`, as its

@@ -53,6 +53,9 @@ pub const BASELINE_UNAVAILABLE: &str = "baseline_unavailable";
 pub const PLUGIN_QUANTITY_ABOVE_MAXIMUM: &str = "plugin_quantity_above_maximum";
 /// Usage figures come from a Plugin (ADR 0033).
 pub const PLUGIN_FIGURES: &str = "plugin_figures";
+/// The installed browser's version could not be read, so a Session's own
+/// HTTP transport presented no browser identity (ADR 0021).
+pub const BROWSER_VERSION_UNREAD: &str = "browser_version_unread";
 
 const fn warning(name: &'static str, description: &'static str) -> SharedTypeValue {
     SharedTypeValue {
@@ -65,7 +68,7 @@ const fn warning(name: &'static str, description: &'static str) -> SharedTypeVal
 
 /// The warning codes both Products hand over to a Run's report (ADR
 /// 0102); Foxhound adds its own.
-pub const WARNING_CODES: [SharedTypeValue; 22] = [
+pub const WARNING_CODES: [SharedTypeValue; 23] = [
     warning(FINGERPRINT_NONE, "A Session ran with no fingerprint."),
     warning(
         FINGERPRINT_JS_INJECTION,
@@ -139,4 +142,8 @@ pub const WARNING_CODES: [SharedTypeValue; 22] = [
         "A Plugin reported a quantity above its declared maximum, recorded in full.",
     ),
     warning(PLUGIN_FIGURES, "Usage figures come from a Plugin."),
+    warning(
+        BROWSER_VERSION_UNREAD,
+        "The installed browser's version could not be read, so a `standard` Session's own HTTP transport presented no browser identity.",
+    ),
 ];

@@ -876,8 +876,8 @@ impl BrowserPages for Opener {
         })
     }
 
-    fn document_request(&self) -> Option<DocumentRequest> {
-        self.pages.sessions.document_request()
+    fn document_request<'a>(&'a self, run: &'a Run) -> Opening<'a, Option<DocumentRequest>> {
+        Box::pin(self.pages.sessions.document_request(run))
     }
 
     fn retire<'a>(

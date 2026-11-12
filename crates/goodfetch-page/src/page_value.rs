@@ -97,10 +97,16 @@ pub trait BrowserPages: Send + Sync {
     fn close<'a>(&'a self, page_id: &'a PageId) -> Opening<'a, ()>;
 
     /// The request a Session's browser sends for a document (ADR 0021),
-    /// read from the build it would launch and never from a launched
-    /// browser, for a tier that sends a Session's HTTP without one: none
-    /// where only a launch tells the build.
-    fn document_request(&self) -> Option<DocumentRequest>;
+    /// for a tier of `run` that sends a Session's HTTP without one: read
+    /// from the pinned build it would launch, or from the version the
+    /// installed browser's executable prints, never from a launched
+    /// browser. None where neither tells it, of which `run` is warned.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future kills the version read's processes and may leave
+    /// the warning unwritten.
+    fn document_request<'a>(&'a self, run: &'a Run) -> Opening<'a, Option<DocumentRequest>>;
 
     /// The invalid-certificate exception the browser page `page_id`
     /// reached `host` through: the one its Session's egress relay

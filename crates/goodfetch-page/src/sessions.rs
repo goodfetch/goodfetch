@@ -413,9 +413,9 @@ impl Sessions {
     }
 
     /// The request a Session's browser sends for a document, read from
-    /// the pinned build it would launch.
-    pub(crate) fn document_request(&self) -> Option<DocumentRequest> {
-        DocumentRequest::of_pinned(&self.pins)
+    /// the build it would launch, pinned or installed, for `run`.
+    pub(crate) async fn document_request(&self, run: &Run) -> Option<DocumentRequest> {
+        DocumentRequest::of_browser(&self.pins, run).await
     }
 
     /// The consent walls the pages' Consent prompt runners left for each

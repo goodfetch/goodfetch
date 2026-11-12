@@ -21,7 +21,6 @@ mod keys;
 mod resolve;
 #[cfg(test)]
 mod tests;
-mod unbuilt;
 mod values;
 
 use std::sync::Arc;
@@ -70,15 +69,58 @@ struct Inner {
     host: Host,
 }
 
-/// How the engine finds its host's defaults, and what it found: found once,
-/// on first use, since finding them may open the OS keychain.
+/// How the engine finds its host's defaults, and what it found of those
+/// every opening reads: found once, on first use, since finding them waits
+/// for the sandbox probe.
 struct Host {
-    find: Box<dyn Fn() -> Finding + Send + Sync>,
+    search: HostSearch,
     found: tokio::sync::OnceCell<HostDefaults>,
 }
 
 /// A search for the host's defaults.
 pub type Finding = std::pin::Pin<Box<dyn std::future::Future<Output = HostDefaults> + Send>>;
+
+/// How an engine finds its host's defaults, in two parts: those every
+/// opening of a Run's settings reads, and those only asked for where their
+/// value is needed, since asking may open the OS keychain, on Linux a
+/// Secret Service session over D-Bus (issue 2204).
+pub struct HostSearch {
+    /// Finds those every opening reads, such as the sandbox probe's;
+    /// called once, on first use.
+    opening: Box<dyn Fn() -> Finding + Send + Sync>,
+    /// Finds those only asked for, such as `run_state.key_reference`'s;
+    /// called at each ask.
+    asked: Box<dyn Fn() -> Finding + Send + Sync>,
+    /// Those of `asked` already found, without finding anything.
+    known: Box<dyn Fn() -> Option<HostDefaults> + Send + Sync>,
+}
+
+impl HostSearch {
+    /// A search whose every default `opening` finds, none asked for.
+    pub fn opening(find: impl Fn() -> Finding + Send + Sync + 'static) -> Self {
+        Self {
+            opening: Box::new(find),
+            asked: Box::new(|| Box::pin(std::future::ready(HostDefaults::default()))),
+            known: Box::new(|| Some(HostDefaults::default())),
+        }
+    }
+
+    /// The same, with the defaults `asked` finds only where their value is
+    /// needed, and `known` giving what it found, without finding anything:
+    /// none before it first found them, and after, what it found.
+    #[must_use]
+    pub fn asking(
+        self,
+        asked: impl Fn() -> Finding + Send + Sync + 'static,
+        known: impl Fn() -> Option<HostDefaults> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            asked: Box::new(asked),
+            known: Box::new(known),
+            ..self
+        }
+    }
+}
 
 /// What a scope that opens gives the resolver beside the machine's layers.
 #[derive(Clone, Debug, Default)]
@@ -104,19 +146,23 @@ impl Settings {
     /// reading them on `owner`'s blocking policy, with the catalog's
     /// defaults.
     pub fn new(files: SettingsFiles, product: Product, owner: TaskOwner) -> Self {
-        Self::with_host(files, product, owner, CountedWork::default(), || {
-            Box::pin(std::future::ready(HostDefaults::default()))
-        })
+        Self::with_host(
+            files,
+            product,
+            owner,
+            CountedWork::default(),
+            HostSearch::opening(|| Box::pin(std::future::ready(HostDefaults::default()))),
+        )
     }
 
-    /// The same, with the defaults `find` gives for this host, which it
-    /// calls once, on first use, each read of its layers counted on `work`.
+    /// The same, with the defaults `search` finds for this host, each read
+    /// of its layers counted on `work`.
     pub fn with_host(
         files: SettingsFiles,
         product: Product,
         owner: TaskOwner,
         work: CountedWork,
-        find: impl Fn() -> Finding + Send + Sync + 'static,
+        search: HostSearch,
     ) -> Self {
         Self(Arc::new(Inner {
             files,
@@ -124,7 +170,7 @@ impl Settings {
             owner,
             work,
             host: Host {
-                find: Box::new(find),
+                search,
                 found: tokio::sync::OnceCell::new(),
             },
         }))
@@ -169,21 +215,63 @@ impl Settings {
         self.0.files.load(self.0.product)
     }
 
-    /// The defaults this host gives in place of the catalog's, found on the
-    /// first call.
+    /// The defaults this host gives in place of the catalog's, those only
+    /// asked for included: it opens the OS keychain if no one has.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future leaves the search to the next call.
     pub async fn host_defaults(&self) -> HostDefaults {
+        let asked = (self.0.host.search.asked)().await;
+        self.opening_defaults().await.and(asked)
+    }
+
+    /// Those of the defaults only asked for that this host already found,
+    /// without opening anything: none before the OS keychain was first
+    /// asked.
+    pub fn known_host_defaults(&self) -> Option<HostDefaults> {
+        (self.0.host.search.known)()
+    }
+
+    /// The defaults this host gives that every opening reads, found on the
+    /// first call.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves the search to the next call.
+    async fn opening_defaults(&self) -> HostDefaults {
         let host = &self.0.host;
-        host.found.get_or_init(|| (host.find)()).await.clone()
+        host.found
+            .get_or_init(|| (host.search.opening)())
+            .await
+            .clone()
+    }
+
+    /// [`Settings::open`], under every default this host gives, those only
+    /// asked for included, so it opens the OS keychain if no one has: what
+    /// `config explain` shows.
+    ///
+    /// # Errors
+    ///
+    /// As [`Settings::open`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future resolves nothing.
+    pub async fn open_asked(
+        &self,
+        opening: Opening,
+    ) -> Result<(RunSettings, MachineLayers), SettingsError> {
+        let host = self.host_defaults().await;
+        self.open_under(opening, host).await
     }
 
     /// Resolves the settings of a scope that opens with `opening`, against
     /// the machine's layers as they are now; refused before the scope opens
     /// (ADR 0083), a setting whose feature the engine does not build yet
-    /// included, when a layer sets it away from its default.
+    /// included, when a layer sets it away from its default. A default
+    /// only asked for of the host is the catalog's here: it opens no OS
+    /// keychain (issue 2204).
     ///
     /// # Errors
     ///
@@ -195,6 +283,15 @@ impl Settings {
     pub async fn open(
         &self,
         opening: Opening,
+    ) -> Result<(RunSettings, MachineLayers), SettingsError> {
+        let host = self.opening_defaults().await;
+        self.open_under(opening, host).await
+    }
+
+    async fn open_under(
+        &self,
+        opening: Opening,
+        host: HostDefaults,
     ) -> Result<(RunSettings, MachineLayers), SettingsError> {
         let machine = self.machine().await?;
         let engine = self.0.product;
@@ -222,7 +319,7 @@ impl Settings {
             run = run.from_model();
         }
         let layers = Layers {
-            host: self.host_defaults().await,
+            host,
             operator_policy: machine.operator_policy.clone(),
             user_configuration: machine.user_configuration.clone(),
             project_configuration: project,

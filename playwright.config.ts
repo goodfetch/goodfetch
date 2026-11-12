@@ -13,7 +13,7 @@
 // test whose annotation names an unknown Feature.
 import { sep } from "node:path";
 import { readFeatureIds } from "@goodfetch/test-support/features";
-import { stubGatewayConsole, type ServedOptions } from "@goodfetch/test-support/playwright";
+import type { ServedOptions } from "@goodfetch/test-support/playwright";
 import { defineConfig, type PlaywrightTestConfig } from "@playwright/test";
 import { PLAYWRIGHT_VISUAL_TESTS, visualConfig } from "@goodfetch/test-support/visual-config";
 
@@ -66,39 +66,6 @@ const releaseProjects: ServedProject[] =
 
 const visual = visualConfig.playwright(process.env, { ignore: ignored });
 
-// The Console conformance suite (ADRs 0031, 0068 and 0096): its cases run
-// only in the projects that name a target, each writing that target's
-// `conformance` document, never in the others, which would write none, each
-// on a Proving ground. Collie's Daemon serving Collie's build runs every
-// case but Foxhound's screens and the routing cases; Foxhound's Daemon
-// serving Foxhound's build runs Foxhound's screens; the Stub gateway,
-// serving Foxhound's build and running each run on the engine of its
-// Product, runs the whole suite (spec #593).
-const CONFORMANCE_CASES = "conformance/console/**/*.spec.ts";
-const FOXHOUND_SCREENS = "conformance/console/foxhound-screens.spec.ts";
-const ROUTING_CASES = "conformance/console/routing.spec.ts";
-const conformanceProjects: ServedProject[] = [
-  {
-    name: "collie-daemon",
-    testMatch: CONFORMANCE_CASES,
-    testIgnore: [...ignored, FOXHOUND_SCREENS, ROUTING_CASES],
-    metadata: { conformanceTarget: "collie-daemon" },
-    use: { product: "collie", provingGroundSeed: 944 },
-  },
-  {
-    name: "foxhound-daemon",
-    testMatch: FOXHOUND_SCREENS,
-    metadata: { conformanceTarget: "foxhound-daemon" },
-    use: { product: "foxhound", provingGroundSeed: 1232 },
-  },
-  {
-    name: "stub-gateway",
-    testMatch: CONFORMANCE_CASES,
-    metadata: { conformanceTarget: "stub-gateway" },
-    use: { product: "foxhound", provingGroundSeed: 1232, consoleServer: stubGatewayConsole },
-  },
-];
-
 const config: PlaywrightTestConfig<ServedOptions> = defineConfig<ServedOptions>({
   testMatch: "**/*.spec.ts",
   testIgnore: ignored,
@@ -110,22 +77,12 @@ const config: PlaywrightTestConfig<ServedOptions> = defineConfig<ServedOptions>(
   fullyParallel: true,
   timeout: 300_000,
   reportSlowTests: { max: 0, threshold: 30_000 },
-  // Test support's result document reporter writes each `console` variant's
-  // `journey` document, and one `conformance` document per project naming a
-  // Console conformance target (`metadata.conformanceTarget`), into
-  // GOODFETCH_TEST_RESULT_DOCUMENTS, which `just test` sets (ADRs 0063 and
-  // 0068). The suite's case list is `conformance/console/cases.toml`.
-  reporter: [
-    ["list"],
-    ["junit", { outputFile: "target/junit/playwright.xml" }],
-    ["@goodfetch/test-support/result-document-reporter"],
-  ],
+  reporter: [["list"], ["junit", { outputFile: "target/junit/playwright.xml" }]],
   updateSnapshots: visual.updateSnapshots,
   metadata: { features: readFeatureIds(import.meta.dirname) },
   use: { trace: "retain-on-failure" },
   projects: [
-    { name: "default", testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS, CONFORMANCE_CASES] },
-    ...conformanceProjects,
+    { name: "default", testIgnore: [...ignored, PLAYWRIGHT_VISUAL_TESTS] },
     ...releaseProjects,
     ...visual.projects,
   ],

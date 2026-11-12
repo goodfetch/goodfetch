@@ -5,10 +5,7 @@
 //! - **build**, before the deny: moves the base's own worktree, which stays
 //!   from one build to the next beside the output folder, to the base, so
 //!   Git rewrites only the files the base changed and Cargo rebuilds only
-//!   what they reach; fetches what its lockfile needs, builds the
-//!   Console of the head and, with its own packages, of the base when each
-//!   has a `.size-limit.json`, which measures it, else lends the base the
-//!   head's Console build when its Collie executable embeds one, and builds the
+//!   what they reach; fetches what its lockfile needs, and builds the
 //!   head's selected bench targets and every bench target the base has in a
 //!   selected crate, into the one target folder, so the base's dependencies
 //!   come from the same cache. The base's build and the head's run at the same
@@ -53,7 +50,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{Context as _, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::{git, metadata, output};
+use crate::{base_console, git, metadata, output};
 
 use super::budget;
 use super::gungraun;
@@ -156,10 +153,6 @@ pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) 
     std::fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
     let tree = base_tree(root);
     move_tree(root, &tree, &commit)?;
-    // size-limit measures each side's own Console build (ADR 0071).
-    if root.join(SIZE_LIMIT_CONFIG).is_file() {
-        crate::console::build(root)?;
-    }
     let target_directory = metadata::target_directory(cargo, root)?;
     // Every bench target the base has in a selected crate, so a target the
     // change renamed or removed is still measured on the base, and its
@@ -180,7 +173,7 @@ pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) 
             })
             .collect()
     };
-    // The head's Console and the base's list of targets are ready above, so
+    // The base's list of targets is ready above, so
     // the base's build (then the reference's) and the head's run at the same
     // time: each side runs its own commands, in its own folder and target
     // folder, in the order it ran them alone, so only their overlap is new.
@@ -188,7 +181,6 @@ pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) 
         |builds| {
             build_side(
                 cargo,
-                root,
                 builds,
                 &Side {
                     name: "base",
@@ -209,7 +201,6 @@ pub(crate) fn build(cargo: &OsStr, root: &Path, base: &str, targets: &[String]) 
                         .collect();
                     build_side(
                         cargo,
-                        root,
                         builds,
                         &Side {
                             name: "reference",
@@ -286,26 +277,29 @@ struct Side<'a> {
     target_directory: &'a Path,
 }
 
-/// Builds `side`'s Console and `targets`. The head's Console is built first:
-/// a side with no `.size-limit.json` is lent it.
-fn build_side(
-    cargo: &OsStr,
-    root: &Path,
-    builds: &AtOnce,
-    side: &Side<'_>,
-    targets: &[String],
-) -> Result<()> {
-    if side.tree.join(SIZE_LIMIT_CONFIG).is_file() {
-        crate::console::install(side.tree)?;
-        crate::console::build(side.tree)?;
-    }
+/// Builds `side`'s `targets`, after its own Console when its tree still has
+/// one.
+fn build_side(cargo: &OsStr, builds: &AtOnce, side: &Side<'_>, targets: &[String]) -> Result<()> {
     if !targets.is_empty() {
         builds.run(
             side.name,
             cargo_command(cargo, side.tree, side.target_directory).args(["fetch", "--locked"]),
             &format!("cargo fetch in the {}", side.name),
         )?;
-        crate::console::lend_build(root, side.tree)?;
+        // A side that predates the Console's removal builds its own Console
+        // first (issue 2516).
+        if base_console::in_tree(side.tree) {
+            builds.run(
+                side.name,
+                &mut base_console::install(side.tree),
+                &format!("installing the {}'s packages", side.name),
+            )?;
+            builds.run(
+                side.name,
+                &mut base_console::build(cargo, side.tree, side.target_directory),
+                &format!("building the {}'s Console", side.name),
+            )?;
+        }
     }
     for target in targets {
         builds.run(

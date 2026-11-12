@@ -23,6 +23,7 @@ use goodfetch_engine::egress::{self, Judgment, Policy, RequestKind};
 use goodfetch_page::page_value::{
     BrowserPages, EngineFetch, FetchedBody, PageValue, PooledSession,
 };
+use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::run::RunId;
 
 use crate::driver::{Body, BrowserFailure, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
@@ -41,6 +42,10 @@ pub(crate) struct BrowserFetch {
 }
 
 impl Transport for BrowserFetch {
+    fn tier(&self) -> FetchTier {
+        FetchTier::BrowserFetch
+    }
+
     fn send<'a>(&'a self, hop: &'a Hop, _reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
             let request = egress::Request {

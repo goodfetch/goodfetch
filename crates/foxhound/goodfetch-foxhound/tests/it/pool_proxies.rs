@@ -18,7 +18,6 @@ use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, ProvingGround, TestEnv, bro
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::attached;
 use crate::attached_with;
 use crate::fetch_tiers::settings;
 use crate::frontier::crawl_declaring;
@@ -186,7 +185,7 @@ fn a_label_setting_a_proxy_key_fails_the_start(#[case] label: Value, #[case] key
 fn start_beside_a_proxy(run: &Value, seed: fn(&ProvingGround) -> Value, label: &Value) -> Value {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let mut run = run.clone();
     run["proxy"] = json!({
         "server": format!("http://{}", proving_ground.description().fixtures.proxies["open"]),
@@ -299,7 +298,7 @@ fn a_run_that_can_read_a_site_past_its_proxy_fails_its_start(
 fn a_sitemap_seed_added_to_a_live_run_that_sets_a_proxy_is_refused() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let run = json!({
         "crawl": { "keep_alive": true },
         "fetch": { "tier": "browser" },

@@ -23,39 +23,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// once.
 static TAKEN: AtomicBool = AtomicBool::new(false);
 
-/// Whether this process already took its activated Console socket.
-static CONSOLE_TAKEN: AtomicBool = AtomicBool::new(false);
-
-/// The activated Console socket's descriptor, owned (ADR 0031): systemd's
-/// second passed descriptor, the unit's second `ListenStream=`, or
-/// launchd's socket `launchd_console`; `None` when the service manager
-/// passed none.
-#[cfg_attr(
-    not(target_os = "macos"),
-    expect(
-        clippy::unnecessary_wraps,
-        reason = "launchd's hand-over can fail, systemd's cannot: one signature serves both"
-    )
-)]
-pub(super) fn take_console(
-    environment: &BTreeMap<OsString, OsString>,
-    launchd_console: &str,
-) -> io::Result<Option<OwnedFd>> {
-    if CONSOLE_TAKEN.swap(true, Ordering::SeqCst) {
-        return Ok(None);
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let _ = environment;
-        launchd(launchd_console)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = launchd_console;
-        Ok(systemd_at(environment, 1))
-    }
-}
-
 /// The activated socket's descriptor, owned, or `None` when no service
 /// manager started this process with one.
 #[cfg_attr(
@@ -87,14 +54,6 @@ pub(super) fn take(
 /// systemd's first passed descriptor, when `LISTEN_PID` is this process.
 #[cfg(not(target_os = "macos"))]
 fn systemd(environment: &BTreeMap<OsString, OsString>) -> Option<OwnedFd> {
-    systemd_at(environment, 0)
-}
-
-/// systemd's passed descriptor at `index`, in the order of the socket
-/// unit's `ListenStream=` lines, when `LISTEN_PID` is this process and it
-/// passed that many.
-#[cfg(not(target_os = "macos"))]
-fn systemd_at(environment: &BTreeMap<OsString, OsString>, index: u8) -> Option<OwnedFd> {
     /// systemd passes descriptors from 3 on (`SD_LISTEN_FDS_START`).
     const FIRST: std::os::fd::RawFd = 3;
     let number = |name: &str| {
@@ -106,14 +65,13 @@ fn systemd_at(environment: &BTreeMap<OsString, OsString>, index: u8) -> Option<O
     if number("LISTEN_PID") != Some(u64::from(std::process::id())) {
         return None;
     }
-    if number("LISTEN_FDS").is_none_or(|count| count <= u64::from(index)) {
+    if number("LISTEN_FDS").is_none_or(|count| count == 0) {
         return None;
     }
     // SAFETY: systemd passed this process (`LISTEN_PID` is its own) its
-    // listening sockets from descriptor 3 on, `index` among them, which
-    // nothing else in the process opened or owns, and `TAKEN` or
-    // `CONSOLE_TAKEN` makes this the one owner of each.
-    Some(unsafe { OwnedFd::from_raw_fd(FIRST + std::os::fd::RawFd::from(index)) })
+    // listening socket as descriptor 3, which nothing else in the process
+    // opened or owns, and `TAKEN` makes this its one owner.
+    Some(unsafe { OwnedFd::from_raw_fd(FIRST) })
 }
 
 #[cfg(target_os = "macos")]

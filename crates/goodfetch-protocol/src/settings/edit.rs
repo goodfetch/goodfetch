@@ -1,12 +1,12 @@
-//! The `config.*` entries that change the machine's own layers from the
-//! Console (ADR 0031; spec #592): `config.policy_read` reads the Operator
+//! The `config.*` entries that change the machine's own layers from a
+//! person surface (ADR 0031; spec #592): `config.policy_read` reads the Operator
 //! policy with its digest, `config.policy_write` writes changes to it only
 //! if its digest has not changed since that read, so a hand edit is never
-//! lost, and `config.user_write` writes user-level values. The Console never
+//! lost, and `config.user_write` writes user-level values. No person surface
 //! writes project configuration or a Recipe's manifest, which are files
-//! under version control. Each is a person's entry, answered in the Console
-//! or an interactive CLI prompt (ADR 0029), and each write goes to the
-//! Audit log with its values before and after.
+//! under version control. Each is a person's entry, which no agent surface
+//! offers (ADR 0029), and each write goes to the Audit log with its values
+//! before and after.
 //!
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
@@ -178,7 +178,7 @@ pub struct UserConfigurationWritten {
 /// `config.policy_read`.
 pub const CONFIG_POLICY_READ: Operation = Operation {
     name: "config.policy_read",
-    description: "Reads the Operator policy of this engine's major: every entry of its `settings`, `lock` and `cap` tables, and its digest, which `config.policy_write` takes back. A person's entry: offered only in the Console and the interactive CLI prompt.",
+    description: "Reads the Operator policy of this engine's major: every entry of its `settings`, `lock` and `cap` tables, and its digest, which `config.policy_write` takes back. A person's entry: no agent surface offers it.",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
     reach: Reach::PersonOnly,
@@ -186,6 +186,8 @@ pub const CONFIG_POLICY_READ: Operation = Operation {
     result: schema_of::<OperatorPolicyRead>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -194,7 +196,7 @@ pub const CONFIG_POLICY_READ: Operation = Operation {
 /// `config.policy_write`.
 pub const CONFIG_POLICY_WRITE: Operation = Operation {
     name: "config.policy_write",
-    description: "Writes changes to the Operator policy in one atomic write, only if its digest is still the one `config.policy_read` gave, every other byte of the file kept, and records the values before and after in the Audit log; a changed digest answers `policy_conflict` and writes nothing. Every change, a tightened cap included, applies to new Runs: a Run resolves its settings once, as it opens. A person's entry: offered only in the Console and the interactive CLI prompt.",
+    description: "Writes changes to the Operator policy in one atomic write, only if its digest is still the one `config.policy_read` gave, every other byte of the file kept, and records the values before and after in the Audit log; a changed digest answers `policy_conflict` and writes nothing. Every change, a tightened cap included, applies to new Runs: a Run resolves its settings once, as it opens. A person's entry: no agent surface offers it.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::PersonOnly,
@@ -202,6 +204,8 @@ pub const CONFIG_POLICY_WRITE: Operation = Operation {
     result: schema_of::<PolicyWritten>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -210,7 +214,7 @@ pub const CONFIG_POLICY_WRITE: Operation = Operation {
 /// `config.user_write`.
 pub const CONFIG_USER_WRITE: Operation = Operation {
     name: "config.user_write",
-    description: "Writes user-level values to user configuration in one atomic write, every other byte of the file kept, once the resolver accepts them under the Operator policy, and records the values before and after in the Audit log; they apply to new Runs. A person's entry: offered only in the Console and the interactive CLI prompt.",
+    description: "Writes user-level values to user configuration in one atomic write, every other byte of the file kept, once the resolver accepts them under the Operator policy, and records the values before and after in the Audit log; they apply to new Runs. A person's entry: no agent surface offers it.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::PersonOnly,
@@ -218,6 +222,8 @@ pub const CONFIG_USER_WRITE: Operation = Operation {
     result: schema_of::<UserConfigurationWritten>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,

@@ -26,6 +26,7 @@ mod charset;
 mod charset_tests;
 mod choice;
 mod content_types;
+mod cookies;
 mod decoding;
 mod discovered_api;
 mod document;

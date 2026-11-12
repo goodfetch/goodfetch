@@ -9,12 +9,13 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::catalog::{
-    Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    Bound, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
     ProtocolVersion, Reach, Stability, schema_of,
 };
+use crate::foxhound::dataset_view::DATASET_PAGE;
 use crate::foxhound::provenance::RecordProvenance;
 use crate::jsonrpc::RequestId;
 use crate::run::{PointInTime, RunId};
@@ -79,6 +80,8 @@ pub const CRAWL_REQUEST_PUSH: Operation = Operation {
     result: schema_of::<CrawlRequestPushed>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -166,6 +169,17 @@ pub struct RecordsRead {
     pub last: u64,
 }
 
+/// `dataset.page`'s params that ask for the last Record committed to the
+/// Dataset `run.records`'s params name, and for no Record's value.
+fn last_committed(records: &Value) -> Value {
+    json!({
+        "run_id": records["run_id"],
+        "dataset": records["dataset"],
+        "limit": 1,
+        "columns": [],
+    })
+}
+
 /// `run.records`.
 pub const RUN_RECORDS: Operation = Operation {
     name: "run.records",
@@ -177,6 +191,12 @@ pub const RUN_RECORDS: Operation = Operation {
     result: schema_of::<RecordsRead>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: Some(Bound {
+        read: &DATASET_PAGE,
+        params: last_committed,
+        through: "through",
+    }),
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,

@@ -58,10 +58,8 @@ const NAME_LENGTH: usize = 64;
 #[cfg(target_os = "linux")]
 const LAZYFS_PARENT: &str = "/tmp";
 
-/// The settings every test's user configuration starts with: the Console
-/// of every Daemon the test starts listens on a port the OS chooses, never
-/// on its major's fixed port (ADR 0059); and every engine process writes
-/// its JSON log into the home's log folder (ADR 0122), at the test's level
+/// The settings every test's user configuration starts with: every engine
+/// process writes its JSON log into the home's log folder (ADR 0122), at the test's level
 /// (`log.level`, [`TestEnv::log_level`]), keeping every process's files
 /// (`log.file.max_files`): a process other than the Daemon keeps only its
 /// executable's newest sets at its start, and the test's exercise record
@@ -74,9 +72,10 @@ const LAZYFS_PARENT: &str = "/tmp";
 /// #2116). The governor's host rules are tested on a `/proc` the test
 /// writes. The keys are in the order the engine's settings writer keeps,
 /// each group of dotted keys sharing a first segment together where its
-/// first key is, with `log.level` after them: a setting the Console or
+/// first key is, with `log.level` after them: a setting
 /// `config set` writes leaves every other byte of the file as it was.
-pub const TEST_SETTINGS: &str = "console.address = \"127.0.0.1:0\"\ngovernor.host_memory = false\nlog.output = \"file\"\nlog.file.max_files = 10000\n";
+pub const TEST_SETTINGS: &str =
+    "governor.host_memory = false\nlog.output = \"file\"\nlog.file.max_files = 10000\n";
 
 /// The user configuration's file in the per-major folder.
 const USER_CONFIGURATION: &str = "configuration.toml";

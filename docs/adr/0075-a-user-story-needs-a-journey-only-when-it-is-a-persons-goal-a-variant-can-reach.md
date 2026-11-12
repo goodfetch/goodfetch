@@ -18,6 +18,7 @@ Decided in [Which user stories need a Journey](https://github.com/goodfetch/good
 `/to-spec` applies three tests to each user story, in order. The first test the story fails sets `journey = false`, and that test's name goes in `not_journey`. A story that passes all three gets `journey = true`.
 
 1. **`actor`: is the actor a person using a shipped surface?** That person may be a user, a developer writing code against an SDK or the CLI, an operator, a Recipe author or user, a Plugin author, a Console user, or the person behind an agent. The story fails when its actor is a contributor, a maintainer, the owner as releaser, an area, test support, a Client or Client author, a coding agent, Goodfetch Cloud, a site owner, or a reader of the benchmark.
+   > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no suite, test layout, Journey surface, security boundary, Performance budget, Feature kind (`screen:`) or actor exists for the Console.
 2. **`part`: does the story state a whole goal?** A goal is a task the person sets out to do or see, such as running, crawling, resuming, moving, watching, stopping, explaining, installing, exporting, or forming or restoring a group. A stop at a Limit the person set is a goal, and so is the failure a person must see while doing one. The story fails when its "I want" is only part of a goal:
    - one setting's effect;
    - one Error code, or a refusal of a wrong input, version, environment or configuration;
@@ -115,6 +116,8 @@ Each area's `/to-spec` applies the three tests to every story it writes, records
     | Run a TypeScript Script Hook in a Crawl | `cli` (M4); the SDKs (M4) | `catalog` | `story:3-125` |
     | Feed a keep-alive run new work until its input closes | the SDKs (M2) | `catalog` | `story:3-128`, `row:RT-12` |
     | Call an Exposed Daemon from an edge function over WebSocket | `sdk-typescript` (M4) | `catalog` | `story:3-13` |
+
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
     > Numbered on 2026-10-19 in [#348](https://github.com/goodfetch/goodfetch/issues/348), in area 3's spec's order: the ten new Journeys are J-013 to J-022 in this table's order, the person Limit across a Daemon group J-023 and the Partitioned crawl J-024. By ADR 0094's rule, J-014, J-020, J-021 and J-024 are Foxhound's (a Crawl, a keep-alive Crawl's Frontier, a Partitioned crawl) and the other eight Collie's.
   - **Due milestones later than the story's own:** stories 1, 2 and 128 (M1) are due with their Journeys at M2, since their only variants are on the SDKs; story 96 (M1) is due at M4, since the upgrade Journey's only variant is `cli` at M4. The other flagged stories are due at their own milestones.

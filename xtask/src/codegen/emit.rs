@@ -43,7 +43,6 @@ use goodfetch_protocol::catalog::sections::Sections;
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
 use goodfetch_protocol::cli::{CommandFailed, ExitCodeRow, exit_code_table};
 use goodfetch_protocol::connection::{CancelParams, HelloParams, HelloResult};
-use goodfetch_protocol::console::ConsoleOpened;
 use goodfetch_protocol::daemon::{
     DaemonHealthOutput, DaemonStatus, DaemonUninstallOutput, HttpListenerToken, TokenRotated,
 };
@@ -117,7 +116,6 @@ pub(super) fn emit() -> Emitted {
         "browser.clean": generator.subschema_for::<BrowserCleaned>(),
         "browser.install": generator.subschema_for::<BrowserInstalled>(),
         "config.explain": generator.subschema_for::<SettingsExplanation>(),
-        "console": generator.subschema_for::<ConsoleOpened>(),
         "daemon.health": generator.subschema_for::<DaemonHealthOutput>(),
         "daemon.http-listener-token": generator.subschema_for::<HttpListenerToken>(),
         "daemon.install": generator.subschema_for::<DaemonStatus>(),

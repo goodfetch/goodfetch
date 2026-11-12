@@ -1,8 +1,5 @@
 //! Collie's executable, `goodfetch-collie` (ADR 0090): Collie's composition,
-//! a list, passed to the engine at start (ADR 0087), with Collie's Console
-//! build (ADR 0057).
-
-mod console_build;
+//! a list, passed to the engine at start (ADR 0087).
 
 use std::process::ExitCode;
 
@@ -25,7 +22,7 @@ fn main() -> ExitCode {
         // A release build records its release date; any other build has
         // none, and never prints the age notice (ADR 0030).
         release_date: option_env!("GOODFETCH_RELEASE_DATE"),
-        composition: console_build::composition,
+        composition: goodfetch_collie::composition,
         commands: OwnCommands::COLLIE,
         arguments: std::env::args_os().collect(),
         environment: std::env::vars_os().collect(),

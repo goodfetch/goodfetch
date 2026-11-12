@@ -23,6 +23,7 @@ mod durability;
 mod events;
 mod following;
 mod governor;
+mod in_flight_cap;
 mod key_value_bytes;
 mod key_value_store;
 mod layout;
@@ -33,6 +34,7 @@ mod log;
 mod masking;
 mod needs_you;
 mod ops;
+mod panics;
 mod pauses;
 mod progress;
 mod refetch_stops;
@@ -85,6 +87,8 @@ const WAIT: Operation = Operation {
     result: schema_of::<Value>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
@@ -198,6 +202,28 @@ fn request(id: i64, method: &str) -> Value {
 
 fn cancel(id: i64) -> Value {
     json!({ "jsonrpc": "2.0", "method": "$/cancel", "params": { "id": id } })
+}
+
+/// How many calls a Connection keeps in flight, as `too_many_calls`'s
+/// `max` names it.
+const IN_FLIGHT_CAP: i64 = 256;
+
+/// How long a test waits, on the paused clock, for a message the engine
+/// owes: one it never sends fails the test instead of hanging it.
+const OWED: Duration = Duration::from_secs(5);
+
+/// The next message the engine owes, or `None` once it closed the
+/// Connection.
+async fn owed(client: &mut Client) -> Option<Value> {
+    tokio::time::timeout(OWED, client.next())
+        .await
+        .expect("the engine sends what it owes")
+}
+
+/// A Client past its `hello`.
+async fn opened(client: &mut Client) {
+    client.send(&[hello("collie", "0.1")]).await;
+    assert!(client.next().await.unwrap().get("result").is_some());
 }
 
 /// The Client's end of a Connection.

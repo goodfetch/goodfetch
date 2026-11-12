@@ -49,7 +49,7 @@ fn check(workspace: &Workspace) -> crate::workspace::Outcome {
 #[case::unknown_product("product = \"collie\"", "product = \"cloud\"")]
 #[case::malformed_id("id = \"J-001\"", "id = \"J-1\"")]
 #[case::malformed_feature_id("covers = [\"row:CN-03\"]", "covers = [\"CN-03\"]")]
-#[case::unknown_milestone("console = \"M1\"", "console = \"M5\"")]
+#[case::unknown_milestone("cli = \"M1\"", "cli = \"M5\"")]
 #[case::not_toml("[surfaces]", "[surfaces")]
 fn journey_that_does_not_parse_fails(#[case] from: &str, #[case] to: &str) {
     let workspace = catalog();
@@ -146,9 +146,11 @@ fn id_not_below_the_next_free_number_fails(#[case] next: &str, #[case] subjects:
 }
 
 #[rstest]
-#[case::listed_surface("console = \"M1\"", "console = \"M1\"\ndesktop = \"M2\"")]
+#[case::listed_surface("cli = \"M1\"", "cli = \"M1\"\ndesktop = \"M2\"")]
+/// The Console left both Products (ADR 0137), and its surface with it.
+#[case::console("cli = \"M1\"", "cli = \"M1\"\nconsole = \"M1\"")]
 #[case::pinned_step("on = \"cli\"", "on = \"desktop\"")]
-#[case::adapter_without_a_name("console = \"M1\"", "console = \"M1\"\nadapter- = \"M4\"")]
+#[case::adapter_without_a_name("cli = \"M1\"", "cli = \"M1\"\nadapter- = \"M4\"")]
 fn surface_adr_0063_does_not_list_fails(#[case] from: &str, #[case] to: &str) {
     let workspace = catalog();
     workspace.edit("journeys/J-001.toml", from, to);
@@ -168,7 +170,7 @@ fn surface_adr_0063_does_not_list_fails(#[case] from: &str, #[case] to: &str) {
 /// variant.
 #[rstest]
 #[case::unlisted_by_adr_0063("[\"desktop\"]")]
-#[case::not_a_variant_of_the_journey("[\"console\"]")]
+#[case::not_a_variant_of_the_journey("[\"mcp-stdio\"]")]
 fn check_scoped_to_a_surface_the_journey_has_no_variant_on_fails(#[case] surfaces: &str) {
     let workspace = catalog();
     workspace.edit(

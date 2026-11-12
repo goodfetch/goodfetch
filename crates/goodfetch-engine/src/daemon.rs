@@ -7,10 +7,17 @@
 //! read on the `Clock`, unless it is kept alive (`--keep-alive`, a [`Held`]
 //! Schedule, an installed service); it stops when `daemon.stop` asks; and when it is
 //! not its major's pick, it hands over to the pick once it hosts no live
-//! Run and no Client but a Console, or when it refuses a Client by Product
+//! Run and no Client that holds it, or when it refuses a Client by Product
 //! or version while idle, the refusal then telling that Client to wait for
 //! the pick. Its state changes only as the engine's transition table says
 //! (ADR 0128): an end that comes once another is decided changes nothing.
+//!
+//! A failed accept ends that one attempt: it is logged and the Daemon goes
+//! on accepting, at once after a stream it had to drop, and waiting a
+//! little longer before each new attempt while accepts keep failing, as
+//! they do while the process has no descriptor left.
+//! Only a listener closed for good ends the Daemon, as a listener failure,
+//! once its Runs drained as on a requested drain, within the drain grace.
 //!
 //! Which executable is the pick, and what a handover takes on the machine
 //! (the start lock, the runtime file), is the [`Succession`] its starter
@@ -32,12 +39,12 @@ use std::time::Duration;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{ProductVersion, Surface};
-use goodfetch_protocol::console::{ConsoleFailure, ConsoleState};
 use goodfetch_protocol::daemon::{
     DaemonEndpoint, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, HEALTH, NOT_A_DAEMON,
     NotADaemonDetails, STATUS, STOP,
 };
 use tokio::sync::{Mutex, mpsc, watch};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::call_error::CallError;
@@ -48,18 +55,25 @@ use crate::engine_context::EngineContext;
 use crate::events::Events;
 use crate::metrics::Metrics;
 use crate::ops::{self, Health, Ops};
-use crate::people::{SignInDriver, SignInPolicy};
 use crate::product::{Channel, Identity};
-use crate::rpc::{self, ConsoleConnection, Dispatch};
+use crate::rpc::{self, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::runs::{ConnectionId, Runs};
 use crate::tasks::TaskOwner;
 use crate::transition::engine::{self as table, EngineEvent, EngineState, InvalidEngineTransition};
-use crate::transport::{Connection, ConsoleListener, DaemonListener, TransportError};
+use crate::transport::{Connection, DaemonListener, TransportError};
 
 /// How long a Daemon asked to stop waits for the asking Client to read the
 /// answer and close before it closes that Connection itself.
 const STOP_GRACE: Duration = Duration::from_secs(5);
+
+/// How long a Daemon waits before it accepts again once a second accept in
+/// a row failed, doubling with each further failure up to
+/// [`LONGEST_ACCEPT_WAIT`].
+const FIRST_ACCEPT_WAIT: Duration = Duration::from_millis(10);
+
+/// The longest a Daemon waits between two attempts to accept.
+const LONGEST_ACCEPT_WAIT: Duration = Duration::from_secs(1);
 
 /// What a Daemon runs with beside its engine's [`Dependencies`](crate::Dependencies).
 pub struct DaemonOptions {
@@ -79,12 +93,9 @@ pub struct DaemonOptions {
     pub holds: Holds,
     /// Which executable is its major's pick, and how it hands over.
     pub succession: Arc<dyn Succession>,
-    /// Its Console: the listener it serves its engine's Console build on,
-    /// or why it has none.
-    pub console: DaemonConsole,
-    /// How it drains when its starter asks, as `daemon run` does on
-    /// `SIGTERM` (ADR 0049); none for a Daemon on the machine.
-    pub drain: Option<Drain>,
+    /// How it drains: when its starter asks, as `daemon run` does on
+    /// `SIGTERM` (ADR 0049), and once its listener is closed for good.
+    pub drain: Drain,
     /// The install database it keeps every Run's run state in, in the
     /// per-install layout (`run_state.layout`, ADR 0002); none in the
     /// per-run layout.
@@ -98,54 +109,19 @@ pub struct DaemonOptions {
     pub websocket: Option<Authorities>,
 }
 
-/// How a foreground Daemon drains (ADR 0049): once `asked` is cancelled it
-/// takes no Run, stops each live Run at its next safe point with a
-/// Checkpoint, resumable by its Run ID, and ends once every one stopped or
-/// `grace` passed on its `Clock`, whichever comes first; a Run that reached
-/// no safe point by then stays resumable from its run file.
+/// How a Daemon drains (ADR 0049): once `asked` is cancelled, or its
+/// listener is closed for good, it takes no Run, stops each live Run at its
+/// next safe point with a Checkpoint, resumable by its Run ID, and ends
+/// once every one stopped or `grace` passed on its `Clock`, whichever comes
+/// first; a Run that reached no safe point by then stays resumable from its
+/// run file.
 #[derive(Clone, Debug)]
 pub struct Drain {
-    /// Cancelled when the Daemon must drain.
-    pub asked: CancellationToken,
+    /// Cancelled when the Daemon must drain, as `daemon run` asks on
+    /// `SIGTERM`; none for a Daemon on the machine, which no starter asks.
+    pub asked: Option<CancellationToken>,
     /// `daemon.drain_grace`.
     pub grace: Duration,
-}
-
-/// A Daemon's Console, or the one an Attached engine serves for its
-/// script, as its starter set it up (ADR 0031).
-pub enum DaemonConsole {
-    /// The Console's listener, bound at `console.address`, and the URL it
-    /// is reached at.
-    Listening {
-        /// The listener.
-        listener: ConsoleListener,
-        /// Its URL, such as `http://127.0.0.1:7801/`.
-        url: String,
-        /// `console.public_url`: the address links to it name instead of
-        /// `url`, when set.
-        public_url: Option<String>,
-        /// How long its sign-ins last and how often an address may try.
-        sign_in: SignInPolicy,
-        /// Its content origin, or none when it did not start.
-        content: Option<ContentOrigin>,
-    },
-    /// The Console did not start; the Daemon still serves its Clients.
-    Failed(ConsoleFailure),
-    /// No Console, as for a Daemon a test runs in process.
-    Absent,
-}
-
-/// The Console's content origin (ADR 0031): the second origin that shows
-/// scraped HTML, screenshots, DOM snapshots and page bodies by signed
-/// address, with no cookie.
-pub struct ContentOrigin {
-    /// Its own listener, at `console.content_address`; none when it shares
-    /// the Console's listener, which tells the two apart by the `Host` of
-    /// `url` (ADR 0049).
-    pub listener: Option<ConsoleListener>,
-    /// The origin its signed addresses name, such as
-    /// `http://127.0.0.1:51234` or `console.content_public_url`.
-    pub url: String,
 }
 
 /// Which executable is the Daemon's major's pick, and what a handover takes
@@ -170,7 +146,7 @@ pub enum DaemonEnd {
     /// It handed over to its major's pick, which its caller now starts with
     /// what [`Succession::begin_handover`] answered.
     HandedOver(Box<dyn Send>),
-    /// Its listener failed.
+    /// Its listener was closed for good, and it drained.
     ListenerFailed,
     /// It drained, as its starter asked.
     Drained,
@@ -235,14 +211,8 @@ pub(crate) struct Serving {
     /// What the engine gives every call and listener, its clock among
     /// them.
     pub(crate) engine: EngineContext,
-    /// Where its Console is served, or why it is not.
-    pub(crate) console: ConsoleState,
-    /// The Connections its Console's server opens: `WebSocket`s and event streams.
-    pub(crate) console_connections: mpsc::Receiver<ConsoleConnection>,
     /// The runtime's metrics.
     pub(crate) metrics: Metrics,
-    /// The sign-in driver of its Console, if it serves one.
-    pub(crate) sign_ins: Option<SignInDriver>,
 }
 
 /// The Clients connected now.
@@ -250,41 +220,29 @@ pub(crate) struct Serving {
 struct Presence {
     /// Every connected Client, as `daemon.status` counts them.
     clients: u32,
-    /// Those that hold off the idle stop.
-    holding_off_idle_stop: u32,
-    /// Those that hold off a handover to the major's pick.
-    holding_off_handover: u32,
+    /// Those that hold off the idle stop and a handover to the major's
+    /// pick.
+    holding: u32,
 }
 
 impl Presence {
-    /// What one Client of `surface` counts toward each figure.
-    ///
-    /// A Console holds off the idle stop, as a visible tab does, but not a
-    /// handover (ADR 0098). A Kennel that only observes holds off neither
-    /// (ADR 0141).
-    fn of_one(surface: Surface, holding: Holding) -> Self {
-        let holds = holding == Holding::Holds;
+    /// What one Client counts toward each figure. A Kennel that only
+    /// observes holds nothing off (ADR 0141).
+    fn of_one(holding: Holding) -> Self {
         Self {
             clients: 1,
-            holding_off_idle_stop: u32::from(holds),
-            holding_off_handover: u32::from(holds && surface.holds_off_handover()),
+            holding: u32::from(holding == Holding::Holds),
         }
     }
 
     fn add(&mut self, one: Self) {
         self.clients += one.clients;
-        self.holding_off_idle_stop += one.holding_off_idle_stop;
-        self.holding_off_handover += one.holding_off_handover;
+        self.holding += one.holding;
     }
 
     fn remove(&mut self, one: Self) {
         self.clients = self.clients.saturating_sub(one.clients);
-        self.holding_off_idle_stop = self
-            .holding_off_idle_stop
-            .saturating_sub(one.holding_off_idle_stop);
-        self.holding_off_handover = self
-            .holding_off_handover
-            .saturating_sub(one.holding_off_handover);
+        self.holding = self.holding.saturating_sub(one.holding);
     }
 }
 
@@ -308,7 +266,6 @@ struct Shared {
     /// Runs show as live.
     runs_held: Holds,
     succession: Arc<dyn Succession>,
-    console: ConsoleState,
     websocket: Option<Arc<Authorities>>,
     presence: watch::Sender<Presence>,
     runs: Runs,
@@ -316,7 +273,6 @@ struct Shared {
     metrics: Metrics,
     blocking: TaskOwner,
     endings: mpsc::Sender<Ending>,
-    sign_ins: Option<SignInDriver>,
     /// Where the Daemon is, which only the engine's table changes; held
     /// while a handover is decided, so at most one begins.
     state: Mutex<EngineState>,
@@ -344,7 +300,6 @@ impl Shared {
             holds: options.holds,
             runs_held: Holds::new(),
             succession: options.succession,
-            console: serving.console.clone(),
             websocket: options.websocket.map(Arc::new),
             presence: watch::Sender::new(Presence::default()),
             runs: serving.runs.clone(),
@@ -352,7 +307,6 @@ impl Shared {
             metrics: serving.metrics.clone(),
             blocking,
             endings,
-            sign_ins: serving.sign_ins.clone(),
             state: Mutex::new(EngineState::Serving),
         }
     }
@@ -374,10 +328,10 @@ impl Shared {
     /// Whether no Client that holds off a handover is connected and no Run
     /// is live.
     async fn nothing_holds_off_a_handover(&self) -> bool {
-        self.presence.borrow().holding_off_handover == 0 && self.runs.live_count().await == 0
+        self.presence.borrow().holding == 0 && self.runs.live_count().await == 0
     }
 
-    /// Hands over when this Daemon is idle but for Consoles and Kennels that
+    /// Hands over when this Daemon is idle but for Kennels that
     /// only observe, and is not its major's pick; whether it began to.
     async fn hand_over_if_not_the_pick(&self) -> bool {
         let mut state = self.state.lock().await;
@@ -448,7 +402,7 @@ impl DaemonSide for ConnectionSide {
     }
 
     fn opened(&self, surface: Surface, holding: Holding) -> Box<dyn Send + Sync> {
-        let counted = Presence::of_one(surface, holding);
+        let counted = Presence::of_one(holding);
         self.shared
             .presence
             .send_modify(|presence| presence.add(counted));
@@ -478,7 +432,6 @@ impl DaemonSide for ConnectionSide {
                 live_runs: count(shared.runs.live_count().await),
                 kept_alive: shared.kept_alive(),
                 idle_timeout: u64::try_from(shared.idle_timeout.as_millis()).unwrap_or(u64::MAX),
-                console: shared.console.clone(),
                 heap: crate::heap::live(),
             }
         })
@@ -486,10 +439,6 @@ impl DaemonSide for ConnectionSide {
 
     fn health(&self) -> Answering<'_, DaemonHealth> {
         Box::pin(self.shared.health.check())
-    }
-
-    fn sign_ins(&self) -> Option<SignInDriver> {
-        self.shared.sign_ins.clone()
     }
 
     fn stop(&self) -> Answering<'_, DaemonStopping> {
@@ -512,16 +461,19 @@ fn count(live: usize) -> u32 {
 /// Serves every Connection of `listener` until the Daemon stops, its tasks
 /// those of children of `owner`.
 pub(crate) async fn serve(
-    mut serving: Serving,
-    mut listener: DaemonListener,
+    serving: Serving,
+    listener: DaemonListener,
     mut options: DaemonOptions,
     owner: &TaskOwner,
 ) -> DaemonEnd {
-    let drain = options.drain.take();
+    let Drain {
+        asked: drain_asked_by,
+        grace,
+    } = options.drain.clone();
     let ops = options.ops.listener.take();
     let asked = async {
-        match &drain {
-            Some(drain) => drain.asked.cancelled().await,
+        match &drain_asked_by {
+            Some(asked) => asked.cancelled().await,
             None => std::future::pending().await,
         }
     };
@@ -540,8 +492,7 @@ pub(crate) async fn serve(
     let clock = serving.engine.clock();
     let idle = idle(&shared, clock);
     tokio::pin!(idle);
-    let mut accepting = true;
-    let mut console_open = true;
+    let mut accepts = Accepts::new(listener, clock);
     let mut idled = false;
     let mut drain_asked = false;
     let end = loop {
@@ -564,7 +515,7 @@ pub(crate) async fn serve(
             Some(connection) = endings_of_connections.recv() => {
                 let _ = shared.transition(EngineEvent::ClientLost).await;
                 open.remove(&connection);
-                if shared.presence.borrow().holding_off_handover == 0 {
+                if shared.presence.borrow().holding == 0 {
                     let shared = Arc::clone(&shared);
                     owner.spawn(async move {
                         shared.hand_over_if_not_the_pick().await;
@@ -581,35 +532,29 @@ pub(crate) async fn serve(
                 drain_asked = true;
                 // A drain once a handover is decided changes nothing.
                 if let Ok(EngineState::Draining) = shared.transition(EngineEvent::Drain).await {
-                    serving.metrics.draining(true);
-                    let grace = drain.as_ref().map_or(Duration::ZERO, |drain| drain.grace);
-                    drain_runs(&serving, grace).await;
-                    drop(listener);
-                    let _ = shared.transition(EngineEvent::Drained).await;
+                    drain_runs(&serving, &shared, grace).await;
+                    drop(accepts);
                     return finish(DaemonEnd::Drained, &connections_owner, &shared).await;
                 }
             }
-            console = serving.console_connections.recv(), if console_open => match console {
-                Some(console) => admit(&mut open, &mut next, |id| serve_connection(&serving, &shared, &connections_owner, Arriving::Console(console), id, ended.clone())),
-                // The Console's server stopped, or there is none.
-                None => console_open = false,
-            },
-            accepted = listener.accept(), if accepting => match accepted {
-                Ok(connection) => admit(&mut open, &mut next, |id| serve_connection(&serving, &shared, &connections_owner, Arriving::Listener(connection), id, ended.clone())),
-                // Every in-memory dialer is gone: it goes on with its Clients.
-                Err(TransportError::DialerClosed) => accepting = false,
-                Err(error) => {
-                    tracing::error!(%error, "the Daemon's listener failed");
-                    accepting = false;
+            accepted = accepts.next() => match accepted {
+                Ok(connection) => admit(&mut open, &mut next, |id| serve_connection(&serving, &shared, &connections_owner, connection, id, ended.clone())),
+                // It goes on with its Clients.
+                Err(NoMoreConnections::DialersGone) => {}
+                Err(NoMoreConnections::ListenerClosed(error)) => {
+                    tracing::error!(%error, "the Daemon's listener is closed: it drains its runs and stops");
+                    // A listener closed once a handover is decided changes nothing.
                     let failed = shared.transition(EngineEvent::ListenerFailed).await;
-                    if let Ok(EngineState::Stopping) = failed {
+                    if let Ok(EngineState::Draining) = failed {
+                        drain_runs(&serving, &shared, grace).await;
+                        drop(accepts);
                         return finish(DaemonEnd::ListenerFailed, &connections_owner, &shared).await;
                     }
                 }
             },
         }
     };
-    drop(listener);
+    drop(accepts);
     let end = match end {
         Ending::HandOver(begun) => DaemonEnd::HandedOver(begun),
         Ending::Stop(asking) => {
@@ -618,6 +563,103 @@ pub(crate) async fn serve(
         }
     };
     finish(end, &connections_owner, &shared).await
+}
+
+/// Why a listener gives no Connection any more.
+pub(crate) enum NoMoreConnections {
+    /// Every in-memory dialer is gone.
+    DialersGone,
+    /// It was closed for good, as the OS said with this failure.
+    ListenerClosed(TransportError),
+}
+
+/// The Connections an engine takes from a listener, a Daemon's or an
+/// Attached engine's private endpoint's, past each failed accept.
+pub(crate) struct Accepts {
+    listener: DaemonListener,
+    clock: Clock,
+    /// Whether the listener gives no Connection any more.
+    ended: bool,
+    /// How many accepts failed in a row.
+    failed: u32,
+    /// When it accepts again, after accepts that failed in a row.
+    again_at: Option<Instant>,
+}
+
+impl Accepts {
+    pub(crate) fn new(listener: DaemonListener, clock: Clock) -> Self {
+        Self {
+            listener,
+            clock,
+            ended: false,
+            failed: 0,
+            again_at: None,
+        }
+    }
+
+    /// The next Connection. A failed accept ends that attempt alone: it is
+    /// logged, and the next attempt follows, at once after a dropped
+    /// stream or one failure, and after a wait once failures repeat. Answers once why the listener
+    /// gives no Connection any more, and never resolves after that.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no Connection, and a wait it began ends
+    /// when it would have.
+    pub(crate) async fn next(&mut self) -> Result<Connection, NoMoreConnections> {
+        loop {
+            if self.ended {
+                return std::future::pending().await;
+            }
+            if let Some(again_at) = self.again_at {
+                self.clock.sleep_until(again_at).await;
+                self.again_at = None;
+            }
+            match self.listener.accept().await {
+                Ok(connection) => {
+                    self.failed = 0;
+                    return Ok(connection);
+                }
+                Err(TransportError::DialerClosed) => {
+                    self.ended = true;
+                    return Err(NoMoreConnections::DialersGone);
+                }
+                // It says nothing of the next: no wait, however many follow.
+                Err(TransportError::Stream(error)) => {
+                    tracing::warn!(%error, "an accepted stream was dropped: the listener goes on accepting");
+                }
+                Err(TransportError::Accept(error)) => {
+                    self.failed = self.failed.saturating_add(1);
+                    let wait = wait_after(self.failed);
+                    tracing::warn!(
+                        %error,
+                        retry_in_ms = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX),
+                        "an accept failed: the listener goes on accepting"
+                    );
+                    self.again_at = (!wait.is_zero()).then(|| self.clock.now() + wait);
+                }
+                // `EngineGone` is a dialer's, never an accept's.
+                Err(error @ (TransportError::ListenerClosed(_) | TransportError::EngineGone)) => {
+                    self.ended = true;
+                    return Err(NoMoreConnections::ListenerClosed(error));
+                }
+            }
+        }
+    }
+}
+
+/// How long a Daemon waits before it accepts again once `failed` accepts
+/// failed in a row: no time after the first, since one failed attempt says
+/// nothing of the next, then [`FIRST_ACCEPT_WAIT`] doubled by each further
+/// failure, up to [`LONGEST_ACCEPT_WAIT`].
+fn wait_after(failed: u32) -> Duration {
+    match failed.checked_sub(2) {
+        None => Duration::ZERO,
+        Some(doublings) => 1_u32
+            .checked_shl(doublings)
+            .and_then(|factor| FIRST_ACCEPT_WAIT.checked_mul(factor))
+            .map_or(LONGEST_ACCEPT_WAIT, |wait| wait.min(LONGEST_ACCEPT_WAIT)),
+    }
 }
 
 /// Serves the next Connection, `next`, with `serve`, keeping the token
@@ -632,20 +674,13 @@ fn admit(
     open.insert(id, serve(id));
 }
 
-/// A Connection that reached the Daemon: through its listener, or as a
-/// Connection its Console's server opened.
-enum Arriving {
-    Listener(Connection),
-    Console(ConsoleConnection),
-}
-
 /// Serves `connection` as the Daemon's Connection `id`, a task of
 /// `connections`, telling `ended` once it closes; the token that closes it.
 fn serve_connection(
     serving: &Serving,
     shared: &Arc<Shared>,
     connections: &TaskOwner,
-    connection: Arriving,
+    connection: Connection,
     id: ConnectionId,
     ended: mpsc::UnboundedSender<ConnectionId>,
 ) -> CancellationToken {
@@ -666,43 +701,20 @@ fn serve_connection(
     let cancelled = token.clone();
     connections.spawn(async move {
         let served = async {
-            match connection {
-                Arriving::Listener(connection) => {
-                    let access = match websocket {
-                        Some(authorities) => rpc::Access::Exposed(side, authorities),
-                        None => rpc::Access::Daemon(side),
-                    };
-                    rpc::serve(
-                        dispatch,
-                        connection,
-                        &its_owner,
-                        runs.clone(),
-                        events,
-                        access,
-                        engine,
-                    )
-                    .await;
-                }
-                Arriving::Console(console) => {
-                    let Some(sign_ins) = side.sign_ins() else {
-                        // Only a Console's server opens one, and it has a driver.
-                        return;
-                    };
-                    rpc::serve_console(
-                        dispatch,
-                        console,
-                        &its_owner,
-                        runs.clone(),
-                        events,
-                        rpc::ConsoleSide {
-                            daemon: Some(side),
-                            sign_ins,
-                        },
-                        engine,
-                    )
-                    .await;
-                }
-            }
+            let access = match websocket {
+                Some(authorities) => rpc::Access::Exposed(side, authorities),
+                None => rpc::Access::Daemon(side),
+            };
+            rpc::serve(
+                dispatch,
+                connection,
+                &its_owner,
+                runs.clone(),
+                events,
+                access,
+                engine,
+            )
+            .await;
         };
         tokio::select! {
             biased;
@@ -755,8 +767,10 @@ async fn close_all_but(
     }
 }
 
-/// Drains the Daemon's Runs, waiting at most `grace` for them to stop.
-async fn drain_runs(serving: &Serving, grace: Duration) {
+/// Drains the Daemon's Runs, waiting at most `grace` for them to stop,
+/// after which the Daemon, which was `Draining`, is `Stopping`.
+async fn drain_runs(serving: &Serving, shared: &Shared, grace: Duration) {
+    serving.metrics.draining(true);
     let clock = serving.engine.clock();
     let drained = async {
         let draining = serving.runs.drain().await;
@@ -773,6 +787,7 @@ async fn drain_runs(serving: &Serving, grace: Duration) {
             "the drain grace passed: each run not yet at a safe point stays resumable from its run file"
         ),
     }
+    let _ = shared.transition(EngineEvent::Drained).await;
 }
 
 /// Closes every Connection, then answers `end`.
@@ -796,7 +811,7 @@ async fn idle(shared: &Shared, clock: Clock) {
     let mut holds = shared.holds.0.subscribe();
     let mut runs_held = shared.runs_held.0.subscribe();
     loop {
-        let holding = presence.borrow_and_update().holding_off_idle_stop;
+        let holding = presence.borrow_and_update().holding;
         let held = *holds.borrow_and_update() + *runs_held.borrow_and_update();
         if holding == 0 && held == 0 {
             tokio::select! {

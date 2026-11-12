@@ -1,7 +1,11 @@
 //! The module check (ADR 0126): every crate's `modules.toml` lists each of
 //! its top-level modules with the siblings it may import, and the check fails
 //! on any other import, on a cycle among the allowed imports, on a name that
-//! is no module and on a module the file does not list. A module's
+//! is no module and on a module the file does not list. An item the crate's
+//! root re-exports from a module is that module's: importing it through the
+//! root (`crate::Item`) imports the module, and since a glob names nothing
+//! the check can read, a root may not re-export a module's items with one.
+//! A module's
 //! `[submodules.<module>]` table holds its direct submodules to the same
 //! rules among themselves. A file past 1,000
 //! lines must state why it is still one concern in a `Size:` line of its `//!`
@@ -86,30 +90,24 @@ fn check_crate(
     let rules: ModulesFile =
         toml::from_str(&text).with_context(|| format!("parsing {}", modules_path.display()))?;
 
-    // Each top-level module, with the files that make it up.
-    let mut modules: BTreeMap<String, Vec<(Source, usize)>> = BTreeMap::new();
-    for crate_root in crate_roots(package, crate_folder) {
-        let source = parse(
-            &crate_root,
-            crate_root.parent().context("a root sits in a folder")?,
-        )?;
-        let roots_children = source.children.clone();
-        oversized(root, &source, findings);
-        for item in non_test_items(&source.syntax.items) {
-            if let syn::Item::Mod(module) = item {
-                let files = module_files(module, &roots_children, &roots_children, 1)?;
-                modules
-                    .entry(module.ident.to_string())
-                    .or_default()
-                    .extend(files);
-            }
-        }
+    let top_level = top_level(root, package, crate_folder, findings)?;
+    let modules = &top_level.modules;
+    for module in top_level
+        .globs
+        .iter()
+        .filter(|module| modules.contains_key(*module))
+    {
+        findings.push(Finding::new(
+            "glob-re-export",
+            format!("{name}/{module}"),
+            format!("the root re-exports `{module}`'s items with a glob, which hides who imports them: name each item"),
+        ));
     }
 
     for (source, _) in modules.values().flatten() {
         oversized(root, source, findings);
     }
-    for (module, files) in &modules {
+    for (module, files) in modules {
         let Some(allowed) = rules.modules.get(module) else {
             findings.push(Finding::new(
                 "module-not-listed",
@@ -124,7 +122,8 @@ fn check_crate(
                 scan_item(item, *depth, Scope::Crate, &mut imported);
             }
         }
-        for sibling in imported {
+        let siblings = top_level.modules_of(imported);
+        for sibling in siblings {
             if sibling != *module && modules.contains_key(&sibling) && !allowed.contains(&sibling) {
                 findings.push(Finding::new(
                     "forbidden-import",
@@ -173,6 +172,74 @@ fn check_crate(
         check_submodules(name, module, source, table, findings)?;
     }
     Ok(())
+}
+
+/// What a crate's roots hold: its `lib.rs`'s and its `main.rs`'s together.
+#[derive(Default)]
+struct TopLevel {
+    /// Each module the roots declare, with the files that make it up.
+    modules: BTreeMap<String, Vec<(Source, usize)>>,
+    /// Each name a root's `use` brings to it, with the first name of every
+    /// path it comes from: a module's, when the item is the crate's own.
+    re_exports: BTreeMap<String, BTreeSet<String>>,
+    /// The first name of each path a root's `use` takes everything from.
+    globs: BTreeSet<String>,
+}
+
+impl TopLevel {
+    /// The modules the names `imported` reach: a name that is a module, and
+    /// the module a root re-exports a name from, through as many `use`
+    /// items as the root chains.
+    fn modules_of(&self, imported: BTreeSet<String>) -> BTreeSet<String> {
+        let mut reached = BTreeSet::new();
+        let mut seen = BTreeSet::new();
+        let mut pending: Vec<String> = imported.into_iter().collect();
+        while let Some(named) = pending.pop() {
+            if !seen.insert(named.clone()) {
+                continue;
+            }
+            pending.extend(self.re_exports.get(&named).into_iter().flatten().cloned());
+            if self.modules.contains_key(&named) {
+                reached.insert(named);
+            }
+        }
+        reached
+    }
+}
+
+fn top_level(
+    root: &Path,
+    package: &metadata::Package,
+    crate_folder: &Path,
+    findings: &mut Vec<Finding>,
+) -> Result<TopLevel> {
+    let mut top_level = TopLevel::default();
+    for crate_root in crate_roots(package, crate_folder) {
+        let source = parse(
+            &crate_root,
+            crate_root.parent().context("a root sits in a folder")?,
+        )?;
+        let roots_children = source.children.clone();
+        oversized(root, &source, findings);
+        for item in non_test_items(&source.syntax.items) {
+            match item {
+                syn::Item::Mod(module) => {
+                    let files = module_files(module, &roots_children, &roots_children, 1)?;
+                    top_level
+                        .modules
+                        .entry(module.ident.to_string())
+                        .or_default()
+                        .extend(files);
+                }
+                // `::name` is another crate, whatever the modules are called.
+                syn::Item::Use(re_export) if re_export.leading_colon.is_none() => {
+                    record_re_exports(&re_export.tree, None, &mut top_level);
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(top_level)
 }
 
 /// The rules of one module's `[submodules.<module>]` table over its direct
@@ -250,6 +317,47 @@ fn check_submodules(
         ));
     }
     Ok(())
+}
+
+/// Records each name a root's `use` brings to the root, with the first name
+/// of the path it comes from after any `crate::` or `self::`: `from` once the
+/// walk is past that name, and the name itself when the root only renames it.
+fn record_re_exports(tree: &syn::UseTree, from: Option<&syn::Ident>, top_level: &mut TopLevel) {
+    let mut record = |named: &syn::Ident, from: &syn::Ident| {
+        top_level
+            .re_exports
+            .entry(named.to_string())
+            .or_default()
+            .insert(from.to_string());
+    };
+    match tree {
+        syn::UseTree::Path(path) => {
+            let from = match from {
+                None if path.ident == "crate" || path.ident == "self" => None,
+                None => Some(&path.ident),
+                from => from,
+            };
+            record_re_exports(&path.tree, from, top_level);
+        }
+        syn::UseTree::Group(group) => {
+            for tree in &group.items {
+                record_re_exports(tree, from, top_level);
+            }
+        }
+        syn::UseTree::Name(syn::UseName { ident }) => {
+            if let Some(from) = from {
+                record(ident, from);
+            }
+        }
+        syn::UseTree::Rename(syn::UseRename { ident, rename, .. }) => {
+            record(rename, from.unwrap_or(ident));
+        }
+        syn::UseTree::Glob(_) => {
+            if let Some(from) = from {
+                top_level.globs.insert(from.to_string());
+            }
+        }
+    }
 }
 
 /// The crate's `lib.rs` and `main.rs`, which only declare modules (STYLE.md).
@@ -434,7 +542,7 @@ fn scan_item(item: &syn::Item, depth: usize, scope: Scope<'_>, imported: &mut BT
     scan_tokens(item.to_token_stream(), depth, scope, imported);
 }
 
-fn is_path_separator(tokens: &[TokenTree], index: usize) -> bool {
+pub(crate) fn is_path_separator(tokens: &[TokenTree], index: usize) -> bool {
     matches!(
         (tokens.get(index), tokens.get(index + 1)),
         (Some(TokenTree::Punct(first)), Some(TokenTree::Punct(second)))
@@ -442,7 +550,7 @@ fn is_path_separator(tokens: &[TokenTree], index: usize) -> bool {
     )
 }
 
-fn is_ident(tokens: &[TokenTree], index: usize, word: &str) -> bool {
+pub(crate) fn is_ident(tokens: &[TokenTree], index: usize, word: &str) -> bool {
     matches!(tokens.get(index), Some(TokenTree::Ident(ident)) if ident == word)
 }
 

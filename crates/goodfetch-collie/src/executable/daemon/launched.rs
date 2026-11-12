@@ -14,39 +14,30 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::{BufRead as _, BufReader};
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_engine::browser_cache::{self, MaxUnusedAge};
+use goodfetch_engine::children::give_huge_pages_as_started;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::files::{DaemonFiles, FileLock};
 use goodfetch_engine::daemon::service::LaunchedCommand;
-use goodfetch_engine::daemon::{
-    ContentOrigin, DaemonConsole, DaemonEnd, DaemonOptions, Holds, Succession,
-};
+use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, Succession};
 use goodfetch_engine::endpoint::new_token;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::installed::{InstalledList, Seen, pick, stores_floor};
 use goodfetch_engine::ops::Ops;
-use goodfetch_engine::people::SignInPolicy;
 use goodfetch_engine::run_state::install::InstallDatabase;
 use goodfetch_engine::settings::{Resolved, get_or_default};
-use goodfetch_engine::transport::{
-    ConsoleListener, DaemonListener, Network, activated_console, listen_console,
-};
+use goodfetch_engine::transport::{DaemonListener, Network};
 use goodfetch_engine::{Dependencies, Engine, Identity};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::console::{
-    ADDRESS as CONSOLE_ADDRESS, CONSOLE_PORT_IN_USE, CONTENT_ADDRESS, CONTENT_PUBLIC_URL,
-    ConsoleFailure, ConsoleState, PUBLIC_URL,
+use goodfetch_protocol::daemon::{
+    DRAIN_GRACE, DaemonEndpoint, DaemonRuntimeFile, DaemonToken, IDLE_TIMEOUT,
 };
-use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile, DaemonToken, IDLE_TIMEOUT};
-use goodfetch_protocol::people::{SIGN_IN_IDLE_EXPIRY, SIGN_IN_RATE};
-use goodfetch_protocol::settings::SETTING_INVALID;
 
 use super::{Failure, Machine, multi_thread_runtime, now_of, per_install, unavailable};
 use crate::executable::output;
@@ -71,6 +62,7 @@ pub(super) fn launch(
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     detach(&mut command);
+    give_huge_pages_as_started(&mut command);
     let mut child = command
         .spawn()
         .map_err(unavailable("the Daemon's process cannot start"))?;
@@ -157,7 +149,7 @@ pub(in crate::executable) fn launched(
         }
     };
     let idle_timeout: Duration = get_or_default(Some(settings), &IDLE_TIMEOUT);
-    let console_address = settings.get::<&str>(&CONSOLE_ADDRESS).to_owned();
+    let drain_grace: Duration = get_or_default(Some(settings), &DRAIN_GRACE);
     let install = match install_database(machine, &dependencies, Some(settings)) {
         Ok(install) => install,
         Err(failure) => return failure.report(),
@@ -173,17 +165,11 @@ pub(in crate::executable) fn launched(
     let ended = runtime.block_on(async {
         let (listener, endpoint, token, activated) =
             take_listener(machine, &files, &socket, service).await?;
-        let (console, console_state) = if engine.serves_console() {
-            console_of_launch(machine, activated, &console_address, Some(settings)).await
-        } else {
-            (DaemonConsole::Absent, ConsoleState::Absent)
-        };
         let published = DaemonRuntimeFile {
             endpoint: endpoint.clone(),
             token: DaemonToken::new(token.clone()),
             version: identity.product_version.clone(),
             pid,
-            console: console_state,
         };
         files
             .publish(&published)
@@ -204,8 +190,10 @@ pub(in crate::executable) fn launched(
                 pid,
                 activated,
             )),
-            console,
-            drain: None,
+            drain: Drain {
+                asked: None,
+                grace: drain_grace,
+            },
             install,
             ops: Ops::default(),
             websocket: None,
@@ -245,250 +233,6 @@ pub(super) fn install_database(
             "the per-install layout's run state cannot be opened: {error}"
         ))
     })
-}
-
-/// How long the Console's sign-ins last and how often an address may try
-/// to sign in: `console.sign_in.idle_expiry` and `console.sign_in.rate`,
-/// which only an Operator policy sets, else their defaults.
-fn sign_in_policy(settings: Option<&Resolved>) -> SignInPolicy {
-    SignInPolicy {
-        idle_expiry: get_or_default(settings, &SIGN_IN_IDLE_EXPIRY),
-        rate: get_or_default(settings, &SIGN_IN_RATE),
-    }
-}
-
-/// Where the Console's content origin listens and the origin it is
-/// reached at: `console.content_address` and
-/// `console.content_public_url`, when set.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct ContentSettings {
-    address: Option<String>,
-    public_url: Option<String>,
-}
-
-/// The content origin's settings, from user configuration and the
-/// Operator policy.
-fn content_settings(settings: Option<&Resolved>) -> ContentSettings {
-    let text = |setting| {
-        settings
-            .and_then(|settings| settings.get::<Option<&str>>(setting))
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned)
-    };
-    ContentSettings {
-        address: text(&CONTENT_ADDRESS),
-        public_url: text(&CONTENT_PUBLIC_URL),
-    }
-}
-
-/// `console.public_url`, from user configuration and the Operator
-/// policy: the address links to the Console name, when set.
-fn public_url(settings: Option<&Resolved>) -> Option<String> {
-    settings
-        .and_then(|settings| settings.get::<Option<&str>>(&PUBLIC_URL))
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-}
-
-/// Whether `url` is a bare `http` or `https` origin, with at most one
-/// closing slash: a host of ASCII letters, digits, hyphens and dots, or a
-/// bracketed IPv6 address, and an optional port. The Console's policy
-/// frames this text, so nothing else may pass: no wildcard, path, query,
-/// user, space or `;`. A host beyond ASCII is given as its Punycode.
-fn bare_origin(url: &str) -> bool {
-    let Some(rest) = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-    else {
-        return false;
-    };
-    let authority = rest.strip_suffix('/').unwrap_or(rest);
-    let (host_is_bare, port) = if let Some(bracketed) = authority.strip_prefix('[') {
-        let Some((address, after)) = bracketed.split_once(']') else {
-            return false;
-        };
-        let is_address = !address.is_empty()
-            && address
-                .chars()
-                .all(|c| c.is_ascii_hexdigit() || c == ':' || c == '.');
-        let port = if after.is_empty() {
-            None
-        } else {
-            let Some(port) = after.strip_prefix(':') else {
-                return false;
-            };
-            Some(port)
-        };
-        (is_address, port)
-    } else {
-        let (host, port) = authority.rsplit_once(':').unzip();
-        let host = host.unwrap_or(authority);
-        let is_name = host.split('.').all(|label| {
-            !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-        });
-        (is_name, port)
-    };
-    host_is_bare
-        && port.is_none_or(|port| {
-            port.chars().all(|c| c.is_ascii_digit()) && port.parse::<u16>().is_ok()
-        })
-}
-
-/// The Console's content origin (ADR 0031), beside the Console listening
-/// at `console`: its own listener at `console.content_address` when set;
-/// else, with `console.content_public_url`, the Console's listener, which
-/// tells the two apart by `Host` (ADR 0049); else the Console's host on a
-/// free port. Its addresses name `console.content_public_url` when set.
-/// None, logged, when it cannot listen or its public URL is no origin: the
-/// Console then serves without it.
-async fn start_content(console: SocketAddr, settings: &ContentSettings) -> Option<ContentOrigin> {
-    let public = match settings.public_url.as_deref() {
-        Some(url) if bare_origin(url) => Some(url.trim_end_matches('/').to_owned()),
-        Some(url) => {
-            tracing::error!(
-                url,
-                "`console.content_public_url` is no bare `http` or `https` origin (no path, query, user or wildcard), so the Console shows no Run's files; set it to an origin such as `https://content.example.com`, then run `daemon restart`"
-            );
-            return None;
-        }
-        None => None,
-    };
-    let address = match (settings.address.as_deref(), &public) {
-        (Some(address), _) => {
-            let Ok(parsed) = address.parse::<SocketAddr>() else {
-                tracing::error!(
-                    address,
-                    "`console.content_address` is no `host:port`, so the Console shows no Run's files; set it to an address and port, then run `daemon restart`"
-                );
-                return None;
-            };
-            parsed
-        }
-        (None, Some(url)) => {
-            return Some(ContentOrigin {
-                listener: None,
-                url: url.clone(),
-            });
-        }
-        (None, None) => SocketAddr::new(console.ip(), 0),
-    };
-    let bound_to = listen_console(address).await.and_then(|opened| {
-        let bound = opened.local_address()?;
-        Ok((opened, bound))
-    });
-    match bound_to {
-        Ok((listener, bound)) => {
-            let url = public.unwrap_or_else(|| format!("http://{bound}"));
-            tracing::info!(%url, "the Console's content origin serves");
-            Some(ContentOrigin {
-                listener: Some(listener),
-                url,
-            })
-        }
-        Err(error) => {
-            tracing::error!(%error, %address, "the Console's content origin cannot listen, so the Console shows no Run's files; set `console.content_address` to a free port, then run `daemon restart`");
-            None
-        }
-    }
-}
-
-/// The Daemon's Console (ADR 0031): its listener at `address`, the
-/// `console.address` setting, and the URL it is reached at, with its
-/// sign-in policy and its content origin from `settings`; or, when the address is no `host:port` or another
-/// program holds its port, why it did not start, which fails only the
-/// Console, never the Daemon's protocol.
-pub(in crate::executable) async fn start_console(
-    address: &str,
-    settings: Option<&Resolved>,
-) -> (DaemonConsole, ConsoleState) {
-    let Ok(parsed) = address.parse::<SocketAddr>() else {
-        return failed(ConsoleFailure {
-            code: SETTING_INVALID.name.to_owned(),
-            message: format!("`console.address` is `{address}`, which is no `host:port`, so the Console did not start."),
-            fix: "Set `console.address` to an address and port, such as `127.0.0.1:7800`, then run `daemon restart`.".to_owned(),
-        });
-    };
-    match listen_console(parsed).await {
-        Ok(listener) => console_on(listener, address, settings).await,
-        Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => failed(ConsoleFailure {
-            code: CONSOLE_PORT_IN_USE.name.to_owned(),
-            message: format!("Another program holds {address}, so the Console did not start; the Daemon still serves its Clients."),
-            fix: "Set `console.address` to a free port in user configuration (port 0 takes any free one), or stop the program that holds it, then run `daemon restart`.".to_owned(),
-        }),
-        Err(error) => failed(ConsoleFailure {
-            code: SETTING_INVALID.name.to_owned(),
-            message: format!("The Console cannot listen at {address}: {error}."),
-            fix: "Set `console.address` to an address this machine has and a port it may take, then run `daemon restart`.".to_owned(),
-        }),
-    }
-}
-
-/// The Console served on `listener`, bound at `address`, with its sign-in
-/// policy and its content origin from `settings`, or why it is not.
-async fn console_on(
-    listener: ConsoleListener,
-    address: &str,
-    settings: Option<&Resolved>,
-) -> (DaemonConsole, ConsoleState) {
-    match listener.local_address() {
-        Ok(bound) => {
-            let url = format!("http://{bound}/");
-            tracing::info!(%url, "the Console serves");
-            let content = start_content(bound, &content_settings(settings)).await;
-            (
-                DaemonConsole::Listening {
-                    listener,
-                    url: url.clone(),
-                    public_url: public_url(settings),
-                    sign_in: sign_in_policy(settings),
-                    content,
-                },
-                ConsoleState::Serving(url),
-            )
-        }
-        Err(error) => failed(ConsoleFailure {
-            code: SETTING_INVALID.name.to_owned(),
-            message: format!("The Console's listener at {address} has no address: {error}."),
-            fix: "Set `console.address` to another address, then run `daemon restart`.".to_owned(),
-        }),
-    }
-}
-
-/// The Console that did not start, as `failure` says, logged.
-fn failed(failure: ConsoleFailure) -> (DaemonConsole, ConsoleState) {
-    tracing::error!(
-        code = failure.code.as_str(),
-        "{} {}",
-        failure.message,
-        failure.fix
-    );
-    (
-        DaemonConsole::Failed(failure.clone()),
-        ConsoleState::Failed(failure),
-    )
-}
-
-/// The Daemon's Console, on the listener the service manager handed over
-/// when it started this Daemon at a first visit to the Console (ADR
-/// 0031), else at `address`.
-async fn console_of_launch(
-    machine: &Machine<'_>,
-    activated: bool,
-    address: &str,
-    settings: Option<&Resolved>,
-) -> (DaemonConsole, ConsoleState) {
-    let handed = if activated {
-        activated_console(machine.environment).unwrap_or_else(|error| {
-            tracing::warn!(%error, "the service manager's Console socket cannot be taken, so the Console listens itself");
-            None
-        })
-    } else {
-        None
-    };
-    match handed {
-        Some(listener) => console_on(listener, address, settings).await,
-        None => start_console(address, settings).await,
-    }
 }
 
 /// The Daemon's listener, endpoint and token: the socket the service
@@ -661,12 +405,14 @@ fn give_place_to_the_pick(machine: &Machine<'_>) -> Option<ExitCode> {
         version = %picked.product_version,
         "the service starts its major's pick in its place"
     );
-    let error = std::process::Command::new(&executable)
+    let mut command = std::process::Command::new(&executable);
+    command
         .args(LaunchedCommand::of_service(&build, Vec::new()).arguments())
         .env_clear()
         .envs(machine.environment)
-        .current_dir(machine.home.root())
-        .exec();
+        .current_dir(machine.home.root());
+    give_huge_pages_as_started(&mut command);
+    let error = command.exec();
     Some(unavailable("the pick's versioned copy cannot start")(error).report())
 }
 
@@ -693,39 +439,4 @@ fn give_place_to_the_pick(machine: &Machine<'_>) -> Option<ExitCode> {
     };
     drop(start);
     Some(exit)
-}
-
-#[cfg(test)]
-mod tests {
-    use goodfetch_engine::transport::listen_console;
-    use goodfetch_protocol::console::ConsoleState;
-
-    use super::start_console;
-
-    /// Covers: error:console_port_in_use
-    #[test]
-    #[expect(
-        clippy::doc_markdown,
-        reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-    )]
-    fn a_console_address_whose_port_another_listener_holds_fails_with_console_port_in_use() {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-
-        let state = runtime.block_on(async {
-            let held = listen_console("127.0.0.1:0".parse().unwrap())
-                .await
-                .unwrap();
-            let address = held.local_address().unwrap().to_string();
-            start_console(&address, None).await.1
-        });
-
-        let code = match state {
-            ConsoleState::Failed(failure) => failure.code,
-            other => panic!("the Console started: {other:?}"),
-        };
-        assert_eq!(code, "console_port_in_use");
-    }
 }

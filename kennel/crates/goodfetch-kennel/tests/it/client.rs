@@ -18,7 +18,6 @@ use goodfetch_kennel::client::{
 use goodfetch_kennel::home::Home;
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::{DaemonEndpoint, ProductVersion};
-use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::daemon::{DaemonHealth, DaemonRuntimeFile, DaemonToken, Unready};
 use goodfetch_protocol::foxhound::crawl::{RequestSeed, Seed};
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
@@ -557,7 +556,6 @@ fn dead_daemons_runtime_file(home: &Path, major: &str) -> std::path::PathBuf {
         token: DaemonToken::new(TOKEN),
         version: ProductVersion::parse("0.1.0").unwrap(),
         pid: 1,
-        console: ConsoleState::Absent,
     };
     fs::write(
         folder.join(DaemonFile::RuntimeFile.name()),

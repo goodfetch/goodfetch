@@ -48,6 +48,7 @@ Until now Goodfetch could only make a login inside its own Sessions (ADR 0006) a
 - **A Saved identity as the only destination**: rejected. A CI job with a `storageState` file would have to create a stored object for one run, on a machine whose keychain may not exist.
 - **Guessing which cookies are a login**: rejected. A wrong "anonymous" would hand an account to a Plugin or log it out through a Wall allowance refetch.
 - **Letting a Recipe set the source**: rejected. A third-party Recipe could then read the person's browser into Sinks its author controls. As with `wall_domains` (ADR 0052), a Recipe cannot set it: only the person sets `session.source`, through their configuration, their run, or the Console or CLI, and Operator policy sets or limits it.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): a person reconciles an uncertain Effect, raises a Limit and answers a Human pause through the CLI's interactive prompts, or later Goodfetch Cloud, and logs in through a headful window locally or the Live view once it is built. The rule otherwise stands.
 - **Exporting `cookies.txt`**: rejected as over-engineering. No V1 parity row or pain needs Goodfetch to produce it.
 
 ## Consequences
@@ -55,6 +56,8 @@ Until now Goodfetch could only make a login inside its own Sessions (ADR 0006) a
 ### One source setting
 
 `session.source` is a tagged union defined once in `goodfetch-protocol` (ADR 0038), validated in one place, and shown as one picker in the Console. Its kinds:
+
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 | Kind | What it names | In a run | In `goodfetch identity import` |
 |---|---|---|---|
@@ -69,14 +72,18 @@ Until now Goodfetch could only make a login inside its own Sessions (ADR 0006) a
 
 **Who sets it.** Only Operator policy, user and project configuration, the developer's own code or the run layer, or a person in the Console or CLI sets `session.source`. A Recipe may expose it, but never sets or locks it. Plugins never set it. **Changes ADR 0028.**
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
+
 **Destinations.** One importer serves two destinations, and neither keeps the source file:
 - *a Saved identity*, the default in the CLI and the Console;
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - *a run-only import*, which seeds only that run's Session, in run state, encrypted under the run key (ADR 0015) and removed by the reset gate.
 
 **Formats.**
 - *`storageState`:* read and written exactly to Playwright's schema as of 1.64. It holds cookies and localStorage, plus what Playwright's opt-in options add: IndexedDB, OPFS, and virtual-authenticator credentials with their sign count. Export turns every option on.
 - *sessionStorage:* travels only in Goodfetch's session export bundle, because Playwright's format has no field for it ([#8874](https://github.com/microsoft/playwright/issues/8874)).
 - *Export:* `goodfetch identity export --format storage-state` writes a Saved identity as `storageState` in clear text. Only a person can run it, in the Console or an interactive CLI prompt, under ADR 0031's step-up on a Daemon with accounts; no agent surface offers it, and it is recorded in the Audit log. **Changes ADR 0011 and ADR 0015.**
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 **Domains.** A source read from a browser or a Profile directory takes a list of registrable domains (ADR 0004), with `*` only when written explicitly, as `consent_domains` and `wall_domains` do (ADRs 0048 and 0052). A file import keeps every domain it holds unless the person filters them with `domains`; a cookie header applies to its `domain`.
 
@@ -95,6 +102,7 @@ Until now Goodfetch could only make a login inside its own Sessions (ADR 0006) a
 The cookies were minted by the person's own browser on the person's own network, and ADR 0021 treats a fingerprint or IP that changes under the same cookies as a bot signal. So an import is bound to its source:
 - **Access mode** `standard`.
 - **Identity profile:** the source browser's language and time zone, and its family (Chrome, Edge, Brave, Firefox or Safari) when the browser that runs it is of that family, otherwise the running browser's own, with the warning below; the source's major version is recorded in Provenance. When a file does not carry them, they are taken from the machine the file comes from (for an upload, the Client's, as the SDK, CLI or Console reports it) and marked *inferred* in Provenance. A Safari import runs with WebKit's own identity, which never claims to be Safari (ADR 0035), and the import warns that the identity differs from the browser that minted the cookies.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Which browser runs it:** for the Chromium family, an installed browser of the source's family, by channel or path (ADR 0024), when one exists, else ADR 0024's default Chromium (Chrome for Testing, or the distribution's Chromium on musl); for a Firefox source, Goodfetch's Firefox; for a Safari source, Goodfetch's WebKit (ADR 0019). Version fields follow the running build, as in ADR 0035. When the browser that runs it is not of the source's family, the import warns that the identity differs from the browser that minted the cookies, as for Safari.
 - **Egress:** direct, unless the person names a proxy at import, which becomes the binding. On direct egress the import is bound to the importing machine: a run using it elsewhere, including on another Group member, is refused with `session_bound_to_machine`, and a Daemon group places it only on that machine. With a proxy, language and time zone stay the source's, because the site knows the login by them, and the import warns when the exit's country differs. **Changes ADR 0021**, whose `standard` matches them to the proxy exit.
 - **`stealth`** may be chosen at import, with a warning that the fingerprint changes under the same cookies. On a Safari import it is refused, because WebKit has no stealth mode (ADR 0035); on a Firefox import it runs on Camoufox, and on a Chromium-family import on the Goodfetch build (ADR 0035; on musl, its `basic` fallback). A `stealth` import's generated identity keeps the source's language and time zone. **Changes ADR 0035**, whose generated identities match them to the proxy exit. `identified` is refused at import, because a person's login is not a declared agent's (ADR 0021).
@@ -214,6 +222,7 @@ A `cdp_url` the engine alone drives, such as a cloud browser, keeps ADR 0022's g
   > Amended by [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): a Recipe run also waits for a person's approval before it saves, imports, deletes or exports a Saved identity, whatever its source, so a third-party Recipe cannot replace a person's login with another.
 - **A Client acting for a model** (MCP, an agent, code mode) waits for a person's approval before any import or borrow, through a Human pause in the Console, the CLI or a Notification. For a running browser, the browser's own "Allow remote debugging?" dialog counts as approval of the connection; `domains` chosen by a Client acting for a model are still approved in the Human pause. The reason is session fixation: a prompt-injected agent could import an attacker's cookies, and the person's later work would land in the attacker's account.
   > Amended by [ADR 0092](0092-sessions-open-from-their-source-page-pause-waits-for-a-person-and-a-secret-is-a-placeholder-bound-to-domains.md): it also waits for a person's approval before it saves, deletes or exports a Saved identity, so it cannot replace a person's login with another.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **An Integration** (ADR 0027), whose run values a workflow, an inbound webhook or a model may fill in (ADR 0033), is treated as a Client acting for a model: its imports and borrows wait for a person's approval, it cannot declare `exclusive`, and its `cdp_url` may not use loopback.
 - **Navigation on a borrowed running browser, on a `cdp_url` run that names `domains` (required for a Client acting for a model or a Recipe run), or on a Profile directory used in place, is bound to its source's `domains`,** which a person approves.
   - The list covers top-level navigations and new tabs. Subresources and frames follow their page, so a payment or CAPTCHA frame on an allowed page loads.
@@ -252,6 +261,7 @@ This is the only way a remote run can use a device-bound login, and it keeps the
   - *File imports,* whose file is not kept, *and run-only imports,* which keep no Saved identity, have no source to read again and run the ladder as before.
 - **Cookie expiry warnings.** A cookie's expiry is not the site's session expiry, so the warnings say "cookies expire on…", and only the Page check judges whether a login is still live.
   - *On a Daemon:* a Notification (ADR 0027) and a Console badge appear when the earliest expiry falls inside a window, by default 3 days, a setting. The Daemon schedules this as a timer at expiry minus the window. In a Daemon group, the Lead Daemon, which keeps Saved identities, runs the timers and sends each Notification once. **Changes ADR 0027 and ADR 0055.**
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   - *On an Attached engine:* a warning at run start.
   - *In listings:* `goodfetch identity list` and its MCP operation return each identity's expiry.
 

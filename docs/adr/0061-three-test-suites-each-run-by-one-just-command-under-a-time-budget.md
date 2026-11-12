@@ -33,6 +33,7 @@ Each suite runs everything the suite before it runs.
   - the touched Sinks' suites against their emulators and containers (every Sink's suite until the merge queue exists, as ADR 0032 requires);
   - the touched SDKs, adapters and Integrations on one runtime each;
   - the Console's component and end-to-end tests on Chromium;
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no suite, test layout, Journey surface, security boundary, Performance budget, Feature kind (`screen:`) or actor exists for the Console.
   - the docs build and examples when docs change;
   - the static checks ADR 0032 lists.
 - **Release suite**: everything the Pre-merge suite runs, for every package rather than only the touched ones, across the full matrix of ADR 0024:
@@ -40,6 +41,7 @@ Each suite runs everything the suite before it runs.
     > Amended by [ADR 0073](0073-accessibility-meets-wcag-2-2-aa-the-console-ships-ready-to-translate-and-screenshots-compare-in-one-pinned-image.md): visual tests run on one platform, Linux x86-64 inside the pinned Playwright image.
   - every runtime: every supported Node line, Bun, Deno 2, and every supported CPython, with its free-threaded build on Linux (on every OS in the nightly, ADR 0032);
     > Amended by [ADR 0068](0068-the-console-is-tested-in-real-browsers-and-served-by-the-real-binary.md): the Console's and the docs site's tests run on one Node line; their matrix is browsers. The docs site's build, lychee and Playwright pass run on Linux only.
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   - browser conformance on every OS;
   - every Sink's suite;
   - the deployment-target smoke runs that CI hosts (ADR 0049);

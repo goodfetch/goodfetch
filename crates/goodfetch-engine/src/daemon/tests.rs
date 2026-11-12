@@ -10,7 +10,6 @@ use std::path::Path;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
-use goodfetch_protocol::console::ConsoleState;
 use goodfetch_protocol::daemon::{
     DaemonEndpoint, DaemonRuntimeFile, InstalledService, ServiceManager,
 };
@@ -74,7 +73,6 @@ fn runtime_file(pid: u32) -> DaemonRuntimeFile {
         token: goodfetch_protocol::daemon::DaemonToken::new("token"),
         version: ProductVersion::parse("1.5.0").unwrap(),
         pid,
-        console: ConsoleState::Serving("http://127.0.0.1:7801/".to_owned()),
     }
 }
 
@@ -423,7 +421,6 @@ fn the_installed_service_is_recorded_until_it_is_forgotten() {
         manager: ServiceManager::Systemd,
         name: "goodfetch-daemon-1-0123abcd".to_owned(),
         socket: Some(env.home().join("1").join("daemon.sock")),
-        console: Some("127.0.0.1:7801".to_owned()),
         executable: env.home().join("copy"),
         files: vec![env.home().join("unit.socket")],
     };

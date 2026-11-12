@@ -65,6 +65,8 @@ pub const RESOLUTION_DELAY: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -77,6 +79,8 @@ pub const ATTEMPT_DELAY: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 

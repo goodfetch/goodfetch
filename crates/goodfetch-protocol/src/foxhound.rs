@@ -101,6 +101,8 @@ pub const CRAWL_SAMPLE_PAGES: Setting = Setting {
     clearable: false,
     authority: crate::catalog::Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("sample_crawl_pages"),
     arrived_in: ARRIVED_IN,
 };
 
@@ -121,6 +123,8 @@ pub const ENTRIES: Entries = Entries {
         result: schema_of::<SampleCrawlResult>,
         events: &[&SAMPLE_CRAWLED],
         cancellable: false,
+        input: None,
+        bound: None,
         stability: Stability::Stable,
         deprecated: None,
         arrived_in: ARRIVED_IN,

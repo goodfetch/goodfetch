@@ -87,6 +87,7 @@ use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificateFailure, ClientCertificates, Decision, SharedTrust,
     Trust, certificate_failure,
 };
+use goodfetch_page::document_request::DocumentRequest;
 use goodfetch_protocol::dns::IpFamily;
 use rustls::sign::CertifiedKey;
 use url::Url;
@@ -211,6 +212,9 @@ pub struct Reqwest {
     trust: SharedTrust,
     client_certificates: Option<ClientCertificates>,
     proxy: Option<Url>,
+    /// The document request of its Session's browser, which each hop
+    /// presents; none for a transport that presents none.
+    document_request: Option<DocumentRequest>,
 }
 
 /// One local binding of a transport: the family it reaches, the local
@@ -309,6 +313,7 @@ impl Reqwest {
             config.clock,
         );
         let transport = Self {
+            document_request: None,
             scopes: Scopes::default(),
             http1_origins: Http1Origins::default(),
             resolver,
@@ -327,6 +332,15 @@ impl Reqwest {
             .scopes()
             .insert(Scope::Unscoped, Arc::new(unscoped));
         Ok(transport)
+    }
+
+    /// The transport presenting `request`, the document request of its
+    /// Session's browser, on every hop (ADR 0021): a `standard` Session's
+    /// own transport; with none, a hop leaves with its own headers alone.
+    #[must_use]
+    pub fn presenting(mut self, request: Option<DocumentRequest>) -> Self {
+        self.document_request = request;
+        self
     }
 
     /// The clients of a scope presenting `client`: a set for each local
@@ -628,6 +642,13 @@ fn bind_device(
 }
 
 impl Transport for Reqwest {
+    fn presents(&self, url: &Url) -> Vec<(String, String)> {
+        self.document_request
+            .as_ref()
+            .map(|request| request.headers(url).to_vec())
+            .unwrap_or_default()
+    }
+
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
             self.resolver.before_sending(&hop.url).await?;

@@ -1,6 +1,6 @@
 // The client package's runtime for a browser (ADR 0068, item 2; spec #592):
 // the protocol code the TypeScript SDK runs, with no Node built-in, which
-// the Console's Client is built on. Request correlation and `$/cancel`
+// a Client in a browser is built on. Request correlation and `$/cancel`
 // (`Channel`), framing, the event stream's credits and resumption from a
 // position (`subscribeEvents`), the errors a reply raises, and the protocol
 // and Product versions `hello` names. Finding and starting an engine stays

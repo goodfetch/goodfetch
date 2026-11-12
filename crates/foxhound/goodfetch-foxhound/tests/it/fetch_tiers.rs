@@ -1,8 +1,8 @@
 //! Crawl conformance cases, the tier lines (spec #579's `tiers`; ADRs
 //! 0020, 0023 and 0093), on Foxhound's executable against the Proving
 //! ground and Chrome for Testing: one handler runs unchanged on every tier.
-//! Under a `fetch.tier: auto` the Run sets (the built-in default still
-//! hands a handler its request alone until #1602), the tier is learned per
+//! Under `fetch.tier: auto`, which is also the built-in default, the tier
+//! is learned per
 //! Label on a domain by sample comparison: the first three requests of a
 //! Label on a domain are samples, each run on `http`, served from its
 //! document, and then in the browser, whose run commits; a Label whose
@@ -199,9 +199,16 @@ pub(crate) fn outcomes(engine: &mut Attached, run_id: &str) -> Vec<(String, Valu
 /// records each run as a sample, the feed's browser run naming the call
 /// its HTTP run could not serve.
 ///
+/// A Run that sets no `fetch.tier` is served the same way: `auto` is the
+/// built-in default, and no handler is given its request alone (issue 1602).
+///
 /// Covers: story:5-115, story:5-118, story:6-257, operation:locator.wait_for_count, error:attempt_ended
-#[test]
-fn one_handler_runs_a_sample_of_a_static_page_and_of_a_scripted_one_on_both_tiers_under_auto() {
+#[rstest::rstest]
+#[case::set(json!({ "fetch": { "tier": "auto" } }))]
+#[case::the_built_in_default(json!({}))]
+fn one_handler_runs_a_sample_of_a_static_page_and_of_a_scripted_one_on_both_tiers_under_auto(
+    #[case] tier: Value,
+) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let mut engine = engine(&env);
@@ -217,7 +224,7 @@ fn one_handler_runs_a_sample_of_a_static_page_and_of_a_scripted_one_on_both_tier
             json!({ "url": feed, "label": "page" }),
         ],
         &json!({ "page": {} }),
-        &settings(&proving_ground, &json!({ "fetch": { "tier": "auto" } })),
+        &settings(&proving_ground, &tier),
         &mut handler(&mut seen),
     );
     let ended = outcomes(&mut engine, "tiers-auto");
@@ -259,9 +266,9 @@ fn one_handler_runs_a_sample_of_a_static_page_and_of_a_scripted_one_on_both_tier
                 (feed, json!("succeeded"), Value::Null),
             ],
             vec![
-                json!(["page", "http", "sample", null, null]),
+                json!(["page", "browser_fetch", "sample", null, null]),
                 json!(["page", "browser", "sample", null, null]),
-                json!(["page", "http", "sample", null, null]),
+                json!(["page", "browser_fetch", "sample", null, null]),
                 json!(["page", "browser", "sample", null, "locator.wait_for_count"]),
             ],
         )
@@ -381,7 +388,7 @@ fn fetch_tier_on_a_label_forces_that_label_only_and_provenance_records_it_forced
             ],
             vec![
                 json!(["list", "http", "forced", "label", null]),
-                json!(["page", "http", "sample", null, null]),
+                json!(["page", "browser_fetch", "sample", null, null]),
                 json!(["page", "browser", "sample", null, "locator.wait_for_count"]),
             ],
         )
@@ -783,20 +790,20 @@ fn a_label_of_static_pages_is_learned_onto_http_and_one_of_scripted_pages_onto_b
             ]),
             9,
             [
-                "static http sample",
+                "static browser_fetch sample",
                 "static browser sample",
-                "static http sample",
+                "static browser_fetch sample",
                 "static browser sample",
-                "static http sample",
+                "static browser_fetch sample",
                 "static browser sample",
-                "static http compared",
-                "static http compared",
+                "static browser_fetch compared",
+                "static browser_fetch compared",
                 "static browser escalation at locator.wait_for_count",
-                "scripted http sample",
+                "scripted browser_fetch sample",
                 "scripted browser sample at locator.wait_for_count",
-                "scripted http sample",
+                "scripted browser_fetch sample",
                 "scripted browser sample at locator.wait_for_count",
-                "scripted http sample",
+                "scripted browser_fetch sample",
                 "scripted browser sample at locator.wait_for_count",
                 "scripted browser compared",
             ]
@@ -867,11 +874,11 @@ fn a_sample_compares_the_records_each_run_pushed() {
                 ("/products/4", &["browser"]),
             ]),
             [
-                "static http sample",
+                "static browser_fetch sample",
                 "static browser sample",
-                "static http sample",
+                "static browser_fetch sample",
                 "static browser sample",
-                "static http sample",
+                "static browser_fetch sample",
                 "static browser sample",
                 "static browser compared",
             ]
@@ -945,19 +952,19 @@ fn a_label_whose_segments_disagree_is_split_by_first_segment_and_a_segment_that_
             ]),
             9,
             [
-                "page http sample",
+                "page browser_fetch sample",
                 "page browser sample",
-                "page http sample",
+                "page browser_fetch sample",
                 "page browser sample at locator.wait_for_count",
-                "page http sample",
+                "page browser_fetch sample",
                 "page browser sample",
-                "page http sample",
+                "page browser_fetch sample",
                 "page browser sample",
                 "page browser compared",
-                "page http compared",
-                "page http sample",
+                "page browser_fetch compared",
+                "page browser_fetch sample",
                 "page browser sample",
-                "page http sample",
+                "page browser_fetch sample",
                 "page browser sample at locator.wait_for_count",
                 "page browser compared",
             ]
@@ -1075,7 +1082,7 @@ fn the_tier_a_label_learned_survives_a_resume() {
             ]),
             runs(&[("/products/4", &["http"]), ("/products/5", &["http"])]),
             6,
-            std::collections::BTreeSet::from([&"static http compared".to_owned()]),
+            std::collections::BTreeSet::from([&"static browser_fetch compared".to_owned()]),
         )
     );
 }
@@ -1165,9 +1172,9 @@ fn a_page_failing_its_labels_expected_page_over_http_escalates_under_auto_and_pa
             ],
             vec![
                 json!(["app", "browser", "sample", null, "session.page_check"]),
-                json!(["app", "http", "sample", null, null]),
+                json!(["app", "browser_fetch", "sample", null, null]),
                 json!(["list", "browser", "sample", null, null]),
-                json!(["list", "http", "sample", null, null]),
+                json!(["list", "browser_fetch", "sample", null, null]),
             ],
         )
     );

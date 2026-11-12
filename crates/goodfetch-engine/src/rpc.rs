@@ -18,7 +18,6 @@
 //! request the engine sends has its `CLIENT` span, whose Trace context its
 //! `_meta` carries ([`crate::trace`], ADR 0132).
 
-pub mod event_stream;
 pub mod framing;
 
 mod connection;
@@ -40,11 +39,8 @@ use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
 use crate::product::{Identity, Requested};
 
-pub(crate) use connection::{
-    Access, ConsoleConnection, ConsoleSide, Dispatch, serve, serve_console,
-};
+pub(crate) use connection::{Access, Dispatch, serve};
 pub use handshake::version_refusal;
-pub(crate) use websocket::ConsoleSocket;
 
 /// The protocol server's own operations: the streaming calls and
 /// `connection.set_log_level`.

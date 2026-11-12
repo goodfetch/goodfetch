@@ -1,5 +1,5 @@
 //! A person's settings writes through the engine's public interface over
-//! the in-memory network (spec #592's Seam 1, the Console as the Client;
+//! the in-memory network (spec #592's Seam 1, the Kennel as the Client;
 //! ADR 0031): `config.policy_write` with the digest `config.policy_read`
 //! gave writes the Operator policy atomically, every other byte kept, and
 //! records the values before and after in the Audit log; with a digest the
@@ -76,7 +76,7 @@ fn recorded(env: &TestEnv, kind: &str) -> Vec<Value> {
 /// Reads the policy, writes a lock and a cap against the digest read, and
 /// reads it again; answers the three replies.
 async fn read_write_read(mut client: Client, edit: impl FnOnce()) -> [Value; 3] {
-    opened(&mut client, "console", "collie").await;
+    opened(&mut client, "kennel", "collie").await;
     let read = call(&mut client, 1, "config.policy_read", json!({})).await;
     edit();
     let written = call(
@@ -195,7 +195,7 @@ fn a_policy_write_sent_again_after_it_was_made_answers_as_written() {
         &engine_with(Product::Collie, None),
         &env,
         |mut client| async move {
-            opened(&mut client, "console", "collie").await;
+            opened(&mut client, "kennel", "collie").await;
             let read = call(&mut client, 1, "config.policy_read", json!({})).await;
             let params = json!({
                 "digest": read["result"]["digest"],
@@ -219,7 +219,7 @@ fn a_policy_write_sent_again_after_it_was_made_answers_as_written() {
     );
 }
 
-/// A user-level value written from the Console takes effect: `config.explain`
+/// A user-level value written from the Kennel takes effect: `config.explain`
 /// shows it set by user configuration, and the Audit log records it; a
 /// value an Operator policy locks is refused with `setting_locked` and
 /// writes nothing.
@@ -238,7 +238,7 @@ fn a_user_level_value_written_takes_effect_and_a_locked_one_is_refused() {
         &engine_with(Product::Collie, None),
         &env,
         |mut client| async move {
-            opened(&mut client, "console", "collie").await;
+            opened(&mut client, "kennel", "collie").await;
             let user_write =
                 |key: &str, value: Value| json!({ "changes": [{ "key": key, "value": value }] });
             let written = call(
@@ -312,12 +312,12 @@ fn config_explain_marks_the_keys_user_configuration_may_hold_and_those_fixed_for
         &engine_with(Product::Foxhound, None),
         &env,
         |mut client| async move {
-            opened(&mut client, "console", "foxhound").await;
+            opened(&mut client, "kennel", "foxhound").await;
             call(
             &mut client,
             1,
             "config.explain",
-            json!({ "keys": ["console.sign_in.idle_expiry", "crawl.scope.strategy", "timeout.run"] }),
+            json!({ "keys": ["crawl.scope.strategy", "egress.no_private_endpoints", "timeout.run"] }),
         )
         .await
         },
@@ -338,8 +338,8 @@ fn config_explain_marks_the_keys_user_configuration_may_hold_and_those_fixed_for
     assert_eq!(
         marks,
         vec![
-            json!(["console.sign_in.idle_expiry", false, false]),
             json!(["crawl.scope.strategy", true, true]),
+            json!(["egress.no_private_endpoints", false, false]),
             json!(["timeout.run", true, false]),
         ]
     );
@@ -389,7 +389,7 @@ fn a_policy_write_with_no_changes_writes_the_file_its_digest_names() {
         &engine_with(Product::Collie, None),
         &env,
         |mut client| async move {
-            opened(&mut client, "console", "collie").await;
+            opened(&mut client, "kennel", "collie").await;
             let read = call(&mut client, 1, "config.policy_read", json!({})).await;
             let emptied = call(
                 &mut client,
@@ -437,7 +437,7 @@ fn a_write_the_audit_log_cannot_record_is_made_and_says_so() {
         &engine_with(Product::Collie, None),
         &env,
         |mut client| async move {
-            opened(&mut client, "console", "collie").await;
+            opened(&mut client, "kennel", "collie").await;
             unrecordable(&home);
             call(
                 &mut client,
@@ -577,7 +577,7 @@ fn a_settings_write_waits_for_a_write_in_flight_and_both_land(
         &engine_with(Product::Collie, None),
         &env,
         |mut client| async move {
-            opened(&mut client, "console", "collie").await;
+            opened(&mut client, "kennel", "collie").await;
             // Held from here, so a slow start cannot spend the hold before
             // the call: with the lock broken, the call's write then ends
             // first, and the other writer's overwrites it.

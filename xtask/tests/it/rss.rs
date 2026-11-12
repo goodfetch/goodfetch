@@ -624,8 +624,7 @@ fn probe_a_live_stand_in(
     (outcome, started.elapsed())
 }
 
-/// A stand-in's runtime file: its endpoint the Unix socket at `socket`, its
-/// Console serving.
+/// A stand-in's runtime file: its endpoint the Unix socket at `socket`.
 #[cfg(unix)]
 fn runtime_file(socket: &std::path::Path) -> serde_json::Value {
     serde_json::json!({
@@ -633,7 +632,6 @@ fn runtime_file(socket: &std::path::Path) -> serde_json::Value {
         "token": "t",
         "version": "0.0.0",
         "pid": 1,
-        "console": { "serving": "http://127.0.0.1:1/" },
     })
 }
 
@@ -710,11 +708,10 @@ fn answer_every_line(socket: &std::path::Path) -> std::os::unix::net::UnixListen
     listener
 }
 
-/// Two idle-Daemon scenarios run at once, each Daemon serving its Console
-/// on a port of its own: the probe fails on a Daemon whose Console did not
-/// start, so a fixed port would fail one of them.
+/// Two idle-Daemon scenarios run at once, each Daemon in a home of its own:
+/// neither holds anything the other needs.
 #[test]
-fn two_idle_daemon_scenarios_run_at_once_each_console_serving() {
+fn two_idle_daemon_scenarios_run_at_once() {
     let workspace = Workspace::from_fixture("empty");
     let tools = goodfetch_test_support::tools().unwrap();
     let collie = tools.path(Tool::Collie).unwrap();

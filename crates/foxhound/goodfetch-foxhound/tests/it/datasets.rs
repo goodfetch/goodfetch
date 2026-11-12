@@ -25,7 +25,8 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use crate::frontier::{Inside, crawl_from};
-use crate::{attached, run_file};
+use crate::run_file;
+use crate::site::Site;
 
 /// A book's JSON Schema: `title` and `isbn` required, `price` a number.
 fn book_schema() -> Value {
@@ -41,13 +42,13 @@ fn book_schema() -> Value {
 }
 
 /// The reply of a `crawl.start` of one seed declaring `datasets`.
-fn start_declaring(engine: &mut Attached, datasets: &Value) -> Value {
+fn start_declaring((engine, site): (&mut Attached, &Site), datasets: &Value) -> Value {
     engine.call(
         "start",
         "crawl.start",
         &json!({
             "run_id": "declared",
-            "seeds": [{ "url": "https://shop.test/", "label": "page" }],
+            "seeds": [{ "url": site.page("/"), "label": "page" }],
             "datasets": datasets,
         }),
         &mut |_| None,
@@ -91,9 +92,10 @@ fn a_crawl_whose_datasets_cannot_be_declared_is_refused_before_its_run_begins(
     #[case] expected: Value,
 ) {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
 
-    let reply = start_declaring(&mut engine, &datasets);
+    let reply = start_declaring((&mut engine, &site), &datasets);
     let listed = engine.call("list", "run.list", &json!({}), &mut |_| None);
     assert!(engine.finished());
 
@@ -213,7 +215,8 @@ fn outcomes(engine: &mut Attached, run_id: &str) -> Vec<Value> {
 #[test]
 fn a_pushed_record_is_checked_against_its_dataset_and_only_one_that_holds_is_staged() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     let book = json!({ "title": "Dune", "isbn": "0441013597", "price": 9.99 });
 
     let mut answers = Vec::new();
@@ -222,13 +225,13 @@ fn a_pushed_record_is_checked_against_its_dataset_and_only_one_that_holds_is_sta
         &json!({
             "run_id": "pushed",
             "seeds": [
-                { "url": "https://shop.test/book", "label": "page" },
-                { "url": "https://shop.test/empty", "label": "page" },
+                { "url": site.page("/book"), "label": "page" },
+                { "url": site.page("/empty"), "label": "page" },
             ],
             "datasets": declared(),
         }),
         &mut |inside, handle| {
-            if handle["crawl_request"]["url"] == "https://shop.test/book" {
+            if handle["crawl_request"]["url"] == site.page("/book") {
                 answers = vec![
                     push(inside, handle, "books", &book),
                     push(
@@ -308,14 +311,15 @@ fn a_pushed_record_is_checked_against_its_dataset_and_only_one_that_holds_is_sta
 #[test]
 fn an_answer_holding_a_record_that_does_not_hold_fails_its_request_unretried_and_commits_nothing() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
 
     let mut attempts = 0;
     let report = crawl_from(
         &mut engine,
         &json!({
             "run_id": "escaped",
-            "seeds": [{ "url": "https://shop.test/book", "label": "page" }],
+            "seeds": [{ "url": site.page("/book"), "label": "page" }],
             "datasets": declared(),
         }),
         &mut |inside, handle| {
@@ -359,7 +363,8 @@ fn an_answer_holding_a_record_that_does_not_hold_fails_its_request_unretried_and
 #[test]
 fn records_of_a_retried_request_commit_once_numbered_from_one_in_commit_order() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     let note = |handle: &Value, n: u32| {
         let request = handle["crawl_request"]["id"].as_str().unwrap();
         json!({ "id": format!("{request}-{}-{n}", handle["attempt"]) })
@@ -372,8 +377,8 @@ fn records_of_a_retried_request_commit_once_numbered_from_one_in_commit_order() 
         &json!({
             "run_id": "retried",
             "seeds": [
-                { "url": "https://shop.test/a", "label": "page" },
-                { "url": "https://shop.test/b", "label": "page" },
+                { "url": site.page("/a"), "label": "page" },
+                { "url": site.page("/b"), "label": "page" },
             ],
             "datasets": declared(),
         }),
@@ -381,7 +386,7 @@ fn records_of_a_retried_request_commit_once_numbered_from_one_in_commit_order() 
             for n in 1..=2 {
                 push(inside, handle, "notes", &note(handle, n));
             }
-            let a = handle["crawl_request"]["url"] == "https://shop.test/a";
+            let a = handle["crawl_request"]["url"] == site.page("/a");
             if a && handle["attempt"] == 1 {
                 first_epoch = handle["lease_epoch"].clone();
                 return json!({ "error": {
@@ -447,13 +452,13 @@ fn records_of_a_retried_request_commit_once_numbered_from_one_in_commit_order() 
 /// The reply of a start under the Run ID `run_id` of the seed
 /// `https://shop.test/book`, declaring `datasets`: its error's code and
 /// details, else how it started.
-fn start_again(engine: &mut Attached, run_id: &str, datasets: &Value) -> Value {
+fn start_again((engine, site): (&mut Attached, &Site), run_id: &str, datasets: &Value) -> Value {
     let reply = engine.call(
         "again",
         "crawl.start",
         &json!({
             "run_id": run_id,
-            "seeds": [{ "url": "https://shop.test/book", "label": "page" }],
+            "seeds": [{ "url": site.page("/book"), "label": "page" }],
             "datasets": datasets,
         }),
         &mut |_| None,
@@ -513,19 +518,20 @@ fn a_start_under_its_run_id_refuses_a_dataset_holding_records_dropped_or_keyed_a
     #[case] expected: Value,
 ) {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     let book = json!({ "title": "Dune", "isbn": "0441013597" });
 
     let report = crawl_from(
         &mut engine,
         &json!({
             "run_id": "kept",
-            "seeds": [{ "url": "https://shop.test/book", "label": "page" }],
+            "seeds": [{ "url": site.page("/book"), "label": "page" }],
             "datasets": declared(),
         }),
         &mut |_, _| json!({ "result": { "records": [{ "dataset": "books", "data": book }] } }),
     );
-    let answer = start_again(&mut engine, "kept", &datasets);
+    let answer = start_again((&mut engine, &site), "kept", &datasets);
     assert!(engine.finished());
 
     assert_eq!(
@@ -547,7 +553,8 @@ fn a_start_under_its_run_id_refuses_a_dataset_holding_records_dropped_or_keyed_a
 #[test]
 fn a_start_under_its_run_id_refuses_a_dataset_holding_only_rejected_records_renamed() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     let untitled = json!({ "isbn": "0441013597" });
 
     let mut refused = Value::Null;
@@ -555,7 +562,7 @@ fn a_start_under_its_run_id_refuses_a_dataset_holding_only_rejected_records_rena
         &mut engine,
         &json!({
             "run_id": "rejecting",
-            "seeds": [{ "url": "https://shop.test/book", "label": "page" }],
+            "seeds": [{ "url": site.page("/book"), "label": "page" }],
             "datasets": declared(),
         }),
         &mut |inside, handle| {
@@ -564,7 +571,7 @@ fn a_start_under_its_run_id_refuses_a_dataset_holding_only_rejected_records_rena
         },
     );
     let answer = start_again(
-        &mut engine,
+        (&mut engine, &site),
         "rejecting",
         &json!([
             { "name": "titles", "schema": book_schema(), "key": ["isbn"] },
@@ -644,6 +651,7 @@ fn books_hash(env: &TestEnv, run_id: &str) -> Option<String> {
 fn a_crawl_resumed_after_its_schema_changed_checks_new_records_against_it_and_each_keeps_its_schemas_hash()
  {
     let env = TestEnv::new();
+    let site = Site::start(&env);
     let schema = |price: &str| {
         let mut schema = book_schema();
         schema["properties"]["price"] = json!({ "type": price });
@@ -654,8 +662,8 @@ fn a_crawl_resumed_after_its_schema_changed_checks_new_records_against_it_and_ea
         json!({
             "run_id": "evolved",
             "seeds": [
-                { "url": "https://shop.test/a", "label": "page" },
-                { "url": "https://shop.test/b", "label": "page" },
+                { "url": site.page("/a"), "label": "page" },
+                { "url": site.page("/b"), "label": "page" },
             ],
             "datasets": datasets,
             "settings": one_at_a_time,
@@ -664,7 +672,7 @@ fn a_crawl_resumed_after_its_schema_changed_checks_new_records_against_it_and_ea
     let first = json!({ "title": "Dune", "isbn": "1", "price": 9.99 });
     let second = json!({ "title": "Emma", "isbn": "2", "price": "cheap" });
 
-    let mut killed = attached(&env);
+    let mut killed = site.engine(&env);
     killed.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start", "params": start(schema("number")),
     }));
@@ -674,7 +682,7 @@ fn a_crawl_resumed_after_its_schema_changed_checks_new_records_against_it_and_ea
         if message["id"] == "start" {
             started = true;
         } else if message["method"] == "crawl_request.handle" {
-            if message["params"]["crawl_request"]["url"] == "https://shop.test/a" {
+            if message["params"]["crawl_request"]["url"] == site.page("/a") {
                 killed.send(&json!({
                     "jsonrpc": "2.0", "id": message["id"],
                     "result": { "records": [{ "dataset": "books", "data": first }] },
@@ -695,9 +703,9 @@ fn a_crawl_resumed_after_its_schema_changed_checks_new_records_against_it_and_ea
     let began = books_hash(&env, "evolved");
     killed.kill();
 
-    let mut resuming = attached(&env);
+    let mut resuming = site.engine(&env);
     let mut answer = |params: &Value| {
-        assert_eq!(params["crawl_request"]["url"], "https://shop.test/b");
+        assert_eq!(params["crawl_request"]["url"], site.page("/b"));
         Some(json!({ "result": { "records": [{ "dataset": "books", "data": second }] } }))
     };
     let again = resuming.call(

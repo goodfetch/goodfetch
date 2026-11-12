@@ -14,10 +14,8 @@ use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};
 
 use crate::frontier::{Inside, added, crawl_declaring, crawl_under};
-use crate::{attached, run_file};
-
-/// The crawl's one seed.
-const SEED: &str = "https://shop.test/a";
+use crate::run_file;
+use crate::site::Site;
 
 /// The attempt `handle` gave, as a handler's `ctx.run` names it.
 fn attempt_of(handle: &Value) -> Value {
@@ -39,15 +37,15 @@ fn answer_of(reply: &Value) -> Value {
 /// added through its `ctx.run`, the key `progress` set to the attempt's
 /// number and the key `first` set then deleted; and what reading the key
 /// `progress` through the attempt answers once it is set.
-fn stage(inside: &mut Inside<'_>, handle: &Value) -> Vec<Value> {
+fn stage(site: &Site, inside: &mut Inside<'_>, handle: &Value) -> Vec<Value> {
     let run_id = &handle["run_id"];
     let attempt = attempt_of(handle);
-    let enqueued = inside.enqueue(handle, "https://shop.test/b", "page", None);
+    let enqueued = inside.enqueue(handle, &site.page("/b"), "page", None);
     let seeded = inside.call(
         "run.add_seed",
         &json!({
             "run_id": run_id,
-            "seed": { "url": "https://shop.test/s", "label": "page" },
+            "seed": { "url": site.page("/s"), "label": "page" },
             "attempt": attempt,
         }),
     );
@@ -113,21 +111,23 @@ fn record_the_page(handle: &Value) -> Value {
 #[test]
 fn a_failed_attempts_enqueues_seeds_and_keys_are_discarded_and_its_retry_commits_its_own() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let seed = site.page("/a");
+    let mut engine = site.engine(&env);
     let mut staged = Vec::new();
     let mut handled = Vec::new();
 
     crawl_under(
         &mut engine,
         "retried",
-        &[json!({ "url": SEED, "label": "page" })],
+        &[json!({ "url": seed, "label": "page" })],
         &json!({ "retry": { "max": 2 } }),
         &mut |inside, handle| {
             handled.push(handle["crawl_request"]["url"].clone());
-            if handle["crawl_request"]["url"] != SEED {
+            if handle["crawl_request"]["url"] != seed {
                 return record_the_page(handle);
             }
-            staged.push(stage(inside, handle));
+            staged.push(stage(&site, inside, handle));
             if handle["attempt"] == 1 {
                 json!({ "error": { "code": -32003, "message": "try again", "data": { "code": "retry_requested", "retryable": true } } })
             } else {
@@ -148,31 +148,27 @@ fn a_failed_attempts_enqueues_seeds_and_keys_are_discarded_and_its_retry_commits
         (
             vec![
                 vec![
-                    added("2", "https://shop.test/b"),
-                    added("3", "https://shop.test/s"),
+                    added("2", &site.page("/b")),
+                    added("3", &site.page("/s")),
                     json!({}),
                     json!({ "value": 1 }),
                     deleted.clone(),
                 ],
                 vec![
-                    added("4", "https://shop.test/b"),
-                    added("5", "https://shop.test/s"),
+                    added("4", &site.page("/b")),
+                    added("5", &site.page("/s")),
                     json!({}),
                     json!({ "value": 2 }),
                     deleted,
                 ],
             ],
             vec![
-                json!(SEED),
-                json!(SEED),
-                json!("https://shop.test/b"),
-                json!("https://shop.test/s"),
+                json!(seed),
+                json!(seed),
+                json!(site.page("/b")),
+                json!(site.page("/s")),
             ],
-            vec![
-                SEED.to_owned(),
-                "https://shop.test/b".to_owned(),
-                "https://shop.test/s".to_owned(),
-            ],
+            vec![seed.clone(), site.page("/b"), site.page("/s"),],
             vec![("progress".to_owned(), "2".to_owned())],
         )
     );
@@ -194,13 +190,15 @@ fn kept_bytes() -> String {
 #[test]
 fn a_failed_attempts_bytes_inline_or_kept_are_discarded_and_its_retry_commits_its_own() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let seed = site.page("/a");
+    let mut engine = site.engine(&env);
     let mut read = Vec::new();
 
     crawl_under(
         &mut engine,
         "bytes",
-        &[json!({ "url": SEED, "label": "page" })],
+        &[json!({ "url": seed, "label": "page" })],
         &json!({ "retry": { "max": 2 } }),
         &mut |inside, handle| {
             let (run_id, attempt) = (&handle["run_id"], attempt_of(handle));
@@ -264,17 +262,19 @@ fn a_failed_attempts_bytes_inline_or_kept_are_discarded_and_its_retry_commits_it
 #[test]
 fn an_attempt_that_fails_for_good_leaves_no_link_seed_or_key() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let seed = site.page("/a");
+    let mut engine = site.engine(&env);
     let mut handled = 0;
 
     crawl_under(
         &mut engine,
         "failed",
-        &[json!({ "url": SEED, "label": "page" })],
+        &[json!({ "url": seed, "label": "page" })],
         &json!({}),
         &mut |inside, handle| {
             handled += 1;
-            stage(inside, handle);
+            stage(&site, inside, handle);
             json!({ "error": { "code": -32003, "message": "my bug", "data": { "code": "handler_failed", "retryable": false } } })
         },
     );
@@ -282,7 +282,7 @@ fn an_attempt_that_fails_for_good_leaves_no_link_seed_or_key() {
 
     assert_eq!(
         (handled, work_items(&env, "failed"), keys(&env, "failed")),
-        (1, vec![SEED.to_owned()], Vec::new())
+        (1, vec![seed.clone()], Vec::new())
     );
 }
 

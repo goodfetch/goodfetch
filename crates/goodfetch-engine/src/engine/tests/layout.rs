@@ -23,7 +23,7 @@ use super::run::call;
 use super::{Client, attached_on, dependencies, engine_with, hello};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
-use crate::daemon::{DaemonConsole, DaemonOptions, Holds, Succession};
+use crate::daemon::{DaemonOptions, Holds, Succession};
 use crate::engine::Engine;
 use crate::ops::Ops;
 use crate::run_state::install::{INSTALL_FILE, InstallDatabase};
@@ -43,6 +43,8 @@ const NOTE: Operation = Operation {
     result: schema_of::<Value>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
@@ -214,8 +216,10 @@ where
             keep_alive: false,
             holds: Holds::new(),
             succession: Arc::new(ThePick),
-            console: DaemonConsole::Absent,
-            drain: None,
+            drain: crate::daemon::Drain {
+                asked: None,
+                grace: Duration::from_secs(110),
+            },
             install: Some(install),
             ops: Ops::default(),
             websocket: None,

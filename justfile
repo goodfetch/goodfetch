@@ -29,6 +29,8 @@ export NEXTEST_DOUBLE_SPAWN := "0"
 
 # In CI, test builds use the `ci-test` Cargo profile (ADR 0061).
 test_profile := if env("CI", "") != "" { "ci-test" } else { "test" }
+# Where `just compare` builds Spider (see that recipe).
+compare_spider_builds := env("GOODFETCH_COMPARE_SPIDER_BUILDS", "target/compare-spider")
 
 # The exercise audit's verdict in the Pre-merge and Release suites (ADR 0072):
 # `gate`, so a declaring test that never reached its Feature fails them;
@@ -88,8 +90,7 @@ lint-documents:
 # and the run ends with the list of those that failed, each with its log
 # under target/steps/lint/ (ci/keep-going.sh). A check that needs an earlier
 # one's output comes after it and is skipped, named so, when it failed:
-# Clippy after the lockfile check, the TypeScript checks after the Console's
-# build, the `xtask` checks after xtask's build.
+# Clippy after the lockfile check, the `xtask` checks after xtask's build.
 lint:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -103,11 +104,9 @@ lint:
     step pnpm-lock 'pnpm install --lockfile-only --frozen-lockfile'
     step uv-lock 'uv lock --check'
     step xtask 'cargo build --quiet --bin xtask'
-    step --after xtask console-build '{{ just_executable() }} console-build'
     step --after cargo-lock clippy 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
-    step --after console-build tsc 'pnpm exec tsc -p tsconfig.json'
-    step --after console-build pnpm-typecheck 'pnpm -r --if-present run typecheck'
-    step console-messages 'ci/console-messages.sh'
+    step tsc 'pnpm exec tsc -p tsconfig.json'
+    step pnpm-typecheck 'pnpm -r --if-present run typecheck'
     step oxlint 'pnpm exec oxlint'
     step ruff 'uv run ruff check .'
     step pyright 'uv run pyright'
@@ -115,7 +114,7 @@ lint:
     step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'
     step actionlint 'ci/tool.sh actionlint actionlint'
     step gitleaks 'ci/tool.sh gitleaks ci/canary-rule.sh'
-    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/musl/*.sh ci/musl/cargo ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push'
+    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh .githooks/pre-commit .githooks/pre-push'
     step cargo-deny 'ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources'
     step cargo-deny-products 'ci/tool.sh cargo-deny ci/deny/products.sh'
     # Spider's side of `just compare`, no workspace member, which no
@@ -153,7 +152,6 @@ lint:
     step --after xtask xtask-received-requests 'cargo run --quiet --bin xtask -- received-requests'
     step --after xtask xtask-mask-writers 'cargo run --quiet --bin xtask -- mask-writers'
     step --after xtask xtask-quarantine 'GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" cargo run --quiet --bin xtask -- quarantine check --cargo-profile {{ test_profile }}'
-    step --after xtask xtask-axe-exceptions 'GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" cargo run --quiet --bin xtask -- axe-exceptions check'
     step --after xtask xtask-modules 'cargo run --quiet --bin xtask -- modules'
     step --after xtask xtask-codegen 'cargo run --quiet --bin xtask -- codegen --check'
     step --after xtask xtask-clients 'cargo run --quiet --bin xtask -- clients check'
@@ -349,8 +347,8 @@ features *change:
 
 # ADR 0072's code coverage, measured and never gated (ci/coverage.sh): the
 # Pre-merge suite's tests of what changed, or of the whole workspace with
-# `all`, with every Rust crate built for coverage (so each SDK, Journey and
-# Console run starts the instrumented executables), Vitest's `v8` provider
+# `all`, with every Rust crate built for coverage (so each SDK and Journey
+# run starts the instrumented executables), Vitest's `v8` provider
 # and coverage.py with branches. Reports go to target/coverage/, written even
 # when a test fails or a profile is unreadable. Takes `xtask affected`'s
 # change, `--local` by default; listed as skipped without cargo-llvm-cov.
@@ -387,16 +385,8 @@ fetch:
     uv sync --frozen --all-extras
     ci/lightpanda-fetch.sh
 
-# Collie's Console build, which Collie's executable embeds (ADR 0057):
-# brotli files only, in crates/goodfetch-collie/console-build/; nothing runs
-# when its inputs did not change. Every recipe that builds the executable
-# runs it first, and a `cargo build` without it fails naming it.
-console-build:
-    cargo run --quiet --bin xtask -- console build
-
 # Builds Rust (with the given Cargo profile), TypeScript and Python.
 build profile="dev":
-    {{ just_executable() }} console-build
     cargo build --workspace --all-targets --profile {{ profile }}
     pnpm -r --if-present run build
     uv build --all-packages --out-dir target/python-dist
@@ -618,12 +608,8 @@ test suite *packages:
             || runner_failed Vitest $?
         fi
         if $playwright_runs; then
-          # The harness reads each `conformance` document the run wrote (ADR 0068).
-          written=$(mktemp)
           pnpm exec playwright test --pass-with-no-tests "${playwright_order[@]}" ${vitest_folders[@]+"${vitest_folders[@]}"} ${playwright_files[@]+"${playwright_files[@]}"} ${select_playwright[@]+"${select_playwright[@]}"} ${skip_playwright[@]+"${skip_playwright[@]}"} \
             || runner_failed Playwright $?
-          ci/read-conformance-documents.sh "$written"
-          rm -f "$written"
         fi
         if $python; then
           uv run pytest "${pytest_order[@]}" ${pytest[@]+"${pytest[@]}"} ${select_pytest[@]+"${select_pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} \
@@ -983,7 +969,6 @@ release:
     "$just" rss
     "$just" asan
     "$just" v8-corruption
-    "$just" zap
     "$just" _visual-elsewhere
     echo "skipped: every other OS and runtime cell of the Release suite runs only in CI (just release-ci)"
 
@@ -1110,19 +1095,24 @@ rss-propose *scenarios:
 # and never published (ADR 0076); otherwise it fails naming the trial. A
 # host without strace or Valgrind reports that cell as not run. It gates
 # nothing and is no Live check; run it when the 1-minute load is under 4.
-# Spider's crate and the sides' packages are downloaded once, free.
+# Spider's crate and the sides' packages are downloaded once, free. Spider's
+# six builds go to target/compare-spider/, or to the folder
+# GOODFETCH_COMPARE_SPIDER_BUILDS names: one outside every checkout keeps
+# them from one measurement to the next, whichever worktree measures and
+# whatever sweeps its target/ (Cargo still rebuilds what a changed
+# xtask/compare-spider needs).
 # Runs the comparison matrix on this machine.
 compare profile="release" *args:
     cargo run --quiet --bin xtask -- test-tools build --cargo-profile {{ profile }} --out "$PWD/target/compare/test-tools.json"
-    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir target/compare-spider/spider
-    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features chrome --target-dir target/compare-spider/spider-chrome
-    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features defaults --target-dir target/compare-spider/spider-defaults
-    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features bloom --target-dir target/compare-spider/spider-bloom
-    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features jemalloc --target-dir target/compare-spider/spider-jemalloc
-    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features mimalloc --target-dir target/compare-spider/spider-mimalloc
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/spider
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features chrome --target-dir {{ compare_spider_builds }}/spider-chrome
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features defaults --target-dir {{ compare_spider_builds }}/spider-defaults
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features bloom --target-dir {{ compare_spider_builds }}/spider-bloom
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features jemalloc --target-dir {{ compare_spider_builds }}/spider-jemalloc
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features mimalloc --target-dir {{ compare_spider_builds }}/spider-mimalloc
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
     uv sync --frozen --quiet --directory xtask/compare-scrapy
-    cargo run --quiet --bin xtask -- compare run --tools target/compare/test-tools.json --spider-builds target/compare-spider --spider-profile {{ profile }} {{ args }}
+    cargo run --quiet --bin xtask -- compare run --tools target/compare/test-tools.json --spider-builds {{ compare_spider_builds }} --spider-profile {{ profile }} {{ args }}
 
 # The Kennel (ADR 0141), from the repository. On macOS: its release
 # executable in `Kennel.app`, signed ad hoc under the stable bundle
@@ -1205,17 +1195,6 @@ counts *args:
 perf base="":
     ci/perf.sh {{ base }}
 
-# The Console's lab metrics for the Performance series (ADRs 0071 and 0076):
-# Lighthouse 13 against each Product's Console, served by its `ci`-profile
-# executable, Collie's then Foxhound's, the median of 5 runs each, appended
-# to target/perf-series/console-lighthouse.jsonl with the Product and the
-# machine it ran on. On the owner's machine, set
-# GOODFETCH_PERF_MACHINE to its label; it times, so no suite runs it.
-console-lighthouse:
-    {{ just_executable() }} console-build
-    cargo run --quiet --bin xtask -- test-tools build --cargo-profile ci --out "$PWD/target/perf-series/test-tools.json"
-    GOODFETCH_TEST_TOOLS="$PWD/target/perf-series/test-tools.json" pnpm exec playwright test --config console/collie/perf/playwright.config.ts
-
 # The Pre-merge suite's tests that only Linux decides (`tc netem`, the
 # Secret Service, the IPv6 Happy Eyeballs check, the extra loopback
 # addresses): on a host that is not Linux, in the pinned CI image through
@@ -1287,7 +1266,6 @@ lazyfs-test:
     #!/usr/bin/env bash
     set -euo pipefail
     {{ just_executable() }} lazyfs-fetch
-    {{ just_executable() }} console-build
     GOODFETCH_LAZYFS=$(cargo run --quiet --bin xtask -- lazyfs build)
     export GOODFETCH_LAZYFS GOODFETCH_TEST_SUITE=release
     cargo nextest run -p goodfetch-test-support -p goodfetch-engine -p goodfetch-collie --profile ci \
@@ -1303,7 +1281,6 @@ lazyfs-test:
 # reads a change's base listings (ADR 0064).
 warm:
     pnpm exec tsc -p tsconfig.json
-    {{ just_executable() }} console-build
     cargo clippy --workspace --all-targets --all-features
     cargo build --bin xtask
     cargo nextest run --workspace --profile ci --cargo-profile ci-test --no-run
@@ -1391,11 +1368,6 @@ asan phase="test":
 v8-corruption phase="test":
     ci/v8-corruption.sh {{ phase }}
 
-# The Release suite's ZAP baseline scan of the Console (ADR 0067), a slot
-# until the Console is built: `fetch` or `scan`.
-zap phase="scan":
-    ci/zap.sh {{ phase }}
-
 # The third-party notice inventory (ADRs 0018 and 0047): fails on a
 # dependency of any ecosystem, or an input a `third-party.toml` declares, whose
 # license ADR 0018's allowlist refuses for its use. `--out <file>` writes the
@@ -1451,7 +1423,6 @@ reports store milestone="M1":
     out="$store/reports/$day"
     rm -rf "$out"
     mkdir -p "$out"
-    {{ just_executable() }} console-build
     cargo run --quiet --locked --bin xtask -- journeys listings --out target/journey-listings \
       --cargo-profile {{ test_profile }}
     cargo run --quiet --locked --bin xtask -- features report --milestone "{{ milestone }}" \
@@ -1474,13 +1445,11 @@ reports store milestone="M1":
 # Builds the workspace with the toolchain of its `rust-version`, the MSRV of
 # ADR 0030 (latest stable minus two).
 msrv:
-    {{ just_executable() }} console-build
     ci/msrv.sh
 
 # cargo-hack over every feature combination of each Product's SDK crate
 # (ADR 0087).
 feature-combinations:
-    {{ just_executable() }} console-build
     ci/tool.sh cargo-hack ci/feature-combinations.sh
 
 # Miri over the pure-Rust `unsafe` modules that opt in through ci/miri.toml
@@ -1614,7 +1583,11 @@ rosetta-trial:
 # ground's, goodfetch-test-env, goodfetch-scripted-engine and
 # goodfetch-conformance, those the workspace has) with the tests' Cargo profile, and writes the test tool
 # manifest of their paths to target/test-tools.json; `--engine <path>` names
-# that executable for both Products instead (a skew run's).
+# that executable for both Products instead (a skew run's). Beside it goes
+# the manifest's input record, target/test-tools.inputs.json, by which a test
+# is refused tools older than their sources (TESTING.md, Shared helpers): run
+# this after a merge, a `git switch` or an edit, before a test run that no
+# recipe starts.
 [positional-arguments]
 _test-tools *arguments:
     cargo run --quiet --bin xtask -- test-tools build --cargo-profile {{ test_profile }} --out "$PWD/target/test-tools.json" "$@"
@@ -1704,7 +1677,8 @@ _gate-plan:
     mkdir -p target/gate-runs
     echo '{}' >target/gate-runs/listing-tools.json
     # The variables that change what the steps run or how join the host
-    # fingerprint, so a result counts only for a run in the same environment.
+    # fingerprint, so a result counts only for a run in the same environment;
+    # `xtask gate plan` leaves out the launcher's own (GOODFETCH_GATE_MIN_FREE_GB).
     variables=$(env | grep -E '^(CI|GOODFETCH_[A-Z0-9_]+|NEXTEST_[A-Z0-9_]+|CARGO_[A-Z0-9_]+|RUST[A-Z0-9_]*|UV_[A-Z0-9_]+|NODE_[A-Z0-9_]+)=' | LC_ALL=C sort || true)
     GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_TEST_TOOLS="$PWD/target/gate-runs/listing-tools.json" \
       cargo run --quiet --bin xtask -- gate plan --records target/gate-runs --now "$(date +%s)" \

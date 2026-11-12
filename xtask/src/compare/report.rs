@@ -32,6 +32,8 @@ pub(crate) enum Unit {
     Bytes,
     Cores,
     Count,
+    /// A share of the pages, written as a percentage.
+    Share,
 }
 
 /// A figure over a cell's trials.
@@ -466,6 +468,20 @@ fn metrics(
             Unit::Count,
         ),
     );
+    let shares: Option<Vec<f64>> = trials
+        .iter()
+        .map(|trial| {
+            let sample_pages = trial.measured.sample_pages?;
+            Some(float(sample_pages) / float(trial.measured.work.pages))
+        })
+        .collect();
+    put(
+        "sample_share",
+        match shares {
+            Some(shares) if !shares.is_empty() => spread(&shares, Unit::Share),
+            _ => not("it fetches no sample: only Foxhound's `auto` row does"),
+        },
+    );
     metrics
 }
 
@@ -657,6 +673,7 @@ fn shown(value: f64, unit: Unit) -> String {
         Unit::Bytes if value >= 1024.0 => format!("{:.1} KiB", value / 1024.0),
         Unit::Bytes => format!("{value:.0} B"),
         Unit::Cores => format!("{value:.2}"),
+        Unit::Share => format!("{:.1} %", value * 100.0),
     }
 }
 
@@ -739,6 +756,10 @@ const ROWS: &[(&str, &str)] = &[
     ("duplicates", "Correctness: duplicates"),
     ("errors", "Correctness: errors"),
     ("skipped", "Correctness: skipped pages"),
+    (
+        "sample_share",
+        "Tiers: share of the pages that were samples",
+    ),
 ];
 
 /// The report as Markdown, for the owner's reading of the pass (ADR 0134).

@@ -1,8 +1,8 @@
 //! Foxhound's side of a trial: its Attached engine driven over JSON-RPC
 //! through one code-free crawl of the scenario's site at a cell's
 //! settings, started, or resumed after a kill, and, once the measured
-//! process is gone, its Records' commit times read by another engine on the
-//! same home, which no figure counts.
+//! process is gone, its Records' commit times and samples read by another
+//! engine on the same home, which no figure counts.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: the engine's output is read on a thread of its own with blocking calls (STYLE.md)"
@@ -109,13 +109,15 @@ impl Engine {
     }
 
     /// Starts the code-free crawl of `scenario`'s site from `start` at
-    /// `durability`, with its `run_state.commit_interval` at `periodic`.
+    /// `durability`, with its `run_state.commit_interval` at `periodic`,
+    /// and `fetch.tier` left at `auto` where `auto`.
     pub(crate) fn start(
         &mut self,
         site: &Site<'_>,
         scenario: Scenario,
         start: &str,
         durability: (&str, Option<u64>),
+        auto: bool,
     ) -> Result<()> {
         self.call(
             "start",
@@ -125,7 +127,7 @@ impl Engine {
                 "seeds": [{ "url": start, "label": "page" }],
                 "datasets": [],
                 "extraction": extraction(scenario),
-                "settings": settings(site, scenario, durability),
+                "settings": settings(site, scenario, durability, auto),
             }),
         )?;
         Ok(())
@@ -137,11 +139,12 @@ impl Engine {
         site: &Site<'_>,
         scenario: Scenario,
         durability: (&str, Option<u64>),
+        auto: bool,
     ) -> Result<()> {
         self.call(
             "resume",
             "run.resume",
-            &json!({ "run_id": RUN, "settings": settings(site, scenario, durability) }),
+            &json!({ "run_id": RUN, "settings": settings(site, scenario, durability, auto) }),
         )?;
         Ok(())
     }
@@ -155,9 +158,8 @@ impl Engine {
         Ok(())
     }
 
-    /// Each Record of the crawl's Dataset: its URL and when it was
-    /// committed, RFC 3339.
-    pub(crate) fn records(&mut self, site: &Site<'_>) -> Result<Vec<(String, String)>> {
+    /// Each Record of the crawl's Dataset.
+    pub(crate) fn records(&mut self, site: &Site<'_>) -> Result<Vec<Record>> {
         let id = "records";
         let mut records = Vec::new();
         self.send(&json!({
@@ -180,13 +182,14 @@ impl Engine {
             }
             if message["method"] == RECORD && message["params"]["id"] == id {
                 let record = &message["params"]["record"];
-                records.push((
-                    record["url"].as_str().unwrap_or_default().to_owned(),
-                    record["committed_at"]
+                records.push(Record {
+                    url: record["url"].as_str().unwrap_or_default().to_owned(),
+                    committed_at: record["committed_at"]
                         .as_str()
                         .unwrap_or_default()
                         .to_owned(),
-                ));
+                    sample: record["provenance"]["tier"]["chosen"] == "sample",
+                });
             }
         }
     }
@@ -198,6 +201,16 @@ impl Engine {
         // write.
         while self.lines.recv().is_ok() {}
     }
+}
+
+/// What the comparison reads of one Record.
+pub(crate) struct Record {
+    pub(crate) url: String,
+    /// When it was committed, RFC 3339.
+    pub(crate) committed_at: String,
+    /// Whether its page was a sample of `auto`'s comparison of tiers, its
+    /// document from the sample's browser run (ADR 0093).
+    pub(crate) sample: bool,
 }
 
 /// What each page's Record holds: in the extraction scenario, the text of
@@ -227,7 +240,8 @@ pub(crate) fn keeps_records(scenario: Scenario) -> bool {
 
 /// A cell's Run settings, its site's hosts resolved to the Proving ground:
 /// in the polite scenario, Foxhound's defaults with ADR 0086's delay and
-/// concurrency per domain, the `http` tier and a scope of every host;
+/// concurrency per domain, the `http` tier (left at `auto` where `auto`)
+/// and a scope of every host;
 /// otherwise its own Politeness at the crawl's concurrency, no delay,
 /// robots.txt not obeyed and the maximum-throughput combination's switches
 /// off, at `durability`, on the `browser` tier in the headless browser
@@ -236,6 +250,7 @@ fn settings(
     site: &Site<'_>,
     scenario: Scenario,
     (durability, commit_interval): (&str, Option<u64>),
+    auto: bool,
 ) -> Value {
     let hosts = scenario.site().hosts();
     let resolve: serde_json::Map<String, Value> = hosts
@@ -285,5 +300,11 @@ fn settings(
     if let (Value::Object(settings), Value::Object(added)) = (&mut settings, added) {
         settings.extend(added);
     }
+    if auto && let Some(fetch) = settings["fetch"].as_object_mut() {
+        fetch.remove("tier");
+    }
     settings
 }
+
+#[cfg(test)]
+mod tests;

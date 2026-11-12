@@ -6,9 +6,10 @@
 //! exist yet is marked pending (the owner's comments of 2026-10-30 on
 //! #1577). Spider's main rows read its pages at the smallest channel
 //! capacity that loses none, and labelled sensitivity rows beside them run
-//! it one setting apart (#2213). `run` crawls each scenario's 1,000-page Proving ground site
-//! (`scale.test`'s, the multi-domain site for the polite scenario, the
-//! script-rendered site for the headless browser) with each measured cell's
+//! it one setting apart (#2213). `run` crawls each scenario's Proving ground
+//! site, of 1,000 pages (`scale.test`'s, or the script-rendered site for the
+//! headless browser) or, for the polite scenario, the multi-domain site's
+//! 10,000, 10 on each of its 1,000 domains (#2283), with each measured cell's
 //! tool in the declared number of trials, interleaved in random order, each
 //! tool in a fresh process at the same concurrency and, in a run of the
 //! full trials, once the machine is quiet, measuring every metric of the

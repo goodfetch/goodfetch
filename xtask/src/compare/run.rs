@@ -416,18 +416,20 @@ fn watched(child: &mut Child, address: &str, watch: Watch) -> Result<Option<Stri
     }
 }
 
-/// The pages of the site `config`'s tool crawls.
-fn pages_of(config: Config, pages: u64, spider_pages: Option<u64>) -> u64 {
+/// The pages of the site `config`'s tool crawls in `scenario`, where the
+/// comparison's site has `pages` ([`Scenario::site_pages`]).
+fn pages_of(scenario: Scenario, config: Config, pages: u64, spider_pages: Option<u64>) -> u64 {
     match config {
         Config::Spider { .. } => spider_pages.unwrap_or(pages),
-        Config::Foxhound { .. } | Config::Crawlee | Config::Scrapy => pages,
+        Config::Foxhound { .. } | Config::Crawlee | Config::Scrapy => scenario.site_pages(pages),
     }
 }
 
-/// Runs the timed trials of each measured cell over the site of `pages`,
-/// each watched (see [`stopped`]): a stopped trial runs once more, and a
-/// cell whose trial is stopped twice is not measured, its later trials not
-/// run. Returns the trials and the cells stopped.
+/// Runs the timed trials of each measured cell over its scenario's site
+/// where the comparison's has `pages`, each watched (see [`stopped`]): a
+/// stopped trial runs once more, and a cell whose trial is stopped twice is
+/// not measured, its later trials not run. Returns the trials and the cells
+/// stopped.
 fn timed(
     executables: &Executables<'_>,
     options: &Options,
@@ -445,7 +447,7 @@ fn timed(
         {
             continue;
         }
-        let site_pages = pages_of(config, pages, options.spider_pages);
+        let site_pages = pages_of(cell.scenario, config, pages, options.spider_pages);
         let mut started_at = None;
         let outcome = retried(|| {
             started_at = if waits_for_quiet(options) {
@@ -579,13 +581,13 @@ fn counted(
                 && set_aside(
                     &done,
                     cell,
-                    pages_of(config, SITE_PAGES, options.spider_pages),
+                    pages_of(cell.scenario, config, SITE_PAGES, options.spider_pages),
                 )
         {
             continue;
         }
         let out = counted_output(outputs, cell, number);
-        let pages = pages_of(config, SITE_PAGES, options.spider_pages);
+        let pages = pages_of(cell.scenario, config, SITE_PAGES, options.spider_pages);
         let outcome = trial(
             executables,
             cell,

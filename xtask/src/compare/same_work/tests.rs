@@ -18,6 +18,20 @@ fn work(again: u64) -> Work {
     }
 }
 
+/// `work` on the 4-page site, on `scenario`'s site where the comparison's
+/// has 4 pages: on the multi-domain site, its other pages each fetched once
+/// besides.
+fn on_site(scenario: Scenario, work: Work) -> Work {
+    let more = scenario.site_pages(4) - 4;
+    Work {
+        pages: work.pages + more,
+        requests: work.requests + more,
+        bytes: work.bytes + 600 * more,
+        first_bytes: work.first_bytes + 600 * more,
+        ..work
+    }
+}
+
 /// Three trials of each measured cell over the 4-page site, each with the
 /// work `work` gives its scenario and number.
 fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
@@ -29,12 +43,12 @@ fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
                 cell: cell.name.to_owned(),
                 tool: config.tool(),
                 number,
-                site_pages: 4,
+                site_pages: cell.scenario.site_pages(4),
                 load: None,
                 retried: None,
                 measured: Measured {
                     seconds: 1.0,
-                    work: work(cell.scenario, number),
+                    work: on_site(cell.scenario, work(cell.scenario, number)),
                     ..Measured::default()
                 },
             })
@@ -243,6 +257,30 @@ fn a_resumed_trial_whose_pages_were_first_served_other_bytes_did_other_work() {
     );
 }
 
+/// Foxhound's `auto` row fetches each sample's page twice, on `http` and in
+/// a browser, so its trials are held to the pages first served and their
+/// bytes (#2283): its extra requests are no other work, but other bytes for
+/// a page's first answer are.
+#[test]
+fn an_auto_rows_samples_fetched_twice_are_no_other_work_but_other_first_bytes_are() {
+    let mut trials = comparison(|_, _| work(0));
+    for trial in &mut trials.trials {
+        if trial.cell == "foxhound auto" {
+            let work = &mut trial.measured.work;
+            work.requests += 3000;
+            work.bytes += 600 * 3000;
+            if trial.number == 2 {
+                work.first_bytes += 1;
+            }
+        }
+    }
+
+    assert_eq!(
+        named(&trials),
+        vec![("different_bytes", "polite foxhound auto trial 2".to_owned())]
+    );
+}
+
 /// In the headless browser scenario, a trial that reached the site's
 /// first page alone never ran the script that links the others: the check
 /// names it for the script-rendered pages it missed.
@@ -303,7 +341,7 @@ fn counted(
                 number,
                 count: 9,
                 syncs: 0,
-                work: work(cell.scenario, cell.name, number),
+                work: on_site(cell.scenario, work(cell.scenario, cell.name, number)),
             })
         })
         .collect();
@@ -448,6 +486,7 @@ fn a_timed_trial_and_a_callgrind_run_of_other_work_still_fail_the_check() {
         named(&trials),
         vec![
             ("different_pages", "polite foxhound trial 1".to_owned()),
+            ("different_pages", "polite foxhound auto trial 1".to_owned()),
             ("different_pages", "polite crawlee trial 1".to_owned()),
             ("different_pages", "polite scrapy trial 1".to_owned()),
             ("different_pages", "raw spider callgrind trial 3".to_owned()),

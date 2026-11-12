@@ -36,7 +36,7 @@ use goodfetch_engine::browser_cache::{
 };
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::files::DaemonFiles;
-use goodfetch_engine::daemon::{DaemonConsole, DaemonEnd, DaemonOptions, Drain, Holds, Succession};
+use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, Succession};
 use goodfetch_engine::endpoint::Authorities;
 use goodfetch_engine::ops::{ConfiguredBrowsers, Ops, OpsOptions};
 use goodfetch_engine::run::local_settings_error;
@@ -181,11 +181,10 @@ pub(in crate::executable) fn run(
             keep_alive: true,
             holds: Holds::new(),
             succession: Arc::new(TheOperatorsChoice),
-            console: DaemonConsole::Absent,
-            drain: Some(Drain {
-                asked: asked.clone(),
+            drain: Drain {
+                asked: Some(asked.clone()),
                 grace: configured.drain_grace,
-            }),
+            },
             install,
             ops: Ops {
                 listener: ops,
@@ -236,7 +235,7 @@ pub(in crate::executable) fn run(
 
 /// Under `--json`, prints the Daemon's `DaemonStatus` once it listens at
 /// `endpoint`, before its first log line, as a container's tooling reads
-/// it: no Console, and no service, which a foreground Daemon never has.
+/// it: no service, which a foreground Daemon never has.
 fn announce(
     json: bool,
     machine: &Machine<'_>,
@@ -253,8 +252,6 @@ fn announce(
         product: Some(identity.product),
         version: Some(identity.product_version.clone()),
         address: Some(endpoint.to_string()),
-        console_url: None,
-        console_error: None,
         service: None,
     });
 }

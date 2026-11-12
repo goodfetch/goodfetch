@@ -168,6 +168,8 @@ pub const EGRESS_LOCAL_ADDRESSES: Setting = Setting {
     clearable: true,
     authority: Authority::NotByRecipe,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -214,6 +216,8 @@ pub const EGRESS_ROTATION_BLOCK_IPV4: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -226,6 +230,8 @@ pub const EGRESS_ROTATION_BLOCK_IPV6: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 

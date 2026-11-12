@@ -50,11 +50,6 @@ pub(crate) const EXECUTABLES: [Executable; 2] = [COLLIE, FOXHOUND];
 /// Each Product's executable crate's package name.
 pub(crate) const PACKAGES: [&str; 2] = [COLLIE.package, FOXHOUND.package];
 
-/// Whether `package` is a Product's executable crate.
-pub(crate) fn is_executable(package: &str) -> bool {
-    PACKAGES.contains(&package)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -71,6 +71,8 @@ pub const EGRESS_ALLOWED_DOMAINS: Setting = Setting {
     clearable: false,
     authority: Authority::HostsNarrowedByRecipeOrModel(HostList::Allows),
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -83,6 +85,8 @@ pub const EGRESS_BLOCKED_DOMAINS: Setting = Setting {
     clearable: false,
     authority: Authority::HostsNarrowedByRecipeOrModel(HostList::Blocks),
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -95,6 +99,8 @@ pub const EGRESS_OFFLINE: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -108,6 +114,8 @@ pub const EGRESS_NO_PRIVATE_ENDPOINTS: Setting = Setting {
     clearable: false,
     authority: Authority::OperatorPolicy,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 

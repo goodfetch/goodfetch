@@ -1,5 +1,5 @@
-// The origin-escape page's script (ADR 0031): shown inside the Console's
-// sandboxed frame on its content origin, it tries to reach past that frame,
+// The origin-escape page's script: shown inside a sandboxed frame on an
+// origin of its own, it tries to reach past that frame,
 // and reports to the Proving ground each attempt that worked. A page shown
 // on its own, as the top document, has nothing to escape and reports nothing.
 (() => {

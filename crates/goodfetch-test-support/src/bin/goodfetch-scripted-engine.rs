@@ -53,8 +53,8 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use goodfetch_test_support::{
-    ATTACHED_RECORD, ATTACHED_SCRIPT, ConsoleState, DaemonEndpoint, Ending, RuntimeFile,
-    SCRIPTED_DAEMON_TOKEN, Script, play,
+    ATTACHED_RECORD, ATTACHED_SCRIPT, DaemonEndpoint, Ending, RuntimeFile, SCRIPTED_DAEMON_TOKEN,
+    Script, play,
 };
 use serde_json::{Value, json};
 
@@ -243,7 +243,6 @@ impl Daemon {
             token: arguments.token.clone(),
             version: arguments.product_version.clone(),
             pid: std::process::id(),
-            console: ConsoleState::Absent,
         };
         let daemon = Self {
             listener,

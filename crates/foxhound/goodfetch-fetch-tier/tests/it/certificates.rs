@@ -1067,7 +1067,7 @@ fn answered(changed: &CertificateChanged) -> (&'static str, Value) {
 /// The fix `certificate_changed` names for the expired host.
 fn changed_fix() -> String {
     format!(
-        "A person accepts the new key of {EXPIRED} with `certs accept {EXPIRED}` in a terminal or the Console, or removes its pin with `certs forget {EXPIRED}`; no agent, Recipe or `--json` command can."
+        "A person accepts the new key of {EXPIRED} with `certs accept {EXPIRED}` in a terminal, or removes its pin with `certs forget {EXPIRED}`; no agent, Recipe or `--json` command can."
     )
 }
 

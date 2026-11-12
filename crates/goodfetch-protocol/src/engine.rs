@@ -45,6 +45,8 @@ pub const ENGINE_INFO: Operation = Operation {
     result: schema_of::<EngineInfo>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Stable,
     deprecated: None,
     arrived_in: ARRIVED_IN,

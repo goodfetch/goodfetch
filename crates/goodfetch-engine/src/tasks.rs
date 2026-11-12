@@ -17,11 +17,14 @@ use std::future::Future;
 use std::io;
 use std::num::NonZeroUsize;
 use std::ops::ControlFlow;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use tokio::sync::{Semaphore, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
+
+use crate::crash_report;
 
 /// Where an owner runs blocking work.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -317,7 +320,8 @@ impl BlockingThreads {
 }
 
 /// Runs `work` under `policy`, on a blocking thread `tracker` tracks, and
-/// answers what it returns; a panic in `work` resumes in the caller.
+/// answers what it returns; a panic in `work` resumes in the caller, with
+/// the name of its crash report (ADR 0148).
 async fn run_blocking<T, F>(tracker: &TaskTracker, policy: BlockingPolicy, work: F) -> T
 where
     F: FnOnce() -> T + Send + 'static,
@@ -325,13 +329,17 @@ where
 {
     match policy {
         BlockingPolicy::Inline => work(),
-        BlockingPolicy::Threads => match tracker.spawn_blocking(work).await {
-            Ok(answer) => answer,
-            Err(error) => match error.try_into_panic() {
-                Ok(panic) => std::panic::resume_unwind(panic),
+        BlockingPolicy::Threads => {
+            let caught = tracker.spawn_blocking(move || {
+                std::panic::catch_unwind(AssertUnwindSafe(work))
+                    .map_err(|panic| (panic, crash_report::take_written()))
+            });
+            match caught.await {
+                Ok(Ok(answer)) => answer,
+                Ok(Err((panic, written))) => crash_report::resume_unwind(panic, written),
                 Err(error) => panic!("invariant: a blocking task is never cancelled: {error}"),
-            },
-        },
+            }
+        }
     }
 }
 

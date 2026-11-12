@@ -155,7 +155,6 @@ pub(crate) fn probe(
     // folder and its default logging.
     let home = tempfile::tempdir().context("creating the engine's data folder")?;
     super::scenario::as_shipped(&mut child, home.path(), goodfetch_variables);
-    super::scenario::configure(scenario, home.path())?;
     child.stdin(Stdio::piped()).stdout(Stdio::piped());
     peak::of(&mut child, |child| {
         let site = address.map(|address| Site {

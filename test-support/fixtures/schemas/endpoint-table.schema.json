@@ -112,16 +112,6 @@
           "type": "string"
         },
         {
-          "const": "console",
-          "description": "The Console's WebSocket on its own origin, whose handshake carries\na sign-in's cookie and the Console's `Host` and `Origin` (ADRs\n0024, 0031 and 0067).",
-          "type": "string"
-        },
-        {
-          "const": "content_origin",
-          "description": "The Console's content origin, which serves a Run's file only to an\naddress signed for that one file, and reads no cookie (ADR 0031;\nspec #592).",
-          "type": "string"
-        },
-        {
           "const": "proxy_relay",
           "description": "A Session's proxy relay (`goodfetch-page`'s `proxy::relay`): a\nloopback HTTP proxy of the Session's own, which tunnels only for the\nSession's per-Session credentials (ADR 0037 / SA-22; spec #577).",
           "type": "string"
@@ -237,26 +227,6 @@
         {
           "const": "probes_answer_status_only",
           "description": "The ops listener's probes answer with a status and no body.",
-          "type": "string"
-        },
-        {
-          "const": "csrf_token_missing",
-          "description": "A signed-in `POST` carries no CSRF token.",
-          "type": "string"
-        },
-        {
-          "const": "sign_in_revoked",
-          "description": "The cookie is of a sign-in that has ended: signed out or revoked.",
-          "type": "string"
-        },
-        {
-          "const": "token_for_another_file",
-          "description": "The address carries the valid signature of another file.",
-          "type": "string"
-        },
-        {
-          "const": "sign_in_rate_exceeded",
-          "description": "The address tries to sign in more often than the listener's rate\nallows: the eleventh attempt in a minute. Last in the table, since\nthe address's next attempts in that minute are refused too.",
           "type": "string"
         }
       ]

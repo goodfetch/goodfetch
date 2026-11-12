@@ -1,6 +1,6 @@
 //! `xtask notices`: the third-party notice inventory (ADRs 0018 and 0047).
 //! It lists every dependency of Cargo, npm and Python and every declared
-//! input (the Console's bundled assets, the Goodfetch Chromium's inputs, the
+//! input (the Goodfetch Chromium's inputs, the
 //! Clean-up rules' inputs and the block-detection rules' sources) with its
 //! license, and fails on a license outside ADR 0018's allowlist, naming the
 //! dependency and its ecosystem.
@@ -93,12 +93,6 @@ fn allowed_dependencies_and_inputs_pass() {
     "License-Expression: BSD-3-Clause",
     "License-Expression: SSPL-1.0",
     "python permissive-dist@1.0.0"
-)]
-#[case::console_asset(
-    "console/third-party.toml",
-    r#"license = "ISC""#,
-    r#"license = "CC-BY-NC-4.0""#,
-    "console-assets Lucide icons@0.900.0"
 )]
 #[case::chromium_input(
     "chromium/third-party.toml",
@@ -294,8 +288,7 @@ fn modified_mpl_file_fails() {
     assert_eq!(outcome.code, 1);
 }
 
-/// A license may be allowed for several packages, one entry each, as
-/// OFL-1.1 is for the Console's two fonts.
+/// A license may be allowed for several packages, one entry each.
 #[test]
 fn license_allowed_for_two_packages_passes_on_each() {
     let workspace = installed_workspace();

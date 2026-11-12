@@ -12,8 +12,6 @@ listeners.private_endpoint = { expect = "closed" }
 listeners.ops_listener = { expect = "status", status = 401 }
 listeners.daemon_websocket = { expect = "closed" }
 listeners.exposed_daemon = { expect = "closed" }
-listeners.console = { expect = "status", status = 401 }
-listeners.content_origin = { expect = "status", status = 401 }
 listeners.proxy_relay = { expect = "challenge" }
 "#;
 
@@ -115,20 +113,6 @@ listeners.private_endpoint = { expect = "closed" }
     Rule::OriginMissing,
     ListenerKind::ExposedDaemon
 )]
-#[case::a_closed_connection_for_a_sign_in_cookie(
-    "token_wrong",
-    "console",
-    r#"{ expect = "closed" }"#,
-    Rule::TokenWrong,
-    ListenerKind::Console
-)]
-#[case::a_status_for_a_signed_in_websockets_first_message(
-    "hello_not_first",
-    "console",
-    r#"{ expect = "status", status = 400 }"#,
-    Rule::HelloNotFirst,
-    ListenerKind::Console
-)]
 #[case::a_refusal_rule_answering_with_a_status_only(
     "token_wrong",
     "ops_listener",
@@ -141,55 +125,6 @@ listeners.private_endpoint = { expect = "closed" }
     "ops_listener",
     r#"{ expect = "status", status = 404 }"#,
     Rule::ProbesAnswerStatusOnly,
-    ListenerKind::OpsListener
-)]
-#[case::a_sign_in_route_rule_on_a_listener_without_sign_in_routes(
-    "sign_in_rate_exceeded",
-    "daemon_websocket",
-    r#"{ expect = "status", status = 429 }"#,
-    Rule::SignInRateExceeded,
-    ListenerKind::DaemonWebsocket
-)]
-#[case::a_closed_connection_for_a_sign_in_route(
-    "csrf_token_missing",
-    "console",
-    r#"{ expect = "closed" }"#,
-    Rule::CsrfTokenMissing,
-    ListenerKind::Console
-)]
-#[case::a_revoked_sign_in_on_a_listener_without_sign_ins(
-    "sign_in_revoked",
-    "ops_listener",
-    r#"{ expect = "status", status = 401 }"#,
-    Rule::SignInRevoked,
-    ListenerKind::OpsListener
-)]
-#[case::a_closed_connection_for_a_signed_address(
-    "token_wrong",
-    "content_origin",
-    r#"{ expect = "closed" }"#,
-    Rule::TokenWrong,
-    ListenerKind::ContentOrigin
-)]
-#[case::a_first_message_rule_on_a_signed_address(
-    "hello_not_first",
-    "content_origin",
-    r#"{ expect = "status", status = 400 }"#,
-    Rule::HelloNotFirst,
-    ListenerKind::ContentOrigin
-)]
-#[case::a_query_token_rule_on_a_signed_address(
-    "token_in_query_string",
-    "content_origin",
-    r#"{ expect = "status", status = 401 }"#,
-    Rule::TokenInQueryString,
-    ListenerKind::ContentOrigin
-)]
-#[case::another_files_signature_on_a_listener_without_files(
-    "token_for_another_file",
-    "ops_listener",
-    r#"{ expect = "status", status = 401 }"#,
-    Rule::TokenForAnotherFile,
     ListenerKind::OpsListener
 )]
 #[case::an_accepted_attempt_that_must_be_refused(

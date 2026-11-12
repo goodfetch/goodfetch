@@ -2,6 +2,8 @@
 
 Goodfetch ships under `MIT OR Apache-2.0` across the whole repository (the Rust crate, the TypeScript and Python SDKs, the CLI, the MCP server, the agent skills, the Console and `rnd/lab`), and accepts that competitors may host the engine, as Hyperbrowser hosts Browser Use and Apify runs Scrapy. The engine is single-tenant and knows no prices (ADR 0001), so the open code is not a cloud: Goodfetch Cloud sells operations (fleet and isolation, managed proxies, hosted models, managed solving, multi-tenant Console screens, the marketplace and billing), as Crawlee, Spider and Stagehand do with their clouds. An engine capability leaves the public framework only to become a **Private component**, and only when publishing it would itself create legal exposure, never to sell it; the public engine always keeps the interface the Private component plugs into. Contributors sign off each commit under the Developer Certificate of Origin, checked by a bot, with no CLA, and a trademark policy, not the code license, keeps the name off forks and hosted copies. Decided in [Open-core boundary and license](https://github.com/goodfetch/goodfetch/issues/77), on the evidence of [License and open-core models of comparable projects](https://github.com/goodfetch/goodfetch/issues/66) and [Legal exposure of stealth and challenge-solving tooling](https://github.com/goodfetch/goodfetch/issues/65).
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
+
 ## Considered Options
 
 - **AGPL-3.0 engine with permissive SDKs** (Firecrawl): rejected. It deters hosted copies, but anyone who ships the Rust crate or the engine inside closed software must publish their source, which rules out closed products and closed agents built on Goodfetch; Firecrawl had to move its SDKs to MIT for the same reason.
@@ -15,6 +17,7 @@ Goodfetch ships under `MIT OR Apache-2.0` across the whole repository (the Rust 
 
 - Private components are the one exception to ADR 0001's rule that anything the cloud does can be reproduced locally. Because the public engine keeps their interface, a self-hoster can plug in their own implementation or a licensed Private component.
 - The Console's source is public under the framework license; cloud-only screens belong to Goodfetch Cloud's own codebase.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - ADR 0035 places each stealth item, including the Challenge solver, by this rule. The legal research rates a solver bundled in the public repository High in the US (DMCA §1201 trafficking) and a vetted Private component Medium to High.
 - Lightpanda (AGPL-3.0-only) runs only out of process. Camoufox (MPL-2.0 with an LGPL-3.0-or-later part) and Patchright ship as separate browser downloads. No Crawl4AI code is copied in, because its added attribution clause reaches public uses.
 - Every release carries a third-party notice inventory, generated per ecosystem and checked in CI against a license allowlist; a dependency outside the allowlist blocks the release.

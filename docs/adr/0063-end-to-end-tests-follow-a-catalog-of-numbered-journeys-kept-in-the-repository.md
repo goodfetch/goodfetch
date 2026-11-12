@@ -17,6 +17,7 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
 ### What a Journey is
 
 - **A Journey** is one goal a person reaches through Goodfetch's public surfaces (the CLI, an SDK, MCP, the Console, an Integration), written as steps from a starting state to an outcome checked from outside the engine: by the Proving ground's oracle, by what the Proving ground observed, and by what the surface shows.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no suite, test layout, Journey surface, security boundary, Performance budget, Feature kind (`screen:`) or actor exists for the Console.
 - **It is not a Proving ground task.** A task is one thing the Proving ground asks a tool to do on one page family, with an expected result (ADR 0025). A Journey uses tasks as its starting data and their oracle as its judge, and adds the surface, the steps and the checks a person makes.
 - **It is not a conformance case.** A conformance case proves one capability of a contract that several targets implement (ADR 0033), and its result decides what a target may claim. A Journey proves a goal works end to end through one surface. Neither replaces the other.
 - **It is not one of area 3's multi-process tests.** Those drive processes with `goodfetch-protocol`'s types, the way a Client does, to test lifetimes, `kill -9` and groups. A Journey drives a surface the way a person does.
@@ -45,6 +46,7 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
 
 - **Surfaces**, with the first milestone that ships each (ADR 0058): `cli` and `console` (M1); `sdk-rust`, `sdk-typescript`, `sdk-python`, `mcp-stdio`, `mcp-http` and `skills` (M2); `http-listener`, `adapter-<name>` and `integration-<name>` (M4). A Journey lists every surface on which a person can reach its goal, not one per Journey. Unpinned steps run on each listed surface; a pinned step, such as "watch the run in the Console", runs on its own surface in every variant.
   > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): a Journey's surfaces are its Product's. Each Collie Journey with a `cli` variant also runs it on Foxhound's executable as `J-NNN@foxhound-cli`, the only variant that names a Product.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **A variant** is one Journey on one surface, written `J-001@cli`. It is the unit that runs, passes and is counted.
 
 ### IDs
@@ -73,9 +75,11 @@ Decided in [Journey catalog: format, IDs, seeded data and surfaces](https://gith
 ### Runners and results
 
 - **Each surface's own runner runs its variants**: nextest for `cli` and `sdk-rust`, Vitest for `sdk-typescript`, pytest for `sdk-python`, Playwright Test for `console`. The MCP, skills, adapter and Integration runners are those their own tickets choose.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Each surface keeps its Journey tests in a `journeys` folder of the package that ships it**, beside its integration tests (ADR 0062, which leaves this to this ADR), one file per Journey:
   - Rust: `tests/it/journeys/j002.rs` in the `goodfetch` binary's crate for `cli` and in the public `goodfetch` crate for `sdk-rust`, so the ID is in the test's path;
   - TypeScript: `tests/journeys/J-002.test.ts` in the TypeScript SDK's package, and `tests/journeys/J-002.spec.ts` in the Console's;
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   - Python: `tests/journeys/test_j002.py` in the Python SDK's package, beside `tests/unit/` and `tests/integration/`.
 - **Journey tests run in the suites ADR 0061 gives their package's integration tests**: the Pre-merge suite when their package is touched, the Release suite always. They are not among the checks non-deterministic by nature that ADR 0061 keeps out of the suites, since each runs on its own local Proving ground. The local command that selects variants by ID, surface, milestone or area is the "Test infrastructure" spec's.
 - **A variant's Proving ground, home and environment come from ADR 0062's test support**: `goodfetch-test-support` in Rust, and `goodfetch-test-env` through the two `test-support/` packages in TypeScript and Python. The engine is the shipped binary, never one the helper links.
@@ -147,6 +151,8 @@ Each Journey below lists its later surfaces too. Families are the Proving ground
 | J-011 | Extract fields and page metadata (JSON-LD, Open Graph) from product pages into Records | `cli` (M1); the SDKs and MCP (M2) | [Extraction families](https://github.com/goodfetch/goodfetch/issues/165) | `row:CO-14`, `row:CO-19`, `row:data-extraction-quality` |
 | J-012 | Move a Checkpoint to another Goodfetch home and finish the run there | `cli` (M1); the SDKs (M2) | `catalog` | `row:RT-10` |
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
+
 > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): J-001 and J-009 are Collie's Journeys, the others Foxhound's.
 
 Pain slugs are written as `row:` because they are rows of ADR 0037's matrix. The M1 specs of areas 4, 5, 6 and 12 add their own Journeys when they are written.
@@ -181,6 +187,7 @@ Pain slugs are written as `row:` because they are rows of ADR 0037's matrix. The
 - **Metadata in test code with a generated list** (Kubernetes): rejected. A Journey runs in four or more runners (nextest, Vitest, pytest, Playwright Test), so no single runner's code can hold it, and the steps a person follows would be split across languages.
 - **Executable Gherkin** (Cucumber, cucumber-rs, pytest-bdd): rejected. Gherkin has no ID keyword, and step definitions would be written and kept in step with each other in three languages. The declarative step wording is kept without the glue.
 - **Tests generated from the catalog** (Chromium's dPWA): rejected. Chromium generates one language's tests from shared actions; Goodfetch's surfaces differ in idiom (an SDK call, a CLI line, a Console click), so each surface writes its own test against the same steps.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **A folder per Journey, the path being the ID** (Deno, Crawlee): rejected. A path names the content, so a better name means a rename, which is how TestRail and Allure lose history.
 - **Kebab-case slugs as IDs** (web-features): rejected. A Journey spans areas, and its title grows with each surface and feature; a number never needs to move.
 - **A revision in each ID** (OpenFastTrace's `dsn~name~2`): rejected. Retiring the Journey and assigning a new number gives the same voiding with plain IDs.
@@ -216,6 +223,7 @@ Pain slugs are written as `row:` because they are rows of ADR 0037's matrix. The
   - what a failing or flaky Journey test does: decided since in [ADR 0064](0064-tests-are-never-retried-and-unpinned-checks-run-as-live-checks.md);
   - Journeys of AI features and the `skills` surface: decided since in [ADR 0065](0065-ai-features-are-tested-without-live-models-and-measured-by-oracle-graded-evaluations.md). A Journey that uses an AI feature names the Proving ground's Fake model as its Model provider: the variant's own Proving ground serves it, and the Journey's setup steps point Goodfetch's Model provider setting at it through a public surface, so the shipped binary calls it like any provider. The in-process Scripted model never appears in a Journey;
   - the `console`, SDK, CLI, MCP, adapter and Integration runners: [Console and docs test stack](https://github.com/goodfetch/goodfetch/issues/282), [SDK and CLI test stack](https://github.com/goodfetch/goodfetch/issues/285), [MCP, framework adapter and Integration test stack](https://github.com/goodfetch/goodfetch/issues/286).
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **[`goodfetch-conformance` tracer: the harness, the result document and a self-test suite](https://github.com/goodfetch/goodfetch/issues/169)** builds the Rust constructor, the reader and the outcome vectors; [Conformance result documents from the TypeScript and Python test runners](https://github.com/goodfetch/goodfetch/issues/170) builds the helpers' derivation against them.
 - **The "Test infrastructure" spec** builds the Journey type and its schema, the catalog check and report, the readers' comparison of a document with its Journey, the command that selects variants, the twelve files of the first catalog, and each language's helper that reads a Journey, starts its Proving ground through ADR 0062's test support and writes its result document.
 
@@ -231,4 +239,8 @@ Pain slugs are written as `row:` because they are rows of ADR 0037's matrix. The
 
 > Corrected on 2026-10-19 in [#370](https://github.com/goodfetch/goodfetch/issues/370): the MCP, adapter and Integration runners left to [#286](https://github.com/goodfetch/goodfetch/issues/286) are decided since in [ADR 0070](0070-mcp-adapters-and-integrations-are-tested-through-their-platforms-own-clients-against-a-real-engine.md), whose "Adds to ADR 0063" names them, as the Console's and the SDK and CLI runners are in ADRs 0068 and 0069.
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
+
 > Note of 2026-10-22 (spec #326's review, ST-1; agent decision, as built): a `journey` document's facts hold `test_errors`, each error that failed the variant's test outside its steps, checks and tasks (a page error or an accessibility violation found once the body ended, ADR 0068), and the variant is `proved` only when that list is empty. Without it, a Console variant whose test failed at teardown kept a `proved` document. The shared outcome vectors state the rule (`the-test-failed-after-its-checks`), which `goodfetch-protocol`, the TypeScript and the Python helpers pass.
+
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.

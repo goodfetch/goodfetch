@@ -1,6 +1,8 @@
 //! The child processes an engine starts, such as its browsers (ADR 0024):
 //! each in a process group of its own on macOS and Linux, with `SIGKILL`
-//! as its parent-death signal on Linux, and in a kill-on-close Job Object
+//! as its parent-death signal and the huge-page state the engine itself was
+//! started with on Linux, which [`give_huge_pages_as_started`] also gives
+//! a Daemon its executable starts, and in a kill-on-close Job Object
 //! whose only handle the engine holds on Windows. Stopping the engine's
 //! [`Children`] kills every group it started, or its Job Object; the
 //! engine's own death kills them on Linux and Windows through the kernel,
@@ -17,11 +19,76 @@
     any(target_os = "linux", windows),
     expect(
         unsafe_code,
-        reason = "a child's parent-death signal and Job Object are only set through the OS's C calls (ADR 0024)"
+        reason = "a child's parent-death signal, its huge-page flag and its Job Object are only set through the OS's C calls, and the flag is read from a constructor's link section (ADR 0024)"
     )
 )]
 
 use std::io;
+
+/// Whether the process was started with transparent huge pages turned
+/// off for it, read before the executable's allocator turns them off for
+/// the engine itself (`governor.huge_pages`, ADR 0138), so that the
+/// engine's children keep the host's state.
+#[cfg(target_os = "linux")]
+#[expect(
+    clippy::disallowed_types,
+    reason = "a constructor's static is built at compile time, which loom's atomics cannot be; no loom model starts a child (ADR 0060)"
+)]
+mod huge_pages {
+    use std::ffi::c_ulong;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// What `PR_GET_THP_DISABLE` answered before `main`.
+    static OFF_AT_START: AtomicBool = AtomicBool::new(false);
+
+    /// Reads the flag. The entry's section name gives it priority 100, so
+    /// the loader runs it before mimalloc's constructor, of priority 101,
+    /// which is what sets the flag for the engine.
+    #[used]
+    #[unsafe(link_section = ".init_array.00100")]
+    static READ_AT_START: extern "C" fn() = {
+        extern "C" fn read_at_start() {
+            // SAFETY: `prctl(PR_GET_THP_DISABLE, 0, 0, 0, 0)` takes no
+            // pointer and changes nothing; a kernel without the flag
+            // answers -1, read as not off.
+            let off = unsafe { libc::prctl(libc::PR_GET_THP_DISABLE, 0, 0, 0, 0) } == 1;
+            OFF_AT_START.store(off, Ordering::Relaxed);
+        }
+        read_at_start
+    };
+
+    /// The value `PR_SET_THP_DISABLE` takes to give a child that state.
+    pub(super) fn started_with() -> c_ulong {
+        c_ulong::from(OFF_AT_START.load(Ordering::Relaxed))
+    }
+}
+
+/// Gives the process `command` starts, before `exec`, the huge-page state
+/// this process was started with, for a process of the engine's executable
+/// that another one starts outside [`Children`], such as a Daemon: the
+/// executable's allocator turned them off for the starting process
+/// (`governor.huge_pages`, ADR 0138), and the started one hands its own
+/// start state on to its children. Linux only; elsewhere nothing changes.
+pub fn give_huge_pages_as_started(command: &mut std::process::Command) {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt as _;
+        let started_with = huge_pages::started_with();
+        // SAFETY: the closure runs in the child between fork and exec, or
+        // in this process right before an `exec` in place, and makes one
+        // async-signal-safe system call, which takes no pointer.
+        unsafe {
+            command.pre_exec(move || {
+                // A kernel without the flag refuses the call, which leaves
+                // nothing to set.
+                libc::prctl(libc::PR_SET_THP_DISABLE, started_with, 0, 0, 0);
+                Ok(())
+            });
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = command;
+}
 
 /// The children an engine started; dropping it kills each still alive.
 #[derive(Debug)]
@@ -64,9 +131,16 @@ impl Children {
         command.process_group(0);
         #[cfg(target_os = "linux")]
         // SAFETY: the closure runs in the child between fork and exec, and
-        // only makes one async-signal-safe system call.
+        // only makes async-signal-safe system calls.
         unsafe {
-            command.pre_exec(|| {
+            let started_with = huge_pages::started_with();
+            command.pre_exec(move || {
+                // The engine's executable may have turned transparent huge
+                // pages off for itself (`governor.huge_pages`), a flag a
+                // child inherits through `exec`: the child gets the state
+                // the engine was started with instead. A kernel without
+                // the flag refuses the call, which leaves nothing to set.
+                libc::prctl(libc::PR_SET_THP_DISABLE, started_with, 0, 0, 0);
                 if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) == 0 {
                     Ok(())
                 } else {

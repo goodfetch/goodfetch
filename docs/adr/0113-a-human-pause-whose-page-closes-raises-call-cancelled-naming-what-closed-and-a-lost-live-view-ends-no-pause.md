@@ -11,6 +11,7 @@ ADR 0092 says how `page.pause()` ends: it returns when its condition holds or a 
 - **What stays.** When only the page closed, its Session stays open, with its cookies and its other pages. The page emits `close`, and later calls on it raise ADR 0078's `closed`, as for a page a program closed (ADR 0085) or one a crawler closed (ADR 0089). A value never reopens (ADR 0078). The engine opens no new page to carry the pause on.
 - **Typed details for every `call_cancelled`.** `CallCancelledDetails { by, closed, person }` applies to every case ADR 0080 lists:
   - `by` says who stopped the call: `person` (a person in the Console), `client` (another Client), `program` (the program closing a parent value from another task) or `browser` (above). It is the vocabulary of an Agent's `abort` (ADR 0100), plus `browser`.
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): a person reconciles an uncertain Effect, raises a Limit and answers a Human pause through the CLI's interactive prompts, or later Goodfetch Cloud, and logs in through a headful window locally or the Live view once it is built. The rule otherwise stands.
   - `closed` says what was closed or stopped under the call: `page`, `session`, `browser`, `run` or `connection`.
   - `person` names whom the stopping Client acts for (ADR 0031), when known, and is otherwise null.
 
@@ -20,7 +21,9 @@ ADR 0092 says how `page.pause()` ends: it returns when its condition holds or a 
 ### What does not end a pause
 
 - **A lost Live view ends nothing.** A person who closes the Console's tab, loses the network or lets the device sleep leaves the pause waiting, under `timeout.human_pause`. They come back through "Needs you" or the Notification's link. A control lock held through a lost viewer goes back to *waiting* under ADR 0031's idle-holder rule, never to automation. Ending the pause would report a step as done that nobody did, as closing Playwright's Inspector does (G1).
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **The Live view and the Console close no page that a Human pause holds.** They offer "Done" and "Decline" instead. A grant holder therefore cannot end a program's pause by closing its page from the Live view, and still answers one only through `until` (ADR 0092, G5); a page its own script closes is reported as `by: "browser"`, as above.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **A renderer crash stays `page_crashed`** (ADR 0085), an `UnavailableError`. A crash is not a close, and the two stay apart where Playwright joins them. How a browser process that exits abnormally is told apart from a quit browser is left to area 5's spec below.
 
 ### What is recorded
@@ -36,6 +39,7 @@ ADR 0092 says how `page.pause()` ends: it returns when its condition holds or a 
   This extends the start and end that ADR 0102 already records.
 - **The Audit log** records each pause that a person's answer ended ("Done", "Hand back", "Decline", with the person) and each pause that its page or browser closing ended (`by: "browser"`, with no person). This joins ADR 0031's record of taking control and handing back. An end caused by the condition, the timeout or the program's own cancel is no one's act, so only the Run trace keeps it.
 - **The Run report gains nothing.** A pause is not an outcome of the Run. An error that escapes the program ends the Run through its close (ADR 0078), as any error does (S2). ADR 0102 already rejected a sequence of pauses beside `progress()`. The pause leaves `progress().pauses` and the Console's "Needs you", and no Notification is sent for its end.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 ## Considered Options
 
@@ -61,6 +65,9 @@ ADR 0092 says how `page.pause()` ends: it returns when its condition holds or a 
   > Note (agent decision, on a guarantee, not read by the owner), 2026-10-23, [#731](https://github.com/goodfetch/goodfetch/issues/731): the engine follows each page's target. A target destroyed with no close the engine sent is closed in the browser, unless the browser's connection ends within 2 s, when it is read with the rest of the quit or crash: the browser's windows close before its process exits. A launched browser whose process exits with status 0 quit (as on `SIGTERM`, the signal a desktop's quit sends); one that exits non-zero, by a signal, or with no exit seen within 2 s of its connection ending crashed. A Borrowed browser, whose exit the engine never sees, quit when its connection ends once its Session is open (spec #594's decision 11; recorded 2026-10-28 after the deep review of M1, D16): its calls raise `call_cancelled` naming the browser, and no crash counts in Usage. Every Session seated in a browser that quit or crashed takes its end, one that holds no page included, and the browser leaves its Run's pool at once (S8, S9). A call in flight when its Run stops raises the program's close of its Session (`call_cancelled`, `by: "program"`, `closed: "session"`, S7) at once, or `limit_reached` when a Limit stopped the Run, never a `page_crashed` after the browser's end. `CallCancelledDetails` carries `by` (`client`, `program` or `browser`) and `closed` (`page`, `session` or `browser`); `person`, `run` and `connection` join with the tickets that raise them. A page's `crash` and `close` are the events `page.crash` and `page.close`, published while `page.on` listens to them.
 
   **Area 3 (Engine runtime)** decides the code of a call in flight that a Limit's stop ends, a pause included (ADR 0092 has the Limit stop the Run). **Area 12 (Console)** builds the Live view's refusal to close a paused page and the Audit log entries. **Area 11 (Client surfaces)** builds `CallCancelledDetails` per language. Each lists this ADR.
+
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
+
 - **ADR 0037's matrix:** pain 18 (`agent-human-in-loop`) cites this ADR.
 - **Other tickets of the map.** [Close the pain coverage matrix](https://github.com/goodfetch/goodfetch/issues/485) receives the P40 and P08 rows as filled here.
 - **The `prototype/sdk-api` sketch** holds `CallCancelledDetails` in its `results` files for each language, `browser` in the Agent's `abort`, and the pause's doc text in its `sessions` files. Golden scenario 04 scores failure point 1 on these details. The pain coverage matrix adds these endings to P40 and P08.

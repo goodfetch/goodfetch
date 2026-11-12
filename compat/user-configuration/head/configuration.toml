@@ -15,17 +15,6 @@ traces_endpoint = "example"
 logs_endpoint = "example"
 metrics_endpoint = "example"
 
-[settings.console]
-address = "example"
-content_address = "example"
-content_public_url = "example"
-offline_cache = true
-public_url = "example"
-
-[settings.console.sign_in]
-idle_expiry = 30000
-rate = 4
-
 [settings.daemon]
 idle_timeout = 30000
 address = "example"
@@ -39,6 +28,7 @@ memory_allowance = 4
 pressure = 4
 critical = 4
 host_memory = true
+huge_pages = true
 sample_interval = 30000
 last_resort_after = 30000
 run_share = 4

@@ -39,7 +39,6 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 use crate::check::{self, Finding};
-use crate::console;
 use crate::environment::Environment;
 use crate::output;
 use crate::perf::{self, Figure, Measured};
@@ -56,9 +55,6 @@ struct Family {
     /// Its example target: `<target> [--plant <row>]` prints one JSON line
     /// per cell.
     target: &'static str,
-    /// Whether its target's build embeds a Console build, as Foxhound's
-    /// executable does.
-    embeds_console: bool,
     /// Its benchmark under Valgrind, if it has rows read there.
     valgrind: Option<ValgrindBenchmark>,
     /// The bypasses of a counted function its benchmark plants under
@@ -84,7 +80,6 @@ const B1: Family = Family {
     name: "B1",
     package: products::FOXHOUND.package,
     target: "counts",
-    embeds_console: true,
     valgrind: None,
     bypasses: &[strace::OPEN, strace::DIRECTORY, strace::SYNC],
 };
@@ -93,7 +88,6 @@ const B3: Family = Family {
     name: "B3",
     package: "goodfetch-engine",
     target: "counts",
-    embeds_console: false,
     valgrind: Some(ValgrindBenchmark {
         function: "dispatch_messages",
         empty: "no_messages",
@@ -107,7 +101,6 @@ const B2: Family = Family {
     name: "B2",
     package: "goodfetch-page",
     target: "counts",
-    embeds_console: false,
     valgrind: None,
     bypasses: &[strace::OPEN, strace::DIRECTORY],
 };
@@ -1368,17 +1361,6 @@ fn executables(
 
 /// Builds `family`'s target and answers its executable.
 fn build(family: &Family, environment: &Environment) -> Result<PathBuf> {
-    // The package's dev-dependency on itself turns its executable on, which
-    // embeds its Console build (ADR 0057).
-    if family.embeds_console
-        && environment
-            .root
-            .join(console::PACKAGE)
-            .join("package.json")
-            .is_file()
-    {
-        console::build(&environment.root)?;
-    }
     let output = crate::child_cargo::command(&environment.cargo)
         .args(["build", "--message-format", "json-render-diagnostics"])
         .args(["-p", family.package, "--example", family.target])

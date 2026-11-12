@@ -95,11 +95,7 @@ mod process {
     #[case::attached_hand_over(EngineState::Attached, EngineEvent::HandOver, INTERNAL)]
     #[case::attached_drain(EngineState::Attached, EngineEvent::Drain, INTERNAL)]
     #[case::attached_drained(EngineState::Attached, EngineEvent::Drained, INTERNAL)]
-    #[case::attached_listener_failed(
-        EngineState::Attached,
-        EngineEvent::ListenerFailed,
-        Ok(EngineState::Attached)
-    )]
+    #[case::attached_listener_failed(EngineState::Attached, EngineEvent::ListenerFailed, INTERNAL)]
     #[case::serving_client_lost(
         EngineState::Serving,
         EngineEvent::ClientLost,
@@ -123,7 +119,7 @@ mod process {
     #[case::serving_listener_failed(
         EngineState::Serving,
         EngineEvent::ListenerFailed,
-        Ok(EngineState::Stopping)
+        Ok(EngineState::Draining)
     )]
     #[case::handing_over_client_lost(
         EngineState::HandingOver,

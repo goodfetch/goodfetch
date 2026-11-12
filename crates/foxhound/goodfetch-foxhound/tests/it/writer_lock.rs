@@ -3,7 +3,7 @@
 //! consequence and 0060): an Attached engine runs a crawl and is killed
 //! (`kill -9`, `TerminateProcess` on Windows) at a moment drawn from the
 //! seed among its `crawl_request.handle` requests; then, while a reader
-//! tests the Run's writer lock again and again, as the Console does, another
+//! tests the Run's writer lock again and again, as a Client that reads does, another
 //! engine aborts the Run, taking its writer role at the next run epoch. The
 //! writer never fails because of the reader. A crawl needs Foxhound, so
 //! both engines are Foxhound's (ADR 0094). Fixed seeds run in the

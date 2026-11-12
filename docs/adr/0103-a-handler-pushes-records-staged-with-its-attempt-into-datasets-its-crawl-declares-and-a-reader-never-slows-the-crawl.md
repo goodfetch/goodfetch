@@ -23,6 +23,7 @@ Decided in [Crawl output in code](https://github.com/goodfetch/goodfetch/issues/
 
 - **Two tasks, each with one way (S2).**
   - A handler pushes Records into a Dataset in run state, so they checkpoint, resume, reach Sinks under ADR 0008's delivery contract and show in the Console (ADRs 0002, 0003, 0008).
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
   - A program reads committed Records back as a stream.
   - Crawlee's `pushData` and `getData` split the same way.
 - **`ctx.push(dataset, record)`** (`ctx.push(books, Book(...))` in Python, `ctx.push(&books, &book).await?` in Rust).
@@ -221,6 +222,7 @@ Nothing is added to the SDK API.
 ## Considered Options
 
 - **Pull only** (Spider, Crawl4AI): rejected. Handlers already run in the program, and Records outside run state would miss Checkpoints, Sinks and the Console.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Push only:** rejected. A program that wants its data in hand (a crawl in a service) would need a Sink pointing back at itself.
 - **A Python generator yielding Records** (Scrapy's `yield item`): rejected. It would be a second way to push, unavailable in TypeScript and Rust, and it still needs the Dataset named.
 - **A default Dataset:** rejected. It would be a nameless second way to push, and a Sink could not name it.

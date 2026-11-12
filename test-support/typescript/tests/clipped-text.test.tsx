@@ -1,8 +1,8 @@
 // Seam B (spec #326): `clippedText(locator)` fails with `text_clipped` when an
 // `overflow` box cuts off text under the locator with no way to read it in
 // full (ADR 0073), and passes text a reader can scroll to and visually hidden
-// text. `textSpacing()` applies WCAG's text-spacing values and 200% text,
-// the style sheet the `component` project's text-spacing run injects.
+// text. `textSpacing()` applies WCAG's text-spacing values and 200% text to
+// the test's page until the test ends.
 import { expect, onTestFinished, test } from "vitest";
 import { page } from "vitest/browser";
 import { clippedText, textSpacing } from "@goodfetch/test-support/vitest-browser";

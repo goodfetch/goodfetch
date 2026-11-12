@@ -2,7 +2,7 @@
 # testing), in no suite, on GitHub-hosted Linux x64: weekly while the nightly
 # tier is off (nightly once it is on), and by hand. `just coverage all` runs
 # the Pre-merge suite's tests over the whole workspace with every Rust crate
-# built for coverage, so each SDK, Journey and Console run starts the
+# built for coverage, so each SDK and Journey run starts the
 # instrumented executables of both Products (ADR 0094), and writes three
 # reports: cargo-llvm-cov's over nextest and those runs, Vitest's `v8`
 # provider's in Node and in Browser Mode, and coverage.py's with branches.

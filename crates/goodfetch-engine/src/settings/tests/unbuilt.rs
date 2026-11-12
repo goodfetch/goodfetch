@@ -1,9 +1,9 @@
-//! The list of the settings whose feature is not built
-//! (`crate::settings::unbuilt`) against the workspace's
-//! sources (ADR 0083): every catalog setting is read by product code,
-//! listed as unbuilt, or locked at its default for every layer, so no
-//! value a scope sets is accepted and then ignored; and a listed setting
-//! has no reader, so a key leaves the list in the change that builds one.
+//! The settings the catalog marks as unbuilt (`Setting::unbuilt`) against
+//! the workspace's sources (ADR 0083): every catalog setting is read by
+//! product code, marked as unbuilt, or locked at its default for every
+//! layer, so no value a scope sets is accepted and then ignored; and a
+//! marked setting has no reader, so a key loses its mark in the change that
+//! builds one.
 //!
 //! A read is a use of the setting's constant, `&NAME` or `NAME.`, in a
 //! source file that is no test's: the catalog's own `settings: &[NAME]`
@@ -21,7 +21,6 @@ use goodfetch_protocol::settings::SettingsLayer;
 use serde_json::json;
 
 use crate::settings::resolve::{Layers, resolve};
-use crate::settings::unbuilt::UNBUILT;
 use crate::settings::values::Values;
 use crate::settings::{SettingsError, keys};
 
@@ -36,9 +35,6 @@ const NOT_PRODUCT: [&str; 5] = [
 
 /// The crate that declares the settings.
 const PROTOCOL: &str = "goodfetch-protocol";
-
-/// The list itself, which names each listed setting and reads none.
-const THE_LIST: &str = "goodfetch-engine/src/settings/unbuilt.rs";
 
 /// The Rust sources of the product code under `folder`, a crate's `src` or
 /// a folder beneath one: no test module (`tests.rs`, `tests/`) and no
@@ -72,7 +68,6 @@ fn crates(folder: &Path, into: &mut BTreeMap<String, Vec<String>>) {
             }
             let mut files = Vec::new();
             sources(&path.join("src"), &mut files);
-            files.retain(|file| !file.ends_with(THE_LIST));
             let texts = files
                 .iter()
                 .map(|file| std::fs::read_to_string(file).unwrap())
@@ -117,9 +112,9 @@ fn reads(text: &str, constant: &str) -> bool {
 
 /// Each setting of the catalog is read by product code, is listed as
 /// unbuilt, or is locked at its default whatever the layer (an honesty
-/// guarantee, which no value can change); and no listed setting is read
-/// outside the crate that declares it. A setting this test names is one a
-/// scope may set and nothing reads: build its reader, or list it.
+/// guarantee, which no value can change); and no setting marked as unbuilt
+/// is read outside the crate that declares it. A setting this test names is
+/// one a scope may set and nothing reads: build its reader, or mark it.
 ///
 /// Covers: story:3-88
 #[test]
@@ -128,7 +123,7 @@ fn every_setting_is_read_by_product_code_or_listed_as_unbuilt() {
     let mut by_crate = BTreeMap::new();
     crates(workspace, &mut by_crate);
     let constants = constants(&by_crate[PROTOCOL]);
-    let listed = |name: &str| UNBUILT.iter().any(|unbuilt| unbuilt.setting.name == name);
+    let listed = |name: &str| keys::unbuilt().any(|(setting, _)| setting.name == name);
     let read_in = |name: &str, protocol: bool| {
         constants.get(name).is_some_and(|constant| {
             by_crate
@@ -156,22 +151,6 @@ fn every_setting_is_read_by_product_code_or_listed_as_unbuilt() {
         (Vec::<&str>::new(), Vec::<&str>::new()),
         "settings no product code reads that are not listed as unbuilt, then listed ones a reader was built for"
     );
-}
-
-/// Every listed setting is one of the catalog, once.
-#[test]
-fn the_unbuilt_list_names_catalog_settings_each_once() {
-    let mut listed: Vec<&str> = UNBUILT.iter().map(|unbuilt| unbuilt.setting.name).collect();
-    listed.sort_unstable();
-    let known: Vec<&str> = listed
-        .iter()
-        .copied()
-        .filter(|name| keys::find(name).is_some())
-        .collect();
-    let mut once = known.clone();
-    once.dedup();
-
-    assert_eq!((listed.len(), known.len()), (once.len(), once.len()));
 }
 
 /// A scope beneath a Run, a Session's, that sets a listed setting away

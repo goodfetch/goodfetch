@@ -1,29 +1,6 @@
 use std::sync::Arc;
 
-use serde_json::json;
-
-use super::{RunIndex, setting_keys};
-
-#[test]
-fn a_starts_settings_name_each_nested_key_with_its_prefixes() {
-    let settings =
-        json!({"crawl": {"max_requests": 10, "scope": {"include": ["a"]}}, "timeout": {"run": 5}});
-
-    let mut keys = setting_keys(settings.as_object().unwrap());
-
-    keys.sort_unstable();
-    assert_eq!(
-        keys,
-        [
-            "crawl",
-            "crawl.max_requests",
-            "crawl.scope",
-            "crawl.scope.include",
-            "timeout",
-            "timeout.run",
-        ]
-    );
-}
+use super::RunIndex;
 
 #[test]
 fn a_second_start_of_a_run_id_joins_the_first_starts_reservation() {

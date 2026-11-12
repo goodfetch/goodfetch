@@ -11,8 +11,8 @@
 //! A pinned host that presents another key, or whose pin row the engine
 //! cannot read, stops with `certificate_changed` until a person accepts the
 //! new key with `certs.accept`; `certs.forget` removes a pin. Both are a
-//! person's answers, offered only in the Console and an interactive CLI
-//! prompt (ADRs 0011 and 0042).
+//! person's answers, offered only in an interactive CLI prompt (ADRs 0011
+//! and 0042).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -40,6 +40,8 @@ pub const TLS_TRUSTED_CAS: Setting = Setting {
     clearable: false,
     authority: Authority::Configuration,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -62,6 +64,8 @@ pub const TLS_ACCEPT_INVALID_CERTS: Setting = Setting {
     clearable: false,
     authority: Authority::ConfigurationExcept(trust_on_first_use_only),
     weakens: Some(accepts_any_invalid_certificate),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -164,6 +168,8 @@ pub const TLS_CLIENT_CERTIFICATES: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -282,7 +288,7 @@ pub struct CertificatePin {
 /// A pinned host stopped.
 pub const CERTIFICATE_CHANGED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "certificate_changed",
-    description: "A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt or the Console, which no agent, Recipe or `--json` command can do.",
+    description: "A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt, which no agent, Recipe or `--json` command can do.",
     group: ErrorGroup::Refused,
     retryable: false,
     exit_code: None,
@@ -324,7 +330,7 @@ pub struct CertsAcceptParams {
 /// `certs.accept` (ADR 0042).
 pub const CERTS_ACCEPT: Operation = Operation {
     name: "certs.accept",
-    description: "Pins the changed key that stopped a host with `certificate_changed` in place of its pin, in the caller's partition, and records the accepted change in the Audit log; answers the new pin. Refused unless the key is the change the store holds for the host. A person's answer: offered only in the Console and the interactive CLI prompt.",
+    description: "Pins the changed key that stopped a host with `certificate_changed` in place of its pin, in the caller's partition, and records the accepted change in the Audit log; answers the new pin. Refused unless the key is the change the store holds for the host. A person's answer: offered only in the interactive CLI prompt.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::PersonOnly,
@@ -332,6 +338,8 @@ pub const CERTS_ACCEPT: Operation = Operation {
     result: schema_of::<CertificatePin>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -360,7 +368,7 @@ pub struct CertsForgotten {
 /// `certs.forget` (ADR 0042).
 pub const CERTS_FORGET: Operation = Operation {
     name: "certs.forget",
-    description: "Removes the caller's pin of a host, and any change waiting for it, so its next connection under trust on first use pins again; nothing else removes a pin. A person's answer: offered only in the Console and the interactive CLI prompt.",
+    description: "Removes the caller's pin of a host, and any change waiting for it, so its next connection under trust on first use pins again; nothing else removes a pin. A person's answer: offered only in the interactive CLI prompt.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::PersonOnly,
@@ -368,6 +376,8 @@ pub const CERTS_FORGET: Operation = Operation {
     result: schema_of::<CertsForgotten>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -397,6 +407,8 @@ pub const CERTS_LIST: Operation = Operation {
     result: schema_of::<CertsListed>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,

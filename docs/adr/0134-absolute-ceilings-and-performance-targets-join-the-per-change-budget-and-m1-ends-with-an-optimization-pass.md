@@ -60,6 +60,8 @@ Decided with the owner in a grilling session on 2026-10-18, before the engine tr
 
 Both scenarios run in the Release suite on every OS, are checked by a ratio so the machine does not matter, as the Console's leak check is, and fit `TESTING.md`'s five-minute cap per test.
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
+
 - **The Frontier at scale:** one process enqueues 100,000 synthetic URLs, then 1,000,000, with no network. Peak RSS at 1,000,000 is at most **1.5×** peak RSS at 100,000.
 - **The Daemon soak:** one Daemon runs **20** consecutive 1,000-page Proving ground crawls. Its RSS after the 20th is within **10%** of its RSS after the 3rd; the first three are warm-up. If 20 crawls take more than about two minutes, the scenario lowers the pages per crawl, never the crawl count.
 - **Both pin the resource governor's memory allowance** (ADR 0040) far above the expected peak, so neither measures load shedding.

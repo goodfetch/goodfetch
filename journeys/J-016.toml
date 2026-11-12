@@ -17,7 +17,6 @@ seed = 16
 
 [surfaces]
 cli = "M4"
-console = "M4"
 
 [[steps]]
 text = "Set a monthly install Limit below what extracting every product page of the catalog uses, and a Notification channel the person reads"
@@ -31,8 +30,7 @@ on = "cli"
 text = "Read the Notifications the channel received"
 
 [[steps]]
-text = "Look at \"Needs you\" in the Console"
-on = "console"
+text = "Read \"Needs you\""
 
 [[expect]]
 text = "The channel received exactly one Notification at each of 50 %, 80 % and 100 % of the install Limit, in that order, though runs on both engines crossed them"

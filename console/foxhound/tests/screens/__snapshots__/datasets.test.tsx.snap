@@ -1,8 +1,0 @@
-// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
-
-exports[`the Records grid's render budget: commits for a page read and for a sort 1`] = `
-{
-  "pageRead": 7,
-  "sort": 2,
-}
-`;

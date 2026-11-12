@@ -189,9 +189,8 @@ jobs:
       # AddressSanitizer run of every crate that opts into `unsafe`, on the
       # nightly of ci/sanitizer-toolchain.toml (its standard library rebuilt,
       # so its build fetches before the deny); the V8 memory-corruption
-      # scripts on the test V8 build fetched by digest, and the ZAP baseline
-      # of the Console from its image by digest, each a slot until its
-      # subject exists (ci/v8-corruption.sh, ci/zap.sh).
+      # scripts on the test V8 build fetched by digest, a slot until its
+      # subject exists (ci/v8-corruption.sh).
       - name: Install the sanitizer toolchain
         if: matrix.cell == 'linux-x64-gnu'
         run: >-
@@ -204,9 +203,6 @@ jobs:
       - name: Fetch the test V8 build by its digest
         if: matrix.cell == 'linux-x64-gnu'
         run: just v8-corruption fetch
-      - name: Pull the pinned ZAP image
-        if: matrix.cell == 'linux-x64-gnu'
-        run: just zap fetch
       # The LazyFS power cuts (ADR 0060), on one cell: FUSE from the runner's
       # packages, LazyFS from its pinned source archives.
       - name: Build the pinned LazyFS
@@ -247,9 +243,6 @@ jobs:
       - name: "Test: the V8 memory-corruption scripts"
         if: matrix.cell == 'linux-x64-gnu'
         run: ci/egress/under-deny.sh just v8-corruption test
-      - name: "Test: the ZAP baseline of the Console"
-        if: matrix.cell == 'linux-x64-gnu'
-        run: ci/egress/under-deny.sh just zap scan
       - name: "Test: LazyFS power cuts"
         if: matrix.cell == 'linux-x64-gnu'
         run: ci/egress/under-deny.sh ci/release/cell.sh lazyfs

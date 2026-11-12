@@ -20,17 +20,12 @@ tasks = [
 
 [surfaces]
 cli = "M1"
-console = "M1"
 
 [[steps]]
 text = "Give the Session pool three of the Proving ground's forward proxies, each reaching the site from an address of its own"
 
 [[steps]]
 text = "Crawl the site's list through the proxies"
-
-[[steps]]
-text = "Watch the run's Block causes and Sessions in the Console"
-on = "console"
 
 [[expect]]
 text = "The run reports the Block cause of each address the site flagged"

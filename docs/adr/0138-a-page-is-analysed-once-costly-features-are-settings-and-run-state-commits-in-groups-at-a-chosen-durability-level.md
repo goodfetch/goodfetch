@@ -195,6 +195,8 @@ How proven crawlers shape this work. Each was checked against its primary source
 
 - **Allocation churn is removed first:** the clean-up's compilations, the savepoint journal, Datasets, the 8 parses, `Resolved` clones and progress serialization.
 - **mimalloc's purge delay is set to 0 in code**, against v3's 1,000 ms.
+
+  > Note (as built), 2026-11-12, [#2199](https://github.com/goodfetch/goodfetch/issues/2199): transparent huge pages are off by default too, set from a constructor beside the purge delay. `goodfetch-collie`'s `executable::allocator` has an `.init_array.00100` entry, which runs before mimalloc's own constructor (priority 101) and sets `allow_thp` to 0; mimalloc then calls `prctl(PR_SET_THP_DISABLE)` and never advises its arena, as under `MIMALLOC_ALLOW_THP=0`, which would reach the browsers the engine starts. `governor.huge_pages: true` (the machine's own, lockable by the Operator policy, read once at start) clears the flag and sets the option back before any thread starts. Every child the engine's `children` module starts gets back, before `exec`, the state the engine itself was started with, which that module reads from a constructor of its own; so does a Daemon the executable starts, launched, in place of itself or under its reaper, so that the Daemon hands the host's state on to its own browsers. Linux only.
 - **RSS and CPU are measured again on the shipped static musl binary** (ADR 0024), and the allocator changes only if that measurement justifies it. The allocator was compared with glibc's, which no Linux build ships.
 - **The executable's resident pages** (57–67 MiB in the profile, above the whole 32 MiB target) are measured and written up as their own part of any gap to the target.
 

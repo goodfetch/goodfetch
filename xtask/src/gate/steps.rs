@@ -53,10 +53,6 @@ pub(crate) struct Entry {
     pub(crate) just: Vec<&'static str>,
 }
 
-/// Collie's Console build, which the steps beside find in the workspace
-/// they mount (ADR 0057): it runs after the whole change's checks.
-const CONSOLE_BUILD: &str = "console-build";
-
 /// The checks of `just lint` that read documents: the docs form's only
 /// lint.
 const LINT_DOCUMENTS: &str = "lint-documents";
@@ -70,13 +66,6 @@ pub(crate) fn entries(form: Form) -> Vec<Entry> {
     };
     let mut entries = Vec::new();
     for step in Step::ALL.into_iter().filter(|step| runs_in(*step, form)) {
-        if step.beside()
-            && !entries
-                .iter()
-                .any(|entry: &Entry| entry.name == CONSOLE_BUILD)
-        {
-            entries.push(command(CONSOLE_BUILD));
-        }
         entries.push(Entry {
             name: step.name(),
             kind: if step.beside() {

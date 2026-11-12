@@ -36,28 +36,20 @@ _Avoid_: engine ID, boot ID, session (a Session is a browsing identity)
 The hosted service that runs the engine for customers on Goodfetch's infrastructure.
 _Avoid_: platform, Goodfetch (for the hosted service)
 
-**Console**:
-The web interface for operating a Product, served locally by its engine or by Goodfetch Cloud.
-_Avoid_: dashboard, inspector, app
-
 **Kennel**:
 Goodfetch's local tool for watching and controlling the runs of a machine's Daemon, published apart from the Products under its own version; part of no Product.
-_Avoid_: Console, dashboard, tray app, monitor
+_Avoid_: dashboard, tray app, monitor
 
 **Desktop notice**:
 A message the Kennel shows through the operating system's notifications, only while it runs, when a Run or the Daemon changes to a state that needs a person; not a Notification, which the engine sends whether or not a Kennel runs.
 _Avoid_: alert, notification (for the Kennel's)
 
 **Needs you**:
-The Console's one list of everything waiting for a person across every run in the Run index and the stores beside it, each item of a kind whose source, a domain crate's value, fills it, and gone once resolved or dismissed.
+The engine's one list of everything waiting for a person across every run in the Run index and the stores beside it, which a Client reads, each item of a kind whose source, a domain crate's value, fills it, and gone once resolved or dismissed.
 _Avoid_: inbox, to-do list, attention list
 
-**Content origin**:
-The Console's second origin, which shows a run's scraped HTML, screenshots, DOM snapshots and page bodies only to an address the Console signed for that one file, valid 5 minutes, carrying no cookie, under a sandbox policy that runs no script.
-_Avoid_: preview domain, sandbox origin, file server
-
 **Client**:
-Any program that drives the engine through its operations: an SDK, the CLI, the MCP server, the Console or Goodfetch Cloud. Speaking CDP to a browser does not make a program a Client.
+Any program that drives the engine through its operations: an SDK, the CLI, the MCP server or Goodfetch Cloud. Speaking CDP to a browser does not make a program a Client.
 _Avoid_: frontend, binding, consumer
 
 **Connection**:
@@ -853,7 +845,7 @@ A committed image of a screen or component in one state, which a visual test com
 _Avoid_: baseline, golden image, snapshot (alone)
 
 **Performance budget**:
-The counted costs of Goodfetch's code (instructions, heap allocations, protocol messages and bytes, renders, bundle bytes) that a single change may grow only by a set margin without an explicit, recorded acceptance, and the absolute ceilings that those costs, resident memory and the Console may never pass.
+The counted costs of Goodfetch's code (instructions, heap allocations, protocol messages and bytes, renders, bundle bytes) that a single change may grow only by a set margin without an explicit, recorded acceptance, and the absolute ceilings that those costs and resident memory may never pass.
 _Avoid_: perf test, speed limit, benchmark (for a budget)
 
 **Performance target**:
@@ -885,7 +877,7 @@ The tests and checks of Goodfetch that run in-process, on what a change touches 
 _Avoid_: unit suite, smoke tests, fast tests
 
 **Pre-merge suite**:
-The Quick suite plus the integration, conformance, sink, SDK and Console tests of what a change touches, on one platform, which every pull request must pass.
+The Quick suite plus the integration, conformance, sink and SDK tests of what a change touches, on one platform, which every pull request must pass.
 _Avoid_: PR checks, CI suite
 
 **Release suite**:
@@ -893,5 +885,5 @@ The Pre-merge suite for every package across every supported platform, runtime a
 _Avoid_: full suite, nightly suite, matrix (alone)
 
 **Stub gateway**:
-A test-only stand-in for Goodfetch Cloud's gateway, kept in the public repository, that serves the Console through the same operations across per-run engines, so the Console conformance suite can run without Goodfetch Cloud.
+A test-only stand-in for Goodfetch Cloud's gateway, kept in the public repository, that serves a Client the same operations across per-run engines, each run on its Product's engine, so the cloud-readiness conformance can run without Goodfetch Cloud.
 _Avoid_: mock cloud, fake gateway, cloud emulator

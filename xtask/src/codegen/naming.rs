@@ -59,9 +59,102 @@ pub(super) fn snake(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
     use rstest::rstest;
 
-    use super::{camel, pascal, snake};
+    use super::{INITIALISMS, camel, pascal, snake};
+
+    /// A word of a catalog name: an initialism, or two to eight characters
+    /// that start with a letter. A single letter or a leading digit after
+    /// the first word is outside the rule's round trip (`x_a_i` and `x_ai`
+    /// both spell `xAI`), which is why codegen refuses two entries that give
+    /// one receiver one member.
+    fn word() -> impl Strategy<Value = String> {
+        let letter = || proptest::sample::select(('a'..='z').collect::<Vec<_>>());
+        let later = proptest::sample::select(('a'..='z').chain('0'..='9').collect::<Vec<_>>());
+        let ordinary = (letter(), proptest::collection::vec(later, 1..8))
+            .prop_map(|(first, rest)| std::iter::once(first).chain(rest).collect::<String>());
+        prop_oneof![
+            proptest::sample::select(INITIALISMS.to_vec()).prop_map(str::to_owned),
+            ordinary,
+        ]
+    }
+
+    /// A catalog name's words, one to five of them.
+    fn name_words() -> impl Strategy<Value = Vec<String>> {
+        proptest::collection::vec(word(), 1..6)
+    }
+
+    /// The words a camelCase spelling was made of, read back by the rule
+    /// alone: a capital before a lowercase letter or a digit opens an
+    /// ordinary word, and any other capital opens the longest initialism
+    /// that ends where the next word, or nothing, begins.
+    fn words_of(spelled: &str) -> Vec<String> {
+        let characters: Vec<char> = spelled.chars().collect();
+        let opens_a_word =
+            |index: usize| characters.get(index).is_none_or(char::is_ascii_uppercase);
+        let mut found = Vec::new();
+        let mut index = 0;
+        while index < characters.len() {
+            let initialism = INITIALISMS
+                .iter()
+                .filter(|initialism| {
+                    let end = index + initialism.len();
+                    index > 0
+                        && opens_a_word(index + 1)
+                        && opens_a_word(end)
+                        && characters.get(index..end).is_some_and(|slice| {
+                            slice.iter().collect::<String>() == initialism.to_uppercase()
+                        })
+                })
+                .max_by_key(|initialism| initialism.len());
+            if let Some(initialism) = initialism {
+                found.push((*initialism).to_owned());
+                index += initialism.len();
+                continue;
+            }
+            let mut word = String::from(characters[index].to_ascii_lowercase());
+            index += 1;
+            while !opens_a_word(index) {
+                word.push(characters[index]);
+                index += 1;
+            }
+            found.push(word);
+        }
+        found
+    }
+
+    proptest! {
+        #![proptest_config(goodfetch_test_support::proptest_config())]
+
+        /// Covers: story:11-176
+        #[test]
+        fn a_camel_case_name_reads_back_as_its_words(words in name_words()) {
+            let spelled = camel(&words.join("_"));
+
+            prop_assert_eq!(words_of(&spelled), words);
+        }
+
+        /// Covers: story:11-176
+        #[test]
+        fn two_names_never_share_a_spelling(first in name_words(), second in name_words()) {
+            prop_assume!(first != second);
+            let (first, second) = (first.join("_"), second.join("_"));
+
+            prop_assert_ne!(camel(&first), camel(&second));
+            prop_assert_ne!(pascal(&first), pascal(&second));
+        }
+
+        /// A name spells the same whichever of `.` and `_` parts its words:
+        /// the spelling is stable when an entry moves to another namespace
+        /// of the same words.
+        ///
+        /// Covers: story:11-176
+        #[test]
+        fn a_spelling_is_the_same_whatever_parts_its_words(name in name_words()) {
+            prop_assert_eq!(camel(&name.join(".")), camel(&name.join("_")));
+        }
+    }
 
     #[rstest]
     #[case::words("page_check_failed", "PageCheckFailed")]

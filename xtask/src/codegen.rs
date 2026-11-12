@@ -53,6 +53,7 @@ mod names;
 mod naming;
 mod projection;
 mod python;
+mod refused;
 mod special_purpose;
 mod test_support;
 mod typescript;
@@ -343,6 +344,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
 
     let collie = projection::project(&catalog, &bundle, Product::Collie)?;
     let foxhound = projection::project(&catalog, &bundle, Product::Foxhound)?;
+    refused::check(&[&collie, &foxhound])?;
     files.insert(
         format!("{PROTOCOL_GENERATED}/collie.json"),
         json_text(&collie)?,

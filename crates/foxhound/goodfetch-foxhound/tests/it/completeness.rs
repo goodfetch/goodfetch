@@ -15,12 +15,11 @@ use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::attached;
+use crate::site::Site;
 
-/// A seed of the crawl, on a host no request reaches: the handler answers
-/// each page without fetching it.
-fn seed(path: &str) -> Value {
-    json!({ "url": format!("https://shop.test/{path}"), "label": "page" })
+/// A seed of the crawl, a page of `site`.
+fn seed(site: &Site, path: &str) -> Value {
+    json!({ "url": site.page(&format!("/{path}")), "label": "page" })
 }
 
 /// The handler's answer for `params`'s page: a Record, or the `blocked`
@@ -61,12 +60,19 @@ fn left_at(cause: &str, count: u64) -> Value {
     )
 }
 
-/// The Completeness of the crawl `run_id` of `seeds` under the crawl
-/// settings `settings`, and its reasons, as `run.finish` answered them and
-/// as an engine started afterwards reads them.
-fn finished(run_id: &str, seeds: &[Value], settings: &Value) -> (Value, Value, Value) {
+/// The Completeness of the crawl `run_id` of the seeds `seeds` makes on
+/// its site under the crawl settings `settings`, and its reasons, as
+/// `run.finish` answered them and as an engine started afterwards reads
+/// them.
+fn finished(
+    run_id: &str,
+    seeds: impl FnOnce(&Site) -> Vec<Value>,
+    settings: &Value,
+) -> (Value, Value, Value) {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let seeds = seeds(&site);
+    let mut engine = site.engine(&env);
     engine.call(
         "start",
         "crawl.start",
@@ -81,7 +87,7 @@ fn finished(run_id: &str, seeds: &[Value], settings: &Value) -> (Value, Value, V
     );
     assert!(engine.finished());
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
-    let mut engine = attached(&env);
+    let mut engine = site.engine(&env);
     let again = engine.call(
         "again",
         "run.finish",
@@ -134,9 +140,9 @@ fn each_reason_gives_its_completeness_with_its_count(
     #[case] completeness: &str,
     #[case] reasons: Value,
 ) {
-    let seeds: Vec<Value> = paths.iter().map(|path| seed(path)).collect();
+    let seeds = |site: &Site| paths.iter().map(|path| seed(site, path)).collect();
 
-    let (given, listed, nothing_done) = finished("reasons", &seeds, &settings);
+    let (given, listed, nothing_done) = finished("reasons", seeds, &settings);
 
     assert_eq!(
         (given, listed, nothing_done),
@@ -151,11 +157,12 @@ fn each_reason_gives_its_completeness_with_its_count(
 #[test]
 fn a_stopped_crawl_is_incomplete_counting_the_requests_it_left() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     engine.call(
         "start",
         "crawl.start",
-        &json!({ "run_id": "stopped", "seeds": [seed("a"), seed("b"), seed("c")] }),
+        &json!({ "run_id": "stopped", "seeds": [seed(&site, "a"), seed(&site, "b"), seed(&site, "c")] }),
         &mut |_| None,
     );
     let report = engine.call(
@@ -190,14 +197,16 @@ fn a_stopped_crawl_is_incomplete_counting_the_requests_it_left() {
 /// Covers: story:6-309, story:3-156, setting:crawl.max_requests
 #[test]
 fn a_crawl_of_nothing_says_why_it_did_nothing() {
-    let seeds = [
-        json!({ "url": "ftp://shop.test/a", "label": "page" }),
-        seed("b"),
-        seed("c"),
-    ];
+    let seeds = |site: &Site| {
+        vec![
+            json!({ "url": "ftp://shop.test/a", "label": "page" }),
+            seed(site, "b"),
+            seed(site, "c"),
+        ]
+    };
 
     let (completeness, reasons, nothing_done) =
-        finished("nothing", &seeds, &json!({ "max_requests": 0 }));
+        finished("nothing", seeds, &json!({ "max_requests": 0 }));
 
     assert_eq!(
         (completeness, reasons, nothing_done),

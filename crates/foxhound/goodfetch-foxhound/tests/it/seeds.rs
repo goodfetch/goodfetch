@@ -17,8 +17,8 @@ use goodfetch_test_client::Attached;
 use goodfetch_test_support::{Suite, TestEnv};
 use serde_json::{Value, json};
 
-use crate::attached;
 use crate::frontier::{added, crawl, not_added};
+use crate::site::Site;
 
 /// The handler of these crawls: one Record naming each page.
 fn record_the_page(params: &Value) -> Value {
@@ -86,8 +86,9 @@ fn outcomes(engine: &mut Attached, run_id: &str) -> Vec<(Value, Value)> {
 #[test]
 fn a_seed_added_to_a_running_crawl_is_committed_at_once_and_answered_as_an_enqueue_is() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
-    start_keep_alive(&mut engine, "adding", "https://shop.test/a");
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+    start_keep_alive(&mut engine, "adding", &site.page("/a"));
     let pages = RefCell::new(Vec::new());
     let mut handler = |params: &Value| {
         pages
@@ -97,21 +98,16 @@ fn a_seed_added_to_a_running_crawl_is_committed_at_once_and_answered_as_an_enque
     };
 
     let answers = [
-        add_seed(&mut engine, "adding", "https://SHOP.test/b", &mut handler),
         add_seed(
             &mut engine,
             "adding",
-            "https://shop.test/b#top",
+            &site.page("/b").replace("shop.test", "SHOP.test"),
             &mut handler,
         ),
+        add_seed(&mut engine, "adding", &site.page("/b#top"), &mut handler),
         add_seed(&mut engine, "adding", "ftp://shop.test/c", &mut handler),
         add_seed(&mut engine, "adding", "c", &mut handler),
-        add_seed(
-            &mut engine,
-            "elsewhere",
-            "https://shop.test/d",
-            &mut handler,
-        ),
+        add_seed(&mut engine, "elsewhere", &site.page("/d"), &mut handler),
     ];
     serve_until(&mut engine, &mut handler, || pages.borrow().len() == 2);
     let mut handled_while_running = pages.borrow().clone();
@@ -129,8 +125,8 @@ fn a_seed_added_to_a_running_crawl_is_committed_at_once_and_answered_as_an_enque
     assert_eq!(
         answers,
         [
-            added("2", "https://shop.test/b"),
-            not_added("duplicate", "https://shop.test/b#top"),
+            added("2", &site.page("/b")),
+            not_added("duplicate", &site.page("/b#top")),
             not_added("unsupported_scheme", "ftp://shop.test/c"),
             not_added("invalid_url", "c"),
             json!("run_not_found"),
@@ -143,11 +139,11 @@ fn a_seed_added_to_a_running_crawl_is_committed_at_once_and_answered_as_an_enque
             outcomes
         ),
         (
-            vec![json!("https://shop.test/a"), json!("https://shop.test/b")],
+            vec![json!(site.page("/a")), json!(site.page("/b"))],
             &json!("finished"),
             vec![
-                (json!("https://shop.test/a"), json!("succeeded")),
-                (json!("https://shop.test/b"), json!("succeeded")),
+                (json!(site.page("/a")), json!("succeeded")),
+                (json!(site.page("/b")), json!("succeeded")),
             ],
         )
     );
@@ -162,14 +158,15 @@ fn a_seed_added_to_a_running_crawl_is_committed_at_once_and_answered_as_an_enque
 #[test]
 fn a_seed_added_through_a_handlers_context_is_bound_to_its_attempt() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     let mut first_attempt: Option<Value> = None;
     let mut answers = Vec::new();
 
     crawl(
         &mut engine,
         "bound",
-        &[json!({ "url": "https://shop.test/a", "label": "page" })],
+        &[json!({ "url": site.page("/a"), "label": "page" })],
         &mut |inside, handle| {
             let attempt = first_attempt.get_or_insert_with(|| {
                 json!({
@@ -179,9 +176,9 @@ fn a_seed_added_through_a_handlers_context_is_bound_to_its_attempt() {
             });
             if answers.len() < 2 {
                 let url = if answers.is_empty() {
-                    "https://shop.test/a-seeded"
+                    site.page("/a-seeded")
                 } else {
-                    "https://shop.test/late"
+                    site.page("/late")
                 };
                 let reply = inside.call(
                     "run.add_seed",
@@ -207,13 +204,10 @@ fn a_seed_added_through_a_handlers_context_is_bound_to_its_attempt() {
     assert_eq!(
         (answers, outcomes),
         (
+            vec![added("2", &site.page("/a-seeded")), json!("attempt_ended"),],
             vec![
-                added("2", "https://shop.test/a-seeded"),
-                json!("attempt_ended"),
-            ],
-            vec![
-                (json!("https://shop.test/a"), json!("succeeded")),
-                (json!("https://shop.test/a-seeded"), json!("succeeded")),
+                (json!(site.page("/a")), json!("succeeded")),
+                (json!(site.page("/a-seeded")), json!("succeeded")),
             ],
         )
     );
@@ -299,7 +293,8 @@ fn seed(url: &str) -> Value {
 #[test]
 fn a_keep_alive_crawl_with_nothing_to_do_takes_seeds_from_add_seed_and_add_seeds() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     start_keep_alive(&mut engine, "service", "ftp://shop.test/");
     let idle = engine.is_quiet_for(Duration::from_millis(500));
     let pages = RefCell::new(Vec::new());
@@ -310,19 +305,14 @@ fn a_keep_alive_crawl_with_nothing_to_do_takes_seeds_from_add_seed_and_add_seeds
         Some(record_the_page(params))
     };
 
-    let one = add_seed(
-        &mut engine,
-        "service",
-        "https://shop.test/one",
-        &mut handler,
-    );
+    let one = add_seed(&mut engine, "service", &site.page("/one"), &mut handler);
     serve_until(&mut engine, &mut handler, || pages.borrow().len() == 1);
     engine.send(&json!({
         "jsonrpc": "2.0", "id": STREAM, "method": "run.add_seeds",
         "params": { "run_id": "service" },
     }));
     let credit = next_for_stream(&mut engine, &mut handler);
-    send_seeds(&mut engine, &[seed("https://shop.test/two")], true);
+    send_seeds(&mut engine, &[seed(&site.page("/two"))], true);
     let streamed = [
         next_for_stream(&mut engine, &mut handler),
         next_for_stream(&mut engine, &mut handler),
@@ -339,11 +329,11 @@ fn a_keep_alive_crawl_with_nothing_to_do_takes_seeds_from_add_seed_and_add_seeds
 
     assert_eq!(
         (idle, one, credit),
-        (true, added("1", "https://shop.test/one"), Came::Credit(256))
+        (true, added("1", &site.page("/one")), Came::Credit(256))
     );
     assert_eq!(
         streamed[0],
-        Came::Answers(vec![added("2", "https://shop.test/two")])
+        Came::Answers(vec![added("2", &site.page("/two"))])
     );
     let Came::Reply(reply) = &streamed[1] else {
         panic!("the stream did not end: {:?}", streamed[1]);
@@ -357,10 +347,7 @@ fn a_keep_alive_crawl_with_nothing_to_do_takes_seeds_from_add_seed_and_add_seeds
         ),
         (
             &json!({ "added": 1, "not_added": 0 }),
-            vec![
-                json!("https://shop.test/one"),
-                json!("https://shop.test/two")
-            ],
+            vec![json!(site.page("/one")), json!(site.page("/two"))],
             &json!("finished"),
             &json!("complete"),
         )
@@ -376,8 +363,9 @@ fn a_keep_alive_crawl_with_nothing_to_do_takes_seeds_from_add_seed_and_add_seeds
 #[test]
 fn add_seeds_answers_each_seed_in_order_under_the_credits_it_grants() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
-    start_keep_alive(&mut engine, "credits", "https://shop.test/0");
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+    start_keep_alive(&mut engine, "credits", &site.page("/0"));
     let mut unanswered = |_: &Value| None;
     engine.send(&json!({
         "jsonrpc": "2.0", "id": STREAM, "method": "run.add_seeds",
@@ -386,16 +374,16 @@ fn add_seeds_answers_each_seed_in_order_under_the_credits_it_grants() {
     let first_credit = next_for_stream(&mut engine, &mut unanswered);
     let urls: Vec<String> = (1..=256)
         .map(|n| match n {
-            100 => "https://shop.test/7".to_owned(),
+            100 => site.page("/7"),
             200 => "mailto:owner@shop.test".to_owned(),
-            n => format!("https://shop.test/{n}"),
+            n => site.page(&format!("/{n}")),
         })
         .collect();
     let seeds: Vec<Value> = urls.iter().map(|url| seed(url)).collect();
     send_seeds(&mut engine, &seeds, false);
     let answers = next_for_stream(&mut engine, &mut unanswered);
     let next_credit = next_for_stream(&mut engine, &mut unanswered);
-    send_seeds(&mut engine, &vec![seed("https://shop.test/x"); 257], false);
+    send_seeds(&mut engine, &vec![seed(&site.page("/x")); 257], false);
     let refused = next_for_stream(&mut engine, &mut unanswered);
     let exited = engine.finished();
 
@@ -471,8 +459,9 @@ fn a_million_seeds_stream_through_add_seeds_with_the_engines_memory_bounded_by_i
         Suite::Release => 1_000_000,
         _ => 100_000,
     };
-    let mut engine = attached(&env);
-    start_keep_alive(&mut engine, "million", "https://many.test/0");
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+    start_keep_alive(&mut engine, "million", &site.url("many.test", "/0"));
     let mut unanswered = |_: &Value| None;
     engine.send(&json!({
         "jsonrpc": "2.0", "id": STREAM, "method": "run.add_seeds",
@@ -487,7 +476,7 @@ fn a_million_seeds_stream_through_add_seeds_with_the_engines_memory_bounded_by_i
     while answered < count {
         if credits > 0 && next <= count {
             let batch: Vec<Value> = (next..(next + credits).min(count + 1))
-                .map(|n| seed(&format!("https://many.test/{}/{n}", n % 64)))
+                .map(|n| seed(&site.url("many.test", &format!("/{}/{n}", n % 64))))
                 .collect();
             next += batch.len() as u64;
             credits -= batch.len() as u64;

@@ -15,8 +15,8 @@
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use crate::attached;
 use crate::frontier::{Inside, added, crawl_from, not_added};
+use crate::site::Site;
 
 /// A book's Payload schema: its ISBN, a text, and nothing else.
 fn book_schema() -> Value {
@@ -74,7 +74,8 @@ fn a_payload_reaches_its_handler_as_given_apart_from_its_identity_and_one_that_d
  {
     let env = TestEnv::new();
     let shelf_payload = json!({ "note": "Ünïcødé ✓", "nested": [1, { "a": null }, 2.5, true] });
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
 
     let mut received = Vec::new();
     let mut answers = Vec::new();
@@ -83,19 +84,19 @@ fn a_payload_reaches_its_handler_as_given_apart_from_its_identity_and_one_that_d
         &json!({
             "run_id": "typed",
             "labels": { "shelf": {}, "book": { "payload": book_schema() } },
-            "seeds": [{ "url": "https://shop.test/shelf", "label": "shelf", "payload": shelf_payload }],
+            "seeds": [{ "url": site.page("/shelf"), "label": "shelf", "payload": shelf_payload }],
         }),
         &mut |inside, handle| {
             let request = &handle["crawl_request"];
             received.push((request["label"].clone(), request.get("payload").cloned()));
             if request["label"] == "shelf" {
                 for (url, payload) in [
-                    ("https://shop.test/book/1", Some(json!({ "isbn": "1" }))),
-                    ("https://shop.test/book/1", Some(json!({ "isbn": "2" }))),
-                    ("https://shop.test/book/2", Some(json!({ "isbn": 2 }))),
-                    ("https://shop.test/book/3", None),
+                    (site.page("/book/1"), Some(json!({ "isbn": "1" }))),
+                    (site.page("/book/1"), Some(json!({ "isbn": "2" }))),
+                    (site.page("/book/2"), Some(json!({ "isbn": 2 }))),
+                    (site.page("/book/3"), None),
                 ] {
-                    answers.push(enqueue(inside, handle, url, "book", payload));
+                    answers.push(enqueue(inside, handle, &url, "book", payload));
                 }
             }
             json!({ "result": { "records": [] } })
@@ -113,8 +114,8 @@ fn a_payload_reaches_its_handler_as_given_apart_from_its_identity_and_one_that_d
                 (json!("book"), Some(json!({ "isbn": "1" }))),
             ],
             vec![
-                added("2", "https://shop.test/book/1"),
-                not_added("duplicate", "https://shop.test/book/1"),
+                added("2", &site.page("/book/1")),
+                not_added("duplicate", &site.page("/book/1")),
                 invalid("/isbn"),
                 invalid(""),
             ],
@@ -124,12 +125,12 @@ fn a_payload_reaches_its_handler_as_given_apart_from_its_identity_and_one_that_d
 
 /// The params of a crawl `changed` of three books, its Label `book` of
 /// the Payload schema `schema`.
-fn books(schema: &Value) -> Value {
+fn books(site: &Site, schema: &Value) -> Value {
     json!({
         "run_id": "changed",
         "labels": { "book": { "payload": schema } },
         "seeds": (1..=3)
-            .map(|n| json!({ "url": format!("https://shop.test/book/{n}"), "label": "book", "payload": { "isbn": n.to_string() } }))
+            .map(|n| json!({ "url": site.page(&format!("/book/{n}")), "label": "book", "payload": { "isbn": n.to_string() } }))
             .collect::<Vec<_>>(),
         "settings": { "crawl": { "handler": { "concurrency": 1 } } },
     })
@@ -158,13 +159,14 @@ fn holding(handled: &mut Vec<Value>) -> impl FnMut(&Value) -> Option<Value> + '_
 fn a_start_under_its_run_id_after_a_payload_schema_changed_is_refused_when_a_pending_payload_fails_it()
  {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     let mut handled = Vec::new();
 
     let started = engine.call(
         "start",
         "crawl.start",
-        &books(&book_schema()),
+        &books(&site, &book_schema()),
         &mut holding(&mut handled),
     );
     while handled.is_empty() {
@@ -182,10 +184,10 @@ fn a_start_under_its_run_id_after_a_payload_schema_changed_is_refused_when_a_pen
     let refused = engine.call(
         "again",
         "crawl.start",
-        &books(&required),
+        &books(&site, &required),
         &mut holding(&mut handled),
     );
-    let mut more = books(&titled);
+    let mut more = books(&site, &titled);
     more["labels"]["author"] = json!({ "payload": { "type": "object" } });
     let compatible = engine.call(
         "compatible",
@@ -242,7 +244,8 @@ fn too_long(size: u64, max_size: u64) -> Value {
 #[test]
 fn a_payload_longer_than_crawl_payload_max_size_is_refused_at_enqueue_naming_the_setting() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
 
     let mut answers = Vec::new();
     let report = crawl_from(
@@ -250,17 +253,17 @@ fn a_payload_longer_than_crawl_payload_max_size_is_refused_at_enqueue_naming_the
         &json!({
             "run_id": "capped",
             "settings": { "crawl": { "payload": { "max_size": 64 } } },
-            "seeds": [{ "url": "https://shop.test/", "label": "page", "payload": of_size(64) }],
+            "seeds": [{ "url": site.page("/"), "label": "page", "payload": of_size(64) }],
         }),
         &mut |inside, handle| {
-            if handle["crawl_request"]["url"] == "https://shop.test/" {
+            if handle["crawl_request"]["url"] == site.page("/") {
                 answers.push(enqueue(inside, handle, "/a", "page", Some(of_size(64))));
                 answers.push(enqueue(inside, handle, "/b", "page", Some(of_size(65))));
                 answers.push(answer(&inside.call(
                     "run.add_seed",
                     &json!({
                         "run_id": handle["run_id"],
-                        "seed": { "url": "https://shop.test/c", "label": "page", "payload": of_size(65) },
+                        "seed": { "url": site.page("/c"), "label": "page", "payload": of_size(65) },
                     }),
                 )));
             }
@@ -274,7 +277,7 @@ fn a_payload_longer_than_crawl_payload_max_size_is_refused_at_enqueue_naming_the
         (
             &json!("finished"),
             vec![
-                added("2", "https://shop.test/a"),
+                added("2", &site.page("/a")),
                 too_long(65, 64),
                 too_long(65, 64),
             ],
@@ -286,7 +289,8 @@ fn a_payload_longer_than_crawl_payload_max_size_is_refused_at_enqueue_naming_the
 #[test]
 fn a_seed_past_the_default_64_kib_is_refused_before_its_run_begins() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
 
     let refused = engine.call(
         "start",
@@ -294,8 +298,8 @@ fn a_seed_past_the_default_64_kib_is_refused_before_its_run_begins() {
         &json!({
             "run_id": "large",
             "seeds": [
-                { "url": "https://shop.test/a", "label": "page", "payload": of_size(65_536) },
-                { "url": "https://shop.test/b", "label": "page", "payload": of_size(65_537) },
+                { "url": site.page("/a"), "label": "page", "payload": of_size(65_536) },
+                { "url": site.page("/b"), "label": "page", "payload": of_size(65_537) },
             ],
         }),
         &mut |_| None,

@@ -19,7 +19,7 @@ use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{TestEnv, cli};
 use serde_json::{Value, json};
 
-use crate::attached;
+use crate::site::Site;
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
@@ -37,13 +37,17 @@ fn capping_and_locking(env: &TestEnv) {
 
 /// What `crawl.start` answered for a crawl asking `max_requests`, aborted
 /// at once when it started, its seed's work item never answered.
-fn started_asking(engine: &mut Attached, run_id: &str, max_requests: &Value) -> Value {
+fn started_asking(
+    (engine, site): (&mut Attached, &Site),
+    run_id: &str,
+    max_requests: &Value,
+) -> Value {
     let started = engine.call(
         run_id,
         "crawl.start",
         &json!({
             "run_id": run_id,
-            "seeds": [{ "url": "https://capped.test/1", "label": "page" }],
+            "seeds": [{ "url": site.url("capped.test", "/1"), "label": "page" }],
             "settings": { "crawl": { "max_requests": max_requests } },
         }),
         &mut |_| None,
@@ -68,11 +72,12 @@ fn started_asking(engine: &mut Attached, run_id: &str, max_requests: &Value) -> 
 fn a_cap_on_crawl_max_requests_refuses_a_crawl_asking_for_more() {
     let env = TestEnv::new();
     capping_and_locking(&env);
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
 
-    let more = started_asking(&mut engine, "more", &json!(1_000));
-    let unbounded = started_asking(&mut engine, "unbounded", &Value::Null);
-    let fewer = started_asking(&mut engine, "fewer", &json!(50));
+    let more = started_asking((&mut engine, &site), "more", &json!(1_000));
+    let unbounded = started_asking((&mut engine, &site), "unbounded", &Value::Null);
+    let fewer = started_asking((&mut engine, &site), "fewer", &json!(50));
     assert!(engine.finished());
 
     let cap = json!({ "key": "crawl.max_requests", "value": 100, "layer": "operator_policy" });

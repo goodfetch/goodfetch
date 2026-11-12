@@ -174,6 +174,7 @@ mod seeds;
 mod served_calls;
 mod service_manager;
 mod session_pool;
+mod site;
 mod sitemap;
 mod soak;
 mod sql_tab;

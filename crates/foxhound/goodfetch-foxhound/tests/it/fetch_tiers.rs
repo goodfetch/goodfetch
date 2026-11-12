@@ -1,8 +1,8 @@
 //! Crawl conformance cases, the tier lines (spec #579's `tiers`; ADRs
 //! 0020, 0023 and 0093), on Foxhound's executable against the Proving
 //! ground and Chrome for Testing: one handler runs unchanged on every tier.
-//! Under a `fetch.tier: auto` the Run sets (the built-in default still
-//! hands a handler its request alone until #1602), the tier is learned per
+//! Under `fetch.tier: auto`, which is also the built-in default, the tier
+//! is learned per
 //! Label on a domain by sample comparison: the first three requests of a
 //! Label on a domain are samples, each run on `http`, served from its
 //! document, and then in the browser, whose run commits; a Label whose

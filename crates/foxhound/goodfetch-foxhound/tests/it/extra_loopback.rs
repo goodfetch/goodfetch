@@ -25,7 +25,6 @@ use goodfetch_test_support::{
 };
 use serde_json::{Value, json};
 
-use crate::attached;
 use crate::attached_with;
 use crate::frontier::{crawl_declaring, crawl_with};
 
@@ -120,7 +119,7 @@ fn a_crawl_reaches_the_site_from_its_sessions_local_addresses() {
         .iter()
         .map(|path| json!({ "url": proving_ground.url("access.test", path), "label": "page" }))
         .collect();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let report = crawl_with(
         &mut engine,
@@ -169,7 +168,7 @@ fn a_replacement_after_a_block_reaches_the_site_from_an_unblocked_block() {
             .map(|path| json!({ "url": proving_ground.url("access.test", path), "label": "page" }))
             .collect()
     };
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let outside = crawl_with(
         &mut engine,

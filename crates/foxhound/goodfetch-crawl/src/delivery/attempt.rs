@@ -209,7 +209,7 @@ impl Tiering {
     /// The tier the attempt starts on, if any.
     pub(super) fn tier(&self) -> Option<FetchTier> {
         match &self.plan {
-            AttemptPlan::Alone => None,
+            AttemptPlan::Sitemap => None,
             AttemptPlan::On(choice) => Some(choice.tier),
             AttemptPlan::Replayed(_) => Some(FetchTier::DiscoveredApi),
             AttemptPlan::Sample(_) | AttemptPlan::Race(_) => Some(FetchTier::Http),
@@ -431,28 +431,14 @@ pub(super) async fn attempt(
     let mut sampled = None;
     let mut raced = None;
     let answer = match (&tiering.plan, &tiering.http) {
-        (_, Some(http)) if leased.sitemap => on.sitemap(http).await,
-        (_, None) if leased.sitemap => Answer::Failed {
+        (AttemptPlan::Sitemap, Some(http)) => on.sitemap(http).await,
+        (AttemptPlan::Sitemap, None) => Answer::Failed {
             code: NAVIGATION_FAILED.name.to_owned(),
             retryable: true,
             message: "The crawl's HTTP tier could not be built, so the sitemap was not fetched."
                 .to_owned(),
             details: Map::new(),
         },
-        (AttemptPlan::Alone, _) => {
-            let params = on.params(None, None, None);
-            let handed_over = tiering.tiers.hand_over(Arc::clone(&hand_over));
-            let answer = handled(
-                &run,
-                &context,
-                code_free.as_deref(),
-                (&params, &sent_at),
-                &lease,
-            )
-            .await;
-            drop(handed_over);
-            answer
-        }
         (AttemptPlan::On(choice), _) if choice.tier == FetchTier::Browser => {
             on.browser(&tiering.tiers, choice, Chosen::AsChosen).await
         }
@@ -912,7 +898,10 @@ impl On<'_> {
             .document(tiering, http, choice, hand_over)
             .await
             .map_err(|answer| (answer, Taught::default()))?;
-        let page_id = served.keep();
+        // `served` is held to the run's end: an attempt abandoned while its
+        // handler runs, as an abort abandons it, closes its page as it
+        // drops, so the page never holds the Run's handles past the Run.
+        let page_id = served.page_id().clone();
         *self.document.lock().await = facts.response.clone();
         // A `discovered_api` page replays its Label's calls (ADR 0020).
         if let Some(plan) = plan {

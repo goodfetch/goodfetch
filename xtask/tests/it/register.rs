@@ -183,6 +183,10 @@ fn an_exception_more_than_21_days_from_its_expiry_is_not_announced() {
 fn the_day_before_its_expiry_an_exception_expires_in_1_day() {
     let outcome = check(&clean(), "2027-01-29");
 
+    assert_eq!(
+        outcome.notes(),
+        vec![finding("exception-expires-soon", "X1")]
+    );
     assert!(
         outcome
             .stdout

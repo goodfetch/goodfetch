@@ -108,7 +108,10 @@ fn checked(root: &Path, today: Date, xtask: &clap::Command) -> Result<Checked> {
     };
     let justfile = read(&root.join("justfile"))?;
     findings.extend(enforced_commands(&register, root, &justfile, xtask));
-    let (expired, notes) = exceptions(&register, today);
+    let Checked {
+        findings: expired,
+        notes,
+    } = exceptions(&register, today);
     findings.extend(expired);
     findings.extend(ceilings(&register));
     if let Some(paths) = inventory {
@@ -162,7 +165,7 @@ fn enforced_commands(
 
 /// The Exceptions' findings, an unreadable or a passed expiry, and the notes
 /// of those that expire within [`NOTICE_DAYS`].
-fn exceptions(register: &Register, today: Date) -> (Vec<Finding>, Vec<Finding>) {
+fn exceptions(register: &Register, today: Date) -> Checked {
     let (mut findings, mut notes) = (Vec::new(), Vec::new());
     for row in &register.exceptions {
         let expires = row.cell("Expires");
@@ -178,7 +181,10 @@ fn exceptions(register: &Register, today: Date) -> (Vec<Finding>, Vec<Finding>) 
                 format!("it expired on {date}: remove the gap, or ask the owner to extend it"),
             )),
             Ok(date) => {
-                let days = today.until(date).map_or(i32::MAX, |span| span.get_days());
+                let days = today
+                    .until(date)
+                    .expect("invariant: two dates' difference in days never fails (jiff's `Date::until`)")
+                    .get_days();
                 if days <= NOTICE_DAYS {
                     notes.push(Finding::new(
                         "exception-expires-soon",
@@ -193,7 +199,7 @@ fn exceptions(register: &Register, today: Date) -> (Vec<Finding>, Vec<Finding>) 
             }
         }
     }
-    (findings, notes)
+    Checked { findings, notes }
 }
 
 /// One row of a path, with what the contract check compares.

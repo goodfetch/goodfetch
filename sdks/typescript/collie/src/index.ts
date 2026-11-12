@@ -1,7 +1,7 @@
 // Where the main types live (ADR 0117): this package, `@goodfetch/collie`,
 // holds `Collie`; the Collie client package it re-exports,
-// `@goodfetch/collie-client`, holds `Run`, and will hold `Page`, `Session`
-// and `Locator`, with the results and errors; `@goodfetch/foxhound` holds
+// `@goodfetch/collie-client`, holds `Run`, `Session`, `Page` and
+// `Locator`, with the results and errors; `@goodfetch/foxhound` holds
 // `Foxhound`, `Crawl`, `Label`, `Dataset` and `CrawlContext`.
 //
 // `@goodfetch/collie` (ADRs 0090 and 0095): Collie's TypeScript SDK and its

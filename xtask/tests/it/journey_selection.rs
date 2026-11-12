@@ -2,8 +2,8 @@
 //! Journey ID, surface, milestone and area (ADR 0063), from the working
 //! tree's catalog or a Git tag's (ADR 0066). Each runner's filter is one
 //! `<runner>\t<argument>` line, which `just journeys` hands to `just test`:
-//! a nextest filterset on test paths, Vitest's tag filter, pytest's `-m` and
-//! Playwright's `--grep`. Values of one flag add variants; different flags
+//! a nextest filterset on test paths, Vitest's tag filter and pytest's `-m`.
+//! Values of one flag add variants; different flags
 //! intersect. Retired Journeys have no variant to select.
 
 use rstest::rstest;
@@ -37,17 +37,19 @@ const J001_CLI: &str = "test(/(^|::)journeys::j001::cli$/)";
 const J001_FOXHOUND_CLI: &str = "test(/(^|::)journeys::j001::foxhound_cli$/)";
 const J003_CLI: &str = "test(/(^|::)journeys::j003::cli$/)";
 const J003_SDK_RUST: &str = "test(/(^|::)journeys::j003::sdk_rust$/)";
-const J001_CONSOLE: &str = r"--grep=(?=.*\s@J-001(?:\s|$))(?=.*\s@console(?:\s|$))";
+const J001_SDK_TYPESCRIPT: &str = "--tags-filter=(J-001 && sdk-typescript)";
 const J003_SDK_TYPESCRIPT: &str = "--tags-filter=(J-003 && sdk-typescript)";
+const BOTH_SDK_TYPESCRIPT: &str =
+    "--tags-filter=(J-001 && sdk-typescript) || (J-003 && sdk-typescript)";
 const J003_SDK_PYTHON: &str = "journey(id=\"J-003\", surface=\"sdk-python\")";
 
-/// The fixture catalog: J-001 is Collie's, area 3, `cli` and `console` at
-/// M1, so also `foxhound-cli`; J-002 is retired; J-003 is Foxhound's, area 6,
+/// The fixture catalog: J-001 is Collie's, area 3, `cli` at M1, so also
+/// `foxhound-cli`, and `sdk-typescript` at M2; J-002 is retired; J-003 is Foxhound's, area 6,
 /// `cli` at M1, the three SDKs at M2 and `adapter-langchain` at M4.
 #[rstest]
 #[case::id(&["--id", "J-001"], vec![
     ("nextest", format!("--filterset={J001_CLI} | {J001_FOXHOUND_CLI}")),
-    ("playwright", J001_CONSOLE.to_owned()),
+    ("vitest", J001_SDK_TYPESCRIPT.to_owned()),
 ])]
 #[case::surface(&["--surface", "cli"], vec![
     ("nextest", format!("--filterset={J001_CLI} | {J003_CLI}")),
@@ -55,21 +57,24 @@ const J003_SDK_PYTHON: &str = "journey(id=\"J-003\", surface=\"sdk-python\")";
 #[case::foxhound_cli(&["--surface", "foxhound-cli"], vec![
     ("nextest", format!("--filterset={J001_FOXHOUND_CLI}")),
 ])]
-#[case::vitest_surface(&["--surface", "sdk-typescript"], vec![("vitest", J003_SDK_TYPESCRIPT.to_owned())])]
+#[case::vitest_surface(&["--surface", "sdk-typescript"], vec![("vitest", BOTH_SDK_TYPESCRIPT.to_owned())])]
 #[case::pytest_surface(&["--surface", "sdk-python"], vec![("pytest", "-m".to_owned()), ("pytest", J003_SDK_PYTHON.to_owned())])]
 #[case::milestone(&["--milestone", "M2"], vec![
     ("nextest", format!("--filterset={J003_SDK_RUST}")),
-    ("vitest", J003_SDK_TYPESCRIPT.to_owned()),
+    ("vitest", BOTH_SDK_TYPESCRIPT.to_owned()),
     ("pytest", "-m".to_owned()),
     ("pytest", J003_SDK_PYTHON.to_owned()),
 ])]
 #[case::area(&["--area", "3"], vec![
     ("nextest", format!("--filterset={J001_CLI} | {J001_FOXHOUND_CLI}")),
-    ("playwright", J001_CONSOLE.to_owned()),
+    ("vitest", J001_SDK_TYPESCRIPT.to_owned()),
 ])]
-#[case::values_of_one_flag_add(&["--surface", "console", "--surface", "sdk-rust"], vec![
+#[case::values_of_one_flag_add(&["--surface", "sdk-typescript", "--surface", "sdk-rust"], vec![
     ("nextest", format!("--filterset={J003_SDK_RUST}")),
-    ("playwright", J001_CONSOLE.to_owned()),
+    ("vitest", BOTH_SDK_TYPESCRIPT.to_owned()),
+])]
+#[case::id_and_milestone_intersect(&["--id", "J-003", "--milestone", "M2", "--surface", "sdk-typescript"], vec![
+    ("vitest", J003_SDK_TYPESCRIPT.to_owned()),
 ])]
 #[case::flags_intersect(&["--area", "6", "--milestone", "M1"], vec![
     ("nextest", format!("--filterset={J003_CLI}")),
@@ -130,13 +135,13 @@ fn surface_adr_0063_does_not_list_is_refused() {
 }
 
 /// The tag's catalog is read, not the working tree's: there J-001 still
-/// lists `console`.
+/// lists `sdk-typescript`.
 #[test]
 fn tag_selects_from_the_tags_catalog() {
     let workspace = Workspace::from_fixture("journeys");
     workspace.commit_all();
     workspace.git(&["tag", "v0.1.0"]);
-    workspace.edit("journeys/J-001.toml", "console = \"M1\"\n", "");
+    workspace.edit("journeys/J-001.toml", "sdk-typescript = \"M2\"\n", "");
 
     let outcome = select(&workspace, &["--id", "J-001", "--tag", "v0.1.0"]);
 
@@ -147,7 +152,7 @@ fn tag_selects_from_the_tags_catalog() {
                 "nextest",
                 format!("--filterset={J001_CLI} | {J001_FOXHOUND_CLI}")
             ),
-            ("playwright", J001_CONSOLE.to_owned()),
+            ("vitest", J001_SDK_TYPESCRIPT.to_owned()),
         ]),
         "{}",
         outcome.stderr
@@ -164,10 +169,6 @@ fn write_listings(workspace: &Workspace) {
     );
     workspace.write("listings/vitest.json", b"[]");
     workspace.write("listings/pytest.json", br#"{ "tests": [] }"#);
-    workspace.write(
-        "listings/playwright.json",
-        br#"{ "config": { "rootDir": "." }, "suites": [] }"#,
-    );
 }
 
 /// A printed nextest filter runs the chosen variant's test and no other,
@@ -216,7 +217,7 @@ fn a_printed_nextest_filter_runs_exactly_the_chosen_variants_test() {
 #[case::some_carried(
     &["--id", "J-001"],
     0,
-    &["J-001@console", "J-001@sdk-python", "J-001@sdk-typescript", "J-001@foxhound-cli"]
+    &["J-001@sdk-python", "J-001@sdk-typescript", "J-001@foxhound-cli"]
 )]
 #[case::none_carried(&["--surface", "sdk-python"], 1, &["J-001@sdk-python"])]
 fn select_with_listings_names_each_chosen_variant_no_test_carries(

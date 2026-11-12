@@ -18,7 +18,6 @@
 use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
-use crate::attached;
 use crate::frontier::crawl_with;
 
 /// The Proving ground's seed.
@@ -65,7 +64,7 @@ fn crawl(host: &str, paths: &[&str], site_preferences: &Value) -> Crawled {
         .iter()
         .map(|path| json!({ "url": proving_ground.url(host, path), "label": "page" }))
         .collect();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let mut handled = Vec::new();
     let report = crawl_with(
         &mut engine,

@@ -152,7 +152,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt or the Console, which no agent, Recipe or `--json` command can do.",
+      "description": "A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt, which no agent, Recipe or `--json` command can do.",
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -209,16 +209,6 @@
       "name": "connection_overloaded",
       "product": "collie",
       "retryable": true
-    },
-    {
-      "arrived_in": "0.1",
-      "description": "The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon.",
-      "exit_code": null,
-      "group": "unavailable",
-      "json_rpc_class": -32006,
-      "name": "console_port_in_use",
-      "product": "collie",
-      "retryable": false
     },
     {
       "arrived_in": "0.1",
@@ -337,6 +327,16 @@
       "group": "internal",
       "json_rpc_class": -32007,
       "name": "engine_output_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A bug in Goodfetch made the engine panic, which ended what `ended` names and only that: for `call`, this call, while its Connection, its Run and its Page go on. Making the same call again is likely to hit the same bug. Report it with the crash report `crash_report` names, a file in the engine's crash-report folder on its machine.",
+      "exit_code": null,
+      "group": "internal",
+      "json_rpc_class": -32007,
+      "name": "engine_panicked",
       "product": "collie",
       "retryable": false
     },
@@ -642,7 +642,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "Only a person gives this answer, in the Console, the Kennel or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console or the Kennel, or run the command in a terminal.",
+      "description": "Only a person gives this answer: no agent surface, SDK, script or command run under `--json` or without a terminal may. Run the Operation's command in a terminal, where the CLI has one, or answer it in the Kennel where the Kennel offers the Operation.",
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -1069,6 +1069,16 @@
       "name": "target_not_unique",
       "product": "collie",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Connection already has as many calls in flight as the engine serves on one, which `max` gives, so the engine refused this call at once and did nothing for it; the calls in flight go on, and the engine still reads their `$/cancel`, their `$/credit` and the replies to its own requests. Make the call again once an earlier call ended, cancel the calls no longer needed, or open another Connection.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "too_many_calls",
+      "product": "collie",
+      "retryable": true
     },
     {
       "arrived_in": "0.1",
@@ -1732,7 +1742,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The Clients connected to the Daemon, by the surface each named in its `hello`, Console tabs included.",
+      "description": "The Clients connected to the Daemon, by the surface each named in its `hello`.",
       "instrument": "up_down_counter",
       "labels": [
         {
@@ -1743,7 +1753,6 @@
             "rust",
             "cli",
             "mcp",
-            "console",
             "kennel",
             "cloud",
             "browser_host",
@@ -1872,6 +1881,30 @@
       "product": "collie",
       "stability": "stable",
       "unit": "{daemon}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The panics in the engine, each a bug in Goodfetch with a crash report on the machine, by what it ended: a call, an attempt, a Page, a Session, a browser, a Run, a Connection or the engine (ADR 0148).",
+      "instrument": "counter",
+      "labels": [
+        {
+          "name": "ended",
+          "values": [
+            "call",
+            "attempt",
+            "page",
+            "session",
+            "browser",
+            "run",
+            "connection",
+            "engine"
+          ]
+        }
+      ],
+      "name": "goodfetch.engine.panics",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "{panic}"
     },
     {
       "arrived_in": "0.1",
@@ -2137,7 +2170,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Pins the changed key that stopped a host with `certificate_changed` in place of its pin, in the caller's partition, and records the accepted change in the Audit log; answers the new pin. Refused unless the key is the change the store holds for the host. A person's answer: offered only in the Console and the interactive CLI prompt.",
+      "description": "Pins the changed key that stopped a host with `certificate_changed` in place of its pin, in the caller's partition, and records the accepted change in the Audit log; answers the new pin. Refused unless the key is the change the store holds for the host. A person's answer: offered only in the interactive CLI prompt.",
       "events": [],
       "kind": "round_trip",
       "name": "certs.accept",
@@ -2156,7 +2189,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Removes the caller's pin of a host, and any change waiting for it, so its next connection under trust on first use pins again; nothing else removes a pin. A person's answer: offered only in the Console and the interactive CLI prompt.",
+      "description": "Removes the caller's pin of a host, and any change waiting for it, so its next connection under trust on first use pins again; nothing else removes a pin. A person's answer: offered only in the interactive CLI prompt.",
       "events": [],
       "kind": "round_trip",
       "name": "certs.forget",
@@ -2213,7 +2246,7 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
-      "description": "Reads the Operator policy of this engine's major: every entry of its `settings`, `lock` and `cap` tables, and its digest, which `config.policy_write` takes back. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "description": "Reads the Operator policy of this engine's major: every entry of its `settings`, `lock` and `cap` tables, and its digest, which `config.policy_write` takes back. A person's entry: no agent surface offers it.",
       "events": [],
       "kind": "round_trip",
       "name": "config.policy_read",
@@ -2232,7 +2265,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Writes changes to the Operator policy in one atomic write, only if its digest is still the one `config.policy_read` gave, every other byte of the file kept, and records the values before and after in the Audit log; a changed digest answers `policy_conflict` and writes nothing. Every change, a tightened cap included, applies to new Runs: a Run resolves its settings once, as it opens. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "description": "Writes changes to the Operator policy in one atomic write, only if its digest is still the one `config.policy_read` gave, every other byte of the file kept, and records the values before and after in the Audit log; a changed digest answers `policy_conflict` and writes nothing. Every change, a tightened cap included, applies to new Runs: a Run resolves its settings once, as it opens. A person's entry: no agent surface offers it.",
       "events": [],
       "kind": "round_trip",
       "name": "config.policy_write",
@@ -2251,7 +2284,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Writes user-level values to user configuration in one atomic write, every other byte of the file kept, once the resolver accepts them under the Operator policy, and records the values before and after in the Audit log; they apply to new Runs. A person's entry: offered only in the Console and the interactive CLI prompt.",
+      "description": "Writes user-level values to user configuration in one atomic write, every other byte of the file kept, once the resolver accepts them under the Operator policy, and records the values before and after in the Audit log; they apply to new Runs. A person's entry: no agent surface offers it.",
       "events": [],
       "kind": "round_trip",
       "name": "config.user_write",
@@ -2281,25 +2314,6 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/LogLevelSet"
-      },
-      "stability": "experimental"
-    },
-    {
-      "arrived_in": "0.1",
-      "cancellable": false,
-      "class": "idempotent_write",
-      "deprecated": null,
-      "description": "Replaces the Console key, which every major of the user shares, so every Console sign-in ends and everyone signs in again. A person's entry: offered only in the Console and the interactive CLI prompt.",
-      "events": [],
-      "kind": "round_trip",
-      "name": "console.rotate_key",
-      "params": {
-        "$ref": "#/$defs/ConsoleRotateKeyParams"
-      },
-      "product": "collie",
-      "reach": "person_only",
-      "result": {
-        "$ref": "#/$defs/ConsoleKeyRotated"
       },
       "stability": "experimental"
     },
@@ -2921,7 +2935,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Adds a domain whose consent wall a Run met, or `*` for every domain, to `consent.domains` in user configuration, so the next runs accept its consent walls instead of raising `blocked` with `consent_required`, and records the answer in the Audit log with the warning of what the person takes on; answers whether it added it. One call, no confirmation asked. A domain that file lists already adds nothing; an Operator policy that locks `consent.domains` refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `consent_wall` items it covers leave the list with `needs_you.changed`.",
+      "description": "Adds a domain whose consent wall a Run met, or `*` for every domain, to `consent.domains` in user configuration, so the next runs accept its consent walls instead of raising `blocked` with `consent_required`, and records the answer in the Audit log with the warning of what the person takes on; answers whether it added it. One call, no confirmation asked. A domain that file lists already adds nothing; an Operator policy that locks `consent.domains` refuses it with `setting_locked`. A person's answer: offered only in the Kennel and the interactive CLI prompt. The `consent_wall` items it covers leave the list with `needs_you.changed`.",
       "events": [
         "needs_you.changed"
       ],
@@ -2942,7 +2956,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Adds a registrable domain, with its required reason, to `wall.denied_domains` in the Operator policy, creating the file when there is none, so no run reads past its Walls or refetches its pages whatever another layer allows (ADR 0052), and records the denial and its reason in the Audit log; answers whether it added it. One call, no confirmation asked. A managed Operator policy refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `wall_refetch_stopped` item of the domain leaves the list with `needs_you.changed`.",
+      "description": "Adds a registrable domain, with its required reason, to `wall.denied_domains` in the Operator policy, creating the file when there is none, so no run reads past its Walls or refetches its pages whatever another layer allows (ADR 0052), and records the denial and its reason in the Audit log; answers whether it added it. One call, no confirmation asked. A managed Operator policy refuses it with `setting_locked`. A person's answer: offered only in the Kennel and the interactive CLI prompt. The `wall_refetch_stopped` item of the domain leaves the list with `needs_you.changed`.",
       "events": [
         "needs_you.changed"
       ],
@@ -3003,7 +3017,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Removes a domain on which a Run's refetch stopped from the layer of `wall.refetch_domains` that lists it, user configuration or else the Operator policy, every other entry and byte of the file kept, and records the answer in the Audit log; answers whether it removed it. When only `*` covers the domain there, `instead_of_star` gives the registrable domains that replace `*`, and without it the call is refused with `invalid_params`. A domain only project configuration lists is changed in that file, never here. A managed Operator policy, or one that locks the key against user configuration, refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `wall_refetch_stopped` item leaves the list with `needs_you.changed`.",
+      "description": "Removes a domain on which a Run's refetch stopped from the layer of `wall.refetch_domains` that lists it, user configuration or else the Operator policy, every other entry and byte of the file kept, and records the answer in the Audit log; answers whether it removed it. When only `*` covers the domain there, `instead_of_star` gives the registrable domains that replace `*`, and without it the call is refused with `invalid_params`. A domain only project configuration lists is changed in that file, never here. A managed Operator policy, or one that locks the key against user configuration, refuses it with `setting_locked`. A person's answer: offered only in the Kennel and the interactive CLI prompt. The `wall_refetch_stopped` item leaves the list with `needs_you.changed`.",
       "events": [
         "needs_you.changed"
       ],
@@ -4146,44 +4160,6 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
-      "description": "Lists the Console's sign-ins that have not ended, each with its person, when it was created and when it was last used, never its cookie. A person's entry: offered only in the Console and the interactive CLI prompt.",
-      "events": [],
-      "kind": "query",
-      "name": "sign_in.list",
-      "params": {
-        "$ref": "#/$defs/SignInListParams"
-      },
-      "product": "collie",
-      "reach": "person_only",
-      "result": {
-        "$ref": "#/$defs/SignInList"
-      },
-      "stability": "experimental"
-    },
-    {
-      "arrived_in": "0.1",
-      "cancellable": false,
-      "class": "idempotent_write",
-      "deprecated": null,
-      "description": "Ends one Console sign-in, so its cookie signs nobody in, such as a lost laptop's. A person's entry: offered only in the Console and the interactive CLI prompt.",
-      "events": [],
-      "kind": "round_trip",
-      "name": "sign_in.revoke",
-      "params": {
-        "$ref": "#/$defs/SignInRevokeParams"
-      },
-      "product": "collie",
-      "reach": "person_only",
-      "result": {
-        "$ref": "#/$defs/SignInRevoked"
-      },
-      "stability": "experimental"
-    },
-    {
-      "arrived_in": "0.1",
-      "cancellable": false,
-      "class": "read",
-      "deprecated": null,
       "description": "Lists every Limit of the Usage ledger, by scope, with the Usage charged and held against it in its current period and what is left.",
       "events": [],
       "kind": "query",
@@ -4203,7 +4179,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Sets a Limit to a person's amount, in place of every Limit of its scope, Usage kind, currency and period but a managed Operator policy's, keeping the Usage counted. A person's answer: offered only in the Console and the interactive CLI prompt.",
+      "description": "Sets a Limit to a person's amount, in place of every Limit of its scope, Usage kind, currency and period but a managed Operator policy's, keeping the Usage counted. A person's answer: offered only in the Kennel and the interactive CLI prompt.",
       "events": [],
       "kind": "round_trip",
       "name": "usage.raise",
@@ -4586,128 +4562,6 @@
           "report",
           "ask"
         ]
-      },
-      "weakens": false
-    },
-    {
-      "arrived_in": "0.1",
-      "authority": "machine",
-      "clearable": false,
-      "default": "127.0.0.1:7700",
-      "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only. An Attached engine serves no Console unless the script that starts it asks for one at an address of its own, which `hello` answers with the Console's sign-in link.",
-      "name": "console.address",
-      "product": "collie",
-      "products": [
-        "collie",
-        "foxhound"
-      ],
-      "value": {
-        "type": "string"
-      },
-      "weakens": false
-    },
-    {
-      "arrived_in": "0.1",
-      "authority": "machine",
-      "clearable": true,
-      "default": null,
-      "description": "Where the Daemon serves the Console's content origin, which shows scraped HTML, screenshots, DOM snapshots and page bodies, as `host:port`. None by default: the Console's host on a free port, or, when `console.content_public_url` is set, the Console's own listener, which tells the two origins apart by the `Host` each request names. Set in user configuration or an Operator policy only.",
-      "name": "console.content_address",
-      "product": "collie",
-      "products": [
-        "collie",
-        "foxhound"
-      ],
-      "value": {
-        "type": "string"
-      },
-      "weakens": false
-    },
-    {
-      "arrived_in": "0.1",
-      "authority": "machine",
-      "clearable": true,
-      "default": null,
-      "description": "The origin a browser reaches the Console's content origin at behind a proxy, such as `https://content.example.com`, which the addresses the Console signs name. None by default: the content origin's own listener. With no `console.content_address`, the content origin shares the Console's listener and answers the requests that name this origin's host. Set in user configuration or an Operator policy only.",
-      "name": "console.content_public_url",
-      "product": "collie",
-      "products": [
-        "collie",
-        "foxhound"
-      ],
-      "value": {
-        "type": "string"
-      },
-      "weakens": false
-    },
-    {
-      "arrived_in": "0.1",
-      "authority": "machine",
-      "clearable": false,
-      "default": true,
-      "description": "Whether the Console keeps run summaries and their metadata in the browser, so that a page goes on showing them while it has no connection to the Daemon: `true`. The cache is encrypted under a key that only the sign-in's cookie unwraps, holds no secret field, and is wiped at sign-out; `false` writes nothing and wipes what an earlier page wrote. Set in user configuration or an Operator policy only.",
-      "name": "console.offline_cache",
-      "product": "collie",
-      "products": [
-        "collie",
-        "foxhound"
-      ],
-      "value": {
-        "type": "boolean"
-      },
-      "weakens": false
-    },
-    {
-      "arrived_in": "0.1",
-      "authority": "machine",
-      "clearable": true,
-      "default": null,
-      "description": "The address links to the Console name, such as `https://console.example.com`: the links in Notifications and a run's `console_url`. None by default: the Console's own address. A link never carries a token or a cookie, so a forwarded one grants nothing. Set in user configuration or an Operator policy only.",
-      "name": "console.public_url",
-      "product": "collie",
-      "products": [
-        "collie",
-        "foxhound"
-      ],
-      "value": {
-        "type": "string"
-      },
-      "weakens": false
-    },
-    {
-      "arrived_in": "0.1",
-      "authority": "operator_policy",
-      "clearable": false,
-      "default": 2592000000,
-      "description": "How long a Console sign-in lasts without being used, in milliseconds: 30 days. Each use starts it again; a sign-in unused for longer ends, and its person signs in again. Set in an Operator policy only.",
-      "name": "console.sign_in.idle_expiry",
-      "product": "collie",
-      "products": [
-        "collie",
-        "foxhound"
-      ],
-      "value": {
-        "description": "A duration in milliseconds.",
-        "minimum": 0,
-        "type": "integer"
-      },
-      "weakens": false
-    },
-    {
-      "arrived_in": "0.1",
-      "authority": "operator_policy",
-      "clearable": false,
-      "default": 10,
-      "description": "How many times one address may try to sign in to the Console in a minute: 10. A further attempt in that minute is refused, whatever its credential. Set in an Operator policy only.",
-      "name": "console.sign_in.rate",
-      "product": "collie",
-      "products": [
-        "collie",
-        "foxhound"
-      ],
-      "value": {
-        "minimum": 0,
-        "type": "integer"
       },
       "weakens": false
     },
@@ -5143,7 +4997,7 @@
       "authority": "machine",
       "clearable": false,
       "default": 110000,
-      "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+      "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
       "name": "daemon.drain_grace",
       "product": "collie",
       "products": [
@@ -5162,7 +5016,7 @@
       "authority": "machine",
       "clearable": false,
       "default": 600000,
-      "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
+      "description": "How long a Daemon with no connected Client waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
       "name": "daemon.idle_timeout",
       "product": "collie",
       "products": [
@@ -5870,7 +5724,7 @@
       "authority": "every",
       "clearable": false,
       "default": "auto",
-      "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose: set for the Run or a Label, it learns the tier per Label on each domain by sample comparison, the first `fetch.sample.count` requests (3) of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all of them staged the same Records (compared after Unicode NFC and whitespace normalization of their strings, in any order) and the same enqueues, the browser's run never matching where it ended on another URL or read its document in another `document.characterSet`, and staying on `browser` for the Run where its browser sample met a consent wall; split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; a choice is sampled again as `fetch.sample.refresh_after` says; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records each attempt's tier and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; left at the built-in default it still gives the handler its request alone; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; `light_browser` forces the Lightpanda tier where `fetch.light_browser` allows it, and under `auto` a Run that allows it also runs a sample on `light_browser` where its `http` run differed, the Label moving to `light_browser` once every sample matched there or over `http`; under `auto`, a sample whose `http` run escalated at a network wait also runs on `discovered_api` once its browser run answered: the JSON calls the browser's page made, read as a page-number or cursor plan, are replayed over HTTP for the same request, a `page.wait_for_response` armed before a navigation of its page answered from the calls that navigation replays and any other escalating, and a Label whose samples all matched there, or over `http`, moves to `discovered_api`, its later requests replaying the plan for their own pages; `browser_fetch` forces the HTTP tier sent from inside the Session's browser context, its TLS fingerprint and cookies the Session's, nothing escalating; forcing `discovered_api` is refused with `capability_unavailable` at the crawl's start until a forced tier takes its browser sample.",
+      "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose, whether set or left at the built-in default: it learns the tier per Label on each domain by sample comparison, the first `fetch.sample.count` requests (3) of a Label on a domain each run on `http` and then on `browser`, whose run commits, the Label moving to `http` once all of them staged the same Records (compared after Unicode NFC and whitespace normalization of their strings, in any order) and the same enqueues, the browser's run never matching where it ended on another URL or read its document in another `document.characterSet`, and staying on `browser` for the Run where its browser sample met a consent wall; split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; a choice is sampled again as `fetch.sample.refresh_after` says; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records the tier that sent each attempt's document, `browser_fetch` where a document tier's request left from inside the Session's browser, as it does under `auto`, and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; a `standard` Session forced onto `http` sends from its own transport, which presents its browser's `User-Agent` and document request headers, as do the reads of robots.txt, sitemaps and AI-use signal files that transport sends under every tier, and keeps the Session's cookies in a jar of its own, over reqwest's TLS fingerprint, not the browser's; `light_browser` forces the Lightpanda tier where `fetch.light_browser` allows it, and under `auto` a Run that allows it also runs a sample on `light_browser` where its `http` run differed, the Label moving to `light_browser` once every sample matched there or over `http`; under `auto`, a sample whose `http` run escalated at a network wait also runs on `discovered_api` once its browser run answered: the JSON calls the browser's page made, read as a page-number or cursor plan, are replayed over HTTP for the same request, a `page.wait_for_response` armed before a navigation of its page answered from the calls that navigation replays and any other escalating, and a Label whose samples all matched there, or over `http`, moves to `discovered_api`, its later requests replaying the plan for their own pages; `browser_fetch` forces the HTTP tier sent from inside the Session's browser context, the one tier that sends HTTP with the browser's own TLS fingerprint, its cookies the Session's, nothing escalating; forcing `discovered_api` is refused with `capability_unavailable` at the crawl's start until a forced tier takes its browser sample.",
       "name": "fetch.tier",
       "product": "foxhound",
       "products": [
@@ -6220,6 +6074,23 @@
       "value": {
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": false,
+      "description": "Whether the engine's own memory may be backed by the operating system's transparent huge pages: off, so the allocator reserves no memory the engine never touches, and the engine's resident memory is smaller. On, huge pages may back it, which is faster for some workloads and holds more memory. Read once, when the engine starts, on Linux; elsewhere it changes nothing. The browsers and other programs the engine starts keep the state the engine itself was started with either way.",
+      "name": "governor.huge_pages",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
       },
       "weakens": false
     },
@@ -8975,13 +8846,6 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The Console key was replaced, which ended every Console sign-in, with how many it ended.",
-      "name": "console_key_rotated",
-      "product": "collie",
-      "type": "audit_kind"
-    },
-    {
-      "arrived_in": "0.1",
       "description": "The host throttled the engine's CPU.",
       "name": "cpu_throttled",
       "product": "collie",
@@ -9432,20 +9296,6 @@
       "arrived_in": "0.1",
       "description": "A Session was imported from an encrypted bundle.",
       "name": "session_imported",
-      "product": "collie",
-      "type": "audit_kind"
-    },
-    {
-      "arrived_in": "0.1",
-      "description": "A Console sign-in was ended, by its person signing out or by `sign_in.revoke`, with its identifier.",
-      "name": "sign_in_revoked",
-      "product": "collie",
-      "type": "audit_kind"
-    },
-    {
-      "arrived_in": "0.1",
-      "description": "A person signed in to the Console, with the sign-in's identifier and how they proved who they are, such as the single-user link.",
-      "name": "signed_in",
       "product": "collie",
       "type": "audit_kind"
     },

@@ -2,11 +2,10 @@
 //! Foxhound only. `xtask affected` selects only Foxhound's tests for a change
 //! confined to them, and the same paths group `CHANGELOG.md`'s entries.
 
-/// `crates/foxhound/` (the sink processes included, ADR 0087), Foxhound's
-/// Console package and Foxhound's own SDK files.
-const FOLDERS: [&str; 4] = [
+/// `crates/foxhound/` (the sink processes included, ADR 0087) and Foxhound's
+/// own SDK files.
+const FOLDERS: [&str; 3] = [
     "crates/foxhound/",
-    "console/foxhound/",
     "sdks/typescript/foxhound/",
     "sdks/python/foxhound/",
 ];

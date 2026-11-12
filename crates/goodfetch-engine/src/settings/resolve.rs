@@ -11,7 +11,6 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
-use goodfetch_protocol::foxhound::frontier::FIXED_FOR_A_RUN;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::{
     ExplainedSetting, Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsExplanation,
@@ -22,7 +21,6 @@ use serde_json::Value;
 use super::error::SettingsError;
 use super::hosts;
 use super::keys::{self, Key};
-use super::unbuilt::UNBUILT;
 use super::values::{Given, Values};
 
 /// An Operator policy: what it sets, locks and caps.
@@ -130,6 +128,13 @@ impl HostDefaults {
     #[must_use]
     pub fn with(mut self, setting: &Setting, value: Value) -> Self {
         self.0.insert(setting.name, value);
+        self
+    }
+
+    /// The same, with each of `other`'s defaults in place of its own.
+    #[must_use]
+    pub fn and(mut self, other: Self) -> Self {
+        self.0.extend(other.0);
         self
     }
 
@@ -304,7 +309,7 @@ impl Resolved {
     }
 
     /// Refuses these settings when one whose feature the engine does not
-    /// build yet (`super::unbuilt`) is set away
+    /// build yet (`Setting::unbuilt`) is set away
     /// from its default: nothing reads it, so the scope would open as if
     /// the value applied (ADR 0083).
     ///
@@ -313,8 +318,7 @@ impl Resolved {
     /// `capability_unavailable` naming the first such key, the layer that
     /// set it and its default.
     pub fn refuse_unbuilt(&self) -> Result<(), SettingsError> {
-        for unbuilt in &UNBUILT {
-            let setting = unbuilt.setting;
+        for (setting, feature) in keys::unbuilt() {
             let Some(effective) = self.settings.get(setting.name) else {
                 continue;
             };
@@ -325,7 +329,7 @@ impl Resolved {
             return Err(SettingsError::Unavailable {
                 key: setting.name.to_owned(),
                 layer: effective.layer,
-                feature: unbuilt.feature.to_owned(),
+                feature: feature.to_owned(),
                 fix: format!("`{}: {default}`", setting.name),
             });
         }
@@ -384,7 +388,7 @@ impl Resolved {
                 cap: effective.cap.clone(),
                 weakens: effective.weakens,
                 user_settable: effective.locked_by.is_none() && user_settable(key),
-                fixed_for_run: fixed_for_run(key),
+                fixed_for_run: keys::fixed_for_run(key),
             })
             .chain(
                 self.unapplied
@@ -400,7 +404,7 @@ impl Resolved {
                         cap: None,
                         weakens: false,
                         user_settable: false,
-                        fixed_for_run: fixed_for_run(key),
+                        fixed_for_run: keys::fixed_for_run(key),
                     }),
             )
             .filter(|setting| wanted(&setting.key))
@@ -559,11 +563,6 @@ fn user_settable(key: &str) -> bool {
             Authority::OperatorPolicy | Authority::Fixed
         )
     })
-}
-
-/// Whether `key` is fixed for a Run's life (ADRs 0102 and 0120).
-fn fixed_for_run(key: &str) -> bool {
-    FIXED_FOR_A_RUN.iter().any(|fixed| fixed.name == key)
 }
 
 /// The Products that honour a key of `product`'s mark.

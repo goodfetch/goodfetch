@@ -35,7 +35,7 @@
         "outcome": "passed"
       },
       {
-        "text": "Open the Console's run page",
+        "text": "Read the run with `runs show`",
         "outcome": "passed"
       },
       {

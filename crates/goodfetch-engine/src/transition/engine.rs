@@ -19,8 +19,9 @@
 //! An Attached engine serves its Client's Connection and its private
 //! endpoint's until that Connection ends or its parent is gone; a Daemon
 //! serves every Client until it stops idle, is asked to stop, hands over to
-//! its major's pick (ADR 0098) or, on `SIGTERM`, drains its runs to
-//! Checkpoints within its grace (ADR 0049).
+//! its major's pick (ADR 0098) or, on `SIGTERM` or once its listener is
+//! closed for good, drains its runs to Checkpoints within its grace (ADR
+//! 0049).
 //!
 //! | Event, in the state: | `Attached` | `Serving` | `HandingOver` | `Draining` | `Stopping` |
 //! |---|---|---|---|---|---|
@@ -31,7 +32,7 @@
 //! | `HandOver` | bug | `HandingOver` | — | — | — |
 //! | `Drain` | bug | `Draining` | — | — | — |
 //! | `Drained` | bug | bug | bug | `Stopping` | — |
-//! | `ListenerFailed` | — | `Stopping` | — | — | — |
+//! | `ListenerFailed` | bug | `Draining` | — | — | — |
 //!
 //! A dash in `HandingOver`, `Draining` or `Stopping` is a late event: the end
 //! already decided ends the engine too. A Client lost by a Daemon changes
@@ -182,7 +183,8 @@ pub enum EngineState {
     Serving,
     /// A Daemon handing over to its major's pick.
     HandingOver,
-    /// A Daemon draining its runs to Checkpoints after `SIGTERM`.
+    /// A Daemon draining its runs to Checkpoints, after `SIGTERM` or once
+    /// its listener is closed for good.
     Draining,
     /// It closes its Connections and stops its Runs.
     Stopping,
@@ -208,7 +210,7 @@ pub enum EngineEvent {
     Drain,
     /// Every run was drained to a Checkpoint, or the grace passed.
     Drained,
-    /// Its listener failed.
+    /// A Daemon's listener is closed for good.
     ListenerFailed,
 }
 
@@ -230,21 +232,20 @@ pub fn engine(
     };
     match state {
         EngineState::Attached => match event {
-            EngineEvent::ClientLost | EngineEvent::ListenerFailed => Ok(EngineState::Attached),
+            EngineEvent::ClientLost => Ok(EngineState::Attached),
             EngineEvent::StdioEnded | EngineEvent::ParentGone => Ok(EngineState::Stopping),
             EngineEvent::StopAsked => refused(Refusal::Program(NOT_A_DAEMON.name)),
             EngineEvent::Idle
             | EngineEvent::HandOver
             | EngineEvent::Drain
-            | EngineEvent::Drained => refused(Refusal::Internal),
+            | EngineEvent::Drained
+            | EngineEvent::ListenerFailed => refused(Refusal::Internal),
         },
         EngineState::Serving => match event {
             EngineEvent::ClientLost => Ok(EngineState::Serving),
-            EngineEvent::Idle | EngineEvent::StopAsked | EngineEvent::ListenerFailed => {
-                Ok(EngineState::Stopping)
-            }
+            EngineEvent::Idle | EngineEvent::StopAsked => Ok(EngineState::Stopping),
             EngineEvent::HandOver => Ok(EngineState::HandingOver),
-            EngineEvent::Drain => Ok(EngineState::Draining),
+            EngineEvent::Drain | EngineEvent::ListenerFailed => Ok(EngineState::Draining),
             EngineEvent::StdioEnded | EngineEvent::ParentGone | EngineEvent::Drained => {
                 refused(Refusal::Internal)
             }

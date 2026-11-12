@@ -79,6 +79,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
     - AI actions whose Effects are journaled (ADR 0010), whose Plans replay without a model (ADR 0009), and whose Run, or Agent's task, is given a Verdict (ADRs 0029, 0091 and 0100);
     - a Script sandbox for model-written code (ADR 0051);
     - the Console, Schedules, the stealth catalog and Clean-up rules, all running on the user's machine (ADR 0088).
+      > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
   - **Foxhound:** crawls that are polite by default (ADR 0086), resume from Checkpoints (ADR 0002), and deliver Records under each Sink's guarantee with their Completeness reported (ADRs 0005 and 0008). Every page it renders is a Collie page.
   - What is said where (taglines, READMEs, the landing pages) is copy, written under these rules.
 - **No opening leads with stealth, blocks, challenges or access.** An opening is a tagline, a registry description, a README's first section, a docs home or a landing page's first screen.
@@ -88,6 +89,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
 - **No separate "by Goodfetch" credit is needed.** Each Product's first mention already carries the brand (ADR 0090), and the site's header and footer belong to Goodfetch.
 - **Goodfetch Cloud is absent from both Products' docs until it exists.**
   - Afterwards, it is one deployment target beside ADR 0049's, never the default or the recommended path. Each section presents it as running that Product's published executable, unmodified (ADR 0096). Goodfetch Cloud's own docs, kept apart (ADR 0030), state ADR 0096's one difference (a Recipe that names Foxhound runs there whoever starts it) and that it serves Foxhound's Console build.
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   - No capability is documented as needing it (ADRs 0001 and 0030).
   - Stagehand's docs recommend Browserbase and show stealth as cloud-only, while Crawlee lists Apify beside AWS and GCP. Goodfetch takes Crawlee's side.
 - **Claims about competitors appear only in migration guides and benchmark results,** each with the competitor's version, the date and a source. Performance figures follow ADR 0025.
@@ -164,6 +166,7 @@ Decided in [Docs site and positioning of two Products](https://github.com/goodfe
     - the docs pages (not `docs/adr/`, `docs/agents/` or `rnd/`), the READMEs, `CHANGELOG.md` and the skills;
     - the descriptions in the catalog and the settings schema, and the Error codes' messages;
     - the Console's message catalog;
+      > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
     - every package's description and keywords.
   - Its list is one file: "bypass" in any form, "undetectable", "undetected" and "solve any CAPTCHA". Counsel's review may extend it.
   - It matches words, not meanings. A key such as ADR 0092's `proxy.bypass` passes as code, and its description is worded without the word ("hosts reached without the proxy"), as every other sentence the check fails is rewritten.

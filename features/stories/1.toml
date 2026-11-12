@@ -955,7 +955,7 @@ status = "active"
 
 [[story]]
 id = 120
-title = "As a contributor, I want CI to fail when a crate outside `crates/foxhound/` other than `xtask` depends on a crate inside it, when Collie's executable would ship one of Foxhound's crates or a third-party crate only Foxhound's capabilities use, when Collie's Console build imports Foxhound's screens, or when an npm or PyPI package depends on a package of the other Product other than the Collie client package, so that Collie stays installable without Foxhound (ADRs 0084, 0087, 0088 and 0095)."
+title = "As a contributor, I want CI to fail when a crate outside `crates/foxhound/` other than `xtask` depends on a crate inside it, when Collie's executable would ship one of Foxhound's crates or a third-party crate only Foxhound's capabilities use, or when an npm or PyPI package depends on a package of the other Product other than the Collie client package, so that Collie stays installable without Foxhound (ADRs 0084, 0087, 0088 and 0095)."
 milestone = "M1 Core"
 journey = false
 not_journey = "actor"

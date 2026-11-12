@@ -24,7 +24,7 @@
       "type": "string"
     },
     "stub_gateway": {
-      "description": "`goodfetch-stub-gateway`, the Stub gateway the Console conformance\nsuite runs against (ADR 0096).",
+      "description": "`goodfetch-stub-gateway`, the Stub gateway the Cloud-readiness\nconformance suite runs against (ADR 0096).",
       "type": "string"
     },
     "test_env": {

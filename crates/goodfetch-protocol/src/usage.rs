@@ -7,7 +7,7 @@
 //! to the types both Products share. Foxhound adds its own, such as
 //! `paid_fetch`, in its `foxhound` module (ADRs 0087 and 0088). Raising a
 //! Limit, `usage.raise`, is a person's answer: the catalog marks it
-//! [`Reach::PersonOnly`], so it is offered only in the Console and the
+//! [`Reach::PersonOnly`], so it is offered only in the Kennel and the
 //! interactive CLI prompt, and refused elsewhere with `person_required`.
 
 use schemars::JsonSchema;
@@ -231,7 +231,7 @@ impl ManagedLimit {
 }
 
 /// What an Operator policy's `[managed]` table holds, which marks the
-/// policy *managed*: deployed by MDM or Ansible, read-only in the Console
+/// policy *managed*: deployed by MDM or Ansible, read-only for every person surface
 /// (ADR 0031).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -293,6 +293,8 @@ pub const USAGE_LIST: Operation = Operation {
     result: schema_of::<UsageListResult>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -309,6 +311,8 @@ pub const USAGE_SET: Operation = Operation {
     result: schema_of::<LimitUsage>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -317,7 +321,7 @@ pub const USAGE_SET: Operation = Operation {
 /// `usage.raise`.
 pub const USAGE_RAISE: Operation = Operation {
     name: "usage.raise",
-    description: "Sets a Limit to a person's amount, in place of every Limit of its scope, Usage kind, currency and period but a managed Operator policy's, keeping the Usage counted. A person's answer: offered only in the Console and the interactive CLI prompt.",
+    description: "Sets a Limit to a person's amount, in place of every Limit of its scope, Usage kind, currency and period but a managed Operator policy's, keeping the Usage counted. A person's answer: offered only in the Kennel and the interactive CLI prompt.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::PersonOnly,
@@ -325,6 +329,8 @@ pub const USAGE_RAISE: Operation = Operation {
     result: schema_of::<LimitUsage>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,

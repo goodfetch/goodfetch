@@ -3,7 +3,7 @@
 //! consequence and 0060): an Attached engine runs a crawl and is killed
 //! (`kill -9`, `TerminateProcess` on Windows) at a moment drawn from the
 //! seed among its `crawl_request.handle` requests; then, while a reader
-//! tests the Run's writer lock again and again, as the Console does, another
+//! tests the Run's writer lock again and again, as a Client that reads does, another
 //! engine aborts the Run, taking its writer role at the next run epoch. The
 //! writer never fails because of the reader. A crawl needs Foxhound, so
 //! both engines are Foxhound's (ADR 0094). Fixed seeds run in the
@@ -36,6 +36,7 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use crate::governor::in_flight_whatever_the_machine;
+use crate::site::Site;
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
@@ -76,16 +77,21 @@ fn send(process: &Process, messages: &[Value]) {
 
 /// Starts a crawl of `WORK_ITEMS` seeds as the Run `run_id` and kills its
 /// engine at `moment`.
-fn killed_at(env: &TestEnv, run_id: &str, moment: &Moment, log: &mut ObservationLog<Value>) {
+fn killed_at(
+    (env, site): (&TestEnv, &Site),
+    run_id: &str,
+    moment: &Moment,
+    log: &mut ObservationLog<Value>,
+) {
     let victim = engine(env, false);
     let seeds: Vec<Value> = (1..=WORK_ITEMS)
-        .map(|n| json!({ "url": format!("https://shop.test/{n}"), "label": "page" }))
+        .map(|n| json!({ "url": site.page(&format!("/{n}")), "label": "page" }))
         .collect();
     send(
         &victim,
         &[
             hello(),
-            json!({ "jsonrpc": "2.0", "id": "start", "method": "crawl.start", "params": { "run_id": run_id, "seeds": seeds } }),
+            json!({ "jsonrpc": "2.0", "id": "start", "method": "crawl.start", "params": { "run_id": run_id, "seeds": seeds, "settings": site.settings() } }),
         ],
     );
     kill_at(&victim, moment, log).unwrap();
@@ -147,7 +153,8 @@ fn a_readers_test_racing_a_takeover_of_a_killed_engines_crawl_never_fails_the_wr
         WORK_ITEMS,
     );
     let mut log = ObservationLog::<Value>::for_test(&env);
-    killed_at(&env, "raced", &moment, &mut log);
+    let site = Site::start(&env);
+    killed_at((&env, &site), "raced", &moment, &mut log);
     let folder = HomeLayout::of(env.home()).run_folder("raced");
     let (done, until) = mpsc::channel();
     let racing = {

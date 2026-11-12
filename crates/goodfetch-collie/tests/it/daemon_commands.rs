@@ -49,14 +49,14 @@ fn assert_transcript(name: &str, outputs: &[(&[&str], &CliOutput)]) {
 }
 
 /// `daemon start`, `status`, `restart` and `stop` each print the major's
-/// Daemon as `DaemonStatus`: its PID, major, Product, version, address and
-/// Console, every field but the major `null` once it stopped.
+/// Daemon as `DaemonStatus`: its PID, major, Product, version and
+/// address, every field but the major `null` once it stopped.
 ///
 /// Covers: story:11-214, command:daemon.start, command:daemon.status, command:daemon.restart, command:daemon.stop
 #[test]
 fn each_daemon_command_prints_the_majors_daemon_status() {
     let env = TestEnv::new();
-    env.user_configuration("daemon.idle_timeout = 60000\nconsole.address = \"127.0.0.1:0\"\n");
+    env.user_configuration("daemon.idle_timeout = 60000\n");
     let _stops = StopsTheDaemon::of(&env, COLLIE);
 
     let start: &[&str] = &["daemon", "start", "--json"];
@@ -95,7 +95,7 @@ fn each_daemon_command_prints_the_majors_daemon_status() {
 #[test]
 fn a_restart_on_unreadable_settings_leaves_the_running_daemon_serving() {
     let env = TestEnv::new();
-    let readable = "daemon.idle_timeout = 60000\nconsole.address = \"127.0.0.1:0\"\n";
+    let readable = "daemon.idle_timeout = 60000\n";
     env.user_configuration(readable);
     let _stops = StopsTheDaemon::of(&env, COLLIE);
     let (_, first) = checked(&env, &["daemon", "start", "--json"], "DaemonStatus");
@@ -138,13 +138,8 @@ fn daemon_run_json_prints_its_daemon_status_once_it_listens() {
 
     crate::daemon::validate(&status, "DaemonStatus");
     assert_eq!(
-        (
-            status["address"].clone(),
-            status["pid"].is_u64(),
-            status["console_url"].clone(),
-            exited,
-        ),
-        (json!(endpoint.to_string()), true, Value::Null, true)
+        (status["address"].clone(), status["pid"].is_u64(), exited,),
+        (json!(endpoint.to_string()), true, true)
     );
     // Its first line beyond the schema, the PID and the port it took
     // replaced (608-5).

@@ -13,6 +13,7 @@ use proptest::prelude::*;
 
 use super::{TransportFailure, met};
 
+mod asked;
 mod kept;
 mod untyped;
 

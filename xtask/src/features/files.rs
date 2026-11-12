@@ -59,8 +59,6 @@ pub(crate) enum Kind {
     Command,
     /// A Block cause.
     BlockCause,
-    /// A Console route.
-    Screen,
 }
 
 impl Kind {
@@ -82,7 +80,6 @@ impl Kind {
             Self::Format => "format",
             Self::Command => "command",
             Self::BlockCause => "block-cause",
-            Self::Screen => "screen",
         }
     }
 }
@@ -297,15 +294,6 @@ impl Evidence {
             Self::None => "none",
         }
     }
-}
-
-/// `console/<package>/routes.json`: the routes of one package of the
-/// Console, which its build writes and commits (ADR 0072).
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct RouteList {
-    /// Each route, as the Console's router writes it.
-    pub(crate) routes: Vec<String>,
 }
 
 /// Each file's JSON Schema, by the path `xtask codegen` writes it to.

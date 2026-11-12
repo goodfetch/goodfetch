@@ -5,14 +5,13 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::daemon::ServiceManager;
 use rstest::rstest;
 
-use super::{ConsoleSocket, ServiceError, ServiceRequest, plan, service_name, unregister};
+use super::{ServiceError, ServiceRequest, plan, service_name, unregister};
 use crate::home::Home;
 
 /// A Goodfetch home whose path holds a space and a non-ASCII letter, as
@@ -44,15 +43,6 @@ fn fixture_environment() -> BTreeMap<OsString, OsString> {
 const COPY: &str = "/Users/ada/Goodfetch é home/browsers/executable_copy/goodfetch-collie/1.4.0-0123456789abcdef/files/goodfetch-collie";
 const SOCKET: &str = "/Users/ada/Goodfetch é home/1/daemon.sock";
 
-/// The default Console port of major 1, a named port.
-const NAMED: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 7801);
-const PORT_0: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-
-static NAMED_CONSOLE: ConsoleSocket = ConsoleSocket {
-    address: NAMED,
-    hold: None,
-};
-
 fn request<'a>(
     manager: ServiceManager,
     home: &'a Home,
@@ -66,7 +56,6 @@ fn request<'a>(
         executable: Path::new(COPY),
         build: "1.4.0-0123456789abcdef",
         socket: Some(Path::new(SOCKET)),
-        console: Some(&NAMED_CONSOLE),
         environment,
         launchd_domain: Some("gui/501"),
     }
@@ -256,73 +245,4 @@ fn removing_a_service_stops_it_then_forgets_it(#[case] manager: ServiceManager) 
         format!("removing_{manager:?}").to_lowercase(),
         lines.join("\n")
     );
-}
-
-/// The addresses in the socket unit's `ListenStream=` lines, and whether it
-/// asks for port reuse.
-fn socket_unit(console: &ConsoleSocket) -> (Option<String>, bool) {
-    let home = Home::new(PathBuf::from(HOME));
-    let version = version();
-    let environment = fixture_environment();
-    let planned = plan(&ServiceRequest {
-        console: Some(console),
-        ..request(ServiceManager::Systemd, &home, &version, &environment)
-    })
-    .unwrap();
-    let unit = text(&planned.files[0].contents);
-    (
-        unit.lines()
-            .filter_map(|line| line.strip_prefix("ListenStream="))
-            .find(|listen| !listen.starts_with('/'))
-            .map(str::to_owned),
-        unit.lines().any(|line| line == "ReusePort=yes"),
-    )
-}
-
-/// A named port's socket unit never asks for port reuse: a second home's
-/// install, or any second listener, on that port is refused rather than
-/// sharing its connections.
-#[test]
-fn a_socket_unit_on_a_named_port_lets_nothing_share_it() {
-    let console = ConsoleSocket::of(ServiceManager::Systemd, NAMED)
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        socket_unit(&console),
-        (Some("127.0.0.1:7801".to_owned()), false)
-    );
-}
-
-/// Port 0's socket unit listens on the held port and asks for port reuse,
-/// without which systemd finds its own hold in the way.
-#[cfg(unix)]
-#[test]
-fn a_socket_unit_on_a_port_held_for_port_0_joins_the_hold() {
-    let console = ConsoleSocket::of(ServiceManager::Systemd, PORT_0)
-        .unwrap()
-        .unwrap();
-
-    assert_eq!(
-        (console.address().port() != 0, socket_unit(&console)),
-        (true, (Some(console.address().to_string()), true))
-    );
-}
-
-/// launchd takes a named port as it is, and is given no port for port 0,
-/// since it can neither join a hold nor report a port it chose. A manager
-/// with no socket gets no address.
-#[rstest]
-#[case(ServiceManager::Launchd, NAMED, Some(NAMED))]
-#[case(ServiceManager::Launchd, PORT_0, None)]
-#[case(ServiceManager::TaskScheduler, NAMED, None)]
-#[case(ServiceManager::TaskScheduler, PORT_0, None)]
-fn only_a_manager_that_can_listen_on_it_gets_the_consoles_address(
-    #[case] manager: ServiceManager,
-    #[case] configured: SocketAddr,
-    #[case] expected: Option<SocketAddr>,
-) {
-    let console = ConsoleSocket::of(manager, configured).unwrap();
-
-    assert_eq!(console.as_ref().map(ConsoleSocket::address), expected);
 }

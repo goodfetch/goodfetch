@@ -31,7 +31,7 @@ use std::sync::Arc;
 
 use goodfetch_dataset::{Began, Datasets};
 use goodfetch_engine::run::{checkpoint_interval, run_error, run_id, settings_error, start_error};
-use goodfetch_engine::runs::{EndedBy, RunError, Start, Started};
+use goodfetch_engine::runs::{Driving, EndedBy, RunError, Start, Started};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_fetch_tier::FetchTiers;
@@ -40,7 +40,9 @@ use goodfetch_frontier::{Bounds, Scope};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound::crawl::{CRAWL_SERVE, CRAWL_START, CrawlStartParams, Seed};
 use goodfetch_protocol::foxhound::frontier::PAYLOAD_SCHEMA_CHANGED;
-use goodfetch_protocol::foxhound::settings::{FEATURE_SWITCHED_OFF, SWITCHED_OFF_FEATURES};
+use goodfetch_protocol::foxhound::settings::{
+    FEATURE_SWITCHED_OFF, PROVENANCE_LOG, SWITCHED_OFF_FEATURES,
+};
 use goodfetch_protocol::run::{
     Lifecycle, RUN_NOT_FOUND, RunDetails, RunId, RunKind, RunParams, RunReport, RunStarted,
     StartInput, StartedAs,
@@ -79,6 +81,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
     let resuming = crawls.clone();
     let redeclared = Redeclared::default();
     let redeclaring = redeclared.clone();
+    let pages = code_free::Pages::default();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     let [add_seed, add_seeds] = seeding::handlers(&crawls);
     let [read_links, enqueue_links] = enqueue::links::handlers(&crawls, &tiers);
@@ -97,6 +100,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
                 crawls.clone(),
                 starting.clone(),
                 redeclared.clone(),
+                pages.clone(),
             )
         }))
         .with_handler(Handler::new(&CRAWL_SERVE, move |params, context| {
@@ -129,8 +133,19 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
                     delivery::resume(run, context, settings, crawls, tiers).await;
                 })
             }),
+            DRIVING,
         )
 }
+
+/// How a crawl goes, which the engine learns with its driver (ADR 0099):
+/// its driver ends it once its work is done, its claims defer their charges
+/// (ADR 0138's note of #1926), so its start declares their bound (#2117), and
+/// `provenance.log` says whether it keeps a Provenance log.
+const DRIVING: Driving = Driving {
+    ended_by: EndedBy::Driver,
+    defers_charges: true,
+    provenance_log: Some(&PROVENANCE_LOG),
+};
 
 /// Joins the calling Connection's handler to the live crawl the params
 /// name, until the Run ends, whose report it answers, or the call ends.
@@ -173,9 +188,10 @@ async fn start(
     crawls: Crawls,
     tiers: FetchTiers,
     redeclared: Redeclared,
+    pages: code_free::Pages,
 ) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
-    code_free::declare(&mut params)?;
+    let pages = code_free::declare(&mut params, &pages).await?;
     let (settings, _) = context
         .engine()
         .settings()
@@ -193,7 +209,7 @@ async fn start(
     servable::check(settings.resolved(), &label_settings)?;
     let fragments = labels::Fragments::of(settings.resolved(), &label_settings);
     let labels = labels::Declared::of(&params.labels, fragments.clone())?;
-    let datasets = Datasets::declare(&params.datasets)?;
+    let datasets = pages.map_or_else(|| Datasets::declare(&params.datasets), Ok)?;
     FetchTiers::check(settings.resolved(), &labels.settings, &params.seeds)?;
     let scope = Scope::of_settings(settings.resolved()).map_err(CallError::from)?;
     let bounds = Bounds::of_settings(settings.resolved());
@@ -222,7 +238,7 @@ async fn start(
             kind: RunKind::Crawl,
             needs: Product::Foxhound,
             inputs,
-            ended_by: EndedBy::Driver,
+            ended_by: DRIVING.ended_by,
             initialize: Some(Box::new(move |connection| {
                 scope.record(connection)?;
                 bounds.record(connection)?;

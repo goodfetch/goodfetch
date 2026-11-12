@@ -134,10 +134,9 @@ gate_worktree_checkout() {
     esac
   done
   shopt -u nullglob
-  # Vite's pre-bundled dependencies (Vitest's in `node_modules/.vite/`,
-  # Storybook's in `node_modules/.cache/storybook/`, any `deps` folder with
-  # Vite's `_metadata.json`) are not kept: Vite keys them by the lockfile and
-  # the config alone, so a head that imports a package the last gate's head
+  # Vite's pre-bundled dependencies (Vitest's in `node_modules/.vite/`, any
+  # `deps` folder with Vite's `_metadata.json`) are not kept: Vite keys them
+  # by the lockfile and the config alone, so a head that imports a package the last gate's head
   # did not would have Vite bundle it mid-run and reload, which fails every
   # browser test file at import ("Vitest failed to find the current suite").
   find "$worktree" \( -path "$worktree/target" -o -path "$worktree/.venv" -o -name .pnpm \) -prune -o \

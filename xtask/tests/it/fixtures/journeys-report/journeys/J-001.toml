@@ -1,6 +1,6 @@
 id = "J-001"
-title = "Start the Daemon and open its Console"
-goal = "A person starts the Daemon and opens its Console."
+title = "Start the Daemon and read its status"
+goal = "A person starts the Daemon and reads its status."
 area = 3
 product = "collie"
 status = "active"
@@ -8,18 +8,18 @@ covers = []
 
 [surfaces]
 cli = "M1"
-console = "M1"
+sdk-typescript = "M2"
 
 [[steps]]
 text = "Start the Daemon"
 on = "cli"
 
 [[steps]]
-text = "Ask for the Console, which the system browser opens"
-manual = "only a person sees the browser open"
+text = "See the Daemon's notice on the desktop"
+manual = "only a person sees the desktop"
 
 [[steps]]
-text = "Open the Console"
+text = "Read the status"
 
 [[expect]]
-text = "The Console opens with no login"
+text = "The status says the Daemon runs"

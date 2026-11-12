@@ -17,9 +17,6 @@ pub enum Starter {
         /// The Product the Client's `hello` names.
         needs: Product,
     },
-    /// The Console, whichever Product's build serves it: serving
-    /// Foxhound's build never makes a run Foxhound's.
-    Console,
     /// A Schedule.
     Schedule,
     /// Goodfetch Cloud itself, such as an API call that names a target.
@@ -27,7 +24,7 @@ pub enum Starter {
 }
 
 /// What a run's target names, by kind of name: what decides the Product of
-/// a run the Console, a Schedule or Goodfetch Cloud starts with no Recipe.
+/// a run a Schedule or Goodfetch Cloud starts with no Recipe.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Target<'a> {
     /// The operations it calls.
@@ -63,7 +60,7 @@ pub struct RunStart<'a> {
 /// A known Run ID goes to its run, on that run's own Product's engine. A new
 /// one follows the table: a Recipe that names Foxhound runs on Foxhound's
 /// engine whoever starts it; a Client's run gets the Product its `hello`
-/// names; a run the Console, a Schedule or Goodfetch Cloud starts gets
+/// names; a run a Schedule or Goodfetch Cloud starts gets
 /// Collie's engine for a Recipe that names Collie, and with no Recipe,
 /// Foxhound's engine if its target names anything only Foxhound carries,
 /// Collie's otherwise.
@@ -76,7 +73,7 @@ pub fn product_for_run(start: &RunStart<'_>) -> Product {
     }
     match start.starter {
         Starter::Client { needs } => needs,
-        Starter::Console | Starter::Schedule | Starter::GoodfetchCloud => {
+        Starter::Schedule | Starter::GoodfetchCloud => {
             if start.recipe.is_none() && names_something_only_foxhound_carries(&start.target) {
                 Product::Foxhound
             } else {

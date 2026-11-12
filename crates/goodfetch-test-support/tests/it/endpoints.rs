@@ -365,59 +365,6 @@ fn a_listener_described_with_another_kinds_transport_is_refused() {
     );
 }
 
-/// The Console's sign-in cookie, which a signed-address listener never
-/// reads.
-const SIGN_IN_COOKIE: &str = "goodfetch_console_0.0=id.secret";
-
-fn signed_address(address: std::net::SocketAddr) -> Listener {
-    Listener::new(
-        ListenerKind::ContentOrigin,
-        Endpoint::SignedAddress {
-            address,
-            host: address.to_string(),
-            other_file: listeners::OTHER_FILE.to_owned(),
-        },
-        listeners::SIGNED_ADDRESS,
-    )
-    .with_other_listener_token(SIGN_IN_COOKIE)
-}
-
-#[test]
-fn a_permissive_signed_address_listener_fails_every_row_of_its_column() {
-    let (address, log) = listeners::signed_address(Behaviour::Permissive);
-    let listener = signed_address(address);
-
-    let result = EndpointRunner::new(verifier(log)).run(&listener);
-
-    let answered = Observed::Answered {
-        status: 200,
-        body_length: 4,
-    };
-    let unauthorized = Expected::Status { status: 401 };
-    let forbidden = Expected::Status { status: 403 };
-    assert_eq!(
-        failures(result),
-        vec![
-            unexpected(Rule::TokenMissing, unauthorized, answered),
-            unexpected(Rule::TokenWrong, unauthorized, answered),
-            unexpected(Rule::TokenFromAnotherListener, unauthorized, answered),
-            unexpected(Rule::HostForeign, forbidden, answered),
-            unexpected(Rule::OriginForeign, forbidden, answered),
-            unexpected(Rule::TokenForAnotherFile, unauthorized, answered),
-        ]
-    );
-}
-
-#[test]
-fn a_strict_signed_address_listener_passes() {
-    let (address, log) = listeners::signed_address(Behaviour::Strict);
-    let listener = signed_address(address);
-
-    let result = EndpointRunner::new(verifier(log)).run(&listener);
-
-    assert_eq!(result, Ok(()));
-}
-
 #[test]
 fn a_run_for_an_advisory_tries_only_the_rows_citing_it() {
     let (address, log) = listeners::ops_listener(Behaviour::Permissive);

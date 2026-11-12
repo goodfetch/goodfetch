@@ -102,14 +102,6 @@ form = "read"
 [[member]]
 package = "@goodfetch/collie-client"
 receiver = "Run"
-member = "finish"
-entry = "run.finish"
-words = ["finish"]
-form = "round_trip"
-
-[[member]]
-package = "@goodfetch/collie-client"
-receiver = "Run"
 member = "close"
 entry = "run.abort"
 words = ["close"]

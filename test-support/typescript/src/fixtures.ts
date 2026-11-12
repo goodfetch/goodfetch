@@ -22,7 +22,9 @@
 //
 // Options a test overrides with `test.override`: `product` (Collie's unless
 // the test needs Foxhound), `provingGroundSeed`, `withDaemon`,
-// `toolManifest` and `testEnvProgram`.
+// `withBrowser` (the home's Browser cache laid out, and the Proving ground's
+// hosts reachable, for a program whose engine opens a page), `toolManifest`
+// and `testEnvProgram`.
 import { test as base, type TestAPI } from "vitest";
 import { clientCaseRecord, type ClientCaseRecord } from "./case-log.ts";
 import { daemonOf, type DaemonDescription } from "./daemon.ts";
@@ -43,6 +45,8 @@ export interface TestSupportFixtures {
   provingGroundSeed: number | undefined;
   /** Whether the test's setup starts the Daemon of `product`'s executable in its home, which `daemon` needs. */
   withDaemon: boolean;
+  /** Whether the test's home is prepared for an engine that launches a browser and reaches the Proving ground. */
+  withBrowser: boolean;
   /** The test's process record. */
   processes: ProcessRecord;
   /** The test's setup, as `goodfetch-test-env` describes it. */
@@ -64,6 +68,7 @@ export const test: TestAPI<TestSupportFixtures> = base.extend<TestSupportFixture
   testEnvProgram: undefined,
   provingGroundSeed: undefined,
   withDaemon: false,
+  withBrowser: false,
   // oxlint-disable-next-line no-empty-pattern -- Vitest reads a fixture's dependencies from its first parameter, which must be a destructuring pattern.
   processes: async ({}, use) => {
     const processes = new ProcessRecord();
@@ -71,7 +76,16 @@ export const test: TestAPI<TestSupportFixtures> = base.extend<TestSupportFixture
     await processes.close();
   },
   testEnv: async (
-    { task, processes, toolManifest, testEnvProgram, provingGroundSeed, withDaemon, product },
+    {
+      task,
+      processes,
+      toolManifest,
+      testEnvProgram,
+      provingGroundSeed,
+      withDaemon,
+      withBrowser,
+      product,
+    },
     use,
   ) => {
     const started = await startTestEnv({
@@ -81,6 +95,7 @@ export const test: TestAPI<TestSupportFixtures> = base.extend<TestSupportFixture
       program: testEnvProgram,
       provingGroundSeed,
       daemon: withDaemon ? product : undefined,
+      browser: withBrowser,
     });
     await use(started.description);
     await started.close({ failed: task.result?.state === "fail" });

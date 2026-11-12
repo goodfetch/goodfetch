@@ -8,6 +8,10 @@
 //! variables (kept in `deployment`), and the keys of areas whose own modules
 //! do not exist yet, each with its area first (ADR 0083). Each later area moves its keys into
 //! its own module.
+//!
+//! Size: one catalog module: the contract of settings and their layers, and
+//! the flat declarations of the keys whose areas have no module yet, which
+//! leave as those modules arrive.
 
 use std::collections::BTreeMap;
 
@@ -330,8 +334,8 @@ pub struct ExplainedSetting {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub weakens: bool,
     /// Whether user configuration may set it: its authority lets user
-    /// configuration hold it and no lower layer locked it, so the Console
-    /// offers its user-level value for editing (ADR 0031).
+    /// configuration hold it and no lower layer locked it, so a person
+    /// surface may offer its user-level value for editing (ADR 0031).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub user_settable: bool,
@@ -417,6 +421,8 @@ pub const CONFIG_EXPLAIN: Operation = Operation {
     result: schema_of::<SettingsExplanation>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Stable,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -534,6 +540,8 @@ pub const NETWORK_RESOLVE: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -546,6 +554,8 @@ pub const CONSENT_HANDLING: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -558,6 +568,8 @@ pub const CONSENT_DOMAINS: Setting = Setting {
     clearable: false,
     authority: Authority::Narrowed,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -573,6 +585,8 @@ pub const CONSENT_ON_WALL: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -589,6 +603,8 @@ pub const WALL_DOMAINS: Setting = Setting {
     clearable: false,
     authority: Authority::Narrowed,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("wall_reading"),
     arrived_in: ARRIVED_IN,
 };
 
@@ -601,6 +617,8 @@ pub const WALL_REFETCH_DOMAINS: Setting = Setting {
     clearable: false,
     authority: Authority::Narrowed,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -613,6 +631,8 @@ pub const WALL_DENIED_DOMAINS: Setting = Setting {
     clearable: false,
     authority: Authority::OperatorPolicy,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -625,6 +645,8 @@ pub const FILTER_LISTS_EXTRA: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -640,6 +662,8 @@ pub const CLEAN_UP_UPDATE: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -652,6 +676,8 @@ pub const CLEAN_UP_VERSION: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -668,6 +694,8 @@ pub const CLEAN_UP_CHANNEL: Setting = Setting {
     clearable: false,
     authority: Authority::Configuration,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -687,6 +715,8 @@ pub const CLEAN_UP_LISTS: Setting = Setting {
     clearable: false,
     authority: Authority::Configuration,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -699,6 +729,8 @@ pub const CLEAN_UP_FETCH_TIMEOUT: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -735,6 +767,8 @@ pub const FILTER_LISTS_ADS: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -747,6 +781,8 @@ pub const FILTER_LISTS_TRACKERS: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -759,6 +795,8 @@ pub const FILTER_LISTS_ANNOYANCES: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -771,6 +809,8 @@ pub const FILTER_LISTS_FIRST_PARTY_SCRIPTS: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -783,6 +823,8 @@ pub const FILTER_LISTS_PAGE_SCRIPTLETS: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -795,6 +837,8 @@ pub const SESSION_SOURCE: Setting = Setting {
     clearable: true,
     authority: Authority::NotByRecipe,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -807,6 +851,8 @@ pub const SESSION_PAGE_CHECK: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -819,6 +865,8 @@ pub const SECRETS_BY_REFERENCE: Setting = Setting {
     clearable: false,
     authority: Authority::Fixed,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -831,6 +879,8 @@ pub const WEBHOOK_SIGNING: Setting = Setting {
     clearable: false,
     authority: Authority::Fixed,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -843,6 +893,8 @@ pub const TIMEOUT_RUN: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -855,6 +907,8 @@ pub const TIMEOUT_CLOSE: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -867,6 +921,8 @@ pub const TIMEOUT_ACTION: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -879,6 +935,8 @@ pub const TIMEOUT_NAVIGATION: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -891,6 +949,8 @@ pub const TIMEOUT_WAIT: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -903,6 +963,8 @@ pub const TIMEOUT_FIRST_BYTE: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -915,6 +977,8 @@ pub const ADMISSION_MAX_REQUESTS_PER_MINUTE: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 

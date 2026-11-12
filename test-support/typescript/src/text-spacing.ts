@@ -1,6 +1,6 @@
 // WCAG's text-spacing values (1.4.12) and 200% text (1.4.4) as one style
-// sheet, which the `component` project's text-spacing run injects into every
-// test's page (ADR 0073), with `clippedText` checking nothing is cut off.
+// sheet, which a test of the `component` project applies to its page with
+// `textSpacing()` (ADR 0073), with `clippedText` checking nothing is cut off.
 // Served tests cannot take it: the production CSP refuses an injected style
 // sheet, and Playwright has no option for either.
 import { onTestFinished } from "vitest";

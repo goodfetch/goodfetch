@@ -72,12 +72,6 @@ fn new_run(
     NOTHING,
     Product::Foxhound
 )]
-#[case::foxhound_recipe_from_the_console(
-    Starter::Console,
-    Some(Product::Foxhound),
-    NOTHING,
-    Product::Foxhound
-)]
 #[case::foxhound_recipe_from_a_schedule(
     Starter::Schedule,
     Some(Product::Foxhound),
@@ -105,15 +99,15 @@ fn new_run(
     FOXHOUND_OPERATION,
     Product::Collie
 )]
-// Row 3: a Recipe that names Collie, started by the Console, a Schedule or Goodfetch Cloud.
-#[case::collie_recipe_naming_a_foxhound_operation_from_the_console(
-    Starter::Console,
+// Row 3: a Recipe that names Collie, started by a Schedule or Goodfetch Cloud.
+#[case::collie_recipe_naming_a_foxhound_operation_from_a_schedule(
+    Starter::Schedule,
     Some(Product::Collie),
     FOXHOUND_OPERATION,
     Product::Collie
 )]
-#[case::collie_recipe_setting_a_crawl_key_from_the_console(
-    Starter::Console,
+#[case::collie_recipe_setting_a_crawl_key_from_a_schedule(
+    Starter::Schedule,
     Some(Product::Collie),
     FOXHOUND_SETTING_KEY,
     Product::Collie
@@ -124,33 +118,27 @@ fn new_run(
     NOTHING,
     Product::Collie
 )]
-// Row 4: no Recipe, started by the Console, a Schedule or Goodfetch Cloud.
-#[case::console_target_naming_a_foxhound_operation(
-    Starter::Console,
-    None,
-    FOXHOUND_OPERATION,
-    Product::Foxhound
-)]
-#[case::console_target_setting_a_crawl_key(
-    Starter::Console,
+// Row 4: no Recipe, started by a Schedule or Goodfetch Cloud.
+#[case::schedule_target_setting_a_crawl_key(
+    Starter::Schedule,
     None,
     FOXHOUND_SETTING_KEY,
     Product::Foxhound
 )]
-#[case::console_target_enabling_a_foxhound_plugin_kind(
-    Starter::Console,
+#[case::schedule_target_enabling_a_foxhound_plugin_kind(
+    Starter::Schedule,
     None,
     FOXHOUND_PLUGIN_KIND,
     Product::Foxhound
 )]
-#[case::console_target_enabling_a_foxhound_hook_stage(
-    Starter::Console,
+#[case::schedule_target_enabling_a_foxhound_hook_stage(
+    Starter::Schedule,
     None,
     FOXHOUND_HOOK_STAGE,
     Product::Foxhound
 )]
-#[case::console_target_using_a_value_foxhound_adds_to_a_shared_type(
-    Starter::Console,
+#[case::schedule_target_using_a_value_foxhound_adds_to_a_shared_type(
+    Starter::Schedule,
     None,
     FOXHOUND_SHARED_TYPE_VALUE,
     Product::Foxhound
@@ -167,8 +155,8 @@ fn new_run(
     FOXHOUND_OPERATION,
     Product::Foxhound
 )]
-#[case::console_target_naming_only_collies_names(
-    Starter::Console,
+#[case::schedule_target_naming_only_collies_names(
+    Starter::Schedule,
     None,
     COLLIE_NAMES_ONLY,
     Product::Collie
@@ -195,7 +183,7 @@ fn new_run_lands_on_the_product_the_table_gives(
 #[rstest]
 #[case::collie_run_started_again_with_a_foxhound_recipe(
     Product::Collie,
-    Starter::Console,
+    Starter::Schedule,
     Some(Product::Foxhound),
     NOTHING
 )]
@@ -219,7 +207,7 @@ fn new_run_lands_on_the_product_the_table_gives(
 )]
 #[case::foxhound_run_started_again_with_a_collie_recipe(
     Product::Foxhound,
-    Starter::Console,
+    Starter::Schedule,
     Some(Product::Collie),
     NOTHING
 )]

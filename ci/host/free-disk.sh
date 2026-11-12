@@ -12,9 +12,7 @@
 #   Haskell, Boost and Swift (LazyFS builds with fuse3, cmake and g++ only);
 #   the tool cache's CodeQL, Go, PyPy and Ruby: Node and CPython, which
 #   host-tools may use, stay, as does every JDK, which TLC runs on.
-# Its Docker images too: the one cell that runs Docker, linux-x64-gnu, pulls
-# ZAP's image by digest afterwards (ci/zap.sh fetch), and no step uses a
-# preinstalled image.
+# Its Docker images too: no step uses a preinstalled image.
 set -euo pipefail
 
 [[ "$(uname -s)" == Linux ]] || {

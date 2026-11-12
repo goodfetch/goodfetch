@@ -124,6 +124,8 @@ pub const CONNECTION_SET_LOG_LEVEL: Operation = Operation {
     result: schema_of::<LogLevelSet>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -142,6 +144,8 @@ pub const LOG_FORMAT: Setting = Setting {
     clearable: true,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -166,6 +170,8 @@ pub const LOG_LEVEL: Setting = Setting {
     clearable: false,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -181,6 +187,8 @@ pub const LOG_OUTPUT: Setting = Setting {
     clearable: true,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -193,6 +201,8 @@ pub const LOG_FILE_MAX_SIZE: Setting = Setting {
     clearable: false,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -205,6 +215,8 @@ pub const LOG_FILE_MAX_FILES: Setting = Setting {
     clearable: false,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -217,6 +229,8 @@ pub const OTLP_TRACES_ENDPOINT: Setting = Setting {
     clearable: true,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -229,6 +243,8 @@ pub const OTLP_LOGS_ENDPOINT: Setting = Setting {
     clearable: true,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 

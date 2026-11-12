@@ -40,11 +40,13 @@ Scrapy's `HttpCacheMiddleware` stores everything and never revalidates by defaul
 - `cache.max_size` defaults to 10 GB per user, with least-recently-used eviction. `cache.max_age_ceiling` defaults to 30 days and deletes older entries in every mode. Operator policy can cap or lock both.
   > Amended by [ADR 0122](0122-a-run-stops-resumably-before-its-disk-fills-and-a-daemons-logs-rotate-at-a-bounded-size.md): while its filesystem is at the `low` or `critical` storage level, the cache stores no new entry and evicts nothing beyond its own cap.
 - `goodfetch cache stats`, `goodfetch cache clear` (everything, or by domain, run or partition) and `goodfetch cache verify`, with the same information in the Console under Engine & settings.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
 - **Changes ADR 0016:** its erasure operation also removes matching cache entries.
 
 **Results.**
 - A cache hit counts as a fetch for Completeness (ADR 0005). Provenance records that the Record came from the cache, with the original fetch time and the run that fetched it.
 - A run that used `replay` is marked so in its result, in the Console and in the CLI.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - Usage counts cache hits apart from fetches, so request counts stay honest.
 
 **Schedules.**

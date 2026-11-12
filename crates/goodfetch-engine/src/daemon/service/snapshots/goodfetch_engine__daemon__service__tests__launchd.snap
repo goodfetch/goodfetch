@@ -33,15 +33,6 @@ expression: "format!(\"{}\\n{}\", files.join(\"\\n\"), commands.join(\"\\n\"))"
 			<key>SockPathMode</key>
 			<integer>384</integer>
 		</dict>
-		<key>Console</key>
-		<dict>
-			<key>SockNodeName</key>
-			<string>127.0.0.1</string>
-			<key>SockServiceName</key>
-			<string>7801</string>
-			<key>SockType</key>
-			<string>stream</string>
-		</dict>
 	</dict>
 </dict>
 </plist>

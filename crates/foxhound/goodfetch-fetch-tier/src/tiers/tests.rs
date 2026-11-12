@@ -45,7 +45,7 @@ fn source(last: u8) -> LocalSource {
 /// used again, gets a new one.
 #[test]
 fn a_runs_session_transports_keep_those_used_last_as_many_as_its_pool() {
-    let sessions = SessionTransports::new(config(), 2);
+    let sessions = SessionTransports::new(config(), None, 2);
 
     let first = sessions.of(&source(2)).unwrap().0;
     let second = sessions.of(&source(3)).unwrap().0;

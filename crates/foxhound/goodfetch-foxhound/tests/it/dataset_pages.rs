@@ -1,5 +1,5 @@
 //! `dataset.list` and `dataset.page` on Foxhound's executable over stdio
-//! (spec #593's seam: the protocol, with the Console as the Client; ADRs
+//! (spec #593's seam: the protocol, with a test program as the Client; ADRs
 //! 0031 and 0103): a crawl's Datasets listed with their schema, their key
 //! and their committed, dropped and rejected counts, and a Dataset's
 //! Records paged by key, filtered, sorted and narrowed to columns in the
@@ -15,8 +15,8 @@ use std::collections::BTreeSet;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use crate::attached;
 use crate::frontier::{Inside, crawl_from};
+use crate::site::Site;
 
 /// The Datasets the crawls declare: `books`, with a schema requiring
 /// `title` and `isbn` and keyed by `isbn`, and `notes`, with neither.
@@ -53,10 +53,10 @@ fn push(inside: &mut Inside<'_>, handle: &Value, dataset: &str, data: &Value) ->
     )
 }
 
-/// The seeds `https://shop.test/1` to `/n`.
-fn seeds(n: u64) -> Value {
+/// The seeds `/1` to `/n` of `site`.
+fn seeds(site: &Site, n: u64) -> Value {
     (1..=n)
-        .map(|page| json!({ "url": format!("https://shop.test/{page}"), "label": "page" }))
+        .map(|page| json!({ "url": site.page(&format!("/{page}")), "label": "page" }))
         .collect()
 }
 
@@ -90,11 +90,12 @@ fn read(reply: &Value) -> Vec<(u64, Value)> {
 #[test]
 fn a_crawls_datasets_list_their_schema_key_and_committed_dropped_and_rejected_counts() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     let mut live = Value::Null;
     let report = crawl_from(
         &mut engine,
-        &json!({ "run_id": "listed", "seeds": seeds(3), "datasets": declared() }),
+        &json!({ "run_id": "listed", "seeds": seeds(&site, 3), "datasets": declared() }),
         &mut |inside, handle| {
             let n = page_of(handle);
             if n == 3 {
@@ -156,14 +157,15 @@ fn a_crawls_datasets_list_their_schema_key_and_committed_dropped_and_rejected_co
 #[test]
 fn paging_by_key_under_concurrent_commits_never_repeats_or_skips_a_record() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     // Each request's Record takes a rank no order of numbers follows, two of
     // them sharing one, and request 5's has none.
     let rank = |n: u64| (n * 7) % 11;
     let mut pages: Vec<Value> = Vec::new();
     let report = crawl_from(
         &mut engine,
-        &json!({ "run_id": "paged", "seeds": seeds(20), "datasets": declared() }),
+        &json!({ "run_id": "paged", "seeds": seeds(&site, 20), "datasets": declared() }),
         &mut |inside, handle| {
             let n = page_of(handle);
             if n >= 9
@@ -235,7 +237,8 @@ fn paging_by_key_under_concurrent_commits_never_repeats_or_skips_a_record() {
 #[test]
 fn filters_sorts_and_columns_run_in_the_engine() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     let books = [
         json!({ "title": "Dune", "isbn": "1", "price": 9.5, "lang": "en" }),
         json!({ "title": "Dune Messiah", "isbn": "2", "price": 12, "lang": "en" }),
@@ -244,7 +247,7 @@ fn filters_sorts_and_columns_run_in_the_engine() {
     ];
     let report = crawl_from(
         &mut engine,
-        &json!({ "run_id": "filtered", "seeds": seeds(1), "datasets": declared() }),
+        &json!({ "run_id": "filtered", "seeds": seeds(&site, 1), "datasets": declared() }),
         &mut |inside, handle| {
             for book in &books {
                 push(inside, handle, "books", book);

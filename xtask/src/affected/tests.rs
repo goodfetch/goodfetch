@@ -1,6 +1,6 @@
 //! The selection rules, as named cases of changed paths over one fixture
 //! workspace that holds both Products' crates, the sink processes, both
-//! Products' TypeScript and Python packages, and the Console's visual test
+//! Products' TypeScript and Python packages, and a browser package's visual test
 //! (spec #130, Testing Decisions).
 //! Covers: story:1-52, story:1-53, story:1-64
 
@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use rstest::rstest;
 
 use super::selection::{Job, Selection, select};
-use super::workspace::{Crate, Ecosystem, Embedded, Kennel, Package, Workspace};
+use super::workspace::{Crate, Ecosystem, Kennel, Package, Workspace};
 use super::{ChangedParts, RepoPath, WorkspaceMembers, select_with_readers};
 
 fn names(names: &[&str]) -> BTreeSet<String> {
@@ -66,7 +66,6 @@ fn package(ecosystem: Ecosystem, name: &str, folder: &str, dependencies: &[&str]
         name: name.to_owned(),
         folder: RepoPath::new(folder),
         dependencies: names(dependencies),
-        runtime_dependencies: names(dependencies),
         runs: BTreeSet::new(),
         loaded_by_every_run: false,
     }
@@ -83,7 +82,7 @@ fn package_running(runs: &[&str], package: Package) -> Package {
 /// Collie's crates outside `crates/foxhound/`, Foxhound's inside it, the sink
 /// processes and their shared code under `crates/foxhound/sinks/` (the sink
 /// protocol is `goodfetch-protocol`'s), each Product's packages, and a visual
-/// test in the Console, which takes its screenshots through the shared
+/// test in a browser package, which takes its screenshots through the shared
 /// test-support package. Test support is a dev-dependency only, and the
 /// conformance crate's and test-support packages' tests run the Proving
 /// ground's and the Products' executables, as in the repository. The
@@ -93,9 +92,8 @@ fn fixture() -> Workspace {
     Workspace {
         crates: crates(),
         packages: packages(),
-        visual_tests: vec![RepoPath::new("console/src/screens/run.visual.test.tsx")],
+        visual_tests: vec![RepoPath::new("widgets/src/screens/run.visual.test.tsx")],
         models: Vec::new(),
-        embedded: Vec::new(),
         kennel: Kennel {
             dependencies: names(&["goodfetch-protocol"]),
             runs: names(&["goodfetch-test-support", "goodfetch-collie"]),
@@ -201,16 +199,11 @@ fn packages() -> Vec<Package> {
         ),
         package(
             TypeScript,
-            "@goodfetch/console",
-            "console",
+            "@goodfetch/widgets",
+            "widgets",
             &["@goodfetch/test-support"],
         ),
-        package(
-            TypeScript,
-            "@goodfetch/console-foxhound",
-            "console/foxhound",
-            &[],
-        ),
+        package(TypeScript, "@goodfetch/widgets-extra", "widgets/extra", &[]),
         package_running(
             &["goodfetch-collie", "goodfetch-proving-ground"],
             package(
@@ -282,17 +275,17 @@ fn value(selection: &Selection, key: &str) -> String {
 #[case::every_job_but_evaluation_for_workspace_inputs(&["Cargo.lock"], r#"["pre-merge","sinks","perf","visual","docs","kennel"]"#)]
 // The visual job runs when a visual test, a Reference screenshot, a runner's
 // config, the pinned image or the code a visual test exercises changes.
-#[case::visual_for_a_vitest_visual_test(&["console/src/screens/run.visual.test.tsx"], r#"["pre-merge","sinks","visual"]"#)]
+#[case::visual_for_a_vitest_visual_test(&["widgets/src/screens/run.visual.test.tsx"], r#"["pre-merge","sinks","visual"]"#)]
 #[case::visual_for_a_playwright_visual_test(&["test-support/typescript/src/screenshot.visual.spec.ts"], r#"["pre-merge","sinks","visual"]"#)]
-#[case::visual_for_a_vitest_reference_screenshot(&["console/src/screens/__screenshots__/run.visual.test.tsx/run-1.png"], r#"["pre-merge","sinks","visual"]"#)]
+#[case::visual_for_a_vitest_reference_screenshot(&["widgets/src/screens/__screenshots__/run.visual.test.tsx/run-1.png"], r#"["pre-merge","sinks","visual"]"#)]
 #[case::visual_for_a_playwright_reference_screenshot(&["test-support/typescript/src/screenshot.visual.spec.ts-snapshots/fixture-page.png"], r#"["pre-merge","sinks","visual"]"#)]
 #[case::visual_for_the_playwright_config(&["playwright.config.ts"], r#"["pre-merge","sinks","perf","visual","docs","kennel"]"#)]
 #[case::visual_for_the_pinned_image(&["ci/visual/image.toml"], r#"["pre-merge","sinks","perf","visual","docs","kennel"]"#)]
-#[case::visual_for_code_a_visual_test_exercises(&["console/src/app.tsx"], r#"["pre-merge","sinks","visual"]"#)]
+#[case::visual_for_code_a_visual_test_exercises(&["widgets/src/app.tsx"], r#"["pre-merge","sinks","visual"]"#)]
 #[case::visual_for_a_package_a_visual_test_depends_on(&["test-support/typescript/src/screenshot.ts"], r#"["pre-merge","sinks","visual"]"#)]
 #[case::no_visual_for_a_package_no_visual_test_reaches(&["sdks/typescript/collie/src/index.ts"], r#"["pre-merge","sinks"]"#)]
-#[case::no_visual_for_a_nested_package_without_visual_tests(&["console/foxhound/src/datasets.tsx"], r#"["pre-merge","sinks"]"#)]
-// Test support's tests run Collie's executable, and the Console with its
+#[case::no_visual_for_a_nested_package_without_visual_tests(&["widgets/extra/src/table.tsx"], r#"["pre-merge","sinks"]"#)]
+// Test support's tests run Collie's executable, and the browser package with its
 // visual test depends on test support.
 #[case::visual_for_an_executable_a_visual_tests_package_runs(&["crates/goodfetch-collie/src/main.rs"], r#"["pre-merge","sinks","visual","kennel"]"#)]
 #[case::nothing_for_no_change(&[], "[]")]
@@ -664,11 +657,11 @@ fn changed_crates_list_them_and_their_dependants_for_cargo(
 #[rstest]
 #[case::client_package_and_its_dependants(&["sdks/typescript/collie-client/src/index.ts"], "sdks/typescript/collie sdks/typescript/collie-client sdks/typescript/foxhound", "")]
 #[case::python_package(&["sdks/python/collie/src/goodfetch_collie/client.py"], "", "sdks/python/collie")]
-#[case::nested_package_owns_its_files(&["console/foxhound/src/datasets.tsx"], "console/foxhound", "")]
+#[case::nested_package_owns_its_files(&["widgets/extra/src/table.tsx"], "widgets/extra", "")]
 // The test-support packages' tests run these executables through the test
-// tool manifest, and the Console's run them through test support.
-#[case::executable_reaches_the_packages_whose_tests_run_it(&["proving-ground/src/oracle.rs"], "console test-support/typescript", "test-support/python")]
-#[case::what_an_executable_is_built_from_reaches_the_packages_whose_tests_run_it(&["crates/goodfetch-engine/src/lib.rs"], "console test-support/typescript", "")]
+// tool manifest, and the browser package's run them through test support.
+#[case::executable_reaches_the_packages_whose_tests_run_it(&["proving-ground/src/oracle.rs"], "test-support/typescript widgets", "test-support/python")]
+#[case::what_an_executable_is_built_from_reaches_the_packages_whose_tests_run_it(&["crates/goodfetch-engine/src/lib.rs"], "test-support/typescript widgets", "")]
 // Test support is no part of the Products' builds: its change changes no
 // executable a package runs.
 #[case::a_dev_dependency_reaches_no_package_through_an_executable(&["crates/goodfetch-test-support/src/lib.rs"], "", "")]
@@ -695,7 +688,7 @@ fn shared_crate_change_selects_both_products_tests() {
     insta::assert_snapshot!(selection, @r#"
     jobs=["pre-merge","sinks","perf","visual","kennel"]
     crates=goodfetch-collie goodfetch-conformance goodfetch-engine goodfetch-foxhound goodfetch-frontier
-    vitest-packages=console test-support/typescript
+    vitest-packages=test-support/typescript widgets
     pytest-packages=
     sinks=goodfetch-sink-kafka goodfetch-sink-s3
     sinks-touched=
@@ -948,7 +941,7 @@ fn foxhound_side_change_outside_any_package_selects_all_of_foxhounds_tests() {
     insta::assert_snapshot!(selection, @r#"
     jobs=["pre-merge","sinks","perf","docs"]
     crates=goodfetch-conformance goodfetch-foxhound goodfetch-frontier goodfetch-sink-kafka goodfetch-sink-s3 goodfetch-sink-shared
-    vitest-packages=console/foxhound sdks/typescript/foxhound
+    vitest-packages=sdks/typescript/foxhound
     pytest-packages=sdks/python/foxhound
     sinks=goodfetch-sink-kafka goodfetch-sink-s3
     sinks-touched=goodfetch-sink-kafka goodfetch-sink-s3
@@ -965,7 +958,7 @@ fn workspace_input_change_selects_everything() {
     insta::assert_snapshot!(selection, @r#"
     jobs=["pre-merge","sinks","perf","visual","docs","kennel"]
     crates=goodfetch-collie goodfetch-conformance goodfetch-engine goodfetch-foxhound goodfetch-frontier goodfetch-protocol goodfetch-proving-ground goodfetch-sink-kafka goodfetch-sink-s3 goodfetch-sink-shared goodfetch-test-support xtask
-    vitest-packages=console console/foxhound sdks/typescript/collie sdks/typescript/collie-client sdks/typescript/foxhound test-support/typescript
+    vitest-packages=sdks/typescript/collie sdks/typescript/collie-client sdks/typescript/foxhound test-support/typescript widgets widgets/extra
     pytest-packages=sdks/python/collie sdks/python/collie-client sdks/python/foxhound test-support/python
     sinks=goodfetch-sink-kafka goodfetch-sink-s3
     sinks-touched=goodfetch-sink-kafka goodfetch-sink-s3
@@ -992,7 +985,7 @@ fn with_test_support_in_every_run() -> Workspace {
 #[case::typescript(
     "test-support/typescript/src/errors.ts",
     "vitest-packages",
-    "console console/foxhound sdks/typescript/collie sdks/typescript/collie-client sdks/typescript/foxhound test-support/typescript"
+    "sdks/typescript/collie sdks/typescript/collie-client sdks/typescript/foxhound test-support/typescript widgets widgets/extra"
 )]
 #[case::python(
     "test-support/python/src/goodfetch_test_support/plugin.py",
@@ -1013,140 +1006,12 @@ fn a_package_every_run_of_its_runner_loads_reaches_every_package_of_its_ecosyste
     assert_eq!(value(&selection, key), expected);
 }
 
-/// Collie's executable embeds the Console's build (ADR 0057): a change to
-/// the Console changes the executable, and so reaches what runs it.
-#[test]
-fn a_console_change_reaches_the_crate_that_embeds_its_build_and_what_runs_it() {
-    let mut workspace = fixture();
-    workspace.embedded = vec![Embedded {
-        package: RepoPath::new("console"),
-        krate: "goodfetch-collie".to_owned(),
-    }];
-
-    let selection = select(
-        &workspace,
-        &[RepoPath::new("console/src/app.tsx")],
-        &ChangedParts::default(),
-    );
-
-    assert_eq!(
-        value(&selection, "crates"),
-        "goodfetch-collie goodfetch-conformance"
-    );
-    assert_eq!(
-        value(&selection, "vitest-packages"),
-        "console test-support/typescript"
-    );
-}
-
-/// Each Product's executable embeds its own Console build (ADR 0087):
-/// Collie's crate Collie's package's, Foxhound's crate Foxhound's.
-#[test]
-fn each_products_executable_embeds_its_own_consoles_build() {
-    let crates = vec![
-        executable("goodfetch-collie", "crates/goodfetch-collie", &[]),
-        executable(
-            "goodfetch-foxhound",
-            "crates/foxhound/goodfetch-foxhound",
-            &[],
-        ),
-    ];
-    let packages = vec![
-        package(
-            Ecosystem::TypeScript,
-            "@goodfetch/console",
-            "console/collie",
-            &[],
-        ),
-        package(
-            Ecosystem::TypeScript,
-            "@goodfetch/console-foxhound",
-            "console/foxhound",
-            &["@goodfetch/console"],
-        ),
-    ];
-
-    let embedded = super::workspace::embedded(&crates, &packages);
-
-    let pairs: Vec<(&str, &str)> = embedded
-        .iter()
-        .map(|embedded| (embedded.package.as_str(), embedded.krate.as_str()))
-        .collect();
-    assert_eq!(
-        pairs,
-        [
-            ("console/collie", "goodfetch-collie"),
-            ("console/foxhound", "goodfetch-foxhound"),
-        ]
-    );
-}
-
-/// A change to Collie's Console reaches Foxhound's executable too, whose
-/// build composes Collie's screens with its own.
-#[test]
-fn a_change_to_collies_console_reaches_foxhounds_executable() {
-    let mut workspace = fixture();
-    for package in &mut workspace.packages {
-        if package.folder.as_str() == "console/foxhound" {
-            package.dependencies = names(&["@goodfetch/console"]);
-            package.runtime_dependencies = names(&["@goodfetch/console"]);
-        }
-    }
-    workspace.embedded = vec![
-        Embedded {
-            package: RepoPath::new("console"),
-            krate: "goodfetch-collie".to_owned(),
-        },
-        Embedded {
-            package: RepoPath::new("console/foxhound"),
-            krate: "goodfetch-foxhound".to_owned(),
-        },
-    ];
-
-    let selection = select(
-        &workspace,
-        &[RepoPath::new("console/src/app.tsx")],
-        &ChangedParts::default(),
-    );
-
-    let crates = value(&selection, "crates");
-    assert!(crates.contains("goodfetch-collie"), "{selection}");
-    assert!(crates.contains("goodfetch-foxhound"), "{selection}");
-}
-
-/// What the Console's tests alone use, here test support, is no part of
-/// its build, so it does not reach the crate that embeds the build.
-#[test]
-fn a_package_the_console_needs_only_for_its_tests_does_not_reach_the_embedder() {
-    let mut workspace = fixture();
-    workspace.embedded = vec![Embedded {
-        package: RepoPath::new("console"),
-        krate: "goodfetch-collie".to_owned(),
-    }];
-    for package in &mut workspace.packages {
-        if package.folder.as_str() == "console" {
-            package.runtime_dependencies.clear();
-        }
-    }
-
-    let selection = select(
-        &workspace,
-        &[RepoPath::new("test-support/typescript/src/screenshot.ts")],
-        &ChangedParts::default(),
-    );
-
-    assert!(
-        !value(&selection, "crates").contains("goodfetch-collie"),
-        "{selection}"
-    );
-}
-
 /// The members that own a visual test, which the visual job runs (the
 /// incremental gate's re-review, N4).
 #[test]
 fn the_members_that_own_a_visual_test_are_known() {
     let members = super::WorkspaceMembers::from_workspace(fixture());
 
-    assert!(members.owns_a_visual_test("console"));
+    assert!(members.owns_a_visual_test("widgets"));
     assert!(!members.owns_a_visual_test("test-support/typescript"));
 }

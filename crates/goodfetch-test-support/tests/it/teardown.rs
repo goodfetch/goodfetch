@@ -239,7 +239,7 @@ fn a_child_that_exited_passes_teardown() {
 #[cfg(unix)]
 #[test]
 fn the_socket_folder_a_killed_daemon_left_outside_the_home_goes_at_teardown() {
-    use goodfetch_test_support::{ConsoleState, DAEMON_SOCKET, DaemonEndpoint, RuntimeFile};
+    use goodfetch_test_support::{DAEMON_SOCKET, DaemonEndpoint, RuntimeFile};
 
     let outside = tempfile::Builder::new()
         .prefix("goodfetch é ")
@@ -254,7 +254,6 @@ fn the_socket_folder_a_killed_daemon_left_outside_the_home_goes_at_teardown() {
         token: "a-token".to_owned(),
         version: "0.0.0".to_owned(),
         pid: 1,
-        console: ConsoleState::Absent,
     }
     .write(&runtime_file)
     .unwrap();

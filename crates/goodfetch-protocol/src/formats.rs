@@ -18,7 +18,6 @@ use crate::clean_up_rules::CleanUpRulesManifest;
 use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
 use crate::jsonrpc::Message;
-use crate::people::SignInRow;
 use crate::politeness::PermitRow;
 use crate::run::{RunIndexRow, RunStateRow};
 use crate::tls::CertificatePin;
@@ -375,20 +374,6 @@ pub const KNOWN_CERTIFICATES: Format = Format {
     schema: schema_of::<CertificatePin>,
 };
 
-/// The per-major accounts store in Goodfetch home (spec #592), beside the
-/// Operator policy: the Console's sign-ins and their wrapping keys, and
-/// later its accounts, passkeys and named tokens. Only the Daemon of its
-/// major opens it, so it keeps the default version rule; its schema is one
-/// sign-in's.
-pub const ACCOUNTS_STORE: Format = Format {
-    name: "accounts-store",
-    version: ProtocolVersion { major: 0, minor: 1 },
-    storage: Storage::Sqlite,
-    rule: Rule::Default,
-    hello_from: &[],
-    schema: schema_of::<SignInRow>,
-};
-
 /// A Dataset's Export file (ADRs 0066, 0103 and 0119), the profile every
 /// format of it keeps: UTF-8 with no BOM, each Record's value as
 /// committed, in number order; `json` one array of the values, `jsonl` one
@@ -416,7 +401,6 @@ pub const FORMATS: &[&Format] = &[
     &POLITENESS_FILE,
     &AUDIT_LOG,
     &KNOWN_CERTIFICATES,
-    &ACCOUNTS_STORE,
     &OPERATOR_POLICY,
     &USER_CONFIGURATION,
     &EXPORT,

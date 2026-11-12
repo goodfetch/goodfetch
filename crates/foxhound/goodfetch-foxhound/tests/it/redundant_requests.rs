@@ -190,7 +190,7 @@ fn a_slow_get_is_hedged_on_a_new_connection_and_a_post_never_is() {
     let env = TestEnv::new();
     env.user_configuration(TWO_FETCHES);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let quick: Vec<Value> = (1..=20)
         .map(|number| json!({ "url": proving_ground.url("pacing.test", &format!("/articles/1?quick={number}")), "label": "article", "key": format!("quick-{number}") }))
         .collect();
@@ -261,7 +261,7 @@ fn identical_gets_in_flight_from_one_session_reach_the_site_once() {
     env.user_configuration(TWO_FETCHES);
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     proving_ground.set_time_step(SLOW).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let url = proving_ground.url("pacing.test", "/articles/4");
 
     let finished = crawl_together(
@@ -312,7 +312,7 @@ fn identical_gets_from_two_sessions_or_two_runs_each_reach_the_site() {
     env.user_configuration("governor.http.floor = 4\ngovernor.http.ceiling = 4\n");
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     proving_ground.set_time_step(SLOW).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let two_sessions = proving_ground.url("pacing.test", "/articles/5");
     let two_runs = proving_ground.url("pacing.test", "/articles/6");
     let four_at_a_time = json!({ "politeness": { "domain": { "concurrency": 4 } } });

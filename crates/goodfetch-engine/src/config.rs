@@ -50,8 +50,10 @@ async fn explain(
     context: CallContext,
 ) -> Result<SettingsExplanation, CallError> {
     let settings = context.engine().settings();
+    // Under every default the host gives, `run_state.key_reference`'s
+    // included, which asks the OS keychain (issue 2204).
     let (run, machine) = settings
-        .open(Opening {
+        .open_asked(Opening {
             run: None,
             project: params.project.clone(),
             recipe: None,

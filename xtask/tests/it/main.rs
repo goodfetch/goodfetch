@@ -17,7 +17,6 @@ mod advisories;
 mod affected;
 mod all_green;
 mod allure;
-mod axe_exceptions;
 mod budgets;
 mod clients;
 mod codegen;
@@ -26,7 +25,6 @@ mod compare;
 mod compat;
 #[cfg(unix)]
 mod compiler_cache;
-mod console;
 mod containment;
 #[cfg(unix)]
 mod counts;
@@ -93,6 +91,7 @@ mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;
+mod static_pie;
 mod stress;
 mod sweep_target;
 mod targets;

@@ -152,6 +152,8 @@ pub const PAID_FETCH_DOMAINS: Setting = Setting {
     clearable: false,
     authority: Authority::Narrowed,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("paid_fetch"),
     arrived_in: ARRIVED_IN,
 };
 
@@ -164,6 +166,8 @@ pub const PAID_FETCH_MAX_PRICE_PER_PAGE: Setting = Setting {
     clearable: true,
     authority: Authority::Narrowed,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("paid_fetch"),
     arrived_in: ARRIVED_IN,
 };
 
@@ -176,6 +180,8 @@ pub const PAID_FETCH_EXCHANGE_RATES: Setting = Setting {
     clearable: false,
     authority: Authority::Configuration,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("paid_fetch"),
     arrived_in: ARRIVED_IN,
 };
 
@@ -188,6 +194,8 @@ pub const PAID_FETCH_CHAIN_RPC_ENDPOINTS: Setting = Setting {
     clearable: false,
     authority: Authority::Configuration,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("paid_fetch"),
     arrived_in: ARRIVED_IN,
 };
 
@@ -200,6 +208,8 @@ pub const DELIVERY_WRITE_IDS_AND_EPOCHS: Setting = Setting {
     clearable: false,
     authority: Authority::Fixed,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -212,6 +222,8 @@ pub const DELIVERY_REPORT_GUARANTEE_CLASS: Setting = Setting {
     clearable: false,
     authority: Authority::Fixed,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -224,6 +236,8 @@ pub const POLITENESS_DOMAIN_CONCURRENCY: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: Some(more_than_one),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -236,6 +250,8 @@ pub const POLITENESS_DOMAIN_DELAY: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: Some(under_a_second),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -256,6 +272,8 @@ pub const POLITENESS_DOMAIN_ADAPTIVE_DELAY: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -268,6 +286,8 @@ pub const POLITENESS_DOMAIN_RATE: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -280,6 +300,8 @@ pub const POLITENESS_DOMAIN_BURST: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -292,6 +314,8 @@ pub const POLITENESS_BACKOFF_ENABLED: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: Some(switched_off),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -304,6 +328,8 @@ pub const POLITENESS_BACKOFF_INITIAL: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: Some(initial_shortened),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -316,6 +342,8 @@ pub const POLITENESS_BACKOFF_MAX: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: Some(max_shortened),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -328,6 +356,8 @@ pub const POLITENESS_RETRY_AFTER_MAX: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -346,6 +376,8 @@ pub const SITE_PREFERENCES_ROBOTS_TXT_USER_AGENT: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: Some(set),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -358,6 +390,8 @@ pub const SITE_PREFERENCES_RESPECT_ROBOTS_TXT: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: Some(switched_off),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -370,6 +404,8 @@ pub const SITE_PREFERENCES_MARK_ROBOTS_TXT_IGNORED: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -382,6 +418,8 @@ pub const SITE_PREFERENCES_MAX_CRAWL_DELAY: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -394,6 +432,8 @@ pub const PROVENANCE_LOG: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: Some(switched_off),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -406,6 +446,8 @@ pub const DATASET_RECORDS: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: Some(switched_off),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -418,6 +460,8 @@ pub const FETCH_BLOCK_CLASSIFICATION: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: Some(switched_off),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 

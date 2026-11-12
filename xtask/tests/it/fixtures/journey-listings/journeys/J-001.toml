@@ -1,6 +1,6 @@
 id = "J-001"
-title = "Start the Daemon and open the local Console"
-goal = "A person starts the Daemon and opens its local Console, which MUST open with no login."
+title = "Start the Daemon and read its status"
+goal = "A person starts the Daemon and reads its status, which MUST say it runs."
 area = 3
 product = "collie"
 status = "active"
@@ -8,7 +8,6 @@ covers = ["row:CN-03"]
 
 [surfaces]
 cli = "M1"
-console = "M1"
 sdk-typescript = "M2"
 sdk-python = "M2"
 
@@ -16,4 +15,4 @@ sdk-python = "M2"
 text = "Start the Daemon"
 
 [[expect]]
-text = "The local Console opens with no login"
+text = "The status says the Daemon runs"

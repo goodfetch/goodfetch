@@ -19,7 +19,7 @@ use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 
 use super::{RepoPath, imports};
-use crate::{console, kennel, metadata, package_dependencies, tlc, tree};
+use crate::{kennel, metadata, package_dependencies, tlc, tree};
 
 pub(crate) struct Workspace {
     pub(crate) crates: Vec<Crate>,
@@ -28,9 +28,6 @@ pub(crate) struct Workspace {
     /// projects look for them.
     pub(crate) visual_tests: Vec<RepoPath>,
     pub(crate) models: Vec<Model>,
-    /// The packages whose build a crate embeds: a change to one changes
-    /// that crate's executable.
-    pub(crate) embedded: Vec<Embedded>,
     pub(crate) kennel: Kennel,
 }
 
@@ -46,15 +43,6 @@ pub(crate) struct Kennel {
     /// The root's crates whose executables its tests run, from its crates'
     /// `[package.metadata.goodfetch] runs`.
     pub(crate) runs: BTreeSet<String>,
-}
-
-/// A package whose build a crate embeds, as Collie's executable embeds the
-/// Console's (ADR 0057).
-pub(crate) struct Embedded {
-    /// The package's folder.
-    pub(crate) package: RepoPath,
-    /// The crate that embeds it.
-    pub(crate) krate: String,
 }
 
 /// A TLA+ model (ADR 0060).
@@ -100,10 +88,6 @@ pub(crate) struct Package {
     /// The members of its own workspace it depends on, or its files
     /// import.
     pub(crate) dependencies: BTreeSet<String>,
-    /// The members its build and its code at run time depend on, not its
-    /// tests alone: a pnpm package's `dependencies`, a uv project's
-    /// `dependencies`.
-    pub(crate) runtime_dependencies: BTreeSet<String>,
     /// The crates whose executables its tests run through the test tool
     /// manifest, from `goodfetch.runs` in `package.json` or
     /// `[tool.goodfetch] runs` in `pyproject.toml`: a change to one reaches
@@ -127,7 +111,6 @@ pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Workspace> {
     find_visual_tests(root, root, &mut visual_tests)?;
     visual_tests.sort();
     let crates = crates(cargo, root)?;
-    let embedded = embedded(&crates, &packages);
     let kennel = kennel(cargo, root, &crates)?;
     Ok(Workspace {
         crates,
@@ -141,7 +124,6 @@ pub(crate) fn read(cargo: &OsStr, root: &Path) -> Result<Workspace> {
                 traces: model.traces.into_iter().map(RepoPath::new).collect(),
             })
             .collect(),
-        embedded,
         kennel,
     })
 }
@@ -167,30 +149,6 @@ fn kennel(cargo: &OsStr, root: &Path, crates: &[Crate]) -> Result<Kennel> {
         found.runs.extend(package.runs());
     }
     Ok(found)
-}
-
-/// Each Product's Console, whose build its executable embeds (ADRs 0057
-/// and 0087), when both exist: the crate is the one whose folder holds the
-/// build's.
-pub(super) fn embedded(crates: &[Crate], packages: &[Package]) -> Vec<Embedded> {
-    let mut embedded = Vec::new();
-    for product_console in console::CONSOLES {
-        let package = RepoPath::new(product_console.package);
-        let build = RepoPath::new(product_console.build);
-        let krate = crates
-            .iter()
-            .filter(|krate| build.is_in(krate.folder.as_str()))
-            .max_by_key(|krate| krate.folder.as_str().len());
-        if let Some(krate) = krate
-            && packages.iter().any(|candidate| candidate.folder == package)
-        {
-            embedded.push(Embedded {
-                package,
-                krate: krate.name.clone(),
-            });
-        }
-    }
-    embedded
 }
 
 /// The root files whose imports every run of a pnpm runner loads: the
@@ -385,12 +343,6 @@ fn typescript_packages(root: &Path) -> Result<Vec<Package>> {
         .map(|((folder, manifest), imported)| Package {
             ecosystem: Ecosystem::TypeScript,
             loaded_by_every_run: loaded.contains(&manifest.name),
-            runtime_dependencies: manifest
-                .dependencies
-                .keys()
-                .filter(|name| names.contains(*name))
-                .cloned()
-                .collect(),
             dependencies: [
                 &manifest.dependencies,
                 &manifest.dev_dependencies,
@@ -501,13 +453,12 @@ fn python_packages(root: &Path) -> Result<Vec<Package>> {
             )
             .collect();
         let plugin = project.entry_points.contains_key("pytest11");
-        let runtime: Vec<String> = project.dependencies.clone();
         members.push((
             relative(root, &folder)?,
             python_name(&project.name),
             requirements,
             runs,
-            (plugin, runtime),
+            plugin,
         ));
     }
     let names: BTreeSet<String> = members
@@ -515,7 +466,7 @@ fn python_packages(root: &Path) -> Result<Vec<Package>> {
         .map(|(_, name, _, _, _)| name.clone())
         .collect();
     let mut packages = Vec::new();
-    for (folder, name, requirements, runs, (plugin, runtime)) in members {
+    for (folder, name, requirements, runs, plugin) in members {
         let mut imported = imports::of_folder(&root.join(folder.as_str()), &["py"], |text| {
             imports::python(text, &names)
         })?;
@@ -527,11 +478,6 @@ fn python_packages(root: &Path) -> Result<Vec<Package>> {
                 .map(|requirement| python_name(requirement))
                 .filter(|dependency| names.contains(dependency))
                 .chain(imported)
-                .collect(),
-            runtime_dependencies: runtime
-                .iter()
-                .map(|requirement| python_name(requirement))
-                .filter(|dependency| names.contains(dependency))
                 .collect(),
             name,
             folder,

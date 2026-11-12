@@ -16,7 +16,7 @@ jobs:
     steps:
       - name: Lint the workflows
         uses: docker://ghcr.io/zizmorcore/zizmor:1.30.1@sha256:2222222222222222222222222222222222222222222222222222222222222222
-      - name: Scan the Console
+      - name: Scan the docs site
         run: |
           # The digest is the pin; the tag only names it.
           docker run --rm ghcr.io/zaproxy/zaproxy:2.16.1@sha256:3333333333333333333333333333333333333333333333333333333333333333 zap-baseline.py

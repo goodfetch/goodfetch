@@ -43,7 +43,14 @@ fn file_at(root: &Path, commit: &str, path: &str) -> Result<Option<String>> {
 /// each trailer that names nothing. `xtask stress select` judges the tests
 /// its listings show deleted by them too.
 pub(crate) struct Trailers {
+    /// What each trailer names when its subject holds no `: `: its text
+    /// before the first one.
     named: BTreeSet<String>,
+    /// Each trailer whole, `<subject>: <reason>`: a subject may itself hold
+    /// `: `, as a Vitest or Playwright test's ID does, so a trailer also
+    /// names the subject its text starts with, whole, before a `: ` and a
+    /// reason.
+    texts: Vec<String>,
     invalid: Vec<Finding>,
 }
 
@@ -60,11 +67,13 @@ impl Trailers {
             ],
         )?;
         let mut named = BTreeSet::new();
+        let mut texts = Vec::new();
         let mut invalid = Vec::new();
         for trailer in log.lines().map(str::trim).filter(|line| !line.is_empty()) {
             match trailer.split_once(": ") {
                 Some((name, reason)) if !name.is_empty() && !reason.trim().is_empty() => {
                     named.insert(name.trim().to_owned());
+                    texts.push(trailer.to_owned());
                 }
                 _ => invalid.push(Finding::new(
                     "invalid-trailer",
@@ -73,7 +82,21 @@ impl Trailers {
                 )),
             }
         }
-        Ok(Self { named, invalid })
+        Ok(Self {
+            named,
+            texts,
+            invalid,
+        })
+    }
+
+    /// Whether a trailer names `subject`.
+    fn names(&self, subject: &str) -> bool {
+        self.named.contains(subject)
+            || self.texts.iter().any(|text| {
+                text.strip_prefix(subject)
+                    .and_then(|rest| rest.strip_prefix(": "))
+                    .is_some_and(|reason| !reason.trim().is_empty())
+            })
     }
 
     /// Splits `flagged` into a `quality-change` note for each finding whose
@@ -81,7 +104,7 @@ impl Trailers {
     pub(crate) fn judge(&self, flagged: Vec<Finding>) -> (Vec<Finding>, Vec<Finding>) {
         let (accepted, refused): (Vec<Finding>, Vec<Finding>) = flagged
             .into_iter()
-            .partition(|finding| self.named.contains(&finding.subject));
+            .partition(|finding| self.names(&finding.subject));
         let accepted = accepted
             .into_iter()
             .map(|finding| {

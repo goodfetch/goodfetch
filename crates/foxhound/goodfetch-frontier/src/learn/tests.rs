@@ -16,12 +16,13 @@ use rusqlite::Connection;
 use sha2::{Digest as _, Sha256};
 use url::Url;
 
-use super::{EndMerged, PageSeen, Redirect, learn, learn_redirect};
+use super::{EndMerged, Ended, PageSeen, Redirect, completeness_reasons, learn, learn_redirect};
 use crate::admit::{Candidate, admit};
+use crate::bounds::{self, Bounds};
+use crate::identity;
 use crate::identity::Declared;
 use crate::rules::{self, learned_rules};
 use crate::scope::{self, Narrowing, Patterns, Scope, Strategy};
-use crate::{bounds, identity};
 
 /// A crawl as the Frontier sees it, in a run file in memory: what it
 /// admitted, each URL with its crawl request's ID.
@@ -34,12 +35,15 @@ struct Crawl {
 
 /// The crawl's requests as the Frontier's merges end them: those whose
 /// page was fetched, and those a rule learned later ended `skipped` with
-/// `duplicate`, in order.
+/// `duplicate`, in order, until its stop gives them back.
 #[derive(Default)]
 struct Requests {
     urls: BTreeMap<String, String>,
     fetched: BTreeSet<String>,
     skipped: Vec<String>,
+    /// Whether the crawl gives back no request, as one whose work item
+    /// is no longer as the rule left it.
+    keeps_ended: bool,
 }
 
 impl EndMerged for Requests {
@@ -49,7 +53,7 @@ impl EndMerged for Requests {
         &mut self,
         _: &Connection,
         crawl_requests: &BTreeSet<String>,
-    ) -> rusqlite::Result<Vec<String>> {
+    ) -> rusqlite::Result<Vec<Ended>> {
         let mut pending: Vec<&String> = crawl_requests
             .iter()
             .filter(|id| !self.fetched.contains(*id) && !self.skipped.contains(&self.urls[*id]))
@@ -58,9 +62,31 @@ impl EndMerged for Requests {
         if !crawl_requests.iter().any(|id| self.fetched.contains(id)) && !pending.is_empty() {
             pending.remove(0);
         }
-        let ended: Vec<String> = pending.iter().map(|id| self.urls[*id].clone()).collect();
-        self.skipped.extend(ended.iter().cloned());
+        let ended: Vec<Ended> = pending
+            .iter()
+            .map(|id| Ended {
+                crawl_request: (*id).clone(),
+                url: self.urls[*id].clone(),
+            })
+            .collect();
+        self.skipped
+            .extend(ended.iter().map(|ended| ended.url.clone()));
         Ok(ended)
+    }
+
+    /// Makes each of `crawl_requests` pending again, unless it keeps them
+    /// ended.
+    fn give_back(
+        &mut self,
+        _: &Connection,
+        crawl_requests: &[String],
+    ) -> rusqlite::Result<Vec<String>> {
+        if self.keeps_ended {
+            return Ok(Vec::new());
+        }
+        let given: Vec<&String> = crawl_requests.iter().map(|id| &self.urls[id]).collect();
+        self.skipped.retain(|url| !given.contains(&url));
+        Ok(crawl_requests.to_vec())
     }
 }
 
@@ -172,7 +198,7 @@ impl Crawl {
     }
 
     fn completeness(&self) -> Vec<CompletenessReason> {
-        rules::completeness_reasons(&self.connection).unwrap()
+        completeness_reasons(&self.connection).unwrap()
     }
 }
 
@@ -489,23 +515,45 @@ fn offset_reason() -> Vec<CompletenessReason> {
     }]
 }
 
+/// The Completeness reason `code` of the `count` URLs a learned rule
+/// took from the crawl, which leaves the Run `unverified`.
+fn rule_reason(code: &str, count: u64, message: &str) -> Vec<CompletenessReason> {
+    vec![CompletenessReason {
+        completeness: Completeness::Unverified,
+        reason: AxisReason {
+            code: code.to_owned(),
+            message: message.to_owned(),
+            count: Some(count),
+            call_id: None,
+        },
+    }]
+}
+
 /// An offset parameter, whose values step by one page size on one path,
-/// gives way to a cursor link found on a page of that listing: the offset
-/// URLs not yet fetched are not added, with `duplicate`, the report lists
-/// the rule with what it refused, and the Run is not `unverified` by it.
+/// gives way to a cursor its pages link: a parameter that three pages of
+/// the listing each link with one value of their own, which two pages do
+/// not show yet. The offset URLs not
+/// yet fetched are then not added, with `duplicate`, the report lists the
+/// rule with its evidence and what it refused, and the Run is `unverified`
+/// by the count of those URLs.
 ///
 /// Covers: story:6-216, story:6-310
 #[test]
 fn a_cursor_found_on_an_offset_listing_is_preferred() {
-    let cursor = format!("{LIST}?after=r-40");
+    let cursors = [20, 40, 60].map(|row| format!("{LIST}?after=r-{row}"));
     let mut crawl = Crawl::new();
-    crawl_listing(&mut crawl, 3, 20, Some(&cursor));
+    crawl_listing(&mut crawl, 3, 20, None);
+    assert_eq!(crawl.enqueue(&at(0, 20), &cursors[0]), "added");
+    assert_eq!(crawl.enqueue(&at(1, 20), &cursors[1]), "added");
+    let two_pages = crawl.rules();
+    assert_eq!(crawl.enqueue(&at(2, 20), &cursors[2]), "added");
 
     let next = next_offset(&mut crawl, 3, 20);
 
     assert_eq!(
-        (next, crawl.rules(), crawl.completeness()),
+        (two_pages, next, crawl.rules(), crawl.completeness()),
         (
+            Vec::new(),
             "duplicate".to_owned(),
             vec![LearnedRule {
                 kind: LearnedRuleKind::CursorPagination,
@@ -515,13 +563,107 @@ fn a_cursor_found_on_an_offset_listing_is_preferred() {
                 form: None,
                 evidence: format!(
                     "`offset` steps by 20 on {LIST} ({LIST}?offset=0, {LIST}?offset=20, \
-                     {LIST}?offset=40), and {LIST}?offset=40 links the cursor {cursor}."
+                     {LIST}?offset=40), and three of its pages each link one value of `after` of \
+                     their own: {LIST}?offset=0 links {}, {LIST}?offset=20 links {}, and \
+                     {LIST}?offset=40 links {}.",
+                    cursors[0], cursors[1], cursors[2]
                 ),
                 contradiction: None,
                 merged: vec![format!("{LIST}?offset=60")],
             }],
-            Vec::new(),
+            rule_reason(
+                "cursor_pagination",
+                1,
+                "A learned cursor refused 1 offset URL of a listing the crawl pages by its \
+                 cursor instead."
+            ),
         )
+    );
+}
+
+/// A parameter a listing's pages link is a cursor only on evidence: a
+/// sort that every page links alike, first met once the offset is known,
+/// teaches nothing, and neither does a filter one page links with two
+/// values, be it the first page that links it or the second, nor a view
+/// two pages link with one value. Each listing is paged
+/// on by its offset, whose next page is added.
+///
+/// Covers: story:6-216
+#[rstest::rstest]
+#[case::a_sort_every_page_links_alike(&[(0, "sort=price"), (1, "sort=price")])]
+#[case::a_filter_one_page_links_with_two_values(
+    &[(0, "color=red"), (0, "color=blue"), (1, "color=green")]
+)]
+#[case::a_filter_the_second_page_links_with_two_values(
+    &[(0, "color=red"), (1, "color=green"), (1, "color=blue"), (2, "color=grey")]
+)]
+#[case::a_view_two_pages_link_with_one_value(&[(0, "view=grid"), (1, "lang=fr&view=grid")])]
+fn a_parameter_that_does_not_change_from_page_to_page_is_no_cursor(#[case] links: &[(u32, &str)]) {
+    let mut crawl = Crawl::new();
+    crawl.seed(&at(0, 20));
+    crawl.fetched(&at(0, 20), "Rows 0");
+    // The listing's first page links its next two, as a pagination bar
+    // does, so its offset is known before any other link of it is met.
+    for page in [1, 2] {
+        assert_eq!(crawl.enqueue(&at(0, 20), &at(page, 20)), "added");
+    }
+    crawl.fetched(&at(1, 20), "Rows 1");
+    for (page, query) in links {
+        crawl.enqueue(&at(*page, 20), &format!("{LIST}?{query}"));
+    }
+
+    let next = crawl.enqueue(&at(1, 20), &at(3, 20));
+
+    assert_eq!(
+        (next, crawl.rules(), crawl.completeness()),
+        ("added".to_owned(), Vec::new(), offset_reason())
+    );
+}
+
+/// With `frontier.learning` off, admission keeps no evidence of an offset
+/// or of a cursor and no rule refuses a URL: the listing above is paged on
+/// by its offset, the report lists no rule and no reason, and the learned
+/// rules' tables hold no row.
+///
+/// Covers: story:6-216, setting:frontier.learning
+#[test]
+fn with_learning_off_admission_keeps_no_evidence_and_refuses_nothing() {
+    let mut crawl = Crawl::new();
+    Bounds {
+        learning: false,
+        ..Bounds::default()
+    }
+    .record(&crawl.connection)
+    .unwrap();
+    // No page is signed with learning off, so none is handed to `learn`.
+    crawl.seed(&at(0, 20));
+    for page in 0..2 {
+        assert_eq!(crawl.enqueue(&at(page, 20), &at(page + 1, 20)), "added");
+    }
+    crawl.enqueue(&at(1, 20), &format!("{LIST}?after=r-40"));
+    crawl.enqueue(&at(2, 20), &format!("{LIST}?after=r-60"));
+
+    let next = next_offset(&mut crawl, 3, 20);
+
+    let rows: Vec<(String, i64)> = rules::TABLES
+        .statements
+        .iter()
+        .filter_map(|statement| statement.strip_prefix("CREATE TABLE IF NOT EXISTS "))
+        .map(|rest| rest.split_whitespace().next().unwrap().to_owned())
+        .map(|table| {
+            let count = crawl
+                .connection
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            (table, count)
+        })
+        .filter(|(_, count)| *count != 0)
+        .collect();
+    assert_eq!(
+        (next, crawl.rules(), crawl.completeness(), rows),
+        ("added".to_owned(), Vec::new(), Vec::new(), Vec::new())
     );
 }
 
@@ -908,6 +1050,112 @@ fn a_contradicting_pair_stops_a_learned_parameter() {
                  pages of differing signatures."
             )),
             strings(&[&format!("{ITEM}?n=1&ref=z")]),
+        )
+    );
+}
+
+/// The crawl of the stopped parameter above, with a pair of requests
+/// still pending when `ref` is learned, so the rule ends the second, and a
+/// URL the rule then refuses as a `duplicate`; answers it once the pair of
+/// item 7 stopped the rule.
+fn stopped_after_merging(keeps_ended: bool) -> Crawl {
+    let mut crawl = Crawl::new();
+    crawl.requests.keeps_ended = keeps_ended;
+    crawl.seed(&format!("{ITEM}?n=0"));
+    crawl.enqueue(ITEM, &format!("{ITEM}?n=7"));
+    crawl.enqueue(ITEM, &format!("{ITEM}?n=7&ref=x"));
+    crawl.fetched(&format!("{ITEM}?n=7"), "Item 7");
+    let in_flight = crawl.ids[&format!("{ITEM}?n=7&ref=x")].clone();
+    crawl.requests.fetched.insert(in_flight);
+    crawl.enqueue(ITEM, &format!("{ITEM}?n=8"));
+    crawl.enqueue(ITEM, &format!("{ITEM}?n=8&ref=y"));
+    for (number, reference) in [(1, "a"), (2, "b"), (3, "c")] {
+        pair(&mut crawl, number, reference, None);
+    }
+    assert_eq!(
+        (
+            crawl.requests.skipped.clone(),
+            crawl.enqueue(ITEM, &format!("{ITEM}?n=1&ref=z")),
+            crawl.completeness(),
+        ),
+        (
+            strings(&[&format!("{ITEM}?n=8&ref=y")]),
+            "duplicate".to_owned(),
+            Vec::new(),
+        )
+    );
+    crawl.fetched(&format!("{ITEM}?n=7&ref=x"), "Item 7, as x sees it");
+    crawl
+}
+
+/// A learned rule that a contradicting pair stops gives back what it
+/// merged: the pending request it had ended `skipped` with `duplicate` is
+/// pending again. The URL it had refused as a `duplicate`, which no
+/// request holds, is counted in a Completeness reason naming the rule.
+///
+/// Covers: story:6-218, story:6-310
+#[test]
+fn a_stopped_rule_gives_back_the_requests_it_ended_and_counts_the_urls_it_lost() {
+    let crawl = stopped_after_merging(false);
+
+    assert_eq!(
+        (crawl.requests.skipped.clone(), crawl.completeness()),
+        (
+            Vec::new(),
+            rule_reason(
+                "learned_rule_stopped",
+                1,
+                "A contradicting pair stopped the learned rule about `ref` on shop.test, \
+                 which had merged 1 URL the crawl did not get back."
+            ),
+        )
+    );
+}
+
+/// A URL a stopped rule had refused is counted until the crawl meets it
+/// again: it is then added, and the Run is no longer `unverified` by it.
+/// The report still lists it, and the request given back, among the URLs
+/// the rule had merged.
+///
+/// Covers: story:6-218
+#[test]
+fn a_url_a_stopped_rule_refused_is_added_when_met_again_and_no_longer_counted() {
+    let mut crawl = stopped_after_merging(false);
+
+    let met_again = crawl.enqueue(ITEM, &format!("{ITEM}?n=1&ref=z"));
+
+    assert_eq!(
+        (
+            met_again,
+            crawl.completeness(),
+            crawl.rules().remove(0).merged
+        ),
+        (
+            "added".to_owned(),
+            Vec::new(),
+            strings(&[&format!("{ITEM}?n=8&ref=y"), &format!("{ITEM}?n=1&ref=z")]),
+        )
+    );
+}
+
+/// A request the crawl cannot give back, its work item no longer as the
+/// stopped rule left it, is counted with the URLs the rule lost.
+///
+/// Covers: story:6-218
+#[test]
+fn a_request_a_stopped_rule_ended_that_is_not_given_back_is_counted() {
+    let crawl = stopped_after_merging(true);
+
+    assert_eq!(
+        (crawl.requests.skipped.clone(), crawl.completeness()),
+        (
+            strings(&[&format!("{ITEM}?n=8&ref=y")]),
+            rule_reason(
+                "learned_rule_stopped",
+                2,
+                "A contradicting pair stopped the learned rule about `ref` on shop.test, \
+                 which had merged 2 URLs the crawl did not get back."
+            ),
         )
     );
 }

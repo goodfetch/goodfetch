@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 
 use crate::check::Finding;
 
-use super::matrix::{self, Scenario};
+use super::matrix::{self, Row, Scenario};
 use super::trials::{
     Comparison, CountedCell, CountedRun, GrowthCell, INSTRUCTION_TOOLS, StoppedRun, Tool, Trial,
     Work,
@@ -37,10 +37,12 @@ struct Pass<'a> {
     suffix: &'static str,
     declared: u32,
     site_pages: u64,
-    /// The scenarios whose measured cells the pass runs, and those cells'
-    /// tools.
+    /// The scenarios whose measured cells the pass runs, those cells'
+    /// tools, and whether it runs their sensitivity rows beside their main
+    /// ones.
     scenarios: &'a [Scenario],
     tools: &'a [Tool],
+    rows: &'a [Row],
     done: Vec<Done<'a>>,
     /// The cells whose run the comparison stopped: not measured, so not
     /// short of their declared runs.
@@ -84,6 +86,16 @@ fn of_runs(runs: &[CountedRun]) -> Vec<Done<'_>> {
         .collect()
 }
 
+/// Whether a trial is a main row's.
+fn is_main(done: &Done<'_>) -> bool {
+    matrix::measured().any(|(cell, _)| {
+        cell.scenario == done.scenario && cell.name == done.cell && cell.row == Row::Main
+    })
+}
+
+/// Main and sensitivity rows alike.
+const EVERY_ROW: &[Row] = &[Row::Main, Row::Sensitivity];
+
 /// The cells of stopped runs or trials, not measured.
 fn of_stopped(stopped: &[StoppedRun]) -> Vec<(Scenario, &str)> {
     stopped
@@ -124,15 +136,17 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         site_pages: pages,
         scenarios: ran,
         tools: &Tool::ALL,
+        rows: EVERY_ROW,
         done: of_trials(&trials.trials),
         stopped: of_stopped(&trials.stopped),
     });
-    for (suffix, cell, scenarios, tools, empty) in [
+    for (suffix, cell, scenarios, tools, rows, empty) in [
         (
             " strace",
             &trials.syscalls,
             ran,
             &Tool::ALL[..],
+            EVERY_ROW,
             "strace counted no system call, so the run measured nothing",
         ),
         (
@@ -140,6 +154,8 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             &trials.instructions,
             raw,
             &INSTRUCTION_TOOLS[..],
+            // The ratio reads each tool's main row.
+            &[Row::Main][..],
             "Callgrind counted no instruction, so the run measured nothing",
         ),
     ] {
@@ -155,6 +171,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
                 site_pages: pages,
                 scenarios,
                 tools,
+                rows,
                 done: of_runs(runs),
                 stopped: of_stopped(stopped),
             };
@@ -179,6 +196,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             site_pages: *site_pages,
             scenarios: ran,
             tools: &Tool::ALL,
+            rows: EVERY_ROW,
             done: of_trials(trials_run),
             stopped: of_stopped(stopped),
         }));
@@ -194,6 +212,7 @@ fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
     for (cell, _) in matrix::measured().filter(|(cell, config)| {
         pass.scenarios.contains(&cell.scenario)
             && pass.tools.contains(&config.tool())
+            && pass.rows.contains(&cell.row)
             && !pass.stopped.contains(&(cell.scenario, cell.name))
     }) {
         let count = pass
@@ -255,10 +274,12 @@ fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
         } else {
             "requests served"
         };
-        // The work most of the trials that fetched the site share; none
-        // when two values are shared by as many trials.
+        // The work most of the main rows' trials that fetched the site
+        // share; none when two values are shared by as many trials. A
+        // sensitivity row is held to it without a vote: Spider's would
+        // outnumber the other tools' rows together.
         let mut shared: BTreeMap<(u64, u64), usize> = BTreeMap::new();
-        for done in &whole {
+        for done in whole.iter().filter(|done| is_main(done)) {
             *shared.entry(key(done.work)).or_default() += 1;
         }
         let most = shared.values().copied().max().unwrap_or(0);
@@ -272,7 +293,7 @@ fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
             let message = match reference {
                 Some((work, _)) if work == (count, bytes) => continue,
                 Some(((held_count, held_bytes), trials)) => format!(
-                    "{count} {what} {bytes} bytes, where {trials} of the {} trials that fetched the site had {held_count} {what} {held_bytes}",
+                    "{count} {what} {bytes} bytes, where {trials} of the main rows' {} trials that fetched the site had {held_count} {what} {held_bytes}",
                     shared.values().sum::<usize>()
                 ),
                 None => format!(

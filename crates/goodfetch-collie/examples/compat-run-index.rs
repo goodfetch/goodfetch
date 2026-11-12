@@ -79,7 +79,7 @@ fn scenario() -> Vec<Value> {
                 "tags": ["manual"],
                 "project": {
                     "path": "/corpus/project/goodfetch.toml",
-                    "settings": { "wall": { "domains": ["walled.example"], "refetch_domains": ["walled.example"] } },
+                    "settings": { "wall": { "refetch_domains": ["walled.example"] } },
                 },
             }),
         ),

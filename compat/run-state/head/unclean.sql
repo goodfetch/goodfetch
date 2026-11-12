@@ -14,7 +14,9 @@ CREATE TABLE bounds (
             max_requests INTEGER,
             max_url_length INTEGER,
             max_path_segments INTEGER,
-            max_segment_repeats INTEGER
+            max_segment_repeats INTEGER,
+            max_sitemap_nesting INTEGER,
+            learning INTEGER NOT NULL
         ) STRICT;
 CREATE TABLE bounds_admitted (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
@@ -65,6 +67,7 @@ CREATE TABLE learned_identities (
 CREATE TABLE learned_merges (
             rule INTEGER NOT NULL REFERENCES learned_rules (id),
             url TEXT NOT NULL,
+            identity TEXT,
             UNIQUE (rule, url)
         ) STRICT;
 CREATE TABLE learned_rules (
@@ -159,6 +162,24 @@ CREATE TABLE rules_canonicals (
             url TEXT NOT NULL,
             canonical TEXT NOT NULL,
             PRIMARY KEY (host, form, url)
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE rules_cursors (
+            host TEXT NOT NULL,
+            path TEXT NOT NULL,
+            parameter TEXT NOT NULL,
+            value TEXT NOT NULL,
+            page TEXT NOT NULL,
+            url TEXT NOT NULL,
+            second_value TEXT,
+            second_page TEXT,
+            second_url TEXT,
+            refuted INTEGER NOT NULL,
+            PRIMARY KEY (host, path, parameter)
+        ) STRICT, WITHOUT ROWID;
+CREATE TABLE rules_ended (
+            crawl_request TEXT NOT NULL,
+            rule INTEGER NOT NULL REFERENCES learned_rules (id),
+            PRIMARY KEY (crawl_request, rule)
         ) STRICT, WITHOUT ROWID;
 CREATE TABLE rules_offset_values (
             host TEXT NOT NULL,
@@ -286,7 +307,8 @@ CREATE TABLE sitemaps (
             url TEXT NOT NULL UNIQUE,
             seed TEXT NOT NULL,
             rules TEXT NOT NULL,
-            read INTEGER NOT NULL
+            read INTEGER NOT NULL,
+            nesting INTEGER NOT NULL
         ) STRICT;
 CREATE TABLE tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT;
 CREATE TABLE tier_choices (
@@ -358,6 +380,7 @@ CREATE TABLE work_items (
 CREATE INDEX outcomes_by_work_item ON outcomes (work_item, position);
 CREATE INDEX pool_sessions_open ON pool_sessions (pool, position)
             WHERE retired_because IS NULL;
+CREATE INDEX rules_ended_by_rule ON rules_ended (rule);
 CREATE INDEX rules_pages_by_query ON rules_pages (host, path, query);
 CREATE INDEX rules_pages_by_url ON rules_pages (url);
 CREATE INDEX rules_residues_by_residue

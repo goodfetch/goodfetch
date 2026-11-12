@@ -1149,6 +1149,17 @@
       ]
     },
     {
+      "id": "error:connection_overloaded",
+      "kind": "error",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:daemon_draining",
       "kind": "error",
       "area": 3,
@@ -7888,6 +7899,16 @@
     },
     {
       "id": "setting:crawl.max_segment_repeats",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.max_sitemap_nesting",
       "kind": "setting",
       "area": 6,
       "milestone": null,

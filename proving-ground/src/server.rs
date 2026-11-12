@@ -40,6 +40,7 @@ use tokio_util::task::TaskTracker;
 use crate::authority::Authority;
 use crate::blackhole::Blackhole;
 use crate::certificates;
+use crate::client_hello::ClientHello;
 use crate::clock;
 use crate::exchange::{self, Reply};
 use crate::model::{self, Ending};
@@ -228,12 +229,17 @@ impl Connection {
         };
         let (site, tunnels, peer) = (self.site, self.tunnels, self.peer);
         let heads = Arc::clone(&site);
+        let observed = self.observations.connection(source, destination);
+        let connection = Arc::clone(&observed);
         let service = service_fn(move |request| {
             let (site, tunnels) = (Arc::clone(&site), tunnels.clone());
-            async move { Ok::<_, hyper::Error>(answer(&site, &tunnels, request, peer).await) }
+            // The handshake ended before the first request arrived.
+            let tls = connection.tls();
+            async move {
+                Ok::<_, hyper::Error>(answer(&site, &tunnels, request, peer, tls.as_deref()).await)
+            }
         });
         let builder = auto::Builder::new(self.executor);
-        let observed = self.observations.connection(source, destination);
         let tls = read == 1 && first[0] == TLS_HANDSHAKE;
         let wire = Wire::new(stream, Arc::clone(&observed), tls);
         if tls {
@@ -479,12 +485,13 @@ impl StopSignal {
 /// Reads one request, asks the site, and writes its reply, once the time a
 /// held reply asks for has passed. The host is the `Host` header, or an
 /// HTTP/2 request's `:authority`; `peer` is the address the request came
-/// from.
+/// from, and `tls` its connection's `ClientHello`, `None` over plain text.
 async fn answer(
     site: &Site,
     tunnels: &Tunnels,
     request: Request<Incoming>,
     peer: IpAddr,
+    tls: Option<&ClientHello>,
 ) -> Response<Body> {
     if request.method() == Method::CONNECT {
         return tunnels.open(site, request);
@@ -551,6 +558,7 @@ async fn answer(
                         authorization: header(AUTHORIZATION).unwrap_or_default(),
                         body: &body,
                         peer,
+                        tls,
                     },
                 )
             }

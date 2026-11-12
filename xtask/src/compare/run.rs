@@ -4,7 +4,7 @@
 //! written to the trials file.
 
 use std::io::{Read as _, Seek as _, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
@@ -13,7 +13,7 @@ use anyhow::{Context as _, Result, bail};
 use crate::output;
 use crate::rss::crawl::serve;
 
-use super::matrix::{self, Cell, Config, Scenario};
+use super::matrix::{self, Cell, Config, Row, Scenario, SpiderBuild};
 use super::sampler;
 use super::trial::{self, Counted, callgrind_missing, strace_missing};
 use super::trials::{
@@ -27,10 +27,10 @@ use super::trials::{
 pub(crate) struct Executables<'a> {
     pub(crate) proving_ground: &'a Path,
     pub(crate) foxhound: &'a Path,
-    pub(crate) spider: &'a Path,
-    /// Spider's side built with its `chrome` feature, for the headless
-    /// browser scenario.
-    pub(crate) spider_chrome: &'a Path,
+    /// The folder of Spider's side's builds, and the folder Cargo names
+    /// after the profile each was built with (see [`spider_executable`]).
+    pub(crate) spider_builds: &'a Path,
+    pub(crate) spider_profile: &'a str,
     /// Crawlee's side's script, run by Node.js, and Scrapy's, run by the
     /// Python environment beside it.
     pub(crate) crawlee: &'a Path,
@@ -187,6 +187,17 @@ fn drawn_seed() -> u64 {
     now.as_second().unsigned_abs() ^ u64::from(now.subsec_nanosecond().unsigned_abs()) << 32
 }
 
+/// The executable of `build` among Spider's side's builds in `builds`:
+/// `just compare` builds each into the target folder
+/// [`SpiderBuild::folder`] names, where Cargo puts it under `profile`'s
+/// folder.
+pub(crate) fn spider_executable(builds: &Path, profile: &str, build: SpiderBuild) -> PathBuf {
+    builds.join(build.folder()).join(profile).join(format!(
+        "goodfetch-compare-spider{}",
+        std::env::consts::EXE_SUFFIX
+    ))
+}
+
 /// One trial of `cell` against a fresh Proving ground, through `xtask
 /// compare trial`, which prints its figures as one JSON line. `mode` and
 /// `output` name a counted trial's tool and file; `watch`, what the
@@ -204,11 +215,12 @@ fn trial<T: serde::de::DeserializeOwned>(
     watch: Watch,
 ) -> Result<Outcome<T>> {
     let executable = match config {
-        Config::Foxhound { .. } => executables.foxhound,
-        Config::Spider { chrome: false } => executables.spider,
-        Config::Spider { chrome: true } => executables.spider_chrome,
-        Config::Crawlee => executables.crawlee,
-        Config::Scrapy => executables.scrapy,
+        Config::Foxhound { .. } => executables.foxhound.to_owned(),
+        Config::Spider { build, .. } => {
+            spider_executable(executables.spider_builds, executables.spider_profile, build)
+        }
+        Config::Crawlee => executables.crawlee.to_owned(),
+        Config::Scrapy => executables.scrapy.to_owned(),
     };
     let serving = serve(executables.proving_ground)?;
     let probe = std::env::current_exe().context("finding xtask's own executable")?;
@@ -216,7 +228,7 @@ fn trial<T: serde::de::DeserializeOwned>(
     command
         .args(["compare", "trial", "--scenario", cell.scenario.name()])
         .args(["--cell", cell.name, "--executable"])
-        .arg(executable)
+        .arg(&executable)
         .args(["--address", &serving.address, "--pages", &pages.to_string()])
         .args(["--concurrency", &CONCURRENCY.to_string(), "--mode", mode.0])
         .arg("--browser")
@@ -624,12 +636,15 @@ pub(crate) fn run(
             ),
         }
     };
-    // ADR 0140's row compares Foxhound's instructions with Spider's.
+    // ADR 0140's row compares Foxhound's instructions with Spider's, each
+    // on its main row.
     let scenario_1: Vec<_> = measured
         .iter()
         .copied()
         .filter(|(cell, config)| {
-            cell.scenario == Scenario::Raw && INSTRUCTION_TOOLS.contains(&config.tool())
+            cell.scenario == Scenario::Raw
+                && cell.row == Row::Main
+                && INSTRUCTION_TOOLS.contains(&config.tool())
         })
         .collect();
     let instructions = match callgrind_missing() {

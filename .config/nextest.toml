@@ -73,6 +73,7 @@ and not (
   ))
   | (binary_id(goodfetch-conformance::it) & test(/^page::the_page_suite_proves_/))
   | (binary_id(goodfetch-conformance::it) & test(/^protocol::the_reset_gate_is_proved_against_collie_in_either_layout/))
+  | (binary_id(goodfetch-proving-ground::it) & test(/^rungs::(a_browser_identity_page_answers_the_pinned_browser|a_pinned_browser_s_crawl_reads_exactly_the_manifest_s_records)/))
 )
 """
 

@@ -330,3 +330,115 @@ fn one_pages_failing_outcome_rolls_back_alone() {
         )
     );
 }
+
+/// Leases the pending work item `id` in `state`, as its attempt does.
+async fn leased(state: &RunState, id: usize) -> Leased {
+    state
+        .write(move |connection| work_items::lease(connection, &[id.to_string()]))
+        .await
+        .unwrap()
+        .pop()
+        .expect("invariant: the work item is pending")
+}
+
+/// Teaches the Frontier in `state` the page of `leased`, read with
+/// `signature`.
+async fn taught(state: &RunState, leased: &Leased, signature: u8) {
+    let learning = learning(leased, signature);
+    state
+        .write(move |connection| learning.teach(connection))
+        .await
+        .unwrap();
+}
+
+/// A pending work item that a learned parameter ended `skipped` with
+/// `duplicate` is pending again once a contradicting pair stops the rule,
+/// its outcome out of the ended requests' counts, so the crawl fetches it
+/// (ADR 0005).
+///
+/// Covers: story:6-218
+#[test]
+fn a_work_item_a_stopped_rule_had_ended_is_pending_again() {
+    let env = TestEnv::new();
+    let item = |query: &str| format!("https://shop.test/item?{query}");
+    let seeds: Vec<Seed> = [
+        "n=7",
+        "n=7&ref=x",
+        "n=8",
+        "n=8&ref=y",
+        "n=1",
+        "n=1&ref=a",
+        "n=2",
+        "n=2&ref=b",
+        "n=3",
+        "n=3&ref=c",
+    ]
+    .iter()
+    .map(|query| seed(&item(query)))
+    .collect();
+    // The skipped work items' URLs, how many are left to deliver, and the
+    // ended requests' counts.
+    let read = |connection: &Connection| {
+        let skipped: Vec<String> = connection
+            .prepare("SELECT url FROM work_items WHERE status = 'skipped' ORDER BY position")?
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok((
+            skipped,
+            work_items::left(connection)?,
+            work_items::ended_counts(connection)?.0,
+        ))
+    };
+    let (learned, stopped) = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let state = RunState::open(
+            env.folder().join("run.sqlite"),
+            &RunStateOptions::default(),
+            tables(),
+            1,
+            &owner,
+        )
+        .await
+        .unwrap();
+        state
+            .write(move |connection| {
+                work_items::admit_seeds(
+                    connection,
+                    &mut work_items::Positions::of(connection)?,
+                    &goodfetch_frontier::Scope::default(),
+                    &goodfetch_engine::egress::Policy::new(&["*"], &[] as &[&str]).unwrap(),
+                    &seeds,
+                )
+            })
+            .await
+            .unwrap();
+        // Item 7 is fetched, and item 7 under `ref` in flight, while three
+        // pairs that read alike teach that `ref` has no effect, which ends
+        // item 8 under `ref`, pending beside item 8.
+        taught(&state, &leased(&state, 1).await, 7).await;
+        let in_flight = leased(&state, 2).await;
+        for (id, signature) in [(5, 1), (6, 1), (7, 2), (8, 2), (9, 3), (10, 3)] {
+            taught(&state, &leased(&state, id).await, signature).await;
+        }
+        let learned = state.read(read).await.unwrap();
+
+        // Item 7 under `ref` reads otherwise than item 7: the rule stops.
+        taught(&state, &in_flight, 70).await;
+        let stopped = state.read(read).await.unwrap();
+        drop(state);
+        owner.wait().await;
+        (learned, stopped)
+    });
+
+    assert_eq!(
+        (learned, stopped),
+        (
+            (
+                vec![item("n=8&ref=y")],
+                9,
+                vec![("skipped".to_owned(), "duplicate".to_owned(), 1)],
+            ),
+            (Vec::new(), 10, Vec::new()),
+        )
+    );
+}

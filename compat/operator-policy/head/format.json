@@ -261,6 +261,18 @@
                 ],
                 "description": "How many times back to back a segment of a URL's path, or a run of segments, may appear (Heritrix's `maxRepetitions`), so `/a/a` passes and `/a/a/a` and `/a/b/a/b/a/b` do not, while numbers that recur apart, as in `/page/1/tag/1/sort/1`, do: a URL past it is not added, with `max_segment_repeats`, and a finished Run that refused one is `unverified`. 2 by default; `null` turns the cap off."
               },
+              "max_sitemap_nesting": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How many levels of sitemaps a sitemap seed reads under the sitemap or robots.txt it names, each sitemap an index or a robots.txt names one level deeper than it: a sitemap nested deeper is not fetched, the seed's report keeps its URL with `max_sitemap_nesting`, and a Run that refused one ends `incomplete`. 5 by default; `null` turns the bound off."
+              },
               "max_staged_enqueues": {
                 "description": "How many admissions one attempt may stage before it commits: its enqueues, `enqueueLinks` calls and seeds added through `ctx.run`, each held in the engine's memory with the attempt until its commit or its discard. One more fails with `staging_full`, and nothing is staged. 10,000 by default.",
                 "minimum": 0,
@@ -1179,6 +1191,18 @@
                   }
                 ],
                 "description": "How many times back to back a segment of a URL's path, or a run of segments, may appear (Heritrix's `maxRepetitions`), so `/a/a` passes and `/a/a/a` and `/a/b/a/b/a/b` do not, while numbers that recur apart, as in `/page/1/tag/1/sort/1`, do: a URL past it is not added, with `max_segment_repeats`, and a finished Run that refused one is `unverified`. 2 by default; `null` turns the cap off."
+              },
+              "max_sitemap_nesting": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How many levels of sitemaps a sitemap seed reads under the sitemap or robots.txt it names, each sitemap an index or a robots.txt names one level deeper than it: a sitemap nested deeper is not fetched, the seed's report keeps its URL with `max_sitemap_nesting`, and a Run that refused one ends `incomplete`. 5 by default; `null` turns the bound off."
               },
               "max_staged_enqueues": {
                 "description": "How many admissions one attempt may stage before it commits: its enqueues, `enqueueLinks` calls and seeds added through `ctx.run`, each held in the engine's memory with the attempt until its commit or its discard. One more fails with `staging_full`, and nothing is staged. 10,000 by default.",
@@ -3801,6 +3825,18 @@
                   }
                 ],
                 "description": "How many times back to back a segment of a URL's path, or a run of segments, may appear (Heritrix's `maxRepetitions`), so `/a/a` passes and `/a/a/a` and `/a/b/a/b/a/b` do not, while numbers that recur apart, as in `/page/1/tag/1/sort/1`, do: a URL past it is not added, with `max_segment_repeats`, and a finished Run that refused one is `unverified`. 2 by default; `null` turns the cap off."
+              },
+              "max_sitemap_nesting": {
+                "anyOf": [
+                  {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How many levels of sitemaps a sitemap seed reads under the sitemap or robots.txt it names, each sitemap an index or a robots.txt names one level deeper than it: a sitemap nested deeper is not fetched, the seed's report keeps its URL with `max_sitemap_nesting`, and a Run that refused one ends `incomplete`. 5 by default; `null` turns the bound off."
               },
               "max_staged_enqueues": {
                 "description": "How many admissions one attempt may stage before it commits: its enqueues, `enqueueLinks` calls and seeds added through `ctx.run`, each held in the engine's memory with the attempt until its commit or its discard. One more fails with `staging_full`, and nothing is staged. 10,000 by default.",

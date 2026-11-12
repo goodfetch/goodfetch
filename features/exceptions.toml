@@ -154,14 +154,3 @@ evidence = "none"
 reason = "A sample entry of `goodfetch-protocol`, which carries `xtask codegen`'s pipeline and has no behaviour to test; the area that defines the real contracts removes it, and this exception with it."
 link = "https://github.com/goodfetch/goodfetch/issues/130"
 
-[[exception]]
-feature = "setting:crawl.sample_pages"
-evidence = "none"
-reason = "A sample entry of `goodfetch-protocol`, which carries `xtask codegen`'s pipeline and has no behaviour to test; the area that defines the real contracts removes it, and this exception with it."
-link = "https://github.com/goodfetch/goodfetch/issues/130"
-
-[[exception]]
-feature = "setting:sample.echo_repeats"
-evidence = "none"
-reason = "A sample entry of `goodfetch-protocol`, which carries `xtask codegen`'s pipeline and has no behaviour to test; the area that defines the real contracts removes it, and this exception with it."
-link = "https://github.com/goodfetch/goodfetch/issues/130"

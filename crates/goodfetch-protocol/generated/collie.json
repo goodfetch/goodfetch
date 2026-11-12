@@ -9285,6 +9285,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Connection already holds as many calls waiting for their answer, or as many bytes waiting to be written to the engine, as its bounds allow, so the call was refused at once and never sent; the calls made before it go on. The details name the bound, `pending_calls` or `queued_write_bytes`, and its value. Wait for earlier calls to end, or raise the bound where the Connection opens.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "connection_overloaded",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.",
       "exit_code": null,
       "group": "unavailable",

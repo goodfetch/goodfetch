@@ -1172,7 +1172,11 @@ class NotAddedReason(StrEnum):
     method, its URL's key and its body's hash, or its declared `key`.
     """
     out_of_scope = "out_of_scope"
-    """Its URL is outside the crawl's scope (`crawl.scope.*`)."""
+    """
+    Its URL is outside the crawl's scope (`crawl.scope.*`); or, for a
+    nested sitemap, it is on a host its sitemap seed does not read
+    sitemaps on.
+    """
     domain_policy = "domain_policy"
     """The Run's domain policy refuses its host."""
     max_depth = "max_depth"
@@ -1197,6 +1201,11 @@ class NotAddedReason(StrEnum):
     """
     A segment of its URL's path repeats more than
     `crawl.max_segment_repeats`.
+    """
+    max_sitemap_nesting = "max_sitemap_nesting"
+    """
+    A sitemap nested more levels under its sitemap seed than
+    `crawl.max_sitemap_nesting` (ADR 0093).
     """
     path_budget = "path_budget"
     """

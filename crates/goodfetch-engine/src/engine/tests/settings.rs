@@ -10,6 +10,7 @@
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::TestEnv;
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::run::call;
@@ -61,6 +62,105 @@ fn a_run_whose_settings_an_operator_policy_locked_is_refused_before_it_begins() 
             &json!({ "key": "timeout.navigation", "value": 10000, "layer": "operator_policy" }),
             false,
         )
+    );
+}
+
+/// A Run that opens with a setting whose feature the engine does not build
+/// yet, set away from its default by the run or by configuration, is
+/// refused before it begins with `capability_unavailable` naming the key
+/// and the layer that set it: the value would otherwise be ignored (ADR
+/// 0083).
+///
+/// Covers: story:3-88, error:capability_unavailable
+#[rstest]
+/// Covers: setting:wall.domains
+#[case::wall_domains_in_configuration(
+    "wall.domains = [\"paper.example\"]\n",
+    json!({}),
+    "wall.domains",
+    "user_configuration"
+)]
+/// Covers: setting:security.secure_delete
+#[case::secure_delete_switched_off(
+    "",
+    json!({ "security": { "secure_delete": false } }),
+    "security.secure_delete",
+    "run"
+)]
+/// Covers: setting:security.field_encryption
+#[case::field_encryption_switched_off(
+    "",
+    json!({ "security": { "field_encryption": false } }),
+    "security.field_encryption",
+    "run"
+)]
+/// Covers: setting:sample.echo_repeats
+#[case::the_sample_settings_repeats(
+    "",
+    json!({ "sample": { "echo_repeats": 2 } }),
+    "sample.echo_repeats",
+    "run"
+)]
+fn a_run_setting_what_the_engine_does_not_build_yet_is_refused_before_it_begins(
+    #[case] configuration: &str,
+    #[case] settings: Value,
+    #[case] key: &str,
+    #[case] layer: &str,
+) {
+    let env = TestEnv::new();
+    write(
+        &env,
+        "configuration.toml",
+        &format!("version = \"0.1\"\n\n[settings]\n{configuration}"),
+    );
+
+    let (started, _) = start_and_finish(
+        &env,
+        Product::Collie,
+        json!({ "run_id": "set", "settings": settings }),
+    );
+
+    assert_eq!(
+        (
+            &started["error"]["data"]["code"],
+            &started["error"]["data"]["key"],
+            &started["error"]["data"]["layer"],
+            env.home().join("1").join("runs").join("set").exists(),
+        ),
+        (
+            &json!("capability_unavailable"),
+            &json!(key),
+            &json!(layer),
+            false
+        )
+    );
+}
+
+/// A setting whose feature is not built, left at its default or set to it,
+/// refuses nothing: the Run starts, and its report lists nothing weakened.
+///
+/// Covers: story:3-88, setting:wall.domains, setting:security.secure_delete, setting:security.field_encryption
+#[rstest]
+#[case::left_alone(json!({}))]
+#[case::set_to_their_defaults(json!({
+    "wall": { "domains": [] },
+    "security": { "secure_delete": true, "field_encryption": true },
+}))]
+fn a_run_leaving_an_unbuilt_setting_at_its_default_starts(#[case] settings: Value) {
+    let env = TestEnv::new();
+
+    let (started, finished) = start_and_finish(
+        &env,
+        Product::Collie,
+        json!({ "run_id": "set", "settings": settings }),
+    );
+
+    assert_eq!(
+        (
+            &started["result"]["run_id"],
+            &finished["result"]["weakened"]
+        ),
+        (&json!("set"), &Value::Null)
     );
 }
 

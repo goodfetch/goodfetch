@@ -1,10 +1,12 @@
 //! The process tree's sampler: every [`INTERVAL_MILLISECONDS`], the resident
-//! memory, CPU time, threads and open files of the tool's process and every
-//! process under it, read from `/proc` (Linux), so a browser's processes
-//! count with the tool's. The OS's own accounting of the waited-for
-//! children gives the totals; the samples give the peaks over the tree,
-//! the time-weighted mean and the cores used over time. An OS without
-//! `/proc` samples nothing.
+//! memory, proportional set size (PSS), CPU time, threads and open files of
+//! the tool's process and every process under it, read from `/proc`
+//! (Linux), so a browser's processes count with the tool's. Summed resident
+//! memory counts a page two processes share twice; summed PSS counts it
+//! once, each process taking its share. The OS's own accounting of the
+//! waited-for children gives the totals; the samples give the peaks over
+//! the tree, the time-weighted mean and the cores used over time. An OS
+//! without `/proc` samples nothing.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: the sampler reads /proc with blocking calls on a thread of its own (STYLE.md)"
@@ -33,6 +35,11 @@ pub(crate) struct Sample {
     /// Seconds from the trial's start.
     pub(crate) at: f64,
     pub(crate) resident_bytes: u64,
+    /// The tree's PSS: each resident page's bytes divided among the
+    /// processes that map it, so the sum over the tree counts a shared page
+    /// once. None when a live process of the tree kept its own from the
+    /// sampler, so the sum would leave it out.
+    pub(crate) pss_bytes: Option<u64>,
     /// CPU seconds of the tree's live processes so far.
     pub(crate) cpu_seconds: f64,
     pub(crate) threads: u64,
@@ -102,10 +109,45 @@ pub(crate) fn tree(pid: u32) -> Vec<u32> {
     tree
 }
 
-/// One process's resident bytes, CPU ticks, threads and open files; none
-/// once it is gone, or exited and not yet waited for (a zombie, which
-/// `/proc` lists with nothing resident).
-fn process(pid: u32, page: u64) -> Option<(u64, u64, u64, u64)> {
+/// What one sample reads of one process.
+struct Process {
+    resident_bytes: u64,
+    /// None when the OS refuses the sampler its memory map's totals.
+    pss_bytes: Option<u64>,
+    cpu_ticks: u64,
+    threads: u64,
+    open_files: u64,
+}
+
+/// The `Pss:` line of a `smaps_rollup` file, in bytes: the kernel writes it
+/// in kibibytes.
+fn pss_of(rollup: &str) -> Option<u64> {
+    let kibibytes: u64 = rollup
+        .lines()
+        .find_map(|line| line.strip_prefix("Pss:"))?
+        .trim()
+        .strip_suffix("kB")?
+        .trim()
+        .parse()
+        .ok()?;
+    Some(kibibytes * 1024)
+}
+
+/// The process `pid`'s PSS, from the totals of its memory map
+/// (`smaps_rollup`): none where the OS refuses them to the sampler, as for
+/// a process that made itself undumpable, and zero for one that is exiting
+/// and has no memory map left.
+fn pss(pid: u32) -> Option<u64> {
+    match std::fs::read_to_string(format!("/proc/{pid}/smaps_rollup")) {
+        Ok(rollup) => pss_of(&rollup),
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => None,
+        Err(_) => Some(0),
+    }
+}
+
+/// One process's figures; none once it is gone, or exited and not yet
+/// waited for (a zombie, which `/proc` lists with nothing resident).
+fn process(pid: u32, page: u64) -> Option<Process> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     // Fields after the command's closing parenthesis, from the state (3).
     let fields: Vec<&str> = stat.rsplit_once(')')?.1.split_whitespace().collect();
@@ -118,7 +160,13 @@ fn process(pid: u32, page: u64) -> Option<(u64, u64, u64, u64)> {
     let threads: u64 = fields.get(17)?.parse().ok()?;
     let open_files =
         std::fs::read_dir(format!("/proc/{pid}/fd")).map_or(0, |entries| entries.count() as u64);
-    Some((resident * page, ticks, threads, open_files))
+    Some(Process {
+        resident_bytes: resident * page,
+        pss_bytes: pss(pid),
+        cpu_ticks: ticks,
+        threads,
+        open_files,
+    })
 }
 
 impl Sampler {
@@ -137,18 +185,21 @@ impl Sampler {
                     if pid != 0 {
                         let mut sample = Sample {
                             at: start.elapsed().as_secs_f64(),
+                            pss_bytes: Some(0),
                             ..Sample::default()
                         };
                         let mut ticks = 0;
                         let mut live = false;
-                        for pid in tree(pid) {
-                            if let Some((resident, cpu, threads, open_files)) = process(pid, page) {
-                                live = true;
-                                sample.resident_bytes += resident;
-                                ticks += cpu;
-                                sample.threads += threads;
-                                sample.open_files += open_files;
-                            }
+                        for process in tree(pid).into_iter().filter_map(|pid| process(pid, page)) {
+                            live = true;
+                            sample.resident_bytes += process.resident_bytes;
+                            sample.pss_bytes = sample
+                                .pss_bytes
+                                .zip(process.pss_bytes)
+                                .map(|(tree, own)| tree + own);
+                            ticks += process.cpu_ticks;
+                            sample.threads += process.threads;
+                            sample.open_files += process.open_files;
                         }
                         #[expect(
                             clippy::cast_precision_loss,
@@ -215,6 +266,13 @@ pub(crate) fn figures(samples: &[Sample], milestones: &[(u64, f64)]) -> Sampled 
             samples.first().map_or(0, |sample| sample.resident_bytes)
         };
     }
+    // No sample read no PSS: none, where the report has the OS's own peak
+    // to fall back on for the RSS.
+    figures.peak_pss_bytes = samples
+        .iter()
+        .map(|sample| sample.pss_bytes)
+        .reduce(|peak, pss| Some(peak?.max(pss?)))
+        .flatten();
     for sample in samples {
         figures.peak_bytes = figures.peak_bytes.max(sample.resident_bytes);
         figures.peak_threads = figures.peak_threads.max(sample.threads);

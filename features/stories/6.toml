@@ -562,7 +562,7 @@ product = "foxhound"
 
 [[story]]
 id = 204
-title = "As a site owner, I want a sitemap's own fetches, nested ones included, to go through the domain policy, Politeness and robots.txt and run no handler, so that a sitemap is fetched as politely as a page (ADR 0093)."
+title = "As a site owner, I want a sitemap's own fetches, nested ones included, to go through the domain policy, Politeness and robots.txt and run no handler, and a nested one to obey `crawl.max_sitemap_nesting` and the crawl's bounds on its seed's host, so that a sitemap is fetched as politely as a page and an index never widens or deepens my crawl (ADR 0093)."
 milestone = "M1 Core"
 journey = false
 not_journey = "actor"

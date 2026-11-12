@@ -1,0 +1,148 @@
+use super::{CELLS, Config, Row, Scenario, SpiderBuild, Status};
+
+/// Spider's measured rows of `scenario`: each row's name, what it is read
+/// for, its build and its page channel's capacity.
+fn spider_rows(scenario: Scenario) -> Vec<(&'static str, Row, SpiderBuild, usize)> {
+    CELLS
+        .iter()
+        .filter(|cell| cell.scenario == scenario)
+        .filter_map(|cell| match cell.status {
+            Status::Measured(Config::Spider { build, capacity }) => {
+                Some((cell.name, cell.row, build, capacity))
+            }
+            Status::Measured(_) | Status::NotSupported(_) => None,
+        })
+        .collect()
+}
+
+/// Spider's main row of each scenario it runs reads its pages at the
+/// smallest capacity that lost none there, 64, or 256 where the reader
+/// also writes each page; the rows beside it are its sensitivity rows, each
+/// one setting apart (#2213): the capacity before, Spider's default
+/// features, `bloom` and the allocator its README recommends, jemalloc for
+/// the pure crawl and mimalloc where each page is also read. Its `smart`
+/// row, in the headless browser scenario, is not supported: it has its own
+/// test.
+#[test]
+fn spiders_main_row_has_its_sensitivity_rows_beside_it() {
+    use Row::{Main, Sensitivity};
+    use SpiderBuild::{Bloom, Chrome, Defaults, Http, Jemalloc, Mimalloc};
+
+    assert_eq!(
+        (
+            spider_rows(Scenario::Raw),
+            spider_rows(Scenario::Extraction),
+            spider_rows(Scenario::Browser),
+        ),
+        (
+            vec![
+                ("spider", Main, Http, 64),
+                ("spider capacity 4096", Sensitivity, Http, 4096),
+                ("spider default features", Sensitivity, Defaults, 64),
+                ("spider bloom", Sensitivity, Bloom, 64),
+                ("spider jemalloc", Sensitivity, Jemalloc, 64),
+            ],
+            vec![
+                ("spider", Main, Http, 256),
+                ("spider mimalloc", Sensitivity, Mimalloc, 256),
+            ],
+            vec![("spider", Main, Chrome, 64)],
+        )
+    );
+}
+
+/// Spider's `smart` feature does not do the headless browser scenario's
+/// work, so its sensitivity row stands in the matrix, labelled, with the
+/// reason it has no figures.
+#[test]
+fn spiders_smart_row_is_a_sensitivity_row_that_is_not_supported() {
+    let smart: Vec<(Scenario, Row, bool)> = CELLS
+        .iter()
+        .filter(|cell| cell.name == "spider smart")
+        .map(|cell| {
+            (
+                cell.scenario,
+                cell.row,
+                matches!(cell.status, Status::NotSupported(reason) if reason.contains("`crawl_smart()` fetched 1 of the site's 100 pages")),
+            )
+        })
+        .collect();
+
+    assert_eq!(smart, vec![(Scenario::Browser, Row::Sensitivity, true)]);
+}
+
+/// The report writes each row's mapping, so a Spider row's names the
+/// capacity it ran at: the figure a reader weighs its memory against.
+#[test]
+fn each_spider_rows_mapping_names_its_capacity() {
+    let unnamed: Vec<&str> = CELLS
+        .iter()
+        .filter_map(|cell| match cell.status {
+            Status::Measured(Config::Spider { capacity, .. })
+                if !cell.mapping.contains(&format!("`subscribe({capacity})`")) =>
+            {
+                Some(cell.name)
+            }
+            Status::Measured(_) | Status::NotSupported(_) => None,
+        })
+        .collect();
+
+    assert_eq!(unnamed, Vec::<&str>::new());
+}
+
+/// A sensitivity row varies a main row: each sits in a scenario where its
+/// tool has one, so its figures always have the row they are read against.
+#[test]
+fn each_sensitivity_row_has_its_tools_main_row_in_its_scenario() {
+    let alone: Vec<(&str, &str)> = CELLS
+        .iter()
+        .filter(|cell| cell.row == Row::Sensitivity)
+        .filter(|cell| {
+            !CELLS.iter().any(|main| {
+                main.scenario == cell.scenario
+                    && main.tool == cell.tool
+                    && main.row == Row::Main
+                    && matches!(main.status, Status::Measured(_))
+            })
+        })
+        .map(|cell| (cell.scenario.name(), cell.name))
+        .collect();
+
+    assert_eq!(alone, Vec::<(&str, &str)>::new());
+}
+
+/// `just compare` builds every build a Spider row runs, with its feature,
+/// into the folder the run reads it from, and Spider's side declares that
+/// feature: a build added here alone would have no executable to run.
+#[test]
+fn just_compare_builds_each_of_spiders_sides_builds_into_its_folder() {
+    let recipes = include_str!("../../../../justfile");
+    let manifest: toml::Table = include_str!("../../../compare-spider/Cargo.toml")
+        .parse()
+        .unwrap();
+    let builds = CELLS.iter().filter_map(|cell| match cell.status {
+        Status::Measured(Config::Spider { build, .. }) => Some(build),
+        Status::Measured(_) | Status::NotSupported(_) => None,
+    });
+    let mut missing: Vec<String> = builds
+        .filter(|build| {
+            let features = build
+                .feature()
+                .map_or_else(String::new, |feature| format!(" --features {feature}"));
+            let built = recipes.contains(&format!(
+                "cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml \
+                 --profile {{{{ profile }}}}{features} --target-dir target/compare-spider/{}\n",
+                build.folder()
+            ));
+            let declared = build
+                .feature()
+                .is_none_or(|feature| manifest["features"].get(feature).is_some());
+            !(built && declared)
+        })
+        .map(SpiderBuild::folder)
+        .collect();
+    missing.sort();
+    missing.dedup();
+
+    assert_eq!(missing, Vec::<String>::new());
+}

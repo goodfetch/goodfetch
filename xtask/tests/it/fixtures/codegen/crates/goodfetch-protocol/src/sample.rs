@@ -89,6 +89,8 @@ pub const ENTRIES: Entries = Entries {
         result: schema_of::<SampleEchoResult>,
         events: &[&SAMPLE_ECHOED],
         cancellable: true,
+        input: None,
+        bound: None,
         stability: Stability::Experimental,
         deprecated: Some(Deprecation {
             since: ARRIVED_IN,

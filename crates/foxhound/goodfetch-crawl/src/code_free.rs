@@ -241,12 +241,15 @@ type Read = (FormatsRequest, BTreeMap<String, ExtractionField>);
 /// How many extractions' Datasets `pages` an engine keeps.
 const KEPT: usize = 8;
 
+/// The Datasets `pages` kept, each with the extraction it was built for.
+type Kept = VecDeque<(Read, Arc<Built>)>;
+
 /// The Datasets `pages` this engine built for the extractions its latest
 /// code-free starts read, up to [`KEPT`], the latest last: a start reading
 /// one of them again shares it, so its schema is generated and its
 /// validator compiled once (issue 2204). A clone shares them.
 #[derive(Clone, Default)]
-pub(crate) struct Pages(Arc<Mutex<VecDeque<(Read, Arc<Built>)>>>);
+pub(crate) struct Pages(Arc<Mutex<Kept>>);
 
 impl Pages {
     /// The Dataset `pages` of a crawl reading `extraction`, built as
@@ -256,12 +259,32 @@ impl Pages {
     ///
     /// Those of [`dataset`] and of [`Datasets::declare`].
     pub(crate) async fn of(&self, extraction: &CrawlExtraction) -> Result<Arc<Built>, CallError> {
+        let mut kept = self.0.lock().await;
+        let read = |(formats, fields): &Read| {
+            *formats == extraction.formats && *fields == extraction.fields
+        };
+        if let Some(at) = kept.iter().position(|(key, _)| read(key)) {
+            let found = kept
+                .remove(at)
+                .expect("invariant: the position was just found");
+            let built = Arc::clone(&found.1);
+            kept.push_back(found);
+            return Ok(built);
+        }
         let declaration = dataset(extraction)?;
         let datasets = Datasets::declare(std::slice::from_ref(&declaration))?;
-        Ok(Arc::new(Built {
+        let built = Arc::new(Built {
             declaration,
             datasets,
-        }))
+        });
+        kept.push_back((
+            (extraction.formats, extraction.fields.clone()),
+            Arc::clone(&built),
+        ));
+        while kept.len() > KEPT {
+            kept.pop_front();
+        }
+        Ok(built)
     }
 }
 

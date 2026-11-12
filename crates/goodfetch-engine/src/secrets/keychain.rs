@@ -103,6 +103,15 @@ impl Keychain {
         self.backend().await.is_some()
     }
 
+    /// Whether this host has the keychain, once it opened or found it does
+    /// not, without opening it: none before.
+    pub fn answered(&self) -> Option<bool> {
+        match &*self.0 {
+            Opening::Os(opened, _) => opened.get().map(Option::is_some),
+            Opening::Chosen(backend) => Some(backend.is_some()),
+        }
+    }
+
     /// Stores `value` as `service`'s `account`, in place of any value it
     /// had, the store's blocking calls running under `owner`.
     ///

@@ -475,6 +475,16 @@ fn machine_settings(start: &Start, home: Option<&Home>) -> Option<Result<Resolve
 /// usage error's, or `not_in_product`'s when it names what only Foxhound
 /// carries and the executable is not Foxhound's (ADR 0087).
 fn parse(start: &Start) -> Result<(String, Parsed, ColourChoice), ExitCode> {
+    if let Some(color) = attached_engine(&start.arguments) {
+        let command = Command::AttachedEngine {
+            _colour: ColourFlag { color },
+        };
+        return Ok((
+            start.product.executable_name().to_owned(),
+            Parsed::HandWritten(command),
+            color,
+        ));
+    }
     let (command_line, generated) = command_line(start.product, start.commands);
     let mut command_line = command_line.version(start.version);
     let binary = command_line.get_name().to_owned();
@@ -499,8 +509,25 @@ fn parse(start: &Start) -> Result<(String, Parsed, ColourChoice), ExitCode> {
     })
 }
 
-fn attached_engine(_arguments: &[OsString]) -> Option<ColourChoice> {
-    None
+/// The colour of an Attached engine started as an SDK starts it, `attached-
+/// engine` alone or with `--color`, read without building the command line
+/// (issue 2204): what the command line would parse from those arguments.
+/// None for anything else, which the command line parses, refuses or
+/// helps with.
+fn attached_engine(arguments: &[OsString]) -> Option<ColourChoice> {
+    let [_, command, flag @ ..] = arguments else {
+        return None;
+    };
+    if command.to_str()? != ATTACHED_ENGINE {
+        return None;
+    }
+    let value = match flag {
+        [] => return Some(ColourChoice::default()),
+        [name, value] if name == "--color" => value.to_str()?,
+        [joined] => joined.to_str()?.strip_prefix("--color=")?,
+        _ => return None,
+    };
+    <ColourChoice as clap::ValueEnum>::from_str(value, false).ok()
 }
 
 /// `engine`, its Connections receiving `log_events`, its Resource governor

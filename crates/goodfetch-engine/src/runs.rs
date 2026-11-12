@@ -80,7 +80,9 @@ use goodfetch_protocol::secrets::{
     KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE, SecretFailure, TIMEOUT_SECRET,
 };
 use goodfetch_protocol::security::SECURITY_REDACTION;
-use goodfetch_protocol::settings::{SettingsLayer, WALL_REFETCH_DOMAINS, WeakenedSetting};
+use goodfetch_protocol::settings::{
+    ExplainedSetting, SettingsLayer, WALL_REFETCH_DOMAINS, WeakenedSetting,
+};
 use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
 use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
@@ -3208,16 +3210,20 @@ impl Runs {
 
     /// The Secret reference of the key-encryption key of a Run whose
     /// settings resolved as `settings`, and the layer that set it: this
-    /// host's default where none did, or where a layer cleared it.
+    /// host's default where none did, or where a layer cleared it, asked
+    /// for here, so the OS keychain opens only once a Run first needs its
+    /// key, not as its settings open (issue 2204).
     async fn key_reference(
         &self,
         settings: Option<&RunSettings>,
     ) -> (SecretReference, SettingsLayer) {
         if let Some((reference, layer)) = settings.and_then(|settings| {
             let resolved = settings.resolved();
+            let layer = resolved.effective(&RUN_STATE_KEY_REFERENCE)?.layer;
+            (layer != SettingsLayer::Default).then_some(())?;
             Some((
                 resolved.get::<Option<SecretReference>>(&RUN_STATE_KEY_REFERENCE)?,
-                resolved.effective(&RUN_STATE_KEY_REFERENCE)?.layer,
+                layer,
             ))
         }) {
             return (reference, layer);
@@ -6336,6 +6342,22 @@ impl Recording {
     }
 }
 
+/// The settings `run`'s report keeps, explained: a default only asked for
+/// of the host shows its value once known, as where the Run made its data
+/// key, its catalog's before; asked for here, it would open the OS
+/// keychain (issue 2204).
+fn kept_settings(run: &Run) -> Option<Vec<ExplainedSetting>> {
+    let resolved = run.settings()?.resolved();
+    let explained = match run.runs.engine.settings().known_host_defaults() {
+        Some(known) => resolved
+            .clone()
+            .with_host_defaults(&known)
+            .explain(&[], Vec::new()),
+        None => resolved.explain(&[], Vec::new()),
+    };
+    Some(explained.settings)
+}
+
 /// A Run on its way to its end.
 struct Closing {
     run: Run,
@@ -6402,9 +6424,7 @@ impl Closing {
             ended_at: clock.point_in_time(),
             policy_version,
             weakened,
-            settings: run
-                .settings()
-                .map(|settings| settings.resolved().explain(&[], Vec::new()).settings),
+            settings: kept_settings(&run),
             checkpoint: None,
             limits,
             error,

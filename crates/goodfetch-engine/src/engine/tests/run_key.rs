@@ -92,6 +92,19 @@ const SECRETS: RunStateTables = RunStateTables {
 /// stop ends.
 type Kept = Arc<tokio::sync::Mutex<BTreeMap<String, Weak<Run>>>>;
 
+/// A Collie Run's settings, opened as a start opens them, when `params`
+/// ask for them.
+async fn opened(params: &Value, context: &CallContext) -> Option<crate::settings::RunSettings> {
+    if params["opens_settings"] != true {
+        return None;
+    }
+    let opening = crate::settings::Opening {
+        run: Some(Product::Collie),
+        ..crate::settings::Opening::default()
+    };
+    Some(context.engine().settings().open(opening).await.unwrap().0)
+}
+
 fn sealing() -> Contribution {
     let kept = Kept::default();
     Contribution::new("test-run-key")
@@ -101,16 +114,7 @@ fn sealing() -> Contribution {
             move |params: Value, context: CallContext| {
                 let kept = Arc::clone(&kept);
                 async move {
-                    // Opened as a start opens them, when the test asks.
-                    let settings = if params["opens_settings"] == true {
-                        let opening = crate::settings::Opening {
-                            run: Some(Product::Collie),
-                            ..crate::settings::Opening::default()
-                        };
-                        Some(context.engine().settings().open(opening).await.unwrap().0)
-                    } else {
-                        None
-                    };
+                    let settings = opened(&params, &context).await;
                     let started = context
                         .runs()
                         .start(Start {

@@ -133,6 +133,13 @@ impl HostDefaults {
         self
     }
 
+    /// The same, with each of `other`'s defaults in place of its own.
+    #[must_use]
+    pub fn and(mut self, other: Self) -> Self {
+        self.0.extend(other.0);
+        self
+    }
+
     /// The default of `setting` on this host.
     pub fn of(&self, setting: &Setting) -> Value {
         self.0
@@ -356,6 +363,23 @@ impl Resolved {
                 origin: effective.origin,
             })
             .collect()
+    }
+
+    /// The same, with `host`'s defaults in place of the values the default
+    /// layer set: for a default only asked for of the host once it is
+    /// known (issue 2204).
+    #[must_use]
+    pub fn with_host_defaults(mut self, host: &HostDefaults) -> Self {
+        for (name, value) in &host.0 {
+            if let Some(effective) = self
+                .settings
+                .get_mut(name)
+                .filter(|effective| effective.layer == SettingsLayer::Default)
+            {
+                effective.value = value.clone();
+            }
+        }
+        self
     }
 
     /// What `config explain` shows for the keys `prefixes` name (every key

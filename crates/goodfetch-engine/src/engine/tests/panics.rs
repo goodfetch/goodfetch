@@ -7,7 +7,7 @@
 //! Product.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Duration;
+use std::sync::Arc;
 
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, PROTOCOL_VERSION, Product, Reach, Stability,
@@ -17,19 +17,19 @@ use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
 use super::ops::{metering, series};
-use super::{Client, attached_with, dependencies, engine_with, hello};
+use super::{
+    Client, IN_FLIGHT_CAP, attached_with, dependencies, engine_with, opened, owed, request,
+};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::crash_report::record_panics;
 use crate::mask::Masks;
+use crate::tasks::BlockingPolicy;
 
 /// What the panicking handler says, which only the crash report may hold.
 const PANIC_TEXT: &str = "the widget count went negative";
 
-/// How many calls a Connection keeps in flight.
-const CAP: i64 = 256;
-
-/// A call whose handler panics unless its params say `fine`.
+/// A call whose handler panics.
 const PANIC: Operation = Operation {
     name: "test.panic",
     description: "Panics.",
@@ -45,45 +45,47 @@ const PANIC: Operation = Operation {
     arrived_in: PROTOCOL_VERSION,
 };
 
+/// A call whose handler's blocking work panics.
+const PANIC_IN_BLOCKING_WORK: Operation = Operation {
+    name: "test.panic_in_blocking_work",
+    description: "Panics in its blocking work.",
+    ..PANIC
+};
+
+/// The work of a call that panics.
+fn panics() -> Result<Value, CallError> {
+    panic!("{PANIC_TEXT}")
+}
+
 fn panicking() -> Contribution {
-    Contribution::new("test_panic").with_handler(Handler::new(
-        &PANIC,
-        |params: Value, _: CallContext| async move {
-            assert!(params["fine"] == json!(true), "{PANIC_TEXT}");
-            Ok::<Value, CallError>(Value::Null)
-        },
-    ))
-}
-
-fn call(id: i64, method: &str) -> Value {
-    json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": {} })
-}
-
-/// How long a test waits, on the paused clock, for a message the engine
-/// owes: one it never sends fails the test instead of hanging it.
-const OWED: Duration = Duration::from_secs(5);
-
-/// The next message the engine owes.
-async fn owed(client: &mut Client) -> Value {
-    tokio::time::timeout(OWED, client.next())
-        .await
-        .expect("the engine sends what it owes")
-        .expect("the Connection is open")
+    Contribution::new("test_panic")
+        .with_handler(Handler::new(
+            &PANIC,
+            |_: Value, _: CallContext| async move { panics() },
+        ))
+        .with_handler(Handler::new(
+            &PANIC_IN_BLOCKING_WORK,
+            |_: Value, context: CallContext| async move {
+                let owner = Arc::clone(context.engine().owner());
+                owner.blocking(panics).await
+            },
+        ))
 }
 
 /// The reply to the call `id`, read past every other message.
 async fn reply(client: &mut Client, id: i64) -> Value {
     loop {
-        let message = owed(client).await;
+        let message = owed(client).await.expect("the Connection is open");
         if message["id"] == json!(id) {
             return message;
         }
     }
 }
 
-/// What `talk` answers on an Attached engine that carries `test.panic`, the
-/// crash reports it left, each file's text by its name, and every series of
-/// the engine's meter once `talk` ended.
+/// What `talk` answers on an Attached engine that carries `test.panic` and
+/// runs blocking work on threads, as a Product does, the crash reports it
+/// left, each file's text by its name, and every series of the engine's
+/// meter once `talk` ended.
 fn panicked<F, Fut, T>(talk: F) -> (T, BTreeMap<String, String>, BTreeSet<String>)
 where
     F: FnOnce(Client) -> Fut,
@@ -97,7 +99,8 @@ where
     let answered = attached_with(
         &engine,
         || {
-            let dependencies = dependencies(&env);
+            let mut dependencies = dependencies(&env);
+            dependencies.blocking = BlockingPolicy::Threads;
             record_panics(
                 writing,
                 "goodfetch-collie 0.1.0".to_owned(),
@@ -133,11 +136,10 @@ where
 #[test]
 fn a_call_whose_handler_panics_is_answered_engine_panicked_and_its_connection_goes_on() {
     let ((answered, next), reports, series) = panicked(|mut client: Client| async move {
-        client.send(&[hello("collie", "0.1")]).await;
-        assert!(client.next().await.unwrap().get("result").is_some());
-        client.send(&[call(1, "test.panic")]).await;
+        opened(&mut client).await;
+        client.send(&[request(1, "test.panic")]).await;
         let answered = reply(&mut client, 1).await;
-        client.send(&[call(2, "test.surface")]).await;
+        client.send(&[request(2, "test.surface")]).await;
         let next = reply(&mut client, 2).await;
         client.close().await;
         (answered, next)
@@ -177,26 +179,61 @@ fn a_call_whose_handler_panics_is_answered_engine_panicked_and_its_connection_go
 #[test]
 fn a_panicked_call_gives_its_place_in_flight_back() {
     let ((panicked, served), _, _) = panicked(|mut client: Client| async move {
-        client.send(&[hello("collie", "0.1")]).await;
-        assert!(client.next().await.unwrap().get("result").is_some());
-        let calls: Vec<Value> = (1..=CAP).map(|id| call(id, "test.panic")).collect();
+        opened(&mut client).await;
+        let calls: Vec<Value> = (1..=IN_FLIGHT_CAP)
+            .map(|id| request(id, "test.panic"))
+            .collect();
         client.send(&calls).await;
         let mut panicked = 0;
-        for _ in 1..=CAP {
-            let answered = owed(&mut client).await;
+        for _ in 1..=IN_FLIGHT_CAP {
+            let answered = owed(&mut client).await.expect("the call answers");
             if answered["error"]["data"]["code"] == json!("engine_panicked") {
                 panicked += 1;
             }
         }
-        client.send(&[call(CAP + 1, "test.surface")]).await;
-        let served = reply(&mut client, CAP + 1).await;
+        client
+            .send(&[request(IN_FLIGHT_CAP + 1, "test.surface")])
+            .await;
+        let served = reply(&mut client, IN_FLIGHT_CAP + 1).await;
         client.close().await;
         (panicked, served)
     });
 
     assert_eq!(
         (panicked, served["result"]["surface"].as_str()),
-        (CAP, Some("sdk_typescript")),
+        (IN_FLIGHT_CAP, Some("sdk_typescript")),
         "{served}"
+    );
+}
+
+/// A panic in a call's blocking work, which runs on a thread of its own
+/// and resumes in the call, is answered `engine_panicked` with `ended:
+/// call` and the name of the crash report that panic wrote.
+#[test]
+fn a_panic_in_a_calls_blocking_work_is_answered_with_its_own_crash_report() {
+    let (answered, reports, _) = panicked(|mut client: Client| async move {
+        opened(&mut client).await;
+        client
+            .send(&[request(1, "test.panic_in_blocking_work")])
+            .await;
+        let answered = reply(&mut client, 1).await;
+        client.close().await;
+        answered
+    });
+
+    let data = &answered["error"]["data"];
+    let report_text = data["crash_report"]
+        .as_str()
+        .and_then(|name| reports.get(name))
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        (
+            &data["code"],
+            &data["ended"],
+            report_text.contains(PANIC_TEXT),
+        ),
+        (&json!("engine_panicked"), &json!("call"), true),
+        "{answered} {reports:?}"
     );
 }

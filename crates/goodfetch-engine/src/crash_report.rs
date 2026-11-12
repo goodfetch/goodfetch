@@ -48,10 +48,20 @@ thread_local! {
 /// The file name of the crash report written for the panic the caller just
 /// caught, on the thread that panicked: `None` when the process records
 /// no panics ([`record_panics`]), or when the report could not be written.
-/// The hook runs on the panicking thread before it unwinds, so a caller
-/// that takes it where it caught the unwind reads its own panic's.
+/// The hook runs on the panicking thread before it unwinds, and
+/// [`resume_unwind`] hands the name on with a panic it moves to another
+/// thread, so a caller that takes it where it caught the unwind reads its
+/// own panic's.
 pub(crate) fn take_written() -> Option<String> {
     LAST_WRITTEN.take()
+}
+
+/// Resumes `panic`, caught on another thread, on this one, with `written`,
+/// the name [`take_written`] took where it was caught: resuming runs no
+/// panic hook, so the panic's report is named here for whoever catches it.
+pub(crate) fn resume_unwind(panic: Box<dyn std::any::Any + Send>, written: Option<String>) -> ! {
+    LAST_WRITTEN.set(written);
+    std::panic::resume_unwind(panic)
 }
 
 /// The report of `panic`.

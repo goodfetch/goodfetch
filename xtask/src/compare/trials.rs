@@ -317,7 +317,7 @@ pub(crate) enum Exercise {
     Click,
     /// The lab's form tasks, one page after another.
     Form,
-    /// The portal's pages that need no login, each opened and its text
+    /// The portal's pages that need no login, each opened and its title
     /// read.
     Navigation,
     /// Sessions opened and closed one after another.

@@ -94,8 +94,10 @@ interface Driver {
 }
 
 // An expression, which both tools evaluate as it is: Playwright calls only a
-// function it is handed as one, not a function's source.
-const READ = "document.body.innerText";
+// function it is handed as one, not a function's source. The title, which
+// the served page sets, where the body's text would race the scripts that
+// fill some portal pages after their load.
+const READ = "document.title";
 
 /** The text a read step read, or none when the page answered no string. */
 function readText(value: unknown): string {

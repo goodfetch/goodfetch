@@ -15,11 +15,11 @@
 //! Each trial runs one tool in a fresh process, against a fresh Proving
 //! ground and a fresh browser, and takes its figures between the marks the
 //! driver asks for once attached: CDP commands, the CPU time of the tool's
-//! process tree and the wall time, each per action, beside the peak
+//! process tree and the wall time, each per action taken, beside the peak
 //! resident memory of the tool's process tree. The oracle judges each
 //! `actionability.test` page, which gives the pages each tool got right.
 //! The same-work check holds every trial to its cell's plan and every page
-//! to the status and the text most trials saw; the report gives
+//! to the status and the title most trials saw; the report gives
 //! `collie.playwright_command_ratio` from the click and form cells, and
 //! says when it is over the register row's Today.
 #![expect(
@@ -30,7 +30,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
@@ -91,7 +91,8 @@ pub(crate) enum Step {
         selector: &'static str,
         key: &'static str,
     },
-    /// Reads the page's text.
+    /// Reads the page's title, in a script the page runs: its text would
+    /// race the scripts that fill some portal pages after their load.
     Read,
 }
 
@@ -316,8 +317,8 @@ pub(crate) struct Tools<'a> {
     pub(crate) proving_ground: &'a Path,
     /// Collie's Attached engine.
     pub(crate) engine: &'a Path,
-    /// `xtask/compare-collie/act.ts`, which Node.js runs.
-    pub(crate) driver: &'a Path,
+    /// `xtask/compare-collie/act.ts`, which Node.js runs, as an absolute path.
+    pub(crate) driver: PathBuf,
     /// Chrome for Testing's folder.
     pub(crate) browser: &'a Path,
     /// xtask's own `GOODFETCH_*` variables, which the tool runs without.
@@ -497,7 +498,7 @@ pub(crate) fn trial(
     let relayed = relay.address();
     let mut command = Command::new("node");
     command
-        .arg(tools.driver)
+        .arg(&tools.driver)
         .args(["--tool", tool.name(), "--plan"])
         .arg(&plan_file)
         .arg("--cdp")

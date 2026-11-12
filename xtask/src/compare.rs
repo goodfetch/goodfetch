@@ -212,6 +212,11 @@ pub(crate) struct TrialArguments {
     output: Option<PathBuf>,
 }
 
+/// `path` made absolute, for a child that runs in another folder.
+fn absolute(path: &Path) -> Result<PathBuf> {
+    std::fs::canonicalize(path).with_context(|| format!("finding {}", path.display()))
+}
+
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
     match command {
         Command::Run(arguments) => {
@@ -231,14 +236,13 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             };
             let out = environment.path(&arguments.out);
             let folder = out.parent().unwrap_or_else(|| Path::new("."));
-            let collie_driver = environment.path(&arguments.collie_driver);
             let proving_ground = tools.path(Tool::ProvingGround)?;
             let collie = Asked::collie(&arguments.scenarios)
                 .then(|| -> Result<_> {
                     Ok(collie::Tools {
                         proving_ground,
                         engine: tools.path(Tool::Collie)?,
-                        driver: &collie_driver,
+                        driver: absolute(&environment.path(&arguments.collie_driver))?,
                         browser: &browser,
                         goodfetch_variables: &environment.goodfetch_variables,
                     })

@@ -91,6 +91,14 @@ pub(crate) struct CrawlRow {
     pub(crate) huge_pages: bool,
 }
 
+/// What a scenario does, which each of its figures follows.
+#[derive(Clone, Copy)]
+enum Work {
+    IdleAttachedEngine,
+    IdleDaemon,
+    Crawl(CrawlRow),
+}
+
 /// The crawl scenarios' user configuration with huge pages on:
 /// `governor.huge_pages` has Machine authority, so a Run's settings cannot
 /// carry it (ADR 0138).
@@ -122,12 +130,10 @@ impl Scenario {
         }
     }
 
-    /// The crawl it is, if it crawls the Proving ground, which `measure`
-    /// serves outside the probe, so its memory is never the measured
-    /// process's.
-    pub(crate) fn crawl(self) -> Option<CrawlRow> {
+    fn work(self) -> Work {
         let (pages, huge_pages) = match self {
-            Self::IdleAttachedEngine | Self::IdleDaemon => return None,
+            Self::IdleAttachedEngine => return Work::IdleAttachedEngine,
+            Self::IdleDaemon => return Work::IdleDaemon,
             Self::Crawl100 => (100, false),
             Self::Crawl1000 => (1_000, false),
             Self::Crawl10000 => (10_000, false),
@@ -135,7 +141,17 @@ impl Scenario {
             Self::Crawl1000HugePages => (1_000, true),
             Self::Crawl10000HugePages => (10_000, true),
         };
-        Some(CrawlRow { pages, huge_pages })
+        Work::Crawl(CrawlRow { pages, huge_pages })
+    }
+
+    /// The crawl it is, if it crawls the Proving ground, which `measure`
+    /// serves outside the probe, so its memory is never the measured
+    /// process's.
+    pub(crate) fn crawl(self) -> Option<CrawlRow> {
+        match self.work() {
+            Work::Crawl(crawl) => Some(crawl),
+            Work::IdleAttachedEngine | Work::IdleDaemon => None,
+        }
     }
 
     /// The Products whose executables it runs on: each, for a figure of the
@@ -153,15 +169,10 @@ impl Scenario {
     /// crawl's at every size, which `just targets` tightens to Spider's
     /// peak where that is lower (spec #2165).
     pub(crate) fn target_bytes(self) -> u64 {
-        match self {
-            Self::IdleAttachedEngine => 8 * MIB,
-            Self::IdleDaemon => 16 * MIB,
-            Self::Crawl100
-            | Self::Crawl1000
-            | Self::Crawl10000
-            | Self::Crawl100HugePages
-            | Self::Crawl1000HugePages
-            | Self::Crawl10000HugePages => 32 * MIB,
+        match self.work() {
+            Work::IdleAttachedEngine => 8 * MIB,
+            Work::IdleDaemon => 16 * MIB,
+            Work::Crawl(_) => 32 * MIB,
         }
     }
 
@@ -176,15 +187,11 @@ impl Scenario {
     /// as `daemon start` launches it, kept alive so it never stops idle
     /// before it is stopped.
     pub(crate) fn arguments(self) -> &'static [&'static str] {
-        match self {
-            Self::IdleAttachedEngine
-            | Self::Crawl100
-            | Self::Crawl1000
-            | Self::Crawl10000
-            | Self::Crawl100HugePages
-            | Self::Crawl1000HugePages
-            | Self::Crawl10000HugePages => &[goodfetch_protocol::cli::ATTACHED_ENGINE],
-            Self::IdleDaemon => &["daemon", "launched", "--keep-alive"],
+        match self.work() {
+            Work::IdleAttachedEngine | Work::Crawl(_) => {
+                &[goodfetch_protocol::cli::ATTACHED_ENGINE]
+            }
+            Work::IdleDaemon => &["daemon", "launched", "--keep-alive"],
         }
     }
 
@@ -217,15 +224,10 @@ impl Scenario {
             .stdout
             .take()
             .context("the engine's stdout is piped")?;
-        match self {
-            Self::IdleAttachedEngine => idle_attached_engine(needs, stdin, stdout),
-            Self::IdleDaemon => idle_daemon(needs, child, stdin, stdout),
-            Self::Crawl100
-            | Self::Crawl1000
-            | Self::Crawl10000
-            | Self::Crawl100HugePages
-            | Self::Crawl1000HugePages
-            | Self::Crawl10000HugePages => {
+        match self.work() {
+            Work::IdleAttachedEngine => idle_attached_engine(needs, stdin, stdout),
+            Work::IdleDaemon => idle_daemon(needs, child, stdin, stdout),
+            Work::Crawl(_) => {
                 let site = site.context("the crawl needs the Proving ground's address")?;
                 crawl::crawl(stdin, stdout, site)
             }

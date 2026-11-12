@@ -645,7 +645,7 @@ impl Transport for Reqwest {
     fn presents(&self, url: &Url) -> Vec<(String, String)> {
         self.document_request
             .as_ref()
-            .map(|request| request.headers(url))
+            .map(|request| request.headers(url).to_vec())
             .unwrap_or_default()
     }
 

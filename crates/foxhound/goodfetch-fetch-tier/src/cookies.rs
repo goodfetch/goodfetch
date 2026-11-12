@@ -18,6 +18,7 @@
 )]
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use cookie_store::{Cookie, CookieStore, RawCookie};
@@ -35,8 +36,24 @@ const MAX_SIZE: usize = 4096;
 const MAX_COOKIES: usize = 3000;
 
 /// One Session's cookie jar.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub(crate) struct Jar(Mutex<CookieStore>);
+
+impl fmt::Debug for Jar {
+    /// How many cookies it holds, never one of them (STYLE.md, secrets).
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let held = self
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter_any()
+            .count();
+        formatter
+            .debug_struct("Jar")
+            .field("cookies", &held)
+            .finish()
+    }
+}
 
 impl Jar {
     /// The `Cookie` header a request to `url` carries: the jar's cookies
@@ -90,23 +107,50 @@ impl Jar {
             {
                 // A public suffix: the host's own cookie when the host is
                 // that suffix, no cookie otherwise (RFC 6265 §5.3 step 5).
-                if url.host_str() != Some(domain.as_str()) {
+                let host = url.host_str().map(|host| host.trim_end_matches('.'));
+                if host != Some(domain.as_str()) {
                     continue;
                 }
                 cookie.unset_domain();
             }
             // A cookie the storage model refuses, such as one for another
-            // domain, is no cookie; a full jar still takes one that only
-            // expires what it holds.
+            // domain, is no cookie.
             let Ok(cookie) = Cookie::try_from_raw_cookie(&cookie, url) else {
                 continue;
             };
-            if !cookie.is_expired() && jar.iter_any().count() >= MAX_COOKIES {
+            if !cookie.is_expired() && !make_room(&mut jar, &cookie) {
                 continue;
             }
             let _ = jar.insert(cookie.into_owned(), url);
         }
     }
+}
+
+/// Whether `jar` may take `cookie`: it holds it already, or holds fewer
+/// than [`MAX_COOKIES`] once those that expired are dropped, which a full
+/// jar does first.
+fn make_room(jar: &mut CookieStore, cookie: &Cookie<'_>) -> bool {
+    let domain = String::from(&cookie.domain);
+    if jar.contains_any(&domain, &cookie.path, cookie.name())
+        || jar.iter_any().count() < MAX_COOKIES
+    {
+        return true;
+    }
+    let expired: Vec<(String, String, String)> = jar
+        .iter_any()
+        .filter(|held| held.is_expired())
+        .map(|held| {
+            (
+                String::from(&held.domain),
+                held.path.to_string(),
+                held.name().to_owned(),
+            )
+        })
+        .collect();
+    for (domain, path, name) in &expired {
+        jar.remove(domain, path, name);
+    }
+    !expired.is_empty()
 }
 
 /// The jars of a Run's Sessions that send their HTTP themselves, each

@@ -602,20 +602,39 @@ pub(crate) async fn fetch_anew(
 }
 
 /// `hop` as it leaves on `transport`: the headers the transport's Session
-/// presents on a request to its URL (ADR 0021), in their order, each one
-/// the hop sets itself keeping the hop's value, then the hop's other
-/// headers, and the codings Chrome asks for when neither names any.
+/// presents on a request to its URL (ADR 0021), in their order, each name
+/// the hop sets itself carrying the hop's values in its place, then the
+/// hop's other headers, and the codings Chrome asks for when neither names
+/// any.
 fn asked(transport: &dyn Transport, hop: &Hop) -> Hop {
-    let mut headers = transport.presents(&hop.url);
-    for (name, value) in &hop.headers {
-        match headers
-            .iter_mut()
-            .find(|(presented, _)| presented.eq_ignore_ascii_case(name))
+    fn own<'a>(hop: &'a Hop, name: &'a str) -> impl Iterator<Item = &'a (String, String)> {
+        hop.headers
+            .iter()
+            .filter(move |(header, _)| header.eq_ignore_ascii_case(name))
+    }
+    let presented = transport.presents(&hop.url);
+    let others: Vec<&(String, String)> = hop
+        .headers
+        .iter()
+        .filter(|(header, _)| {
+            !presented
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case(header))
+        })
+        .collect();
+    let mut headers: Vec<(String, String)> =
+        Vec::with_capacity(presented.len() + hop.headers.len() + 1);
+    for (name, value) in presented {
+        if own(hop, &name).next().is_none() {
+            headers.push((name, value));
+        } else if !headers
+            .iter()
+            .any(|(sent, _)| sent.eq_ignore_ascii_case(&name))
         {
-            Some((_, presented)) => presented.clone_from(value),
-            None => headers.push((name.clone(), value.clone())),
+            headers.extend(own(hop, &name).cloned());
         }
     }
+    headers.extend(others.into_iter().cloned());
     if !headers
         .iter()
         .any(|(name, _)| name.eq_ignore_ascii_case("accept-encoding"))

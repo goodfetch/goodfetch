@@ -46,9 +46,10 @@ const BRAND_VERSIONS: [&str; 3] = ["8", "99", "24"];
 /// The document request of one browser build on one platform.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DocumentRequest {
-    user_agent: String,
-    brands: String,
-    platform: &'static str,
+    /// The headers a potentially trustworthy origin receives.
+    trustworthy: Vec<(String, String)>,
+    /// The headers every other origin receives.
+    elsewhere: Vec<(String, String)>,
 }
 
 impl DocumentRequest {
@@ -84,56 +85,63 @@ impl DocumentRequest {
             }
             BuildPlatform::WindowsX64 => ("Windows NT 10.0; Win64; x64", "Windows"),
         };
-        Some(Self {
-            user_agent: format!(
-                "Mozilla/5.0 ({system}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
-            ),
-            brands: brands(major),
-            platform: name,
-        })
-    }
-
-    /// The headers of the request for the document at `url`, their names
-    /// in lowercase, in the browser's order.
-    pub fn headers(&self, url: &Url) -> Vec<(String, String)> {
-        let trustworthy = potentially_trustworthy(url);
-        let hints: &[(&str, &str)] = &[
-            ("sec-ch-ua", &self.brands),
-            ("sec-ch-ua-mobile", "?0"),
-            ("sec-ch-ua-platform", &format!("\"{}\"", self.platform)),
-        ];
-        let asked: &[(&str, &str)] = &[
+        let user_agent = format!(
+            "Mozilla/5.0 ({system}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
+        );
+        let brands = brands(major);
+        let platform = format!("\"{name}\"");
+        let asked = [
             ("upgrade-insecure-requests", "1"),
-            ("user-agent", &self.user_agent),
+            ("user-agent", user_agent.as_str()),
             ("accept", ACCEPT),
         ];
-        let metadata: &[(&str, &str)] = &[
+        let hints = [
+            ("sec-ch-ua", brands.as_str()),
+            ("sec-ch-ua-mobile", "?0"),
+            ("sec-ch-ua-platform", platform.as_str()),
+        ];
+        let metadata = [
             ("sec-fetch-site", "none"),
             ("sec-fetch-mode", "navigate"),
             ("sec-fetch-user", "?1"),
             ("sec-fetch-dest", "document"),
         ];
-        let codings = if trustworthy {
-            "gzip, deflate, br, zstd"
-        } else {
-            "gzip, deflate"
+        let owned = |headers: &[&[(&str, &str)]]| {
+            headers
+                .concat()
+                .into_iter()
+                .map(|(name, value)| (name.to_owned(), value.to_owned()))
+                .collect()
         };
-        let mut headers = Vec::new();
-        if trustworthy {
-            headers.extend_from_slice(hints);
+        Some(Self {
+            trustworthy: owned(&[
+                &hints,
+                &asked,
+                &metadata,
+                &[
+                    ("accept-encoding", "gzip, deflate, br, zstd"),
+                    ("accept-language", ACCEPT_LANGUAGE),
+                ],
+            ]),
+            elsewhere: owned(&[
+                &asked,
+                &[
+                    ("accept-encoding", "gzip, deflate"),
+                    ("accept-language", ACCEPT_LANGUAGE),
+                ],
+            ]),
+        })
+    }
+
+    /// The headers of the request for the document at `url`, their names
+    /// in lowercase, in the browser's order.
+    #[must_use]
+    pub fn headers(&self, url: &Url) -> &[(String, String)] {
+        if potentially_trustworthy(url) {
+            &self.trustworthy
+        } else {
+            &self.elsewhere
         }
-        headers.extend_from_slice(asked);
-        if trustworthy {
-            headers.extend_from_slice(metadata);
-        }
-        headers.extend_from_slice(&[
-            ("accept-encoding", codings),
-            ("accept-language", ACCEPT_LANGUAGE),
-        ]);
-        headers
-            .into_iter()
-            .map(|(name, value)| (name.to_owned(), value.to_owned()))
-            .collect()
     }
 }
 

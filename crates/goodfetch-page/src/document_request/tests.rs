@@ -8,9 +8,9 @@ use super::DocumentRequest;
 fn header(request: &DocumentRequest, url: &str, name: &str) -> Option<String> {
     request
         .headers(&Url::parse(url).unwrap())
-        .into_iter()
+        .iter()
         .find(|(header, _)| header == name)
-        .map(|(_, value)| value)
+        .map(|(_, value)| value.clone())
 }
 
 /// The brands Chromium 124 and 131 sent, as sites recorded them: the
@@ -62,14 +62,18 @@ fn the_user_agent_is_the_reduced_one_of_the_builds_platform(
 /// Client hints and fetch metadata go only to a potentially trustworthy
 /// origin, and only there does the browser ask for `br` and `zstd`.
 #[rstest]
-#[case::https("https://example.com/", true)]
-#[case::localhost("http://localhost:8080/", true)]
-#[case::a_name_under_localhost("http://shop.localhost/", true)]
-#[case::loopback("http://127.0.0.1/", true)]
-#[case::loopback_ipv6("http://[::1]/", true)]
-#[case::plain_http("http://example.com/", false)]
-#[case::a_name_ending_in_localhost("http://notlocalhost/", false)]
-fn client_hints_go_to_trustworthy_origins_only(#[case] url: &str, #[case] trustworthy: bool) {
+#[case::https("https://example.com/", true, "gzip, deflate, br, zstd")]
+#[case::localhost("http://localhost:8080/", true, "gzip, deflate, br, zstd")]
+#[case::a_name_under_localhost("http://shop.localhost/", true, "gzip, deflate, br, zstd")]
+#[case::loopback("http://127.0.0.1/", true, "gzip, deflate, br, zstd")]
+#[case::loopback_ipv6("http://[::1]/", true, "gzip, deflate, br, zstd")]
+#[case::plain_http("http://example.com/", false, "gzip, deflate")]
+#[case::a_name_ending_in_localhost("http://notlocalhost/", false, "gzip, deflate")]
+fn client_hints_go_to_trustworthy_origins_only(
+    #[case] url: &str,
+    #[case] trustworthy: bool,
+    #[case] codings: &str,
+) {
     let request =
         DocumentRequest::of_build("141.0.7390.54-linux64", BuildPlatform::LinuxX64).unwrap();
 
@@ -79,15 +83,7 @@ fn client_hints_go_to_trustworthy_origins_only(#[case] url: &str, #[case] trustw
             header(&request, url, "sec-fetch-dest").is_some(),
             header(&request, url, "accept-encoding").as_deref(),
         ),
-        (
-            trustworthy,
-            trustworthy,
-            Some(if trustworthy {
-                "gzip, deflate, br, zstd"
-            } else {
-                "gzip, deflate"
-            }),
-        )
+        (trustworthy, trustworthy, Some(codings))
     );
 }
 

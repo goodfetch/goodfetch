@@ -1103,7 +1103,8 @@ impl FetchTiers {
             redundant: Arc::new(Redundant::of(settings)),
             following: Following::of(settings),
             sessions: Arc::new(SessionTransports::new(
-                (config, presents),
+                config,
+                presents,
                 usize::try_from(settings.get::<u64>(&SESSION_POOL_MAX_SIZE)).unwrap_or(usize::MAX),
             )),
             jars: Arc::default(),
@@ -2238,7 +2239,7 @@ struct Built {
 }
 
 impl SessionTransports {
-    fn new((config, presents): (TransportConfig, Option<DocumentRequest>), most: usize) -> Self {
+    fn new(config: TransportConfig, presents: Option<DocumentRequest>, most: usize) -> Self {
         Self {
             config,
             presents,

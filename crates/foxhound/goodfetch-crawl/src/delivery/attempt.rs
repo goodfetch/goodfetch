@@ -889,13 +889,10 @@ impl On<'_> {
         // one forced onto `browser_fetch`.
         // A Session forced onto its own transport keeps its cookies in a
         // jar of its own there (ADR 0021).
-        let sessions;
-        let http = if choice.forced.is_none() || choice.tier == FetchTier::BrowserFetch {
-            sessions = tiers.in_browser(http, run, self.in_browser, hand_over, self.context);
-            &sessions
+        let http = &if choice.forced.is_none() || choice.tier == FetchTier::BrowserFetch {
+            tiers.in_browser(http, run, self.in_browser, hand_over, self.context)
         } else {
-            sessions = http.keeping_cookies_of(&self.session.id);
-            &sessions
+            http.keeping_cookies_of(&self.session.id)
         };
         let (served, facts) = self
             .document(tiering, http, choice, hand_over)

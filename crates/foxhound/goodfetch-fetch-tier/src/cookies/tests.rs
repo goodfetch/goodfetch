@@ -1,7 +1,7 @@
 use rstest::rstest;
 use url::Url;
 
-use super::{Jar, MAX_SIZE};
+use super::{Jar, MAX_COOKIES, MAX_SIZE};
 
 /// A jar that kept what the answer from `from` set with `set_cookies`.
 fn kept(from: &str, set_cookies: &[&str]) -> Jar {
@@ -105,4 +105,59 @@ fn a_set_cookie_past_the_size_a_browser_keeps_is_dropped() {
     let jar = kept("https://example.com/", &[&long, "b=1"]);
 
     assert_eq!(sent(&jar, "https://example.com/").as_deref(), Some("b=1"));
+}
+
+#[test]
+fn a_full_jar_still_updates_what_it_holds_and_makes_room_from_what_expired() {
+    let url = Url::parse("https://example.com/").unwrap();
+    let set = |cookies: Vec<String>| -> Vec<(String, String)> {
+        cookies
+            .into_iter()
+            .map(|cookie| ("set-cookie".to_owned(), cookie))
+            .collect()
+    };
+    let jar = Jar::default();
+    jar.keep(
+        &url,
+        &set((0..MAX_COOKIES)
+            .map(|n| format!("c{n}=1; Path=/n"))
+            .collect()),
+    );
+
+    // Full: a new cookie is dropped, one it holds is updated.
+    jar.keep(
+        &url,
+        &set(vec!["new=1".to_owned(), "c0=2; Path=/n".to_owned()]),
+    );
+    let full = (
+        sent(&jar, "https://example.com/"),
+        sent(&jar, "https://example.com/n").is_some_and(|cookies| cookies.starts_with("c0=2; ")),
+    );
+    // One removed: the next new cookie takes its place.
+    jar.keep(
+        &url,
+        &set(vec![
+            "c1=; Path=/n; Max-Age=0".to_owned(),
+            "new=1".to_owned(),
+        ]),
+    );
+
+    assert_eq!(
+        (full, sent(&jar, "https://example.com/").as_deref()),
+        ((None, true), Some("new=1"))
+    );
+}
+
+#[test]
+fn a_jars_debug_form_names_no_cookie() {
+    let jar = kept("https://example.com/", &["session=gfcanary-not-printed"]);
+
+    assert_eq!(format!("{jar:?}"), "Jar { cookies: 1 }");
+}
+
+#[test]
+fn a_host_written_with_a_trailing_dot_keeps_its_own_public_suffix_cookie() {
+    let jar = kept("https://github.io./", &["hop=1; Domain=github.io"]);
+
+    assert_eq!(sent(&jar, "https://github.io./").as_deref(), Some("hop=1"));
 }

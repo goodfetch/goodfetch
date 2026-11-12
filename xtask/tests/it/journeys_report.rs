@@ -56,13 +56,10 @@ fn j001(variant: &str, open: &str, check: &str, outcome: &str) -> Vec<u8> {
         variant,
         &[
             ("Start the Daemon", "passed"),
-            (
-                "Ask for the Console, which the system browser opens",
-                "manual",
-            ),
-            ("Open the Console", open),
+            ("See the Daemon's notice on the desktop", "manual"),
+            ("Read the status", open),
         ],
-        &[("The Console opens with no login", check)],
+        &[("The status says the Daemon runs", check)],
         outcome,
     )
 }
@@ -110,18 +107,15 @@ fn fixture_store(workspace: &Workspace) {
         kept: vec![kept(LINUX, "J-003@cli", j003.clone())],
         ..release_attempt(9, "2026-10-17T03:00:00Z", "c0")
     };
-    // J-001@console leaves out its last step; J-001@foxhound-cli says
-    // `proved` with a failed check. The reader refuses both.
-    let console = document(
-        "J-001@console",
+    // J-001@sdk-typescript leaves out its last step; J-001@foxhound-cli
+    // says `proved` with a failed check. The reader refuses both.
+    let sdk_typescript = document(
+        "J-001@sdk-typescript",
         &[
             ("Start the Daemon", "passed"),
-            (
-                "Ask for the Console, which the system browser opens",
-                "manual",
-            ),
+            ("See the Daemon's notice on the desktop", "manual"),
         ],
-        &[("The Console opens with no login", "passed")],
+        &[("The status says the Daemon runs", "passed")],
         "proved",
     );
     let failed_crawl = document(
@@ -143,7 +137,7 @@ fn fixture_store(workspace: &Workspace) {
                 "J-001@cli",
                 j001("J-001@cli", "passed", "passed", "proved"),
             ),
-            kept(LINUX, "J-001@console", console),
+            kept(LINUX, "J-001@sdk-typescript", sdk_typescript),
             kept(
                 LINUX,
                 "J-001@foxhound-cli",
@@ -197,7 +191,7 @@ fn outcomes(report: &Value) -> BTreeMap<String, String> {
         .collect()
 }
 
-/// A document the reader refuses, such as J-001@console's, which leaves out
+/// A document the reader refuses, such as J-001@sdk-typescript's, which leaves out
 /// its last step yet says `proved`, makes its variant `rejected`, never
 /// `proved`.
 #[test]
@@ -210,8 +204,8 @@ fn each_variant_gets_its_outcome_from_the_documents_of_mains_latest_release_run(
     assert_eq!(report["release_commit"], "c1");
     let expected: BTreeMap<String, String> = [
         ("J-001@cli", "proved"),
-        ("J-001@console", "rejected"),
         ("J-001@foxhound-cli", "rejected"),
+        ("J-001@sdk-typescript", "rejected"),
         ("J-002@cli", "failed"),
         ("J-002@sdk-rust", "unproved"),
         ("J-003@cli", "unproved"),
@@ -232,10 +226,6 @@ fn write_listings(workspace: &Workspace) {
     );
     workspace.write("listings/vitest.json", b"[]");
     workspace.write("listings/pytest.json", br#"{ "tests": [] }"#);
-    workspace.write(
-        "listings/playwright.json",
-        br#"{ "config": { "rootDir": "." }, "suites": [] }"#,
-    );
 }
 
 /// A Release test run of `c1` of J-001@cli's test, in the cell of `os`,
@@ -356,9 +346,10 @@ fn outcomes_group_by_milestone_area_and_product() {
     assert_eq!(
         groups,
         vec![
-            group("M1", 3, "collie", &["J-001@cli", "J-001@console"]),
+            group("M1", 3, "collie", &["J-001@cli"]),
             group("M1", 3, "foxhound", &["J-001@foxhound-cli", "J-003@cli"]),
             group("M1", 6, "foxhound", &["J-002@cli"]),
+            group("M2", 3, "collie", &["J-001@sdk-typescript"]),
             group("M2", 6, "foxhound", &["J-002@sdk-rust", "J-005@sdk-python"]),
         ]
     );
@@ -373,6 +364,7 @@ fn outcomes_group_by_milestone_area_and_product() {
             "## M1, area 3, Collie",
             "## M1, area 3, Foxhound",
             "## M1, area 6, Foxhound",
+            "## M2, area 3, Collie",
             "## M2, area 6, Foxhound",
         ]
     );
@@ -399,8 +391,8 @@ fn without_a_release_run_of_main_every_variant_is_unproved() {
     assert_eq!(report["release_commit"], Value::Null);
     let expected: BTreeMap<String, String> = [
         ("J-001@cli", "unproved"),
-        ("J-001@console", "unproved"),
         ("J-001@foxhound-cli", "unproved"),
+        ("J-001@sdk-typescript", "unproved"),
         ("J-002@cli", "unproved"),
         ("J-002@sdk-rust", "unproved"),
         ("J-003@cli", "unproved"),
@@ -422,7 +414,7 @@ fn the_owner_test_lists_both_products_journeys_due_with_their_manual_steps_and_e
     assert_eq!(
         outcome.stdout,
         "\
-- [ ] **J-001** (Collie) Start the Daemon and open its Console (`J-001@cli`, `J-001@console`, `J-001@foxhound-cli`). Manual step: Ask for the Console, which the system browser opens (only a person sees the browser open).
+- [ ] **J-001** (Collie) Start the Daemon and read its status (`J-001@cli`, `J-001@foxhound-cli`). Manual step: See the Daemon's notice on the desktop (only a person sees the desktop).
 - [ ] **J-002** (Foxhound) Crawl a site to Markdown (`J-002@cli`)
 - [ ] **J-003** (Foxhound) Resume a killed crawl (`J-003@cli`)
 
@@ -444,6 +436,7 @@ fn a_later_owner_test_lists_only_the_journeys_due_at_its_milestone() {
     assert_eq!(
         outcome.stdout,
         "\
+- [ ] **J-001** (Collie) Start the Daemon and read its status (`J-001@sdk-typescript`). Manual step: See the Daemon's notice on the desktop (only a person sees the desktop).
 - [ ] **J-002** (Foxhound) Crawl a site to Markdown (`J-002@sdk-rust`)
 - [ ] **J-005** (Foxhound) Crawl from Python (`J-005@sdk-python`)
 

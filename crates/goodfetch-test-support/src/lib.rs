@@ -68,6 +68,7 @@ mod locales;
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
+mod no_console;
 mod no_exec;
 mod observation;
 mod player;
@@ -162,6 +163,7 @@ pub use locales::{LocaleTableError, TimeZoneCase, locales, time_zones};
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
+pub use no_console::{console_address_answer, runtime_file_members};
 pub use no_exec::NoExec;
 pub use observation::{
     Epoch, Fault, LOG_FILE, ObservationLog, Operation, REDACTED, Record, Redacted, ValueDigest,
@@ -190,7 +192,7 @@ pub use resident::{peak_resident_bytes, private_resident_bytes_of};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{proptest_config, proptest_config_for, runtime};
 pub use runtime_file::{
-    ConsoleState, DAEMON_SERVING_LOCK, DAEMON_SOCKET, DaemonEndpoint, RUNTIME_FILE, RuntimeFile,
+    DAEMON_SERVING_LOCK, DAEMON_SOCKET, DaemonEndpoint, RUNTIME_FILE, RuntimeFile,
     RuntimeFileError, SCRIPTED_DAEMON_TOKEN, SOCKET_FOLDER_PREFIX,
 };
 pub use script::{

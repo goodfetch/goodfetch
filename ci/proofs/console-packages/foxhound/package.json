@@ -1,8 +1,0 @@
-{
-  "name": "@goodfetch/console-foxhound",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "@goodfetch/console-foxhound-screens": "workspace:*"
-  }
-}

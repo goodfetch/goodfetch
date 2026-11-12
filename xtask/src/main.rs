@@ -13,7 +13,7 @@ mod advisories;
 mod affected;
 mod all_green;
 mod allure;
-mod axe_exceptions;
+mod base_console;
 mod budgets;
 mod ceiling;
 mod check;
@@ -23,7 +23,6 @@ mod codegen;
 mod commit_messages;
 mod compare;
 mod compat;
-mod console;
 mod containment;
 mod counts;
 mod dco;
@@ -115,11 +114,6 @@ enum Command {
     /// The "all green" check: every needed job succeeded, and no earlier
     /// attempt of the run had a failed test step (ADR 0064).
     AllGreen(all_green::Arguments),
-    /// The axe exception file, `console/axe-exceptions.toml` (ADR 0073).
-    AxeExceptions {
-        #[command(subcommand)]
-        command: axe_exceptions::Command,
-    },
     /// The budget check (ADR 0061): opens or updates one `needs-triage`
     /// issue per suite or job whose median of its last 20 runs in its own
     /// tier, read from the results store, is past its budget in TESTING.md;
@@ -174,11 +168,6 @@ enum Command {
     Compat {
         #[command(subcommand)]
         command: compat::Command,
-    },
-    /// The Console's build, which each executable embeds (ADR 0057).
-    Console {
-        #[command(subcommand)]
-        command: console::Command,
     },
     /// Fails unless every generated contract of Collie's is in Foxhound's,
     /// unchanged (ADR 0094).
@@ -521,7 +510,6 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Advisories { command } => advisories::run(&command, environment),
         Command::Affected(arguments) => affected::run(arguments, environment),
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
-        Command::AxeExceptions { command } => axe_exceptions::run(command, environment),
         Command::Budgets(arguments) => budgets::run(&arguments, environment),
         Command::Clients { command } => clients::run(&command, environment),
         Command::Codegen(arguments) => codegen::run(arguments, environment),
@@ -530,7 +518,6 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         )),
         Command::FloorGuard { base, head } => floor_guard::run(root, &base, &head),
         Command::Compat { command } => compat::run(command, environment),
-        Command::Console { command } => console::run(&command, environment),
         Command::Containment => Ok(check::report(&containment::check(root)?)),
         Command::Counts(arguments) => counts::run(&arguments, environment),
         Command::Dco { base, head } => Ok(check::report(&dco::check(root, &base, &head)?)),

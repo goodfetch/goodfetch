@@ -430,8 +430,8 @@ export interface JourneyDocument {
    */
   surface: string;
   /**
-   * The surface's package, for a surface that has one (an SDK, the
-   * Console's build, an adapter).
+   * The surface's package, for a surface that has one (an SDK, an
+   * adapter).
    */
   surface_package?: SurfacePackage | null;
   /**

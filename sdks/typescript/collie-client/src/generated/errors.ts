@@ -204,7 +204,7 @@ export class CDPURLNotAllowedError extends RefusedError {
 }
 
 /**
- * A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt or the Console, which no agent, Recipe or `--json` command can do.
+ * A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt, which no agent, Recipe or `--json` command can do.
  */
 export class CertificateChangedError extends RefusedError {
   constructor(message: string, fields: ErrorFields = {}) {
@@ -245,15 +245,6 @@ export class ConnectionLostError extends UnavailableError {
 export class ConnectionOverloadedError extends RefusedError {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, code: "connection_overloaded", group: "refused", retryable: true });
-  }
-}
-
-/**
- * The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon.
- */
-export class ConsolePortInUseError extends UnavailableError {
-  constructor(message: string, fields: ErrorFields = {}) {
-    super(message, { ...fields, code: "console_port_in_use", group: "unavailable", retryable: false });
   }
 }
 
@@ -537,7 +528,7 @@ export class PatternUnsupportedError extends ProgramError {
 }
 
 /**
- * Only a person gives this answer, in the Console, the Kennel or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console or the Kennel, or run the command in a terminal.
+ * Only a person gives this answer: no agent surface, SDK, script or command run under `--json` or without a terminal may. Run the Operation's command in a terminal, where the CLI has one, or answer it in the Kennel where the Kennel offers the Operation.
  */
 export class PersonRequiredError extends RefusedError {
   constructor(message: string, fields: ErrorFields = {}) {
@@ -889,7 +880,6 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   closed: ClosedError,
   connection_lost: ConnectionLostError,
   connection_overloaded: ConnectionOverloadedError,
-  console_port_in_use: ConsolePortInUseError,
   daemon_draining: DaemonDrainingError,
   daemon_unreachable: DaemonUnreachableError,
   dialog_already_handled: DialogAlreadyHandledError,

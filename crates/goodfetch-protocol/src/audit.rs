@@ -77,8 +77,8 @@ pub struct AuditEntry {
     /// Who did what it records.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub actor: Actor,
-    /// The surface the actor acted through, such as `console` for a person
-    /// in the Console; none for the engine's own events.
+    /// The surface the actor acted through, such as `kennel` for a person
+    /// in the Kennel; none for the engine's own events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub surface: Option<Surface>,
@@ -277,10 +277,6 @@ pub enum Listener {
     DaemonWebsocket,
     /// The foreground Daemon's ops listener (ADR 0050).
     OpsListener,
-    /// The Console's listener.
-    Console,
-    /// The Console's content origin.
-    ContentOrigin,
     /// A Session's egress relay.
     EgressRelay,
     /// A Session's upstream proxy relay.
@@ -289,15 +285,13 @@ pub enum Listener {
 
 impl Listener {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 8] = [
         Self::Stdio,
         Self::DaemonSocket,
         Self::ExposedDaemon,
         Self::PrivateEndpoint,
         Self::DaemonWebsocket,
         Self::OpsListener,
-        Self::Console,
-        Self::ContentOrigin,
         Self::EgressRelay,
         Self::ProxyRelay,
     ];
@@ -326,13 +320,11 @@ pub enum RefusalReason {
     OriginForeign,
     /// The request carries no `Origin` where one is required.
     OriginMissing,
-    /// The address tried to sign in more often than allowed.
-    SignInRateExceeded,
 }
 
 impl RefusalReason {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 7] = [
         Self::HelloNotFirst,
         Self::TokenMissing,
         Self::TokenWrong,
@@ -340,7 +332,6 @@ impl RefusalReason {
         Self::HostForeign,
         Self::OriginForeign,
         Self::OriginMissing,
-        Self::SignInRateExceeded,
     ];
 
     /// Its name on the wire.

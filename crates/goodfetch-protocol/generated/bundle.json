@@ -492,7 +492,7 @@
             }
           ],
           "arrived_in": "0.1",
-          "description": "The surface the actor acted through, such as `console` for a person\nin the Console; none for the engine's own events."
+          "description": "The surface the actor acted through, such as `kennel` for a person\nin the Kennel; none for the engine's own events."
         },
         "time": {
           "$ref": "#/$defs/PointInTime",
@@ -1675,7 +1675,7 @@
         },
         "warning": {
           "arrived_in": "0.1",
-          "description": "What the person takes on, in plain words, as the Console showed it\nbeside the answer and the Audit log records it.",
+          "description": "What the person takes on, in plain words, as the person surface showed it\nbeside the answer and the Audit log records it.",
           "type": "string"
         }
       },
@@ -1684,48 +1684,6 @@
         "added",
         "layer",
         "warning"
-      ],
-      "type": "object"
-    },
-    "ConsoleFailure": {
-      "description": "Why a Daemon's Console did not start: an Error code, its message and\nwhat to do instead.",
-      "properties": {
-        "code": {
-          "arrived_in": "0.1",
-          "description": "The Error code, such as `console_port_in_use`.",
-          "type": "string"
-        },
-        "fix": {
-          "arrived_in": "0.1",
-          "description": "What to do instead.",
-          "type": "string"
-        },
-        "message": {
-          "arrived_in": "0.1",
-          "description": "What happened.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "code",
-        "message",
-        "fix"
-      ],
-      "type": "object"
-    },
-    "ConsoleKeyRotated": {
-      "description": "What `console.rotate_key` answers.",
-      "properties": {
-        "signed_out": {
-          "arrived_in": "0.1",
-          "description": "How many sign-ins it ended: every one.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "signed_out"
       ],
       "type": "object"
     },
@@ -1790,69 +1748,6 @@
         "location"
       ],
       "type": "object"
-    },
-    "ConsoleOpened": {
-      "description": "What `console --json` prints (ADR 0069): the Console's sign-in link,\nwhose fragment carries the token the page swaps once for its cookie\n(ADR 0024), the URL the command opened the browser on, or would have.",
-      "properties": {
-        "url": {
-          "arrived_in": "0.1",
-          "description": "The sign-in link, such as `http://127.0.0.1:7801/#token=…`.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "url"
-      ],
-      "type": "object"
-    },
-    "ConsoleRotateKeyParams": {
-      "additionalProperties": false,
-      "description": "What `console.rotate_key` takes: nothing.",
-      "properties": {
-        "_meta": {
-          "$ref": "#/$defs/TraceContext",
-          "arrived_in": "0.1"
-        }
-      },
-      "type": "object"
-    },
-    "ConsoleState": {
-      "description": "Where a Daemon's Console is, as its runtime file and `daemon status`\nreport it.",
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "description": "The Console is served at this URL, such as `http://127.0.0.1:7801/`.",
-          "properties": {
-            "serving": {
-              "arrived_in": "0.1",
-              "type": "string"
-            }
-          },
-          "required": [
-            "serving"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "description": "The Console did not start; the Daemon still serves its Clients.",
-          "properties": {
-            "failed": {
-              "$ref": "#/$defs/ConsoleFailure",
-              "arrived_in": "0.1"
-            }
-          },
-          "required": [
-            "failed"
-          ],
-          "type": "object"
-        },
-        {
-          "const": "absent",
-          "description": "The engine carries no Console, as an SDK crate's linked engine.",
-          "type": "string"
-        }
-      ]
     },
     "Contacts": {
       "additionalProperties": false,
@@ -2682,14 +2577,6 @@
           },
           "type": "array"
         },
-        "console_url": {
-          "arrived_in": "0.1",
-          "description": "Its page in the Console, where its Run trace replays, when the\nengine knows a Console address (ADR 0031).",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "ended_at": {
           "$ref": "#/$defs/PointInTime",
           "arrived_in": "0.1",
@@ -3123,15 +3010,10 @@
       "properties": {
         "clients": {
           "arrived_in": "0.1",
-          "description": "How many Clients are connected, the caller and Consoles included.",
+          "description": "How many Clients are connected, the caller included.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
-        },
-        "console": {
-          "$ref": "#/$defs/ConsoleState",
-          "arrived_in": "0.1",
-          "description": "Where its Console is served, or why it is not."
         },
         "endpoint": {
           "$ref": "#/$defs/DaemonEndpoint",
@@ -3193,8 +3075,7 @@
         "clients",
         "live_runs",
         "kept_alive",
-        "idle_timeout",
-        "console"
+        "idle_timeout"
       ],
       "type": "object"
     },
@@ -3204,26 +3085,6 @@
         "address": {
           "arrived_in": "0.1",
           "description": "Where it listens: its socket's path, or `host:port`.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "console_error": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ConsoleFailure"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "arrived_in": "0.1",
-          "description": "Why its Console did not start, the failure `daemon start` exits\nby; absent while it serves one or carries none."
-        },
-        "console_url": {
-          "arrived_in": "0.1",
-          "description": "Where its Console is served, or `None` when it serves none, as\n`daemon run`'s, or its Console did not start.",
           "type": [
             "string",
             "null"
@@ -4766,7 +4627,7 @@
         },
         "user_settable": {
           "arrived_in": "0.1",
-          "description": "Whether user configuration may set it: its authority lets user\nconfiguration hold it and no lower layer locked it, so the Console\noffers its user-level value for editing (ADR 0031).",
+          "description": "Whether user configuration may set it: its authority lets user\nconfiguration hold it and no lower layer locked it, so a person\nsurface may offer its user-level value for editing (ADR 0031).",
           "type": "boolean"
         },
         "value": {
@@ -5098,7 +4959,7 @@
             }
           ],
           "arrived_in": "0.1",
-          "description": "The surface the actor acted through, such as `console` for a person\nin the Console; none for the engine's own events."
+          "description": "The surface the actor acted through, such as `kennel` for a person\nin the Kennel; none for the engine's own events."
         },
         "time": {
           "$ref": "#/$defs/PointInTime",
@@ -5544,7 +5405,7 @@
         },
         {
           "const": "catalog",
-          "description": "The catalog's own names: the Console, Integrations and the HTTP\nlistener.",
+          "description": "The catalog's own names: Integrations and the HTTP\nlistener.",
           "type": "string"
         }
       ]
@@ -5886,14 +5747,6 @@
     "HelloResult": {
       "description": "What an engine answers to a `hello` it accepts.",
       "properties": {
-        "console_link": {
-          "arrived_in": "0.1",
-          "description": "The sign-in link of the Console an Attached engine serves for its\nscript, which asked for one with a Console address, reported to the\nClient of its stdio alone: `<url>#token=<token>`, whose fragment the\npage swaps once for its cookie (ADRs 0024 and 0031).",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "engine_instance": {
           "$ref": "#/$defs/EngineInstance",
           "arrived_in": "0.1",
@@ -6250,14 +6103,6 @@
       "additionalProperties": false,
       "description": "The per-user service of one major that `daemon install` registered,\nrecorded in `daemon-service.json` in the major's per-major folder (ADRs\n0024, 0031 and 0098): what starts the major's pick, from which versioned\ncopy, and the socket its service manager listens on for it.",
       "properties": {
-        "console": {
-          "arrived_in": "0.1",
-          "description": "The Console's `host:port` the service manager also listens on, so\nthe first visit to the Console starts the Daemon (ADR 0031); `None`\nwithout socket activation.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "executable": {
           "arrived_in": "0.1",
           "description": "The versioned copy in the Browser cache that the service starts,\nwhich starts its major's pick.",
@@ -6473,7 +6318,7 @@
               "type": "null"
             }
           ],
-          "description": "The surface's package, for a surface that has one (an SDK, the\nConsole's build, an adapter)."
+          "description": "The surface's package, for a surface that has one (an SDK, an\nadapter)."
         },
         "tasks": {
           "description": "Each Proving ground task the Journey names, in its order: once per\ncheck naming it, each with the answer to that check's submission in\nthe checks' order, or once when no check names it.",
@@ -7130,7 +6975,7 @@
       "oneOf": [
         {
           "const": "person",
-          "description": "A person, in the Console or an interactive CLI prompt.",
+          "description": "A person, in the Kennel or an interactive CLI prompt.",
           "type": "string"
         },
         {
@@ -7560,7 +7405,7 @@
     },
     "Managed": {
       "additionalProperties": false,
-      "description": "What an Operator policy's `[managed]` table holds, which marks the\npolicy *managed*: deployed by MDM or Ansible, read-only in the Console\n(ADR 0031).",
+      "description": "What an Operator policy's `[managed]` table holds, which marks the\npolicy *managed*: deployed by MDM or Ansible, read-only for every person surface\n(ADR 0031).",
       "properties": {
         "install_limits": {
           "arrived_in": "0.1",
@@ -12732,14 +12577,6 @@
           },
           "type": "array"
         },
-        "console_url": {
-          "arrived_in": "0.1",
-          "description": "Its page in the Console, where its Run trace replays, when the\nengine knows a Console address (ADR 0031).",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "ended_at": {
           "$ref": "#/$defs/PointInTime",
           "arrived_in": "0.1",
@@ -14528,143 +14365,6 @@
       "pattern": "^[0-9a-f]{64}$",
       "type": "string"
     },
-    "SignInList": {
-      "description": "What `sign_in.list` answers.",
-      "properties": {
-        "sign_ins": {
-          "arrived_in": "0.1",
-          "description": "Every sign-in that has not ended, oldest first.",
-          "items": {
-            "$ref": "#/$defs/SignInSummary"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "sign_ins"
-      ],
-      "type": "object"
-    },
-    "SignInListParams": {
-      "additionalProperties": false,
-      "description": "What `sign_in.list` takes: nothing.",
-      "properties": {
-        "_meta": {
-          "$ref": "#/$defs/TraceContext",
-          "arrived_in": "0.1"
-        }
-      },
-      "type": "object"
-    },
-    "SignInRevokeParams": {
-      "additionalProperties": false,
-      "description": "What `sign_in.revoke` takes.",
-      "properties": {
-        "_meta": {
-          "$ref": "#/$defs/TraceContext",
-          "arrived_in": "0.1"
-        },
-        "id": {
-          "arrived_in": "0.1",
-          "description": "The sign-in's identifier, as `sign_in.list` gives it.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "id"
-      ],
-      "type": "object"
-    },
-    "SignInRevoked": {
-      "description": "What `sign_in.revoke` answers.",
-      "properties": {
-        "revoked": {
-          "arrived_in": "0.1",
-          "description": "Whether a sign-in ended: `false` when none had that identifier, or\nit had already ended.",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "revoked"
-      ],
-      "type": "object"
-    },
-    "SignInRow": {
-      "description": "One sign-in as the accounts store keeps it: the schema of the\n`accounts-store` format. Never its cookie: the store keeps a verifier,\nan HMAC of the cookie under the Console key, so a stolen store signs\nnobody in and a rotated key ends every sign-in.",
-      "properties": {
-        "created": {
-          "arrived_in": "0.1",
-          "description": "When it was created, as RFC 3339.",
-          "type": "string"
-        },
-        "id": {
-          "arrived_in": "0.1",
-          "description": "Its identifier, the first part of its cookie.",
-          "type": "string"
-        },
-        "last_used": {
-          "arrived_in": "0.1",
-          "description": "When it was last used, as RFC 3339.",
-          "type": "string"
-        },
-        "person": {
-          "arrived_in": "0.1",
-          "description": "The person it signs in.",
-          "type": "string"
-        },
-        "verifier": {
-          "arrived_in": "0.1",
-          "description": "HMAC-SHA-256 of its cookie under the Console key, in hex.",
-          "type": "string"
-        },
-        "wrapping_key": {
-          "arrived_in": "0.1",
-          "description": "The key, in hex, that wraps the sign-in's offline cache key in the\nbrowser, which the Daemon unwraps only for its cookie (ADR 0031).",
-          "type": "string"
-        }
-      },
-      "required": [
-        "id",
-        "verifier",
-        "person",
-        "created",
-        "last_used",
-        "wrapping_key"
-      ],
-      "type": "object"
-    },
-    "SignInSummary": {
-      "description": "One sign-in, as `sign_in.list` shows it: never its cookie.",
-      "properties": {
-        "created": {
-          "$ref": "#/$defs/PointInTime",
-          "arrived_in": "0.1",
-          "description": "When it was created."
-        },
-        "id": {
-          "arrived_in": "0.1",
-          "description": "Its identifier, which `sign_in.revoke` takes.",
-          "type": "string"
-        },
-        "last_used": {
-          "$ref": "#/$defs/PointInTime",
-          "arrived_in": "0.1",
-          "description": "When it was last used, from which its idle expiry counts."
-        },
-        "person": {
-          "arrived_in": "0.1",
-          "description": "The person it signs in, by the name their account or OS user goes\nby.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "id",
-        "person",
-        "created",
-        "last_used"
-      ],
-      "type": "object"
-    },
     "SinkReport": {
       "description": "A Sink that applies to a crawl's Run (ADRs 0026 and 0103).",
       "properties": {
@@ -15413,11 +15113,6 @@
         {
           "const": "mcp",
           "description": "The MCP server, as a Client of a Daemon.",
-          "type": "string"
-        },
-        {
-          "const": "console",
-          "description": "The Console.",
           "type": "string"
         },
         {
@@ -17069,16 +16764,6 @@
     },
     {
       "hello_from": [],
-      "name": "accounts-store",
-      "rule": "default",
-      "schema": {
-        "$ref": "#/$defs/SignInRow"
-      },
-      "storage": "sqlite",
-      "version": "0.1"
-    },
-    {
-      "hello_from": [],
       "name": "operator-policy",
       "rule": "shared_store",
       "schema": {
@@ -17171,28 +16856,6 @@
                     "description": "How long fetching a version of the Clean-up rules from its sources may take at a Run's start or resume: past it, a Run holds to the newest version this machine has, and a `clean_up.version` it cannot fetch refuses the start. 30 s.",
                     "minimum": 0,
                     "type": "integer"
-                  }
-                },
-                "type": "object"
-              },
-              "console": {
-                "additionalProperties": false,
-                "properties": {
-                  "sign_in": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "idle_expiry": {
-                        "description": "How long a Console sign-in lasts without being used, in milliseconds: 30 days. Each use starts it again; a sign-in unused for longer ends, and its person signs in again. Set in an Operator policy only.",
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      "rate": {
-                        "description": "How many times one address may try to sign in to the Console in a minute: 10. A further attempt in that minute is refused, whatever its credential. Set in an Operator policy only.",
-                        "minimum": 0,
-                        "type": "integer"
-                      }
-                    },
-                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -17327,7 +16990,7 @@
                     "type": "integer"
                   },
                   "idle_timeout": {
-                    "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
+                    "description": "How long a Daemon with no connected Client waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -18085,69 +17748,6 @@
                 },
                 "type": "object"
               },
-              "console": {
-                "additionalProperties": false,
-                "properties": {
-                  "address": {
-                    "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only. An Attached engine serves no Console unless the script that starts it asks for one at an address of its own, which `hello` answers with the Console's sign-in link.",
-                    "type": "string"
-                  },
-                  "content_address": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "description": "Where the Daemon serves the Console's content origin, which shows scraped HTML, screenshots, DOM snapshots and page bodies, as `host:port`. None by default: the Console's host on a free port, or, when `console.content_public_url` is set, the Console's own listener, which tells the two origins apart by the `Host` each request names. Set in user configuration or an Operator policy only."
-                  },
-                  "content_public_url": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "description": "The origin a browser reaches the Console's content origin at behind a proxy, such as `https://content.example.com`, which the addresses the Console signs name. None by default: the content origin's own listener. With no `console.content_address`, the content origin shares the Console's listener and answers the requests that name this origin's host. Set in user configuration or an Operator policy only."
-                  },
-                  "offline_cache": {
-                    "description": "Whether the Console keeps run summaries and their metadata in the browser, so that a page goes on showing them while it has no connection to the Daemon: `true`. The cache is encrypted under a key that only the sign-in's cookie unwraps, holds no secret field, and is wiped at sign-out; `false` writes nothing and wipes what an earlier page wrote. Set in user configuration or an Operator policy only.",
-                    "type": "boolean"
-                  },
-                  "public_url": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "description": "The address links to the Console name, such as `https://console.example.com`: the links in Notifications and a run's `console_url`. None by default: the Console's own address. A link never carries a token or a cookie, so a forwarded one grants nothing. Set in user configuration or an Operator policy only."
-                  },
-                  "sign_in": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "idle_expiry": {
-                        "description": "How long a Console sign-in lasts without being used, in milliseconds: 30 days. Each use starts it again; a sign-in unused for longer ends, and its person signs in again. Set in an Operator policy only.",
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      "rate": {
-                        "description": "How many times one address may try to sign in to the Console in a minute: 10. A further attempt in that minute is refused, whatever its credential. Set in an Operator policy only.",
-                        "minimum": 0,
-                        "type": "integer"
-                      }
-                    },
-                    "type": "object"
-                  }
-                },
-                "type": "object"
-              },
               "content": {
                 "additionalProperties": false,
                 "properties": {
@@ -18381,7 +17981,7 @@
                     "type": "integer"
                   },
                   "idle_timeout": {
-                    "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
+                    "description": "How long a Daemon with no connected Client waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -20782,69 +20382,6 @@
                 },
                 "type": "object"
               },
-              "console": {
-                "additionalProperties": false,
-                "properties": {
-                  "address": {
-                    "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only. An Attached engine serves no Console unless the script that starts it asks for one at an address of its own, which `hello` answers with the Console's sign-in link.",
-                    "type": "string"
-                  },
-                  "content_address": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "description": "Where the Daemon serves the Console's content origin, which shows scraped HTML, screenshots, DOM snapshots and page bodies, as `host:port`. None by default: the Console's host on a free port, or, when `console.content_public_url` is set, the Console's own listener, which tells the two origins apart by the `Host` each request names. Set in user configuration or an Operator policy only."
-                  },
-                  "content_public_url": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "description": "The origin a browser reaches the Console's content origin at behind a proxy, such as `https://content.example.com`, which the addresses the Console signs name. None by default: the content origin's own listener. With no `console.content_address`, the content origin shares the Console's listener and answers the requests that name this origin's host. Set in user configuration or an Operator policy only."
-                  },
-                  "offline_cache": {
-                    "description": "Whether the Console keeps run summaries and their metadata in the browser, so that a page goes on showing them while it has no connection to the Daemon: `true`. The cache is encrypted under a key that only the sign-in's cookie unwraps, holds no secret field, and is wiped at sign-out; `false` writes nothing and wipes what an earlier page wrote. Set in user configuration or an Operator policy only.",
-                    "type": "boolean"
-                  },
-                  "public_url": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "description": "The address links to the Console name, such as `https://console.example.com`: the links in Notifications and a run's `console_url`. None by default: the Console's own address. A link never carries a token or a cookie, so a forwarded one grants nothing. Set in user configuration or an Operator policy only."
-                  },
-                  "sign_in": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "idle_expiry": {
-                        "description": "How long a Console sign-in lasts without being used, in milliseconds: 30 days. Each use starts it again; a sign-in unused for longer ends, and its person signs in again. Set in an Operator policy only.",
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      "rate": {
-                        "description": "How many times one address may try to sign in to the Console in a minute: 10. A further attempt in that minute is refused, whatever its credential. Set in an Operator policy only.",
-                        "minimum": 0,
-                        "type": "integer"
-                      }
-                    },
-                    "type": "object"
-                  }
-                },
-                "type": "object"
-              },
               "content": {
                 "additionalProperties": false,
                 "properties": {
@@ -21078,7 +20615,7 @@
                     "type": "integer"
                   },
                   "idle_timeout": {
-                    "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
+                    "description": "How long a Daemon with no connected Client waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -23495,69 +23032,6 @@
                 },
                 "type": "object"
               },
-              "console": {
-                "additionalProperties": false,
-                "properties": {
-                  "address": {
-                    "description": "Where the Daemon serves the Console, as `host:port`: `127.0.0.1` on port 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's Console has its own port. Port 0 takes a free port, which the Daemon's runtime file and `daemon status` report. Set in user configuration or an Operator policy only. An Attached engine serves no Console unless the script that starts it asks for one at an address of its own, which `hello` answers with the Console's sign-in link.",
-                    "type": "string"
-                  },
-                  "content_address": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "description": "Where the Daemon serves the Console's content origin, which shows scraped HTML, screenshots, DOM snapshots and page bodies, as `host:port`. None by default: the Console's host on a free port, or, when `console.content_public_url` is set, the Console's own listener, which tells the two origins apart by the `Host` each request names. Set in user configuration or an Operator policy only."
-                  },
-                  "content_public_url": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "description": "The origin a browser reaches the Console's content origin at behind a proxy, such as `https://content.example.com`, which the addresses the Console signs name. None by default: the content origin's own listener. With no `console.content_address`, the content origin shares the Console's listener and answers the requests that name this origin's host. Set in user configuration or an Operator policy only."
-                  },
-                  "offline_cache": {
-                    "description": "Whether the Console keeps run summaries and their metadata in the browser, so that a page goes on showing them while it has no connection to the Daemon: `true`. The cache is encrypted under a key that only the sign-in's cookie unwraps, holds no secret field, and is wiped at sign-out; `false` writes nothing and wipes what an earlier page wrote. Set in user configuration or an Operator policy only.",
-                    "type": "boolean"
-                  },
-                  "public_url": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ],
-                    "description": "The address links to the Console name, such as `https://console.example.com`: the links in Notifications and a run's `console_url`. None by default: the Console's own address. A link never carries a token or a cookie, so a forwarded one grants nothing. Set in user configuration or an Operator policy only."
-                  },
-                  "sign_in": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "idle_expiry": {
-                        "description": "How long a Console sign-in lasts without being used, in milliseconds: 30 days. Each use starts it again; a sign-in unused for longer ends, and its person signs in again. Set in an Operator policy only.",
-                        "minimum": 0,
-                        "type": "integer"
-                      },
-                      "rate": {
-                        "description": "How many times one address may try to sign in to the Console in a minute: 10. A further attempt in that minute is refused, whatever its credential. Set in an Operator policy only.",
-                        "minimum": 0,
-                        "type": "integer"
-                      }
-                    },
-                    "type": "object"
-                  }
-                },
-                "type": "object"
-              },
               "content": {
                 "additionalProperties": false,
                 "properties": {
@@ -23791,7 +23265,7 @@
                     "type": "integer"
                   },
                   "idle_timeout": {
-                    "description": "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
+                    "description": "How long a Daemon with no connected Client waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -26037,9 +25511,6 @@
     },
     "config.explain": {
       "$ref": "#/$defs/SettingsExplanation"
-    },
-    "console": {
-      "$ref": "#/$defs/ConsoleOpened"
     },
     "daemon.health": {
       "$ref": "#/$defs/DaemonHealthOutput"

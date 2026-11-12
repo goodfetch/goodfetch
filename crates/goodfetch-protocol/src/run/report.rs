@@ -91,11 +91,6 @@ pub struct RunReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub nothing_done: Option<NothingDone>,
-    /// Its page in the Console, where its Run trace replays, when the
-    /// engine knows a Console address (ADR 0031).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub console_url: Option<String>,
     /// Each Effect it left uncertain, until a person reconciles it (ADR
     /// 0106).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -165,7 +160,7 @@ pub struct EndingError {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum LimitSetter {
-    /// A person, in the Console or an interactive CLI prompt.
+    /// A person, in the Kennel or an interactive CLI prompt.
     Person,
     /// A managed Operator policy.
     ManagedPolicy,

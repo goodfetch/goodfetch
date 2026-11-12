@@ -28,6 +28,8 @@ Decided in [Test layout, naming, shared helpers and the test-first process](http
 | TypeScript package, Console | `foo.test.ts` (or `.tsx`) beside `foo.ts` | `<package>/tests/`, importing only the package's own name |
 | Python package | `tests/unit/`, mirroring the module paths under `src/` | `tests/integration/`, importing only the public package |
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no suite, test layout, Journey surface, security boundary, Performance budget, Feature kind (`screen:`) or actor exists for the Console.
+
 - **A unit test reaches only the module's interface**: the items its callers use. It never calls a private function. Product code has no `#[cfg(test)]` branch and no `pub` item added for tests.
   > Amended by [ADR 0060](0060-distributed-and-crash-behaviour-is-simulated-on-tokio-model-checked-and-faulted-at-io-seams.md): the `sync` modules' `goodfetch_loom` switch is the one test-only `cfg` in product code.
 - **A Rust crate splits its integration tests into named area harnesses** (`tests/<area>/main.rs`, with `autotests = false`) only when its pull request shows a localized test edit taking more than 5 seconds to rebuild with one harness. uv measured 7.52 s falling to 2.60 s with area harnesses, and per-file binaries cost more everywhere.

@@ -1057,7 +1057,6 @@ fn unavailable(url: &str, request_id: &str, surface: Surface) -> CallError {
         | Surface::Rust
         | Surface::Cli
         | Surface::Mcp
-        | Surface::Console
         | Surface::Kennel
         | Surface::Cloud
         | Surface::BrowserHost

@@ -229,11 +229,14 @@ Each surface spells the canonical name by one rule (S1), as its leaders do (S3),
   - `cli`;
   - `tool` for the MCP server and the Framework adapters;
   - `catalog` for the Console, Integrations and the HTTP listener.
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
   > Note (agent decision, as built), 2026-10-22, [#817](https://github.com/goodfetch/goodfetch/issues/817): `hello`'s params carry the form as the optional `form` (`typescript`, `python`, `rust`, `cli`, `tool` or `catalog`); the Console names `catalog`, and each other surface names its own with the ticket that renders names in it ([#1272](https://github.com/goodfetch/goodfetch/issues/1272)).
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **What the engine renders in that form:** every name a message shows (the operation, parameters, setting keys in `limit` and `fix`, events) and targets (ADR 0079). For example, `page.waitForURL` in TypeScript, `page.wait_for_url` in Python, and a setting as `crawl.payload.maxSize`, `crawl.payload.max_size` or `crawl::payload::MAX_SIZE`.
 - **One naming crate** serves `xtask codegen` and the engine's renderer, so a message names exactly what the program writes. One renderer per form is tested once, as ADR 0079 argued for targets, and Playwright's server renders locators in its client's `SDKLanguage` (CM A6).
 - **Structured fields stay canonical,** so programs match on them across languages: `operation` holds the canonical name, and `limit` keeps ADR 0083's canonical key.
 - **The Run trace** records each call's canonical name and its Client's form. The Console shows each call in that form, as Playwright's trace viewer shows actions in the language that recorded them.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 ### The two Products
 
@@ -329,6 +332,7 @@ Each surface spells the canonical name by one rule (S1), as its leaders do (S3),
   - Area 3 (Engine runtime) builds the canonical names and kinds in `goodfetch-protocol`, its `foxhound` module and the check that no crate outside `crates/foxhound/` but `goodfetch-protocol` and `xtask` names it, the naming crate, the six forms of `hello` and their renderers, and the Run trace's forms.
   - Area 11 (Client surfaces) decides which MCP profiles include ADR 0100's Agent and how the CLI and MCP state its Success check inside the task, and builds the generators, the manifests and their checks, `call`, the markers, `Connection`, and the CLI's and MCP's names.
   - Area 12 (Console) shows each call in its Client's form.
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Other tickets.**
   - [API sketch: type-checked stubs and golden scenarios](https://github.com/goodfetch/goodfetch/issues/483) applies the remaining renames: initialisms (`JSONValue`, `URLMatcher`, `PageAPI`, `AIWorkResult` and the error classes), TypeScript reads on handles as methods (`run.id()`, `run.startedAs()`), Rust's open `ErrorCode` and `details::<D>()`, `call` on every handle, ADR 0089's lending helpers by the names above, and ADR 0090's package and import names in place of the sketch's placeholder `goodfetch`.
   - [The Run in code](https://github.com/goodfetch/goodfetch/issues/478) (ADR 0102) spells its TypeScript reads as methods (`run.id()`, `run.startedAs()`).

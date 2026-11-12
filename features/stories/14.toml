@@ -41,7 +41,7 @@ status = "active"
 
 [[story]]
 id = 17
-title = "As a Console user, I want a run I start from the Console to land on Foxhound's engine when its target names anything only Foxhound carries (an operation, a setting key, a Plugin kind or a Hook stage), and on Collie's otherwise, so that I never pick a Product by hand (ADR 0096)."
+title = "As a Goodfetch Cloud user, I want a run Goodfetch Cloud starts itself to land on Foxhound's engine when its target names anything only Foxhound carries (an operation, a setting key, a Plugin kind or a Hook stage), and on Collie's otherwise, so that I never pick a Product by hand (ADR 0096)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"

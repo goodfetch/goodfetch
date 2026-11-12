@@ -167,7 +167,7 @@ pub struct ConsentDomainAllowed {
     /// The layer written: user configuration.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub layer: SettingsLayer,
-    /// What the person takes on, in plain words, as the Console showed it
+    /// What the person takes on, in plain words, as the person surface showed it
     /// beside the answer and the Audit log records it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub warning: String,
@@ -313,7 +313,7 @@ pub const NEEDS_YOU_DISMISS: Operation = Operation {
 /// `needs_you.allow_consent_domain`.
 pub const NEEDS_YOU_ALLOW_CONSENT_DOMAIN: Operation = Operation {
     name: "needs_you.allow_consent_domain",
-    description: "Adds a domain whose consent wall a Run met, or `*` for every domain, to `consent.domains` in user configuration, so the next runs accept its consent walls instead of raising `blocked` with `consent_required`, and records the answer in the Audit log with the warning of what the person takes on; answers whether it added it. One call, no confirmation asked. A domain that file lists already adds nothing; an Operator policy that locks `consent.domains` refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `consent_wall` items it covers leave the list with `needs_you.changed`.",
+    description: "Adds a domain whose consent wall a Run met, or `*` for every domain, to `consent.domains` in user configuration, so the next runs accept its consent walls instead of raising `blocked` with `consent_required`, and records the answer in the Audit log with the warning of what the person takes on; answers whether it added it. One call, no confirmation asked. A domain that file lists already adds nothing; an Operator policy that locks `consent.domains` refuses it with `setting_locked`. A person's answer: offered only in the Kennel and the interactive CLI prompt. The `consent_wall` items it covers leave the list with `needs_you.changed`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::PersonOnly,
@@ -329,7 +329,7 @@ pub const NEEDS_YOU_ALLOW_CONSENT_DOMAIN: Operation = Operation {
 /// `needs_you.remove_refetch_domain`.
 pub const NEEDS_YOU_REMOVE_REFETCH_DOMAIN: Operation = Operation {
     name: "needs_you.remove_refetch_domain",
-    description: "Removes a domain on which a Run's refetch stopped from the layer of `wall.refetch_domains` that lists it, user configuration or else the Operator policy, every other entry and byte of the file kept, and records the answer in the Audit log; answers whether it removed it. When only `*` covers the domain there, `instead_of_star` gives the registrable domains that replace `*`, and without it the call is refused with `invalid_params`. A domain only project configuration lists is changed in that file, never here. A managed Operator policy, or one that locks the key against user configuration, refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `wall_refetch_stopped` item leaves the list with `needs_you.changed`.",
+    description: "Removes a domain on which a Run's refetch stopped from the layer of `wall.refetch_domains` that lists it, user configuration or else the Operator policy, every other entry and byte of the file kept, and records the answer in the Audit log; answers whether it removed it. When only `*` covers the domain there, `instead_of_star` gives the registrable domains that replace `*`, and without it the call is refused with `invalid_params`. A domain only project configuration lists is changed in that file, never here. A managed Operator policy, or one that locks the key against user configuration, refuses it with `setting_locked`. A person's answer: offered only in the Kennel and the interactive CLI prompt. The `wall_refetch_stopped` item leaves the list with `needs_you.changed`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::PersonOnly,
@@ -345,7 +345,7 @@ pub const NEEDS_YOU_REMOVE_REFETCH_DOMAIN: Operation = Operation {
 /// `needs_you.deny_wall_domain`.
 pub const NEEDS_YOU_DENY_WALL_DOMAIN: Operation = Operation {
     name: "needs_you.deny_wall_domain",
-    description: "Adds a registrable domain, with its required reason, to `wall.denied_domains` in the Operator policy, creating the file when there is none, so no run reads past its Walls or refetches its pages whatever another layer allows (ADR 0052), and records the denial and its reason in the Audit log; answers whether it added it. One call, no confirmation asked. A managed Operator policy refuses it with `setting_locked`. A person's answer: offered only in the Console and the interactive CLI prompt. The `wall_refetch_stopped` item of the domain leaves the list with `needs_you.changed`.",
+    description: "Adds a registrable domain, with its required reason, to `wall.denied_domains` in the Operator policy, creating the file when there is none, so no run reads past its Walls or refetches its pages whatever another layer allows (ADR 0052), and records the denial and its reason in the Audit log; answers whether it added it. One call, no confirmation asked. A managed Operator policy refuses it with `setting_locked`. A person's answer: offered only in the Kennel and the interactive CLI prompt. The `wall_refetch_stopped` item of the domain leaves the list with `needs_you.changed`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::PersonOnly,

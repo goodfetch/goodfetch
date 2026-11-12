@@ -15,17 +15,6 @@ traces_endpoint = "example"
 logs_endpoint = "example"
 metrics_endpoint = "example"
 
-[settings.console]
-address = "example"
-content_address = "example"
-content_public_url = "example"
-offline_cache = true
-public_url = "example"
-
-[settings.console.sign_in]
-idle_expiry = 30000
-rate = 4
-
 [settings.daemon]
 idle_timeout = 30000
 address = "example"
@@ -373,17 +362,6 @@ max_files = 4
 traces_endpoint = "example"
 logs_endpoint = "example"
 metrics_endpoint = "example"
-
-[lock.console]
-address = "example"
-content_address = "example"
-content_public_url = "example"
-offline_cache = true
-public_url = "example"
-
-[lock.console.sign_in]
-idle_expiry = 30000
-rate = 4
 
 [lock.daemon]
 idle_timeout = 30000
@@ -781,10 +759,6 @@ interval = 30000
 
 [cap.audit]
 retention = 30000
-
-[cap.console.sign_in]
-idle_expiry = 30000
-rate = 4
 
 [cap.timeout]
 secret = 30000

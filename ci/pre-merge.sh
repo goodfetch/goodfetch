@@ -17,7 +17,7 @@
 # image (ci/visual/container.sh). The suite waits for each and fails when one
 # fails. The host's checks that take seconds and judge the whole change
 # (sign-offs, commit messages, the floor guard, secrets in commits,
-# advisories, notices) run first, before the Console build and the steps
+# advisories, notices) run first, before the steps
 # beside, so their reds show in the gate's first minute; the other checks of
 # the whole change (lint, the SDK crates' features, the fuzz targets, the
 # proofs) run before the suites; the stress run of the new and changed tests
@@ -354,7 +354,7 @@ started=""
 # write over those files. The stress run removes nextest's JUnit files before
 # each of its counts, and each suite writes Vitest's, Playwright's and
 # pytest's anew. It covers the host's steps the gate records; the steps
-# beside, the Console build and the quick and docs forms get no folder. A
+# beside and the quick and docs forms get no folder. A
 # folder or a copy that cannot be made only warns: it changes no verdict.
 keep_results() {
   local kept=target/red-steps/$1 results
@@ -456,9 +456,8 @@ run_step() {
       ;;
   esac
 }
-# The form's steps in their order: the whole change's checks, Collie's
-# Console build, which the steps beside, in their containers, find in the
-# workspace they mount (ADR 0057), the steps beside, then the host's others.
+# The form's steps in their order: the whole change's checks, the steps
+# beside, then the host's others.
 for step in "${steps[@]}"; do
   arguments=$(output_value "$step.just" "$listing")
   read -ra command <<<"$arguments"

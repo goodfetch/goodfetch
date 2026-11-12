@@ -3,7 +3,7 @@
 //! the position of the value a reader last read, the latest value after a
 //! change, the changes in between coalesced as telemetry, until the last
 //! value, which says how the Run ended or that no engine works it. The
-//! engine produces each value; the SDKs, the CLI and the Console render it.
+//! engine produces each value; the SDKs, the CLI and the Kennel render it.
 //! A crawl's parts, Foxhound's `CrawlRunProgress`, sit beside every Run's,
 //! and a Collie reader keeps them as it got them.
 

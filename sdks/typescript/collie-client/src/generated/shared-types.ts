@@ -11,7 +11,6 @@
  * - `certificate_pin_forgotten`: A person removed their pin of a host, and any change waiting for it, so its next connection under trust on first use pins again (ADR 0042).
  * - `certificate_pinned`: A host's certificate was pinned on first use under its domain's exception, with the SHA-256 of its public key (ADR 0042).
  * - `consent_domain_allowed`: A person added a domain, or `*`, to `consent.domains` in user configuration, so later runs accept its consent walls (ADR 0048), with the warning of what they take on that they were shown (ADR 0052).
- * - `console_key_rotated`: The Console key was replaced, which ended every Console sign-in, with how many it ended.
  * - `endpoint_authentication_failed`: A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`.
  * - `exposed_daemon_set_up`: An Exposed Daemon's setup completed through its setup link (ADR 0049).
  * - `lent_page_attached`: A page was lent to the program's own Playwright client (ADR 0089).
@@ -24,13 +23,11 @@
  * - `security_switch_turned_off`: A security control was switched off for a run, once per run, with its setting and the layer that set it (ADR 0016).
  * - `session_exported`: A Session was exported to an encrypted bundle.
  * - `session_imported`: A Session was imported from an encrypted bundle.
- * - `sign_in_revoked`: A Console sign-in was ended, by its person signing out or by `sign_in.revoke`, with its identifier.
- * - `signed_in`: A person signed in to the Console, with the sign-in's identifier and how they proved who they are, such as the single-user link.
  * - `tls_terminated_upstream`: An Exposed Daemon started with `daemon.tls.upstream`, TLS terminated in front of it (ADR 0049).
  * - `user_configuration_written`: A person wrote user-level values through `config.user_write`, with each key's values before and after.
  * - `wall_domain_denied`: A person added a domain to `wall.denied_domains` in the Operator policy, so no run reads past its Walls or refetches its pages (ADR 0052); `details` give the `domain` and the `reason`.
  */
-export type AuditKind = "audit_log_anchor" | "audit_log_pruned" | "certificate_any_used" | "certificate_change_accepted" | "certificate_exceptions_used" | "certificate_pin_forgotten" | "certificate_pinned" | "consent_domain_allowed" | "console_key_rotated" | "endpoint_authentication_failed" | "exposed_daemon_set_up" | "lent_page_attached" | "operator_policy_written" | "pressing_harder_value_set" | "private_addresses_allowed" | "raw_cdp_attached" | "refetch_domain_removed" | "secret_reference_used" | "security_switch_turned_off" | "session_exported" | "session_imported" | "sign_in_revoked" | "signed_in" | "tls_terminated_upstream" | "user_configuration_written" | "wall_domain_denied" | (string & {});
+export type AuditKind = "audit_log_anchor" | "audit_log_pruned" | "certificate_any_used" | "certificate_change_accepted" | "certificate_exceptions_used" | "certificate_pin_forgotten" | "certificate_pinned" | "consent_domain_allowed" | "endpoint_authentication_failed" | "exposed_daemon_set_up" | "lent_page_attached" | "operator_policy_written" | "pressing_harder_value_set" | "private_addresses_allowed" | "raw_cdp_attached" | "refetch_domain_removed" | "secret_reference_used" | "security_switch_turned_off" | "session_exported" | "session_imported" | "tls_terminated_upstream" | "user_configuration_written" | "wall_domain_denied" | (string & {});
 
 /**
  * A `block_cause`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).

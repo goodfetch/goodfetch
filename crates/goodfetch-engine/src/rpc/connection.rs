@@ -25,9 +25,7 @@
 //! Exposed Daemon's address carries its Connections as lines or over
 //! WebSocket (ADR 0049), whose refused handshakes are logged the same way.
 //! Only the Client of an Attached engine's stdio is told its private
-//! endpoint, in the reply to its `hello`. The Console's WebSocket, whose
-//! sign-in its handshake proved, opens with a `hello` that carries no token
-//! (ADR 0031).
+//! endpoint, in the reply to its `hello`.
 //!
 //! Size: one Connection's life, the transition table's states and every
 //! carriage that reaches them, kept whole so each message passes one loop.
@@ -54,11 +52,8 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
-use super::event_stream::{EventStream, PostedReader, StreamedWriter};
 use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
-use super::websocket::{
-    self, ConsoleSocket, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
-};
+use super::websocket::{self, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined};
 use super::{
     failure_line, handshake, line, not_in_product, notification_line, notification_value_line,
     record, record_cancel, success_line, trace_context,
@@ -70,12 +65,11 @@ use crate::composition::{
     CallContext, CallInput, CallNotifier, CallStream, ConnectionContext, DaemonSide, Driver,
     Handler, InputSender,
 };
-use crate::endpoint::{Authorities, REFUSAL_TARGET, same_token};
+use crate::endpoint::{Authorities, same_token};
 use crate::engine_context::EngineContext;
 use crate::events::{Credits, Events};
 use crate::log::{ConnectionLog, LogEvents};
 use crate::mask::{Masks, Scope};
-use crate::people::SignInDriver;
 use crate::product::{Identity, Requested};
 use crate::runs::Runs;
 use crate::tasks::TaskOwner;
@@ -127,10 +121,8 @@ pub(crate) struct Dispatch {
 /// carry and what its reply tells.
 pub(crate) enum Access {
     /// An Attached engine's stdio, or an in-process Connection: no token;
-    /// its reply names the engine's private endpoint, when it has one, and
-    /// the sign-in link of the Console it serves for its script, when it
-    /// serves one.
-    Attached(Option<PrivateEndpoint>, Option<String>),
+    /// its reply names the engine's private endpoint, when it has one.
+    Attached(Option<PrivateEndpoint>),
     /// A Daemon's listener: its token, and what else the Daemon gives.
     Daemon(Arc<dyn DaemonSide>),
     /// An Exposed Daemon's address (ADR 0049): a Daemon's listener that
@@ -139,27 +131,13 @@ pub(crate) enum Access {
     Exposed(Arc<dyn DaemonSide>, Arc<Authorities>),
     /// An Attached engine's private endpoint: its token.
     PrivateEndpoint(Arc<str>),
-    /// The Console's WebSocket on its own origin (ADR 0031): a Connection
-    /// whose sign-in cookie its handshake carried, so its `hello` carries
-    /// no token; the Daemon's, or none on an Attached engine serving its
-    /// script's own Console, and the sign-in driver its refusals are
-    /// recorded through.
-    Console(ConsoleSide),
-}
-
-/// What a Console's Connection reaches beside the engine: the Daemon that
-/// serves the Console, or none on an Attached engine serving its script's
-/// own, and the Console's sign-in driver, which records its refusals.
-pub(crate) struct ConsoleSide {
-    pub(crate) daemon: Option<Arc<dyn DaemonSide>>,
-    pub(crate) sign_ins: SignInDriver,
 }
 
 impl Access {
     /// The token its `hello` must carry, if any.
     fn token(&self) -> Option<&str> {
         match self {
-            Self::Attached(..) | Self::Console(..) => None,
+            Self::Attached(..) => None,
             Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(daemon.token()),
             Self::PrivateEndpoint(token) => Some(token),
         }
@@ -169,7 +147,6 @@ impl Access {
     fn daemon(&self) -> Option<Arc<dyn DaemonSide>> {
         match self {
             Self::Daemon(daemon) | Self::Exposed(daemon, _) => Some(Arc::clone(daemon)),
-            Self::Console(side) => side.daemon.clone(),
             Self::Attached(..) | Self::PrivateEndpoint(_) => None,
         }
     }
@@ -182,7 +159,6 @@ impl Access {
             Self::Daemon(_) => Listener::DaemonSocket,
             Self::Exposed(..) => Listener::ExposedDaemon,
             Self::PrivateEndpoint(_) => Listener::PrivateEndpoint,
-            Self::Console(..) => Listener::Console,
         }
     }
 
@@ -190,12 +166,11 @@ impl Access {
     /// no `hello` is closed unanswered on a listener a Client proves
     /// itself to.
     fn guarded(&self) -> bool {
-        self.token().is_some() || matches!(self, Self::Console(..))
+        self.token().is_some()
     }
 }
 
-/// How a Connection's messages arrive: as lines, as WebSocket messages, or
-/// in the Console's `POST` bodies.
+/// How a Connection's messages arrive: as lines or as WebSocket messages.
 enum Reading {
     Lines {
         reader: Prefixed,
@@ -203,7 +178,6 @@ enum Reading {
         chunk: Vec<u8>,
     },
     Messages(MessageReader),
-    Posted(PostedReader),
 }
 
 impl Reading {
@@ -238,17 +212,14 @@ impl Reading {
                 }
             },
             Self::Messages(messages) => messages.read(frames).await,
-            Self::Posted(posted) => posted.read(frames).await,
         }
     }
 }
 
-/// How a Connection's messages leave: as lines, as WebSocket messages, or
-/// as the events of the Console's event stream.
+/// How a Connection's messages leave: as lines or as WebSocket messages.
 enum Writing {
     Lines(ConnectionWriter),
     Messages(MessageWriter),
-    Streamed(StreamedWriter),
 }
 
 /// How `connection`, reached through `access`, carries its messages, and
@@ -329,59 +300,6 @@ pub(crate) async fn serve(
         runs,
         events,
         access,
-        engine,
-    )
-    .await;
-}
-
-/// A Connection the Console's server opened on its own origin, its sign-in
-/// already checked, which the Daemon serves (ADR 0031): a WebSocket, or,
-/// where a proxy refuses `WebSocket`s, an event stream and the page's
-/// `POST`s.
-pub(crate) enum ConsoleConnection {
-    WebSocket(ConsoleSocket),
-    EventStream(EventStream),
-}
-
-/// Serves the Console's Connection `console`, a Connection of the Daemon
-/// `daemon` reaches, until it ends, its tasks those of `owner`, its calls
-/// given `engine`, lingering on its clock after the engine closes it.
-///
-/// # Cancel safety
-///
-/// Dropping the future leaves the calls it started to `owner`, which stops
-/// them.
-pub(crate) async fn serve_console(
-    dispatch: Arc<Dispatch>,
-    console: ConsoleConnection,
-    owner: &TaskOwner,
-    runs: Runs,
-    events: Events,
-    side: ConsoleSide,
-    engine: EngineContext,
-) {
-    let (reading, writing) = match console {
-        ConsoleConnection::WebSocket(socket) => (
-            Reading::Messages(socket.reader),
-            Writing::Messages(socket.writer),
-        ),
-        ConsoleConnection::EventStream(stream) => (
-            Reading::Posted(stream.reader),
-            Writing::Streamed(stream.writer),
-        ),
-    };
-    let carried = Carried {
-        reading,
-        writing,
-        listener: Listener::Console,
-    };
-    serve_carried(
-        dispatch,
-        carried,
-        owner,
-        runs,
-        events,
-        Access::Console(side),
         engine,
     )
     .await;
@@ -518,7 +436,6 @@ async fn write_lines(
         let sent = match &mut writing {
             Writing::Lines(writer) => writer.write_all(&line).await.is_ok(),
             Writing::Messages(messages) => messages.feed(line).await,
-            Writing::Streamed(streamed) => streamed.feed(line).await,
         };
         if !sent {
             return;
@@ -527,7 +444,6 @@ async fn write_lines(
             let flushed = match &mut writing {
                 Writing::Lines(writer) => writer.flush().await.is_ok(),
                 Writing::Messages(messages) => messages.flush().await,
-                Writing::Streamed(_) => true,
             };
             if !flushed {
                 return;
@@ -539,7 +455,6 @@ async fn write_lines(
             let _ = writer.shutdown().await;
         }
         Writing::Messages(messages) => messages.close().await,
-        Writing::Streamed(streamed) => streamed.close(),
     }
 }
 
@@ -926,12 +841,11 @@ impl Session<'_> {
                 let holding = accepted.holding;
                 self.opened_client = daemon.map(|daemon| daemon.opened(surface, holding));
                 let _ = self.connection.behind_gateway.set(accepted.behind_gateway);
-                if let Access::Attached(private_endpoint, console_link) = &self.access {
+                if let Access::Attached(private_endpoint) = &self.access {
                     accepted
                         .result
                         .private_endpoint
                         .clone_from(private_endpoint);
-                    accepted.result.console_link.clone_from(console_link);
                 }
                 self.dispatch.work.count(Row::MessageEncodes);
                 let result = serde_json::to_value(accepted.result)
@@ -1209,30 +1123,23 @@ impl Session<'_> {
     }
 
     /// Logs the listener's refusal of the Connection, with its reason, and
-    /// records it in the Audit log: on the Console's WebSocket through its
-    /// sign-in driver, as the Console's.
+    /// records it in the Audit log.
     async fn refused(&self, reason: RefusalReason) {
-        let listener = self.listener;
-        if let Access::Console(ConsoleSide { sign_ins, .. }) = &self.access {
-            tracing::warn!(target: REFUSAL_TARGET, listener = listener.as_str(), reason = reason.as_str(), "a Connection that did not open with `hello` was closed");
-            sign_ins.refused(listener, reason.as_str()).await;
-        } else {
-            self.connection
-                .engine
-                .refusals()
-                .refused(listener, reason)
-                .await;
-        }
+        self.connection
+            .engine
+            .refusals()
+            .refused(self.listener, reason)
+            .await;
     }
 }
 
-/// `person_required`: `method` is a person's answer, which only the Console
-/// and the CLI's interactive prompt ask for (ADRs 0011 and 0041).
+/// `person_required`: `method` is a person's answer, which only the Kennel
+/// and the CLI's interactive prompt ask for (ADRs 0011, 0041 and 0141).
 fn person_required(method: &str) -> CallError {
     CallError::new(
         &PERSON_REQUIRED,
         format!(
-            "`{method}` is a person's answer: give it in the Console, or in the CLI's interactive prompt"
+            "`{method}` is a person's answer: give it in the Kennel, or in the CLI's interactive prompt"
         ),
         &serde_json::Map::new(),
     )

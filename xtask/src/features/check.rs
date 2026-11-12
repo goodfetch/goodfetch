@@ -325,7 +325,7 @@ fn unknown_milestone(id: &str, milestone: &str) -> Finding {
 /// The findings and notes of `packages`, each a package's name or folder:
 /// those on a Feature a test of theirs declares, or on a generated Feature
 /// their sources define (the protocol crate's registries and catalog, the
-/// executable crates' command lines, the Console's routes). Findings on the
+/// executable crates' command lines). Findings on the
 /// `features/` files themselves belong to no package and stay.
 pub(crate) fn of_packages(
     verdict: Verdict,
@@ -367,11 +367,6 @@ fn defines(packages: &[String], id: &str) -> bool {
         "command" => products::EXECUTABLES
             .iter()
             .any(|executable| crate_(executable.package, executable.folder)),
-        "screen" => packages.iter().any(|package| {
-            package == "console"
-                || package.starts_with("console/")
-                || package.starts_with("@goodfetch/console")
-        }),
         _ => false,
     }
 }

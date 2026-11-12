@@ -209,8 +209,7 @@ jobs:
 
   # The counted performance gates (ADR 0071): the base branch's head, then
   # the merge commit, measured in this one job (`xtask perf`), against +5%
-  # per benchmark figure, +5 kB brotli per size-limit entry and each Console
-  # build's 1 MB ceiling. Its steps are not test steps: a tripped figure
+  # per benchmark figure and +5 kB brotli per size-limit entry. Its steps are not test steps: a tripped figure
   # passes on a re-run of this job once the owner has accepted the pull
   # request's "Performance change" section on the head, since the figures
   # repeat exactly. It reads that section before the deny. It is one job

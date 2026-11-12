@@ -144,6 +144,7 @@ Skew against released versions stays ADR 0066's. No runtime or platform is allow
 ### Left to other decisions
 
 - **Docs code samples and their runs:** [Console and docs test stack](https://github.com/goodfetch/goodfetch/issues/282).
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
 - **Mutation testing:** not decided. Stryker can't measure a Vitest 5 suite today (open [#6210](https://github.com/stryker-mutator/stryker-js/issues/6210)) and mutmut needs `fork`; [Feature coverage and traceability](https://github.com/goodfetch/goodfetch/issues/279) owns what counts as tested.
 - **Live models:** SDK suites never reach one (ADR 0065).
 

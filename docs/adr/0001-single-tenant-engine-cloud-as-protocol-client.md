@@ -4,6 +4,8 @@ Goodfetch Cloud must power an actor platform, a crawl and extraction API, and ho
 
 > Amended by [ADR 0096](0096-the-browser-host-runs-from-either-products-executable-and-goodfetch-cloud-runs-each-run-on-the-product-it-needs.md): each run gets the engine of the Product it is started for: the Product its Client needs, or, for a run started from the Console or by Goodfetch Cloud itself, Foxhound's when its target names something only Foxhound carries and Collie's otherwise; a Recipe that names Foxhound runs on Foxhound's, since a Recipe's manifest, not its settings or steps, decides its Product. Every engine and Browser host Goodfetch Cloud runs is a published Product executable, unmodified, with Private components added only as process Plugins.
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
+
 ## Considered Options
 
 - **Multi-tenant engine** (one process serves many tenants): rejected. One crash or hang in it would stop every tenant's runs, and the lab showed that a pool reused without reset leaks one tenant's cookie to the next 30 times out of 30.

@@ -1,7 +1,6 @@
 # Which of goodfetch-stub-gateway's top-level modules may import which
 # (ADR 0126).
 [modules]
-console_build = []
 engines = []
 index = ["engines"]
 relay = ["engines", "index"]

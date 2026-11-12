@@ -1,13 +1,13 @@
 #:schema ./journey.schema.json
 id = "J-006"
-title = "Stop a run at an install Limit and see it in `usage` and the Console"
+title = "Stop a run at an install Limit and see it in `usage`"
 goal = """
 A person takes the monthly install Limit Foxhound offers on its first setup \
 and crawls past it. The run MUST stop cleanly at its next safe point as \
 `stopped` and `incomplete`, resumable, naming the Limit's scope and period; a \
 new run MUST be refused with `limit_reached` until a person raises the Limit; \
-the runs together MUST never pass the Limit; and `usage` and the Console MUST \
-show the Usage against the Limit."""
+the runs together MUST never pass the Limit; and `usage` MUST show the Usage \
+against the Limit."""
 area = 3
 product = "foxhound"
 status = "active"
@@ -17,7 +17,6 @@ covers = [
   "story:3-71",
   "story:3-76",
   "story:3-79",
-  "story:12-23",
   "story:12-99",
 ]
 
@@ -26,10 +25,9 @@ seed = 6
 
 [surfaces]
 cli = "M1"
-console = "M1"
 
 [[steps]]
-text = "Set Foxhound up for the first time (`init`, or the Console's first launch) and take the monthly install Limit it offers, below what a Crawl of the whole catalog uses"
+text = "Set Foxhound up for the first time (`init`) and take the monthly install Limit it offers, below what a Crawl of the whole catalog uses"
 
 [[steps]]
 text = "Crawl the catalog until the run stops"
@@ -42,10 +40,6 @@ on = "cli"
 [[steps]]
 text = "Read the Usage against each Limit, by scope, with `usage`"
 on = "cli"
-
-[[steps]]
-text = "Look at the stopped run and the install Limit in the Console"
-on = "console"
 
 [[expect]]
 text = "Before the Limit is taken, the first setup offers it and says that runs are uncapped, with nothing capping what they spend"
@@ -61,6 +55,3 @@ text = "The Usage of both Crawls together never passes the install Limit"
 
 [[expect]]
 text = "`usage` shows the Usage against the install Limit, by scope, with nothing left"
-
-[[expect]]
-text = "The Console shows the stopped run with its reason, and the install Limit reached"

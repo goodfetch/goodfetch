@@ -288,7 +288,6 @@ fn passing(missing: &str, (surface, operation): (Surface, &'static str)) -> Stri
         | Surface::Rust
         | Surface::Cli
         | Surface::Mcp
-        | Surface::Console
         | Surface::Kennel
         | Surface::Cloud
         | Surface::BrowserHost

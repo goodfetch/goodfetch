@@ -169,7 +169,7 @@ status = "active"
 
 [[story]]
 id = 21
-title = "As a developer, I want every endpoint the engine opens (the Daemon's socket and WebSocket, the HTTP listener, MCP over HTTP, the Live view, raw CDP, the Attached engine's private endpoint, the Console) bound to loopback by default, checking `Host` and `Origin`, and requiring a random token that never travels in a query string, so that a web page I visit cannot drive my engine (ADR 0017)."
+title = "As a developer, I want every endpoint the engine opens (the Daemon's socket and WebSocket, the HTTP listener, MCP over HTTP, the Live view, raw CDP, the Attached engine's private endpoint) bound to loopback by default, checking `Host` and `Origin`, and requiring a random token that never travels in a query string, so that a web page I visit cannot drive my engine (ADR 0017)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -286,7 +286,7 @@ status = "active"
 
 [[story]]
 id = 36
-title = "As a developer, I want a pinned host whose key changed stopped with `certificate_changed`, carrying both hashes, until a person accepts the new key with `certs accept` in an interactive prompt or the Console, which no agent, Recipe or `--json` command can do, so that a substitution never passes silently (ADR 0042)."
+title = "As a developer, I want a pinned host whose key changed stopped with `certificate_changed`, carrying both hashes, until a person accepts the new key with `certs accept` in an interactive prompt, which no agent, Recipe or `--json` command can do, so that a substitution never passes silently (ADR 0042)."
 milestone = "M1 Core"
 journey = true
 status = "active"

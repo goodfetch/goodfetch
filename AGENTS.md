@@ -68,7 +68,7 @@ Before writing or reviewing code in a language below, load its skills when your 
 | Any typed code: Rust, TypeScript, Python | **`principle-type-system-discipline`** |
 | TypeScript (`.ts`, `.tsx`) | **`typescript-best-practices`** |
 | Python | **`ruff`**, **`uv`** |
-| The Console and the React wrappers (React, shadcn on Base UI, Vite) | `vercel-react-best-practices` (its React rules, not its Next.js ones), `vercel-composition-patterns`, `writing-react-effects`, `shadcn`, `shadcn-guardrails` |
+| The React wrappers (React, shadcn on Base UI, Vite) | `vercel-react-best-practices` (its React rules, not its Next.js ones), `vercel-composition-patterns`, `writing-react-effects`, `shadcn`, `shadcn-guardrails` |
 | The PostgreSQL and Supabase Sinks | `postgres`, `supabase-postgres-best-practices` |
 
 Rust has no Rust-specific skill: its section of `STYLE.md` and the references it names are the guide.

@@ -47,8 +47,6 @@ pub enum Surface {
     Cli,
     /// The MCP server, as a Client of a Daemon.
     Mcp,
-    /// The Console.
-    Console,
     /// The Kennel, a person surface that observes the Daemon: its Runs
     /// outlive its Connection, which holds the Daemon neither awake nor
     /// back from a handover unless its `hello` sets `keep_daemon_alive`
@@ -81,20 +79,19 @@ pub enum Form {
     Cli,
     /// The MCP server and the Framework adapters.
     Tool,
-    /// The catalog's own names: the Console, Integrations and the HTTP
+    /// The catalog's own names: Integrations and the HTTP
     /// listener.
     Catalog,
 }
 
 impl Surface {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 9] = [
         Self::SdkTypescript,
         Self::SdkPython,
         Self::Rust,
         Self::Cli,
         Self::Mcp,
-        Self::Console,
         Self::Kennel,
         Self::Cloud,
         Self::BrowserHost,
@@ -112,7 +109,6 @@ impl Surface {
             | Self::SdkPython
             | Self::Rust
             | Self::Cli
-            | Self::Console
             | Self::Kennel
             | Self::Cloud
             | Self::BrowserHost => false,
@@ -121,10 +117,10 @@ impl Surface {
 
     /// Whether a person drives a Client of this surface, so the engine
     /// admits from it the operations only a person may call
-    /// (`Reach::PersonOnly`): the CLI, the Console and the Kennel.
+    /// (`Reach::PersonOnly`): the CLI and the Kennel.
     pub fn is_a_person(self) -> bool {
         match self {
-            Self::Cli | Self::Console | Self::Kennel => true,
+            Self::Cli | Self::Kennel => true,
             Self::SdkTypescript
             | Self::SdkPython
             | Self::Rust
@@ -146,29 +142,9 @@ impl Surface {
             | Self::SdkPython
             | Self::Rust
             | Self::Mcp
-            | Self::Console
             | Self::Cloud
             | Self::BrowserHost
             | Self::Worker => false,
-        }
-    }
-
-    /// Whether a Client of this surface that holds a Daemon holds it back
-    /// from a handover to its major's pick: every surface's but the
-    /// Console's, which holds off only the idle stop, as a visible tab does
-    /// (ADR 0098).
-    pub fn holds_off_handover(self) -> bool {
-        match self {
-            Self::Console => false,
-            Self::SdkTypescript
-            | Self::SdkPython
-            | Self::Rust
-            | Self::Cli
-            | Self::Mcp
-            | Self::Kennel
-            | Self::Cloud
-            | Self::BrowserHost
-            | Self::Worker => true,
         }
     }
 
@@ -584,13 +560,6 @@ pub struct HelloResult {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub private_endpoint: Option<PrivateEndpoint>,
-    /// The sign-in link of the Console an Attached engine serves for its
-    /// script, which asked for one with a Console address, reported to the
-    /// Client of its stdio alone: `<url>#token=<token>`, whose fragment the
-    /// page swaps once for its cookie (ADRs 0024 and 0031).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub console_link: Option<String>,
 }
 
 /// Where a Daemon or an Attached engine's private endpoint listens (ADR
@@ -935,8 +904,8 @@ pub const ENGINE_EXITED: ErrorCodeDefinition = ErrorCodeDefinition {
 };
 
 /// A Connection to an engine that dropped while a call waited for its
-/// answer (ADRs 0031 and 0079), raised by the Client's own runtime, as the
-/// Console's, which then connects again.
+/// answer (ADRs 0031 and 0079), raised by the Client's own runtime, which
+/// then connects again.
 pub const CONNECTION_LOST: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "connection_lost",
     description: "The Connection to the engine dropped before the call was answered, so whether it took effect is unknown. The Client connects again by itself; make the call again once it has, after checking that an Effect did not happen.",
@@ -959,11 +928,11 @@ pub const ENGINE_OUTPUT_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
 
 /// The refusal of an answer only a person gives (ADRs 0011 and 0041): an
 /// operation the catalog marks [`Reach::PersonOnly`](crate::catalog::Reach)
-/// asked by anything but the Console, the Kennel or an interactive CLI
+/// asked by anything but the Kennel or an interactive CLI
 /// prompt (ADR 0141).
 pub const PERSON_REQUIRED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "person_required",
-    description: "Only a person gives this answer, in the Console, the Kennel or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console or the Kennel, or run the command in a terminal.",
+    description: "Only a person gives this answer: no agent surface, SDK, script or command run under `--json` or without a terminal may. Run the Operation's command in a terminal, where the CLI has one, or answer it in the Kennel where the Kennel offers the Operation.",
     group: ErrorGroup::Refused,
     retryable: false,
     exit_code: None,

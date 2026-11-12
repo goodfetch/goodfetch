@@ -14,6 +14,7 @@ Decided in [Protocol, Operation catalog and SDKs across two products](https://gi
 
 - **Both Products' engines speak one JSON-RPC protocol,** defined in `goodfetch-protocol` (ADR 0038) and versioned by one `major.minor` (ADR 0030). Foxhound's engine serves Collie's operations unchanged.
 - A protocol per Product would put two version lines on one wire, bump both for any change to an operation of Collie's, and make the Console, the Browser host and Goodfetch Cloud speak two. One line costs only this: an operation added for Foxhound also raises the minor a Collie Client sees.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
 
 ### One Operation catalog, marked by Product
 
@@ -44,6 +45,7 @@ Decided in [Protocol, Operation catalog and SDKs across two products](https://gi
   - each SDK, its own;
   - the CLI and the MCP server, when they are Clients of a Daemon (ADR 0024), their executable's;
   - the Console, the Product of its build: its engine's, and Foxhound's when Goodfetch Cloud's gateway serves it (ADR 0096);
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   - an engine reaching a Browser host, Collie, since a Browser host's work is Collie's (ADR 0088);
   - an Integration, the Product it is built for (below);
   - the conformance harness, whichever Product a case tests;

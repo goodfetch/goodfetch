@@ -17,7 +17,6 @@ mod advisories;
 mod affected;
 mod all_green;
 mod allure;
-mod axe_exceptions;
 mod budgets;
 mod clients;
 mod codegen;
@@ -26,7 +25,6 @@ mod compare;
 mod compat;
 #[cfg(unix)]
 mod compiler_cache;
-mod console;
 mod containment;
 #[cfg(unix)]
 mod counts;

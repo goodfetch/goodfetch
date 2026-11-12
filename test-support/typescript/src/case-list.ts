@@ -1,5 +1,5 @@
 // A suite's declared case list (ADRs 0033 and 0072), such as
-// `conformance/clients/cases.toml` or `conformance/console/cases.toml`: its
+// `conformance/clients/cases.toml`: its
 // name and version, the capabilities it declares and each one's cases with
 // the Features each covers. What a suite declares and did not reach stays
 // `unproved` in its result document. A case's other fields, such as the

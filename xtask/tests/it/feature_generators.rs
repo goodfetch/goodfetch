@@ -1,6 +1,6 @@
-//! The Feature inventory's generators of `command:`, `screen:` and
-//! `block-cause:` (ADR 0072): each command of both Products' executables,
-//! each route of the Console's packages and each Block cause of the catalog
+//! The Feature inventory's generators of `command:` and
+//! `block-cause:` (ADR 0072): each command of both Products' executables
+//! and each Block cause of the catalog
 //! is a Feature the moment it exists, with the Products that carry it, and
 //! leaves the inventory when it goes. A kind whose source does not exist yet
 //! generates nothing. A story is carried by both Products unless its entry
@@ -182,27 +182,6 @@ fn the_check_reads_the_committed_command_lines_and_runs_no_example() {
     assert_eq!(outcome.code, 1);
 }
 
-const COLLIE_ROUTES: &str = "console/collie/routes.json";
-const FOXHOUND_ROUTES: &str = "console/foxhound/routes.json";
-
-#[test]
-fn each_console_route_is_a_feature_with_its_products() {
-    let workspace = Workspace::from_fixture("codegen");
-    workspace.write(COLLIE_ROUTES, br#"{ "routes": ["/runs", "/runs/$run"] }"#);
-    workspace.write(FOXHOUND_ROUTES, br#"{ "routes": ["/datasets"] }"#);
-
-    codegen(&workspace);
-
-    assert_eq!(
-        features_of_kind(&workspace, "screen"),
-        vec![
-            ("screen:/datasets".to_owned(), foxhound()),
-            ("screen:/runs".to_owned(), both()),
-            ("screen:/runs/$run".to_owned(), both()),
-        ]
-    );
-}
-
 /// The fixture's modules of Collie's and Foxhound's entries.
 const COLLIE_ENTRIES: &str = "crates/goodfetch-protocol/src/sample.rs";
 const FOXHOUND_ENTRIES: &str = "crates/goodfetch-protocol/src/foxhound.rs";
@@ -288,22 +267,20 @@ fn a_removed_block_cause_leaves_the_inventory() {
     );
 }
 
-/// The fixture has no executable crate, an empty Console and no Block cause,
+/// The fixture has no executable crate and no Block cause,
 /// as the repository had before each source landed.
 #[test]
 fn a_kind_whose_source_does_not_exist_generates_nothing_and_fails_nothing() {
     let workspace = Workspace::from_fixture("codegen");
-    workspace.write("console/README.md", b"# Console\n");
 
     codegen(&workspace);
 
     assert_eq!(
         [
             features_of_kind(&workspace, "command"),
-            features_of_kind(&workspace, "screen"),
             features_of_kind(&workspace, "block-cause"),
         ],
-        [vec![], vec![], vec![]]
+        [vec![], vec![]]
     );
 }
 

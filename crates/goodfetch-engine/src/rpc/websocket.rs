@@ -23,7 +23,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::http::{StatusCode, header};
-use tokio_tungstenite::tungstenite::protocol::{Role, WebSocketConfig};
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error, Message};
 
 use super::framing::{Frame, MAX_MESSAGE_BYTES};
@@ -175,32 +175,6 @@ pub(crate) trait Duplex: AsyncRead + AsyncWrite + Send + Unpin {}
 impl<T: AsyncRead + AsyncWrite + Send + Unpin> Duplex for T {}
 
 type Carried = Box<dyn Duplex>;
-
-/// A WebSocket the Console's server opened on its own origin, its
-/// handshake already accepted and its sign-in already checked, which the
-/// Daemon serves as a Connection (ADR 0031).
-pub(crate) struct ConsoleSocket {
-    pub(super) reader: MessageReader,
-    pub(super) writer: MessageWriter,
-}
-
-impl ConsoleSocket {
-    /// The WebSocket on `upgraded`, the connection whose handshake the
-    /// Console's server answered with `101`.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future drops the connection.
-    pub(crate) async fn opened(upgraded: impl Duplex + 'static) -> Self {
-        let carried: Carried = Box::new(upgraded);
-        let socket = WebSocketStream::from_raw_socket(carried, Role::Server, Some(config())).await;
-        let (sink, stream) = socket.split();
-        Self {
-            reader: MessageReader(stream),
-            writer: MessageWriter(sink),
-        }
-    }
-}
 
 /// The rule `request` breaks, if any: its `Host` first, then its `Origin`.
 fn refusal(request: &Request, authorities: &Authorities) -> Option<Refusal> {

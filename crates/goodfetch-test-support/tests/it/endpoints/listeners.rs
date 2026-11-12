@@ -50,17 +50,13 @@ impl AuditLog {
             | Rule::TokenFromAnotherListener
             | Rule::TokenExpired
             | Rule::TokenRevoked
-            | Rule::TokenScopedElsewhere
-            | Rule::TokenForAnotherFile => Reason::TokenRefused,
+            | Rule::TokenScopedElsewhere => Reason::TokenRefused,
             Rule::TokenInQueryString => Reason::TokenInQuery,
             Rule::HostForeign => Reason::ForeignHost,
             Rule::OriginForeign => Reason::ForeignOrigin,
             Rule::OriginMissing => Reason::MissingOrigin,
             Rule::HelloNotFirst => Reason::NotHello,
-            Rule::ProbesAnswerStatusOnly
-            | Rule::CsrfTokenMissing
-            | Rule::SignInRevoked
-            | Rule::SignInRateExceeded => return false,
+            Rule::ProbesAnswerStatusOnly => return false,
         };
         self.0.recv_timeout(Duration::from_secs(5)) == Ok(expected)
     }
@@ -289,85 +285,6 @@ fn serve_http(
                 }
                 None if path == "/metrics" => (200, "goodfetch_up 1\n"),
                 None => (200, ""),
-            }
-        }
-    };
-    let response = format!(
-        "HTTP/1.1 {status} Fixture\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    let _ = reader.get_mut().write_all(response.as_bytes());
-}
-
-/// The one address a fixture signed-address listener serves its file to.
-pub(super) const SIGNED_ADDRESS: &str = "/bodies/first/a1?expires=99&signature=5ac1e9";
-/// Another file it holds.
-pub(super) const OTHER_FILE: &str = "/bodies/first/b2";
-
-/// Starts a signed-address listener on loopback TCP, which serves its file
-/// only to [`SIGNED_ADDRESS`] and reads no cookie.
-pub(super) fn signed_address(behaviour: Behaviour) -> (SocketAddr, AuditLog) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    let (sender, log) = mpsc::channel();
-    std::thread::spawn(move || {
-        for connection in listener.incoming() {
-            serve_signed(connection.unwrap(), address, behaviour, &sender);
-        }
-    });
-    (address, AuditLog(log))
-}
-
-fn serve_signed(
-    stream: TcpStream,
-    address: SocketAddr,
-    behaviour: Behaviour,
-    audit: &Sender<Reason>,
-) {
-    let mut reader = BufReader::new(stream);
-    let mut target = String::new();
-    let mut headers = Vec::new();
-    let mut line = String::new();
-    while reader.read_line(&mut line).unwrap_or(0) > 0 && line != "\r\n" {
-        if target.is_empty() {
-            line.split(' ')
-                .nth(1)
-                .unwrap_or_default()
-                .clone_into(&mut target);
-        } else if let Some((name, value)) = line.trim_end().split_once(':') {
-            headers.push((name.to_ascii_lowercase(), value.trim().to_owned()));
-        }
-        line.clear();
-    }
-    let header = |name: &str| {
-        headers
-            .iter()
-            .find(|(found, _)| found == name)
-            .map(|(_, value)| value.as_str())
-    };
-    let authority = address.to_string();
-    let (status, body) = match behaviour {
-        Behaviour::Permissive => (200, "file"),
-        Behaviour::RefuseAll => (403, ""),
-        Behaviour::Strict => {
-            let refusal = if header("host") != Some(authority.as_str()) {
-                Some((403, Reason::ForeignHost))
-            } else if header("origin").is_some_and(|origin| origin != format!("http://{authority}"))
-            {
-                Some((403, Reason::ForeignOrigin))
-            } else if target == SIGNED_ADDRESS {
-                None
-            } else if !target.contains('?') && header("cookie").is_none() {
-                Some((401, Reason::TokenMissing))
-            } else {
-                Some((401, Reason::TokenRefused))
-            };
-            match refusal {
-                Some((status, reason)) => {
-                    audit.send(reason).unwrap();
-                    (status, "")
-                }
-                None => (200, "file"),
             }
         }
     };

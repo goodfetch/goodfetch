@@ -6,6 +6,9 @@ Every surface released together under ADR 0030 lives in one repository, public f
 crates/            Cargo workspace: the public `goodfetch` crate, internal `goodfetch-*` crates, the `goodfetch` binary
 crates/sinks/      one crate per sink process (ADR 0026)
 console/           the Console app, built and embedded in the binary (ADR 0024)
+
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
+
 sdks/typescript/   npm `goodfetch` and the generated per-platform packages
 sdks/python/       the `py3-none` platform wheels
 adapters/          Vercel AI SDK, LangChain/LangGraph (TypeScript and Python), Mastra (ADR 0011)
@@ -50,6 +53,7 @@ Releases are **built once and published per registry**: no tool publishes crates
 ## Consequences
 
 - **Workspaces.** One Cargo workspace, one pnpm workspace (Console, TypeScript SDK, adapters, TypeScript Integrations, harness) and one uv workspace (Python SDK, adapters and Python Integrations), tied together by `just` as the single task runner.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Proving ground.**
   - **Language.** Its seed generator, page server and oracles are written in Rust.
   - **Independence.** It never depends on engine crates, so the oracle stays independent of the tool it judges (ADR 0025). CI enforces the rule.
@@ -68,6 +72,7 @@ Releases are **built once and published per registry**: no tool publishes crates
   > Amended by [ADR 0068](0068-the-console-is-tested-in-real-browsers-and-served-by-the-real-binary.md): the Console conformance suite in `conformance/console/` runs on Playwright Test and, like the Journeys, writes its own result documents through a Playwright reporter.
   >
   > Amended by [ADR 0094](0094-both-products-are-released-and-signed-together-and-each-test-runs-on-collie-unless-it-needs-foxhound.md): each suite runs against the executable of the smallest Product that carries its contract: Collie's for browser conformance and the Plugin kinds Collie carries, Foxhound's for Sinks and Fetch backends.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Private components.** The public repository holds each Private component's interface, a no-op implementation that keeps the public engine whole, and that interface's conformance suite (ADR 0018). The private repository builds against public `main` every night and against every release candidate, stable release and patch. While that run is red, no release candidate, stable release or patch is published, so the challenge solver cannot silently fall out of a release. Public CI never sees private code or secrets.
 - **Release automation.** This settles the item ADR 0030 left to the specs.
   - **Versioning.** An in-house `xtask release`, a small Rust program, sets the product version in every released manifest. It keeps the internal `goodfetch-*` crates at `0.0.x` and leaves the Zapier and Make apps to their platforms' versioning (ADR 0030). It then writes the changelog with git-cliff and opens a release pull request.

@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::home::{
-    ACCOUNTS_STORE, AUDIT_LOG, AUDIT_LOG_HEAD, CONSOLE_KEY, ENGINE_KEY_LOCK, KNOWN_CERTIFICATES,
-    LOGS, POLITENESS_FILE, RUN_INDEX, RUNS, SECRET_FILES, USAGE_LEDGER, per_major,
+    AUDIT_LOG, AUDIT_LOG_HEAD, ENGINE_KEY_LOCK, KNOWN_CERTIFICATES, LOGS, POLITENESS_FILE,
+    RUN_INDEX, RUNS, SECRET_FILES, USAGE_LEDGER, per_major,
 };
 
 /// One user's Goodfetch data folder, and the copy of the Browser cache
@@ -101,24 +101,11 @@ impl Home {
         self.root.join(KNOWN_CERTIFICATES)
     }
 
-    /// The accounts store of the Product version `version`'s major, in its
-    /// per-major folder beside the Operator policy, which only that major's
-    /// Daemon opens (spec #592).
-    pub fn accounts_store(&self, version: &ProductVersion) -> PathBuf {
-        self.per_major(version).join(ACCOUNTS_STORE)
-    }
-
     /// The log folder, outside the per-major folders, which holds one set
     /// of files per Daemon and one per other process that writes its own
     /// (ADR 0122).
     pub fn logs(&self) -> PathBuf {
         self.root.join(LOGS)
-    }
-
-    /// The per-user Console key, outside the per-major folders, which every
-    /// major shares (ADR 0098).
-    pub fn console_key(&self) -> PathBuf {
-        self.root.join(CONSOLE_KEY)
     }
 
     /// The folder of the encrypted local files `secretfile:` reads, and of

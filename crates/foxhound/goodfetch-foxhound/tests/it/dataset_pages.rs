@@ -1,5 +1,5 @@
 //! `dataset.list` and `dataset.page` on Foxhound's executable over stdio
-//! (spec #593's seam: the protocol, with the Console as the Client; ADRs
+//! (spec #593's seam: the protocol, with a test program as the Client; ADRs
 //! 0031 and 0103): a crawl's Datasets listed with their schema, their key
 //! and their committed, dropped and rejected counts, and a Dataset's
 //! Records paged by key, filtered, sorted and narrowed to columns in the

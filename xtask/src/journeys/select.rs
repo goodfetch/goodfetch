@@ -8,7 +8,6 @@
 //! - nextest (`cli`, `foxhound-cli`, `sdk-rust`, `http-listener`): a
 //!   filterset on test paths, `test(/(^|::)journeys::j001::cli$/) | …`;
 //! - Vitest (`sdk-typescript`): a tag filter, `(J-003 && sdk-typescript) || …`;
-//! - Playwright (`console`): `--grep` on both tags of each variant;
 //! - pytest (`sdk-python`): `-m` on the `journey` marker's keywords.
 //!
 //! The runners of `mcp-*`, `skills`, `adapter-*` and `integration-*` are
@@ -52,7 +51,6 @@ fn runner(surface: &str) -> Option<Runner> {
     match surface {
         "cli" | FOXHOUND_CLI | "sdk-rust" | "http-listener" => Some(Runner::Nextest),
         "sdk-typescript" => Some(Runner::Vitest),
-        "console" => Some(Runner::Playwright),
         "sdk-python" => Some(Runner::Pytest),
         _ => None,
     }
@@ -88,9 +86,8 @@ pub(super) fn filters(variants: &[Variant<'_>]) -> (Vec<(Runner, String)>, Vec<S
             Runner::Vitest => {
                 arguments.push((runner, format!("--tags-filter={}", joined(vitest, " || "))));
             }
-            Runner::Playwright => {
-                arguments.push((runner, format!("--grep={}", joined(playwright, "|"))));
-            }
+            // No surface's variants run on Playwright.
+            Runner::Playwright => {}
             Runner::Pytest => {
                 arguments.push((runner, "-m".to_owned()));
                 arguments.push((runner, joined(pytest, " or ")));
@@ -111,17 +108,6 @@ fn nextest(variant: &Variant<'_>) -> String {
 
 fn vitest(variant: &Variant<'_>) -> String {
     format!("({} && {})", variant.journey.id, variant.surface)
-}
-
-/// Playwright matches `--grep` against the project, the titles and the
-/// tags, each tag with its `@`, separated by spaces.
-fn playwright(variant: &Variant<'_>) -> String {
-    let tag = |name: &str| format!(r"(?=.*\s@{name}(?:\s|$))");
-    format!(
-        "{}{}",
-        tag(variant.journey.id.as_str()),
-        tag(&variant.surface)
-    )
 }
 
 fn pytest(variant: &Variant<'_>) -> String {

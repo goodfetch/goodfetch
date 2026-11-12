@@ -6,7 +6,7 @@
 # whole workspace with `all`:
 #   - every workspace crate built for coverage through cargo-llvm-cov's
 #     `show-env`, into a target folder of its own, so nextest's tests and
-#     every SDK, Journey and Console run start the instrumented executables
+#     every SDK and Journey run start the instrumented executables
 #     of both Products (ADR 0094), whose profiles test support's map passes
 #     on (LLVM_PROFILE_FILE);
 #   - Vitest's `v8` provider, in Node and in Browser Mode

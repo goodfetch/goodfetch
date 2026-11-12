@@ -39,6 +39,8 @@ An answer applies to one uncertain occurrence of the Effect. A later answer to t
 
 Decided in [Prototype: V1 Console screens and flows](https://github.com/goodfetch/goodfetch/issues/80), where the prototype showed these states on real-looking runs.
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): a person reconciles an uncertain Effect, raises a Limit and answers a Human pause through the CLI's interactive prompts, or later Goodfetch Cloud, and logs in through a headful window locally or the Live view once it is built. The rule otherwise stands.
+
 ## Considered Options
 
 - **One status enum** (`succeeded`, `partial`, `needs_review`, `failed`): rejected. It cannot say "verified but incomplete" or "finished but needs review" without inventing combined values, and it mixes what happened with how far the result can be trusted.
@@ -48,6 +50,7 @@ Decided in [Prototype: V1 Console screens and flows](https://github.com/goodfetc
 ## Consequences
 
 - **Only a person reconciles.** Reconciling is an idempotent write in the Operation catalog (ADR 0011), answered only in the Console or an interactive CLI prompt.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   - Changes ADR 0011: the answer is offered on no other surface generated from the catalog. That excludes MCP, code mode, the SDKs, agent skills, framework adapters, Integrations (ADR 0027), and the CLI when it is not interactive or runs with `--json`.
   - An agent can only ask for a reconciliation. Its request joins the items waiting for a person, and it is a Human pause only while the run is `running`.
   - This is a policy boundary, not a proof of humanity. A program that holds the user's own Daemon token (ADR 0024) can do whatever the user can. The Audit log records the surface that gave each answer.

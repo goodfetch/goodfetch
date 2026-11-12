@@ -1,6 +1,6 @@
 //! Run state's field encryption through the engine's public interface over
 //! the in-memory network (spec #564's `run_key`; ADRs 0002 and 0015): a
-//! value a Run seals into a secret table is found in neither its run file,
+//! value a Run seals into a secret column is found in neither its run file,
 //! its WAL, its free pages nor its Checkpoint, and opens back in the Run;
 //! the Run's data key is made when it first seals, wrapped by the
 //! key-encryption key `run_state.key_reference` names, whose default item,
@@ -36,10 +36,11 @@ use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::{Dependencies, Engine};
 use crate::home::Home;
 use crate::run_key::{self, sealing};
-use crate::run_state::RunStateTables;
+use crate::run_state::{RunStateTables, SecretColumn};
 use crate::runs::{EndedBy, Run, Start, Started};
 
-/// Starts a Collie Run its program drives, which the tests seal values in.
+/// Starts a Collie Run its program drives, which the tests seal values in;
+/// with `opens_settings`, its settings opened as a start opens them.
 const KEEP: Operation = Operation {
     name: "test.keep",
     description: "Starts a Run the tests seal values in.",
@@ -57,18 +58,19 @@ const KEEP: Operation = Operation {
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
 };
 
-/// Seals `value` into the secret table's row `row` of a live Run, and
+/// Seals `value` into the secret column's row `row` of a live Run, and
 /// answers its data key in hexadecimal, which the tests search files for.
 const SEAL: Operation = Operation {
     name: "test.seal",
-    description: "Seals a value into a Run's secret table.",
+    description: "Seals a value into a Run's secret column.",
     ..KEEP
 };
 
-/// Opens the secret table's row `row` of a live Run.
+/// Opens the secret column's row `row` of a live Run, or, when that row
+/// holds nothing, a value of the sealed layout's shape no key sealed.
 const OPEN: Operation = Operation {
     name: "test.open",
-    description: "Opens a value of a Run's secret table.",
+    description: "Opens a value of a Run's secret column.",
     ..KEEP
 };
 
@@ -81,7 +83,7 @@ const STORED_KEY: Operation = Operation {
     ..KEEP
 };
 
-/// The secret table the tests seal values in.
+/// The table whose secret column the tests seal values in.
 const SECRETS: RunStateTables = RunStateTables {
     name: "test-secrets",
     statements: &[
@@ -89,9 +91,28 @@ const SECRETS: RunStateTables = RunStateTables {
     ],
 };
 
+/// Its secret column.
+const VALUE: SecretColumn = SecretColumn {
+    table: "test_secrets",
+    column: "value",
+};
+
 /// The Runs `test.keep` started, each held by a task of its own, which its
 /// stop ends.
 type Kept = Arc<tokio::sync::Mutex<BTreeMap<String, Weak<Run>>>>;
+
+/// A Collie Run's settings, opened as a start opens them, when `params`
+/// ask for them.
+async fn opened(params: &Value, context: &CallContext) -> Option<crate::settings::RunSettings> {
+    if params["opens_settings"] != true {
+        return None;
+    }
+    let opening = crate::settings::Opening {
+        run: Some(Product::Collie),
+        ..crate::settings::Opening::default()
+    };
+    Some(context.engine().settings().open(opening).await.unwrap().0)
+}
 
 fn sealing() -> Contribution {
     let kept = Kept::default();
@@ -102,6 +123,7 @@ fn sealing() -> Contribution {
             move |params: Value, context: CallContext| {
                 let kept = Arc::clone(&kept);
                 async move {
+                    let settings = opened(&params, &context).await;
                     let started = context
                         .runs()
                         .start(Start {
@@ -118,7 +140,7 @@ fn sealing() -> Contribution {
                             clean_up_digest: None,
                             checkpoint_interval: None,
                             timeout: None,
-                            settings: None,
+                            settings,
                         })
                         .await
                         .unwrap();
@@ -141,15 +163,14 @@ fn sealing() -> Contribution {
             |params: Value, context: CallContext| async move {
                 let run = live(&context, &params).await;
                 let row = params["row"].as_i64().unwrap();
-                let key = run.key().await.map_err(|error| no_key(&error))?;
-                let sealed = key
+                let sealed = run
                     .seal(
-                        "test_secrets",
-                        "value",
+                        &VALUE,
                         &row.to_string(),
                         params["value"].as_str().unwrap().as_bytes(),
                     )
-                    .unwrap();
+                    .await
+                    .map_err(|error| no_key(&error))?;
                 let data_key = data_encoding::HEXLOWER.encode(data_key(&run).await.as_slice());
                 run.state()
                     .write(move |connection| {
@@ -172,21 +193,22 @@ fn sealing() -> Contribution {
             |params: Value, context: CallContext| async move {
                 let run = live(&context, &params).await;
                 let row = params["row"].as_i64().unwrap();
-                let sealed: Vec<u8> = run
+                let sealed: crate::run_key::Sealed = run
                     .state()
                     .read(move |connection| {
-                        connection.query_row(
+                        rusqlite::OptionalExtension::optional(connection.query_row(
                             "SELECT value FROM test_secrets WHERE row = ?1",
                             [row],
                             |found| found.get(0),
-                        )
+                        ))
                     })
                     .await
-                    .unwrap();
-                let key = run.key().await.map_err(|error| no_key(&error))?;
-                let opened = key
-                    .open("test_secrets", "value", &row.to_string(), &sealed)
-                    .unwrap();
+                    .unwrap()
+                    .unwrap_or_else(|| crate::run_key::Sealed::new(vec![1; 1 + 24 + 16 + 4]));
+                let opened = run
+                    .open(&VALUE, &row.to_string(), &sealed)
+                    .await
+                    .map_err(|error| no_key(&error))?;
                 Ok::<Value, CallError>(json!({
                     "value": String::from_utf8(opened.to_vec()).unwrap()
                 }))
@@ -466,6 +488,41 @@ fn a_key_a_dropped_making_stored_is_the_one_the_run_opens_with_next() {
     );
 }
 
+/// A Run that sealed nothing holds no data key, and opening a value in it
+/// fails without making one, nor the engine's default key-encryption key.
+/// Covers: story:4-64
+#[test]
+fn a_run_that_sealed_nothing_opens_nothing_and_makes_no_data_key() {
+    let env = TestEnv::new();
+    let opened = on(
+        || dependencies(&env),
+        |mut talk| async move {
+            talk.ok(2, "test.keep", json!({ "run_id": "keyless" }))
+                .await;
+            let opened = talk
+                .call(3, "test.open", json!({ "run_id": "keyless", "row": 1 }))
+                .await;
+            talk.ok(4, "run.finish", json!({ "run_id": "keyless" }))
+                .await;
+            opened
+        },
+    );
+
+    assert_eq!(
+        (
+            opened.get("result"),
+            opened.get("error").is_some(),
+            wrapped_key(&run_folder(&env, "keyless").join("run.sqlite")),
+            env.home()
+                .join("secrets")
+                .join("run-state-key.age")
+                .exists(),
+        ),
+        (None, true, None, false),
+        "{opened}"
+    );
+}
+
 /// Seals `cookie` in the Run `moved` on `env`'s engine, then migrates it,
 /// and answers its data key and its Checkpoint's location.
 fn sealed_and_migrated(env: &TestEnv, cookie: String) -> (Vec<u8>, PathBuf) {
@@ -661,6 +718,54 @@ fn with_an_os_keychain_the_key_comes_from_it_and_a_paused_run_resumes_with_it() 
             "keychain:goodfetch/run-state-key".to_owned(),
             false
         )
+    );
+}
+
+/// A Run that opens its settings, as `crawl.start` and `run.start` do, and
+/// makes no data key opens no OS keychain, on Linux a Secret Service
+/// session over D-Bus: the keychain opens once, when the Run first makes
+/// its key, here on a host where it does not open, so the key-encryption
+/// key is the encrypted local file's, as before (issue 2204).
+/// Covers: setting:run_state.key_reference
+#[test]
+fn a_run_opens_the_os_keychain_only_once_it_first_makes_its_key() {
+    let env = TestEnv::new();
+    let keychain = crate::secrets::Keychain::absent();
+    let watched = keychain.clone();
+    let folder = run_folder(&env, "lazy");
+
+    let (started, sealed, wrapped_by) = on(
+        || Dependencies {
+            keychain,
+            ..dependencies(&env)
+        },
+        |mut talk| async move {
+            talk.ok(
+                2,
+                "test.keep",
+                json!({ "run_id": "lazy", "opens_settings": true }),
+            )
+            .await;
+            let started = watched.answered();
+            talk.ok(
+                3,
+                "test.seal",
+                json!({ "run_id": "lazy", "row": 1, "value": "sealed" }),
+            )
+            .await;
+            let sealed = watched.answered();
+            talk.ok(4, "run.finish", json!({ "run_id": "lazy" })).await;
+            let wrapped_by: String = rusqlite::Connection::open(folder.join("run.sqlite"))
+                .unwrap()
+                .query_row("SELECT key_reference FROM run_key", [], |row| row.get(0))
+                .unwrap();
+            (started, sealed, wrapped_by)
+        },
+    );
+
+    assert_eq!(
+        (started, sealed, wrapped_by),
+        (None, Some(false), "secretfile:run-state-key".to_owned())
     );
 }
 

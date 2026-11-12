@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use goodfetch_engine::Composition;
+use goodfetch_page::Launcher;
 use goodfetch_page::page_value::{HandlerPages, ProgramPages};
 
 use crate::block_detection::Detector;
@@ -32,7 +33,7 @@ pub fn composition_with(handler_pages: impl HandlerPages + 'static) -> Compositi
         .with(sample::contribution())
         .with(goodfetch_secret_providers::contribution())
         .with(goodfetch_page::contribution_with(
-            pins::pinned_artifacts(),
+            (pins::pinned_artifacts(), Launcher::Executable),
             handler_pages,
             Arc::new(Detector),
         ))

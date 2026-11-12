@@ -79,11 +79,14 @@ use goodfetch_protocol::secrets::{
     KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE, SecretFailure, TIMEOUT_SECRET,
 };
 use goodfetch_protocol::security::SECURITY_REDACTION;
-use goodfetch_protocol::settings::{SettingsLayer, WALL_REFETCH_DOMAINS, WeakenedSetting};
+use goodfetch_protocol::settings::{
+    ExplainedSetting, SettingsLayer, WALL_REFETCH_DOMAINS, WeakenedSetting,
+};
 use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
 use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
 use secrecy::SecretString;
+use secrecy::zeroize::Zeroizing;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
@@ -132,10 +135,11 @@ use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, 
 use crate::robots_txt::{Answer, Copies, Fetched, NotRead, OwnCopies, RunCopies};
 use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport};
 use crate::run_index;
-use crate::run_key::{self, KeyError, RunKey, StoredKey};
+use crate::run_key::{self, KeyError, RunKey, Sealed, StoredKey};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
-    self, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions, RunStateTables, Syncing,
+    self, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions, RunStateTables,
+    SecretColumn, Syncing,
 };
 use crate::run_trace;
 use crate::sandbox_probe::SandboxProbe;
@@ -1377,7 +1381,9 @@ impl Run {
         &self.shared.secrets
     }
 
-    /// Its data key, which seals and opens the fields of its secret tables.
+    /// `plaintext` sealed under its data key for the row `row` of the secret
+    /// column `column`: the only value its owner writes there. Its first
+    /// call makes the data key.
     ///
     /// # Errors
     ///
@@ -1389,8 +1395,75 @@ impl Run {
     /// making, and the next caller makes one again. A drop once the
     /// wrapped key's write was queued may leave it stored: the next making
     /// then takes that key rather than store another.
-    pub async fn key(&self) -> Result<&RunKey, RunKeyError> {
+    pub async fn seal(
+        &self,
+        column: &SecretColumn,
+        row: &str,
+        plaintext: &[u8],
+    ) -> Result<Sealed, RunKeyError> {
+        let key = self.key().await?;
+        Ok(Sealed::new(key.seal(
+            column.table,
+            column.column,
+            row,
+            plaintext,
+        )?))
+    }
+
+    /// The plaintext of `sealed`, read from the row `row` of the secret
+    /// column `column`, in this Run or after its resume. It never makes a
+    /// data key: a Run with none held, unwrapped at its resume or stored
+    /// by a making whose caller was dropped, sealed nothing, so nothing it
+    /// holds opens.
+    ///
+    /// # Errors
+    ///
+    /// `Key` when the value was sealed for another place or another Run,
+    /// or changed since, or when the Run has no data key.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping its future abandons the read of the stored key, which
+    /// writes nothing; the next call reads it again.
+    pub async fn open(
+        &self,
+        column: &SecretColumn,
+        row: &str,
+        sealed: &Sealed,
+    ) -> Result<Zeroizing<Vec<u8>>, RunKeyError> {
+        let key = self
+            .shared
+            .key
+            .get_or_try_init(|| self.stored_key())
+            .await?;
+        Ok(key.open(column.table, column.column, row, sealed.as_bytes())?)
+    }
+
+    /// Its data key, which seals and opens the fields of its secret
+    /// columns, made at its first use.
+    async fn key(&self) -> Result<&RunKey, RunKeyError> {
         self.shared.key.get_or_try_init(|| self.make_key()).await
+    }
+
+    /// The data key its run state holds wrapped, which a making whose
+    /// caller was dropped stored without the Run taking it, unwrapped by
+    /// the key-encryption key its settings name; it never makes one, nor
+    /// the engine's default key-encryption key.
+    async fn stored_key(&self) -> Result<RunKey, RunKeyError> {
+        let stored = self
+            .state
+            .read(run_key::stored)
+            .await?
+            .ok_or(KeyError::DoesNotOpen)?;
+        let kek = if let Some(kek) = self.secrets().held_for(RUN_STATE_KEY_REFERENCE.name).await {
+            kek
+        } else {
+            let (reference, layer) = self.runs.key_reference(self.settings()).await;
+            self.runs
+                .key_encryption_key(self.secrets(), &reference, layer, &self.id, Making::No)
+                .await?
+        };
+        Ok(RunKey::unwrap(self.id.clone(), &stored.wrapped, &kek)?)
     }
 
     /// Makes its data key, stored only wrapped by the key-encryption key
@@ -2830,15 +2903,7 @@ impl Runs {
         // Only a reference a layer set resolves here: the default's item,
         // in the OS keychain or the encrypted local file, is the engine's
         // own, made when run state first wraps a data key with it (#617).
-        if let Some((reference, layer)) = start.settings.as_ref().and_then(|settings| {
-            let resolved = settings.resolved();
-            let layer = resolved.effective(&RUN_STATE_KEY_REFERENCE)?.layer;
-            (layer != SettingsLayer::Default).then_some(())?;
-            Some((
-                resolved.get::<Option<SecretReference>>(&RUN_STATE_KEY_REFERENCE)?,
-                layer,
-            ))
-        }) {
+        if let Some((reference, layer)) = layer_set_key_reference(start.settings.as_ref()) {
             // The key-encryption key is used as the Run starts, to wrap its
             // data key (ADR 0015), so it resolves now, before the Run exists.
             secrets
@@ -3236,18 +3301,14 @@ impl Runs {
 
     /// The Secret reference of the key-encryption key of a Run whose
     /// settings resolved as `settings`, and the layer that set it: this
-    /// host's default where none did, or where a layer cleared it.
+    /// host's default where none did, or where a layer cleared it, asked
+    /// for here, so the OS keychain opens only once a Run first needs its
+    /// key, not as its settings open (issue 2204).
     async fn key_reference(
         &self,
         settings: Option<&RunSettings>,
     ) -> (SecretReference, SettingsLayer) {
-        if let Some((reference, layer)) = settings.and_then(|settings| {
-            let resolved = settings.resolved();
-            Some((
-                resolved.get::<Option<SecretReference>>(&RUN_STATE_KEY_REFERENCE)?,
-                resolved.effective(&RUN_STATE_KEY_REFERENCE)?.layer,
-            ))
-        }) {
+        if let Some((reference, layer)) = layer_set_key_reference(settings) {
             return (reference, layer);
         }
         let default = self
@@ -6369,6 +6430,38 @@ impl Recording {
     }
 }
 
+/// The settings `run`'s report keeps, explained. The host's default of
+/// `run_state.key_reference` shows only once the Run holds its data key,
+/// when the host has answered it; before, the catalog's shows, since
+/// asking for it here would open the OS keychain (issue 2204).
+fn kept_settings(run: &Run) -> Option<Vec<ExplainedSetting>> {
+    let mut settings = run.settings()?.resolved().explain(&[], Vec::new()).settings;
+    if run.shared.key.get().is_some()
+        && let Some(known) = run.runs.engine.settings().known_host_defaults()
+        && let Some(default) = settings.iter_mut().find(|explained| {
+            explained.key == RUN_STATE_KEY_REFERENCE.name
+                && explained.layer == SettingsLayer::Default
+        })
+    {
+        default.value = known.of(&RUN_STATE_KEY_REFERENCE);
+    }
+    Some(settings)
+}
+
+/// The Secret reference of the key-encryption key that a layer of
+/// `settings` set, and that layer; none where the default stands.
+fn layer_set_key_reference(
+    settings: Option<&RunSettings>,
+) -> Option<(SecretReference, SettingsLayer)> {
+    let resolved = settings?.resolved();
+    let layer = resolved.effective(&RUN_STATE_KEY_REFERENCE)?.layer;
+    (layer != SettingsLayer::Default).then_some(())?;
+    Some((
+        resolved.get::<Option<SecretReference>>(&RUN_STATE_KEY_REFERENCE)?,
+        layer,
+    ))
+}
+
 /// A Run on its way to its end.
 struct Closing {
     run: Run,
@@ -6435,9 +6528,7 @@ impl Closing {
             ended_at: clock.point_in_time(),
             policy_version,
             weakened,
-            settings: run
-                .settings()
-                .map(|settings| settings.resolved().explain(&[], Vec::new()).settings),
+            settings: kept_settings(&run),
             checkpoint: None,
             limits,
             error,

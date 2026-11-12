@@ -20,6 +20,8 @@ Facts this rests on, checked on 2026-10-14:
   > Note (2026-11-12): the owner enlarged that volume from 200 GB to 300 GB, because the build folders of the implementers working side by side no longer fitted the two disks (`AGENTS.md`, Money). A Hetzner volume cannot be made smaller.
 
   > Note (2026-11-12, later that day): the owner enlarged it again, to 400 GB, after a full gate beside six build folders took both disks under their floors. The monthly amounts in `AGENTS.md` are scaled from the volume's first price, not read from an invoice.
+
+  > Note (2026-11-12, evening): the owner enlarged it to 500 GB, once the root disk had 10 GB free and the volume sat near the gate's 30 GB floor with every build folder in use and none left to prune.
   >
   > Note (owner's decision, 2026-11-10, grilling of decision G-09 of the consolidated review: Qd, put after an independent check of the grilling's drafts, answered "Yes, and confirmed", on the grilling's recommended wording for `AGENTS.md`, Money, as put; this note's wording is the grilling session's): the note above stays as written. On 2026-11-10 the owner also approved that, while it is rented, the server runs the nightly fuzzing, which is no reason to keep it ([ADR 0135](0135-while-the-repository-is-private-the-owners-machine-runs-the-pull-request-tier-in-a-throwaway-linux-vm-and-private-fuzzing-nightly.md)'s amendment of that day).
   >

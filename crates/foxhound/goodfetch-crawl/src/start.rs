@@ -81,6 +81,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
     let resuming = crawls.clone();
     let redeclared = Redeclared::default();
     let redeclaring = redeclared.clone();
+    let pages = code_free::Pages::default();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     let [add_seed, add_seeds] = seeding::handlers(&crawls);
     let [read_links, enqueue_links] = enqueue::links::handlers(&crawls, &tiers);
@@ -99,6 +100,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
                 crawls.clone(),
                 starting.clone(),
                 redeclared.clone(),
+                pages.clone(),
             )
         }))
         .with_handler(Handler::new(&CRAWL_SERVE, move |params, context| {
@@ -186,9 +188,10 @@ async fn start(
     crawls: Crawls,
     tiers: FetchTiers,
     redeclared: Redeclared,
+    pages: code_free::Pages,
 ) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
-    code_free::declare(&mut params)?;
+    let pages = code_free::declare(&mut params, &pages).await?;
     let (settings, _) = context
         .engine()
         .settings()
@@ -206,7 +209,7 @@ async fn start(
     servable::check(settings.resolved(), &label_settings)?;
     let fragments = labels::Fragments::of(settings.resolved(), &label_settings);
     let labels = labels::Declared::of(&params.labels, fragments.clone())?;
-    let datasets = Datasets::declare(&params.datasets)?;
+    let datasets = pages.map_or_else(|| Datasets::declare(&params.datasets), Ok)?;
     FetchTiers::check(settings.resolved(), &labels.settings)?;
     let scope = Scope::of_settings(settings.resolved()).map_err(CallError::from)?;
     let bounds = Bounds::of_settings(settings.resolved());

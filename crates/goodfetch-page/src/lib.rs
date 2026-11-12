@@ -44,6 +44,7 @@ mod trace;
 pub mod url_pattern;
 
 pub use clean_up_versions::manifest_file;
+pub use launch::{Launcher, Scripted, ScriptedBrowsers};
 pub use pages::{contribution, contribution_with};
 /// The proxy-or-site rule (spec #577): who answered a request sent through
 /// a proxy, which Foxhound's fetch tiers apply to their own answers too

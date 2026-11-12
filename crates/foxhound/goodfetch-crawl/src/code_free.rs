@@ -20,9 +20,10 @@
 //! and its Provenance names each transform and why each null field is
 //! null.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
+use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallError;
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_engine::runs::Run;
@@ -31,8 +32,8 @@ use goodfetch_frontier::Url;
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::crawl::{
     CODE_FREE_DATASET, CODE_FREE_LABEL, CrawlExtraction, CrawlRequestHandleParams,
-    CrawlRequestHandled, CrawlStartParams, ExtractionFollow, FieldLocator, LabelDeclaration,
-    PushedRecord, Seed, SitemapRule, SitemapSeed,
+    CrawlRequestHandled, CrawlStartParams, ExtractionField, ExtractionFollow, FieldLocator,
+    LabelDeclaration, PushedRecord, Seed, SitemapRule, SitemapSeed,
 };
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
 use goodfetch_protocol::foxhound::frontier::CrawlRequestEnqueueLinksParams;
@@ -41,6 +42,7 @@ use goodfetch_protocol::page::{FormatsRequest, Locator, PageFormats, PageId, pag
 use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Map, Value, json};
+use tokio::sync::Mutex;
 
 use crate::enqueue::links::defer_links;
 use crate::serving::Crawls;
@@ -153,20 +155,28 @@ pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Option<CrawlExtr
 
 /// Declares in `params` what a code-free crawl commits into, when it
 /// takes an extraction: the Label `page`, beside any the start declares,
-/// and the Dataset `pages`, the start's only one; `invalid_params` when the
-/// start declares a Dataset of its own.
-pub(crate) fn declare(params: &mut CrawlStartParams) -> Result<(), CallError> {
+/// and the Dataset `pages`, the start's only one, which it answers built,
+/// as `pages` keeps it for the extraction; none for a crawl whose program
+/// handles its requests. `invalid_params` when the start declares a
+/// Dataset of its own.
+pub(crate) async fn declare(
+    params: &mut CrawlStartParams,
+    pages: &Pages,
+) -> Result<Option<Datasets>, CallError> {
     let Some(extraction) = &params.extraction else {
-        return Ok(());
+        return Ok(None);
     };
-    declare_into(extraction, &mut params.labels, &mut params.datasets)
+    declare_into(extraction, &mut params.labels, &mut params.datasets, pages)
+        .await
+        .map(Some)
 }
 
-fn declare_into(
+async fn declare_into(
     extraction: &CrawlExtraction,
     labels: &mut BTreeMap<String, LabelDeclaration>,
     datasets: &mut Vec<DatasetDeclaration>,
-) -> Result<(), CallError> {
+    pages: &Pages,
+) -> Result<Datasets, CallError> {
     if let Some(declared) = datasets.first() {
         return Err(CallError::protocol(
             ProtocolFailure::InvalidParams,
@@ -176,9 +186,24 @@ fn declare_into(
             ),
         ));
     }
-    let every_record = page_schema(&extraction.formats);
+    let built = pages.of(extraction).await?;
+    labels.entry(CODE_FREE_LABEL.to_owned()).or_default();
+    datasets.push(built.declaration.clone());
+    Ok(built.datasets.clone())
+}
+
+/// The Dataset `pages` of a crawl reading `extraction`: keyed by `url`,
+/// its schema [`page_schema`]'s, generated once, with each of its fields,
+/// its transform's type or null, required beside them.
+///
+/// # Errors
+///
+/// `invalid_params` for a field whose name a property of every Record
+/// takes, or one the engine could never read.
+pub(crate) fn dataset(extraction: &CrawlExtraction) -> Result<DatasetDeclaration, CallError> {
+    let mut schema = page_schema(&extraction.formats);
     for (name, field) in &extraction.fields {
-        let refused = if every_record["properties"].get(name).is_some() {
+        let refused = if schema["properties"].get(name).is_some() {
             Err(format!(
                 "The field `{name}` takes the name of a property every Record of `{CODE_FREE_DATASET}` holds: name it otherwise."
             ))
@@ -187,16 +212,6 @@ fn declare_into(
         };
         refused.map_err(|message| CallError::protocol(ProtocolFailure::InvalidParams, message))?;
     }
-    labels.entry(CODE_FREE_LABEL.to_owned()).or_default();
-    datasets.push(dataset(extraction));
-    Ok(())
-}
-
-/// The Dataset `pages` of a crawl reading `extraction`: keyed by `url`,
-/// its schema [`page_schema`]'s with each of its fields, its transform's
-/// type or null, required beside them.
-pub(crate) fn dataset(extraction: &CrawlExtraction) -> DatasetDeclaration {
-    let mut schema = page_schema(&extraction.formats);
     if let Some(properties) = schema["properties"].as_object_mut() {
         for (name, field) in &extraction.fields {
             properties.insert(name.clone(), fields::schema(field));
@@ -205,10 +220,71 @@ pub(crate) fn dataset(extraction: &CrawlExtraction) -> DatasetDeclaration {
     if let Some(required) = schema["required"].as_array_mut() {
         required.extend(extraction.fields.keys().cloned().map(Value::String));
     }
-    DatasetDeclaration {
+    Ok(DatasetDeclaration {
         name: CODE_FREE_DATASET.to_owned(),
         schema: Some(schema),
         key: vec![KEY.to_owned()],
+    })
+}
+
+/// The Dataset `pages` built for one extraction: its declaration, and the
+/// Datasets it is the only one of, its schema's validator compiled.
+pub(crate) struct Built {
+    declaration: DatasetDeclaration,
+    datasets: Datasets,
+}
+
+/// What an extraction's Dataset `pages` follows from: its formats request
+/// and its fields.
+type Read = (FormatsRequest, BTreeMap<String, ExtractionField>);
+
+/// How many extractions' Datasets `pages` an engine keeps.
+const KEPT: usize = 8;
+
+/// The Datasets `pages` kept, each with the extraction it was built for.
+type Kept = VecDeque<(Read, Arc<Built>)>;
+
+/// The Datasets `pages` this engine built for the extractions its latest
+/// code-free starts read, up to [`KEPT`], the latest last: a start reading
+/// one of them again shares it, so its schema is generated and its
+/// validator compiled once (issue 2204). A clone shares them.
+#[derive(Clone, Default)]
+pub(crate) struct Pages(Arc<Mutex<Kept>>);
+
+impl Pages {
+    /// The Dataset `pages` of a crawl reading `extraction`, built as
+    /// [`dataset`] declares it unless kept.
+    ///
+    /// # Errors
+    ///
+    /// Those of [`dataset`] and of [`Datasets::declare`].
+    pub(crate) async fn of(&self, extraction: &CrawlExtraction) -> Result<Arc<Built>, CallError> {
+        let mut kept = self.0.lock().await;
+        let read = |(formats, fields): &Read| {
+            *formats == extraction.formats && *fields == extraction.fields
+        };
+        if let Some(at) = kept.iter().position(|(key, _)| read(key)) {
+            let found = kept
+                .remove(at)
+                .expect("invariant: the position was just found");
+            let built = Arc::clone(&found.1);
+            kept.push_back(found);
+            return Ok(built);
+        }
+        let declaration = dataset(extraction)?;
+        let datasets = Datasets::declare(std::slice::from_ref(&declaration))?;
+        let built = Arc::new(Built {
+            declaration,
+            datasets,
+        });
+        kept.push_back((
+            (extraction.formats, extraction.fields.clone()),
+            Arc::clone(&built),
+        ));
+        while kept.len() > KEPT {
+            kept.pop_front();
+        }
+        Ok(built)
     }
 }
 

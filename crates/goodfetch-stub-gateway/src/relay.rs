@@ -27,7 +27,7 @@ use goodfetch_engine::endpoint::same_token;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::rpc::version_refusal;
 use goodfetch_engine::tasks::TaskOwner;
-use goodfetch_protocol::audit::{Listener, RefusalReason};
+use goodfetch_protocol::audit::RefusalReason;
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{
     CANCEL, EngineInstance, HELLO, HelloParams, HelloResult, NOT_IN_PRODUCT, NotInProductDetails,
@@ -44,12 +44,18 @@ use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::engines::{Engine, Engines, Line, Relayed, version};
-use crate::index::{RunIndex, setting_keys};
+use crate::index::RunIndex;
 
-/// The operations that start a run, each on the engine the routing rule
-/// picks from the operation and the settings it names: `run.start`, and a
-/// crawl's start, which only Foxhound carries.
+/// The operations that start a run, each on an engine of the Product the
+/// routing rule picks, the Client's for a new run: `run.start`, and a
+/// crawl's start, which only Foxhound carries. The rule reads a start's
+/// target only for a starter the gateway never has, a Schedule or
+/// Goodfetch Cloud (ADR 0096), so the gateway names none.
 const STARTS: [&str; 2] = [RUN_START.name, "crawl.start"];
+/// The gateway's WebSocket listener, as its log records name it: no
+/// listener of an engine's endpoint table (ADR 0067), which the Stub
+/// gateway is not in.
+const LISTENER: &str = "stub_gateway";
 /// How many messages wait for a Client's socket before senders wait.
 const OUTGOING: usize = 256;
 
@@ -202,7 +208,7 @@ impl Gateway {
         };
         if let Some(reason) = reason {
             tracing::warn!(
-                listener = Listener::DaemonWebsocket.as_str(),
+                listener = LISTENER,
                 reason = reason.as_str(),
                 "the gateway refused a Connection"
             );
@@ -291,11 +297,6 @@ impl Gateway {
             Some(run_id) => Some(self.index.lock().await.reserve(run_id)),
             None => None,
         };
-        let keys = params["settings"]
-            .as_object()
-            .map(setting_keys)
-            .unwrap_or_default();
-        let keys: Vec<&str> = keys.iter().map(String::as_str).collect();
         let product = product_for_run(&RunStart {
             known_run: slot
                 .as_ref()
@@ -305,11 +306,7 @@ impl Gateway {
                 needs: client.needs,
             },
             recipe: None,
-            target: Target {
-                operations: &[method],
-                setting_keys: &keys,
-                ..Target::default()
-            },
+            target: Target::default(),
         });
         let start = || self.engines.start(product, Some(client.relayed));
         let engine = match &slot {

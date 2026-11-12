@@ -207,7 +207,7 @@ async fn start(
     let fragments = labels::Fragments::of(settings.resolved(), &label_settings);
     let labels = labels::Declared::of(&params.labels, fragments.clone())?;
     let datasets = Datasets::declare(&params.datasets)?;
-    FetchTiers::check(settings.resolved(), &labels.settings, &params.seeds)?;
+    FetchTiers::check(settings.resolved(), &labels.settings)?;
     let scope = Scope::of_settings(settings.resolved()).map_err(CallError::from)?;
     let bounds = Bounds::of_settings(settings.resolved());
     bounds.check().map_err(CallError::from)?;

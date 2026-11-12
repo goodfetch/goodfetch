@@ -49,6 +49,10 @@ pub use pages::{contribution, contribution_with};
 /// a proxy, which Foxhound's fetch tiers apply to their own answers too
 /// (spec #579).
 pub use proxy::{Answer as ProxyAnswer, Party, party};
+/// A Session's proxy as a fetch tier's own HTTP transport sends through
+/// it (#1640), opened from the same settings and Proxy-provider driver as
+/// a browser Session's.
+pub use proxy::{ProxyRoute, TransportPermit, TransportProxy};
 pub use trace::provenance;
 
 /// What every relay of a browser's connections holds to, which Foxhound's

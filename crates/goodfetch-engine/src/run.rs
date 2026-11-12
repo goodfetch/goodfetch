@@ -632,7 +632,7 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
 
 /// `run_state_unavailable`: the state of `run_id` in `folder` failed with
 /// `error`.
-fn state_unavailable(run_id: RunId, folder: &std::path::Path, error: &str) -> CallError {
+pub fn state_unavailable(run_id: RunId, folder: &std::path::Path, error: &str) -> CallError {
     CallError::new(
         &RUN_STATE_UNAVAILABLE,
         format!("The state of the Run `{run_id}` is unavailable: {error}"),

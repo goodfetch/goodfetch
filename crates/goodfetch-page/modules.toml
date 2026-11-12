@@ -91,6 +91,7 @@ bypass = []
 limits = []
 party = []
 relay = ["party"]
+transport = ["limits", "party", "relay"]
 
 # Which of `proxy_provider`'s own modules may import which.
 [submodules.proxy_provider]

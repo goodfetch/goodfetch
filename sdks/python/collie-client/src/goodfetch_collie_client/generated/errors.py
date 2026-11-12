@@ -706,6 +706,14 @@ class TargetNotUniqueError(PageError):
         super().__init__(message, code="target_not_unique", group="page", retryable=False)
 
 
+class TooManyCallsError(RefusedError):
+    """The Connection already has as many calls in flight as the engine serves on one, which `max` gives, so the engine refused this call at once and did nothing for it; the calls in flight go on, and the engine still reads their `$/cancel`, their `$/credit` and the replies to its own requests. Make the call again once an earlier call ended, cancel the calls no longer needed, or open another Connection."""
+
+    def __init__(self, message: str) -> None:
+        """Takes the message the engine rendered."""
+        super().__init__(message, code="too_many_calls", group="refused", retryable=True)
+
+
 class TooManyRedirectsError(PageError):
     """The navigation followed as many redirects as it may and was redirected again, as a redirect loop is: the browser's count is 20 requests in a navigation's chain, its first included, so Chromium follows 19 redirects. The details name the first URL, the hops followed and the count. A retry meets the same chain."""
 
@@ -814,6 +822,7 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "setting_unknown": SettingUnknownError,
     "site_preferences_refused": SitePreferencesRefusedError,
     "target_not_unique": TargetNotUniqueError,
+    "too_many_calls": TooManyCallsError,
     "too_many_redirects": TooManyRedirectsError,
     "upgrade_source_unsupported": UpgradeSourceUnsupportedError,
     "value_invalid": ValueInvalidError,

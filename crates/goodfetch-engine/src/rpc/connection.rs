@@ -5,7 +5,10 @@
 //! every line whole. A refused `hello` is answered before any other message
 //! and the Connection then closes (ADR 0066). At the end of input, calls in
 //! flight are cancelled at their next cancellation point, answered, and the
-//! Connection closes once they all are. A Connection the engine closes
+//! Connection closes once they all are. A Connection reads its Client
+//! whatever the number of calls in flight: at its cap only a new call is
+//! refused, with `too_many_calls`, so the `$/cancel`, the `$/credit` or the
+//! reply that frees a call is always read. A Connection the engine closes
 //! while its Client still sends, such as a refused one, ends its sending
 //! side first and drops what still comes until the Client closes too, for a
 //! short while at most, so a Client that wrote behind its `hello` reads the
@@ -39,7 +42,7 @@ use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{Product, Reach};
 use goodfetch_protocol::connection::{
     CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams,
-    PERSON_REQUIRED, PrivateEndpoint, StoppedBy, Surface,
+    PERSON_REQUIRED, PrivateEndpoint, StoppedBy, Surface, TOO_MANY_CALLS, TooManyCallsDetails,
 };
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
@@ -84,7 +87,8 @@ use goodfetch_protocol::run::RunKind;
 /// How many bytes one read takes from the Connection.
 const READ_CHUNK: usize = 8 * 1024;
 
-/// How many calls one Connection keeps in flight before it stops reading.
+/// How many calls one Connection keeps in flight: one more is refused with
+/// `too_many_calls`, and every other message is still read (issue 2312).
 const MAX_IN_FLIGHT: usize = 256;
 
 /// How many lines wait for the writer before their senders wait.
@@ -574,7 +578,6 @@ impl Session<'_> {
                     return true;
                 }
             }
-            let open = !ended && self.in_flight.len() < MAX_IN_FLIGHT;
             let sending = self.state != ConnectionState::Opening;
             tokio::select! {
                 biased;
@@ -586,7 +589,7 @@ impl Session<'_> {
                         return ended;
                     }
                 }
-                more = reading.read(&mut pending), if open => {
+                more = reading.read(&mut pending), if !ended => {
                     ended = !more;
                 }
             }
@@ -889,6 +892,8 @@ impl Session<'_> {
                 ProtocolFailure::InvalidRequest,
                 format!("a call with the id {id:?} is already in flight"),
             ))
+        } else if self.in_flight.len() >= MAX_IN_FLIGHT {
+            Some(too_many_calls())
         } else if let Some(handler) = self.dispatch.handlers.get(method.as_str()) {
             if handler.operation().reach == Reach::PersonOnly
                 && !self
@@ -1142,5 +1147,19 @@ fn person_required(method: &str) -> CallError {
             "`{method}` is a person's answer: give it in the Kennel, or in the CLI's interactive prompt"
         ),
         &serde_json::Map::new(),
+    )
+}
+
+/// `too_many_calls`: the Connection holds [`MAX_IN_FLIGHT`] calls in flight,
+/// so one more is refused, the Connection still reading everything else.
+fn too_many_calls() -> CallError {
+    CallError::new(
+        &TOO_MANY_CALLS,
+        format!(
+            "The Connection already has {MAX_IN_FLIGHT} calls in flight: make the call again once one of them ended"
+        ),
+        &TooManyCallsDetails {
+            max: u64::try_from(MAX_IN_FLIGHT).unwrap_or(u64::MAX),
+        },
     )
 }

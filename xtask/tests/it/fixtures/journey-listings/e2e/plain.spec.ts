@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
 
-test("console", { tag: ["@J-001", "@console"] }, () => {
+test("carries no Journey", () => {
   expect(1).toBe(1);
 });

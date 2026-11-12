@@ -1,11 +1,13 @@
-//! The four runners' listings of the workspace's tests, as the Journey check
-//! reads them (ADR 0063): `listings` writes them into one folder, and `read`
-//! takes from them each Journey test with the variant it carries.
+//! The four runners' listings of the workspace's tests (ADR 0063):
+//! `listings` writes them into one folder, and `read` takes each Journey test
+//! with the variant it carries from nextest's, Vitest's and pytest's. No
+//! surface's variants run on Playwright; its listing is written for the
+//! Feature check, which reads the same folder.
 //!
 //! A test carries its variant where its runner selects by it:
 //! - nextest: in its path, `journeys::j001::cli`, whose last segment is the
 //!   surface with `_` for `-`;
-//! - Vitest and Playwright: as two tags, the Journey's ID and the surface;
+//! - Vitest: as two tags, the Journey's ID and the surface;
 //! - pytest: as the `journey` marker's `id` and `surface` keywords, which
 //!   `-m` matches.
 //!
@@ -69,10 +71,17 @@ pub(super) fn write(
     Ok(())
 }
 
-/// Every Journey test of the four listings in `folder`.
+/// Every Journey test of nextest's, Vitest's and pytest's listings in
+/// `folder`.
 pub(super) fn read(root: &Path, folder: &Path) -> Result<Vec<JourneyTest>> {
+    type Parse<'a> = &'a dyn Fn(&[u8]) -> Result<Vec<JourneyTest>>;
+    let listings: [(Runner, Parse<'_>); 3] = [
+        (Runner::Nextest, &|bytes| nextest(root, bytes)),
+        (Runner::Vitest, &|bytes| vitest(root, bytes)),
+        (Runner::Pytest, &pytest),
+    ];
     let mut tests = Vec::new();
-    for runner in Runner::ALL {
+    for (runner, parse) in listings {
         let path = folder.join(file(runner));
         let bytes = std::fs::read(&path).with_context(|| {
             format!(
@@ -80,13 +89,7 @@ pub(super) fn read(root: &Path, folder: &Path) -> Result<Vec<JourneyTest>> {
                 path.display()
             )
         })?;
-        let parsed = match runner {
-            Runner::Nextest => nextest(root, &bytes),
-            Runner::Vitest => vitest(root, &bytes),
-            Runner::Playwright => playwright(&bytes),
-            Runner::Pytest => pytest(&bytes),
-        };
-        tests.extend(parsed.with_context(|| format!("reading {}", path.display()))?);
+        tests.extend(parse(&bytes).with_context(|| format!("reading {}", path.display()))?);
     }
     Ok(tests)
 }
@@ -155,60 +158,10 @@ fn vitest(root: &Path, bytes: &[u8]) -> Result<Vec<JourneyTest>> {
         .collect())
 }
 
-#[derive(Deserialize)]
-struct PlaywrightReport {
-    #[serde(default)]
-    suites: Vec<PlaywrightSuite>,
-}
-
-#[derive(Deserialize)]
-struct PlaywrightSuite {
-    title: String,
-    #[serde(default)]
-    specs: Vec<PlaywrightSpec>,
-    #[serde(default)]
-    suites: Vec<PlaywrightSuite>,
-}
-
-#[derive(Deserialize)]
-struct PlaywrightSpec {
-    title: String,
-    #[serde(default)]
-    tags: Vec<String>,
-}
-
-fn playwright(bytes: &[u8]) -> Result<Vec<JourneyTest>> {
-    let report: PlaywrightReport = serde_json::from_slice(bytes)?;
-    let mut tests = Vec::new();
-    for file in &report.suites {
-        collect_playwright(file, &file.title, &mut tests);
-    }
-    Ok(tests)
-}
-
-fn collect_playwright(suite: &PlaywrightSuite, title: &str, tests: &mut Vec<JourneyTest>) {
-    for spec in &suite.specs {
-        if let Some(carried) = tagged(&spec.tags) {
-            tests.push(JourneyTest {
-                subject: format!("playwright {title} › {}", spec.title),
-                carried,
-            });
-        }
-    }
-    for child in &suite.suites {
-        collect_playwright(child, &format!("{title} › {}", child.title), tests);
-    }
-}
-
-/// The variant a test's tags carry (Playwright's without their `@`), if a
-/// tag names a Journey. A tag listed twice counts once: Playwright lists the
-/// surface's tag of a test of test support's `journey` twice, the test's own
-/// and the one it reads from its group's title, `J-001@console`.
+/// The variant a test's tags carry, if a tag names a Journey.
 fn tagged(tags: &[String]) -> Option<Carried> {
-    let tags: std::collections::BTreeSet<&String> = tags.iter().collect();
     let journeys: Vec<&String> = tags
         .iter()
-        .copied()
         .filter(|tag| {
             tag.strip_prefix("J-")
                 .is_some_and(|digits| digits.bytes().next().is_some_and(|b| b.is_ascii_digit()))
@@ -219,7 +172,6 @@ fn tagged(tags: &[String]) -> Option<Carried> {
     }
     let surfaces: Vec<&String> = tags
         .iter()
-        .copied()
         .filter(|tag| variants::is_surface(tag))
         .collect();
     Some(match (journeys.as_slice(), surfaces.as_slice()) {

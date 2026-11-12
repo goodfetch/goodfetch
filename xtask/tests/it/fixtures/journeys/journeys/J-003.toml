@@ -21,8 +21,8 @@ adapter-langchain = "M4"
 text = "Crawl the Proving ground's catalog site over HTTP"
 
 [[steps]]
-text = "Watch the run in the Console"
-on = "console"
+text = "Watch the run with `runs`"
+on = "cli"
 
 [[steps]]
 text = "Export the Dataset as JSON"

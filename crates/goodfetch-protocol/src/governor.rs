@@ -91,6 +91,10 @@ fn on() -> serde_json::Value {
     serde_json::Value::Bool(true)
 }
 
+fn off() -> serde_json::Value {
+    serde_json::Value::Bool(false)
+}
+
 fn one_second() -> serde_json::Value {
     serde_json::json!(1000)
 }
@@ -252,6 +256,18 @@ pub const HOST_MEMORY: Setting = Setting {
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `governor.huge_pages` (ADR 0138).
+pub const HUGE_PAGES: Setting = Setting {
+    name: "governor.huge_pages",
+    description: "Whether the engine's own memory may be backed by the operating system's transparent huge pages: off, so the allocator reserves no memory the engine never touches, and the engine's resident memory is smaller. On, huge pages may back it, which is faster for some workloads and holds more memory. Read once, when the engine starts, on Linux; elsewhere it changes nothing. The browsers and other programs the engine starts keep the state the engine itself was started with either way.",
+    kind: ValueKind::Boolean,
+    default: off,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -617,7 +633,7 @@ pub const PRESSURE_SOURCE: Metric = Metric {
 };
 
 /// Every setting of the governor, each under `governor.`.
-pub const SETTINGS: [Setting; 18] = [
+pub const SETTINGS: [Setting; 19] = [
     HTTP_FLOOR,
     HTTP_CEILING,
     BROWSER_PAGE_FLOOR,
@@ -628,6 +644,7 @@ pub const SETTINGS: [Setting; 18] = [
     PRESSURE,
     CRITICAL,
     HOST_MEMORY,
+    HUGE_PAGES,
     SAMPLE_INTERVAL,
     LAST_RESORT_AFTER,
     RUN_SHARE,

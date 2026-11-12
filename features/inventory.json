@@ -8669,6 +8669,17 @@
       ]
     },
     {
+      "id": "setting:governor.huge_pages",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:governor.last_resort_after",
       "kind": "setting",
       "area": 3,

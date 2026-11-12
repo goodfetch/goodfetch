@@ -146,7 +146,7 @@ use crate::sandbox_probe::SandboxProbe;
 use crate::secrets::{Purpose, RunSecrets, SecretError, Secrets, is_engine_key};
 use crate::settings::{Resolved, RunSettings, get_or_default};
 use crate::staging::AttemptWrites;
-use crate::tasks::TaskOwner;
+use crate::tasks::{OwnerKind, TaskOwner};
 use crate::trace::Link;
 use crate::transition;
 
@@ -5096,7 +5096,7 @@ impl Registry {
         self.check_index().await?;
         self.may_start(&run_id, connection).await?;
         let lock = self.lock(&run_id, &folder).await?;
-        let writer = Arc::new(self.owner.child());
+        let writer = Arc::new(self.owner.child_for(OwnerKind::Run));
         let state = RunState::open(
             folder.join(RUN_FILE),
             &self.opened_with(start.settings.as_ref()),
@@ -5434,7 +5434,7 @@ impl Registry {
                 attempt_writes: std::sync::OnceLock::new(),
                 provenance: run_trace::Provenance::logging(folder, logs_provenance),
             }),
-            owner: Arc::new(self.owner.child()),
+            owner: Arc::new(self.owner.child_for(OwnerKind::Run)),
             runs: self.handle(connection),
             settings: settings.map(Arc::new),
             entropy: Arc::new(tokio::sync::Mutex::new(self.setup.entropy.fork())),
@@ -6046,7 +6046,7 @@ impl Registry {
             run_epoch = epoch,
             "took the Run's writer role to resume it"
         );
-        let writer = Arc::new(self.owner.child());
+        let writer = Arc::new(self.owner.child_for(OwnerKind::Run));
         let state = RunState::open(file, options, self.setup.tables.clone(), epoch, &writer)
             .await
             .map_err(|error| RunError::of_state(run_id, &folder, error))?;

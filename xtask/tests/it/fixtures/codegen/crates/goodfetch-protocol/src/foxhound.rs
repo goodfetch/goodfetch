@@ -61,6 +61,8 @@ pub const ENTRIES: Entries = Entries {
         result: schema_of::<SampleCrawlResult>,
         events: &[&SAMPLE_CRAWLED],
         cancellable: false,
+        input: None,
+        bound: None,
         stability: Stability::Stable,
         deprecated: None,
         arrived_in: ARRIVED_IN,

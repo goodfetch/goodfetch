@@ -149,6 +149,8 @@ const fn operation(
         result: schema_of::<Acted>,
         events: &[],
         cancellable,
+        input: None,
+        bound: None,
         stability: Stability::Stable,
         deprecated: None,
         arrived_in: ARRIVED_IN,

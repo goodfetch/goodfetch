@@ -5,10 +5,6 @@
 //! cookie and redirects back to its first URL reaches the handler (ADR
 //! 0118's Fetch edge line), and by the Session's later requests, and by
 //! no other Session's.
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
 
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use serde_json::{Value, json};

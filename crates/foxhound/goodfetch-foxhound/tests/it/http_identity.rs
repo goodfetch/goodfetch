@@ -9,10 +9,6 @@
 //! The first test is also the guard of the headers the engine derives from
 //! the pinned build without launching it: a new pin whose browser sends
 //! another document request fails it.
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
 
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use rstest::rstest;

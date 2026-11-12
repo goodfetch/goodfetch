@@ -24,7 +24,6 @@ use super::run::{call, index_row, run_folder, run_row};
 use super::{Client, attached_on, dependencies, engine, engine_with};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
-use crate::daemon::ENDED_CONNECTIONS;
 use crate::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, Succession};
 use crate::engine::{Dependencies, Engine};
 use crate::ops::Ops;
@@ -985,7 +984,9 @@ fn connections_that_end_while_the_daemon_drains_never_keep_it_from_ending() {
         |dialer| async move {
             let mut client = opened(&dialer, cli_hello()).await;
             let mut leaving = Vec::new();
-            for _ in 0..=ENDED_CONNECTIONS {
+            // More than the 16 ends the Daemon holds before a Connection
+            // waits for room.
+            for _ in 0..17 {
                 leaving.push(opened(&dialer, sdk_hello()).await);
             }
             call(&mut client, 1, "test.stuck", json!({ "run_id": "stuck" })).await;

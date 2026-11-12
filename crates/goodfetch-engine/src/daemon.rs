@@ -79,7 +79,7 @@ const LONGEST_ACCEPT_WAIT: Duration = Duration::from_secs(1);
 
 /// How many ended Connections wait for the Daemon's loop to receive them
 /// before the next one's task waits for room.
-pub(crate) const ENDED_CONNECTIONS: usize = 16;
+const ENDED_CONNECTIONS: usize = 16;
 
 /// How many asks of its Connections (`daemon.stop`, a refusal's handover)
 /// wait for the Daemon's loop before the next asker waits for room.

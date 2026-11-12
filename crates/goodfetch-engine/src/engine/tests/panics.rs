@@ -43,6 +43,8 @@ const PANIC: Operation = Operation {
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: PROTOCOL_VERSION,
+    input: None,
+    bound: None,
 };
 
 /// A call whose handler's blocking work panics.

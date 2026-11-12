@@ -16,6 +16,9 @@
 //! toolchain's Cargo (ADR 0024's note of 2026-11-06), as the Release suite's
 //! musl cells build. [`ToolManifest`] is the manifest's one reader in
 //! `xtask`, and `path` reads it for a script.
+//!
+//! Beside the manifest, `build` writes its input record ([`inputs`]), by
+//! which a test is refused tools older than their sources.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -25,15 +28,19 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
+use std::time::SystemTime;
 
 use anyhow::{Context as _, Result, bail};
 use goodfetch_protocol::catalog::Product;
 use serde::{Deserialize, Serialize};
 
+use self::inputs::InputRecord;
 use crate::environment::Environment;
 use crate::metadata;
 use crate::output;
 use crate::products;
+
+mod inputs;
 
 /// An executable a test may run, named as its entry in the test tool
 /// manifest.
@@ -126,6 +133,24 @@ impl ToolManifest {
             )
         })
     }
+}
+
+/// The tools among the executables a Cargo build reports in `output`, its
+/// JSON messages.
+fn built_tools(output: &[u8]) -> Result<ToolManifest> {
+    let mut built = ToolManifest::default();
+    for message in crate::child_cargo::messages(output)? {
+        let (Some(target), Some(executable)) = (message.target, message.executable) else {
+            continue;
+        };
+        if message.reason != "compiler-artifact" || !target.kind.iter().any(|kind| kind == "bin") {
+            continue;
+        }
+        if let Some(tool) = Tool::of_binary(&target.name) {
+            built.0.insert(tool, executable);
+        }
+    }
+    Ok(built)
 }
 
 /// The Cargo of the static musl build, from the workspace's folder: Zig
@@ -223,7 +248,10 @@ fn build(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
     let (cargo, root) = (environment.cargo.as_os_str(), environment.root.as_path());
     let mut binaries = Vec::new();
     let mut features = BTreeSet::new();
-    for package in metadata::packages(cargo, root)? {
+    let mut package_manifests = Vec::new();
+    let (packages, target_directory) = metadata::packages_and_target_directory(cargo, root)?;
+    for package in packages {
+        package_manifests.push(package.manifest_path);
         for target in package.targets {
             if !target.kind.iter().any(|kind| kind == "bin") {
                 continue;
@@ -250,6 +278,9 @@ fn build(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
         );
     }
     let mut manifest = ToolManifest::default();
+    // Cargo names its prerequisites by absolute paths from this folder.
+    let folder = std::path::absolute(root).context("finding the workspace's absolute path")?;
+    let started = SystemTime::now();
     if !binaries.is_empty() {
         let build = build_cargo(target.as_deref(), cargo, root);
         let mut command = crate::child_cargo::command(&build);
@@ -273,25 +304,21 @@ fn build(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
         if !output.status.success() {
             bail!("cargo build of the test tools failed");
         }
-        for message in crate::child_cargo::messages(&output.stdout)? {
-            let (Some(target), Some(executable)) = (message.target, message.executable) else {
-                continue;
-            };
-            if message.reason != "compiler-artifact"
-                || !target.kind.iter().any(|kind| kind == "bin")
-            {
-                continue;
-            }
-            if let Some(tool) = Tool::of_binary(&target.name) {
-                manifest.0.insert(tool, executable);
-            }
-        }
+        manifest = built_tools(&output.stdout)?;
     }
     for tool in &binaries {
         if !manifest.0.contains_key(tool) {
             bail!("cargo build reported no executable for {}", tool.binary());
         }
     }
+    // Of the tools built here: a skew run's engine was built elsewhere.
+    let executables: Vec<&Path> = manifest.0.values().map(PathBuf::as_path).collect();
+    let workspace = inputs::Workspace {
+        folder: &folder,
+        target_directory: &target_directory,
+        package_manifests: &package_manifests,
+    };
+    let record = InputRecord::of(&workspace, &executables, started)?;
     if let Some(engine) = &arguments.engine {
         let engine = std::path::absolute(environment.path(engine))
             .with_context(|| format!("finding {}'s absolute path", engine.display()))?;
@@ -299,15 +326,21 @@ fn build(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
             manifest.0.insert(product, engine.clone());
         }
     }
-    let out = environment.path(&arguments.out);
+    write(&environment.path(&arguments.out), &manifest, &record)?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Writes `manifest` at `out` and `record`, its input record, beside it.
+fn write(out: &Path, manifest: &ToolManifest, record: &InputRecord) -> Result<()> {
     if let Some(parent) = out.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating {}", parent.display()))?;
     }
-    let mut text = serde_json::to_string_pretty(&manifest)?;
+    // The record first: a manifest never stands beside an older build's.
+    record.write_beside(out)?;
+    let mut text = serde_json::to_string_pretty(manifest)?;
     text.push('\n');
-    std::fs::write(&out, text).with_context(|| format!("writing {}", out.display()))?;
-    Ok(ExitCode::SUCCESS)
+    std::fs::write(out, text).with_context(|| format!("writing {}", out.display()))
 }
 
 #[cfg(test)]

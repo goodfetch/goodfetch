@@ -90,6 +90,135 @@ fn the_manifest_names_each_executable_the_workspace_has_by_its_built_absolute_pa
     assert_eq!(path.file_stem().unwrap(), "goodfetch-test-env");
 }
 
+/// The input record `build` writes beside the manifest.
+fn input_record(workspace: &Workspace) -> Value {
+    serde_json::from_str(&workspace.read_text("target/test-tools.inputs.json")).unwrap()
+}
+
+/// What the tools were built from: the fixture's sources and the files that
+/// decide their build, each with its size and time, and nothing of the
+/// target folder.
+#[test]
+fn the_input_record_names_the_workspace_and_each_source_of_its_tools() {
+    let workspace = Workspace::from_fixture("test-tools");
+
+    test_tools(&workspace);
+
+    let record = input_record(&workspace);
+    assert_eq!(
+        std::fs::canonicalize(record["root"].as_str().unwrap()).unwrap(),
+        std::fs::canonicalize(workspace.path()).unwrap()
+    );
+    let inputs: Vec<&str> = record["inputs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|input| input[0].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        inputs,
+        [
+            "Cargo.lock",
+            "Cargo.toml",
+            "crates/goodfetch-collie/Cargo.toml",
+            "crates/goodfetch-collie/src/main.rs",
+            "crates/goodfetch-test-support/Cargo.toml",
+            "crates/goodfetch-test-support/src/bin/goodfetch-test-env.rs",
+            "crates/goodfetch-test-support/src/lib.rs",
+        ]
+    );
+    let source = &record["inputs"][3];
+    let metadata = std::fs::metadata(workspace.path().join(source[0].as_str().unwrap())).unwrap();
+    assert_eq!(source[1], metadata.len());
+}
+
+/// The record's writer and its reader, `goodfetch-test-support`, agree on
+/// its format: a test reads the tools as built.
+#[test]
+fn a_test_reads_the_tools_built_from_its_tree_as_it_is() {
+    let workspace = Workspace::from_fixture("test-tools");
+    let manifest = workspace.path().join("target/test-tools.json");
+    test_tools(&workspace);
+
+    let read = goodfetch_test_support::Tools::read_built_from(Some(&manifest), workspace.path());
+
+    assert!(read.is_ok(), "{}", read.unwrap_err());
+}
+
+/// What a merge or an edit leaves: a source newer than the tools.
+#[test]
+fn a_test_is_refused_the_built_tools_once_a_source_of_theirs_changed() {
+    use goodfetch_test_support::{Tools, ToolsError};
+
+    let workspace = Workspace::from_fixture("test-tools");
+    let manifest = workspace.path().join("target/test-tools.json");
+    test_tools(&workspace);
+    workspace.append(
+        "crates/goodfetch-test-support/src/lib.rs",
+        "\npub fn merged() {}\n",
+    );
+
+    let read = Tools::read_built_from(Some(&manifest), workspace.path());
+
+    let error = read.unwrap_err();
+    assert!(
+        matches!(&error, ToolsError::Stale { input, .. }
+            if input == Path::new("crates/goodfetch-test-support/src/lib.rs")),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_test_reads_the_tools_again_once_they_are_rebuilt() {
+    let workspace = Workspace::from_fixture("test-tools");
+    let manifest = workspace.path().join("target/test-tools.json");
+    test_tools(&workspace);
+    workspace.append(
+        "crates/goodfetch-test-support/src/lib.rs",
+        "\npub fn merged() {}\n",
+    );
+    test_tools(&workspace);
+
+    let read = goodfetch_test_support::Tools::read_built_from(Some(&manifest), workspace.path());
+
+    assert!(read.is_ok(), "{}", read.unwrap_err());
+}
+
+/// A skew run's engine was built elsewhere: the record is of the tools built
+/// here.
+#[test]
+fn an_engine_built_elsewhere_leaves_the_record_of_the_tools_built_here() {
+    let workspace = Workspace::from_fixture("test-tools");
+    let engine = workspace.path().join("engine");
+
+    test_tools_with(&workspace, &["--engine", engine.to_str().unwrap()]);
+
+    let record = input_record(&workspace);
+    let inputs = record["inputs"].as_array().unwrap();
+    assert!(
+        inputs
+            .iter()
+            .any(|input| input[0] == "crates/goodfetch-collie/src/main.rs"),
+        "{record}"
+    );
+}
+
+/// The fixture's tools were built from the fixture's copy, not from the
+/// tree these tests were built from.
+#[test]
+fn a_test_of_another_tree_is_refused_the_built_tools() {
+    use goodfetch_test_support::{Tools, ToolsError};
+
+    let workspace = Workspace::from_fixture("test-tools");
+    let manifest = workspace.path().join("target/test-tools.json");
+    test_tools(&workspace);
+
+    let read = Tools::read(Some(&manifest));
+
+    let error = read.unwrap_err();
+    assert!(matches!(error, ToolsError::OtherTree { .. }), "{error}");
+}
+
 #[test]
 fn a_workspace_without_those_executables_gets_an_empty_manifest() {
     let workspace = Workspace::from_fixture("test-tools");

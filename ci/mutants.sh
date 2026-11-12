@@ -60,7 +60,13 @@ case "$mode" in
     # The tests find the commit's executables as under `just test`.
     export GOODFETCH_TEST_SUITE=pre-merge
     "${JUST:-just}" _test-tools
-    export GOODFETCH_TEST_TOOLS="$root/target/test-tools.json"
+    # Each mutant changes a source the tools were built from, on purpose: a
+    # test would be refused them as older than their sources and every
+    # mutant would count as caught. The tests read a copy of the manifest
+    # that has no input record, which is read as it is (TESTING.md, Shared
+    # helpers); the manifest itself keeps its record.
+    cp "$root/target/test-tools.json" "$root/$out/test-tools.json"
+    export GOODFETCH_TEST_TOOLS="$root/$out/test-tools.json"
     # nextest skips what `just test` skips: the quarantined tests (ADR 0064)
     # and those needing an OS service this host lacks (ci/nextest-skips.sh).
     skip=()

@@ -1,8 +1,10 @@
 //! The test tool manifest that `just test` writes (ADR 0094): a test finds
 //! the commit's executables through it, and fails when it or an entry is
-//! missing.
+//! missing, when a source of the tools changed since they were built, or
+//! when they were built from another tree.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_test_support::{TestEnv, Tool, Tools, ToolsError, tools};
 use rstest::rstest;
@@ -67,9 +69,150 @@ fn an_entry_of_the_manifest_is_its_path() {
     );
 }
 
+/// A tree with one source of the tools, and their manifest with its input
+/// record as `xtask test-tools build` writes it, the tools just built.
+struct BuiltTools {
+    tree: PathBuf,
+    source: PathBuf,
+    manifest: PathBuf,
+}
+
+impl BuiltTools {
+    fn new(env: &TestEnv) -> Self {
+        let tree = env.folder().join("tree");
+        let source = tree.join("src/lib.rs");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        std::fs::write(&source, "pub fn built() {}\n").unwrap();
+        let manifest = env.folder().join("tools.json");
+        std::fs::write(
+            &manifest,
+            r#"{"collie": "/work/target/debug/goodfetch-collie"}"#,
+        )
+        .unwrap();
+        let built = Self {
+            tree,
+            source,
+            manifest,
+        };
+        built.record(&built.tree);
+        built
+    }
+
+    /// Writes the input record of tools built now from `root`.
+    fn record(&self, root: &Path) {
+        let metadata = std::fs::metadata(&self.source).unwrap();
+        let modified = metadata.modified().unwrap().duration_since(UNIX_EPOCH);
+        let nanoseconds = u64::try_from(modified.unwrap().as_nanos()).unwrap();
+        let record = serde_json::json!({
+            "root": root,
+            "inputs": [["src/lib.rs", metadata.len(), nanoseconds]],
+        });
+        std::fs::write(
+            self.manifest.with_extension("inputs.json"),
+            record.to_string(),
+        )
+        .unwrap();
+    }
+
+    fn read(&self) -> Result<Tools, ToolsError> {
+        Tools::read_built_from(Some(&self.manifest), &self.tree)
+    }
+}
+
+#[test]
+fn tools_whose_sources_are_as_they_were_built_from_are_read() {
+    let env = TestEnv::new();
+    let built = BuiltTools::new(&env);
+
+    let tools = built.read();
+
+    assert_eq!(
+        tools.unwrap().path(Tool::Collie).unwrap(),
+        Path::new("/work/target/debug/goodfetch-collie")
+    );
+}
+
+/// What a merge, a `git switch` or an edit does to a source after the tools
+/// were built: its bytes change, or only its time does, or it is gone.
+#[rstest]
+#[case::its_size(|source: &Path| std::fs::write(source, "pub fn merged() {}\npub fn built() {}\n").unwrap())]
+#[case::its_time_alone(|source: &Path| {
+    let file = std::fs::File::options().write(true).open(source).unwrap();
+    let modified = file.metadata().unwrap().modified().unwrap();
+    file.set_modified(modified - Duration::from_secs(3600)).unwrap();
+})]
+#[case::removed(|source: &Path| std::fs::remove_file(source).unwrap())]
+fn tools_older_than_a_source_are_refused_naming_it_and_the_rebuild_command(
+    #[case] change: fn(&Path),
+) {
+    let env = TestEnv::new();
+    let built = BuiltTools::new(&env);
+    change(&built.source);
+
+    let read = built.read();
+
+    let error = read.unwrap_err();
+    assert!(
+        matches!(&error, ToolsError::Stale { input, .. } if input == Path::new("src/lib.rs")),
+        "{error}"
+    );
+    // As a test that unwraps `tools()` prints it.
+    let message = format!("{error:?}");
+    assert!(message.contains("src/lib.rs"), "{message}");
+    assert!(message.contains("`just _test-tools`"), "{message}");
+}
+
+#[test]
+fn tools_built_from_another_tree_are_refused_naming_the_rebuild_command() {
+    let env = TestEnv::new();
+    let built = BuiltTools::new(&env);
+    let other = env.folder().join("other-tree");
+    std::fs::create_dir_all(&other).unwrap();
+    built.record(&other);
+
+    let read = built.read();
+
+    let error = read.unwrap_err();
+    assert!(
+        matches!(&error, ToolsError::OtherTree { built_from, .. } if *built_from == other),
+        "{error}"
+    );
+    let message = format!("{error:?}");
+    assert!(message.contains("`just _test-tools`"), "{message}");
+}
+
+/// The same tree under another spelling of its path, as a link gives it, is
+/// this tree.
+#[cfg(unix)]
+#[test]
+fn tools_built_from_this_tree_under_a_link_are_read() {
+    let env = TestEnv::new();
+    let built = BuiltTools::new(&env);
+    let link = env.folder().join("link");
+    std::os::unix::fs::symlink(&built.tree, &link).unwrap();
+    built.record(&link);
+
+    let tools = built.read();
+
+    assert!(tools.is_ok(), "{}", tools.unwrap_err());
+}
+
+#[test]
+fn an_input_record_that_is_not_one_fails() {
+    let env = TestEnv::new();
+    let built = BuiltTools::new(&env);
+    std::fs::write(built.manifest.with_extension("inputs.json"), "{").unwrap();
+
+    let read = built.read();
+
+    let error = read.unwrap_err();
+    assert!(matches!(error, ToolsError::Invalid { .. }), "{error}");
+}
+
 /// `just test` builds the commit's executables with the tests' own profile,
 /// so the manifest names the same `goodfetch-test-env` Cargo built for these
-/// tests.
+/// tests, and its input record says they were built from this tree as it
+/// is.
 #[test]
 fn the_manifest_just_test_writes_lists_this_commits_test_env() {
     let tools = tools().unwrap();

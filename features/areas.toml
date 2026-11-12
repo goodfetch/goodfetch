@@ -413,6 +413,13 @@ number = 3
 kind = "error"
 prefix = "person_required"
 
+# The Error code the engine refuses a new call with on a Connection at its
+# cap of calls in flight (issue 2312).
+[[area]]
+number = 3
+kind = "error"
+prefix = "too_many_calls"
+
 # Area 3's settings (#225): `config.explain`, the refusals of a setting, the
 # Operator policy's and user configuration's formats, and the keys the
 # runtime itself waits on or resolves (ADR 0059).

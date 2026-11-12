@@ -74,6 +74,15 @@ pub(crate) fn packages(cargo: &OsStr, root: &Path) -> Result<Vec<Package>> {
     read(cargo, root).map(|metadata| metadata.packages)
 }
 
+/// Every member of the workspace at `root` and its target folder, as
+/// [`target_directory`] gives it, from one run of Cargo.
+pub(crate) fn packages_and_target_directory(
+    cargo: &OsStr,
+    root: &Path,
+) -> Result<(Vec<Package>, PathBuf)> {
+    read(cargo, root).map(|metadata| (metadata.packages, metadata.target_directory))
+}
+
 /// The workspace's target folder, as Cargo resolves it (`CARGO_TARGET_DIR`
 /// included).
 pub(crate) fn target_directory(cargo: &OsStr, root: &Path) -> Result<PathBuf> {

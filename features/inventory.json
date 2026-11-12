@@ -2077,6 +2077,17 @@
       ]
     },
     {
+      "id": "error:too_many_calls",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:too_many_redirects",
       "kind": "error",
       "area": 5,

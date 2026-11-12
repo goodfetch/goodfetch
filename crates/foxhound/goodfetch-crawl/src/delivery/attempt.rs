@@ -69,6 +69,7 @@
 //! tier one method of [`On`], kept whole so every tier's run hands its
 //! handler the same request, response and Provenance.
 
+use std::collections::BTreeSet;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime};
 
@@ -792,17 +793,18 @@ impl On<'_> {
             }) => {
                 let browser_records =
                     [browser_staged.records.records(), records.as_slice()].concat();
+                let not_compared = self.not_compared();
                 let browser_run = StagedRun {
                     records: &browser_records,
                     enqueues: &browser_staged.enqueues,
                     ended_at: browser.ended_at.as_deref(),
                     encoding: browser.encoding.as_deref(),
                 };
-                if matches_browser(&run, &cheaper, &browser_run) {
+                if matches_browser(&run, &cheaper, &browser_run, not_compared) {
                     Some(Weighed::Matched)
                 } else {
                     let light = light.as_ref().is_some_and(|(light, staged)| {
-                        matches_browser(light, staged, &browser_run)
+                        matches_browser(light, staged, &browser_run, not_compared)
                     });
                     // `discovered_api` serves the document `http` did, so
                     // its run can only differ from that one where `http`
@@ -860,7 +862,19 @@ impl On<'_> {
         let staged = self.lease.restage();
         self.lease.put_back(browsers);
         let (run, _) = ran.ok()?;
-        matches_browser(&run, &staged, browser).then_some(plan)
+        matches_browser(&run, &staged, browser, self.not_compared()).then_some(plan)
+    }
+
+    /// The fields of a Record that two runs of one attempt never hold
+    /// alike, which a sample's comparison leaves out: a code-free crawl's
+    /// ([`crate::code_free::NOT_COMPARED`]), none of a handler's.
+    fn not_compared(&self) -> &'static BTreeSet<String> {
+        static NONE: BTreeSet<String> = BTreeSet::new();
+        if self.code_free.is_some() {
+            &crate::code_free::NOT_COMPARED
+        } else {
+            &NONE
+        }
     }
 
     /// One run on the `http` tier: its origin's robots.txt read and its
@@ -904,8 +918,11 @@ impl On<'_> {
         if let Some(plan) = plan {
             tiers.replay_on(&page_id, plan.clone());
         }
+        // Provenance names the tier that sent the document, whoever chose
+        // it (ADR 0023).
+        let sent = http.sent_on(choice.tier);
         if let Some(ended) = self
-            .ended_unhandled(tiering, &page_id, &facts, (choice, how))
+            .ended_unhandled(tiering, &page_id, &facts, (choice, sent, how))
             .await
         {
             return ended;
@@ -969,20 +986,24 @@ impl On<'_> {
     /// How the run `how` names on `choice` ends before its handler runs,
     /// its page `page_id` served with `facts`, by what it found of the page
     /// ([`Found`]), the page closed; `None` when its handler runs. Records
-    /// the tier the run took either way.
+    /// the tier that sent the run's document either way, `sent`.
     async fn ended_unhandled(
         &self,
         tiering: &Tiering,
         page_id: &PageId,
         facts: &PageFacts,
-        (choice, how): (&TierChoice, Chosen),
+        (choice, sent, how): (&TierChoice, FetchTier, Chosen),
     ) -> Option<Result<(HttpRun, Taught), (Answer, Taught)>> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
+        let recorded = &TierChoice {
+            tier: sent,
+            ..choice.clone()
+        };
         let tiers = &tiering.tiers;
         match self.found(tiering, page_id, facts).await {
             Found::Unreadable(call) => {
                 tiers.close(page_id);
-                record_tier(run, leased, lease, choice, how, None, None).await;
+                record_tier(run, leased, lease, recorded, how, None, None).await;
                 let message = "The document declares no encoding and is not UTF-8: only the browser reads it.";
                 return Some(Ok((
                     escalated_unhandled(ATTEMPT_ENDED.name, message, call),
@@ -991,7 +1012,7 @@ impl On<'_> {
             }
             Found::Challenge(cause, error) => {
                 tiers.close(page_id);
-                record_tier(run, leased, lease, choice, how, None, None).await;
+                record_tier(run, leased, lease, recorded, how, None, None).await;
                 return Some(match self.on_block(cause, choice) {
                     Action::MoveToBrowser => Ok((
                         escalated_unhandled(
@@ -1010,7 +1031,7 @@ impl On<'_> {
             run,
             leased,
             lease,
-            choice,
+            recorded,
             how,
             facts.encoding.clone(),
             facts.certificate_exception.clone(),
@@ -1321,8 +1342,14 @@ pub(super) fn read_by_browser(
 /// escalated, and the weighing matched what each staged, the Records it
 /// pushed then those of its answer and the requests it enqueued, before
 /// any Hook (ADR 0103), the URL each ended on and the encoding each read
-/// in (ADRs 0118 and 0119).
-fn matches_browser(run: &HttpRun, staged: &SoFar, browser: &StagedRun<'_>) -> bool {
+/// in (ADRs 0118 and 0119), the fields `not_compared` names left out of
+/// every Record.
+fn matches_browser(
+    run: &HttpRun,
+    staged: &SoFar,
+    browser: &StagedRun<'_>,
+    not_compared: &BTreeSet<String>,
+) -> bool {
     let HttpRun {
         answer:
             Answer::Handled(CrawlRequestHandled {
@@ -1336,8 +1363,8 @@ fn matches_browser(run: &HttpRun, staged: &SoFar, browser: &StagedRun<'_>) -> bo
         return false;
     };
     let records = [staged.records.records(), records.as_slice()].concat();
-    // No field is named removed yet: the extraction's removal reports none
-    // per attempt.
+    // The extraction's removal reports no field per attempt yet: the
+    // fields left out are those the runs themselves never hold alike.
     weighing::weigh(
         &StagedRun {
             records: &records,
@@ -1346,7 +1373,7 @@ fn matches_browser(run: &HttpRun, staged: &SoFar, browser: &StagedRun<'_>) -> bo
             encoding: run.encoding.as_deref(),
         },
         browser,
-        &std::collections::BTreeSet::new(),
+        not_compared,
     )
 }
 

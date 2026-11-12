@@ -22,6 +22,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use cookie_store::{Cookie, CookieStore, RawCookie};
+use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::page::SessionId;
 use url::Url;
 
@@ -188,6 +189,10 @@ pub(crate) struct WithJar {
 }
 
 impl Transport for WithJar {
+    fn tier(&self) -> FetchTier {
+        self.transport.tier()
+    }
+
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
             let sent = self.transport.send(hop, reuse).await?;

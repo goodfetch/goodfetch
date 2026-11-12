@@ -1,0 +1,100 @@
+{
+  "description": "A Collie Client's hello accepted, then a Run started, a page opened in it and closed once, and the Run finished: every later call on the page is the Client's own to refuse, and a second close sends nothing; the Client then closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "needs": "collie",
+          "product_version": "0.0.0"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "collie",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {}
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.new_page",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "page_id": "page-1",
+          "session_id": "session-1"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.close",
+        "params": {
+          "page_id": "page-1"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {}
+      }
+    },
+    {
+      "expect": {
+        "method": "run.finish",
+        "params": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:00Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          }
+        }
+      }
+    }
+  ]
+}

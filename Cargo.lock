@@ -2395,6 +2395,7 @@ dependencies = [
 name = "goodfetch-crawl"
 version = "0.0.0"
 dependencies = [
+ "bytes",
  "fixed_decimal",
  "futures-util",
  "goodfetch-counted-work",

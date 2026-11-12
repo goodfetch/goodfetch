@@ -98,8 +98,7 @@ export class ClientConnection implements AsyncDisposable {
     );
     this.#operations = new CollieOperations(this.#caller());
     this.#runHost = {
-      finish: (runId, callOptions) => this.#operations.runFinish({ run_id: runId }, callOptions),
-      abort: (runId) => this.#operations.runAbort({ run_id: runId }),
+      calls: this.#caller(),
       reachable: () => !this.#ended,
       forget: (run) => this.#runs.delete(run),
       keyValueStore: {

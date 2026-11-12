@@ -1793,7 +1793,7 @@ export interface RecordProvenance {
   robots_txt?: RobotsTxtMark | null;
   /**
    * The tier that fetched that request's document, and how it was
-   * chosen; none where the handler was given its request alone.
+   * chosen; none where no document was fetched.
    */
   tier?: TierProvenance | null;
   /**
@@ -2323,7 +2323,7 @@ export interface RecordProvenance1 {
   robots_txt?: RobotsTxtMark | null;
   /**
    * The tier that fetched that request's document, and how it was
-   * chosen; none where the handler was given its request alone.
+   * chosen; none where no document was fetched.
    */
   tier?: TierProvenance | null;
   /**

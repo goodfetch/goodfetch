@@ -1025,16 +1025,11 @@ impl FetchTiers {
         refuse_direct_reads_beside_a_proxy(settings, || Some(DirectRead::Sitemap))
     }
 
-    /// The Run's own `fetch.tier`: the tier it forces, `auto` set by any
-    /// layer above the built-in default, or the default.
+    /// The Run's own `fetch.tier`: the tier it forces, else `auto`, set or
+    /// the built-in default, under which the engine chooses each request's
+    /// tier.
     pub fn run_tier(settings: &Resolved) -> SetTier {
-        if let Some((tier, _)) = forced(settings) {
-            return SetTier::Forced(tier);
-        }
-        match settings.effective(&FETCH_TIER) {
-            Some(effective) if effective.layer != SettingsLayer::Default => SetTier::Auto,
-            _ => SetTier::Unset,
-        }
+        forced(settings).map_or(SetTier::Auto, |(tier, _)| SetTier::Forced(tier))
     }
 
     /// An HTTP tier for `run` under its settings, one per Run so its hops

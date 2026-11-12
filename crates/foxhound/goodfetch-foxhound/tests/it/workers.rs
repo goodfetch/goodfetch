@@ -25,6 +25,7 @@ use serde_json::{Value, json};
 
 use crate::FOXHOUND;
 use crate::governor::in_flight_whatever_the_machine;
+use crate::site::Site;
 
 /// How long a handler process waits for each message from the engine.
 const DEADLINE: Duration = Duration::from_secs(10);
@@ -85,9 +86,9 @@ trait Peer {
 /// waits for its own, and a governor at its floor of one under a
 /// loaded machine's memory pressure sent the handler process none
 /// (fix-queue 130).
-fn started_engine(env: &TestEnv) -> Attached {
+fn started_engine(env: &TestEnv, site: &Site) -> Attached {
     env.user_configuration(&in_flight_whatever_the_machine(2));
-    Attached::start(env, FOXHOUND)
+    Attached::start(env, FOXHOUND).settings_by_default(&site.settings())
 }
 
 /// An Attached engine of Foxhound's executable, its stdio the Client's.
@@ -124,9 +125,9 @@ impl Peer for DaemonClient {
     }
 }
 
-fn seeds(count: usize) -> Value {
+fn seeds(site: &Site, count: usize) -> Value {
     (1..=count)
-        .map(|n| json!({ "url": format!("https://shop.test/{n}"), "label": "page" }))
+        .map(|n| json!({ "url": site.page(&format!("/{n}")), "label": "page" }))
         .collect()
 }
 
@@ -141,7 +142,7 @@ fn url(request: &Value) -> String {
 /// each Connection, and answers the private endpoint the engine reported
 /// and the first request the Client got.
 fn started(
-    engine: &mut Attached,
+    (engine, site): (&mut Attached, &Site),
     run_id: &str,
     count: usize,
     kept: &mut Vec<Value>,
@@ -151,7 +152,7 @@ fn started(
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
         "params": {
-            "run_id": run_id, "seeds": seeds(count), "datasets": [{ "name": "pages" }],
+            "run_id": run_id, "seeds": seeds(site, count), "datasets": [{ "name": "pages" }],
             "settings": { "crawl": { "handler": { "concurrency": 1 } } },
         },
     }));
@@ -203,9 +204,10 @@ fn records(env: &TestEnv, run_id: &str) -> Vec<String> {
 #[test]
 fn a_handler_process_on_the_private_endpoint_leases_work_items_from_the_same_run() {
     let env = TestEnv::new();
-    let mut engine = started_engine(&env);
+    let site = Site::start(&env);
+    let mut engine = started_engine(&env, &site);
     let mut kept = Vec::new();
-    let (reported, first) = started(&mut engine, "shared", 4, &mut kept);
+    let (reported, first) = started((&mut engine, &site), "shared", 4, &mut kept);
     let mut handler_process = joined(&reported);
     handler_process.send(&json!({ "jsonrpc": "2.0", "id": "serve", "method": "crawl.serve", "params": { "run_id": "shared" } }));
     let mut handler_process_kept = Vec::new();
@@ -233,14 +235,8 @@ fn a_handler_process_on_the_private_endpoint_leases_work_items_from_the_same_run
             exited,
         ),
         (
-            [
-                "https://shop.test/1".to_owned(),
-                "https://shop.test/3".to_owned()
-            ],
-            [
-                "https://shop.test/2".to_owned(),
-                "https://shop.test/4".to_owned()
-            ],
+            [site.page("/1"), site.page("/3")],
+            [site.page("/2"), site.page("/4")],
             json!("finished"),
             json!("complete"),
             4,
@@ -253,10 +249,11 @@ fn a_handler_process_on_the_private_endpoint_leases_work_items_from_the_same_run
 #[test]
 fn a_handler_process_whose_connection_ends_leaves_its_attempt_client_gone_retried_on_another() {
     let env = TestEnv::new();
-    let mut engine = started_engine(&env);
+    let site = Site::start(&env);
+    let mut engine = started_engine(&env, &site);
     let pid = engine.pid();
     let mut kept = Vec::new();
-    let (reported, first) = started(&mut engine, "dropped", 2, &mut kept);
+    let (reported, first) = started((&mut engine, &site), "dropped", 2, &mut kept);
     let mut handler_process = joined(&reported);
     handler_process.send(&json!({ "jsonrpc": "2.0", "id": "serve", "method": "crawl.serve", "params": { "run_id": "dropped" } }));
     let lost = handler_process.request(&mut Vec::new());
@@ -280,23 +277,13 @@ fn a_handler_process_whose_connection_ends_leaves_its_attempt_client_gone_retrie
             outcomes(&env, pid),
         ),
         (
-            "https://shop.test/2".to_owned(),
+            site.page("/2"),
             json!(2),
-            "https://shop.test/2".to_owned(),
+            site.page("/2"),
             json!("complete"),
             vec![
-                (
-                    "https://shop.test/1".to_owned(),
-                    "succeeded".to_owned(),
-                    1,
-                    None
-                ),
-                (
-                    "https://shop.test/2".to_owned(),
-                    "succeeded".to_owned(),
-                    2,
-                    None
-                ),
+                (site.page("/1"), "succeeded".to_owned(), 1, None),
+                (site.page("/2"), "succeeded".to_owned(), 2, None),
             ],
             true,
             vec!["client_gone".to_owned()],
@@ -308,7 +295,8 @@ fn a_handler_process_whose_connection_ends_leaves_its_attempt_client_gone_retrie
 #[test]
 fn crawl_serve_of_a_run_the_engine_runs_no_crawl_of_answers_run_not_found() {
     let env = TestEnv::new();
-    let mut engine = started_engine(&env);
+    let site = Site::start(&env);
+    let mut engine = started_engine(&env, &site);
     let mut kept = Vec::new();
     engine.send(&hello(None));
     engine.reply("hello", &mut kept);

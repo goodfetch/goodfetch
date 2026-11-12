@@ -191,11 +191,8 @@ impl RunState {
         let local = self.pool.local_addresses(&session.id);
         // A sitemap's fetch runs no handler and takes no tier choice: its
         // attempt fetches it on the Run's HTTP tier.
-        let choosing = if leased.sitemap {
-            Choosing::Alone
-        } else {
-            labels.settings.choose(&request.label, drawing.run_tier)
-        };
+        let choosing =
+            (!leased.sitemap).then(|| labels.settings.choose(&request.label, drawing.run_tier));
         // A request keeping its URL's fragment is served only by a tier
         // that runs the page's scripts, which the engine's choice is then
         // (ADR 0120); the start refused it on any forced tier but those.
@@ -214,16 +211,12 @@ impl RunState {
             )
         };
         let chosen = match choosing {
-            Choosing::Alone | Choosing::Engine if keeps_fragment => Chosen::Planned(browser),
-            Choosing::Alone | Choosing::Engine
-                if drawing.races && !to_browser && !leased.sitemap =>
-            {
-                Chosen::Racing(learned())
-            }
-            Choosing::Alone => Chosen::Planned(AttemptPlan::Alone),
-            Choosing::Forced(choice) => Chosen::Planned(AttemptPlan::On(choice)),
-            Choosing::Engine if to_browser => Chosen::Planned(browser),
-            Choosing::Engine => Chosen::Planned(learned()),
+            None => Chosen::Planned(AttemptPlan::Sitemap),
+            Some(Choosing::Engine) if keeps_fragment => Chosen::Planned(browser),
+            Some(Choosing::Engine) if drawing.races && !to_browser => Chosen::Racing(learned()),
+            Some(Choosing::Forced(choice)) => Chosen::Planned(AttemptPlan::On(choice)),
+            Some(Choosing::Engine) if to_browser => Chosen::Planned(browser),
+            Some(Choosing::Engine) => Chosen::Planned(learned()),
         };
         Drawn {
             leased,

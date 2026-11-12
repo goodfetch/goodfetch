@@ -20,7 +20,7 @@ use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use serde_json::{Value, json};
 
 use crate::attached;
-use crate::frontier::{Inside, attributes, crawl_under, fetch};
+use crate::frontier::{Inside, attributes, crawl_under};
 
 /// The Proving ground's seed.
 const SEED: u64 = 847;
@@ -54,7 +54,7 @@ fn crawl_shop(settings: &Value) -> Crawled {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let seeds = [json!({ "url": proving_ground.url("facets.test", "/shop"), "label": "page" })];
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut answers = BTreeMap::new();
     let report = crawl_under(
@@ -63,10 +63,8 @@ fn crawl_shop(settings: &Value) -> Crawled {
         &seeds,
         settings,
         &mut |inside: &mut Inside<'_>, handle: &Value| {
-            let url = handle["crawl_request"]["url"].as_str().unwrap();
-            let page = fetch(&proving_ground, url);
-            assert_eq!(page.status, 200, "{url}");
-            for href in attributes(&page.body, "a href") {
+            let body = crate::site::html_of(inside, handle);
+            for href in attributes(&body, "a href") {
                 let href = href.replace("&amp;", "&");
                 let answer = inside.enqueue(handle, &href, "page", None);
                 let answered = answer
@@ -88,7 +86,7 @@ fn crawl_shop(settings: &Value) -> Crawled {
         .collect();
     assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
 
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let again = engine.call(
         "again",
         "run.finish",

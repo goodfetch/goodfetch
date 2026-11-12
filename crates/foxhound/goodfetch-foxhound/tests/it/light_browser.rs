@@ -92,7 +92,9 @@ fn engine(env: &TestEnv) -> Attached {
 }
 
 /// Under `auto`, a Run that allows the light-browser tier samples each
-/// Label on `http`, `light_browser` and `browser`: a listing its script
+/// Label on `http`, which Provenance records as `browser_fetch`, its
+/// document sent from the Session's browser (issue 2409), on
+/// `light_browser` and on `browser`: a listing its script
 /// fills differs over `http` and matches on Lightpanda, so its Label moves
 /// to `light_browser`, where its next request is served from the
 /// document Lightpanda's run of its script left, Lightpanda sending it
@@ -150,7 +152,7 @@ fn a_label_whose_sample_matches_chromes_runs_on_lightpanda_and_one_that_differs_
     let sampled = |label: &str| {
         let mut lines = Vec::new();
         for _ in 0..3 {
-            for tier in ["http", "light_browser", "browser"] {
+            for tier in ["browser_fetch", "light_browser", "browser"] {
                 lines.push(format!("{label} {tier} sample"));
             }
         }

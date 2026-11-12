@@ -18,7 +18,6 @@ use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::attached;
 use crate::frontier::{Inside, crawl_with};
 
 /// The Proving ground's seed.
@@ -104,7 +103,7 @@ fn enqueue_links_reports_each_matched_element_and_gives_each_link_its_payload() 
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let seeds = [json!({ "url": proving_ground.url("links.test", "/answers/"), "label": "index" })];
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut read = Value::Null;
     let mut answered = Value::Null;
@@ -215,7 +214,7 @@ fn one_payload_takes_every_link_include_narrows_and_a_bad_call_adds_nothing() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let seeds = [json!({ "url": proving_ground.url("links.test", "/answers/"), "label": "index" })];
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut refused = Vec::new();
     let mut answered = Value::Null;
@@ -305,7 +304,7 @@ fn limit_adds_at_most_that_many_links_and_answers_each_link_past_it() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let seeds = [json!({ "url": proving_ground.url("links.test", "/answers/"), "label": "index" })];
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut answered = Vec::new();
     let report = crawl_with(
@@ -379,7 +378,7 @@ fn a_shift_jis_pages_link_is_fetched_with_its_query_in_shift_jis() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let seeds =
         [json!({ "url": proving_ground.url("links.test", "/shift-jis/"), "label": "index" })];
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut answered = Value::Null;
     let report = crawl_with(
@@ -431,7 +430,7 @@ fn enqueue_links_resolves_against_the_documents_base_url(
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let seeds = [json!({ "url": proving_ground.url(host, shelf), "label": "shelf" })];
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut answered = Value::Null;
     let report = crawl_with(

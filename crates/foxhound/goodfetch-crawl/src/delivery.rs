@@ -210,12 +210,7 @@ pub(crate) async fn drive(
         in_flight: 0,
         gone: false,
     }];
-    // A code-free crawl fetches every request: with no tier set, the
-    // engine chooses each, as under `auto` (ADR 0103).
-    let run_tier = match FetchTiers::run_tier(settings.resolved()) {
-        SetTier::Unset if code_free.is_some() => SetTier::Auto,
-        set => set,
-    };
+    let run_tier = FetchTiers::run_tier(settings.resolved());
     let races: bool = settings.resolved().get(&FETCH_TIER_RACE);
     // One HTTP tier for the Run, so its hops share connections (#763); the
     // navigation gate fetches robots.txt on it too, from the first
@@ -227,16 +222,13 @@ pub(crate) async fn drive(
     };
     let http = match built {
         Ok(http) => Some(http),
-        // A request may take the `http` tier: the Run cannot go on.
-        Err(error) if labels.settings.any() || run_tier != SetTier::Unset || races => {
+        // Every request may take the `http` tier, forced or by the engine's
+        // choice: the Run cannot go on.
+        Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the crawl's HTTP tier could not be built");
             run.end(failed(&run, &error)).await;
             crawls.close(run.id()).await;
             return;
-        }
-        Err(error) => {
-            tracing::warn!(%error, run_id = %run.id(), "the navigation gate has no transport for robots.txt; every robots.txt it reads is unreachable");
-            None
         }
     };
     let untouched = Untouched::of(&run, &labels, code_free.as_ref());

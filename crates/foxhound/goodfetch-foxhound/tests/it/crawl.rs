@@ -18,12 +18,12 @@ use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::attached;
+use crate::site::{Site, path_of};
 
-fn seeds() -> Value {
+fn seeds(site: &Site) -> Value {
     json!([
-        { "url": "https://shop.test/a", "label": "page" },
-        { "url": "https://shop.test/b", "label": "page", "payload": { "flaky": true } },
+        { "url": site.page("/a"), "label": "page" },
+        { "url": site.page("/b"), "label": "page", "payload": { "flaky": true } },
     ])
 }
 
@@ -31,12 +31,13 @@ fn seeds() -> Value {
 #[test]
 fn a_crawl_on_foxhounds_executable_commits_its_handlers_records_once_in_its_own_run_file() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
 
     let started = engine.call(
         "start",
         "crawl.start",
-        &json!({ "run_id": "shop", "seeds": seeds() }),
+        &json!({ "run_id": "shop", "seeds": seeds(&site) }),
         &mut |_| None,
     );
     let mut handler = |params: &Value| {
@@ -81,8 +82,8 @@ fn a_crawl_on_foxhounds_executable_commits_its_handlers_records_once_in_its_own_
             &json!("foxhound"),
             (&json!("finished"), &json!("complete")),
             vec![
-                r#"{"url":"https://shop.test/a"}"#.to_owned(),
-                r#"{"url":"https://shop.test/b"}"#.to_owned(),
+                format!(r#"{{"url":"{}"}}"#, site.page("/a")),
+                format!(r#"{{"url":"{}"}}"#, site.page("/b")),
             ],
             "wal".to_owned(),
             true,
@@ -97,11 +98,12 @@ fn a_crawl_on_foxhounds_executable_commits_its_handlers_records_once_in_its_own_
 #[test]
 fn cancel_of_run_finish_in_flight_answers_call_cancelled() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     engine.call(
         "start",
         "crawl.start",
-        &json!({ "run_id": "slow", "seeds": seeds() }),
+        &json!({ "run_id": "slow", "seeds": seeds(&site) }),
         &mut |_| None,
     );
 
@@ -150,9 +152,10 @@ fn a_slow_handler_holds_the_crawl_back_and_a_slow_subscriber_loses_no_record_or_
     const SEEDS: usize = HANDLER_CONCURRENCY + 4;
     let seed_count = i64::try_from(SEEDS).unwrap();
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     let seeds: Vec<Value> = (0..SEEDS)
-        .map(|index| json!({ "url": format!("https://shop.test/{index}"), "label": "page" }))
+        .map(|index| json!({ "url": site.page(&format!("/{index}")), "label": "page" }))
         .collect();
     engine.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
@@ -252,12 +255,13 @@ fn a_slow_handler_holds_the_crawl_back_and_a_slow_subscriber_loses_no_record_or_
 #[test]
 fn a_crawls_outcomes_and_failed_requests_are_read_on_foxhounds_executable() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
     let seeds = json!([
-        { "url": "https://shop.test/kept", "label": "page" },
-        { "url": "https://shop.test/skipped", "label": "page" },
-        { "url": "https://shop.test/blocked", "label": "page" },
-        { "url": "https://shop.test/failed", "label": "page" },
+        { "url": site.page("/kept"), "label": "page" },
+        { "url": site.page("/skipped"), "label": "page" },
+        { "url": site.page("/blocked"), "label": "page" },
+        { "url": site.page("/failed"), "label": "page" },
     ]);
     engine.call(
         "start",
@@ -273,14 +277,14 @@ fn a_crawls_outcomes_and_failed_requests_are_read_on_foxhounds_executable() {
                 .extend(extra.as_object().unwrap().clone());
             json!({ "error": { "code": -32003, "message": code, "data": data } })
         };
-        Some(match params["crawl_request"]["url"].as_str().unwrap() {
-            "https://shop.test/kept" => {
+        Some(match path_of(&params["crawl_request"]["url"]) {
+            "/kept" => {
                 json!({ "result": { "records": [{ "dataset": "pages", "data": {} }] } })
             }
-            "https://shop.test/skipped" => {
+            "/skipped" => {
                 json!({ "result": { "skipped": { "message": "out of season" } } })
             }
-            "https://shop.test/blocked" => failure("blocked", json!({ "cause": "captcha" })),
+            "/blocked" => failure("blocked", json!({ "cause": "captcha" })),
             _ => failure("handler_failed", json!({})),
         })
     };
@@ -331,14 +335,14 @@ fn a_crawls_outcomes_and_failed_requests_are_read_on_foxhounds_executable() {
         ),
         (
             vec![
-                ("https://shop.test/blocked".to_owned(), json!("blocked")),
-                ("https://shop.test/kept".to_owned(), json!("succeeded")),
-                ("https://shop.test/skipped".to_owned(), json!("skipped")),
+                (site.page("/blocked"), json!("blocked")),
+                (site.page("/kept"), json!("succeeded")),
+                (site.page("/skipped"), json!("skipped")),
             ],
             &json!(true),
             vec![
-                ("https://shop.test/blocked".to_owned(), json!("blocked")),
-                ("https://shop.test/failed".to_owned(), json!("failed")),
+                (site.page("/blocked"), json!("blocked")),
+                (site.page("/failed"), json!("failed")),
             ],
             true,
         )
@@ -352,7 +356,7 @@ fn record_the_page(params: &Value) -> Value {
 
 /// Starts the keep-alive crawl `run_id` of one seed with `timeout.run`
 /// when given.
-fn start_keep_alive(engine: &mut Attached, run_id: &str, timeout: Option<u64>) {
+fn start_keep_alive(engine: &mut Attached, site: &Site, run_id: &str, timeout: Option<u64>) {
     let mut settings = json!({ "crawl": { "keep_alive": true } });
     if let Some(timeout) = timeout {
         settings["timeout"] = json!({ "run": timeout });
@@ -362,7 +366,7 @@ fn start_keep_alive(engine: &mut Attached, run_id: &str, timeout: Option<u64>) {
         "crawl.start",
         &json!({
             "run_id": run_id,
-            "seeds": [{ "url": "https://shop.test/a", "label": "page" }],
+            "seeds": [{ "url": site.page("/a"), "label": "page" }],
             "settings": settings,
         }),
         &mut |_| None,
@@ -378,8 +382,9 @@ fn start_keep_alive(engine: &mut Attached, run_id: &str, timeout: Option<u64>) {
 #[test]
 fn a_keep_alive_crawl_on_foxhounds_executable_waits_for_new_work_until_its_run_timeout() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
-    start_keep_alive(&mut engine, "waiting", Some(1_000));
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+    start_keep_alive(&mut engine, &site, "waiting", Some(1_000));
 
     let report = engine.call(
         "serve",
@@ -412,8 +417,9 @@ fn a_keep_alive_crawl_on_foxhounds_executable_waits_for_new_work_until_its_run_t
 #[test]
 fn run_finish_ends_a_keep_alive_crawl_on_foxhounds_executable_once_drained() {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
-    start_keep_alive(&mut engine, "served", None);
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+    start_keep_alive(&mut engine, &site, "served", None);
     let outcomes = engine.call(
         "outcomes",
         "run.outcomes",

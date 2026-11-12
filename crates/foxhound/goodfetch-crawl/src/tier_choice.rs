@@ -87,9 +87,9 @@ impl Default for Sampling {
 /// How one attempt of a crawl request runs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AttemptPlan {
-    /// No tier: the handler is given its request alone, as under the
-    /// built-in `fetch.tier` until #1602.
-    Alone,
+    /// A sitemap's fetch, on the Run's HTTP tier: it takes no tier choice
+    /// and runs no handler.
+    Sitemap,
     /// On this tier, forced or learned.
     On(TierChoice),
     /// On `discovered_api`, its calls replayed as the Label's plan says.

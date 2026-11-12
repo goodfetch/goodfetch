@@ -35,6 +35,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
+use goodfetch_protocol::result_document::OracleOutcome;
 use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
@@ -43,8 +44,8 @@ use crate::check::Finding;
 
 use super::relay::Relay;
 use super::sampler::{self, Sampler};
-use super::trial;
-use super::trials::{CollieCell, CollieTrial, Driver, Ended, Exercise, PageDone};
+use super::trial::{self, Outcome};
+use super::trials::{CollieScenario, CollieTrial, Contender, Ended, Exercise, PageDone};
 
 mod section;
 
@@ -101,28 +102,47 @@ pub(crate) struct Planned {
 }
 
 /// What a cell asks of each trial.
-pub(crate) struct Cell {
-    pub(crate) pages: Vec<Planned>,
-    /// Whether the pages act all at once in one Session.
-    pub(crate) at_once: bool,
-    /// The Sessions opened one after another, for the Sessions cell.
-    pub(crate) sessions: u64,
+pub(crate) enum Cell {
+    /// Pages opened in one Session, each taking its steps.
+    Pages {
+        pages: Vec<Planned>,
+        /// Whether they act all at once rather than one after another.
+        at_once: bool,
+    },
+    /// So many Sessions opened one after another, each with one page.
+    Sessions(u64),
 }
 
 impl Cell {
+    /// Its pages; none in the Sessions cell.
+    pub(crate) fn pages(&self) -> &[Planned] {
+        match self {
+            Self::Pages { pages, .. } => pages,
+            Self::Sessions(_) => &[],
+        }
+    }
+
+    /// The Sessions it opens; none in a cell of pages.
+    pub(crate) fn sessions(&self) -> u64 {
+        match self {
+            Self::Pages { .. } => 0,
+            Self::Sessions(sessions) => *sessions,
+        }
+    }
+
     /// Its actions: each step, or each Session opened.
     pub(crate) fn actions(&self) -> u64 {
-        if self.sessions > 0 {
-            return self.sessions;
+        match self {
+            Self::Pages { pages, .. } => pages.iter().map(|page| page.steps.len() as u64).sum(),
+            Self::Sessions(sessions) => *sessions,
         }
-        self.pages.iter().map(|page| page.steps.len() as u64).sum()
     }
 
     /// The plan the driver reads: each page at its task's start URL in
     /// `urls`, by task.
     pub(crate) fn plan(&self, urls: &BTreeMap<String, String>) -> Result<Value> {
         let pages = self
-            .pages
+            .pages()
             .iter()
             .map(|page| {
                 let url = urls
@@ -133,8 +153,8 @@ impl Cell {
             .collect::<Result<Vec<_>>>()?;
         Ok(json!({
             "pages": pages,
-            "at_once": self.at_once,
-            "sessions": self.sessions,
+            "at_once": matches!(self, Self::Pages { at_once: true, .. }),
+            "sessions": self.sessions(),
             "action_timeout": ACTION_TIMEOUT_MILLISECONDS,
         }))
     }
@@ -204,30 +224,36 @@ fn pages(family: &str, numbers: &[u32], steps: fn(u32) -> Vec<Step>) -> Vec<Plan
 /// What `exercise`'s cell asks. Page 25, whose form is in a frame, is in
 /// none: Collie's actions do not reach into frames yet.
 pub(crate) fn cell(exercise: Exercise) -> Cell {
-    let (numbers, at_once, sessions): (&[u32], _, _) = match exercise {
-        Exercise::Click => (&[1, 2, 3, 4, 5, 6, 7, 8, 9, 18, 19, 26, 27], false, 0),
-        Exercise::Form => (&[20, 21, 22, 23, 24, 28], false, 0),
-        Exercise::Navigation => {
-            return Cell {
-                pages: pages("portal", &[6, 7, 8, 9, 10, 11, 12, 13], |_| {
-                    vec![Step::Read]
-                }),
-                at_once: false,
-                sessions: 0,
-            };
-        }
-        Exercise::Sessions => (&[], false, SESSIONS),
+    let (pages, at_once) = match exercise {
+        Exercise::Click => (
+            pages(
+                "actionability",
+                &[1, 2, 3, 4, 5, 6, 7, 8, 9, 18, 19, 26, 27],
+                actionability,
+            ),
+            false,
+        ),
+        Exercise::Form => (
+            pages("actionability", &[20, 21, 22, 23, 24, 28], actionability),
+            false,
+        ),
+        Exercise::Navigation => (
+            pages("portal", &[6, 7, 8, 9, 10, 11, 12, 13], |_| {
+                vec![Step::Read]
+            }),
+            false,
+        ),
+        Exercise::Sessions => return Cell::Sessions(SESSIONS),
         Exercise::AtOnce => (
-            &[1, 2, 3, 4, 5, 6, 15, 18, 26, 27, 20, 21, 22, 23, 24, 28],
+            pages(
+                "actionability",
+                &[1, 2, 3, 4, 5, 6, 15, 18, 26, 27, 20, 21, 22, 23, 24, 28],
+                actionability,
+            ),
             true,
-            0,
         ),
     };
-    Cell {
-        pages: pages("actionability", numbers, actionability),
-        at_once,
-        sessions,
-    }
+    Cell::Pages { pages, at_once }
 }
 
 impl Exercise {
@@ -305,10 +331,7 @@ struct Browser {
 
 impl Drop for Browser {
     fn drop(&mut self) {
-        for pid in sampler::tree(self.child.id()) {
-            // One may have exited meanwhile.
-            let _ = trial::kill(pid);
-        }
+        trial::kill_tree(self.child.id());
         let _ = self.child.wait();
     }
 }
@@ -374,8 +397,8 @@ fn start_urls(address: &str) -> Result<BTreeMap<String, String>> {
         .collect())
 }
 
-/// The oracle's outcome for `page`, as the tool reported it.
-fn verdict(address: &str, page: &PageDone) -> Result<String> {
+/// The oracle's outcome for `page`, for the status the tool reported.
+fn oracle_outcome(address: &str, page: &PageDone) -> Result<OracleOutcome> {
     let submission = json!({
         "task": page.task,
         "status": match page.ended {
@@ -390,10 +413,8 @@ fn verdict(address: &str, page: &PageDone) -> Result<String> {
         .body_mut()
         .read_json()
         .context("parsing the oracle's answer")?;
-    answer["outcome"]
-        .as_str()
-        .map(str::to_owned)
-        .context("the oracle's answer has no outcome")
+    serde_json::from_value(answer["outcome"].clone())
+        .with_context(|| format!("the oracle's answer has no outcome: {answer}"))
 }
 
 /// What the driver printed: each page, and the Sessions it opened.
@@ -407,25 +428,47 @@ struct Printed {
 struct DriverPage {
     task: String,
     outcome: Ended,
+    steps: u64,
     status: Option<u16>,
     read: Option<String>,
     error: Option<String>,
 }
 
+/// What the trial keeps of `page`: the digest of the text it read, in place
+/// of the text, and on an `actionability.test` page the outcome of the
+/// oracle of the Proving ground at `address`.
+fn kept(page: DriverPage, address: &str) -> Result<PageDone> {
+    let mut kept = PageDone {
+        task: page.task,
+        ended: page.outcome,
+        steps: page.steps,
+        status: page.status,
+        read: page
+            .read
+            .map(|read| format!("{:x}", Sha256::digest(read.as_bytes()))),
+        error: page.error,
+        outcome: None,
+    };
+    if kept.task.starts_with("actionability/") {
+        kept.outcome = Some(oracle_outcome(address, &kept)?);
+    }
+    Ok(kept)
+}
+
 /// Waits for the tool `child`, killing its tree once it has run
-/// [`BOUND_SECONDS`].
-fn waited(child: &mut Child) -> Result<std::process::ExitStatus> {
+/// [`BOUND_SECONDS`], which stops the trial.
+fn waited(child: &mut Child) -> Result<Outcome<std::process::ExitStatus>> {
     let started = trial::now();
     loop {
         if let Some(status) = child.try_wait().context("waiting for the tool")? {
-            return Ok(status);
+            return Ok(Outcome::Done(status));
         }
         if started.elapsed() >= Duration::from_secs(BOUND_SECONDS) {
-            for pid in sampler::tree(child.id()) {
-                let _ = trial::kill(pid);
-            }
-            let _ = child.wait();
-            bail!("the tool ran past {BOUND_SECONDS} s and was stopped");
+            trial::kill_tree(child.id());
+            child.wait().context("waiting for the stopped tool")?;
+            return Ok(Outcome::Stopped(format!(
+                "the tool ran past {BOUND_SECONDS} s, the longest a trial may take"
+            )));
         }
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -433,14 +476,15 @@ fn waited(child: &mut Child) -> Result<std::process::ExitStatus> {
 
 /// One trial of `exercise` by `tool`: a fresh Proving ground and browser,
 /// the tool attached through the counting relay, its figures between its
-/// marks, and the oracle's verdict on each `actionability.test` page.
+/// marks, and the oracle's outcome on each `actionability.test` page; or
+/// why the comparison stopped it.
 pub(crate) fn trial(
     tools: &Tools<'_>,
     exercise: Exercise,
-    tool: Driver,
+    tool: Contender,
     number: u32,
     load: Option<f64>,
-) -> Result<CollieTrial> {
+) -> Result<Outcome<CollieTrial>> {
     let serving = crate::rss::crawl::serve(tools.proving_ground)?;
     let urls = start_urls(&serving.address)?;
     let cell = cell(exercise);
@@ -464,12 +508,12 @@ pub(crate) fn trial(
     for name in tools.goodfetch_variables {
         command.env_remove(name);
     }
-    if tool == Driver::Collie {
+    if tool == Contender::Collie {
         let home = folder.path().join("home");
         let lined = home.join(version_line()?);
         std::fs::create_dir_all(&lined).context("creating the Goodfetch home")?;
         let page_urls: Vec<String> = cell
-            .pages
+            .pages()
             .iter()
             .filter_map(|page| urls.get(&page.task).cloned())
             .collect();
@@ -493,7 +537,10 @@ pub(crate) fn trial(
     relay.follow(child.id());
     let status = waited(&mut child);
     let samples = watcher.finish().unwrap_or_default();
-    let status = status?;
+    let status = match status? {
+        Outcome::Done(status) => status,
+        Outcome::Stopped(reason) => return Ok(Outcome::Stopped(reason)),
+    };
     let stderr = std::fs::read_to_string(&errors).unwrap_or_default();
     if !status.success() {
         bail!(
@@ -511,36 +558,29 @@ pub(crate) fn trial(
     };
     drop(relay);
     drop(browser);
-    let mut pages = Vec::new();
-    for page in done.pages {
-        let mut kept = PageDone {
-            task: page.task,
-            ended: page.outcome,
-            status: page.status,
-            read: page
-                .read
-                .map(|read| format!("{:x}", Sha256::digest(read.as_bytes()))),
-            error: page.error,
-            verdict: None,
-        };
-        if kept.task.starts_with("actionability/") {
-            kept.verdict = Some(verdict(&serving.address, &kept)?);
-        }
-        pages.push(kept);
-    }
-    Ok(CollieTrial {
+    let pages = done
+        .pages
+        .into_iter()
+        .map(|page| kept(page, &serving.address))
+        .collect::<Result<Vec<_>>>()?;
+    let actions = match &cell {
+        Cell::Pages { .. } => pages.iter().map(|page| page.steps).sum(),
+        Cell::Sessions(_) => done.sessions,
+    };
+    Ok(Outcome::Done(CollieTrial {
         exercise,
         tool,
         number,
         load,
-        actions: cell.actions(),
+        actions,
         sessions: done.sessions,
         commands: end.commands - start.commands,
         cpu_seconds: (end.cpu_seconds - start.cpu_seconds).max(0.0),
         wall_seconds: end.at.duration_since(start.at).as_secs_f64(),
         peak_bytes: sampler::figures(&samples, &[]).peak_bytes,
         pages,
-    })
+        retried: None,
+    }))
 }
 
 /// A trial's name in a finding.
@@ -556,20 +596,34 @@ fn subject(trial: &CollieTrial) -> String {
 /// What a page's work is: its status and the digest of what it read.
 type Work = (Option<u16>, Option<String>);
 
+/// The steps `done` took past its plan's `planned`: more than planned, or
+/// fewer once every one succeeded.
+fn other_steps(done: &PageDone, planned: &Planned) -> bool {
+    let steps = planned.steps.len() as u64;
+    done.steps > steps || done.ended == Ended::Success && done.steps != steps
+}
+
 /// Each finding that keeps the Collie scenario's figures from counting: a
-/// cell short of or past its declared trials of a tool; a trial whose pages
-/// or actions are not its cell's, or that counted no command; and a trial
+/// cell short of or past its declared trials of a tool, unless a trial of
+/// it was stopped twice; a trial whose pages or Sessions are not its
+/// cell's, whose page took other steps than its plan's (more, or fewer
+/// though they all succeeded), or that counted no command; and a trial
 /// whose page saw another status or text than most trials of both tools
 /// saw, every trial named on a tie.
-pub(crate) fn check(cell: &CollieCell) -> Vec<Finding> {
-    let CollieCell::Measured { trials, trials_run } = cell else {
+pub(crate) fn check(scenario: &CollieScenario) -> Vec<Finding> {
+    let CollieScenario::Measured {
+        trials,
+        trials_run,
+        stopped,
+    } = scenario
+    else {
         return Vec::new();
     };
     let mut findings = Vec::new();
     for exercise in EXERCISES {
         let planned = self::cell(exercise);
         let tasks: Vec<&str> = planned
-            .pages
+            .pages()
             .iter()
             .map(|page| page.task.as_str())
             .collect();
@@ -578,9 +632,12 @@ pub(crate) fn check(cell: &CollieCell) -> Vec<Finding> {
             .filter(|trial| trial.exercise == exercise)
             .collect();
         ran.sort_by_key(|trial| (trial.tool, trial.number));
-        for tool in Driver::ALL {
+        for tool in Contender::ALL {
             let count = ran.iter().filter(|trial| trial.tool == tool).count();
-            if u32::try_from(count).ok() != Some(*trials) {
+            let was_stopped = stopped
+                .iter()
+                .any(|run| run.exercise == exercise && run.tool == tool);
+            if !was_stopped && u32::try_from(count).ok() != Some(*trials) {
                 findings.push(Finding::new(
                     "trial_count",
                     format!("collie {} {}", exercise.name(), tool.name()),
@@ -599,16 +656,33 @@ pub(crate) fn check(cell: &CollieCell) -> Vec<Finding> {
                 ));
                 continue;
             }
-            if trial.actions != planned.actions() || trial.sessions != planned.sessions {
+            let stepped: Vec<String> = trial
+                .pages
+                .iter()
+                .zip(planned.pages())
+                .filter(|(done, plan)| other_steps(done, plan))
+                .map(|(done, plan)| {
+                    format!(
+                        "{} took {} steps of {}",
+                        done.task,
+                        done.steps,
+                        plan.steps.len()
+                    )
+                })
+                .collect();
+            if !stepped.is_empty() || trial.sessions != planned.sessions() {
                 findings.push(Finding::new(
                     "different_actions",
                     subject(trial),
                     format!(
-                        "{} actions and {} Sessions, where its cell plans {} and {}",
-                        trial.actions,
+                        "{} Sessions, where its cell plans {}{}",
                         trial.sessions,
-                        planned.actions(),
-                        planned.sessions
+                        planned.sessions(),
+                        if stepped.is_empty() {
+                            String::new()
+                        } else {
+                            format!("; {}", stepped.join("; "))
+                        }
                     ),
                 ));
                 continue;
@@ -687,11 +761,11 @@ pub(crate) fn order(
     trials: u32,
     state: &mut u64,
     next: fn(&mut u64) -> u64,
-) -> Vec<(Exercise, Driver, u32)> {
+) -> Vec<(Exercise, Contender, u32)> {
     let mut order: Vec<_> = EXERCISES
         .into_iter()
         .flat_map(|exercise| {
-            Driver::ALL
+            Contender::ALL
                 .into_iter()
                 .flat_map(move |tool| (1..=trials).map(move |number| (exercise, tool, number)))
         })

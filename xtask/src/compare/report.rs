@@ -151,7 +151,7 @@ pub(super) fn median(values: &[f64]) -> f64 {
     clippy::cast_precision_loss,
     reason = "pages, bytes and counts here stay far below 2^52, where a float is exact"
 )]
-fn float(count: u64) -> f64 {
+pub(super) fn float(count: u64) -> f64 {
     count as f64
 }
 

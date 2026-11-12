@@ -66,6 +66,8 @@ interface PageResult {
   readonly outcome: "success" | "failure";
   /** The document's status, when the navigation answered one. */
   readonly status: number | null;
+  /** The steps it took, the one that failed included. */
+  readonly steps: number;
   /** The text a `read` step read, when the plan had one. */
   readonly read: string | null;
   /** The first step's error, when one failed. */
@@ -91,7 +93,14 @@ interface Driver {
   close(): Promise<void>;
 }
 
-const READ = "() => document.body.innerText";
+// An expression, which both tools evaluate as it is: Playwright calls only a
+// function it is handed as one, not a function's source.
+const READ = "document.body.innerText";
+
+/** The text a read step read, or none when the page answered no string. */
+function readText(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
 
 /** A Collie page as either tool's. */
 function colliePage(opened: CollieDriverPage): DriverPage {
@@ -103,8 +112,7 @@ function colliePage(opened: CollieDriverPage): DriverPage {
     async step(step) {
       if (step.action === "read") {
         const evaluated = await opened.evaluate(READ);
-        const value: unknown = evaluated.value;
-        return typeof value === "string" ? value : "";
+        return readText(evaluated.value);
       }
       const target = opened.locator(step.selector);
       if (step.action === "click") await target.click();
@@ -148,7 +156,7 @@ async function playwright(plan: Plan, cdp: string): Promise<Driver> {
       return response?.status() ?? null;
     },
     async step(step) {
-      if (step.action === "read") return await opened.evaluate(READ);
+      if (step.action === "read") return readText(await opened.evaluate<unknown>(READ));
       const timeout = plan.action_timeout;
       const target = opened.locator(step.selector);
       if (step.action === "click") await target.click({ timeout });
@@ -173,16 +181,18 @@ async function onPage(session: DriverSession, planned: PlannedPage): Promise<Pag
   const page = await session.newPage();
   let status: number | null = null;
   let read: string | null = null;
+  let steps = 0;
   try {
     status = await page.goto(planned.url);
     for (const step of planned.steps) {
+      steps += 1;
       const text = await page.step(step);
       if (text !== null) read = text;
     }
-    return { task: planned.task, outcome: "success", status, read, error: null };
+    return { task: planned.task, outcome: "success", status, steps, read, error: null };
   } catch (error) {
     const message = error instanceof Error ? (error.message.split("\n")[0] ?? "") : String(error);
-    return { task: planned.task, outcome: "failure", status, read, error: message };
+    return { task: planned.task, outcome: "failure", status, steps, read, error: message };
   } finally {
     await page.close();
   }
@@ -283,10 +293,10 @@ if (plan.sessions > 0) {
 } else {
   const session = await driver.newSession();
   await mark(values.marks, "start");
-  pages = plan.at_once
-    ? await Promise.all(plan.pages.map((planned) => onPage(session, planned)))
-    : [];
-  if (!plan.at_once) {
+  if (plan.at_once) {
+    pages = await Promise.all(plan.pages.map((planned) => onPage(session, planned)));
+  } else {
+    pages = [];
     for (const planned of plan.pages) pages.push(await onPage(session, planned));
   }
   await mark(values.marks, "end");

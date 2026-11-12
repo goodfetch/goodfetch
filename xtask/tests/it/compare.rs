@@ -1164,6 +1164,18 @@ const COLLIE_CELLS: [(&str, &str, &[u32], u64); 5] = [
     ),
 ];
 
+/// The steps the Collie scenario plans on `family`'s page `number`: a
+/// form's fields and its submit, fifty clicks on page 26's counter, and
+/// one click, press or read on any other.
+fn collie_steps(family: &str, number: u32) -> u64 {
+    match (family, number) {
+        ("actionability", 20..=24) => 4,
+        ("actionability", 28) => 2,
+        ("actionability", 26) => 50,
+        _ => 1,
+    }
+}
+
 /// A Collie scenario of two trials of each tool in each cell, every page
 /// done and verified, Collie sending `collie` commands per action and
 /// Playwright one.
@@ -1180,9 +1192,10 @@ fn collie(collie: u64) -> Value {
                             "task": task,
                             "ended": "success",
                             "status": 200,
+                            "steps": collie_steps(family, *page),
                             "read": (family == "portal").then(|| format!("digest of {task}")),
                             "error": null,
-                            "verdict": (family == "actionability").then_some("verified"),
+                            "outcome": (family == "actionability").then_some("verified"),
                         })
                     })
                     .collect();

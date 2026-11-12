@@ -2,7 +2,7 @@ use std::path::Path;
 
 use super::{Executables, Options, counted_output, order, run, set_aside, spider_executable};
 use crate::compare::matrix::{self, SpiderBuild};
-use crate::compare::trials::{CollieCell, Comparison, CountedCell, CountedRun, Tool, Work};
+use crate::compare::trials::{CollieScenario, Comparison, CountedCell, CountedRun, Tool, Work};
 
 /// Each of Spider's side's builds runs the executable Cargo left in the
 /// build's own target folder, under the profile's: the main row's from
@@ -265,8 +265,8 @@ fn a_run_hands_over_its_trials_after_each_part_before_callgrind() {
         &options,
         &mut |so_far: &Comparison| {
             let collie = match &so_far.collie {
-                CollieCell::NotRun { reason } => reason.clone(),
-                CollieCell::Measured { .. } => "measured".to_owned(),
+                CollieScenario::NotRun { reason } => reason.clone(),
+                CollieScenario::Measured { .. } => "measured".to_owned(),
             };
             kept.push((
                 collie,

@@ -6,12 +6,15 @@
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
+use goodfetch_protocol::result_document::OracleOutcome;
 use serde::Serialize;
 
 use crate::register::document;
 
-use super::super::report::{Figure, Unit, cell_text, median, spread};
-use super::super::trials::{CollieCell, CollieTrial, Driver, Exercise, PageDone};
+use super::super::report::{Figure, Unit, cell_text, float, median, spread};
+use super::super::trials::{
+    CollieScenario, CollieStopped, CollieTrial, Contender, Exercise, PageDone,
+};
 use super::{ACTION_TIMEOUT_MILLISECONDS, EXERCISES, RATIO_CELLS, RATIO_ROW};
 
 /// A page some trial did not get right.
@@ -19,7 +22,7 @@ use super::{ACTION_TIMEOUT_MILLISECONDS, EXERCISES, RATIO_CELLS, RATIO_ROW};
 pub(crate) struct Missed {
     pub(crate) task: String,
     /// The oracle's outcome in the first trial that did not get it right.
-    pub(crate) verdict: Option<String>,
+    pub(crate) outcome: Option<OracleOutcome>,
     pub(crate) error: Option<String>,
 }
 
@@ -76,7 +79,7 @@ pub(crate) enum Today {
     NoFigure {
         text: String,
     },
-    /// TESTING.md's register has no such row, or could not be read.
+    /// TESTING.md has no Quality register, or its register no such row.
     NoRow,
 }
 
@@ -97,15 +100,6 @@ pub(crate) enum Section {
     },
 }
 
-/// `count` as a float, for a figure.
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "actions, commands and bytes here stay far below 2^52, where a float is exact"
-)]
-fn float(count: u64) -> f64 {
-    count as f64
-}
-
 /// The `actionability.test` pages of `trials` right in every one of them.
 fn right(trials: &[&CollieTrial]) -> Option<Tally> {
     let mut tasks: BTreeMap<&str, Option<&PageDone>> = BTreeMap::new();
@@ -115,7 +109,7 @@ fn right(trials: &[&CollieTrial]) -> Option<Tally> {
                 continue;
             }
             let missed = tasks.entry(&page.task).or_default();
-            if missed.is_none() && page.verdict.as_deref() != Some("verified") {
+            if missed.is_none() && page.outcome != Some(OracleOutcome::Verified) {
                 *missed = Some(page);
             }
         }
@@ -134,7 +128,7 @@ fn right(trials: &[&CollieTrial]) -> Option<Tally> {
         .filter_map(|(task, missed)| {
             missed.map(|page| Missed {
                 task: task.to_owned(),
-                verdict: page.verdict.clone(),
+                outcome: page.outcome,
                 error: page.error.clone(),
             })
         })
@@ -147,8 +141,8 @@ fn right(trials: &[&CollieTrial]) -> Option<Tally> {
 }
 
 /// The row's Today in TESTING.md's `register`.
-fn today(register: Option<&str>) -> Today {
-    let Some(register) = register.and_then(document::Register::read) else {
+fn today(register: &str) -> Today {
+    let Some(register) = document::Register::read(register) else {
         return Today::NoRow;
     };
     let rows = register.rows();
@@ -164,16 +158,61 @@ fn today(register: Option<&str>) -> Today {
     )
 }
 
+/// A tool's figures in a cell where its trial `stopped` was stopped twice.
+fn not_measured(stopped: &CollieStopped) -> ToolFigures {
+    let figure = || Figure::NotMeasured {
+        reason: format!(
+            "trial {} was stopped twice: {}",
+            stopped.number, stopped.reason
+        ),
+    };
+    ToolFigures {
+        commands_per_action: figure(),
+        cpu_seconds_per_action: figure(),
+        wall_seconds_per_action: figure(),
+        peak_bytes: figure(),
+        pages_right: None,
+    }
+}
+
+/// A tool's figures over its trials `ran` of one cell, each per action it
+/// took, and the median of its commands per action.
+fn figures(ran: &[&CollieTrial]) -> (ToolFigures, f64) {
+    let per_action = |value: &dyn Fn(&CollieTrial) -> f64| -> Vec<f64> {
+        ran.iter()
+            .map(|trial| value(trial) / float(trial.actions))
+            .collect()
+    };
+    let commands = per_action(&|trial| float(trial.commands));
+    let figures = ToolFigures {
+        commands_per_action: spread(&commands, Unit::Count),
+        cpu_seconds_per_action: spread(&per_action(&|trial| trial.cpu_seconds), Unit::Seconds),
+        wall_seconds_per_action: spread(&per_action(&|trial| trial.wall_seconds), Unit::Seconds),
+        peak_bytes: spread(
+            &ran.iter()
+                .map(|trial| float(trial.peak_bytes))
+                .collect::<Vec<_>>(),
+            Unit::Bytes,
+        ),
+        pages_right: right(ran),
+    };
+    (figures, median(&commands))
+}
+
 /// The Collie scenario's section of the report, its ratio held to the
 /// Today of TESTING.md's `register`.
-pub(crate) fn section(cell: &CollieCell, register: Option<&str>) -> Section {
-    let CollieCell::Measured { trials, trials_run } = cell else {
-        let CollieCell::NotRun { reason } = cell else {
-            unreachable!("invariant: a Collie cell is run or not")
-        };
-        return Section::NotRun {
-            reason: reason.clone(),
-        };
+pub(crate) fn section(scenario: &CollieScenario, register: &str) -> Section {
+    let (trials, trials_run, stopped) = match scenario {
+        CollieScenario::NotRun { reason } => {
+            return Section::NotRun {
+                reason: reason.clone(),
+            };
+        }
+        CollieScenario::Measured {
+            trials,
+            trials_run,
+            stopped,
+        } => (trials, trials_run, stopped),
     };
     let today = today(register);
     let mut cells = Vec::new();
@@ -182,42 +221,28 @@ pub(crate) fn section(cell: &CollieCell, register: Option<&str>) -> Section {
         let actions = super::cell(exercise).actions();
         let mut tools = BTreeMap::new();
         let mut medians = BTreeMap::new();
-        for tool in Driver::ALL {
+        for tool in Contender::ALL {
+            if let Some(stopped) = stopped
+                .iter()
+                .find(|run| run.exercise == exercise && run.tool == tool)
+            {
+                tools.insert(tool.name(), not_measured(stopped));
+                continue;
+            }
             let ran: Vec<&CollieTrial> = trials_run
                 .iter()
                 .filter(|trial| trial.exercise == exercise && trial.tool == tool)
                 .collect();
-            let per_action = |value: &dyn Fn(&CollieTrial) -> f64| -> Vec<f64> {
-                ran.iter()
-                    .map(|trial| value(trial) / float(trial.actions))
-                    .collect()
-            };
-            let commands = per_action(&|trial| float(trial.commands));
-            medians.insert(tool, median(&commands));
-            tools.insert(
-                tool.name(),
-                ToolFigures {
-                    commands_per_action: spread(&commands, Unit::Count),
-                    cpu_seconds_per_action: spread(
-                        &per_action(&|trial| trial.cpu_seconds),
-                        Unit::Seconds,
-                    ),
-                    wall_seconds_per_action: spread(
-                        &per_action(&|trial| trial.wall_seconds),
-                        Unit::Seconds,
-                    ),
-                    peak_bytes: spread(
-                        &ran.iter()
-                            .map(|trial| float(trial.peak_bytes))
-                            .collect::<Vec<_>>(),
-                        Unit::Bytes,
-                    ),
-                    pages_right: right(&ran),
-                },
-            );
+            let (figures, commands) = figures(&ran);
+            medians.insert(tool, commands);
+            tools.insert(tool.name(), figures);
         }
-        if RATIO_CELLS.contains(&exercise) {
-            let (collie, playwright) = (medians[&Driver::Collie], medians[&Driver::Playwright]);
+        if RATIO_CELLS.contains(&exercise)
+            && let (Some(&collie), Some(&playwright)) = (
+                medians.get(&Contender::Collie),
+                medians.get(&Contender::Playwright),
+            )
+        {
             let ratio = (collie / playwright * 1000.0).round() / 1000.0;
             ratios.push(CommandRatio {
                 exercise,
@@ -236,7 +261,7 @@ pub(crate) fn section(cell: &CollieCell, register: Option<&str>) -> Section {
             tools,
         });
     }
-    let pages_right = Driver::ALL
+    let pages_right = Contender::ALL
         .into_iter()
         .filter_map(|tool| {
             let ran: Vec<&CollieTrial> = trials_run
@@ -269,7 +294,15 @@ fn ratios_text(text: &mut String, ratios: &[CommandRatio], today: &Today) {
         text,
         "\n`{RATIO_ROW}`, Collie's CDP commands per action over Playwright's, Guard on:\n"
     );
-    for ratio in ratios {
+    for exercise in RATIO_CELLS {
+        let Some(ratio) = ratios.iter().find(|ratio| ratio.exercise == exercise) else {
+            let _ = writeln!(
+                text,
+                "- {}: not measured, a tool's trial having been stopped twice.",
+                exercise.name()
+            );
+            continue;
+        };
         let _ = writeln!(
             text,
             "- {}: {:.3}, Collie's {:.2} over Playwright's {:.2}.",
@@ -314,19 +347,18 @@ fn ratios_text(text: &mut String, ratios: &[CommandRatio], today: &Today) {
 /// The Collie scenario's section in Markdown.
 pub(crate) fn markdown(section: &Section) -> String {
     let mut text = String::from("\n## The Collie scenario: Collie against Playwright\n\n");
-    let Section::Measured {
-        trials,
-        cells,
-        pages_right,
-        ratios,
-        today,
-    } = section
-    else {
-        let Section::NotRun { reason } = section else {
-            unreachable!("invariant: a section is run or not")
-        };
-        let _ = writeln!(text, "The Collie scenario was not run: {reason}.");
-        return text;
+    let (trials, cells, pages_right, ratios, today) = match section {
+        Section::NotRun { reason } => {
+            let _ = writeln!(text, "The Collie scenario was not run: {reason}.");
+            return text;
+        }
+        Section::Measured {
+            trials,
+            cells,
+            pages_right,
+            ratios,
+            today,
+        } => (trials, cells, pages_right, ratios, today),
     };
     let _ = writeln!(
         text,
@@ -370,7 +402,7 @@ pub(crate) fn markdown(section: &Section) -> String {
                 format!(
                     "{} ({}{})",
                     missed.task,
-                    missed.verdict.as_deref().unwrap_or("no verdict"),
+                    missed.outcome.map_or("no outcome", OracleOutcome::as_str),
                     missed
                         .error
                         .as_ref()

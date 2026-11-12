@@ -16,13 +16,12 @@ use crate::rss::crawl::serve;
 
 use super::collie;
 use super::matrix::{self, Cell, Config, Row, Scenario, SpiderBuild};
-use super::sampler;
-use super::trial::{self, Counted, callgrind_missing, strace_missing};
+use super::trial::{self, Counted, Outcome, callgrind_missing, strace_missing};
 use super::trials::{
-    CONCURRENCY, CRAWLEE_VERSION, CollieCell, Comparison, CountedCell, CountedRun, Declared,
-    GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_TOOLS, Machine, Measured,
-    PLAYWRIGHT_VERSION, QUIET_LOAD, QUIET_WAIT_SECONDS, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION,
-    SITE_PAGES, SPIDER_VERSION, STATISTIC, StoppedRun, Trial,
+    CONCURRENCY, CRAWLEE_VERSION, CollieScenario, CollieStopped, Comparison, CountedCell,
+    CountedRun, Declared, GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_TOOLS, Machine,
+    Measured, PLAYWRIGHT_VERSION, QUIET_LOAD, QUIET_WAIT_SECONDS, SCRAPY_PLAYWRIGHT_VERSION,
+    SCRAPY_VERSION, SITE_PAGES, SPIDER_VERSION, STATISTIC, StoppedRun, Trial,
 };
 
 /// The executables a run takes.
@@ -283,12 +282,6 @@ fn trial<T: serde::de::DeserializeOwned>(
         })
 }
 
-/// A trial's figures, or why the comparison stopped it.
-pub(crate) enum Outcome<T> {
-    Done(T),
-    Stopped(String),
-}
-
 /// How long a watched trial may go with the Proving ground receiving no
 /// request before it is stopped as stalled.
 pub(crate) const STALL_SECONDS: u64 = 120;
@@ -408,12 +401,7 @@ fn watched(child: &mut Child, address: &str, watch: Watch) -> Result<Option<Stri
             requests,
         );
         if let Some(reason) = reason {
-            // Every process of the trial's tree, gathered before any dies
-            // and leaves its children to another parent.
-            for pid in sampler::tree(child.id()) {
-                // One may have exited meanwhile.
-                let _ = trial::kill(pid);
-            }
+            trial::kill_tree(child.id());
             child.wait().context("waiting for the stopped trial")?;
             return Ok(Some(reason));
         }
@@ -676,40 +664,79 @@ fn collie_trials(
     tools: Option<&collie::Tools<'_>>,
     options: &Options,
     state: &mut u64,
-) -> Result<CollieCell> {
+) -> Result<CollieScenario> {
     let Some(tools) = tools else {
-        return Ok(CollieCell::NotRun {
+        return Ok(CollieScenario::NotRun {
             reason: "the run asked for no Collie cell".to_owned(),
         });
     };
     let mut trials_run = Vec::new();
+    let mut stopped: Vec<CollieStopped> = Vec::new();
     for (exercise, tool, number) in collie::order(options.trials, state, next) {
-        let load = if waits_for_quiet(options) {
-            quiet()
-        } else {
-            load()
-        };
-        let done = collie::trial(tools, exercise, tool, number, load).with_context(|| {
+        if stopped
+            .iter()
+            .any(|run| run.exercise == exercise && run.tool == tool)
+        {
+            continue;
+        }
+        let measured = retried(|| {
+            let load = if waits_for_quiet(options) {
+                quiet()
+            } else {
+                load()
+            };
+            collie::trial(tools, exercise, tool, number, load)
+        })
+        .with_context(|| {
             format!(
                 "running the Collie scenario's {} cell, {} trial {number}",
                 exercise.name(),
                 tool.name()
             )
         })?;
-        output::line(&format!(
-            "collie {} {} trial {number}: {} actions, {} CDP commands in {:.3} s, peak {} bytes",
-            exercise.name(),
-            tool.name(),
-            done.actions,
-            done.commands,
-            done.wall_seconds,
-            done.peak_bytes,
-        ));
-        trials_run.push(done);
+        match measured {
+            Retried::Done {
+                measured: mut done,
+                retried,
+            } => {
+                if let Some(reason) = &retried {
+                    output::line(&format!(
+                        "collie {} {} trial {number} was stopped, then retried: {reason}",
+                        exercise.name(),
+                        tool.name()
+                    ));
+                }
+                output::line(&format!(
+                    "collie {} {} trial {number}: {} actions, {} CDP commands in {:.3} s, peak {} bytes",
+                    exercise.name(),
+                    tool.name(),
+                    done.actions,
+                    done.commands,
+                    done.wall_seconds,
+                    done.peak_bytes,
+                ));
+                done.retried = retried;
+                trials_run.push(done);
+            }
+            Retried::Stopped(reason) => {
+                output::line(&format!(
+                    "collie {} {} trial {number} was stopped twice, and the cell measures it no further: {reason}",
+                    exercise.name(),
+                    tool.name()
+                ));
+                stopped.push(CollieStopped {
+                    exercise,
+                    tool,
+                    number,
+                    reason,
+                });
+            }
+        }
     }
-    Ok(CollieCell::Measured {
+    Ok(CollieScenario::Measured {
         trials: options.trials,
         trials_run,
+        stopped,
     })
 }
 
@@ -743,7 +770,7 @@ pub(crate) fn run(
         instructions: CountedCell::NotRun {
             reason: not_reached("Callgrind"),
         },
-        collie: CollieCell::NotRun {
+        collie: CollieScenario::NotRun {
             reason: not_reached("Collie"),
         },
     };

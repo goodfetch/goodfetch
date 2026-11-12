@@ -54,7 +54,7 @@ use crate::output;
 use crate::test_tools::{Tool, ToolManifest};
 
 use matrix::Scenario;
-use trials::Comparison;
+use trials::{CollieScenario, Comparison};
 
 /// The folder beside the trials file where a run keeps the Callgrind cell's
 /// outputs.
@@ -351,9 +351,13 @@ fn report(
     if !findings.is_empty() {
         return Ok(check::report(&findings));
     }
-    let testing =
-        std::fs::read_to_string(environment.root.join(crate::register::document::FILE)).ok();
-    let section = collie::section(&trials.collie, testing.as_deref());
+    let register = environment.root.join(crate::register::document::FILE);
+    let testing = match &trials.collie {
+        CollieScenario::NotRun { .. } => String::new(),
+        CollieScenario::Measured { .. } => std::fs::read_to_string(&register)
+            .with_context(|| format!("reading the Quality register in {}", register.display()))?,
+    };
+    let section = collie::section(&trials.collie, &testing);
     let report = report::of(trials);
     let mut markdown = report::markdown(&report, trials);
     markdown.push_str(&collie::markdown(&section));
@@ -375,3 +379,6 @@ fn report(
     ));
     Ok(ExitCode::SUCCESS)
 }
+
+#[cfg(test)]
+mod tests;

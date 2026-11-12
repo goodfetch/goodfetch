@@ -2,13 +2,14 @@ use std::collections::BTreeMap;
 
 use serde_json::json;
 
+use super::super::trials::CollieStopped;
 use super::*;
 
 #[test]
 fn each_cell_plans_its_pages_and_counts_its_actions() {
     let tasks = |exercise| {
         cell(exercise)
-            .pages
+            .pages()
             .iter()
             .map(|page| page.task.clone())
             .collect::<Vec<_>>()
@@ -40,22 +41,22 @@ fn each_cell_plans_its_pages_and_counts_its_actions() {
     assert_eq!(cell(Exercise::Navigation).actions(), 8);
     assert!(
         cell(Exercise::Navigation)
-            .pages
+            .pages()
             .iter()
             .all(|page| page.steps == [Step::Read])
     );
     let sessions = cell(Exercise::Sessions);
-    assert!(sessions.pages.is_empty());
+    assert!(sessions.pages().is_empty());
     assert_eq!(
-        (sessions.sessions, sessions.actions()),
+        (sessions.sessions(), sessions.actions()),
         (SESSIONS, SESSIONS)
     );
     let at_once = cell(Exercise::AtOnce);
-    assert!(at_once.at_once);
-    assert_eq!(at_once.pages.len(), 16);
+    assert!(matches!(at_once, Cell::Pages { at_once: true, .. }));
+    assert_eq!(at_once.pages().len(), 16);
     assert_eq!(at_once.actions(), 81);
     for exercise in [Exercise::Click, Exercise::Form, Exercise::Navigation] {
-        assert!(!cell(exercise).at_once);
+        assert!(matches!(cell(exercise), Cell::Pages { at_once: false, .. }));
     }
 }
 
@@ -140,25 +141,23 @@ fn collies_configuration_maps_each_host_to_loopback_and_lets_it_through() {
         settings["run_state"]["key_reference"].as_str(),
         Some(format!("env:{RUN_STATE_KEY_VARIABLE}").as_str())
     );
-    // The user configuration is read from the folder of the engine's
-    // version line: xtask's version is the workspace's.
-    assert_eq!(version_line().unwrap(), "0.0");
 }
 
-/// A page as the tool left it.
-fn page(task: &str, ended: Ended, verdict: Option<&str>) -> PageDone {
+/// A page as the tool left it, after `steps` steps.
+fn page(task: &str, ended: Ended, steps: u64, outcome: Option<OracleOutcome>) -> PageDone {
     PageDone {
         task: task.to_owned(),
         ended,
         status: Some(200),
+        steps,
         read: None,
         error: (ended == Ended::Failure).then(|| "timed out".to_owned()),
-        verdict: verdict.map(str::to_owned),
+        outcome,
     }
 }
 
 /// A trial of `exercise` that did its cell's work, every page verified.
-fn done(exercise: Exercise, tool: Driver, number: u32, commands: u64) -> CollieTrial {
+fn done(exercise: Exercise, tool: Contender, number: u32, commands: u64) -> CollieTrial {
     let cell = cell(exercise);
     CollieTrial {
         exercise,
@@ -166,22 +165,23 @@ fn done(exercise: Exercise, tool: Driver, number: u32, commands: u64) -> CollieT
         number,
         load: None,
         actions: cell.actions(),
-        sessions: cell.sessions,
+        sessions: cell.sessions(),
         commands,
         cpu_seconds: 0.5,
         wall_seconds: 1.0,
         peak_bytes: 100 << 20,
         pages: cell
-            .pages
+            .pages()
             .iter()
             .map(|planned| {
                 let mut done = page(
                     &planned.task,
                     Ended::Success,
+                    planned.steps.len() as u64,
                     planned
                         .task
                         .starts_with("actionability/")
-                        .then_some("verified"),
+                        .then_some(OracleOutcome::Verified),
                 );
                 if planned.steps == [Step::Read] {
                     done.read = Some(format!("digest of {}", planned.task));
@@ -189,6 +189,7 @@ fn done(exercise: Exercise, tool: Driver, number: u32, commands: u64) -> CollieT
                 done
             })
             .collect(),
+        retried: None,
     }
 }
 
@@ -200,18 +201,19 @@ fn every(trials: u32, collie: u64, playwright: u64) -> Vec<CollieTrial> {
         .flat_map(|&exercise| {
             (1..=trials).flat_map(move |number| {
                 [
-                    done(exercise, Driver::Collie, number, collie),
-                    done(exercise, Driver::Playwright, number, playwright),
+                    done(exercise, Contender::Collie, number, collie),
+                    done(exercise, Contender::Playwright, number, playwright),
                 ]
             })
         })
         .collect()
 }
 
-fn measured(trials_run: Vec<CollieTrial>) -> CollieCell {
-    CollieCell::Measured {
+fn measured(trials_run: Vec<CollieTrial>) -> CollieScenario {
+    CollieScenario::Measured {
         trials: 2,
         trials_run,
+        stopped: Vec::new(),
     }
 }
 
@@ -228,12 +230,17 @@ fn trials_of_the_same_work_pass_whatever_their_outcomes() {
     // A failed click is an outcome, not other work.
     let click = trials
         .iter_mut()
-        .find(|trial| trial.exercise == Exercise::Click && trial.tool == Driver::Playwright)
+        .find(|trial| trial.exercise == Exercise::Click && trial.tool == Contender::Playwright)
         .unwrap();
-    click.pages[6] = page("actionability/7", Ended::Failure, Some("failed"));
+    click.pages[6] = page(
+        "actionability/7",
+        Ended::Failure,
+        1,
+        Some(OracleOutcome::Failed),
+    );
     assert!(check(&measured(trials)).is_empty());
     assert!(
-        check(&CollieCell::NotRun {
+        check(&CollieScenario::NotRun {
             reason: "not asked".to_owned()
         })
         .is_empty()
@@ -252,19 +259,19 @@ fn a_trial_of_other_work_is_refused_and_named() {
             .unwrap()
     };
     // Other pages.
-    let at = index(&trials, Exercise::Click, Driver::Collie, 1);
+    let at = index(&trials, Exercise::Click, Contender::Collie, 1);
     trials[at].pages.pop();
     // Another page's text read.
-    let at = index(&trials, Exercise::Navigation, Driver::Playwright, 2);
+    let at = index(&trials, Exercise::Navigation, Contender::Playwright, 2);
     trials[at].pages[3].read = Some("another digest".to_owned());
     // Other actions.
-    let at = index(&trials, Exercise::Sessions, Driver::Collie, 2);
+    let at = index(&trials, Exercise::Sessions, Contender::Collie, 2);
     trials[at].sessions = 9;
     // Nothing counted.
-    let at = index(&trials, Exercise::Form, Driver::Playwright, 1);
+    let at = index(&trials, Exercise::Form, Contender::Playwright, 1);
     trials[at].commands = 0;
     // A cell short of its trials.
-    let at = index(&trials, Exercise::AtOnce, Driver::Playwright, 2);
+    let at = index(&trials, Exercise::AtOnce, Contender::Playwright, 2);
     trials.remove(at);
     assert_eq!(
         kinds(&check(&measured(trials))),
@@ -279,15 +286,104 @@ fn a_trial_of_other_work_is_refused_and_named() {
 }
 
 #[test]
+fn a_page_that_took_other_steps_than_its_plan_is_other_work() {
+    let mut trials = every(2, 120, 100);
+    let at = |trials: &[CollieTrial], tool, number| {
+        trials
+            .iter()
+            .position(|trial| {
+                trial.exercise == Exercise::Form && trial.tool == tool && trial.number == number
+            })
+            .unwrap()
+    };
+    // Succeeded, though it took one step of its plan's four.
+    let first = at(&trials, Contender::Collie, 1);
+    trials[first].pages[0].steps = 1;
+    // Failed on its second step of four: an outcome, not other work.
+    let second = at(&trials, Contender::Playwright, 2);
+    trials[second].pages[0] = page(
+        "actionability/20",
+        Ended::Failure,
+        2,
+        Some(OracleOutcome::Failed),
+    );
+    let findings = check(&measured(trials));
+    assert_eq!(
+        kinds(&findings),
+        [("different_actions", "collie form collie trial 1")]
+    );
+    assert!(
+        findings[0]
+            .message
+            .contains("actionability/20 took 1 steps of 4"),
+        "{}",
+        findings[0].message
+    );
+}
+
+#[test]
+fn a_tool_stopped_twice_in_a_cell_is_not_measured_there() {
+    let mut trials = every(2, 120, 100);
+    // Collie's second click trial was stopped twice.
+    trials.retain(|trial| {
+        !(trial.exercise == Exercise::Click && trial.tool == Contender::Collie && trial.number == 2)
+    });
+    let scenario = CollieScenario::Measured {
+        trials: 2,
+        trials_run: trials,
+        stopped: vec![CollieStopped {
+            exercise: Exercise::Click,
+            tool: Contender::Collie,
+            number: 2,
+            reason: "the tool ran past 300 s".to_owned(),
+        }],
+    };
+    assert!(check(&scenario).is_empty());
+    let section = section(&scenario, "");
+    let report = serde_json::to_value(&section).unwrap();
+    let click = &report["cells"][0]["tools"]["collie"]["commands_per_action"];
+    assert_eq!(click["status"], "not_measured");
+    assert_eq!(report["ratios"].as_array().unwrap().len(), 1);
+    assert_eq!(report["ratios"][0]["exercise"], "form");
+    let text = markdown(&section);
+    assert!(
+        text.contains("trial 2 was stopped twice: the tool ran past 300 s"),
+        "{text}"
+    );
+    assert!(text.contains("- click: not measured"), "{text}");
+}
+
+#[test]
+fn a_trial_that_stopped_short_is_measured_per_action_it_took() {
+    let mut trials = every(2, 0, 0);
+    for trial in &mut trials {
+        trial.commands = trial.actions * 2;
+    }
+    // Collie's first click trial took 31 actions of its 62 for 93 commands.
+    let short = trials
+        .iter_mut()
+        .find(|trial| trial.exercise == Exercise::Click && trial.tool == Contender::Collie)
+        .unwrap();
+    short.actions = 31;
+    short.commands = 93;
+    let report = serde_json::to_value(section(&measured(trials), "")).unwrap();
+    let commands = &report["cells"][0]["tools"]["collie"]["commands_per_action"];
+    // 3 and 2 commands per action.
+    assert_eq!(commands["high"], 3.0);
+    assert_eq!(commands["low"], 2.0);
+}
+
+#[test]
 fn a_page_both_tools_split_on_evenly_names_every_trial() {
     let mut trials: Vec<CollieTrial> = every(1, 120, 100)
         .into_iter()
         .filter(|trial| trial.exercise == Exercise::Navigation)
         .collect();
     trials[1].pages[0].status = Some(404);
-    let findings = check(&CollieCell::Measured {
+    let findings = check(&CollieScenario::Measured {
         trials: 1,
         trials_run: trials,
+        stopped: Vec::new(),
     });
     let mut subjects: Vec<_> = kinds(&findings);
     subjects.retain(|(kind, _)| *kind != "trial_count");
@@ -328,8 +424,8 @@ fn measured_section(today: &str) -> Section {
         // Per action: Collie 1.5 commands, Playwright 1.25, on every cell.
         let actions = trial.actions;
         trial.commands = match trial.tool {
-            Driver::Collie => actions * 3 / 2,
-            Driver::Playwright => actions * 5 / 4,
+            Contender::Collie => actions * 3 / 2,
+            Contender::Playwright => actions * 5 / 4,
         };
         trial.wall_seconds =
             0.001 * f64::from(u32::try_from(actions).unwrap()) * f64::from(trial.number);
@@ -337,11 +433,18 @@ fn measured_section(today: &str) -> Section {
     let click = trials
         .iter_mut()
         .find(|trial| {
-            trial.exercise == Exercise::Click && trial.tool == Driver::Collie && trial.number == 2
+            trial.exercise == Exercise::Click
+                && trial.tool == Contender::Collie
+                && trial.number == 2
         })
         .unwrap();
-    click.pages[6] = page("actionability/7", Ended::Failure, Some("failed"));
-    section(&measured(trials), Some(&REGISTER.replace("TODAY", today)))
+    click.pages[6] = page(
+        "actionability/7",
+        Ended::Failure,
+        1,
+        Some(OracleOutcome::Failed),
+    );
+    section(&measured(trials), &REGISTER.replace("TODAY", today))
 }
 
 #[test]
@@ -408,10 +511,10 @@ fn the_section_gives_the_command_ratio_of_the_click_and_form_cells_against_the_r
 #[test]
 fn a_collie_scenario_not_run_says_why() {
     let section = section(
-        &CollieCell::NotRun {
+        &CollieScenario::NotRun {
             reason: "the run asked for no Collie cell".to_owned(),
         },
-        None,
+        "",
     );
     assert!(markdown(&section).contains("not run: the run asked for no Collie cell"));
 }

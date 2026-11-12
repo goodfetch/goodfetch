@@ -373,6 +373,21 @@ pub(crate) fn kill(_pid: u32) -> Result<()> {
     bail!("a resumed scenario kills its tool with SIGKILL, which only Unix has")
 }
 
+/// Kills every process of the tree under `root`, each by its own ID,
+/// gathered before any dies and leaves its children to another parent.
+pub(crate) fn kill_tree(root: u32) {
+    for pid in sampler::tree(root) {
+        // One may have exited meanwhile.
+        let _ = kill(pid);
+    }
+}
+
+/// A trial's figures, or why the comparison stopped it.
+pub(crate) enum Outcome<T> {
+    Done(T),
+    Stopped(String),
+}
+
 /// What the OS accounted to the trial's waited-for children.
 #[derive(Clone, Copy, Default)]
 struct Usage {

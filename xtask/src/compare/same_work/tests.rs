@@ -1,7 +1,7 @@
 use super::{check, strace_runs_of_other_work_set_aside};
 use crate::compare::matrix::{self, Row, Scenario};
 use crate::compare::trials::{
-    CollieCell, Comparison, CountedCell, CountedRun, Declared, GrowthCell, INSTRUCTION_TOOLS,
+    CollieScenario, Comparison, CountedCell, CountedRun, Declared, GrowthCell, INSTRUCTION_TOOLS,
     Machine, Measured, Tool, Trial, Work,
 };
 
@@ -75,7 +75,7 @@ fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
         instructions: CountedCell::NotRun {
             reason: "a test".to_owned(),
         },
-        collie: CollieCell::NotRun {
+        collie: CollieScenario::NotRun {
             reason: "a test".to_owned(),
         },
     }

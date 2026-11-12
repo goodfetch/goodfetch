@@ -306,7 +306,7 @@ fn every_encodings_page_reads_the_same_text_on_browser_fetch_and_in_the_browser(
     assert_eq!(
         escalated,
         vec![
-            json!(["http", "sample", null, null]),
+            json!(["browser_fetch", "sample", null, null]),
             json!(["browser", "sample", "fetch.encoding", "detected"]),
         ]
     );

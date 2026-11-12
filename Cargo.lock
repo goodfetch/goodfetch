@@ -2395,6 +2395,7 @@ dependencies = [
 name = "goodfetch-crawl"
 version = "0.0.0"
 dependencies = [
+ "bytes",
  "fixed_decimal",
  "futures-util",
  "goodfetch-counted-work",
@@ -2567,6 +2568,7 @@ dependencies = [
  "brotli-decompressor 6.0.1",
  "btls",
  "bytes",
+ "cookie_store",
  "cssparser 0.37.0",
  "data-encoding",
  "dom_query",
@@ -2590,6 +2592,7 @@ dependencies = [
  "hyper-util",
  "jiff",
  "proptest",
+ "psl",
  "quick-xml 0.41.0",
  "rcgen",
  "reqwest",

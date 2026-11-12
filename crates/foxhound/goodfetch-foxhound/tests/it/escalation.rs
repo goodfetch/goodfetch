@@ -149,9 +149,9 @@ fn a_challenge_met_over_http_moves_its_request_to_the_browser_and_its_domain_sta
                 handled("/corpus/vendor-script", "session-2", "browser"),
             ],
             vec![
-                json!(["page", "http", "sample", null, null]),
+                json!(["page", "browser_fetch", "sample", null, null]),
                 json!(["page", "browser", "sample", null, null]),
-                json!(["page", "http", "compared", null, null]),
+                json!(["page", "browser_fetch", "compared", null, null]),
                 json!(["page", "browser", "compared", null, null]),
             ],
             vec![
@@ -348,9 +348,9 @@ fn a_challenge_the_programs_code_names_moves_its_request_to_the_browser_as_a_det
                 handled("/corpus/article?n=3", "session-1", "browser"),
             ],
             vec![
-                json!(["page", "http", "sample", null, null]),
+                json!(["page", "browser_fetch", "sample", null, null]),
                 json!(["page", "browser", "sample", null, null]),
-                json!(["page", "http", "compared", null, null]),
+                json!(["page", "browser_fetch", "compared", null, null]),
                 json!(["page", "browser", "escalation", null, "blocked"]),
                 json!(["page", "browser", "compared", null, null]),
             ],
@@ -420,9 +420,9 @@ fn a_challenge_a_handlers_goto_meets_over_http_moves_its_request_to_the_browser(
                 handled("/corpus/article?n=3", "session-1", "browser"),
             ],
             vec![
-                json!(["page", "http", "sample", null, null]),
+                json!(["page", "browser_fetch", "sample", null, null]),
                 json!(["page", "browser", "sample", null, null]),
-                json!(["page", "http", "compared", null, null]),
+                json!(["page", "browser_fetch", "compared", null, null]),
                 json!(["page", "browser", "escalation", null, "blocked"]),
                 json!(["page", "browser", "compared", null, null]),
             ],

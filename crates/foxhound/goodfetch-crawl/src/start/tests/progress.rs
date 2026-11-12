@@ -117,6 +117,7 @@ fn a_crawls_progress_counts_its_requests_and_lists_those_in_flight() {
                 "request_id": "1",
                 "url": "https://a.test/1",
                 "phase": "handling",
+                "tier": "http",
                 "attempt": 1,
                 "started_at": "2026-01-05T09:00:00Z",
             }]),

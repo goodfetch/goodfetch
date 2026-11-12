@@ -2307,11 +2307,6 @@ class CrawlRunReport(BaseModel):
     """Whether its results cover its scope."""
     completeness_reasons: list[AxisReason] | None = None
     """Why it is not `complete`, when it is not."""
-    console_url: str | None = None
-    """
-    Its page in the Console, where its Run trace replays, when the
-    engine knows a Console address (ADR 0031).
-    """
     ended_at: PointInTime
     """When it ended."""
     error: EndingError | None = None
@@ -2509,7 +2504,7 @@ class RecordProvenance(BaseModel):
     tier: TierProvenance | None = None
     """
     The tier that fetched that request's document, and how it was
-    chosen; none where the handler was given its request alone.
+    chosen; none where no document was fetched.
     """
     unread_fields: list[UnreadField] | None = None
     """

@@ -11,7 +11,7 @@
   },
   {
     "name": "shows the started run",
-    "file": "console/tests/runs.test.ts",
+    "file": "website/tests/runs.test.ts",
     "tags": ["client_case/start-a-run", "attached"]
   },
   {

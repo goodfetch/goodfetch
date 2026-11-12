@@ -2,20 +2,14 @@
   "config": { "rootDir": "." },
   "suites": [
     {
-      "title": "console/tests/journeys/J-001.spec.ts",
-      "file": "console/tests/journeys/J-001.spec.ts",
-      "specs": [{ "title": "console", "tags": ["J-001", "console"] }],
-      "suites": []
-    },
-    {
-      "title": "console/tests/runs.spec.ts",
-      "file": "console/tests/runs.spec.ts",
+      "title": "docs/tests/pages.spec.ts",
+      "file": "docs/tests/pages.spec.ts",
       "specs": [],
       "suites": [
         {
-          "title": "Runs",
-          "file": "console/tests/runs.spec.ts",
-          "specs": [{ "title": "lists the runs", "tags": [] }],
+          "title": "Pages",
+          "file": "docs/tests/pages.spec.ts",
+          "specs": [{ "title": "lists the pages", "tags": [] }],
           "suites": []
         }
       ]

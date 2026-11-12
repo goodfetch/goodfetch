@@ -1,7 +1,0 @@
-# The fixture of the Console packages' proof (just proofs, ADR 0087), its own
-# pnpm workspace: Collie's Console build, Foxhound's, and Foxhound's screens
-# as a package of their own, which only Foxhound's build depends on. pnpm
-# links only a package's declared dependencies, so Collie's build cannot
-# resolve the screens' package.
-packages:
-  - "*"

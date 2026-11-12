@@ -12,7 +12,7 @@ use serde_json::Value;
 use super::command::CommandLines;
 use super::entry::{Carriers, unreadable};
 use super::files::{self, AreasFile, Feature, Inventory};
-use super::{block_cause, command, contract, format, row, screen, story};
+use super::{block_cause, command, contract, format, row, story};
 
 /// ADR 0087's generated table of the names only Foxhound carries, by catalog
 /// section.
@@ -41,7 +41,6 @@ pub(crate) fn generate(sources: &Sources<'_>) -> Result<Inventory> {
     entries.extend(contract::entries(sources.catalog));
     entries.extend(format::entries(sources.bundle));
     entries.extend(command::entries(sources.command_lines));
-    entries.extend(screen::entries(sources.root)?);
     entries.extend(block_cause::entries(sources.catalog));
     let mut features: Vec<Feature> = entries
         .into_iter()

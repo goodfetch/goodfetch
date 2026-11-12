@@ -1,6 +1,6 @@
 //! Listing the Run index (ADRs 0031, 0036 and 0117): `run.list` answers the
 //! rows of every Run of the user and major, of either Product, filtered and
-//! sorted by the engine, so every Client, the Console among them, sees the
+//! sorted by the engine, so every Client, the Kennel among them, sees the
 //! same view of the same filter. A Run started by a Recipe or a Schedule
 //! carries reserved tags, `goodfetch.<key>:<value>`, from which the list
 //! reads its Recipe, Schedule, occurrence, trigger and role; a Watch run,

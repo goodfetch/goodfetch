@@ -33,6 +33,7 @@ This extends ADR 0023, under which every costly control can be switched off and 
 
 - **One generated schema.** A single settings schema, generated alongside the Operation catalog, produces the SDK types, the CLI flags, the Recipe manifest's exposed inputs, and the n8n, Zapier and Make forms.
 - **`goodfetch config explain`** shows each effective value, the layer that set it and the layer that locked it, like `git config --show-origin`. The run report and the Console show the same; which layers the Console may edit is set by ADR 0031.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
 - **Weakening is recorded.** Any override that weakens a guarantee class or switches off a costly control is recorded in the Audit log and marked on the results it touches (ADR 0023).
 - **Some honesty guarantees stay locked whatever the layer**: the delivery ID and epoch on every write, the guarantee class reported per delivery, webhook signing, and Secret references. These join ADR 0016's controls that cost nothing at run time.
 - **Changes ADRs 0016 and 0023.** Their "switchable per run" controls can now be capped or locked by an Operator policy or a Recipe; where nothing locks them, the run can still switch them.

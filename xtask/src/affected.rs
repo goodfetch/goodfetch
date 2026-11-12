@@ -132,8 +132,8 @@ pub(crate) fn changed_paths(root: &Path, range: &Range) -> Result<Vec<RepoPath>>
     git::changed_paths(root, range)
 }
 
-/// The pseudo-member that names the tests no workspace member owns, such as
-/// `console/screens.spec.ts`, where a member's name is taken.
+/// The pseudo-member that names the tests no workspace member owns, where a
+/// member's name is taken.
 pub(crate) const UNOWNED: &str = ":unowned";
 
 /// Which runners test a member of the workspaces.

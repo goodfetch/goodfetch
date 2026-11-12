@@ -1,6 +1,11 @@
 [
   {
     "name": "sdk-typescript",
+    "file": "sdks/typescript/collie/tests/journeys/J-001.test.ts",
+    "tags": ["J-001", "sdk-typescript"]
+  },
+  {
+    "name": "sdk-typescript",
     "file": "sdks/typescript/foxhound/tests/journeys/J-003.test.ts",
     "tags": ["J-003", "sdk-typescript"]
   },

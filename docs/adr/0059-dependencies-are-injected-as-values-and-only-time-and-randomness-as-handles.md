@@ -72,6 +72,7 @@ Decided in [Injection and determinism: time, randomness, storage, network and OS
 - **The environment is a value.** `std::env::set_var` is `unsafe` in Rust 2024, and `unsafe_code` is denied. The settings resolver (ADR 0028) takes an explicit environment map, which `main` reads once; `std::env::var`, `var_os` and `vars` are refused elsewhere by `disallowed-methods`. A child process gets its environment through `Command::env`.
   > Amended by [ADR 0083](0083-a-program-sets-settings-in-one-typed-option-explicit-values-beat-the-environment-and-no-value-is-silently-ignored.md): the Rust SDK's `connect()`, given no environment map, reads the process environment once, the one reader besides `main`, under an `#[expect]` of the `disallowed-methods` lint.
 - **The clipboard** is reached only by the Console, through Playwright's clipboard permissions. ADR 0033's refusal of the clipboard to Plugins is a sandbox test.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console. The engine behaviour this ADR describes stands and the Console's part does not; a Client reaches it.
 
 ### Isolation
 
@@ -88,8 +89,11 @@ Any test can run beside any other:
 ### SDKs and the Console
 
 - **SDK durations and jitter are options.** Tests pass short values and a fixed seed. No Python clock mock reaches the engine's process, and time-machine 3 no longer mocks the monotonic clock. The TypeScript SDK may also use Vitest fake timers for timer logic that never reaches the engine.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **The Console** uses Playwright's `page.clock`, which its docs recommend starting with `setFixedTime`, in end-to-end tests, and Vitest fake timers in component tests.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **No SDK or Console test waits in real time** beyond a short duration it set itself.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 ## Considered Options
 

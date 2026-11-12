@@ -16,14 +16,13 @@ use anyhow::{Context as _, Result};
 
 /// Folders no walk enters, wherever they are: version control, build
 /// outputs, installed packages and caches.
-const GENERATED: [&str; 7] = [
+const GENERATED: [&str; 6] = [
     ".git",
     "target",
     "node_modules",
     ".venv",
     "__pycache__",
     "dist",
-    "console-build",
 ];
 
 /// Folders under the root no walk enters: the frozen R&D archive (ADR

@@ -740,7 +740,7 @@ status = "active"
 
 [[story]]
 id = 94
-title = "As a user, I want the Fingerprint method's warning in the CLI, the SDK results, the Console and the Run report's `warnings`, and the choice recorded in Provenance and the Audit log, so that a run never hides what it masked (ADRs 0016, 0023, 0102)."
+title = "As a user, I want the Fingerprint method's warning in the CLI, the SDK results and the Run report's `warnings`, and the choice recorded in Provenance and the Audit log, so that a run never hides what it masked (ADRs 0016, 0023, 0102)."
 milestone = "M3 Browser automation"
 journey = true
 status = "active"

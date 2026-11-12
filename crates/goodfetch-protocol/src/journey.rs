@@ -170,8 +170,6 @@ pub enum Milestone {
 pub enum Surface {
     /// The command line of the Product's executable.
     Cli,
-    /// The Console.
-    Console,
     /// The Rust SDK.
     SdkRust,
     /// The TypeScript SDK.
@@ -203,7 +201,6 @@ impl Surface {
         };
         Some(match name {
             "cli" => Self::Cli,
-            "console" => Self::Console,
             "sdk-rust" => Self::SdkRust,
             "sdk-typescript" => Self::SdkTypescript,
             "sdk-python" => Self::SdkPython,
@@ -225,7 +222,7 @@ impl Surface {
     /// it is due earlier.
     pub fn first_milestone(&self) -> Milestone {
         match self {
-            Self::Cli | Self::Console => Milestone::M1,
+            Self::Cli => Milestone::M1,
             Self::SdkRust
             | Self::SdkTypescript
             | Self::SdkPython

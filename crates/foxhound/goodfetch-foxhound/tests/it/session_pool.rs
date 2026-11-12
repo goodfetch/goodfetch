@@ -31,8 +31,6 @@ use goodfetch_test_support::{ProvingGround, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use crate::attached;
-
 /// The Proving ground's seed.
 const SEED: u64 = 920;
 
@@ -181,7 +179,7 @@ fn the_pools_settings_retire_a_session_by_its_uses_its_age_and_its_error_score(
 ) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let (sessions, lifecycle) = crawl(
         &mut engine,
@@ -208,16 +206,19 @@ fn the_pools_settings_retire_a_session_by_its_uses_its_age_and_its_error_score(
 
 /// Covers: story:6-251, story:5-138, setting:session.pool.max_size
 #[rstest]
-#[case::a_403("/corpus/ip-block", session("session-2", "datacenter", false))]
-#[case::a_429("/corpus/rate-limit", session("session-2", "datacenter", false))]
-#[case::a_challenge("/corpus/interstitial", session("session-2", "none", false))]
+#[case::a_403("/corpus/ip-block", true, session("session-2", "datacenter", false))]
+#[case::a_429("/corpus/rate-limit", true, session("session-2", "datacenter", false))]
+// A challenge page is read by the engine on the document it fetched: the
+// Session is retired before any handler is given the request.
+#[case::a_challenge("/corpus/interstitial", false, session("session-2", "none", false))]
 fn a_block_retires_its_session_and_one_that_escalates_opens_the_replacement_at_the_next_proxy_tier(
     #[case] blocked: &str,
+    #[case] handed_over: bool,
     #[case] replacement: Value,
 ) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let (sessions, lifecycle) = crawl(
         &mut engine,
@@ -228,10 +229,11 @@ fn a_block_retires_its_session_and_one_that_escalates_opens_the_replacement_at_t
     );
     assert!(engine.finished());
 
+    let first = handed_over.then(|| session("session-1", "none", false));
     assert_eq!(
         (sessions, lifecycle),
         (
-            vec![session("session-1", "none", false), replacement],
+            first.into_iter().chain([replacement]).collect::<Vec<_>>(),
             json!("finished")
         )
     );
@@ -252,7 +254,7 @@ fn a_crawl_killed_and_resumed_keeps_its_sessions_and_revalidates_each_on_its_fir
         ],
     );
     let settings = settings(&json!({ "max_size": 2 }));
-    let mut killed = attached(&env);
+    let mut killed = crate::site::engine_on(&env, &proving_ground);
     let mut before = Vec::new();
     killed.send(&json!({
         "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
@@ -271,7 +273,7 @@ fn a_crawl_killed_and_resumed_keeps_its_sessions_and_revalidates_each_on_its_fir
         }
     }
     killed.kill();
-    let mut resuming = attached(&env);
+    let mut resuming = crate::site::engine_on(&env, &proving_ground);
 
     let mut after: Vec<Value> = Vec::new();
     let mut answer = |params: &Value| {

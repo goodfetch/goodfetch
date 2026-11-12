@@ -43,8 +43,8 @@ fn forced(tier: FetchTier, label: Option<&str>) -> TierChoice {
 }
 
 /// A Label's own `fetch.tier` forces its requests only, over the Run's;
-/// an `auto` set for a Label or the Run leaves the tier to the engine's
-/// choice, while the built-in default hands the handler its request alone.
+/// `auto`, set for a Label or the Run or the Run's built-in default, leaves
+/// the tier to the engine's choice.
 #[rstest::rstest]
 #[case::label_forces_its_own(
     "list",
@@ -63,8 +63,8 @@ fn forced(tier: FetchTier, label: Option<&str>) -> TierChoice {
     Choosing::Engine
 )]
 #[case::an_auto_the_label_set_under_the_default("auto", SetTier::Unset, Choosing::Engine)]
-#[case::the_default_is_handed_alone("page", SetTier::Unset, Choosing::Alone)]
-#[case::undeclared_under_the_default("other", SetTier::Unset, Choosing::Alone)]
+#[case::the_default_is_the_engines_choice("page", SetTier::Unset, Choosing::Engine)]
+#[case::undeclared_under_the_default("other", SetTier::Unset, Choosing::Engine)]
 #[case::undeclared_under_a_forced_run(
     "other",
     SetTier::Forced(FetchTier::Http),

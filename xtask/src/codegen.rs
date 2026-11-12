@@ -4,9 +4,7 @@
 //! Product's projection, the names only Foxhound carries, the namespaces of
 //! the commands Collie's executable generates, the cargo-deny
 //! `wrappers` list of Foxhound's crates and Collie's ban of them, cargo-deny's
-//! copy of the license allowlist, each SDK package's `generated/` layer, and
-//! the Console's operation map from Collie's projection (spec #592) and
-//! Foxhound's Console's from Foxhound's (spec #593),
+//! copy of the license allowlist, each SDK package's `generated/` layer,
 //! each registered format's refusal cases (ADR 0066), the Journey files'
 //! schema on its own, `journeys/journey.schema.json`, for
 //! editors and the TypeScript and Python helpers (ADR 0063), and the result
@@ -39,7 +37,6 @@
 )]
 
 mod cdp;
-mod console;
 mod counted_work;
 mod deny;
 mod digest;
@@ -305,8 +302,6 @@ impl Plan {
             facts::XTASK_FOLDER,
             helpers::TYPESCRIPT_FOLDER,
             helpers::PYTHON_FOLDER,
-            console::FOLDER,
-            console::FOXHOUND_FOLDER,
         ]
         .into_iter()
         .chain(PACKAGES.iter().map(|package| package.folder))
@@ -409,9 +404,6 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     );
     files.extend(facts::files(cargo, root)?);
     files.extend(cdp::generate(root)?);
-    for (path, text) in console::all_files(root, &collie, &foxhound, &foxhound_names)? {
-        files.insert(path, text.into_bytes());
-    }
 
     let version = product_version(root)?;
     let mut externals = Vec::new();

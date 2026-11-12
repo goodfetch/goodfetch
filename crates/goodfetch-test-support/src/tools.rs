@@ -3,6 +3,15 @@
 //! commit's executables a test runs. `GOODFETCH_TEST_TOOLS` names it. A
 //! test takes Collie's executable unless it needs Foxhound, and one that
 //! measures an executable takes each.
+//!
+//! Beside the manifest, `xtask test-tools build` writes its input record,
+//! `<manifest>.inputs.json`: the tree the tools were built from and the
+//! size and modification time of each source Cargo compiled into them.
+//! Reading the manifest compares the record with the tree, so tools built
+//! before a merge, a `git switch` or an edit, or from another tree, are
+//! refused at their first use rather than run. A manifest with no record,
+//! as a test writes for stand-in programs, describes no build and is read
+//! as it is.
 #![expect(
     clippy::disallowed_methods,
     reason = "test support reads the manifest outside any async worker (ADR 0062)"
@@ -11,6 +20,8 @@
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::time::UNIX_EPOCH;
 
 use crate::variables::{TOOLS_VARIABLE, Variables};
 
@@ -47,8 +58,8 @@ pub struct Tools {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "PathBuf")]
     pub conformance: Option<PathBuf>,
-    /// `goodfetch-stub-gateway`, the Stub gateway the Console conformance
-    /// suite runs against (ADR 0096).
+    /// `goodfetch-stub-gateway`, the Stub gateway the Cloud-readiness
+    /// conformance suite runs against (ADR 0096).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "PathBuf")]
     pub stub_gateway: Option<PathBuf>,
@@ -108,9 +119,98 @@ impl Product {
     }
 }
 
+/// The tree this crate was compiled from, which is the tree of the test
+/// that links it: Cargo rebuilds a test with its sources, and not the
+/// tools.
+const TREE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
+
+/// What a [`ToolsError`] of tools not built from this tree says to run.
+const REBUILD: &str =
+    "rebuild them with `just _test-tools`, or run the tests with `just test`, which does";
+
+/// A manifest's input record, which `xtask test-tools build` writes beside
+/// it: what its tools were built from.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InputRecord {
+    /// The tree's folder.
+    root: PathBuf,
+    /// Each source of the tools, as it was when they were built.
+    inputs: Vec<Input>,
+}
+
+/// One source: its path from the tree's folder, its size in bytes and its
+/// modification time in nanoseconds since the Unix epoch.
+#[derive(serde::Deserialize)]
+struct Input(PathBuf, u64, u64);
+
+/// The size and modification time of the file at `path`, as an [`Input`]
+/// holds them; `None` when it has none to read.
+fn stamp(path: &Path) -> Option<(u64, u64)> {
+    let metadata = std::fs::metadata(path).ok()?;
+    let modified = metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
+    Some((metadata.len(), u64::try_from(modified.as_nanos()).ok()?))
+}
+
+/// Where the input record of the manifest at `manifest` is.
+fn record_path(manifest: &Path) -> PathBuf {
+    manifest.with_extension("inputs.json")
+}
+
+/// Fails when the tools of the manifest at `manifest` were built from
+/// another tree than `tree`, or before a source of theirs changed; a
+/// manifest with no input record passes.
+fn check_built_from(manifest: &Path, tree: &Path) -> Result<(), ToolsError> {
+    let path = record_path(manifest);
+    let text = match std::fs::read(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(source) => return Err(ToolsError::Unreadable { path, source }),
+    };
+    let record: InputRecord =
+        serde_json::from_slice(&text).map_err(|source| ToolsError::Invalid { path, source })?;
+    // One tree has several spellings: `tree` through `..`, a link's.
+    let tree = std::fs::canonicalize(tree).unwrap_or_else(|_| tree.to_owned());
+    if record.root != tree && std::fs::canonicalize(&record.root).ok().as_ref() != Some(&tree) {
+        return Err(ToolsError::OtherTree {
+            manifest: manifest.to_owned(),
+            built_from: record.root,
+            tree,
+        });
+    }
+    match record
+        .inputs
+        .into_iter()
+        .find(|Input(path, size, modified)| stamp(&tree.join(path)) != Some((*size, *modified)))
+    {
+        Some(Input(input, ..)) => Err(ToolsError::Stale {
+            manifest: manifest.to_owned(),
+            input,
+        }),
+        None => Ok(()),
+    }
+}
+
 impl Tools {
-    /// Reads the manifest at `manifest`, which `None` says is not set.
+    /// Reads the manifest at `manifest`, which `None` says is not set, and
+    /// fails when its tools were not built from this tree as it is.
     pub fn read(manifest: Option<&Path>) -> Result<Self, ToolsError> {
+        Self::read_built_from(manifest, Path::new(TREE))
+    }
+
+    /// Reads the manifest at `manifest`, which `None` says is not set, and
+    /// fails when its input record says its tools were built from another
+    /// tree than `tree`, or before a source of theirs in it changed.
+    pub fn read_built_from(manifest: Option<&Path>, tree: &Path) -> Result<Self, ToolsError> {
+        let tools = Self::parse(manifest)?;
+        if let Some(manifest) = manifest {
+            check_built_from(manifest, tree)?;
+        }
+        Ok(tools)
+    }
+
+    /// The manifest at `manifest`, whatever its tools were built from.
+    fn parse(manifest: Option<&Path>) -> Result<Self, ToolsError> {
         let path = manifest.ok_or(ToolsError::Unset)?;
         let text = std::fs::read(path).map_err(|source| ToolsError::Unreadable {
             path: path.to_owned(),
@@ -137,15 +237,29 @@ impl Tools {
     }
 }
 
-/// The manifest `GOODFETCH_TEST_TOOLS` names.
+/// The manifest `GOODFETCH_TEST_TOOLS` names, whose tools were built from
+/// this tree as it is: its input record is compared with the tree at the
+/// process's first call, and a manifest that passed is not compared again.
 pub fn tools() -> Result<Tools, ToolsError> {
+    /// The manifest whose tools this process found built from this tree.
+    static BUILT_FROM_THIS_TREE: OnceLock<PathBuf> = OnceLock::new();
     let variables = Variables::from_process();
-    Tools::read(variables.get(TOOLS_VARIABLE).map(Path::new))
+    let manifest = variables.get(TOOLS_VARIABLE).map(Path::new);
+    let tools = Tools::parse(manifest)?;
+    if let Some(manifest) = manifest
+        && BUILT_FROM_THIS_TREE.get().map(PathBuf::as_path) != Some(manifest)
+    {
+        check_built_from(manifest, Path::new(TREE))?;
+        // Lost to another thread's same answer, or to another manifest's,
+        // which then is compared at each call.
+        let _ = BUILT_FROM_THIS_TREE.set(manifest.to_owned());
+    }
+    Ok(tools)
 }
 
-/// Why a test cannot find an executable: each names `just test`, which
-/// builds them and writes the manifest.
-#[derive(Debug, thiserror::Error)]
+/// Why a test cannot find an executable, or may not run it: each names
+/// `just test`, which builds them and writes the manifest.
+#[derive(thiserror::Error)]
 #[non_exhaustive]
 pub enum ToolsError {
     /// `GOODFETCH_TEST_TOOLS` is not set.
@@ -174,4 +288,30 @@ pub enum ToolsError {
         "the test tool manifest lists no {0}: run the tests with `just test`, which builds every executable the workspace has"
     )]
     Missing(Tool),
+    /// The manifest's tools were built from another tree.
+    #[error("the test tools of {} were built from {}, not from this tree, {}: {REBUILD}", manifest.display(), built_from.display(), tree.display())]
+    OtherTree {
+        /// The manifest's path.
+        manifest: PathBuf,
+        /// The tree its input record names.
+        built_from: PathBuf,
+        /// The tree of the test.
+        tree: PathBuf,
+    },
+    /// A source of the manifest's tools changed since they were built.
+    #[error("the test tools of {} are older than their sources ({} changed since they were built): {REBUILD}", manifest.display(), input.display())]
+    Stale {
+        /// The manifest's path.
+        manifest: PathBuf,
+        /// The first changed source, from the tree's folder.
+        input: PathBuf,
+    },
+}
+
+/// Its message: most tests unwrap `tools()`, and the panic then says what to
+/// run rather than the variant's name.
+impl fmt::Debug for ToolsError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, formatter)
+    }
 }

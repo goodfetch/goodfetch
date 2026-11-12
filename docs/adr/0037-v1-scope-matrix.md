@@ -92,6 +92,8 @@ The one list of compared tools: parity is held against it, and a tool joins or l
 | RT-41 | Running arbitrary code inside a running crawl | `excluded` | ADR 0037 (note of 2026-11-11; G-19 Q23); ADR 0102 | 3 Engine runtime | Refused by the owner on 2026-11-11 (grilling of G-19, Q23: « Yes to all »), with the reason as shown. Reason: The read side is held (ADR 0102, #1496); code sent into a live engine skips the Script sandbox. Shipped by Scrapy. G-19 ids: a9. |
 | RT-42 | A handler extending its own timeout | `excluded` | ADR 0080:88; G-19 Q30 | 3 Engine runtime | Recorded as refused by the owner on 2026-11-11 (grilling of G-19, Q30: « Yes, all six »), citing the earlier decision. Reason: A handler changing its own timeout is hidden state, and the route's setting already gives a long handler its time. Shipped by crawlee-rs. G-19 ids: b14. |
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): the local Console leaves V1's Product scope and M1's contents. The person-facing capabilities ADR 0037's matrix gives the Console (run status, the Live view, replay) stay in scope through Clients; the hosted dashboard is Goodfetch Cloud's.
+
 ### SDK SDK binding & distribution
 
 | ID | Capability | Status | Source | Spec area | Note |
@@ -416,6 +418,8 @@ The one list of compared tools: parity is held against it, and a tool joins or l
 | CN-06 | A web playground for the API | `excluded` | ADR 0037 (note of 2026-11-11; G-19 Q23); ADR 0137:19 | 12 Console | Refused by the owner on 2026-11-11 (grilling of G-19, Q23: « Yes to all »), with the reason as shown. Reason: A Console inside the Products was refused (ADR 0137:19). Shipped by Crawl4AI (docs only). G-19 ids: g20. |
 | CN-07 | A desktop application with crawl charts | `excluded` | ADR 0137:19; G-19 Q31 | 12 Console | Refused by the owner on 2026-11-11 (grilling of G-19, Q31: « Yes, all six »), on the reason as put. Reason: The owner's Console decision. Shipped by openspider. G-19 ids: d44. |
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
+
 ### CL Cloud readiness
 
 | ID | Capability | Status | Source | Spec area | Note |
@@ -433,6 +437,8 @@ The one list of compared tools: parity is held against it, and a tool joins or l
 | CL-11 | Jina Reader's HTTP API answered by the Daemon | `spec` | ADR 0027 (note of 2026-11-11; G-19 Q10) | 11 Client surfaces | Shipped by pagesift. A setting, off by default. No code copied. G-19 ids: d16. |
 | CL-12 | Runs started by workflow tools | `decided` | ADR 0027:5, [#605](https://github.com/goodfetch/goodfetch/issues/605) | 11 Client surfaces | Held before G-19 by the source cited, whose default stands. Shipped by Skyvern (docs only). G-19 ids: g45. |
 | CL-13 | Charging callers through x402 | `excluded` | ADR 0001:3, ADR 0001:15; G-19 Q31 | 14 Cloud-readiness contracts | Refused by the owner on 2026-11-11 (grilling of G-19, Q31: « Yes, all six »), on the reason as put. Reason: Pricing is Goodfetch Cloud's. Shipped by Firecrawl. G-19 ids: c25. |
+
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 ## Stagehand v3 capabilities reached through Crawlee
 
@@ -474,3 +480,5 @@ No v3 API compatibility layer is offered (ADR 0037). A Crawlee+Stagehand migrati
 | 22 | `perf-memory-concurrency` | `decided` | ADR 0040, ADR 0004, ADR 0020, ADR 0024 | 3 Engine runtime | Resource-aware concurrency from container limits, browser recycling on memory growth, and a shedding ladder ending in a resumable `resources_exhausted` stop. |
 | 23 | `rel-incorrect-incomplete` | `decided` | ADR 0003, ADR 0005, ADR 0008, ADR 0026, ADR 0103, ADR 0116 | 6 Collection | Outputs visible exactly once, delivery IDs, upsert on declared keys, and the Completeness axis. A Dataset declares its key, and a handler's Records commit once with its attempt (ADR 0103). A saved Export or file is never left half-written (ADR 0116). |
 | 24 | `durability-resume` | `decided` | ADR 0002, ADR 0003, ADR 0010, ADR 0106 | 3 Engine runtime | Per-run SQLite, portable Checkpoints, epochs, and Effects never repeated blindly; a program's own Effects are declared with `run.effect`, keyed and journaled with their output (ADR 0106). |
+
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.

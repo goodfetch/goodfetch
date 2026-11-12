@@ -13,12 +13,7 @@
 # entry) or `{ expect = "challenge" }` (an HTTP proxy asks a client
 # without credentials for them with a `407`, as it asks every client first,
 # the browser included: no refusal, no Audit log entry, no relayed byte).
-# The Console's WebSocket (`console`) carries its token as a
-# sign-in's cookie, so it refuses every token rule at its handshake, with a
-# status. The content origin (`content_origin`) takes no credential but an
-# address signed for one file: its token is such an address, another
-# listener's is the Console's sign-in cookie, which it never reads, and it
-# answers each refusal with a status. The token rows that present a token
+# The token rows that present a token
 # of their own (another listener's, an expired, a revoked and an
 # out-of-scope one) take it from the listener's test, which fails the row
 # when it gives none; a listener whose tokens cannot expire or be revoked
@@ -46,8 +41,6 @@ private_endpoint = { expect = "closed" }
 ops_listener = { expect = "status", status = 401 }
 daemon_websocket = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
-console = { expect = "status", status = 401 }
-content_origin = { expect = "status", status = 401 }
 proxy_relay = { expect = "challenge" }
 
 [rule.token_wrong]
@@ -60,8 +53,6 @@ private_endpoint = { expect = "closed" }
 ops_listener = { expect = "status", status = 401 }
 daemon_websocket = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
-console = { expect = "status", status = 401 }
-content_origin = { expect = "status", status = 401 }
 proxy_relay = { expect = "status", status = 407 }
 
 [rule.token_from_another_listener]
@@ -74,8 +65,6 @@ private_endpoint = { expect = "closed" }
 ops_listener = { expect = "status", status = 401 }
 daemon_websocket = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
-console = { expect = "status", status = 401 }
-content_origin = { expect = "status", status = 401 }
 proxy_relay = { expect = "status", status = 407 }
 
 [rule.token_expired]
@@ -110,7 +99,6 @@ advisories = ["CVE-2025-49596"]
 [rule.token_in_query_string.listeners]
 ops_listener = { expect = "status", status = 401 }
 daemon_websocket = { expect = "closed" }
-console = { expect = "status", status = 401 }
 
 [rule.host_foreign]
 summary = "The request or the WebSocket handshake names a foreign `Host`, as a DNS-rebinding page's does."
@@ -120,8 +108,6 @@ advisories = ["CVE-2025-66414"]
 [rule.host_foreign.listeners]
 ops_listener = { expect = "status", status = 403 }
 daemon_websocket = { expect = "status", status = 403 }
-console = { expect = "status", status = 403 }
-content_origin = { expect = "status", status = 403 }
 
 [rule.origin_foreign]
 summary = "The request or the WebSocket handshake carries a foreign `Origin`."
@@ -131,8 +117,6 @@ advisories = ["CVE-2025-49596"]
 [rule.origin_foreign.listeners]
 ops_listener = { expect = "status", status = 403 }
 daemon_websocket = { expect = "status", status = 403 }
-console = { expect = "status", status = 403 }
-content_origin = { expect = "status", status = 403 }
 
 [rule.origin_missing]
 summary = "The request or the WebSocket handshake carries no `Origin`: accepted only with a header token, which a browser page cannot send cross-site."
@@ -141,7 +125,6 @@ adrs = [17, 49, 67]
 [rule.origin_missing.listeners]
 ops_listener = { expect = "accepted" }
 daemon_websocket = { expect = "status", status = 403 }
-console = { expect = "status", status = 403 }
 
 [rule.origin_missing_without_header_token]
 summary = "The request carries no `Origin` and no header token, the valid token only in a cookie, as a browser page's cross-site request could send it."
@@ -160,7 +143,6 @@ daemon_socket = { expect = "closed" }
 private_endpoint = { expect = "closed" }
 daemon_websocket = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
-console = { expect = "closed" }
 
 [rule.probes_answer_status_only]
 summary = "`/livez` and `/readyz` answer without a token, with a status and no body."
@@ -168,32 +150,4 @@ adrs = [50]
 
 [rule.probes_answer_status_only.listeners]
 ops_listener = { expect = "status_only" }
-
-[rule.csrf_token_missing]
-summary = "A signed-in `POST`, such as signing out, carries no CSRF token."
-adrs = [31, 67]
-
-[rule.csrf_token_missing.listeners]
-console = { expect = "status", status = 403 }
-
-[rule.sign_in_revoked]
-summary = "The cookie is of a sign-in that has ended: signed out, revoked or past its idle expiry."
-adrs = [31, 67]
-
-[rule.sign_in_revoked.listeners]
-console = { expect = "status", status = 401 }
-
-[rule.token_for_another_file]
-summary = "The address carries the valid signature of another file."
-adrs = [31, 67]
-
-[rule.token_for_another_file.listeners]
-content_origin = { expect = "status", status = 401 }
-
-[rule.sign_in_rate_exceeded]
-summary = "The address tries to sign in an eleventh time in a minute, past `console.sign_in.rate`."
-adrs = [31, 67]
-
-[rule.sign_in_rate_exceeded.listeners]
-console = { expect = "status", status = 429 }
 

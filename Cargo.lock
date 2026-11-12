@@ -2485,7 +2485,6 @@ dependencies = [
  "gungraun",
  "hickory-resolver",
  "hkdf",
- "hmac 0.12.1",
  "http-body-util",
  "httpdate",
  "hyper",
@@ -2916,7 +2915,6 @@ dependencies = [
  "goodfetch-protocol",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
- "rstest",
  "serde_json",
 ]
 
@@ -8107,7 +8105,6 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "anyhow",
- "brotli 9.0.0",
  "clap",
  "flate2",
  "glob",

@@ -22,8 +22,8 @@ use goodfetch_test_support::{ProvingGround, ReceivedRequests, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 
+use crate::before_their_turn;
 use crate::frontier::{added, crawl_with};
-use crate::{attached, before_their_turn};
 
 /// The Proving ground's seed.
 const SEED: u64 = 903;
@@ -78,7 +78,7 @@ struct Crawled {
 
 fn crawl_sitemap(proving_ground: &ProvingGround, seed: &Value, more: &Value) -> Crawled {
     let env = TestEnv::new();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, proving_ground);
     let mut handled = Vec::new();
     let report = crawl_with(
         &mut engine,
@@ -356,7 +356,7 @@ fn a_robots_txt_seed_admits_its_own_hosts_entries_from_the_sitemap_it_cross_subm
         (
             handled(&[("book", &url(SITE, "/books/4"))]),
             json!([counts(&robots, 1, &[], 1, &[("out_of_scope", 1)])]),
-            vec!["/robots.txt".to_owned()],
+            vec!["/books/4".to_owned(), "/robots.txt".to_owned()],
             partner_received
                 .iter()
                 .map(|&target| target.to_owned())
@@ -657,7 +657,7 @@ fn a_sitemap_seed_added_to_a_running_crawl_is_committed_at_once_and_read() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let url = |path: &str| proving_ground.url(SITE, path);
     let sitemap = plain_sitemap(&proving_ground);
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let mut answers = Vec::new();
     let mut handled = Vec::new();
 
@@ -719,7 +719,7 @@ fn a_sitemap_seed_staged_by_a_failed_attempt_is_discarded_and_its_retry_commits_
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let url = |path: &str| proving_ground.url(SITE, path);
     let sitemap = plain_sitemap(&proving_ground);
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let mut answers = Vec::new();
     let mut handled = Vec::new();
 

@@ -449,14 +449,13 @@ pub struct CrawlRequestHandleParams {
     /// The Session of the crawl's Session pool that serves the attempt.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub session: ServingSession,
-    /// The tier that fetched the request's document, when the engine
-    /// fetched it (`fetch.tier`); none when the handler is given the
-    /// request alone.
+    /// The tier that serves the request's page (`fetch.tier`): the engine
+    /// fetches every request's document, so every request names one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub tier: Option<FetchTier>,
     /// The page served from the fetched document, which the handler reads
-    /// as any page, when the engine fetched it.
+    /// as any page; every request names one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub page_id: Option<PageId>,
@@ -464,8 +463,7 @@ pub struct CrawlRequestHandleParams {
     /// fetched it: its final URL, status and headers as the site sent
     /// them, the encoding its document was decoded with, and the
     /// `request_id` whose body `response.body` reads (ADRs 0093 and 0119).
-    /// None when the handler is given the request alone, or when the
-    /// browser's navigation answered none.
+    /// None when the browser's navigation answered none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub response: Option<PageResponse>,

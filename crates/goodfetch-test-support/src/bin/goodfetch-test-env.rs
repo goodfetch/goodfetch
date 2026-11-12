@@ -10,9 +10,6 @@
 //! home, or of Foxhound's with `--daemon=foxhound` (ADR 0094); the
 //! description names its socket and token, and at teardown it is stopped
 //! with its executable's `daemon stop` and must leave no runtime file.
-//! `--console-port <port>` has its Console serve on that port, which a test
-//! that restarts the Daemon names so that no other program can take it in
-//! between, instead of one the OS chooses.
 //! `--browser` prepares the home for an engine that launches a browser, as
 //! an SDK's Attached engine does for a program that opens a page: it lays
 //! out the Browser cache there, so nothing is downloaded, and, with
@@ -77,9 +74,6 @@ struct Arguments {
         default_missing_value = "collie"
     )]
     daemon: Option<Product>,
-    /// The port the Daemon's Console serves on, instead of one the OS chooses.
-    #[arg(long, value_name = "PORT", requires = "daemon")]
-    console_port: Option<u16>,
     /// Lays out the Browser cache in the test's home and, with
     /// `--proving-ground`, lets the home's engines reach its hosts.
     #[arg(long)]
@@ -222,18 +216,11 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
         }
         None => None,
     };
-    let mut settings = Vec::new();
     if arguments.browser {
         browser_cache_in_home(&env)?;
         if let Some(started) = &proving_ground {
-            settings.push(reaching(started.description()));
+            env.user_configuration(&reaching(started.description()));
         }
-    }
-    if let Some(port) = arguments.console_port {
-        settings.push(format!("console.address = \"127.0.0.1:{port}\"\n"));
-    }
-    if !settings.is_empty() {
-        env.user_configuration(&settings.concat());
     }
     let daemon = match arguments.daemon {
         Some(product) => {

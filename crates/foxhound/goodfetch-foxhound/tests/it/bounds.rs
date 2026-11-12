@@ -17,7 +17,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::attached;
-use crate::frontier::{Inside, attributes, crawl_under, fetch};
+use crate::frontier::{Inside, attributes, crawl_under};
 
 /// The Proving ground's seed.
 const SEED: u64 = 843;
@@ -61,13 +61,13 @@ fn answered(answer: &Value) -> String {
 }
 
 /// Crawls the Proving ground's archive, `traps.test/archive/`, under the
-/// `crawl` settings `settings`: each page's handler fetches it and enqueues
+/// `crawl` settings `settings`: each page's handler reads it and enqueues
 /// its "Older" link, the relative `more/`, which nests without end.
 fn crawl_archive(settings: &Value) -> Crawled {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let seeds = [json!({ "url": proving_ground.url("traps.test", "/archive/"), "label": "page" })];
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut answers = Vec::new();
     let report = crawl_under(
@@ -76,10 +76,8 @@ fn crawl_archive(settings: &Value) -> Crawled {
         &seeds,
         settings,
         &mut |inside: &mut Inside<'_>, handle: &Value| {
-            let url = handle["crawl_request"]["url"].as_str().unwrap();
-            let page = fetch(&proving_ground, url);
-            assert_eq!(page.status, 200, "{url}");
-            for href in attributes(&page.body, "a href") {
+            let body = crate::site::html_of(inside, handle);
+            for href in attributes(&body, "a href") {
                 if href == "more/" {
                     answers.push(answered(&inside.enqueue(handle, &href, "page", None)));
                 }
@@ -149,7 +147,7 @@ fn a_bound_refuses_further_enqueues_and_the_run_ends_incomplete(
         crawled,
         Crawled {
             answers: strings(&["added", reason]),
-            received: strings(&["/archive/", "/archive/more/"]),
+            received: strings(&["/robots.txt", "/archive/", "/archive/more/"]),
             completeness: json!("incomplete"),
             reasons: reasons.clone(),
             read_back: (json!("incomplete"), reasons),
@@ -176,7 +174,12 @@ fn the_default_repeat_cap_ends_a_relative_link_loop_and_null_turns_it_off() {
         (
             Crawled {
                 answers: strings(&["added", "added", "max_segment_repeats"]),
-                received: strings(&["/archive/", "/archive/more/", "/archive/more/more/"]),
+                received: strings(&[
+                    "/robots.txt",
+                    "/archive/",
+                    "/archive/more/",
+                    "/archive/more/more/",
+                ]),
                 completeness: json!("unverified"),
                 reasons: cap.clone(),
                 read_back: (json!("unverified"), cap),
@@ -184,6 +187,7 @@ fn the_default_repeat_cap_ends_a_relative_link_loop_and_null_turns_it_off() {
             Crawled {
                 answers: strings(&["added", "added", "added", "added", "max_requests"]),
                 received: strings(&[
+                    "/robots.txt",
                     "/archive/",
                     "/archive/more/",
                     "/archive/more/more/",
@@ -243,7 +247,7 @@ fn the_url_caps_refuse_a_long_url_a_deep_path_and_a_repeated_segment(
         "/a/a/".to_owned(),
     ];
     let looping_seed = proving_ground.url("traps.test", "/b/b/b/");
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let mut given = Vec::new();
     let report = crawl_under(

@@ -574,7 +574,7 @@ fn an_operator_policy_lock_keeps_robots_txt_respected() {
         "version = \"0.1\"\n\n[lock.site_preferences]\nrespect_robots_txt = true\n",
     )
     .unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let started = engine.call(
         "start",
@@ -613,7 +613,7 @@ fn the_robots_txt_fetch_counts_in_its_domains_politeness() {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let delay = Duration::from_secs(2);
     let more = json!({ "politeness": { "domain": { "delay": 2_000 } } });
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
 
     let started = Instant::now();
     let mut first_page = None;

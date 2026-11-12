@@ -1,6 +1,6 @@
 # Code style
 
-How code is shaped in Goodfetch: the engine, its crates, the SDKs, the Console and the tools around them. Every rule comes with its reason, so that an exception can be judged against it. The hard-to-reverse rules (contracts, errors on the wire, cancellation, casing, concurrency, Cargo features) are decided in [ADR 0038](docs/adr/0038-contracts-from-rust-types-one-error-cancellation-and-concurrency-model.md); this file restates them only as far as code needs them. Rules a tool can check also live in the tool's configuration, which wins when the two disagree, and this file is then corrected.
+How code is shaped in Goodfetch: the engine, its crates, the SDKs and the tools around them. Every rule comes with its reason, so that an exception can be judged against it. The hard-to-reverse rules (contracts, errors on the wire, cancellation, casing, concurrency, Cargo features) are decided in [ADR 0038](docs/adr/0038-contracts-from-rust-types-one-error-cancellation-and-concurrency-model.md); this file restates them only as far as code needs them. Rules a tool can check also live in the tool's configuration, which wins when the two disagree, and this file is then corrected.
 
 Where this file is silent, the Rust section names its references and `AGENTS.md`'s Language skills lists the skills for each language; this file wins where they disagree.
 
@@ -52,7 +52,7 @@ References: the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines
 - **Module files are `foo.rs` beside a `foo/` folder, never `mod.rs`.** `lib.rs` only declares modules and re-exports.
   _Why:_ editor tabs full of `mod.rs` are unreadable, and a short `lib.rs` shows the crate's shape at a glance.
 - **Each crate and each module opens with a `//!` comment stating its role.**
-- **Each crate's `modules.toml` lists which of its top-level modules may import which** (ADR 0126). An `xtask` check in the Quick suite fails on any other import (type-only imports included, `#[cfg(test)]` code excepted), on a cycle, on a name that is no module of the crate, and on a module the file does not list.
+- **Each crate's `modules.toml` lists which of its top-level modules may import which** (ADR 0126). An `xtask` check in the Quick suite fails on any other import (type-only imports and a sibling's item imported through the root's re-export included, `#[cfg(test)]` code excepted), on a cycle, on a name that is no module of the crate, on a module the file does not list, and on a root that re-exports a module's items with a glob.
   _Why:_ Rust's visibility does not stop one sibling module from using another, and import rules held in the research only where a tool checked them.
 - **A Rust file over 1,000 lines states why it is still one concern**, in a `Size:` line of its `//!` header, or the same `xtask` check fails. Every line of a file under `src/` counts, except `#[cfg(test)]` items (and files only they declare) and generated code. It is an alarm, not a cap.
 
@@ -182,17 +182,15 @@ The test rules live in [`TESTING.md`](TESTING.md) (where tests live, how they ar
 
 ## TypeScript
 
-Applies to `sdks/typescript`, `console/`, `adapters/`, `integrations/`, `bench/` and the docs site's `website/` in the pnpm workspace.
+Applies to `sdks/typescript`, `adapters/`, `integrations/`, `bench/` and the docs site's `website/` in the pnpm workspace.
 
 - **TypeScript 7 with `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`, `isolatedDeclarations` and `erasableSyntaxOnly`.** A TypeScript 6 alias is kept only for tools that need the compiler API (API Extractor, TypeDoc, Twoslash) until TypeScript 7 provides one.
 - **Optional fields are written `?: T | undefined`.**
   _Why:_ the published types then work whether or not the consumer enables `exactOptionalPropertyTypes`.
 - **oxlint with type-aware rules, and oxfmt for formatting.** `no-floating-promises` and `typescript/no-deprecated` are errors.
   _Why:_ an unawaited promise loses its error silently; oxlint's type-aware rules run on the real TypeScript 7 checker.
-- **Libraries build with tsdown. Outside `console/` and `website/`, tests run with Vitest on every supported Node line (ADR 0024), plus smoke scripts of the installed package on Bun, Deno 2 and the edge runtimes (ADR 0069).**
-- **Console code never imports with `../`:** a module reaches the rest of its own package through the package's `imports` aliases (`#…`), and other packages by name (oxlint's `import/no-relative-parent-imports` on `console/**`).
-  _Why:_ a parent path is how an import leaves its package, which would let Collie's Console build reach Foxhound's screens (ADR 0087); refusing every `../` is a rule a linter checks, where "leaves its package" is not.
-- **The Console and the docs site are tested in browsers, on one Node line:** Vitest Browser Mode and Playwright Test, against the binary for the served Console (ADR 0068, rules in [`TESTING.md`](TESTING.md)).
+- **Libraries build with tsdown. Outside `website/`, tests run with Vitest on every supported Node line (ADR 0024), plus smoke scripts of the installed package on Bun, Deno 2 and the edge runtimes (ADR 0069).**
+- **The docs site is tested in browsers, on one Node line:** Vitest Browser Mode and Playwright Test (ADR 0068, rules in [`TESTING.md`](TESTING.md)).
 - **Packages are ESM-only** (ADR 0024) and pass `publint` and `@arethetypeswrong/cli` before publishing. npm is the only registry.
 - **Named exports only; no TypeScript `enum`s** (string-literal unions instead).
 - **SDK idioms:**

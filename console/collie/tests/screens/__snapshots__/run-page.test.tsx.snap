@@ -1,8 +1,0 @@
-// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
-
-exports[`a run's page's render budget: commits to open it and for an axis change 1`] = `
-{
-  "axisChange": 1,
-  "opening": 3,
-}
-`;

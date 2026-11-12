@@ -9,7 +9,6 @@ mod http;
 mod http_proxy;
 mod json_rpc;
 mod runner;
-mod sign_in;
 mod table;
 mod websocket;
 

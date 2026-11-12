@@ -26,6 +26,7 @@ use anyhow::{Context as _, Result};
 
 use super::plan::{UNOWNED, short};
 use crate::affected::{Kind, RepoPath, WorkspaceMembers};
+use crate::child_cargo::dep_info_paths;
 use crate::metadata;
 use crate::runners::Runner;
 use crate::runners::listing::{self, Listed, Location};
@@ -266,38 +267,6 @@ fn first_changed<'a>(
     inputs?.iter().find(|input| changed.contains(*input))
 }
 
-/// The paths `text`, a Makefile-style dep-info file, names: each target and
-/// prerequisite, with `\ ` read as a space.
-fn dep_info_paths(text: &str) -> Vec<String> {
-    let mut paths = Vec::new();
-    for line in text.lines() {
-        let mut token = String::new();
-        let mut characters = line.chars().peekable();
-        while let Some(character) = characters.next() {
-            match character {
-                '\\' if characters.peek() == Some(&' ') => {
-                    token.push(' ');
-                    characters.next();
-                }
-                ' ' | '\t' => {
-                    push(&mut paths, &mut token);
-                }
-                _ => token.push(character),
-            }
-        }
-        push(&mut paths, &mut token);
-    }
-    paths
-}
-
-fn push(paths: &mut Vec<String>, token: &mut String) {
-    let path = token.trim_end_matches(':');
-    if !path.is_empty() {
-        paths.push(path.to_owned());
-    }
-    token.clear();
-}
-
 /// `path`, absolute or relative to `root`, as a `/`-separated repository
 /// path, with `.` and `..` resolved; `None` outside the repository.
 fn repository_path(root: &Path, path: &Path) -> Option<String> {
@@ -413,7 +382,7 @@ fn try_listed_since(
 
 /// The test files no member owns, by the runners' file patterns: each
 /// part reruns them, since no member's result covers them (the review's
-/// F3, `console/screens.spec.ts`).
+/// F3).
 pub(crate) fn unowned_tests(root: &Path, members: &WorkspaceMembers) -> Result<Vec<String>> {
     let text = crate::git::text(root, &["ls-files", "-z"])?;
     Ok(text
@@ -458,23 +427,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dep_info_lists_each_target_and_prerequisite() {
-        let text = "/r/target/debug/deps/it-1.d: crates/a/tests/it/main.rs /r/TESTING.md my\\ file.rs\n\ncrates/a/tests/it/main.rs:\n/r/TESTING.md:\n";
-
-        assert_eq!(
-            dep_info_paths(text),
-            [
-                "/r/target/debug/deps/it-1.d",
-                "crates/a/tests/it/main.rs",
-                "/r/TESTING.md",
-                "my file.rs",
-                "crates/a/tests/it/main.rs",
-                "/r/TESTING.md",
-            ]
-        );
-    }
-
-    #[test]
     fn a_path_is_read_from_the_repository_root() {
         let root = Path::new("/r");
 
@@ -488,12 +440,12 @@ mod tests {
 
     #[test]
     fn test_files_are_known_by_the_runners_patterns_outside_fixtures() {
-        assert!(is_test_file("console/screens.spec.ts"));
+        assert!(is_test_file("website/tests/pages.spec.ts"));
         assert!(is_test_file("sdks/python/x/tests/test_results.py"));
         assert!(!is_test_file(
             "xtask/tests/it/fixtures/stress/web/changed.test.ts"
         ));
         assert!(!is_test_file("ci/proofs/oxlint/a.test.ts"));
-        assert!(!is_test_file("console/collie/src/app.tsx"));
+        assert!(!is_test_file("website/src/theme.tsx"));
     }
 }

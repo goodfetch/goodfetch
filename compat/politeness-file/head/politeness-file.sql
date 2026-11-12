@@ -16,8 +16,8 @@ CREATE TABLE domain_limits (
             last_start INTEGER,
             last_send INTEGER
         ) STRICT;
-INSERT INTO "domain_limits" VALUES('shop.test',1767603620973,15588,1,1767603600000,1767603620000,1767603620000);
-INSERT INTO "domain_limits" VALUES('hold.test',NULL,NULL,NULL,NULL,1767603605385,NULL);
+INSERT INTO "domain_limits" VALUES('shop.test',1767603622973,15588,1,1767603602000,1767603620000,1767603620000);
+INSERT INTO "domain_limits" VALUES('hold.test',NULL,NULL,NULL,NULL,1767603607385,1767603607385);
 CREATE TABLE domain_pacing (
             key TEXT NOT NULL PRIMARY KEY,
             latency INTEGER,
@@ -25,7 +25,7 @@ CREATE TABLE domain_pacing (
             interval INTEGER,
             theoretical_send INTEGER
         ) STRICT;
-INSERT INTO "domain_pacing" VALUES('shop.test',120,1767603607385,2000,1767603622000);
+INSERT INTO "domain_pacing" VALUES('shop.test',120,1767603609385,2000,1767603622000);
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('politeness-file','0.1');
 CREATE TABLE permits (
@@ -37,7 +37,7 @@ CREATE TABLE permits (
         engine TEXT NOT NULL,
         taken_at INTEGER NOT NULL
     ) STRICT;
-INSERT INTO "permits" VALUES(1,'hold.test','holding',1,'0.0/runs/holding','374ad8b83fe02477',1767603605385);
+INSERT INTO "permits" VALUES(1,'hold.test','holding',1,'0.0/runs/holding','374ad8b83fe02477',1767603607385);
 CREATE TABLE proxy_limits (
             key TEXT NOT NULL PRIMARY KEY,
             ceiling INTEGER,
@@ -53,8 +53,8 @@ CREATE TABLE robots_txt (
             status INTEGER NOT NULL,
             body BLOB NOT NULL
         ) STRICT;
-INSERT INTO "robots_txt" VALUES('https://shop.test/robots.txt',1767603620000,200,X'557365722D6167656E743A202A0A446973616C6C6F773A202F707269766174652F0A437261776C2D64656C61793A20320A');
-INSERT INTO "robots_txt" VALUES('https://hold.test/robots.txt',1767603620000,404,X'6E6F7420666F756E64');
+INSERT INTO "robots_txt" VALUES('https://shop.test/robots.txt',1767603600000,200,X'557365722D6167656E743A202A0A446973616C6C6F773A202F707269766174652F0A437261776C2D64656C61793A20320A');
+INSERT INTO "robots_txt" VALUES('https://hold.test/robots.txt',1767603607385,404,X'6E6F7420666F756E64');
 CREATE TABLE waiters (
         key TEXT NOT NULL,
         run_id TEXT NOT NULL,

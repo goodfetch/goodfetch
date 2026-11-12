@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # One cell of the Release suite in CI (ADRs 0061, 0094 and 0108), on its
 # runner's own system, after .github/actions/host-tools:
-#   build       before the deny: builds Collie's Console first (`just
-#               console-build`, ADR 0057), as the local gate does, then the
+#   build       before the deny: builds the
 #               target's tests once with `cargo nextest archive`, the test
 #               tool manifest of the executables tests run, and the `ci`
 #               executables with the thin-LTO `ci` profile, both Products'
 #               among them, from one invocation (ADR 0094), with the manifest
 #               the resident-memory check runs and the size report reads;
 #   size        writes the target's size report of both Products, keyed by
-#               the tree the cell tested (`xtask size`, ADR 0061);
+#               the tree the cell tested (`xtask size`, ADR 0061), and on a
+#               musl cell fails on an executable of theirs that is no
+#               static-PIE with packed relocations (`xtask static-pie`, ADR
+#               0024);
 #   rust        one shard of the archive (`--partition hash:<k>/<n>`, never
 #               by timings), then the doctests;
 #   typescript  Vitest and Playwright, `--shard <k>/<n>`, on each Node line
@@ -80,10 +82,6 @@ skip() {
 
 case "$part" in
   build)
-    # Collie's executable embeds its Console build (ADR 0057), which the
-    # archive's and the `ci` profile's builds of it read: without it they fail
-    # to compile. It builds from the packages `just fetch` installed.
-    just console-build
     # A musl cell builds with the static musl toolchain (ADR 0024's note of
     # 2026-11-06): nextest runs its Cargo, ci/musl/cargo, through `CARGO`,
     # which `cargo nextest` would reset to Cargo itself; `test-tools` picks
@@ -112,6 +110,11 @@ case "$part" in
     cargo run --quiet --locked --bin xtask -- size estimate \
       --files target/release-suite/size-files.toml \
       --save "target/release-suite/size-report-$tree-$target.json"
+    # A musl cell's executables, both Products', are static-PIEs with
+    # packed relocations (ADR 0024's note of 2026-11-12); the other cells'
+    # are not read.
+    cargo run --quiet --locked --bin xtask -- static-pie --target "$target" \
+      --files target/release-suite/size-files.toml
     ;;
   rust)
     # Each test leaves its exercise record here, which `just features-audit`

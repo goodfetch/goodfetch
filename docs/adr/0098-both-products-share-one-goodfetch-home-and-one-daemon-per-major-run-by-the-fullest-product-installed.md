@@ -7,12 +7,15 @@ ADR 0084 made Collie and Foxhound two Products, Foxhound's executable containing
 
 Decided in [Collie and Foxhound installed on one machine](https://github.com/goodfetch/goodfetch/issues/486), on the map [Goodfetch products: Collie and Foxhound as separately installable products](https://github.com/goodfetch/goodfetch/issues/447), by the agent on the owner's delegation; each question, its options and the field evidence are in the ticket's [grilling record](https://github.com/goodfetch/goodfetch/issues/486#issuecomment-6181839327). It builds on [ADR 0088](0088-collie-carries-every-capability-except-those-only-many-pages-need.md) (Collie carries the Daemon, Run index, Console, Usage ledger and Schedules, and ADR 0053's per-proxy and per-provider limits), [ADR 0090](0090-products-are-named-goodfetch-collie-and-goodfetch-foxhound-and-share-one-product-version.md) (one Product version; `GOODFETCH_HOME` and the home folder `goodfetch` stay shared) and [ADR 0095](0095-both-products-speak-one-protocol-from-one-catalog-marked-by-product-and-their-sdks-share-collies-client-packages.md) (`hello` names the Product a Client needs, and a Collie engine refuses a Foxhound Client with `not_in_product`).
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): the Run index serves both Products; the Console a Daemon served is gone.
+
 ## Decision
 
 ### One Goodfetch home
 
 - **Nothing in Goodfetch home is kept per Product.** Engines of both Products use the same files, in ADR 0030's two tiers:
   - per user, shared by every major: the Browser cache, the Usage ledger (ADR 0041), the known-certificates store (ADR 0042), the Politeness file (ADR 0053), the active-major marker of Schedules (ADR 0036), the Console key (ADR 0031) and the list of installed executables below;
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   - per user and major: the Daemon's runtime file and tokens (ADR 0024), the Run index, the Schedule store, run folders and the per-install database (ADR 0002), the Saved identity store (ADR 0035), the Response cache (ADR 0046), user configuration and the Operator policy (ADR 0028).
 - **Why one home, not one per Product.**
   - A Limit or an Operator policy lock set while using one Product binds the other, as ADR 0041 keeps one Usage ledger for every major so that running another binary cannot escape a cap.
@@ -38,7 +41,9 @@ Decided in [Collie and Foxhound installed on one machine](https://github.com/goo
   - Product comes before version. A Foxhound older than the installed Collie still runs the Daemon, so Foxhound's Clients and Schedules keep one, and the newer Collie's Clients run as described below.
   - **When no executable can be the pick,** as when only a program that links the engine has raised a store's lowest minor past every installed executable, no Daemon runs. Starting one fails with the version refusal naming the version to install, `auto` Clients run attached, and Schedules fire nothing until a Daemon runs, as when none runs (ADR 0036).
 - **Whatever starts the Daemon starts the pick:** a Client, `daemon start`, the per-user service, or an Attached engine that needs a Console link (ADR 0031). It runs from the versioned copy ADR 0024 already runs the Daemon from, so a Collie Client can start Foxhound's Daemon.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **A Daemon that is not its major's pick hands over to the pick** once it hosts no live run and no Client other than a Console, which reconnects (ADR 0066). The pick changes only when an install, an upgrade, a removal or a raised lowest minor does. A Daemon that finds a shared store's lowest minor raised past itself takes no new run and hands over once its live runs end; the next Daemon rebuilds their Run index rows from their own state (ADR 0031).
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **One service per major** (ADR 0030): `daemon install`, from either executable, registers a service that starts the pick.
   > Note (agent decision, accepted by the owner on 2026-10-21), 2026-10-20, [#221](https://github.com/goodfetch/goodfetch/issues/221): the service's path to the Daemon's versioned copy. `daemon install` places the versioned copy of the executable that runs it in the Browser cache, and the service starts that copy with `daemon launched --service`. The list of installed executables records the copy as an executable of its own, at the copy's path, pinning itself and its version's downloads, so it counts as installed and the clean-up keeps it while it is there; `daemon uninstall` forgets that entry, and the clean-up's rule takes the copy from then on. The copy starts the pick: itself when it is the pick, otherwise the pick's own versioned copy, which on macOS and Linux takes its place in the same process (`exec`), so the socket launchd or systemd handed over and the process it watches become the pick's; a logon task starts the pick as a Client would. So a service installed by either executable, at any version, starts whatever is the pick when it starts, and an upgrade needs no new install. A Daemon a service started hands over by stopping: the next connection to the service's socket starts the pick. The service is named by the major and the first eight hex digits of the SHA-256 of Goodfetch home's path (`dev.goodfetch.daemon.<major>.<digits>` for launchd, `goodfetch-daemon-<major>-<digits>` for systemd, `Goodfetch\goodfetch-daemon-<major>-<digits>` for Task Scheduler), so each Goodfetch home has its own, and it passes `GOODFETCH_HOME`, `GOODFETCH_BROWSERS_PATH`, `GOODFETCH_LOG` and `GOODFETCH_LOG_OUTPUT` to the Daemon as arguments, never a secret.
 - **A Client the Daemon refuses**, by Product (`not_in_product`, ADR 0095) or by protocol version (ADR 0024), while the Daemon cannot hand over (it is busy, or it is already the pick):
@@ -56,8 +61,10 @@ Decided in [Collie and Foxhound installed on one machine](https://github.com/goo
 ### One Console per user and major
 
 - **The Console is the major's Daemon's,** whichever Product runs it, on the same port, so a bookmark and a Console login survive a change of Product. `goodfetch-collie console` and `goodfetch-foxhound console` open the same Console, and start the pick if no Daemon runs.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **It lists every run of the major** with the Product that ran it, and one "Needs you" list covers both Products.
 - **On a Console a Collie Daemon serves**, a run that needs Foxhound keeps every view all runs have, and its live actions, which the Daemon forwards to the engine that owns it. Its Foxhound views (Datasets, Sinks, crawl progress, search across runs) and any write the Daemon itself would make to it answer `not_in_product`, whose fix names Foxhound. Under the pick, a Collie Daemon meets such a run only when no Foxhound can be the pick: while it waits to hand over to a Foxhound just installed, which includes a Foxhound run that fell back to an Attached engine; while the installed Foxhound cannot be started or cannot open the shared stores; and once Foxhound has been removed.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 ### What one Product may do with what the other wrote
 
@@ -105,6 +112,7 @@ Decided in [Collie and Foxhound installed on one machine](https://github.com/goo
 
 - **A Goodfetch home per Product**, as Firefox gives each installation its own profile and VS Code Insiders its own data folder: rejected. Two Usage ledgers would let one Product escape a Limit set under the other, two Operator policies would let it escape a lock, and every browser build would download twice. A Foxhound engine runs Collie's code and would still need Collie's Saved identities.
 - **Shared caches and ledger, with a Daemon, Run index and Console per Product:** rejected, for the Daemon's reasons below.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **A Daemon per Product and major**, as Gradle runs one daemon per version: rejected.
   - Two Consoles on two ports would list the same Run index, with two "Needs you" lists, which ADR 0031 rejected for engines.
   - Two schedulers cannot both hold the Schedule store's lock.
@@ -116,6 +124,7 @@ Decided in [Collie and Foxhound installed on one machine](https://github.com/goo
 - **No automatic clean-up**, as Puppeteer: rejected. A Goodfetch Chromium build every two weeks grows the cache by several gigabytes a year, and Puppeteer's users ask for a way to keep only recent builds ([puppeteer#15418](https://github.com/puppeteer/puppeteer/issues/15418)).
 - **ADR 0030's default rule for the shared stores:** rejected. The Run index is written at every run start, so a newer Foxhound installed through Homebrew would lock a project's pinned older Collie out as soon as either migrated it.
 - **A copy of each shared store per minor**, as uv versions its cache buckets: rejected. The Console would see only its own minor's runs.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **A program's `rate_limit` slowing the crawls that share its domain key:** rejected.
   - A crawl at the default pace meets the site's own 429 within about a second (ADR 0086).
   - The key is the registrable domain, so a 429 from a logged-in account's own limit or from a staging subdomain would pause an unrelated crawl.
@@ -127,6 +136,7 @@ Decided in [Collie and Foxhound installed on one machine](https://github.com/goo
 - **Amends ADR 0028.** User configuration and the Operator policy serve both Products and record the lowest minor that can use them. A note sits under its per-major consequence.
 - **Amends ADR 0030.** The per-major state is shared by both Products; the five shared stores record the lowest minor that can use them; the list of installed executables joins the Usage ledger's family. Notes sit under its contract versions and under its per-major state.
 - **Amends ADR 0031.** One Console per user and major lists both Products' runs, and the Run index records the Product each run needs. A note sits under the Run index.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Amends ADR 0035.** The Saved identity store serves both Products and records the lowest minor that can use it. A note sits under Saved identities.
 - **Amends ADR 0036.** A Schedule records the Product its target needs, and a Daemon that lacks it misses its occurrences with `not_in_product`. A note sits under the Schedule store.
 - **Amends ADR 0066.** Older engines of the major open the five shared stores the current engine wrote unless their lowest minor is newer, and the list of installed executables is tested with the Usage ledger's family. Notes sit under its refusals and under older engines and newer files.
@@ -141,6 +151,7 @@ Decided in [Collie and Foxhound installed on one machine](https://github.com/goo
   - Area 10 (Scheduling) builds the Product a Schedule needs.
   - Area 11 (Client surfaces) builds the `auto` fallback.
   - Area 12 (Console) builds one Console for both Products.
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
   Each lists this ADR.
   > Note (agent decision, moot: the Console leaves (ADR 0137)), 2026-10-26, [#930](https://github.com/goodfetch/goodfetch/issues/930): until Foxhound's own Console build exists ([#1202](https://github.com/goodfetch/goodfetch/issues/1202)), Foxhound's executable embeds Collie's, from the same `console-build/` folder, so a Daemon Foxhound runs serves the same Console on the same port and an open Console survives a handover; #1202 replaces it with Foxhound's build. On Collie's engine, Collie's build shows each Foxhound view of a run that needs Foxhound as the `not_in_product` the engine answers to that view's operation, named from the catalog's list of the operations only Foxhound carries (`xtask codegen`'s `console/collie/src/generated/foxhound.ts`).

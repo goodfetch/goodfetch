@@ -17,7 +17,7 @@ const OTHER_DIGEST: &str =
 const OTHER_COMMIT: &str = "3333333333333333333333333333333333333333";
 
 const VITEST_REFERENCE: &str =
-    "console/src/button/__screenshots__/button.visual.test.tsx/primary-chromium.png";
+    "website/src/button/__screenshots__/button.visual.test.tsx/primary-chromium.png";
 
 const PLAYWRIGHT_REFERENCE: &str = "website/tests/home.visual.spec.ts-snapshots/home-visual.png";
 
@@ -90,9 +90,9 @@ fn run_in_another_image_is_refused_and_applies_nothing() {
 
 #[rstest]
 #[case::workflow(".github/workflows/pull-request.yml")]
-#[case::source_file("console/src/button/button.tsx")]
-#[case::image_outside_a_reference_folder("console/src/button/icon.png")]
-#[case::snapshot_beside_a_test("console/src/button/__snapshots__/button.test.ts.snap")]
+#[case::source_file("website/src/button/button.tsx")]
+#[case::image_outside_a_reference_folder("website/src/button/icon.png")]
+#[case::snapshot_beside_a_test("website/src/button/__snapshots__/button.test.ts.snap")]
 fn run_carrying_a_file_that_is_not_a_reference_screenshot_is_refused(#[case] path: &str) {
     let workspace = Workspace::from_fixture("screenshots");
     let head = workspace.commit_all();
@@ -198,17 +198,17 @@ const REFERENCE_LIMIT: u64 = 524_288;
 #[case::threshold_in_a_test("threshold.spec.ts", "website/tests/docs.visual.spec.ts", 4)]
 #[case::allowed_mismatched_pixels(
     "allowed-mismatched-pixels.test.ts",
-    "console/src/button/button.visual.test.ts",
+    "website/src/button/button.visual.test.ts",
     7
 )]
 #[case::allowed_mismatched_pixel_ratio(
     "allowed-mismatched-pixel-ratio.test.ts",
-    "console/src/button/button.visual.test.ts",
+    "website/src/button/button.visual.test.ts",
     7
 )]
 #[case::threshold_in_comparator_options(
     "threshold-in-comparator-options.test.ts",
-    "console/src/button/button.visual.test.ts",
+    "website/src/button/button.visual.test.ts",
     7
 )]
 #[case::threshold_in_the_runner_config("threshold-in-runner-config.ts", "playwright.config.ts", 6)]
@@ -220,7 +220,7 @@ const REFERENCE_LIMIT: u64 = 524_288;
     4
 )]
 // A helper module in a fixtures folder, which a visual spec may import.
-#[case::in_a_fixtures_folder("max-diff-pixels.spec.ts", "console/tests/fixtures/loose.ts", 4)]
+#[case::in_a_fixtures_folder("max-diff-pixels.spec.ts", "website/tests/fixtures/loose.ts", 4)]
 // Test support is not the shared config: only its one file is.
 #[case::in_test_support_beside_the_shared_config(
     "max-diff-pixels.spec.ts",
@@ -262,7 +262,7 @@ fn workspace_whose_tolerances_are_all_in_the_shared_config_passes() {
 // This check's own cases break the rule on purpose.
 #[case::in_the_checks_own_cases("xtask/tests/it/fixtures/screenshots-cases/loose.spec.ts")]
 // Outside a visual test, `threshold` in a variable is a common word's.
-#[case::threshold_in_a_variable_outside_a_visual_test("console/src/observer.ts")]
+#[case::threshold_in_a_variable_outside_a_visual_test("website/src/observer.ts")]
 #[case::in_frozen_research("rnd/lab/loose.spec.ts")]
 fn tolerance_where_no_suite_runs_passes(#[case] path: &str) {
     let workspace = Workspace::from_fixture("screenshots");

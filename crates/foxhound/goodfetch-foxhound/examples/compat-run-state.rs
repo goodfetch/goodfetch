@@ -1,7 +1,9 @@
 //! Run state's writer for the Compatibility corpus (ADR 0066): runs fixed
 //! scenarios against Foxhound's engine, whose run files hold every table
 //! both Products' compositions add, over the in-memory network, on the test
-//! `Clock` and a fixed `Entropy` seed, in a home of its own: under an
+//! `Clock` and a fixed `Entropy` seed, in a home of its own, its crawls
+//! fetching a site served from memory on a forced `http` tier
+//! (`support/site.rs`): under an
 //! install Limit, whose Slices its run state journals, a tagged crawl of
 //! six seeds, one with a Payload of a Label declared with its schema, beside
 //! one declared without, one the Frontier answers `duplicate`,
@@ -60,6 +62,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_engine::clock::Clock;
@@ -75,6 +78,7 @@ use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{
     CallContext, CallError, Channel, Contribution, Dependencies, Engine, Handler, Identity,
 };
+use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_frontier::PageSeen;
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
@@ -89,8 +93,26 @@ use goodfetch_test_client::Hello;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
+#[path = "support/site.rs"]
+mod site;
+
+/// How long the site takes to answer, on the paused clock, which passes
+/// once the engine is idle: the crawl's pages arrive after `compat.learned`
+/// taught the Frontier its own, so the lessons come in the scenario's order.
+const SITE_LATENCY: Duration = Duration::from_secs(1);
+
 /// What the Client asks, in order; each call waits for its reply.
 fn scenario() -> Vec<Value> {
+    // Every host a request of the crawls names, so that no name is looked
+    // up: a lookup takes real time, which the paused clock does not keep.
+    let (fetch, network) = site::settings(&[
+        "shop.test",
+        "api.test",
+        "guarded.test",
+        "list.test",
+        "maps.test",
+        "outlet.test",
+    ]);
     let call = |id: i64, method: &str, params: Value| json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
     vec![
         call(
@@ -156,6 +178,8 @@ fn scenario() -> Vec<Value> {
                         "path_budgets": [{ "pattern": "/pages/*", "max_requests": 1 }],
                     },
                     "egress": { "local_addresses": ["127.0.0.1"] },
+                    "fetch": fetch,
+                    "network": network,
                 },
             }),
         ),
@@ -196,6 +220,7 @@ fn scenario() -> Vec<Value> {
                 "run_id": "code-free",
                 "seeds": [{ "url": "https://shop.test/more/more/more/", "label": "page" }],
                 "extraction": { "formats": { "markdown": true }, "follow": "none" },
+                "settings": { "fetch": fetch, "network": network },
             }),
         ),
         // A Run at `off`, whose file the writer reopens below.
@@ -263,8 +288,8 @@ async fn keyed(params: Value, context: CallContext) -> Result<Value, CallError> 
 }
 
 /// Hands the Frontier of a live crawl the pages of its `list.test/items`
-/// seeds, as a fetch tier would once it fetched them, since none runs over
-/// the in-memory network: item `n`'s page reads alike with or without
+/// seeds, as a fetch tier would once it fetched them, before the site
+/// served from memory answers with pages that read the same way: item `n`'s page reads alike with or without
 /// `ref`, so `ref` is learned to have no effect, which ends a request of
 /// item 3 admitted pending just before, and a seed differing from
 /// an admitted one only by `ref`, admitted in the same write so that no
@@ -848,7 +873,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         product_version: version.clone(),
         channel: Channel::CratesIo,
     };
-    let engine = Engine::new(identity, &goodfetch_foxhound::composition().with(bound()))?;
+    let tiers = FetchTiers::serving(Arc::new(site::Site::new(SITE_LATENCY, &[])));
+    let composition = goodfetch_foxhound::composition_with(tiers).with(bound());
+    let engine = Engine::new(identity, &composition)?;
     let home = tempfile::tempdir()?;
     // The folder of the engine's own pinned version, not of the workspace's.
     let engine_folder = per_major(home.path(), &version);

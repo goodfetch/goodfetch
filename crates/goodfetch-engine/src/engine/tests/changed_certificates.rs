@@ -112,7 +112,7 @@ fn a_changed_key_is_listed_until_its_person_answers(#[case] method: &str, #[case
     };
 
     let (items, removed) = attached_on(&changing_engine(&env), &env, |mut client| async move {
-        opened(&mut client, "console").await;
+        opened(&mut client, "kennel").await;
         let mut seen = Seen::default();
         seen.call(&mut client, 2, "run.start", json!({ "run_id": "pinning" }))
             .await;
@@ -205,7 +205,7 @@ fn an_answer_the_audit_log_cannot_record_is_made_and_says_so(#[case] method: &st
     let home = env.home().to_path_buf();
 
     let (answer, items) = attached_on(&changing_engine(&env), &env, |mut client| async move {
-        opened(&mut client, "console").await;
+        opened(&mut client, "kennel").await;
         let mut seen = Seen::default();
         seen.call(&mut client, 2, "run.start", json!({ "run_id": "pinning" }))
             .await;

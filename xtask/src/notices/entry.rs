@@ -14,8 +14,6 @@ pub(crate) enum Ecosystem {
     Cargo,
     Npm,
     Python,
-    /// The Console's bundled assets.
-    ConsoleAssets,
     /// The Goodfetch Chromium's third-party inputs, the variations seed
     /// included (ADR 0043).
     Chromium,
@@ -32,7 +30,6 @@ impl fmt::Display for Ecosystem {
             Self::Cargo => "cargo",
             Self::Npm => "npm",
             Self::Python => "python",
-            Self::ConsoleAssets => "console-assets",
             Self::Chromium => "chromium",
             Self::CleanUpRules => "clean-up-rules",
             Self::BlockDetectionRules => "block-detection-rules",

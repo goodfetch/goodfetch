@@ -118,7 +118,6 @@ use goodfetch_protocol::usage::REQUESTS;
 use goodfetch_session_pool::{Changes, LocalAddressing, PoolSettings, Rotated, SessionPool};
 use serde_json::{Map, Value};
 use tokio::sync::oneshot;
-use tokio::task::JoinSet;
 use tokio::time::Instant;
 
 use crate::attempt_outcome::{self, Outcome, Refusing};
@@ -136,12 +135,14 @@ use crate::work_items::{self, Failure, Leased, Unsuccessful};
 use goodfetch_protocol::foxhound::progress::{HELD_DOMAINS, InFlightPhase, InFlightRequest};
 
 mod attempt;
+mod pages;
 mod politeness;
 
 use attempt::{
-    Answer, Attempt, Taught, Tiering, attempt, block_cause, effect, handler_lease, leased_count,
+    Answer, Attempt, Taught, Tiering, block_cause, effect, handler_lease, leased_count,
     run_hand_over,
 };
+use pages::{Pages, Start};
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
 
 /// A Connection serving the crawl's handler requests, as the delivery
@@ -393,7 +394,7 @@ async fn deliver(
     };
     let run_leases = leases_of(run, arrivals, &admission);
     let (mut wakes, mut queued) = (admission.wakes(), run.metrics().level(&WORK_ITEM_QUEUED));
-    let mut attempts: JoinSet<Attempt> = JoinSet::new();
+    let mut pages = Pages::new(run, &fetching.in_flight);
     let mut stop: Option<StopReason> = None;
     // Resolved once, as the Run opened: no turn reads the settings again
     // (ADR 0138).
@@ -408,7 +409,7 @@ async fn deliver(
                 Pooled::of(&mut state, read.pool, (fetching, handing)),
                 &mut admission,
                 servers,
-                &mut attempts,
+                &mut pages,
             )
             .await
         {
@@ -417,7 +418,8 @@ async fn deliver(
             return;
         }
         let starved = run.governor().waits(WorkKind::Http);
-        if attempts.is_empty() {
+        pages.dismiss();
+        if pages.idle() {
             if let Some(reason) = stop {
                 end(run, &mut admission, Ending::Stopped(reason)).await;
                 return;
@@ -462,7 +464,7 @@ async fn deliver(
         tokio::select! {
             biased;
             () = run.cancellation().cancelled() => {
-                attempts.shutdown().await;
+                pages.shutdown().await;
                 admission.close().await;
                 release(run).await;
                 return;
@@ -478,8 +480,7 @@ async fn deliver(
                     tracing::warn!(%error, run_id = %run.id(), "the seeds added were not keyed yet");
                 }
             }
-            Some(first) = attempts.join_next() => {
-                let ended = ended_with(first, &mut attempts);
+            ended = pages.ended() => {
                 let state = (&mut state, fetching);
                 settled(run, (resolved, read), &mut admission, state, servers, ended).await;
             }
@@ -488,21 +489,6 @@ async fn deliver(
             key = next_wake(wakes.as_mut()) => admission.wake(key.as_deref()),
         }
     }
-}
-
-/// The attempt that ended `first`, then every other of `attempts` that
-/// ended by now, in the order they ended, so they settle together and the
-/// loop's own work, its admission's included, runs once for them all
-/// rather than once for each (#1765). An attempt whose task panicked or
-/// was cancelled is left out, as when it settled alone.
-fn ended_with(
-    first: Result<Attempt, tokio::task::JoinError>,
-    attempts: &mut JoinSet<Attempt>,
-) -> Vec<Attempt> {
-    std::iter::once(first)
-        .chain(std::iter::from_fn(|| attempts.try_join_next()))
-        .filter_map(Result::ok)
-        .collect()
 }
 
 /// Sets the crawl's live parts of its Run's progress (ADR 0102) as its
@@ -859,7 +845,7 @@ async fn lease_to_servers(
     mut pooled: Pooled<'_>,
     admission: &mut Admission,
     servers: &mut [Serving],
-    attempts: &mut JoinSet<Attempt>,
+    pages: &mut Pages,
 ) -> Result<(), ChargeError> {
     for (place, server) in servers.iter_mut().enumerate() {
         if !server.serves() || server.in_flight >= policy.handler_concurrency {
@@ -922,29 +908,16 @@ async fn lease_to_servers(
                     started_at: run.point_in_time(),
                 },
             );
-            attempts.spawn(holding(
+            pages.start(Start {
+                server: (place, server.context.clone()),
+                leased: (leased, (session, in_browser), leased_count(run)),
+                lease,
+                fetching: (tiering, (hand_over, fetching.code_free.clone())),
                 admission,
-                attempt(
-                    run.clone(),
-                    place,
-                    server.context.clone(),
-                    (leased, (session, in_browser), leased_count(run)),
-                    lease,
-                    (tiering, (hand_over, fetching.code_free.clone())),
-                    std::sync::Arc::clone(&pooled.fetching.in_flight),
-                ),
-            ));
+            });
         }
     }
     Ok(())
-}
-
-/// Runs `attempt`, holding its HTTP `admission` until it ends, unless its
-/// document's fetch gave it back first.
-async fn holding(admission: FetchAdmission, attempt: impl Future<Output = Attempt>) -> Attempt {
-    let ended = attempt.await;
-    admission.give_back();
-    ended
 }
 
 /// What a crawl with nothing to deliver now does next.

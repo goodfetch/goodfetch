@@ -31,6 +31,7 @@ links = []
 
 [submodules.delivery]
 attempt = []
+pages = ["attempt"]
 politeness = ["attempt"]
 
 [submodules.tier_choice]

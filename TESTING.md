@@ -1381,6 +1381,7 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `F3.transactions.sitemap` | transactions of its own per sitemap read | 0 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F3.payload_serializations` | serializations per URL with a payload | 1 | 2 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F3.validations` | validations per URL with a payload under a schema | 1 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F3.actor_round_trips` | messages a page's task sends the actor that owns the crawl's Run state per attempt that ended (a page's or a sitemap's: the unit `attempts_ended`), on a Run with no before-request Hook | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F4.declaration_reads` | Dataset declaration reads per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F4.validator_builds` | validator builds per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F4.validations` | validations per Record, and per Record a Hook changed | ≤ 1, and 1 more | 1 | B1 | must not grow | `just counts` | implementer done, merge gate |

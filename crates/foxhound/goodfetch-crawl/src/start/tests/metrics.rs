@@ -133,3 +133,73 @@ fn a_crawl_counts_each_attempt_while_it_runs_and_each_retry() {
         )
     );
 }
+
+/// The count of `work` on the Shared path `shared_path` in `registry`.
+fn counted(registry: &prometheus::Registry, shared_path: &str, work: &str) -> Option<f64> {
+    registry
+        .gather()
+        .iter()
+        .find(|family| family.name() == "goodfetch_counted_work_total")?
+        .get_metric()
+        .iter()
+        .find(|metric| {
+            let labelled = |name: &str, value: &str| {
+                metric
+                    .get_label()
+                    .iter()
+                    .any(|label| label.name() == name && label.value() == value)
+            };
+            labelled("shared_path", shared_path) && labelled("work", work)
+        })
+        .map(|metric| metric.get_counter().get_value())
+}
+
+/// A page's task tells the actor that owns its crawl's Run state of its
+/// attempt's end in one message, whose answer carries its next attempt
+/// (ADR 0142): five pages, three at a time, cost five round trips, counted
+/// as `F3.actor_round_trips`.
+///
+/// Covers: story:3-25
+#[test]
+fn each_attempt_costs_the_run_states_actor_one_round_trip() {
+    let env = TestEnv::new();
+    let registry = prometheus::Registry::new();
+    let exporter = opentelemetry_prometheus::exporter()
+        .with_registry(registry.clone())
+        .without_target_info()
+        .scope_info_enabled(false)
+        .build()
+        .unwrap();
+    let provider = SdkMeterProvider::builder().with_reader(exporter).build();
+    let engine = engine().with_metrics(Metrics::new(&provider.meter(METER)));
+    let mut pages = 0;
+
+    crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "trips", "seeds": seeds(5), "settings": { "crawl": { "handler": { "concurrency": 3 } } } }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler = |_: &Value| {
+                pages += 1;
+                Reply::Records(vec![json!({ "handled": true })])
+            };
+            client
+                .call("run.finish", json!({ "run_id": "trips" }), &mut handler)
+                .await
+        },
+    );
+
+    assert_eq!(
+        (
+            pages,
+            counted(&registry, "frontier_admission", "actor_round_trips")
+        ),
+        (5, Some(5.0))
+    );
+}

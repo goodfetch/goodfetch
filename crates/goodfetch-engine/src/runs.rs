@@ -86,6 +86,7 @@ use goodfetch_protocol::storage::{SampledFolder, StorageLevel};
 use goodfetch_protocol::usage::Limit;
 use rusqlite::Connection;
 use secrecy::SecretString;
+use secrecy::zeroize::Zeroizing;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
@@ -134,10 +135,11 @@ use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, 
 use crate::robots_txt::{Answer, Copies, Fetched, NotRead, OwnCopies, RunCopies};
 use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport};
 use crate::run_index;
-use crate::run_key::{self, KeyError, RunKey, StoredKey};
+use crate::run_key::{self, KeyError, RunKey, Sealed, StoredKey};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
-    self, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions, RunStateTables, Syncing,
+    self, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions, RunStateTables,
+    SecretColumn, Syncing,
 };
 use crate::run_trace;
 use crate::sandbox_probe::SandboxProbe;
@@ -1379,7 +1381,9 @@ impl Run {
         &self.shared.secrets
     }
 
-    /// Its data key, which seals and opens the fields of its secret tables.
+    /// `plaintext` sealed under its data key for the row `row` of the secret
+    /// column `column`: the only value its owner writes there. Its first
+    /// call makes the data key.
     ///
     /// # Errors
     ///
@@ -1391,8 +1395,75 @@ impl Run {
     /// making, and the next caller makes one again. A drop once the
     /// wrapped key's write was queued may leave it stored: the next making
     /// then takes that key rather than store another.
-    pub async fn key(&self) -> Result<&RunKey, RunKeyError> {
+    pub async fn seal(
+        &self,
+        column: &SecretColumn,
+        row: &str,
+        plaintext: &[u8],
+    ) -> Result<Sealed, RunKeyError> {
+        let key = self.key().await?;
+        Ok(Sealed::new(key.seal(
+            column.table,
+            column.column,
+            row,
+            plaintext,
+        )?))
+    }
+
+    /// The plaintext of `sealed`, read from the row `row` of the secret
+    /// column `column`, in this Run or after its resume. It never makes a
+    /// data key: a Run with none held, unwrapped at its resume or stored
+    /// by a making whose caller was dropped, sealed nothing, so nothing it
+    /// holds opens.
+    ///
+    /// # Errors
+    ///
+    /// `Key` when the value was sealed for another place or another Run,
+    /// or changed since, or when the Run has no data key.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping its future abandons the read of the stored key, which
+    /// writes nothing; the next call reads it again.
+    pub async fn open(
+        &self,
+        column: &SecretColumn,
+        row: &str,
+        sealed: &Sealed,
+    ) -> Result<Zeroizing<Vec<u8>>, RunKeyError> {
+        let key = self
+            .shared
+            .key
+            .get_or_try_init(|| self.stored_key())
+            .await?;
+        Ok(key.open(column.table, column.column, row, sealed.as_bytes())?)
+    }
+
+    /// Its data key, which seals and opens the fields of its secret
+    /// columns, made at its first use.
+    async fn key(&self) -> Result<&RunKey, RunKeyError> {
         self.shared.key.get_or_try_init(|| self.make_key()).await
+    }
+
+    /// The data key its run state holds wrapped, which a making whose
+    /// caller was dropped stored without the Run taking it, unwrapped by
+    /// the key-encryption key its settings name; it never makes one, nor
+    /// the engine's default key-encryption key.
+    async fn stored_key(&self) -> Result<RunKey, RunKeyError> {
+        let stored = self
+            .state
+            .read(run_key::stored)
+            .await?
+            .ok_or(KeyError::DoesNotOpen)?;
+        let kek = if let Some(kek) = self.secrets().held_for(RUN_STATE_KEY_REFERENCE.name).await {
+            kek
+        } else {
+            let (reference, layer) = self.runs.key_reference(self.settings()).await;
+            self.runs
+                .key_encryption_key(self.secrets(), &reference, layer, &self.id, Making::No)
+                .await?
+        };
+        Ok(RunKey::unwrap(self.id.clone(), &stored.wrapped, &kek)?)
     }
 
     /// Makes its data key, stored only wrapped by the key-encryption key

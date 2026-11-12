@@ -92,7 +92,7 @@ CREATE TABLE outcomes (
             attempts INTEGER NOT NULL,
             outcome TEXT NOT NULL
         ) STRICT;
-CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL, source TEXT) STRICT;
+CREATE TABLE page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL, source BLOB) STRICT;
 CREATE TABLE payload_cap (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             max_size INTEGER NOT NULL

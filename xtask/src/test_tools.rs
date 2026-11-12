@@ -17,6 +17,18 @@
 //! toolchain's Cargo (ADR 0024's note of 2026-11-06), as the Release suite's
 //! musl cells build. [`ToolManifest`] is the manifest's one reader in
 //! `xtask`, and `path` reads it for a script.
+//!
+//! Beside the manifest, `build` writes its input record,
+//! `<manifest>.inputs.json`: the workspace's folder and the size and
+//! modification time of each source the tools were built from, which
+//! `goodfetch-test-support` compares with the tree before a test runs a
+//! tool, so tools built before a merge or from another tree are refused
+//! (issue 1631). The sources are those Cargo's dep-info file of each
+//! executable names inside the workspace (Rust sources, included files and
+//! what build scripts watch), with `Cargo.lock`, the toolchain and Cargo
+//! configuration files and the manifests of the packages they are in. Git's
+//! own files and the target folder are left out: a commit or another
+//! worktree's fetch changes no source.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -26,6 +38,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context as _, Result, bail};
 use goodfetch_protocol::catalog::Product;
@@ -130,6 +143,189 @@ impl ToolManifest {
     }
 }
 
+/// A manifest's input record: what its tools were built from.
+/// `goodfetch-test-support`'s `tools()` is its reader.
+#[derive(Serialize)]
+struct InputRecord {
+    /// The workspace's folder.
+    root: PathBuf,
+    /// Each source of the tools, as it was when they were built.
+    inputs: Vec<Input>,
+}
+
+/// One source: its path from the workspace's folder, its size in bytes and
+/// its modification time in nanoseconds since the Unix epoch.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+struct Input(PathBuf, u64, u64);
+
+/// Cargo's lockfile, at the workspace's top.
+const LOCKFILE: &str = "Cargo.lock";
+
+/// The files at the workspace's top that every build reads.
+const BUILD_FILES: [&str; 4] = [
+    "Cargo.toml",
+    LOCKFILE,
+    "rust-toolchain.toml",
+    ".cargo/config.toml",
+];
+
+/// Where the input record of the manifest at `manifest` goes.
+fn record_path(manifest: &Path) -> PathBuf {
+    manifest.with_extension("inputs.json")
+}
+
+/// The files a Cargo dep-info file's `text` names as its target's
+/// prerequisites; a space in a path is written `\ `.
+fn dep_info_inputs(text: &str) -> Vec<PathBuf> {
+    let mut inputs = Vec::new();
+    for line in text.lines() {
+        let Some((_, prerequisites)) = line.split_once(": ") else {
+            continue;
+        };
+        let mut path = String::new();
+        let mut characters = prerequisites.chars().peekable();
+        while let Some(character) = characters.next() {
+            match character {
+                '\\' if characters.peek() == Some(&' ') => {
+                    path.push(' ');
+                    characters.next();
+                }
+                ' ' if !path.is_empty() => inputs.push(PathBuf::from(std::mem::take(&mut path))),
+                ' ' => {}
+                other => path.push(other),
+            }
+        }
+        if !path.is_empty() {
+            inputs.push(PathBuf::from(path));
+        }
+    }
+    inputs
+}
+
+/// The workspace's sources among `prerequisites`, from `root`: those inside
+/// it that are neither Git's own files nor in `target_directory`, with the
+/// workspace's [`BUILD_FILES`] and the manifest of each of `packages` that
+/// holds one.
+fn sources(
+    prerequisites: &[PathBuf],
+    root: &Path,
+    target_directory: &Path,
+    packages: &[PathBuf],
+) -> BTreeSet<PathBuf> {
+    let mut sources: BTreeSet<PathBuf> = prerequisites
+        .iter()
+        .filter(|path| !path.starts_with(target_directory))
+        .filter(|path| !path.components().any(|part| part.as_os_str() == ".git"))
+        .filter_map(|path| path.strip_prefix(root).ok())
+        .map(Path::to_owned)
+        .collect();
+    let manifests: Vec<PathBuf> = packages
+        .iter()
+        .filter_map(|manifest| manifest.strip_prefix(root).ok())
+        .filter(|manifest| {
+            manifest
+                .parent()
+                .is_some_and(|folder| sources.iter().any(|source| source.starts_with(folder)))
+        })
+        .map(Path::to_owned)
+        .collect();
+    sources.extend(manifests);
+    if !sources.is_empty() {
+        sources.extend(
+            BUILD_FILES
+                .iter()
+                .map(PathBuf::from)
+                .filter(|file| root.join(file).exists()),
+        );
+    }
+    sources
+}
+
+/// Each of `sources`, from `root`, with its size and modification time. A
+/// source modified after `started`, when the build began, fails: Cargo may
+/// have compiled it as it was before, and the record would call the tools
+/// built from it as it is now. The lockfile alone may be newer.
+fn stamps(sources: BTreeSet<PathBuf>, root: &Path, started: SystemTime) -> Result<Vec<Input>> {
+    sources
+        .into_iter()
+        .map(|source| {
+            let path = root.join(&source);
+            let metadata =
+                std::fs::metadata(&path).with_context(|| format!("reading {}", path.display()))?;
+            let modified = metadata
+                .modified()
+                .with_context(|| format!("reading {}'s modification time", path.display()))?;
+            // Cargo itself writes the lockfile when a build resolves anew,
+            // and builds from what it wrote.
+            if modified > started && source != Path::new(LOCKFILE) {
+                bail!(
+                    "{} changed while the test tools were building: build them again",
+                    source.display()
+                );
+            }
+            let nanoseconds = modified
+                .duration_since(UNIX_EPOCH)
+                .ok()
+                .and_then(|since| u64::try_from(since.as_nanos()).ok())
+                .with_context(|| {
+                    format!("{}'s modification time is out of range", path.display())
+                })?;
+            Ok(Input(source, metadata.len(), nanoseconds))
+        })
+        .collect()
+}
+
+/// The tools among the executables a Cargo build reports in `output`, its
+/// JSON messages.
+fn built_tools(output: &[u8]) -> Result<ToolManifest> {
+    let mut built = ToolManifest::default();
+    for message in crate::child_cargo::messages(output)? {
+        let (Some(target), Some(executable)) = (message.target, message.executable) else {
+            continue;
+        };
+        if message.reason != "compiler-artifact" || !target.kind.iter().any(|kind| kind == "bin") {
+            continue;
+        }
+        if let Some(tool) = Tool::of_binary(&target.name) {
+            built.0.insert(tool, executable);
+        }
+    }
+    Ok(built)
+}
+
+/// What the executables `built` names were built from, in the workspace at
+/// `folder`, an absolute path: the [`sources`] among the prerequisites of
+/// each one's dep-info file, which Cargo writes beside it, with their
+/// [`stamps`].
+fn built_inputs(
+    built: &ToolManifest,
+    folder: &Path,
+    target_directory: &Path,
+    package_manifests: &[PathBuf],
+    started: SystemTime,
+) -> Result<Vec<Input>> {
+    let mut prerequisites = Vec::new();
+    for (tool, executable) in &built.0 {
+        let dep_info = executable.with_extension("d");
+        let text = std::fs::read_to_string(&dep_info)
+            .with_context(|| format!("reading {}", dep_info.display()))?;
+        let named = dep_info_inputs(&text);
+        // A record that left a tool's sources out would pass tools of any
+        // age.
+        if !named.iter().any(|path| path.starts_with(folder)) {
+            bail!(
+                "{} names no source of {} inside {}",
+                dep_info.display(),
+                tool.binary(),
+                folder.display()
+            );
+        }
+        prerequisites.extend(named);
+    }
+    let sources = sources(&prerequisites, folder, target_directory, package_manifests);
+    stamps(sources, folder, started)
+}
+
 /// The Cargo of the static musl build, from the workspace's folder: Zig
 /// through cargo-zigbuild at the versions `ci/musl/toolchain.sh` pins.
 pub(crate) const MUSL_CARGO: &str = "ci/musl/cargo";
@@ -225,7 +421,10 @@ fn build(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
     let (cargo, root) = (environment.cargo.as_os_str(), environment.root.as_path());
     let mut binaries = Vec::new();
     let mut features = BTreeSet::new();
-    for package in metadata::packages(cargo, root)? {
+    let mut package_manifests = Vec::new();
+    let (packages, target_directory) = metadata::packages_and_target_directory(cargo, root)?;
+    for package in packages {
+        package_manifests.push(package.manifest_path);
         for target in package.targets {
             if !target.kind.iter().any(|kind| kind == "bin") {
                 continue;
@@ -261,7 +460,11 @@ fn build(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
         console::build(root)?;
     }
     let mut manifest = ToolManifest::default();
+    // Cargo names its prerequisites by absolute paths from this folder.
+    let folder = std::path::absolute(root).context("finding the workspace's absolute path")?;
+    let mut inputs = Vec::new();
     if !binaries.is_empty() {
+        let started = SystemTime::now();
         let build = build_cargo(target.as_deref(), cargo, root);
         let mut command = crate::child_cargo::command(&build);
         command
@@ -284,19 +487,14 @@ fn build(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
         if !output.status.success() {
             bail!("cargo build of the test tools failed");
         }
-        for message in crate::child_cargo::messages(&output.stdout)? {
-            let (Some(target), Some(executable)) = (message.target, message.executable) else {
-                continue;
-            };
-            if message.reason != "compiler-artifact"
-                || !target.kind.iter().any(|kind| kind == "bin")
-            {
-                continue;
-            }
-            if let Some(tool) = Tool::of_binary(&target.name) {
-                manifest.0.insert(tool, executable);
-            }
-        }
+        manifest = built_tools(&output.stdout)?;
+        inputs = built_inputs(
+            &manifest,
+            &folder,
+            &target_directory,
+            &package_manifests,
+            started,
+        )?;
     }
     for tool in &binaries {
         if !manifest.0.contains_key(tool) {
@@ -310,15 +508,29 @@ fn build(arguments: &Arguments, environment: &Environment) -> Result<ExitCode> {
             manifest.0.insert(product, engine.clone());
         }
     }
-    let out = environment.path(&arguments.out);
+    let record = InputRecord {
+        root: folder,
+        inputs,
+    };
+    write(&environment.path(&arguments.out), &manifest, &record)?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Writes `manifest` at `out` and `record`, its input record, beside it.
+fn write(out: &Path, manifest: &ToolManifest, record: &InputRecord) -> Result<()> {
     if let Some(parent) = out.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating {}", parent.display()))?;
     }
-    let mut text = serde_json::to_string_pretty(&manifest)?;
+    // The record first: a manifest never stands beside an older build's.
+    let record_out = record_path(out);
+    let mut text = serde_json::to_string(record)?;
     text.push('\n');
-    std::fs::write(&out, text).with_context(|| format!("writing {}", out.display()))?;
-    Ok(ExitCode::SUCCESS)
+    std::fs::write(&record_out, text)
+        .with_context(|| format!("writing {}", record_out.display()))?;
+    let mut text = serde_json::to_string_pretty(manifest)?;
+    text.push('\n');
+    std::fs::write(out, text).with_context(|| format!("writing {}", out.display()))
 }
 
 #[cfg(test)]

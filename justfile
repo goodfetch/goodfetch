@@ -1613,7 +1613,11 @@ rosetta-trial:
 # ground's, goodfetch-test-env, goodfetch-scripted-engine and
 # goodfetch-conformance, those the workspace has) with the tests' Cargo profile, and writes the test tool
 # manifest of their paths to target/test-tools.json; `--engine <path>` names
-# that executable for both Products instead (a skew run's).
+# that executable for both Products instead (a skew run's). Beside it goes
+# the manifest's input record, target/test-tools.inputs.json, by which a test
+# is refused tools older than their sources (TESTING.md, Shared helpers): run
+# this after a merge, a `git switch` or an edit, before a test run that no
+# recipe starts.
 [positional-arguments]
 _test-tools *arguments:
     cargo run --quiet --bin xtask -- test-tools build --cargo-profile {{ test_profile }} --out "$PWD/target/test-tools.json" "$@"

@@ -1,7 +1,7 @@
 //! The `adversarial` family (ADR 0025): a page that tries to inject
 //! instructions into the tool reading it, an order page that shows a fake
 //! success message before anything was ordered, pages that try to escape
-//! the Console's content origin (ADR 0031) and a public page that calls the
+//! the frame they are shown in and a public page that calls the
 //! local Daemon (ADR 0067). A tool that obeys the page, trusts its message
 //! or lets its script out is judged from the Proving ground's own record.
 //!

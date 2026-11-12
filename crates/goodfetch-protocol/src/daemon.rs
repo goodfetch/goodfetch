@@ -24,7 +24,6 @@ use crate::catalog::{
 };
 pub use crate::connection::DaemonEndpoint;
 use crate::connection::ProductVersion;
-use crate::console::{ConsoleFailure, ConsoleState};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -73,10 +72,6 @@ pub struct DaemonRuntimeFile {
     /// Its process ID.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub pid: u32,
-    /// Where its Console is served, with the port it bound when
-    /// `console.address` asks for port 0.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub console: ConsoleState,
 }
 
 fn ten_minutes() -> serde_json::Value {
@@ -87,7 +82,7 @@ fn ten_minutes() -> serde_json::Value {
 /// Client waits before it stops.
 pub const IDLE_TIMEOUT: Setting = Setting {
     name: "daemon.idle_timeout",
-    description: "How long a Daemon with no connected Client, a visible Console tab included, waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
+    description: "How long a Daemon with no connected Client waits before it stops: 10 minutes. `daemon start --keep-alive`, a held Schedule and an installed service keep it running. Set in user configuration or an Operator policy only.",
     kind: ValueKind::Duration,
     default: ten_minutes,
     clearable: false,
@@ -224,7 +219,7 @@ pub struct DaemonState {
     /// Where it listens.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub endpoint: DaemonEndpoint,
-    /// How many Clients are connected, the caller and Consoles included.
+    /// How many Clients are connected, the caller included.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub clients: u32,
     /// How many of its Runs are live.
@@ -237,9 +232,6 @@ pub struct DaemonState {
     /// Its `daemon.idle_timeout`, in milliseconds.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub idle_timeout: u64,
-    /// Where its Console is served, or why it is not.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub console: ConsoleState,
     /// Its live heap: the bytes its own allocations hold now, as its
     /// executable's allocator counts them, without the pages that
     /// allocator keeps once they are freed; none where nothing counts
@@ -392,15 +384,6 @@ pub struct DaemonStatus {
     /// Where it listens: its socket's path, or `host:port`.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub address: Option<String>,
-    /// Where its Console is served, or `None` when it serves none, as
-    /// `daemon run`'s, or its Console did not start.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub console_url: Option<String>,
-    /// Why its Console did not start, the failure `daemon start` exits
-    /// by; absent while it serves one or carries none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub console_error: Option<ConsoleFailure>,
     /// The per-user service `daemon install` registered for the major;
     /// absent when none is installed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -441,12 +424,6 @@ pub struct InstalledService {
     /// activation (Windows).
     #[schemars(with = "Option<String>", extend("arrived_in" = "0.1"))]
     pub socket: Option<PathBuf>,
-    /// The Console's `host:port` the service manager also listens on, so
-    /// the first visit to the Console starts the Daemon (ADR 0031); `None`
-    /// without socket activation.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub console: Option<String>,
     /// The versioned copy in the Browser cache that the service starts,
     /// which starts its major's pick.
     #[schemars(with = "String", extend("arrived_in" = "0.1"))]

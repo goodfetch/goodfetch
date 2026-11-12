@@ -13,8 +13,7 @@ use std::net::SocketAddr;
 use serde_json::{Map, Value};
 
 use super::connection::ListenerAddress;
-use super::sign_in::SignIns;
-use super::table::{EndpointTable, Expected, ListenerKind, Row, Rule, SignInRoutes, Transport};
+use super::table::{EndpointTable, Expected, ListenerKind, Row, Rule, Transport};
 use super::{http, http_proxy, json_rpc, websocket};
 
 /// The method of the first message that is not a `hello`.
@@ -25,10 +24,6 @@ const FOREIGN_HOST: &str = "foreign.invalid";
 const FOREIGN_ORIGIN: &str = "https://foreign.invalid";
 /// The ops listener's probes (ADR 0050).
 const PROBES: [&str; 2] = ["/livez", "/readyz"];
-/// How many sign-in attempts the `sign_in_rate_exceeded` row makes, the
-/// last of which a rate of 10 a minute refuses whatever came before.
-const SIGN_IN_ATTEMPTS: usize = 11;
-
 /// The `hello` a JSON-RPC stream listener accepts, without its token: its
 /// params, and the field of the params that carries the token.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -81,34 +76,6 @@ pub enum Endpoint {
         address: SocketAddr,
         /// The `hello` it accepts.
         hello: Hello,
-    },
-    /// A WebSocket listener on loopback TCP whose valid handshake names
-    /// `address` as its `Host` and `http://<address>` as its `Origin` and
-    /// carries the token as the cookie `cookie`, and whose first message
-    /// is a `hello` with these params, which carry no token. Its sign-in
-    /// routes swap `link_token`, the sign-in link's, for a new sign-in.
-    SignedInWebSocket {
-        /// Where it listens.
-        address: SocketAddr,
-        /// The sign-in cookie's name.
-        cookie: String,
-        /// The `hello`'s params.
-        hello: Map<String, Value>,
-        /// The token the sign-in link carries.
-        link_token: String,
-    },
-    /// An HTTP/1.1 listener on loopback TCP that serves a file only to an
-    /// address signed for it: its token is such an address's path and
-    /// query, its valid request names `host` as its `Host`, and
-    /// `other_file` is the path of another file it holds. Another
-    /// listener's token is presented as a `Cookie` header.
-    SignedAddress {
-        /// Where it listens.
-        address: SocketAddr,
-        /// The `Host` its valid request names, such as `127.0.0.1:51234`.
-        host: String,
-        /// Another file's path, which the valid signature does not cover.
-        other_file: String,
     },
     /// An HTTP proxy on loopback TCP that tunnels to `target` for the
     /// `Proxy-Authorization: Basic` credentials of `username`, whose
@@ -390,34 +357,6 @@ impl<A: AuditVerifier> EndpointRunner<A> {
                 hello,
             },
             (
-                Endpoint::SignedInWebSocket {
-                    address,
-                    cookie,
-                    hello,
-                    link_token,
-                },
-                Transport::SignedInWebSocket { path, sign_in },
-            ) => Reach::SignedInWebSocket(SignedInReach {
-                address: *address,
-                path,
-                cookie,
-                hello,
-                sign_in,
-                link_token,
-            }),
-            (
-                Endpoint::SignedAddress {
-                    address,
-                    host,
-                    other_file,
-                },
-                Transport::SignedAddress,
-            ) => Reach::SignedAddress {
-                address: *address,
-                host,
-                other_file,
-            },
-            (
                 Endpoint::HttpProxy {
                     address,
                     username,
@@ -471,7 +410,7 @@ fn apply(
     let token = listener.token.as_str();
     let observed = match rule {
         Rule::TokenMissing => reach.attempt(token, Attempt::Token(None)),
-        Rule::TokenWrong => reach.attempt(token, Attempt::Token(Some(&reach.wrong_token(token)))),
+        Rule::TokenWrong => reach.attempt(token, Attempt::Token(Some(&wrong_token(token)))),
         Rule::TokenFromAnotherListener
         | Rule::TokenExpired
         | Rule::TokenRevoked
@@ -481,7 +420,6 @@ fn apply(
             };
             reach.attempt(token, Attempt::Given(given))
         }
-        Rule::TokenForAnotherFile => reach.attempt(token, Attempt::OtherFile),
         Rule::TokenInQueryString => reach.attempt(token, Attempt::TokenInQuery),
         Rule::HostForeign => reach.attempt(token, Attempt::ForeignHost),
         Rule::OriginForeign => reach.attempt(token, Attempt::ForeignOrigin),
@@ -495,9 +433,6 @@ fn apply(
                 .find(|observed| !observed.meets(expected))
                 .map(|observed| Failure::Unexpected { expected, observed });
         }
-        Rule::CsrfTokenMissing => reach.attempt(token, Attempt::SignOutWithoutCsrf),
-        Rule::SignInRevoked => reach.attempt(token, Attempt::SignedOut),
-        Rule::SignInRateExceeded => reach.attempt(token, Attempt::SignInTooOften),
     };
     if !observed.meets(expected) {
         return Some(Failure::Unexpected { expected, observed });
@@ -525,8 +460,6 @@ enum Attempt<'a> {
     /// description gives a row: another listener's, an expired, a revoked
     /// or an out-of-scope one.
     Given(&'a str),
-    /// The valid signature on another file's address.
-    OtherFile,
     /// An HTTP request carrying the valid token in its query string only.
     TokenInQuery,
     /// An HTTP request with the valid token and a foreign `Host`.
@@ -544,13 +477,6 @@ enum Attempt<'a> {
     NotHello,
     /// A request without a token for one of the ops listener's probes.
     Probe(&'a str),
-    /// A signed-in `POST` to sign out, with the valid cookie and no CSRF
-    /// token.
-    SignOutWithoutCsrf,
-    /// The handshake with the cookie of a new sign-in, signed out first.
-    SignedOut,
-    /// Sign-in attempts with a wrong token, the last of which is answered.
-    SignInTooOften,
 }
 
 /// A listener's endpoint, with what its kind's transport adds.
@@ -567,12 +493,6 @@ enum Reach<'a> {
         address: SocketAddr,
         hello: &'a Hello,
     },
-    SignedInWebSocket(SignedInReach<'a>),
-    SignedAddress {
-        address: SocketAddr,
-        host: &'a str,
-        other_file: &'a str,
-    },
     HttpProxy(ProxyReach<'a>),
 }
 
@@ -584,28 +504,12 @@ struct ProxyReach<'a> {
     target: &'a str,
 }
 
-/// A listener whose WebSocket's handshake carries a sign-in's cookie, and
-/// its sign-in routes.
-struct SignedInReach<'a> {
-    address: SocketAddr,
-    path: &'static str,
-    cookie: &'a str,
-    hello: &'a Map<String, Value>,
-    sign_in: SignInRoutes,
-    link_token: &'a str,
-}
-
 impl Reach<'_> {
     /// Tries `attempt` on a listener whose valid token is `token`. The
     /// table's check keeps each rule to the transports that can carry its
     /// attempt, so an attempt a transport cannot carry is never asked for.
     fn attempt(&self, token: &str, attempt: Attempt<'_>) -> Observed {
         match self {
-            Self::SignedAddress {
-                address,
-                host,
-                other_file,
-            } => signed_address(*address, host, other_file, token, attempt),
             Self::JsonRpc { address, hello } => {
                 let message = match attempt {
                     Attempt::Token(token) => hello.message("hello", token),
@@ -617,11 +521,7 @@ impl Reach<'_> {
                     | Attempt::ForeignOrigin
                     | Attempt::NoOrigin
                     | Attempt::Probe(_)
-                    | Attempt::SignOutWithoutCsrf
-                    | Attempt::SignedOut
-                    | Attempt::SignInTooOften
-                    | Attempt::TokenInCookie
-                    | Attempt::OtherFile => hello.message("hello", Some(token)),
+                    | Attempt::TokenInCookie => hello.message("hello", Some(token)),
                 };
                 json_rpc::attempt(address, &message)
             }
@@ -632,17 +532,10 @@ impl Reach<'_> {
                     target: "/".to_owned(),
                     host: &authority,
                     origin: Some(&origin),
-                    cookie: None,
                 };
                 let mut message = hello.message("hello", Some(token));
                 match attempt {
-                    Attempt::Valid
-                    | Attempt::Probe(_)
-                    | Attempt::SignOutWithoutCsrf
-                    | Attempt::SignedOut
-                    | Attempt::SignInTooOften
-                    | Attempt::TokenInCookie
-                    | Attempt::OtherFile => {}
+                    Attempt::Valid | Attempt::Probe(_) | Attempt::TokenInCookie => {}
                     Attempt::Token(token) => message = hello.message("hello", token),
                     Attempt::Given(token) => message = hello.message("hello", Some(token)),
                     Attempt::TokenInQuery => {
@@ -656,7 +549,6 @@ impl Reach<'_> {
                 }
                 websocket::attempt(*address, &handshake, &message)
             }
-            Self::SignedInWebSocket(reach) => reach.attempt(token, attempt),
             Self::HttpProxy(reach) => reach.attempt(token, attempt),
             Self::Http {
                 address,
@@ -672,13 +564,7 @@ impl Reach<'_> {
                     cookie: None,
                 };
                 match attempt {
-                    Attempt::Valid
-                    | Attempt::NotHello
-                    | Attempt::NoOrigin
-                    | Attempt::SignOutWithoutCsrf
-                    | Attempt::SignedOut
-                    | Attempt::SignInTooOften
-                    | Attempt::OtherFile => {}
+                    Attempt::Valid | Attempt::NotHello | Attempt::NoOrigin => {}
                     Attempt::TokenInCookie => {
                         request.bearer = None;
                         request.cookie = Some(&cookie);
@@ -703,65 +589,6 @@ impl Reach<'_> {
     }
 }
 
-impl Reach<'_> {
-    /// A token this listener never issued, of the valid one's shape: for an
-    /// address signed for a file, the same address with another signature.
-    fn wrong_token(&self, token: &str) -> String {
-        match self {
-            Self::SignedAddress { .. } => match token.rsplit_once("signature=") {
-                Some((rest, signature)) => format!("{rest}signature={}", wrong_token(signature)),
-                None => wrong_token(token),
-            },
-            Self::JsonRpc { .. }
-            | Self::Http { .. }
-            | Self::WebSocket { .. }
-            | Self::SignedInWebSocket(_)
-            | Self::HttpProxy(_) => wrong_token(token),
-        }
-    }
-}
-
-/// Tries `attempt` on the signed-address listener at `address`, reached
-/// as `host`, whose valid address is `token` and which holds `other_file`
-/// too.
-fn signed_address(
-    address: SocketAddr,
-    host: &str,
-    other_file: &str,
-    token: &str,
-    attempt: Attempt<'_>,
-) -> Observed {
-    let (path, query) = token.split_once('?').unwrap_or((token, ""));
-    let mut request = http::Request {
-        target: token.to_owned(),
-        host,
-        bearer: None,
-        origin: None,
-        cookie: None,
-    };
-    match attempt {
-        Attempt::Valid
-        | Attempt::TokenInQuery
-        | Attempt::NoOrigin
-        | Attempt::NotHello
-        | Attempt::Probe(_)
-        | Attempt::SignOutWithoutCsrf
-        | Attempt::SignedOut
-        | Attempt::SignInTooOften
-        | Attempt::TokenInCookie => {}
-        Attempt::Token(None) => path.clone_into(&mut request.target),
-        Attempt::Token(Some(other)) => other.clone_into(&mut request.target),
-        Attempt::Given(other) => {
-            path.clone_into(&mut request.target);
-            request.cookie = Some(other);
-        }
-        Attempt::OtherFile => request.target = format!("{other_file}?{query}"),
-        Attempt::ForeignHost => request.host = FOREIGN_HOST,
-        Attempt::ForeignOrigin => request.origin = Some(FOREIGN_ORIGIN),
-    }
-    http::attempt(address, &request)
-}
-
 impl ProxyReach<'_> {
     /// Tries `attempt` with the valid password `token`.
     fn attempt(&self, token: &str, attempt: Attempt<'_>) -> Observed {
@@ -769,68 +596,19 @@ impl ProxyReach<'_> {
             Attempt::Token(token) => token,
             Attempt::Given(token) => Some(token),
             Attempt::Valid
-            | Attempt::OtherFile
             | Attempt::TokenInQuery
             | Attempt::ForeignHost
             | Attempt::ForeignOrigin
             | Attempt::NoOrigin
             | Attempt::TokenInCookie
             | Attempt::NotHello
-            | Attempt::Probe(_)
-            | Attempt::SignOutWithoutCsrf
-            | Attempt::SignedOut
-            | Attempt::SignInTooOften => Some(token),
+            | Attempt::Probe(_) => Some(token),
         };
         http_proxy::attempt(
             self.address,
             self.target,
             password.map(|password| (self.username, password)),
         )
-    }
-}
-
-impl SignedInReach<'_> {
-    /// Tries `attempt` with the sign-in `token`: at the handshake of the
-    /// WebSocket, or through the sign-in routes.
-    fn attempt(&self, token: &str, attempt: Attempt<'_>) -> Observed {
-        let sign_ins = SignIns {
-            address: self.address,
-            routes: self.sign_in,
-            cookie: self.cookie,
-        };
-        let authority = self.address.to_string();
-        let origin = format!("http://{authority}");
-        let signed_in = |token: &str| format!("{}={token}", self.cookie);
-        let mut handshake = websocket::Handshake {
-            target: self.path.to_owned(),
-            host: &authority,
-            origin: Some(&origin),
-            cookie: Some(signed_in(token)),
-        };
-        let first = |method: &str| serde_json::json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": self.hello });
-        let mut message = first("hello");
-        match attempt {
-            Attempt::Valid | Attempt::Probe(_) | Attempt::OtherFile | Attempt::TokenInCookie => {}
-            Attempt::SignOutWithoutCsrf => return sign_ins.sign_out(token, None),
-            Attempt::SignedOut => match sign_ins.signed_out(self.link_token) {
-                Some(ended) => handshake.cookie = Some(signed_in(&ended)),
-                None => return Observed::Malformed,
-            },
-            Attempt::SignInTooOften => {
-                return sign_ins.too_often(&wrong_token(self.link_token), SIGN_IN_ATTEMPTS);
-            }
-            Attempt::Token(token) => handshake.cookie = token.map(signed_in),
-            Attempt::Given(token) => handshake.cookie = Some(signed_in(token)),
-            Attempt::TokenInQuery => {
-                handshake.target = format!("{}?access_token={}", self.path, percent_encoded(token));
-                handshake.cookie = None;
-            }
-            Attempt::ForeignHost => handshake.host = FOREIGN_HOST,
-            Attempt::ForeignOrigin => handshake.origin = Some(FOREIGN_ORIGIN),
-            Attempt::NoOrigin => handshake.origin = None,
-            Attempt::NotHello => message = first(NOT_HELLO),
-        }
-        websocket::attempt(self.address, &handshake, &message)
     }
 }
 

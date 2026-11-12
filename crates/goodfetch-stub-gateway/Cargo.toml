@@ -1,6 +1,6 @@
 [package]
 name = "goodfetch-stub-gateway"
-description = "The Stub gateway: a test-only stand-in of Goodfetch Cloud's gateway that serves Foxhound's Console build and runs each run on the executable of its Product (spec #593; ADRs 0096 and 0125); never shipped."
+description = "The Stub gateway: a test-only stand-in of Goodfetch Cloud's gateway that runs each run on the executable of its Product (spec #593; ADRs 0096 and 0125); never shipped."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -44,7 +44,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "net", "io-util"] }
 tokio-rustls = { workspace = true, features = ["ring"] }
 # The gateway's HTTP Client in its tests (tests/it/gateway.rs).
 ureq.workspace = true
-# The Console's WebSocket Client in its tests (tests/it/gateway.rs).
+# A Client's WebSocket in its tests (tests/it/gateway.rs).
 tungstenite.workspace = true
 
 [lints]

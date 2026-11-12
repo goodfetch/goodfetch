@@ -6,8 +6,7 @@
 //! the site's own pages in `website/`), every README and `CHANGELOG.md`, the
 //! skills (`skills/`), the descriptions, titles and messages of the generated
 //! catalog and JSON Schema bundle (the settings schema and the Error codes'
-//! messages among them), the Console's message catalog (`messages/` folders
-//! under `console/`), and every package's description and keywords (Cargo,
+//! messages among them), and every package's description and keywords (Cargo,
 //! npm and PyPI manifests). Frozen `rnd/` and fixtures are never read.
 #![expect(
     clippy::disallowed_methods,
@@ -127,13 +126,6 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
                     );
                 }
             }
-            Kind::Messages => {
-                let value: Value =
-                    serde_json::from_str(&text).with_context(|| format!("reading {file}"))?;
-                for (pointer, text) in strings(&value, "", &|_| true) {
-                    scan(&terms, &text, &Place::Field(&file, &pointer), &mut findings);
-                }
-            }
             Kind::Manifest(section) => {
                 let value = manifest(&file, &text)?;
                 let Some(section) = section.map_or(Some(&value), |name| value.get(name)) else {
@@ -178,8 +170,6 @@ enum Kind {
     Markdown,
     /// The catalog or the JSON Schema bundle: only their prose keys.
     Contract,
-    /// The Console's message catalog: every string.
-    Messages,
     /// A package manifest; the table holding its description and keywords,
     /// or `None` for npm's top level.
     Manifest(Option<&'static str>),
@@ -205,12 +195,6 @@ fn kind(file: &str) -> Option<Kind> {
     }
     if CONTRACTS.contains(&file) {
         return Some(Kind::Contract);
-    }
-    if file.starts_with("console/")
-        && extension.as_deref() == Some("json")
-        && file.split('/').rev().nth(1) == Some("messages")
-    {
-        return Some(Kind::Messages);
     }
     match name {
         "Cargo.toml" => Some(Kind::Manifest(Some("package"))),

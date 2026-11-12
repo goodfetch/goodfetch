@@ -13,8 +13,6 @@ export interface DaemonDescription {
   readonly socket: string;
   /** The per-launch token a Client's `hello` carries. */
   readonly token: string;
-  /** The URL of the Console it serves on a port of its own, `http://127.0.0.1:<port>/`; `null` when it serves none. */
-  readonly console?: string | null | undefined;
 }
 
 /** The Daemon a description names; `daemon_not_requested` when the test asked for none. */

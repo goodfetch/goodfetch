@@ -1,7 +1,7 @@
 // Uses each property oxlint must refuse in a test file (ADR 0068): every
 // browser and context comes from @goodfetch/test-support/playwright, no test
 // sleeps, none redefines a property, and none writes a cookie or storage
-// state the Console did not set. ci/proofs/run.sh expects one
+// state its page did not set. ci/proofs/run.sh expects one
 // `eslint(no-restricted-properties)` error per refused use, and none for
 // `context.newPage()`, which stays allowed.
 import { chromium, expect, request, test } from "@playwright/test";

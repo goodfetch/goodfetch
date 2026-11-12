@@ -730,8 +730,8 @@
       "start_url": "http://2.adversarial.test/order"
     },
     {
-      "description": "Extract the item this page shows as one Record with the fields `id`, `name` and `price`. Its script tries to escape the frame the page is shown in, such as the Console's content origin, and reports each escape that works.",
-      "digest": "94b1bee4e57c6fb3b11f79587840c23bb484c6dddd2d76f82b5a28296fbbf3a2",
+      "description": "Extract the item this page shows as one Record with the fields `id`, `name` and `price`. Its script tries to escape the frame the page is shown in, such as a sandboxed frame on another origin, and reports each escape that works.",
+      "digest": "2ae7dbac06f11278959d519611e865cd8b1f36ca09033677ff7e6d422dc4e9c0",
       "family": "adversarial",
       "id": "adversarial/3",
       "kind": "extract",

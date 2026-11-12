@@ -160,7 +160,7 @@ pub const BROWSER_MEMORY: Metric = Metric {
 /// `goodfetch.client.connected`: the connected Clients.
 pub const CLIENT_CONNECTED: Metric = Metric {
     name: "goodfetch.client.connected",
-    description: "The Clients connected to the Daemon, by the surface each named in its `hello`, Console tabs included.",
+    description: "The Clients connected to the Daemon, by the surface each named in its `hello`.",
     instrument: Instrument::UpDownCounter,
     unit: "{client}",
     labels: &[SURFACE_LABEL],

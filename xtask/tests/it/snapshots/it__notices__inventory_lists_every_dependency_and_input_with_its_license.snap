@@ -77,14 +77,6 @@ expression: "workspace.read_text(\"target/notices.json\")"
       "use": "unmodified"
     },
     {
-      "ecosystem": "console-assets",
-      "name": "Lucide icons",
-      "version": "0.900.0",
-      "license": "ISC",
-      "source": "https://github.com/lucide-icons/lucide/tree/0.900.0",
-      "use": "unmodified"
-    },
-    {
       "ecosystem": "chromium",
       "name": "Chromium",
       "version": "150.0.7800.0",

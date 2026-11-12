@@ -2,7 +2,7 @@
 //! argument, as `command-lines.json`: `{"collie": <printed>, "foxhound":
 //! <printed>}`, each what that Product's executable prints for its hidden
 //! `command-line` command. `xtask codegen` runs it and commits the result
-//! (ADR 0072): it needs neither executable's Console build. It is
+//! (ADR 0072). It is
 //! Foxhound's, whose crate holds Foxhound's own commands and depends on
 //! Collie's, whose executable entry both executables start from.
 #![expect(

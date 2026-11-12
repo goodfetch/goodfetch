@@ -423,13 +423,7 @@ fn every_step_a_path_the_map_names_reaches_is_in_the_map() {
     for path in ci_paths_run(
         root,
         &recipes,
-        &[
-            "pre-merge",
-            "_gate-plan",
-            "_gate-record",
-            "_os-services",
-            "console-build",
-        ],
+        &["pre-merge", "_gate-plan", "_gate-record", "_os-services"],
     ) {
         if narrowed(&RepoPath::new(path.as_str())).is_some() {
             wrong.push(format!("every step reads {path}"));
@@ -981,17 +975,17 @@ fn the_full_gate_runs_every_step_once_in_the_order_the_plan_lists_them() {
 #[rstest]
 #[case::all(Form::All)]
 #[case::changed(Form::Changed)]
-fn the_whole_changes_checks_end_the_full_gate_before_the_console_build_and_any_step_beside(
-    #[case] form: Form,
-) {
-    let console = position(form, "console-build");
+fn the_whole_changes_checks_end_the_full_gate_before_any_step_beside(#[case] form: Form) {
+    let last_check = WHOLE_CHANGE_STEPS
+        .map(|step| position(form, step))
+        .into_iter()
+        .max();
+    let first_beside = BESIDE_STEPS
+        .map(|step| position(form, step))
+        .into_iter()
+        .min();
 
-    for step in WHOLE_CHANGE_STEPS {
-        assert!(position(form, step) < console, "{step}");
-    }
-    for step in BESIDE_STEPS {
-        assert!(position(form, step) > console, "{step}");
-    }
+    assert!(last_check < first_beside, "{last_check:?} {first_beside:?}");
 }
 
 #[test]

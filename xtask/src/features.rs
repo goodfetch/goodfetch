@@ -25,7 +25,6 @@ mod report;
 mod row;
 mod rstest_names;
 mod scan;
-mod screen;
 mod story;
 
 use std::ffi::OsStr;

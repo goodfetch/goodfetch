@@ -6,8 +6,8 @@
 //! milestone with an open issue
 //! (docs/agents/issue-tracker.md, Frontier); an open one gets the current
 //! results; a closed one reopens only for a result after it closed. The
-//! checks of the files that name an issue (the quarantine list, the axe
-//! exception file) read it through [`find`]. The watchlist job's issues
+//! check of the file that names an issue (the quarantine list) reads it
+//! through [`find`]. The watchlist job's issues
 //! (`xtask watchlist`) are opened once, outside every milestone, and never
 //! reopened: closing one declines its vendor.
 

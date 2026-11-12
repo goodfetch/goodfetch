@@ -140,7 +140,7 @@
               }
             ],
             "arrived_in": "0.1",
-            "description": "The surface the actor acted through, such as `console` for a person\nin the Console; none for the engine's own events."
+            "description": "The surface the actor acted through, such as `kennel` for a person\nin the Kennel; none for the engine's own events."
           },
           "time": {
             "$ref": "#/$defs/PointInTime",
@@ -228,11 +228,6 @@
           {
             "const": "mcp",
             "description": "The MCP server, as a Client of a Daemon.",
-            "type": "string"
-          },
-          {
-            "const": "console",
-            "description": "The Console.",
             "type": "string"
           },
           {

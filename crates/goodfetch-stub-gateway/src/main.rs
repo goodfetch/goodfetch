@@ -1,25 +1,21 @@
 //! The Stub gateway, `goodfetch-stub-gateway` (ADRs 0068, 0096 and 0125):
 //! a test-only stand-in of Goodfetch Cloud's gateway, never shipped. It
-//! serves Foxhound's Console build, taken by path from `xtask console
-//! build`'s output, under the production headers and beside a content
-//! origin, and signs a browser in with a configured token swapped for a
-//! cookie, and a program in with the same token presented in its `hello`.
-//! Behind it, each run gets an Attached engine of the executable of the
+//! serves no file: a Client opens a WebSocket at `/protocol` and signs in
+//! with the configured token, presented in its `hello`. Behind it, each run gets an Attached engine of the executable of the
 //! Product the routing rule picks (`goodfetch_protocol::routing`), both
 //! executables taken by path from the same commit, so it names no Foxhound
 //! crate. It answers `run.list` from its own index and forwards every other
 //! call to the engine that owns the run, to which its `hello` says it is the
 //! gateway and announces that engine's own Product (ADR 0095).
 //!
-//! Its listeners bind loopback port 0 through `goodfetch-engine`'s
-//! `transport` (ADRs 0059 and 0060). Once it serves, it writes its two
-//! addresses to the `--ready` file as `{"console": …, "content": …}`; it
+//! Its listener binds loopback port 0 through `goodfetch-engine`'s
+//! `transport` (ADRs 0059 and 0060). Once it serves, it writes its
+//! address to the `--ready` file as `{"address": …}`; it
 //! writes nothing to stdout, and logs through `tracing` to stderr. It runs
 //! until it is interrupted (`SIGINT`), when it kills its engines and exits
 //! once each has been reaped, or until it is killed, when its engines die
 //! with it.
 
-mod console_build;
 mod engines;
 mod index;
 mod relay;
@@ -43,9 +39,6 @@ use crate::site::Site;
 #[derive(Parser)]
 #[command(name = "goodfetch-stub-gateway", version)]
 struct Arguments {
-    /// Foxhound's Console build, `xtask console build`'s output folder.
-    #[arg(long)]
-    console_build: PathBuf,
     /// Collie's executable, which runs each run that gets Collie.
     #[arg(long)]
     collie: PathBuf,
@@ -54,13 +47,13 @@ struct Arguments {
     /// `not_in_product`.
     #[arg(long)]
     foxhound: Option<PathBuf>,
-    /// The file holding the sign-in token a browser swaps for its cookie.
+    /// The file holding the token a Client's `hello` presents.
     #[arg(long)]
     token_file: PathBuf,
     /// The folder of the gateway's state: each engine's Goodfetch home.
     #[arg(long)]
     state: PathBuf,
-    /// Where to write the gateway's addresses once it serves.
+    /// Where to write the gateway's address once it serves.
     #[arg(long)]
     ready: PathBuf,
 }
@@ -98,9 +91,6 @@ fn main() -> ExitCode {
 /// Serves until the process is killed or interrupted; interrupted, it
 /// kills and reaps its engines before it returns.
 async fn serve(arguments: Arguments, environment: Vec<(OsString, OsString)>) -> Result<(), String> {
-    let build = console_build::read(&arguments.console_build)
-        .await
-        .map_err(|error| format!("reading the Console build: {error}"))?;
     let token = tokio::fs::read_to_string(&arguments.token_file)
         .await
         .map_err(|error| format!("reading the token file: {error}"))?
@@ -109,12 +99,9 @@ async fn serve(arguments: Arguments, environment: Vec<(OsString, OsString)>) -> 
     let mut entropy =
         Entropy::from_os().map_err(|error| format!("the OS gave no seed: {error}"))?;
     let loopback = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
-    let console = transport::listen_console(loopback)
+    let listener = transport::listen_gateway(loopback)
         .await
-        .map_err(|error| format!("listening for the Console: {error}"))?;
-    let content = transport::listen_console(loopback)
-        .await
-        .map_err(|error| format!("listening for the content origin: {error}"))?;
+        .map_err(|error| format!("listening for Clients: {error}"))?;
     let owner = Arc::new(TaskOwner::root(BlockingPolicy::Threads));
     let engines = Engines::new(
         Executables {
@@ -126,26 +113,14 @@ async fn serve(arguments: Arguments, environment: Vec<(OsString, OsString)>) -> 
         Arc::clone(&owner),
     )
     .map_err(|error| format!("preparing the engines: {error}"))?;
-    let gateway = Arc::new(Gateway::new(engines, token.clone(), &mut entropy));
-    let site = Site::new(
-        build,
-        token,
-        Arc::clone(&gateway),
-        &console,
-        &content,
-        entropy,
-    )
-    .map_err(|error| format!("reading the listeners' addresses: {error}"))?;
-    let ready = serde_json::json!({
-        "console": site.console_origin(),
-        "content": site.content_origin(),
-    });
+    let gateway = Arc::new(Gateway::new(engines, token, &mut entropy));
+    let site = Site::new(Arc::clone(&gateway), &listener)
+        .map_err(|error| format!("reading the listener's address: {error}"))?;
+    let ready = serde_json::json!({ "address": site.address() });
     tokio::fs::write(&arguments.ready, ready.to_string())
         .await
         .map_err(|error| format!("writing the ready file: {error}"))?;
-    let site = Arc::new(site);
-    owner.spawn(Arc::clone(&site).serve_content(content, Arc::clone(&owner)));
-    owner.spawn(site.serve_console(console, Arc::clone(&owner)));
+    owner.spawn(Arc::new(site).serve(listener, Arc::clone(&owner)));
     let _ = tokio::signal::ctrl_c().await;
     gateway.stop().await;
     owner.cancel();

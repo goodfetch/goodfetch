@@ -47,8 +47,8 @@ pub struct Tools {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "PathBuf")]
     pub conformance: Option<PathBuf>,
-    /// `goodfetch-stub-gateway`, the Stub gateway the Console conformance
-    /// suite runs against (ADR 0096).
+    /// `goodfetch-stub-gateway`, the Stub gateway the Cloud-readiness
+    /// conformance suite runs against (ADR 0096).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "PathBuf")]
     pub stub_gateway: Option<PathBuf>,

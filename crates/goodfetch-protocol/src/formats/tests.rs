@@ -246,7 +246,6 @@ fn the_registry_lists_every_format_under_its_rule() {
             ("politeness-file", Rule::FrozenMajor),
             ("audit-log", Rule::FrozenMajor),
             ("known-certificates", Rule::FrozenMajor),
-            ("accounts-store", Rule::Default),
             ("operator-policy", Rule::SharedStore),
             ("user-configuration", Rule::SharedStore),
             ("export", Rule::Default)

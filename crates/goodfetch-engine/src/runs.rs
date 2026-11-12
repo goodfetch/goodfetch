@@ -210,9 +210,6 @@ pub(crate) struct RunsSetup {
     /// The composition's Clean-up rules, which choose the version each new
     /// Run holds to (ADR 0047), if it has any.
     pub(crate) clean_up: Option<Arc<dyn CleanUpVersions>>,
-    /// The Console's address, when this engine serves one (ADR 0031): each
-    /// Run's report names its page there.
-    pub(crate) console: Option<String>,
     /// The switchable controls the composition registered, which each new
     /// Run reports when its settings switch one off.
     pub(crate) controls: Controls,
@@ -5425,11 +5422,6 @@ impl Registry {
             events: events.clone(),
             governor: self.setup.governor.clone(),
         });
-        let console_url = self
-            .setup
-            .console
-            .as_ref()
-            .map(|console| format!("{}/runs/{run_id}", console.trim_end_matches('/')));
         let closing = Closing {
             run,
             writer: Arc::clone(&live.writer),
@@ -5443,7 +5435,6 @@ impl Registry {
             checkpoint_to,
             last_checkpoint: live.checkpoint.clone(),
             parts: self.setup.report_parts.clone(),
-            console_url,
             governor: self.setup.governor.clone(),
         };
         let recording = Recording {
@@ -6363,8 +6354,6 @@ struct Closing {
     last_checkpoint: Option<Checkpoint>,
     /// What the composition's areas add to its report.
     parts: Vec<Arc<dyn ReportPart>>,
-    /// Its page in the Console, when the engine serves one.
-    console_url: Option<String>,
     /// What reads the filesystem of a stop its run file could not record.
     governor: Governor,
 }
@@ -6395,7 +6384,6 @@ impl Closing {
             checkpoint_to,
             last_checkpoint,
             parts,
-            console_url,
             governor,
         } = self;
         run.owner.stop().await;
@@ -6418,7 +6406,6 @@ impl Closing {
                 .settings()
                 .map(|settings| settings.resolved().explain(&[], Vec::new()).settings),
             checkpoint: None,
-            console_url,
             limits,
             error,
             finished,

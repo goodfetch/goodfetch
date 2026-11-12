@@ -41,9 +41,8 @@ skip() {
 }
 
 cargo run --quiet --locked --bin xtask -- modules --workspace kennel
-# The two executables and their manifest, as every test's: Collie's embeds
-# its Console build, made first (ADR 0057), and needs its `executable`
-# feature (ADR 0094).
+# The two executables and their manifest, as every test's: Collie's needs
+# its `executable` feature (ADR 0094).
 cargo run --quiet --locked --bin xtask -- test-tools build --cargo-profile "$profile" \
   --tool scripted_engine --tool collie --out "$root/target/kennel-test-tools.json"
 export GOODFETCH_TEST_TOOLS="$root/target/kennel-test-tools.json"

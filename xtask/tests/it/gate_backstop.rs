@@ -1123,7 +1123,7 @@ fn a_stop_ends_the_backstops_steps_before_its_lock_goes(#[case] stop: &str) {
 }
 
 /// A gate worktree keeps its npm packages from one gate to the next, but
-/// never Vite's pre-bundled dependencies (Vitest's and Storybook's, at any
+/// never Vite's pre-bundled dependencies (Vitest's, or another tool's at any
 /// depth of `node_modules`): their cache is keyed by the lockfile and the
 /// config only, so a head importing a package the previous head did not
 /// would find it missing, have Vite bundle it mid-run and reload, and every
@@ -1139,8 +1139,8 @@ fn a_gate_worktree_keeps_its_npm_packages_but_not_vites_prebundled_dependencies(
     let worktree = ".claude/worktrees/gate-backstop";
     let prebundled = [
         "node_modules/.vite/vitest/0a1b/deps",
-        "node_modules/.cache/storybook/10.6.3/0c2d/sb-vitest/vitest/0e3f/deps",
-        "console/collie/node_modules/.vite/deps",
+        "node_modules/.cache/a-tool/10.6.3/0c2d/vitest/0e3f/deps",
+        "website/node_modules/.vite/deps",
     ];
     for deps in prebundled {
         workspace.write(&format!("{worktree}/{deps}/_metadata.json"), b"{}");
@@ -1148,7 +1148,7 @@ fn a_gate_worktree_keeps_its_npm_packages_but_not_vites_prebundled_dependencies(
     }
     let kept = [
         "node_modules/react/index.js",
-        "console/collie/node_modules/.bin/vite",
+        "website/node_modules/.bin/vite",
         "node_modules/.vite/vitest/0a1b/results.json",
     ];
     for file in kept {

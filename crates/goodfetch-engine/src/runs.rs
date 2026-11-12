@@ -55,14 +55,13 @@ use std::time::Duration;
 use tracing::Instrument as _;
 
 use goodfetch_protocol::audit::{Actor, CERTIFICATE_EXCEPTIONS_USED};
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::checkpoint::{
     RUN_ABORTING, RUN_CHECKPOINTING, RUN_MIGRATING, RUN_STOPPING, RunAborting, RunBinding,
     RunCheckpointing, RunMigrating, RunStopping,
 };
 use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
 use goodfetch_protocol::formats::Compatibility;
-use goodfetch_protocol::foxhound::settings::PROVENANCE_LOG;
 use goodfetch_protocol::governor::{RUN_SHARE, SystemInfo};
 use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::page::BodyHandle;
@@ -179,6 +178,8 @@ pub(crate) struct RunsSetup {
     pub(crate) install: Option<Arc<InstallDatabase>>,
     /// The tables the composition adds to every run file.
     pub(crate) tables: Vec<RunStateTables>,
+    /// How the Runs of each kind the composition registers a driver for go.
+    pub(crate) driving: BTreeMap<RunKind, Driving>,
     /// The gate in admission the composition passes in, if any.
     pub(crate) gates: Option<Arc<dyn Gates>>,
     /// How the per-user Politeness file opens.
@@ -258,6 +259,33 @@ pub enum EndedBy {
     /// Its driver ends it once its work is done, and `run.finish` waits for
     /// that: a crawl.
     Driver,
+}
+
+/// How the Runs of a kind go, which the contribution that registers the
+/// kind's driver says (ADR 0099): the engine names no kind's own settings
+/// or habits. A kind no contribution registers goes as [`Driving::default`]
+/// says: a Run its program drives.
+#[derive(Clone, Copy)]
+pub struct Driving {
+    /// Who ends a Run of the kind that a resume starts again.
+    pub ended_by: EndedBy,
+    /// Whether its claims defer their charges (ADR 0138's note of #1926):
+    /// its start then declares their bound in its own synced commit rather
+    /// than its first claim's (#2117).
+    pub defers_charges: bool,
+    /// The setting that says whether its Run trace keeps a Provenance log
+    /// (ADR 0138); none when it always does.
+    pub provenance_log: Option<&'static Setting>,
+}
+
+impl Default for Driving {
+    fn default() -> Self {
+        Self {
+            ended_by: EndedBy::Finish,
+            defers_charges: false,
+            provenance_log: None,
+        }
+    }
 }
 
 /// What a start asks for.
@@ -5035,7 +5063,7 @@ impl Registry {
         let tags = start.tags.clone();
         let initialize = start.initialize;
         state
-            .write_with(start_syncing(start.kind), move |connection| {
+            .write_with(self.start_syncing(start.kind), move |connection| {
                 row.insert(connection)?;
                 for (position, tag) in tags.iter().enumerate() {
                     connection.execute(
@@ -5050,7 +5078,7 @@ impl Registry {
             })
             .await
             .map_err(|error| unavailable(error.to_string()))?;
-        let run = self.new_run(&run_id, &folder, state, connection, start.settings, keys);
+        let run = self.new_run(&run_id, start.kind, state, connection, start.settings, keys);
         let live = Live {
             id: run_id.clone(),
             progress: run.shared.progress.clone(),
@@ -5272,26 +5300,45 @@ impl Registry {
             .map_or_else(|| folder.to_owned(), |install| install.folder().to_owned())
     }
 
-    /// A handle to the registry for a Run of `connection`.
-    /// The live Run `run_id` as its driver holds it, writing `state` in
-    /// `folder`, under its resolved `settings`, resolving its Secret
-    /// references through `secrets`.
+    /// How the Runs of `kind` go, as the contribution that registers the
+    /// kind's driver says.
+    fn driving(&self, kind: RunKind) -> Driving {
+        self.setup.driving.get(&kind).copied().unwrap_or_default()
+    }
+
+    /// How the start of a Run of `kind` commits: synced, and declaring the
+    /// bound of its deferred charges when its claims defer them.
+    fn start_syncing(&self, kind: RunKind) -> Syncing {
+        if self.driving(kind).defers_charges {
+            Syncing::Declaring
+        } else {
+            Syncing::Required
+        }
+    }
+
+    /// The live Run `run_id`, of `kind`, as its driver holds it, writing
+    /// `state` in its folder, under its resolved `settings`, resolving its
+    /// Secret references through `keys`.
     fn new_run(
         &mut self,
         run_id: &RunId,
-        folder: &Path,
+        kind: RunKind,
         state: RunState,
         connection: Option<ConnectionId>,
         settings: Option<RunSettings>,
         keys: Keys,
     ) -> Run {
+        let folder = &self.folder(run_id);
         let epoch = state.epoch();
         let progress = self.progress(run_id, Progressing::live(epoch, Lifecycle::Running, None));
         let resolved = settings.as_ref().map(RunSettings::resolved);
         let share = get_or_default(resolved, &RUN_SHARE);
-        // `provenance.log`, Foxhound's (ADR 0138): a Run whose Product holds
-        // no such key logs its Provenance, the key's catalog default.
-        let logs_provenance = get_or_default(resolved, &PROVENANCE_LOG);
+        // A kind whose contribution names no setting for it logs its
+        // Provenance (ADR 0138).
+        let logs_provenance = self
+            .driving(kind)
+            .provenance_log
+            .is_none_or(|setting| get_or_default(resolved, setting));
         Run {
             id: run_id.clone(),
             folder: folder.to_owned(),
@@ -5735,7 +5782,7 @@ impl Registry {
         let weakened = joined_weakened(&listed, settings.as_ref(), &state)
             .await
             .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
-        let run = self.new_run(&run_id, &folder, state, connection, settings, keys);
+        let run = self.new_run(&run_id, recorded.kind, state, connection, settings, keys);
         if held.lifecycle == Lifecycle::Running {
             warn_over_charged(&run).await;
         }
@@ -5751,10 +5798,7 @@ impl Registry {
             needs: recorded.needs,
             tags: recorded.tags,
             inputs: recorded.inputs,
-            ended_by: match recorded.kind {
-                RunKind::Collie => EndedBy::Finish,
-                RunKind::Crawl => EndedBy::Driver,
-            },
+            ended_by: self.driving(recorded.kind).ended_by,
             started_at: recorded.started_at,
             policy_version: recorded.policy_version,
             weakened,
@@ -5985,17 +6029,6 @@ impl Registry {
         }
         let row = self.index_row(&self.live[run_id], Lifecycle::Running, None);
         self.write_index(row).await;
-    }
-}
-
-/// How a Run of `kind`'s start commits: a crawl's claims defer their
-/// charges (ADR 0138's note of #1926), so its start declares their bound in
-/// its own synced commit rather than its first claim's (#2117); another
-/// Run's declares none.
-fn start_syncing(kind: RunKind) -> Syncing {
-    match kind {
-        RunKind::Crawl => Syncing::Declaring,
-        RunKind::Collie => Syncing::Required,
     }
 }
 

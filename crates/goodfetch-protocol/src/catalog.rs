@@ -318,12 +318,46 @@ pub struct Operation {
     pub events: &'static [&'static Event],
     /// Whether a Client may cancel a call in flight.
     pub cancellable: bool,
+    /// The stream of values its call takes from the Client, when it takes
+    /// one (ADR 0024).
+    pub input: Option<StreamInput>,
+    /// The read that bounds it, when it is a sequence of what a Run
+    /// committed (ADR 0099).
+    pub bound: Option<Bound>,
     /// Its semver status.
     pub stability: Stability,
     /// Its deprecation, if any.
     pub deprecated: Option<Deprecation>,
     /// The version that added it.
     pub arrived_in: ProtocolVersion,
+}
+
+/// The stream of values a sequence's call takes from the Client (ADR
+/// 0024): the Client sends them in notifications, never more than the
+/// credits the engine granted the call, and a command line reads them from
+/// stdin, one per line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StreamInput {
+    /// The notification that carries a batch of the values, such as
+    /// `$/seeds`.
+    pub notification: &'static str,
+    /// The field of its params that lists them.
+    pub field: &'static str,
+}
+
+/// The read that bounds a sequence of what a Run committed (ADR 0099). Such
+/// a sequence follows a live Run, so a surface that reads it to an end,
+/// such as a command without `--follow`, first asks the read for the last
+/// item committed, then reads the sequence through it.
+#[derive(Clone, Copy)]
+pub struct Bound {
+    /// The read that answers the last item committed.
+    pub read: &'static Operation,
+    /// The read's params that ask for it alone, from the sequence's own.
+    pub params: fn(&serde_json::Value) -> serde_json::Value,
+    /// The field of the read's answer that names the last item committed,
+    /// and the sequence's param that takes it.
+    pub through: &'static str,
 }
 
 /// How an event travels when a subscriber reads slower than the engine
@@ -593,6 +627,17 @@ pub struct Setting {
     /// control, which the results it touches are marked with (ADR 0028);
     /// `None` when no value does.
     pub weakens: Option<fn(&serde_json::Value) -> bool>,
+    /// Whether it is fixed for a Run's life (ADRs 0102 and 0120): a start
+    /// under the Run's ID that changes it is refused, since what the Run
+    /// already did under the first value would no longer hold.
+    pub fixed_for_run: bool,
+    /// The feature a value away from its default asks for while no product
+    /// code reads the setting, as `capability_unavailable` names it in
+    /// `kind` (ADR 0083: "A value that cannot take effect where it is set
+    /// is refused when the scope opens, never ignored, clamped or
+    /// dropped"); `None` once its reader is built, in the change that
+    /// builds it.
+    pub unbuilt: Option<&'static str>,
     /// The version that added it.
     pub arrived_in: ProtocolVersion,
 }

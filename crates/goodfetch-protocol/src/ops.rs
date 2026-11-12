@@ -29,6 +29,8 @@ pub const ADDRESS: Setting = Setting {
     clearable: true,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -42,6 +44,8 @@ pub const OTLP_METRICS_ENDPOINT: Setting = Setting {
     clearable: true,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 

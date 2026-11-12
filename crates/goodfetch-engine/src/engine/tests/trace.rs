@@ -66,6 +66,8 @@ const ASK: Operation = Operation {
     result: schema_of::<Value>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: PROTOCOL_VERSION,

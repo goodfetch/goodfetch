@@ -542,7 +542,7 @@ fn scan_item(item: &syn::Item, depth: usize, scope: Scope<'_>, imported: &mut BT
     scan_tokens(item.to_token_stream(), depth, scope, imported);
 }
 
-fn is_path_separator(tokens: &[TokenTree], index: usize) -> bool {
+pub(crate) fn is_path_separator(tokens: &[TokenTree], index: usize) -> bool {
     matches!(
         (tokens.get(index), tokens.get(index + 1)),
         (Some(TokenTree::Punct(first)), Some(TokenTree::Punct(second)))
@@ -550,7 +550,7 @@ fn is_path_separator(tokens: &[TokenTree], index: usize) -> bool {
     )
 }
 
-fn is_ident(tokens: &[TokenTree], index: usize, word: &str) -> bool {
+pub(crate) fn is_ident(tokens: &[TokenTree], index: usize, word: &str) -> bool {
     matches!(tokens.get(index), Some(TokenTree::Ident(ident)) if ident == word)
 }
 

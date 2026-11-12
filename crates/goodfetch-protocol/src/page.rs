@@ -188,6 +188,8 @@ pub const PAGE_BODY: Operation = Operation {
     result: schema_of::<PageBodyRead>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -848,6 +850,8 @@ pub const LOCATOR_CLICK: Operation = Operation {
     result: schema_of::<Acted>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -864,6 +868,8 @@ pub const LOCATOR_FILL: Operation = Operation {
     result: schema_of::<Acted>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -880,6 +886,8 @@ pub const LOCATOR_PRESS: Operation = Operation {
     result: schema_of::<Acted>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -896,6 +904,8 @@ pub const RUN_NEW_PAGE: Operation = Operation {
     result: schema_of::<PageOpened>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -912,6 +922,8 @@ pub const PAGE_GOTO: Operation = Operation {
     result: schema_of::<Navigated>,
     events: &[&PAGE_DOWNLOAD],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -928,6 +940,8 @@ pub const PAGE_RELOAD: Operation = Operation {
     result: schema_of::<Navigated>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -944,6 +958,8 @@ pub const PAGE_GO_BACK: Operation = Operation {
     result: schema_of::<Navigated>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -960,6 +976,8 @@ pub const PAGE_GO_FORWARD: Operation = Operation {
     result: schema_of::<Navigated>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -973,6 +991,8 @@ pub const BROWSER_HEADLESS: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -993,6 +1013,8 @@ pub const BROWSER_BLOCK_RESOURCES: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1012,6 +1034,8 @@ pub const BROWSER_SERVICE_WORKERS: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1032,6 +1056,8 @@ pub const CONTENT_EXTRACTOR: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1052,6 +1078,8 @@ pub const EXTRACTION_REMOVAL_SHARE: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1100,6 +1128,8 @@ pub const LIVE_VIEW_HIDING: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -1670,6 +1700,8 @@ pub const PAGE_FORMATS: Operation = Operation {
     result: schema_of::<PageFormats>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,

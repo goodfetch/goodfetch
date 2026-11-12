@@ -39,6 +39,8 @@ const CREDITED: Operation = Operation {
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: PROTOCOL_VERSION,
+    input: None,
+    bound: None,
 };
 
 /// `test.ask`, whose handler request shows a test that its call started,

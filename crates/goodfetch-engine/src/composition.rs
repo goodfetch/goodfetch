@@ -41,7 +41,7 @@ use crate::needs_you::NeedsYouSource;
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
-use crate::runs::{CleanUpVersions, ProgressPart, ReportPart, Run, Runs};
+use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Run, Runs};
 use crate::secrets::ProviderFactory;
 use crate::settings::RunSettings;
 use goodfetch_protocol::run::RunKind;
@@ -390,7 +390,7 @@ pub struct Contribution {
     handlers: Vec<Handler>,
     run_state_tables: Vec<RunStateTables>,
     politeness_tables: Vec<PolitenessTables>,
-    drivers: Vec<(RunKind, Driver)>,
+    drivers: Vec<(RunKind, Driver, Driving)>,
     admission_gates: Option<Arc<dyn Gates>>,
     report_parts: Vec<Arc<dyn ReportPart>>,
     progress_parts: Vec<Arc<dyn ProgressPart>>,
@@ -475,10 +475,12 @@ impl Contribution {
     }
 
     /// The same, driving the Runs of `kind` it starts with `driver`, which a
-    /// resume starts again (ADR 0102).
+    /// resume starts again (ADR 0102), and saying how such a Run goes with
+    /// `driving`: who ends it, how its start commits and which setting says
+    /// whether it keeps a Provenance log (ADR 0099).
     #[must_use]
-    pub fn with_driver(mut self, kind: RunKind, driver: Driver) -> Self {
-        self.drivers.push((kind, driver));
+    pub fn with_driver(mut self, kind: RunKind, driver: Driver, driving: Driving) -> Self {
+        self.drivers.push((kind, driver, driving));
         self
     }
 
@@ -652,7 +654,18 @@ impl Composition {
     pub(crate) fn drivers(&self) -> BTreeMap<RunKind, Driver> {
         self.contributions
             .iter()
-            .flat_map(|contribution| contribution.drivers.iter().cloned())
+            .flat_map(|contribution| &contribution.drivers)
+            .map(|(kind, driver, _)| (*kind, Arc::clone(driver)))
+            .collect()
+    }
+
+    /// How the Runs of each kind go, as the last driver given for the kind
+    /// says.
+    pub(crate) fn driving(&self) -> BTreeMap<RunKind, Driving> {
+        self.contributions
+            .iter()
+            .flat_map(|contribution| &contribution.drivers)
+            .map(|(kind, _, driving)| (*kind, *driving))
             .collect()
     }
 

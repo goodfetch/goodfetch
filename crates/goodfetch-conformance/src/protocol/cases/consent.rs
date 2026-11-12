@@ -654,13 +654,21 @@ fn off_wall(
         connection,
         PAGE_FORMATS.name,
         &json!(page.page_id),
-        &json!({ "formats": { "markdown": true } }),
+        &json!({ "formats": { "markdown": true, "html": { "kind": "cleaned" } } }),
     )?;
+    // The extractor's own boilerplate pass drops a dialog from the main
+    // content whatever the setting, so the wall is looked for in the
+    // document after the cosmetic rules, which no rule acted on.
+    let cleaned = formats["result"]["html"].as_str().unwrap_or_default();
+    checks.check(
+        "under `off`, no cosmetic rule removes the wall from the document after the Clean-up rules",
+        cleaned.contains("grow-consent-modal")
+            && cleaned.contains("We use cookies and similar technologies"),
+    );
     let markdown = formats["result"]["markdown"].as_str().unwrap_or_default();
     checks.check(
-        "under `off`, the wall's text and the article behind it are both in the page's Markdown",
-        markdown.contains("We use cookies and similar technologies")
-            && markdown.contains("The article's text, which no one reads"),
+        "under `off`, the article the wall covers is in the page's Markdown",
+        markdown.contains("The article's text, which a reader came for"),
     );
     let report = clean_up::finish(connection, run_id)?;
     checks.check(

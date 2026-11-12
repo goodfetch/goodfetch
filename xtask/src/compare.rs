@@ -184,7 +184,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             };
             let out = environment.path(&arguments.out);
             let folder = out.parent().unwrap_or_else(|| Path::new("."));
-            let trials = run::run(
+            let mut trials = run::run(
                 &run::Executables {
                     proving_ground: tools.path(Tool::ProvingGround)?,
                     foxhound: tools.path(Tool::Foxhound)?,
@@ -211,15 +211,15 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 .with_context(|| format!("creating {}", folder.display()))?;
             std::fs::write(&out, serde_json::to_vec_pretty(&trials)?)
                 .with_context(|| format!("writing {}", out.display()))?;
-            report(&trials, &out)
+            report(&mut trials, &out)
         }
         Command::Report(arguments) => {
             let path = environment.path(&arguments.trials);
             let text =
                 std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-            let trials: Comparison = serde_json::from_slice(&text)
+            let mut trials: Comparison = serde_json::from_slice(&text)
                 .with_context(|| format!("parsing {}", path.display()))?;
-            report(&trials, &path)
+            report(&mut trials, &path)
         }
         Command::Trial(arguments) => {
             let (cell, config) = trial::cell_of(arguments.scenario, &arguments.cell)?;
@@ -265,8 +265,12 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
 
 /// Holds the trials to the same-work check, then writes the report beside
 /// the trials file at `trials_path` and prints it; no figure is written
-/// when the check fails.
-fn report(trials: &Comparison, trials_path: &Path) -> Result<ExitCode> {
+/// when the check fails. A strace run that did other work fails nothing:
+/// its cell's system calls are reported as not measured, and the trials
+/// file keeps the run as it was.
+fn report(trials: &mut Comparison, trials_path: &Path) -> Result<ExitCode> {
+    same_work::strace_runs_of_other_work_set_aside(trials);
+    let trials = &*trials;
     let findings = same_work::check(trials);
     if !findings.is_empty() {
         return Ok(check::report(&findings));

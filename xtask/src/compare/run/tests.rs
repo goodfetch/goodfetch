@@ -1,7 +1,8 @@
 use std::path::Path;
 
-use super::{counted_output, order, spider_executable};
+use super::{counted_output, order, set_aside, spider_executable};
 use crate::compare::matrix::{self, SpiderBuild};
+use crate::compare::trials::{CountedRun, Tool, Work};
 
 /// Each of Spider's side's builds runs the executable Cargo left in the
 /// build's own target folder, under the profile's: the main row's from
@@ -192,4 +193,35 @@ fn a_stopped_timed_trial_is_retried_once() {
             ("stopped: bound; its first attempt: stall".to_owned(), 2),
         )
     );
+}
+
+/// Under strace, a cell one of whose runs missed a page of the site will
+/// be reported as not measured, so its later runs do not run; another
+/// cell's runs, and a cell whose runs fetched the site, go on.
+#[test]
+fn a_cell_whose_strace_run_missed_pages_runs_no_later_run() {
+    let cell = |name| {
+        matrix::cell(matrix::Scenario::Browser, name)
+            .expect("invariant: the headless browser scenario has this cell")
+    };
+    let run = |name: &str, pages: u64| CountedRun {
+        scenario: matrix::Scenario::Browser,
+        cell: name.to_owned(),
+        tool: Tool::Spider,
+        number: 1,
+        count: 9,
+        syncs: 0,
+        work: Work {
+            pages,
+            missing: (pages + 1..=1000)
+                .map(|page| format!("/sites/1000/{page}"))
+                .collect(),
+            ..Work::default()
+        },
+    };
+    let done = [run("spider", 970), run("crawlee", 1000)];
+
+    assert!(set_aside(&done, cell("spider"), 1000));
+    assert!(!set_aside(&done, cell("crawlee"), 1000));
+    assert!(!set_aside(&done, cell("scrapy"), 1000));
 }

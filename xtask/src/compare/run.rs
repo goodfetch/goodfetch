@@ -544,10 +544,24 @@ fn emptied_of_outputs(folder: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Whether one of `cell`'s runs in `done` did not fetch the site of `pages`
+/// pages: under strace, the report will read the cell as not measured, so
+/// its later runs would count nothing kept.
+pub(crate) fn set_aside(done: &[CountedRun], cell: &Cell, pages: u64) -> bool {
+    done.iter().any(|run| {
+        run.scenario == cell.scenario
+            && run.cell == cell.name
+            && !super::same_work::fetched_the_site(&run.work, pages)
+    })
+}
+
 /// Runs a counted cell: `runs` runs of each of `cells` under `mode`, each
 /// run's counting tool writing its output into `outputs`. Under strace
 /// (`watched`), a run whose crawl stalls is stopped (see [`stopped`]): its
-/// cell is not measured, and its later runs do not run.
+/// cell is not measured, and its later runs do not run; nor do the later
+/// runs of a cell one of whose runs did not fetch the site, which the
+/// report sets aside as not measured
+/// ([`super::same_work::strace_runs_of_other_work_set_aside`]).
 fn counted(
     executables: &Executables<'_>,
     options: &Options,
@@ -557,12 +571,18 @@ fn counted(
     outputs: &Path,
     state: &mut u64,
 ) -> Result<CountedCell> {
-    let mut done = Vec::new();
+    let mut done: Vec<CountedRun> = Vec::new();
     let mut stopped: Vec<StoppedRun> = Vec::new();
     for (cell, config, number) in order(cells, runs, state) {
         if stopped
             .iter()
             .any(|run| run.scenario == cell.scenario && run.cell == cell.name)
+            || watched
+                && set_aside(
+                    &done,
+                    cell,
+                    pages_of(config, SITE_PAGES, options.spider_pages),
+                )
         {
             continue;
         }

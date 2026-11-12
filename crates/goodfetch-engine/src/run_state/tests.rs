@@ -9,6 +9,7 @@
 
 mod batch;
 mod model;
+mod wal;
 
 use std::time::Duration;
 

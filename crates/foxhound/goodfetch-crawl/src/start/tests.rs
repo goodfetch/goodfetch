@@ -28,6 +28,7 @@ mod report;
 mod resume;
 mod safe_point;
 mod staging;
+mod wal;
 
 use std::path::PathBuf;
 use std::sync::mpsc;

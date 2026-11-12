@@ -55,6 +55,7 @@ use rusqlite::Connection;
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::clock::Clock;
+use crate::metrics::Metrics;
 use crate::sqlite_store::{
     self, Access, Counting, File, Folder, FormatRefusal, FullFsync, OpenError, Opening, Schema,
     Synchronous, Wait, WalOnClose,
@@ -195,7 +196,10 @@ pub const DEFERRING_PAGE_CACHE_KIB: u32 = 128;
 pub const DEFERRED_CHARGES: u64 = 64;
 
 /// How many bytes of WAL the writer lets grow before it asks its
-/// checkpointer for a `PASSIVE` checkpoint (ADR 0138).
+/// checkpointer for a `PASSIVE` checkpoint (ADR 0138). Past twice as many
+/// the writer tries to start the WAL again itself, and a WAL that started
+/// again is truncated to this many (#2323): without a reader holding an
+/// old snapshot, a run file's WAL stays under twice this and one commit.
 pub const WAL_CHECKPOINT_AFTER_BYTES: u64 = 16 * 1024 * 1024;
 
 /// How a run file opens.
@@ -216,6 +220,9 @@ pub struct RunStateOptions {
     /// Where its writer reads the time at `periodic`, at each group and for
     /// the timer of an idle writer (ADR 0059).
     pub clock: Clock,
+    /// Where it reports its WAL's size and the checkpoints a reader
+    /// blocked: none by default.
+    pub metrics: Option<Metrics>,
 }
 
 impl Default for RunStateOptions {
@@ -226,6 +233,7 @@ impl Default for RunStateOptions {
             work: CountedWork::default(),
             wal_checkpoint_after: WAL_CHECKPOINT_AFTER_BYTES,
             clock: Clock::system(),
+            metrics: None,
         }
     }
 }
@@ -589,7 +597,7 @@ impl RunState {
         let (connection, deferring, declared, checkpointing) = owner
             .blocking(move || open_connections(&opened_path, &opened, &tables))
             .await?;
-        let checkpointer = WalCheckpointer::start(&path, options, checkpointing, owner)
+        let mut checkpointer = WalCheckpointer::start(&path, options, checkpointing, owner)
             .map_err(|error| sqlite_error(&path, &error))?;
         let (mailbox, jobs) = mpsc::channel(MAILBOX);
         let actor_path = path.clone();
@@ -661,7 +669,7 @@ impl RunState {
                     if let Some(interval) = &mut interval {
                         interval.committed(planned.synced);
                     }
-                    checkpointer.committed(last.is_some());
+                    checkpointer.committed(&connection.connection, &actor_path, last.is_some());
                 }
                 for queued in refused {
                     (queued.write)(None).0(Err(RunStateError::Closed));
@@ -1211,7 +1219,8 @@ fn open_file(
             OpenError::Format(refusal) => refusal.into(),
             other => sqlite_error(path, &other),
         })?;
-    tune(&connection, PAGE_CACHE_KIB).map_err(|error| sqlite_error(path, &error))?;
+    tune(&connection, PAGE_CACHE_KIB, options.wal_checkpoint_after)
+        .map_err(|error| sqlite_error(path, &error))?;
     Ok(connection)
 }
 
@@ -1274,7 +1283,12 @@ fn open_deferring(path: &Path, options: &RunStateOptions) -> Result<Connection, 
     }
     .count_commits(&connection)
     .map_err(failed)?;
-    tune(&connection, DEFERRING_PAGE_CACHE_KIB).map_err(failed)?;
+    tune(
+        &connection,
+        DEFERRING_PAGE_CACHE_KIB,
+        options.wal_checkpoint_after,
+    )
+    .map_err(failed)?;
     connection_durability(Synchronous::Normal, Synchronous::Normal)
         .apply(&connection)
         .map_err(failed)?;
@@ -1283,9 +1297,15 @@ fn open_deferring(path: &Path, options: &RunStateOptions) -> Result<Connection, 
 }
 
 /// Sets up a writer's connection beyond its durability: its statement
-/// cache and a page cache of `cache_kib`.
-fn tune(connection: &Connection, cache_kib: u32) -> rusqlite::Result<()> {
+/// cache, a page cache of `cache_kib`, and a WAL it truncates to
+/// `wal_limit` bytes at its first commit after the WAL started again.
+fn tune(connection: &Connection, cache_kib: u32, wal_limit: u64) -> rusqlite::Result<()> {
     connection.set_prepared_statement_cache_capacity(STATEMENTS);
+    connection.pragma_update(
+        None,
+        "journal_size_limit",
+        i64::try_from(wal_limit).unwrap_or(i64::MAX),
+    )?;
     // Savepoints' statement journals stay in memory, never in `$TMPDIR`
     // (ADR 0138).
     connection.pragma_update(None, "temp_store", "MEMORY")?;

@@ -51,7 +51,7 @@ fn a_sites_transport_failure_is_classed_by_what_the_hop_met(
 #[case::credentials(TransportFailure::ProxyAuthenticationRequired, PROXY_AUTH_FAILED.name, false)]
 #[case::tunnel_refused(TransportFailure::TunnelRefused, PROXY_UNAVAILABLE.name, true)]
 #[case::unreachable(TransportFailure::ProxyUnreachable, PROXY_UNAVAILABLE.name, true)]
-fn a_proxys_own_failure_is_the_proxys(
+fn a_proxy_s_own_failure_is_the_proxy_s(
     #[case] met: TransportFailure,
     #[case] code: &str,
     #[case] retryable: bool,

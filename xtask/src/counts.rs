@@ -172,7 +172,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 96] = [
+const ROWS: [Row; 97] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -349,6 +349,23 @@ const ROWS: [Row; 96] = [
         happens: false,
         valgrind: None,
     },
+    // C7, page opening in the browser pool: B2's pool cell opens its pages
+    // in a pool its scripted launcher starts (ADR 0143); the Borrowed
+    // browser of its other cells skips the pool's walk.
+    Row {
+        name: "C7.pool_walks",
+        family: "B2",
+        unit: "pages_opened",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C7.opening_commands",
+        family: "B2",
+        unit: "pages_opened",
+        happens: true,
+        valgrind: None,
+    },
     Row {
         name: "E4.configuration_reads",
         family: "B3",
@@ -375,13 +392,6 @@ const ROWS: [Row; 96] = [
         family: "B3",
         unit: "process_samples",
         happens: true,
-        valgrind: None,
-    },
-    Row {
-        name: "E4.pool_walks",
-        family: "B2",
-        unit: "pages_opened",
-        happens: false,
         valgrind: None,
     },
     Row {

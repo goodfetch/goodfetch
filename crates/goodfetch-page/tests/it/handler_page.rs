@@ -21,6 +21,7 @@ use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, ConnectionReader, ConnectionWriter, Network};
 use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
+use goodfetch_page::Launcher;
 use goodfetch_page::blocks::NoBlocks;
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
@@ -361,7 +362,7 @@ pub(crate) fn with_handler_page_of(
     let composition = Composition::default()
         .with(goodfetch_engine::contribution())
         .with(goodfetch_page::contribution_with(
-            pins(),
+            (pins(), Launcher::Executable),
             gate.clone(),
             Arc::new(NoBlocks),
         ));

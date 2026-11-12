@@ -250,7 +250,7 @@ impl Engine {
             &owner,
         )
         .await;
-        if matches!(ended, DaemonEnd::Drained) {
+        if matches!(ended, DaemonEnd::Drained | DaemonEnd::ListenerFailed) {
             // Its process exits now, within its drain grace: a Run whose
             // tasks did not stop in time stays as it is, resumable from its
             // run file, and nothing waits for them.

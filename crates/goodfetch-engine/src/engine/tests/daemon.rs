@@ -30,6 +30,8 @@ use crate::ops::Ops;
 use crate::runs::{EndedBy, Start, Started};
 use crate::transport::{self, InMemoryDialer, Network};
 
+mod listener;
+
 pub(super) const TOKEN: &str = "the-launch-token";
 
 const MINUTE: Duration = Duration::from_secs(60);

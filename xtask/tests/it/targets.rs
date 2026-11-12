@@ -191,7 +191,8 @@ fn a_figure_over_its_target_is_missed_with_its_gap_and_one_at_or_under_is_met() 
         ],
     );
     // The crawl's peak is the resident-memory check's, not the
-    // comparison's; its target, Spider's peak at its size.
+    // comparison's; its target, the tighter of 32 MiB and Spider's peak
+    // at its size.
     spider_report(
         &workspace,
         (30.0, 20 * MIB),
@@ -414,7 +415,7 @@ fn each_memory_row_shows_its_executables_pages_beside_its_figure() {
         &workspace,
         (40.0, 40 * MIB),
         (40.0, 25 * MIB),
-        &[(1000, 32 * MIB)],
+        &[(1000, 54 * MIB)],
     );
 
     let (outcome, report) = report(&workspace);
@@ -439,61 +440,68 @@ fn each_memory_row_shows_its_executables_pages_beside_its_figure() {
     );
     let markdown = workspace.read_text("target/targets/report.md");
     assert!(
-        markdown.contains("| 41.0 MiB | 10.0 MiB | at most Spider's 32.0 MiB | missed | 9.0 MiB |"),
+        markdown.contains("| 41.0 MiB | 10.0 MiB | 32.0 MiB | missed | 9.0 MiB |"),
         "{markdown}"
     );
 }
 
-/// The bar (spec #2165): each crawl peak is held to Spider's peak at its
-/// own size and 16 in flight in the latest `just compare` report; a size
-/// with no Spider figure there is not measured, its source naming
-/// Foxhound's figure.
+/// The bar (spec #2165): each crawl peak is held to the tighter of its
+/// scenario's target, 32 MiB, and Spider's peak at its own size and 16 in
+/// flight in the latest `just compare` report; a size with no Spider figure
+/// there is held to its target alone.
 #[test]
-fn each_crawl_peak_is_held_to_spiders_peak_at_its_size() {
+fn each_crawl_peak_is_held_to_the_tighter_of_its_target_and_spiders_peak() {
     let workspace = Workspace::from_fixture("empty");
     peaks(
         &workspace,
         &[
             ("foxhound", "crawl-100", 21 * MIB),
             ("foxhound", "crawl-1000", 22 * MIB),
-            ("foxhound", "crawl-10000", 22 * MIB),
+            ("foxhound", "crawl-10000", 40 * MIB),
         ],
     );
     spider_report(
         &workspace,
         (40.0, 40 * MIB),
         (40.0, 25 * MIB),
-        &[(100, 18 * MIB), (1000, 22 * MIB)],
+        &[(100, 18 * MIB), (1000, 25 * MIB)],
     );
 
     let (outcome, report) = report(&workspace);
 
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let held = |target: &str| {
+        let row = report["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["target"] == target && row["product"] == "foxhound")
+            .unwrap();
+        (
+            row["value"].clone(),
+            row["verdict"].clone(),
+            row["gap"].clone(),
+        )
+    };
     assert_eq!(
         [
-            row(&report, "crawl-peak-100", "foxhound"),
-            row(&report, "crawl-peak-1000", "foxhound"),
-            row(&report, "crawl-peak-10000", "foxhound"),
+            held("crawl-peak-100"),
+            held("crawl-peak-1000"),
+            held("crawl-peak-10000"),
         ],
         [
-            ("missed".to_owned(), json!("3.0 MiB")),
-            ("met".to_owned(), Value::Null),
-            ("not-measured".to_owned(), Value::Null),
+            (
+                json!("at most Spider's 18.0 MiB"),
+                json!("missed"),
+                json!("3.0 MiB")
+            ),
+            (
+                json!("at most Spider's 25.0 MiB"),
+                json!("met"),
+                Value::Null
+            ),
+            (json!("32.0 MiB"), json!("missed"), json!("8.0 MiB")),
         ]
-    );
-    let source = report["rows"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|row| row["target"] == "crawl-peak-10000")
-        .unwrap()["source"]
-        .clone();
-    assert!(
-        source
-            .as_str()
-            .is_some_and(|source| source.contains("gave 22.0 MiB")
-                && source.contains("no Spider peak at 10000 pages")),
-        "{source}"
     );
 }
 

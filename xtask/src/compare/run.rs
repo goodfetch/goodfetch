@@ -22,8 +22,8 @@ use super::trials::{
     CONCURRENCY, CRAWLEE_VERSION, Comparison, CountedCell, CountedRun, Declared, GROWTH_PAGES,
     GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_TOOLS, Machine, Measured, PLAYWRIGHT_VERSION,
     QUIET_LOAD, QUIET_WAIT_SECONDS, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES,
-    SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SPIDER_VERSION, STATISTIC, SizesCell, StoppedRun,
-    StoppedSize, Trial,
+    SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint,
+    StoppedRun, Trial,
 };
 
 /// The executables a run takes.
@@ -526,19 +526,28 @@ fn timed(
     points: &[Point],
     state: &mut u64,
     pass: &str,
-) -> Result<(Vec<Trial>, Vec<StoppedSize>)> {
+) -> Result<(Vec<Trial>, Vec<StoppedPoint>)> {
     let mut trials = Vec::new();
-    let mut stopped: Vec<StoppedSize> = Vec::new();
-    let is_stopped = |stopped: &[StoppedSize], scenario, cell: &str, crawl: Crawl| {
-        stopped.iter().any(|point| {
-            point.run.scenario == scenario
-                && point.run.cell == cell
-                && point.site_pages == crawl.pages
-                && point.concurrency == crawl.concurrency
-        })
-    };
+    let mut stopped: Vec<StoppedPoint> = Vec::new();
+    // Whether the point of `scenario`'s `cell` at `pages` and
+    // `concurrency` was stopped twice.
+    let is_stopped =
+        |stopped: &[StoppedPoint], scenario, cell: &str, pages: u64, concurrency: u32| {
+            stopped.iter().any(|point| {
+                point.run.scenario == scenario
+                    && point.run.cell == cell
+                    && point.site_pages == pages
+                    && point.concurrency == concurrency
+            })
+        };
     for ((cell, config, crawl), number) in order(points, options.trials, state) {
-        if is_stopped(&stopped, cell.scenario, cell.name, crawl) {
+        if is_stopped(
+            &stopped,
+            cell.scenario,
+            cell.name,
+            crawl.pages,
+            crawl.concurrency,
+        ) {
             continue;
         }
         let named = format!(
@@ -574,7 +583,7 @@ fn timed(
                 output::line(&format!(
                     "{named} was stopped twice; the cell is not measured there."
                 ));
-                stopped.push(StoppedSize {
+                stopped.push(StoppedPoint {
                     site_pages: crawl.pages,
                     concurrency: crawl.concurrency,
                     run: StoppedRun {
@@ -606,18 +615,19 @@ fn timed(
     }
     // A stopped point's trials before its stop are no figure either.
     trials.retain(|trial| {
-        !stopped.iter().any(|point| {
-            point.run.scenario == trial.scenario
-                && point.run.cell == trial.cell
-                && point.site_pages == trial.site_pages
-                && point.concurrency == trial.concurrency
-        })
+        !is_stopped(
+            &stopped,
+            trial.scenario,
+            &trial.cell,
+            trial.site_pages,
+            trial.concurrency,
+        )
     });
     Ok((trials, stopped))
 }
 
 /// The stopped runs of `points`, each at its cell's one size.
-fn runs_of(points: Vec<StoppedSize>) -> Vec<StoppedRun> {
+fn runs_of(points: Vec<StoppedPoint>) -> Vec<StoppedRun> {
     points.into_iter().map(|point| point.run).collect()
 }
 

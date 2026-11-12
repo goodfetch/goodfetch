@@ -61,7 +61,8 @@ fn work(again: u64) -> Value {
 /// A trial of `cell` in `seconds`, at `peak_bytes`, that did `work`, its
 /// figures otherwise the same for every trial: 2 s of user and 1 s of
 /// system time, 8 MiB written, 1 MiB left on disk, its tree sampled at
-/// half its peak on average, its peak PSS 1 MiB under its peak RSS.
+/// half its peak on average, its peak PSS 1 MiB and its private memory
+/// 2 MiB under its peak RSS.
 fn trial(
     scenario: &str,
     cell: &str,
@@ -77,6 +78,7 @@ fn trial(
         "tool": tool,
         "number": number,
         "site_pages": 1000,
+        "concurrency": 16,
         "seconds": seconds,
         "processes": if scenario == "durable" { 2 } else { 1 },
         "user_seconds": 2.0,
@@ -87,6 +89,7 @@ fn trial(
             "peak_bytes": peak_bytes,
             "average_bytes": peak_bytes / 2,
             "peak_pss_bytes": peak_bytes - MIB,
+            "peak_private_bytes": peak_bytes - 2 * MIB,
             "peak_cores": 1.5,
             "peak_threads": 20,
             "peak_open_files": 30,
@@ -175,6 +178,7 @@ fn trials() -> Value {
         "trials": trials,
         "syscalls": not_run("strace is not installed on this host"),
         "growth": not_run("the growth cell runs with `--growth`"),
+        "sizes": not_run("the run asked for no scenario 1 main cell of Foxhound or Spider"),
         "instructions": not_run("valgrind is not installed on this host"),
     })
 }
@@ -284,6 +288,103 @@ fn trials_of_the_same_work_report_each_cells_medians_with_their_spread() {
             "crawlee": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
             "scrapy": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
         })
+    );
+}
+
+/// The sizes cell (spec #2165): Foxhound's and Spider's scenario 1 main
+/// rows at each size and concurrency, each tool's median peak, private
+/// memory and executable's pages, and at 16 in flight alone whether
+/// Foxhound's peak is at most Spider's.
+#[test]
+fn the_sizes_cell_reports_each_tools_peak_with_the_bar_at_16_in_flight() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    let mut sized = Vec::new();
+    for pages in [100_u64, 1000, 10_000] {
+        for concurrency in [1, 16, 64] {
+            for (tool, mib) in [
+                ("foxhound", 22),
+                ("spider", if pages == 100 { 18 } else { 30 }),
+            ] {
+                for number in 1..=3 {
+                    let mut trial = trial(
+                        "raw",
+                        tool,
+                        tool,
+                        number,
+                        1.0,
+                        mib * MIB,
+                        &json!({
+                            "pages": pages,
+                            "missing": [],
+                            "extra": [],
+                            "requests": pages,
+                            "bytes": 600 * pages,
+                            "first_bytes": 600 * pages,
+                        }),
+                    );
+                    trial["site_pages"] = json!(pages);
+                    trial["concurrency"] = json!(concurrency);
+                    trial["requests_sent"] = json!(pages);
+                    trial["sampled"]["peak_executable_bytes"] = json!(9 * MIB);
+                    sized.push(trial);
+                }
+            }
+        }
+    }
+    trials["sizes"] = json!({
+        "status": "measured",
+        "trials": 3,
+        "trials_run": sized,
+        "stopped": [],
+    });
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let report = written(&workspace);
+    let points = report["sizes"]["points"].as_array().unwrap();
+    let bars: Vec<(u64, u64, Value)> = points
+        .iter()
+        .map(|point| {
+            (
+                point["site_pages"].as_u64().unwrap(),
+                point["concurrency"].as_u64().unwrap(),
+                point["bar_met"].clone(),
+            )
+        })
+        .collect();
+    let mut expected = Vec::new();
+    for concurrency in [16, 1, 64] {
+        for pages in [100, 1000, 10_000] {
+            let bar = match (concurrency, pages) {
+                (16, 100) => json!(false),
+                (16, _) => json!(true),
+                _ => Value::Null,
+            };
+            expected.push((pages, concurrency, bar));
+        }
+    }
+    assert_eq!(bars, expected);
+    assert_eq!(
+        points[0]["tools"]["foxhound"],
+        json!({
+            "status": "measured",
+            "trials": 3,
+            "peak_bytes": 22 * MIB,
+            "private_bytes": 20 * MIB,
+            "executable_bytes": 9 * MIB,
+        })
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    assert!(
+        markdown.contains("| 100 | 16 | foxhound | 3 | 22.0 MiB | 20.0 MiB | 9.0 MiB | missed |"),
+        "{markdown}"
     );
 }
 

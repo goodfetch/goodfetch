@@ -324,10 +324,11 @@ pub(crate) enum GrowthCell {
     },
 }
 
-/// A sizes cell's trial stopped twice: its cell is not measured at that
-/// size and concurrency.
+/// A trial stopped twice at one site size and concurrency: its cell is not
+/// measured there. The sizes cell keeps these; the main and growth cells,
+/// each at one size and concurrency, keep their [`StoppedRun`] alone.
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct StoppedSize {
+pub(crate) struct StoppedPoint {
     pub(crate) site_pages: u64,
     pub(crate) concurrency: u32,
     #[serde(flatten)]
@@ -350,7 +351,7 @@ pub(crate) enum SizesCell {
         trials_run: Vec<Trial>,
         /// The points whose trial was stopped twice: not measured.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        stopped: Vec<StoppedSize>,
+        stopped: Vec<StoppedPoint>,
     },
 }
 

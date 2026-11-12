@@ -24,9 +24,10 @@ pub(crate) enum Target {
     /// the median of that scenario's peaks.
     IdleAttachedEngine,
     IdleDaemon,
-    /// The bar (spec #2165): the peak of the resident-memory check's crawl
-    /// of 100, 1,000 or 10,000 pages, at most Spider's at that size and 16
-    /// in flight in the latest `just compare` report.
+    /// The peak of the resident-memory check's crawl of 100, 1,000 or
+    /// 10,000 pages, held to the tighter of its scenario's target and the
+    /// bar (spec #2165), Spider's peak at that size and 16 in flight in the
+    /// latest `just compare` report.
     CrawlPeak100,
     CrawlPeak1000,
     CrawlPeak10000,
@@ -78,8 +79,11 @@ impl Target {
     /// Its value, as the report states it before a figure is measured.
     fn stated(self) -> String {
         match (self, self.scenario()) {
-            (Self::CrawlPeak100 | Self::CrawlPeak1000 | Self::CrawlPeak10000, _) => {
-                "at most Spider's".to_owned()
+            (Self::CrawlPeak100 | Self::CrawlPeak1000 | Self::CrawlPeak10000, Some(scenario)) => {
+                format!(
+                    "the tighter of {} and Spider's",
+                    mebibytes(scenario.target_bytes())
+                )
             }
             (_, Some(scenario)) => mebibytes(scenario.target_bytes()),
             (Self::StartupToHello, None) => milliseconds(STARTUP_TO_HELLO_SECONDS),
@@ -272,23 +276,40 @@ fn figure(target: Target, product: Product, measured: &Measured) -> (Option<Figu
                     source,
                 );
             };
+            // The tighter of the scenario's own target and Spider's peak at
+            // its size (spec #2165).
+            let target_bytes = scenario.target_bytes();
+            let at = format!("{} pages and {CONCURRENCY} in flight", crawl.pages);
             match measured.spider_peak(crawl.pages) {
-                Some((spider, commit)) => (
+                Some((spider, commit)) if spider < target_bytes => (
                     Some(Figure::PeakAgainstSpider {
                         figure: bytes,
                         spider,
                     }),
                     format!(
-                        "{source}; Spider's from the sizes cell of `just compare`'s report at {} pages and {CONCURRENCY} in flight, commit `{commit}`",
-                        crawl.pages
+                        "{source}; Spider's from the sizes cell of `just compare`'s report at {at}, commit `{commit}`, tighter than {}",
+                        mebibytes(target_bytes)
+                    ),
+                ),
+                Some((spider, commit)) => (
+                    Some(Figure::Bytes {
+                        figure: bytes,
+                        target: target_bytes,
+                    }),
+                    format!(
+                        "{source}; {} is tighter than Spider's {} in the sizes cell of `just compare`'s report at {at}, commit `{commit}`",
+                        mebibytes(target_bytes),
+                        mebibytes(spider)
                     ),
                 ),
                 None => (
-                    None,
+                    Some(Figure::Bytes {
+                        figure: bytes,
+                        target: target_bytes,
+                    }),
                     format!(
-                        "{source} gave {}, but the latest `just compare` report has no Spider peak at {} pages and {CONCURRENCY} in flight",
-                        mebibytes(bytes),
-                        crawl.pages
+                        "{source}; the latest `just compare` report has no Spider peak at {at}, so {} alone holds it",
+                        mebibytes(target_bytes)
                     ),
                 ),
             }

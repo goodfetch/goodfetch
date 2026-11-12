@@ -117,8 +117,9 @@ fn markdown(platform: &str, rows: &[Row], measured: &Measured) -> String {
          pages are the median of the highest samples, on Linux, of the measured executable's own \
          file-backed resident pages (its mappings' `Rss` less `Anonymous` in `/proc/<pid>/smaps`), \
          the part of the figure that is its code and read-only data rather than what it allocated. \
-         Each crawl peak's target, the bar of spec #2165, is Spider's median peak at the same size and \
-         16 in flight in the sizes cell of the latest `just compare` report, and the crawl's \
+         Each crawl peak's target is the tighter of its scenario's own and the bar of spec #2165, \
+         Spider's median peak at the same size and 16 in flight in the sizes cell of the latest \
+         `just compare` report, and the crawl's \
          pages per second is Foxhound's median in scenario 1 of that report{}.\n",
         if measured.spider.is_some() {
             ""

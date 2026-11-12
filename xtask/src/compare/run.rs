@@ -549,9 +549,7 @@ fn emptied_of_outputs(folder: &Path) -> Result<()> {
 /// its later runs would count nothing kept.
 pub(crate) fn set_aside(done: &[CountedRun], cell: &Cell, pages: u64) -> bool {
     done.iter().any(|run| {
-        run.scenario == cell.scenario
-            && run.cell == cell.name
-            && !super::same_work::fetched_the_site(&run.work, pages)
+        run.scenario == cell.scenario && run.cell == cell.name && !run.work.is_the_site_of(pages)
     })
 }
 
@@ -560,8 +558,8 @@ pub(crate) fn set_aside(done: &[CountedRun], cell: &Cell, pages: u64) -> bool {
 /// (`watched`), a run whose crawl stalls is stopped (see [`stopped`]): its
 /// cell is not measured, and its later runs do not run; nor do the later
 /// runs of a cell one of whose runs did not fetch the site, which the
-/// report sets aside as not measured
-/// ([`super::same_work::strace_runs_of_other_work_set_aside`]).
+/// report sets aside as not measured (the same-work check's
+/// `strace_runs_of_other_work_set_aside`).
 fn counted(
     executables: &Executables<'_>,
     options: &Options,
@@ -654,24 +652,21 @@ pub(crate) fn run(
     let mut state = order_seed;
     let (trials, stopped) = timed(executables, options, SITE_PAGES, &mut state, "")?;
     let measured = measured(options);
-    let syscalls = match strace_missing() {
-        Some(reason) => {
-            output::line(&format!("The system-call cell does not run: {reason}."));
-            CountedCell::NotRun { reason }
-        }
-        None => {
-            // strace's counts are read once and kept nowhere.
-            let folder = tempfile::tempdir().context("creating the counts' folder")?;
-            counted(
-                executables,
-                options,
-                &measured,
-                options.trials,
-                ("syscalls", true),
-                folder.path(),
-                &mut state,
-            )?
-        }
+    let syscalls = if let Some(reason) = strace_missing() {
+        output::line(&format!("The system-call cell does not run: {reason}."));
+        CountedCell::NotRun { reason }
+    } else {
+        // strace's counts are read once and kept nowhere.
+        let folder = tempfile::tempdir().context("creating the counts' folder")?;
+        counted(
+            executables,
+            options,
+            &measured,
+            options.trials,
+            ("syscalls", true),
+            folder.path(),
+            &mut state,
+        )?
     };
     let growth = if options.growth {
         let (trials_run, stopped) =

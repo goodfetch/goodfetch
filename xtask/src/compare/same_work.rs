@@ -208,12 +208,6 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
     findings
 }
 
-/// Whether a crawl of the site of `pages` pages fetched each of them and
-/// no other page.
-pub(crate) fn fetched_the_site(work: &Work, pages: u64) -> bool {
-    work.pages == pages && work.missing.is_empty() && work.extra.is_empty()
-}
-
 /// Each finding of one pass: a measured cell short of or past its declared
 /// trials, and every trial that did other work ([`other_work`]).
 fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
@@ -256,7 +250,7 @@ fn other_work<'a, 'b>(pass: &'a Pass<'b>) -> Vec<(&'a Done<'b>, Finding)> {
         let mut whole = Vec::new();
         for done in pass.done.iter().filter(|done| done.scenario == *scenario) {
             let work = done.work;
-            if fetched_the_site(work, pass.site_pages) {
+            if work.is_the_site_of(pass.site_pages) {
                 whole.push(done);
                 continue;
             }

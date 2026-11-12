@@ -1,4 +1,4 @@
-use super::{check, fetched_the_site, strace_runs_of_other_work_set_aside};
+use super::{check, strace_runs_of_other_work_set_aside};
 use crate::compare::matrix::{self, Row, Scenario};
 use crate::compare::trials::{
     Comparison, CountedCell, CountedRun, Declared, GrowthCell, INSTRUCTION_TOOLS, Machine,
@@ -326,9 +326,11 @@ fn short() -> Work {
     }
 }
 
-/// The cells a counted cell's runs are of, and its stopped runs' cells
-/// with their reasons.
-fn cells_of(cell: &CountedCell) -> (Vec<(Scenario, &str)>, Vec<(Scenario, &str, u32, &str)>) {
+/// A stopped run's scenario, cell, number and reason.
+type Stopped<'a> = (Scenario, &'a str, u32, &'a str);
+
+/// The cells a counted cell's runs are of, and its stopped runs.
+fn cells_of(cell: &CountedCell) -> (Vec<(Scenario, &str)>, Vec<Stopped<'_>>) {
     let CountedCell::Measured { runs, stopped, .. } = cell else {
         panic!("the cell ran");
     };
@@ -337,20 +339,18 @@ fn cells_of(cell: &CountedCell) -> (Vec<(Scenario, &str)>, Vec<(Scenario, &str, 
         .map(|run| (run.scenario, run.cell.as_str()))
         .collect();
     cells.dedup();
-    (
-        cells,
-        stopped
-            .iter()
-            .map(|run| {
-                (
-                    run.scenario,
-                    run.cell.as_str(),
-                    run.number,
-                    run.reason.as_str(),
-                )
-            })
-            .collect(),
-    )
+    let stopped = stopped
+        .iter()
+        .map(|run| {
+            (
+                run.scenario,
+                run.cell.as_str(),
+                run.number,
+                run.reason.as_str(),
+            )
+        })
+        .collect();
+    (cells, stopped)
 }
 
 /// strace slows a headless browser crawl enough for it to miss pages: the
@@ -461,14 +461,14 @@ fn a_timed_trial_and_a_callgrind_run_of_other_work_still_fail_the_check() {
 /// own pages, each once or more, and no other.
 #[test]
 fn a_run_fetched_the_site_when_it_reached_each_of_its_pages_and_no_other() {
-    assert!(fetched_the_site(&work(0), 4));
-    assert!(fetched_the_site(&work(1), 4));
-    assert!(!fetched_the_site(&short(), 4));
-    assert!(!fetched_the_site(
-        &Work {
+    assert!(work(0).is_the_site_of(4));
+    assert!(work(1).is_the_site_of(4));
+    assert!(!short().is_the_site_of(4));
+    assert!(
+        !Work {
             extra: vec!["/sites/4/9".to_owned()],
             ..work(0)
-        },
-        4
-    ));
+        }
+        .is_the_site_of(4)
+    );
 }

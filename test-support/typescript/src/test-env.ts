@@ -73,6 +73,12 @@ export interface TestEnvStart {
   readonly provingGroundSeed?: number | undefined;
   /** The Product whose Daemon to start in the test's home, when given. */
   readonly daemon?: Product | undefined;
+  /**
+   * Whether the home is prepared for an engine that launches a browser:
+   * its Browser cache laid out, and the Proving ground's hosts, when one
+   * starts, reachable through its user configuration.
+   */
+  readonly browser?: boolean | undefined;
   /** The named port its Console keeps across its restarts, when given; else one the OS chooses at each start. */
   readonly consolePort?: number | undefined;
   /**
@@ -129,9 +135,18 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
   const daemon = start.daemon === undefined ? [] : [`--daemon=${start.daemon}`];
   const consolePort =
     start.consolePort === undefined ? [] : ["--console-port", String(start.consolePort)];
+  const browser = start.browser === true ? ["--browser"] : [];
   const started = start.processes.spawn(
     program.command,
-    [...program.args, "--test-name", start.testName, ...provingGround, ...daemon, ...consolePort],
+    [
+      ...program.args,
+      "--test-name",
+      start.testName,
+      ...provingGround,
+      ...daemon,
+      ...consolePort,
+      ...browser,
+    ],
     {
       env,
     },

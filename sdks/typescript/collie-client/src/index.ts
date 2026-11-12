@@ -1,6 +1,6 @@
 // Where the main types live (ADR 0117): `@goodfetch/collie` holds `Collie`;
 // this Collie client package, `@goodfetch/collie-client`, which it
-// re-exports, holds `Run`, and will hold `Page`, `Session` and `Locator`,
+// re-exports, holds `Run`, `Session`, `Page` and `Locator`,
 // with the results and errors; `@goodfetch/foxhound` holds `Foxhound`,
 // `Crawl`, `Label`, `Dataset` and `CrawlContext`.
 //
@@ -14,6 +14,7 @@ export type { Connection } from "./connection.ts";
 export type { EngineInfo, StartOptions } from "./client-connection.ts";
 export type { Logger } from "./logger.ts";
 export { Run } from "./run.ts";
+export { Locator, Page, Session } from "./generated/handles.ts";
 export {
   KeyValueStore,
   type JsonValue,
@@ -22,12 +23,19 @@ export {
 } from "./key-value-store.ts";
 export * from "./generated/errors.ts";
 export type {
+  Acted,
   BlockCause,
   CallOptions,
   Completeness,
+  FormatsRequest,
   Lifecycle,
+  Navigated,
+  PageClosed,
+  PageFormats,
+  PageResponse,
   Product,
   RunReport,
+  SessionClosed,
   StartedAs,
   StopReason,
   StoppedBy,

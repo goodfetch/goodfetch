@@ -29,6 +29,8 @@ export NEXTEST_DOUBLE_SPAWN := "0"
 
 # In CI, test builds use the `ci-test` Cargo profile (ADR 0061).
 test_profile := if env("CI", "") != "" { "ci-test" } else { "test" }
+# Where `just compare` builds Spider (see that recipe).
+compare_spider_builds := env("GOODFETCH_COMPARE_SPIDER_BUILDS", "target/compare-spider")
 
 # The exercise audit's verdict in the Pre-merge and Release suites (ADR 0072):
 # `gate`, so a declaring test that never reached its Feature fails them;
@@ -1092,19 +1094,24 @@ rss-propose *scenarios:
 # and never published (ADR 0076); otherwise it fails naming the trial. A
 # host without strace or Valgrind reports that cell as not run. It gates
 # nothing and is no Live check; run it when the 1-minute load is under 4.
-# Spider's crate and the sides' packages are downloaded once, free.
+# Spider's crate and the sides' packages are downloaded once, free. Spider's
+# six builds go to target/compare-spider/, or to the folder
+# GOODFETCH_COMPARE_SPIDER_BUILDS names: one outside every checkout keeps
+# them from one measurement to the next, whichever worktree measures and
+# whatever sweeps its target/ (Cargo still rebuilds what a changed
+# xtask/compare-spider needs).
 # Runs the comparison matrix on this machine.
 compare profile="release" *args:
     cargo run --quiet --bin xtask -- test-tools build --cargo-profile {{ profile }} --out "$PWD/target/compare/test-tools.json"
-    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir target/compare-spider/spider
-    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features chrome --target-dir target/compare-spider/spider-chrome
-    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features defaults --target-dir target/compare-spider/spider-defaults
-    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features bloom --target-dir target/compare-spider/spider-bloom
-    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features jemalloc --target-dir target/compare-spider/spider-jemalloc
-    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features mimalloc --target-dir target/compare-spider/spider-mimalloc
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/spider
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features chrome --target-dir {{ compare_spider_builds }}/spider-chrome
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features defaults --target-dir {{ compare_spider_builds }}/spider-defaults
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features bloom --target-dir {{ compare_spider_builds }}/spider-bloom
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features jemalloc --target-dir {{ compare_spider_builds }}/spider-jemalloc
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features mimalloc --target-dir {{ compare_spider_builds }}/spider-mimalloc
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
     uv sync --frozen --quiet --directory xtask/compare-scrapy
-    cargo run --quiet --bin xtask -- compare run --tools target/compare/test-tools.json --spider-builds target/compare-spider --spider-profile {{ profile }} {{ args }}
+    cargo run --quiet --bin xtask -- compare run --tools target/compare/test-tools.json --spider-builds {{ compare_spider_builds }} --spider-profile {{ profile }} {{ args }}
 
 # The Kennel (ADR 0141), from the repository. On macOS: its release
 # executable in `Kennel.app`, signed ad hoc under the stable bundle
@@ -1669,7 +1676,8 @@ _gate-plan:
     mkdir -p target/gate-runs
     echo '{}' >target/gate-runs/listing-tools.json
     # The variables that change what the steps run or how join the host
-    # fingerprint, so a result counts only for a run in the same environment.
+    # fingerprint, so a result counts only for a run in the same environment;
+    # `xtask gate plan` leaves out the launcher's own (GOODFETCH_GATE_MIN_FREE_GB).
     variables=$(env | grep -E '^(CI|GOODFETCH_[A-Z0-9_]+|NEXTEST_[A-Z0-9_]+|CARGO_[A-Z0-9_]+|RUST[A-Z0-9_]*|UV_[A-Z0-9_]+|NODE_[A-Z0-9_]+)=' | LC_ALL=C sort || true)
     GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_TEST_TOOLS="$PWD/target/gate-runs/listing-tools.json" \
       cargo run --quiet --bin xtask -- gate plan --records target/gate-runs --now "$(date +%s)" \

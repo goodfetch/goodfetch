@@ -60,8 +60,9 @@ use goodfetch_engine::egress::CdpUrlOrigin;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::local_addresses::Unavailable;
 use goodfetch_engine::run::settings_error;
-use goodfetch_engine::run_state::{RunStateError, RunStateTables, run_row};
-use goodfetch_engine::runs::{Run, RunError};
+use goodfetch_engine::run_key::Sealed;
+use goodfetch_engine::run_state::{RunStateError, RunStateTables, SecretColumn, run_row};
+use goodfetch_engine::runs::{Run, RunError, RunKeyError};
 use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::browser_cache::PinnedBy;
@@ -110,12 +111,20 @@ use crate::trace;
 /// whether it is closed, its own settings, as a JSON object by key, its
 /// identity seed, its 64 bits as SQLite's signed integer, and, for one on a
 /// Borrowed browser, its `cdp_url` and who gave it, so a resumed Run
-/// reopens it on that browser (`source`, null for a fresh Session).
+/// reopens it on that browser (`source`, null for a fresh Session), sealed
+/// under the Run's data key ([`SOURCE`]).
 pub(crate) const TABLES: RunStateTables = RunStateTables {
     name: "page-sessions",
     statements: &[
-        "CREATE TABLE IF NOT EXISTS page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL, source TEXT) STRICT",
+        "CREATE TABLE IF NOT EXISTS page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL, source BLOB) STRICT",
     ],
+};
+
+/// A Session's `source` is secret: a `cdp_url` names the one browser it
+/// reaches and may carry its provider's access token.
+const SOURCE: SecretColumn = SecretColumn {
+    table: "page_sessions",
+    column: "source",
 };
 
 /// What separates a Session's Run ID from its position in its ID; a
@@ -1029,7 +1038,7 @@ impl Sessions {
                         row.get::<_, bool>(1)?,
                         row.get::<_, bool>(2)?,
                         row.get::<_, String>(3)?,
-                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<Sealed>>(4)?,
                     ))
                 })?;
                 rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -1066,9 +1075,10 @@ impl Sessions {
                 continue;
             }
             let settings = recorded_settings(&settings, run, context)?;
-            let borrowed = source
-                .map(|source| recorded_source(&source, run, context))
-                .transpose()?;
+            let borrowed = match source {
+                Some(sealed) => Some(opened_source(&sealed, position, run, context).await?),
+                None => None,
+            };
             let (proxy, relay, reopen_failed) =
                 reopened_egress(run, &settings, &pool, borrowed.as_ref(), position, context).await;
             let session = session_id(run.id(), position);
@@ -1197,14 +1207,22 @@ impl Sessions {
         borrowed: Option<&CdpUrl>,
         context: &CallContext,
     ) -> Result<(), CallError> {
-        let source = borrowed.map(|cdp_url| {
-            json!({
-                "url": cdp_url.url,
-                "layer": cdp_url.origin.layer,
-                "acting_for_model": cdp_url.origin.acting_for_model,
-            })
-            .to_string()
-        });
+        let source = match borrowed {
+            Some(cdp_url) => {
+                let source = json!({
+                    "url": cdp_url.url,
+                    "layer": cdp_url.origin.layer,
+                    "acting_for_model": cdp_url.origin.acting_for_model,
+                })
+                .to_string();
+                let sealed = run
+                    .seal(&SOURCE, &position.to_string(), source.as_bytes())
+                    .await
+                    .map_err(|error| no_source(run, error, context))?;
+                Some(sealed)
+            }
+            None => None,
+        };
         let settings = Value::Object(
             settings
                 .keys()
@@ -1404,9 +1422,35 @@ async fn open_proxy(
         .map(Arc::new))
 }
 
-/// The `cdp_url` `recorded`, as the run state of `run` holds it, of a
-/// Session on a Borrowed browser reopened from it.
-fn recorded_source(recorded: &str, run: &Run, context: &CallContext) -> Result<CdpUrl, CallError> {
+/// The failure a call answers when the data key of `run` neither seals nor
+/// opens a Session's source: the key-encryption key's own refusal, or the
+/// Run's state as unavailable.
+fn no_source(run: &Run, error: RunKeyError, context: &CallContext) -> CallError {
+    match error {
+        RunKeyError::Secret(error) => goodfetch_engine::run::secret_error(&error),
+        error => unavailable(run, &error, context),
+    }
+}
+
+/// The `cdp_url` of the Session at `position` of `run`, opened from the
+/// source its run state holds `sealed`, to reopen it on its Borrowed
+/// browser.
+async fn opened_source(
+    sealed: &Sealed,
+    position: u32,
+    run: &Run,
+    context: &CallContext,
+) -> Result<CdpUrl, CallError> {
+    let source = run
+        .open(&SOURCE, &position.to_string(), sealed)
+        .await
+        .map_err(|error| no_source(run, error, context))?;
+    recorded_source(&source, run, context)
+}
+
+/// The `cdp_url` `recorded`, as the run state of `run` holds it once
+/// opened, of a Session on a Borrowed browser reopened from it.
+fn recorded_source(recorded: &[u8], run: &Run, context: &CallContext) -> Result<CdpUrl, CallError> {
     #[derive(serde::Deserialize)]
     struct Recorded {
         url: String,
@@ -1414,7 +1458,7 @@ fn recorded_source(recorded: &str, run: &Run, context: &CallContext) -> Result<C
         acting_for_model: bool,
     }
     let recorded: Recorded =
-        serde_json::from_str(recorded).map_err(|error| unavailable(run, &error, context))?;
+        serde_json::from_slice(recorded).map_err(|error| unavailable(run, &error, context))?;
     Ok(CdpUrl {
         url: recorded.url,
         origin: CdpUrlOrigin {

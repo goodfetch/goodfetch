@@ -187,13 +187,26 @@ pub struct Carried {
 
 /// The defaults this host gives in place of the catalog's: the encrypted
 /// local file's `run_state.key_reference` where `keychain` is absent. It
-/// opens the OS keychain if no one has.
+/// opens the OS keychain if no one has, so the engine asks for them only
+/// where the value is needed, such as where a Run first makes its data
+/// key, never as a Run's settings open (issue 2204).
 ///
 /// # Cancel safety
 ///
 /// Dropping the future leaves the keychain to open on the next call.
 pub async fn host_defaults(keychain: &Keychain) -> HostDefaults {
-    if keychain.available().await {
+    defaults_where(keychain.available().await)
+}
+
+/// The same, once `keychain` opened or found it does not, without opening
+/// it: none before.
+pub fn known_host_defaults(keychain: &Keychain) -> Option<HostDefaults> {
+    keychain.answered().map(defaults_where)
+}
+
+/// The defaults of a host whose keychain is `available` or not.
+fn defaults_where(available: bool) -> HostDefaults {
+    if available {
         HostDefaults::default()
     } else {
         HostDefaults::default().with(&RUN_STATE_KEY_REFERENCE, json!(KEY_REFERENCE_IN_FILE))

@@ -131,6 +131,13 @@ impl HostDefaults {
         self
     }
 
+    /// The same, with each of `other`'s defaults in place of its own.
+    #[must_use]
+    pub fn and(mut self, other: Self) -> Self {
+        self.0.extend(other.0);
+        self
+    }
+
     /// The default of `setting` on this host.
     pub fn of(&self, setting: &Setting) -> Value {
         self.0

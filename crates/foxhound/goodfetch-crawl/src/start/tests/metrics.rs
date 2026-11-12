@@ -13,7 +13,7 @@ use opentelemetry::metrics::MeterProvider as _;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use serde_json::{Value, json};
 
-use super::{Reply, SITEMAP, SITEMAP_PAGES, crawl_on, dependencies, engine, seeds};
+use super::{Reply, SITEMAP, crawl_on, dependencies, engine, seeds};
 
 /// The value of the series `name` of `registry`, if it has one.
 fn value_of(registry: &prometheus::Registry, name: &str) -> Option<f64> {
@@ -154,10 +154,10 @@ fn counted(registry: &prometheus::Registry, shared_path: &str, work: &str) -> Op
         .map(|metric| metric.get_counter().get_value())
 }
 
-/// The pages a crawl from `seeds`, three at a time, handled, and the round
-/// trips to the actor that owns its Run state it counted as
-/// `F3.actor_round_trips`.
-fn round_trips(seeds: &Value) -> (usize, Option<f64>) {
+/// Crawls from `seeds`, handling three pages at a time, and returns how many
+/// pages the handler saw and how many round trips to the actor that owns the
+/// Run state the crawl counted as `F3.actor_round_trips`.
+fn pages_and_round_trips(seeds: &Value) -> (usize, Option<f64>) {
     let env = TestEnv::new();
     let registry = prometheus::Registry::new();
     let exporter = opentelemetry_prometheus::exporter()
@@ -205,7 +205,7 @@ fn round_trips(seeds: &Value) -> (usize, Option<f64>) {
 /// Covers: story:3-25
 #[test]
 fn each_attempt_costs_the_run_states_actor_one_round_trip() {
-    assert_eq!(round_trips(&seeds(5)), (5, Some(5.0)));
+    assert_eq!(pages_and_round_trips(&seeds(5)), (5, Some(5.0)));
 }
 
 /// A sitemap's attempt ends in one message to the actor as a page's does:
@@ -220,5 +220,5 @@ fn a_sitemap_attempt_costs_the_run_states_actor_one_round_trip() {
         "rules": [{ "pattern": "**", "label": "page" }],
     }]);
 
-    assert_eq!(round_trips(&seeds), (SITEMAP_PAGES, Some(4.0)));
+    assert_eq!(pages_and_round_trips(&seeds), (3, Some(4.0)));
 }

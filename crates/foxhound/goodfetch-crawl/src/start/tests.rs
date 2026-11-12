@@ -367,11 +367,8 @@ pub(crate) fn as_sent(method: &str, mut params: Value) -> Value {
 }
 
 /// The path of the one sitemap [`Site`] serves, which lists
-/// [`SITEMAP_PAGES`] pages of `https://shop.test`, as [`seeds`] names them.
+/// the first three pages [`seeds`] names.
 pub(crate) const SITEMAP: &str = "/sitemap.xml";
-
-/// How many pages the sitemap at [`SITEMAP`] lists.
-pub(crate) const SITEMAP_PAGES: usize = 3;
 
 /// The site every crawl of the harness fetches from memory, through the
 /// fetch tiers' test seam: every URL but [`SITEMAP`] answers one small
@@ -416,8 +413,7 @@ impl goodfetch_fetch_tier::Transport for Site {
     }
 }
 
-/// The sitemap at [`SITEMAP`]: the first [`SITEMAP_PAGES`] pages
-/// [`seeds`] names.
+/// The sitemap at [`SITEMAP`]: the first three pages [`seeds`] names.
 const SITEMAP_XML: &str = concat!(
     r#"<?xml version="1.0" encoding="UTF-8"?>"#,
     r#"<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">"#,

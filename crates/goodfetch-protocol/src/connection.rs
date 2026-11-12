@@ -881,6 +881,26 @@ pub const CONNECTION_OVERLOADED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A new call refused by a Connection that holds as many calls in flight
+/// as the engine serves on one (ADR 0038; issue 2312).
+pub const TOO_MANY_CALLS: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "too_many_calls",
+    description: "The Connection already has as many calls in flight as the engine serves on one, which `max` gives, so the engine refused this call at once and did nothing for it; the calls in flight go on, and the engine still reads their `$/cancel`, their `$/credit` and the replies to its own requests. Make the call again once an earlier call ended, cancel the calls no longer needed, or open another Connection.",
+    group: ErrorGroup::Refused,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `too_many_calls` names: how many calls in flight the engine serves
+/// on one Connection.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct TooManyCallsDetails {
+    /// How many calls one Connection keeps in flight.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub max: u64,
+}
+
 /// No engine executable to start, raised by an SDK's `connect()` (ADRs
 /// 0024, 0078 and 0090).
 pub const ENGINE_NOT_FOUND: ErrorCodeDefinition = ErrorCodeDefinition {
@@ -952,7 +972,9 @@ pub const ENTRIES: Entries = Entries {
         DEADLINE_EXCEEDED,
         CLOSED,
         INTERNAL,
+        ENGINE_PANICKED,
         CONNECTION_OVERLOADED,
+        TOO_MANY_CALLS,
         ENGINE_NOT_FOUND,
         ENGINE_EXITED,
         CONNECTION_LOST,
@@ -965,6 +987,10 @@ pub const ENTRIES: Entries = Entries {
     hook_stages: &[],
     shared_type_values: &[],
 };
+
+mod engine_panicked;
+
+pub use engine_panicked::{ENGINE_PANICKED, EnginePanickedDetails, PanicEnded};
 
 #[cfg(test)]
 mod tests;

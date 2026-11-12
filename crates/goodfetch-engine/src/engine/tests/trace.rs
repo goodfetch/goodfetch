@@ -66,12 +66,14 @@ const ASK: Operation = Operation {
     result: schema_of::<Value>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: PROTOCOL_VERSION,
 };
 
-fn asking() -> Contribution {
+pub(super) fn asking() -> Contribution {
     Contribution::new("test_ask").with_handler(Handler::new(
         &ASK,
         |_: Value, context: CallContext| async move {

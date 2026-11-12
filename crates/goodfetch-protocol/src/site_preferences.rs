@@ -32,6 +32,8 @@ pub const SITE_PREFERENCES_PURPOSE: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -44,6 +46,8 @@ pub const SITE_PREFERENCES_RESPECT_USE_SIGNALS: Setting = Setting {
     clearable: false,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 

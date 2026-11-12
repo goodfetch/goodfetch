@@ -413,6 +413,19 @@ number = 3
 kind = "error"
 prefix = "person_required"
 
+# The Error code the engine refuses a new call with on a Connection at its
+# cap of calls in flight (issue 2312).
+[[area]]
+number = 3
+kind = "error"
+prefix = "too_many_calls"
+
+# The Error code of what a panic in the engine ended (ADR 0148, issue 2426).
+[[area]]
+number = 3
+kind = "error"
+prefix = "engine_panicked"
+
 # Area 3's settings (#225): `config.explain`, the refusals of a setting, the
 # Operator policy's and user configuration's formats, and the keys the
 # runtime itself waits on or resolves (ADR 0059).
@@ -1150,7 +1163,17 @@ prefix = "closed"
 [[area]]
 number = 11
 kind = "error"
-prefix = "engine_"
+prefix = "engine_exited"
+
+[[area]]
+number = 11
+kind = "error"
+prefix = "engine_not_found"
+
+[[area]]
+number = 11
+kind = "error"
+prefix = "engine_output_invalid"
 
 # The Error code a Connection's own bounds refuse a call with (issue 2332).
 [[area]]

@@ -229,6 +229,8 @@ pub const RUN_LIST: Operation = Operation {
     result: schema_of::<RunList>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,

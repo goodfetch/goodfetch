@@ -5,7 +5,12 @@
 //! every line whole. A refused `hello` is answered before any other message
 //! and the Connection then closes (ADR 0066). At the end of input, calls in
 //! flight are cancelled at their next cancellation point, answered, and the
-//! Connection closes once they all are. A Connection the engine closes
+//! Connection closes once they all are. A call whose handler panics is
+//! answered `engine_panicked` and gives its place in flight back, as any
+//! call that ended (ADR 0148). A Connection reads its Client
+//! whatever the number of calls in flight: at its cap only a new call is
+//! refused, with `too_many_calls`, so the `$/cancel`, the `$/credit` or the
+//! reply that frees a call is always read. A Connection the engine closes
 //! while its Client still sends, such as a refused one, ends its sending
 //! side first and drops what still comes until the Client closes too, for a
 //! short while at most, so a Client that wrote behind its `hello` reads the
@@ -31,15 +36,18 @@
 //! carriage that reaches them, kept whole so each message passes one loop.
 
 use std::collections::BTreeMap;
+use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
+use futures_util::FutureExt as _;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{Product, Reach};
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams,
-    PERSON_REQUIRED, PrivateEndpoint, StoppedBy, Surface,
+    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, ENGINE_PANICKED,
+    EnginePanickedDetails, HELLO, HelloParams, PERSON_REQUIRED, PanicEnded, PrivateEndpoint,
+    StoppedBy, Surface, TOO_MANY_CALLS, TooManyCallsDetails,
 };
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
@@ -65,11 +73,13 @@ use crate::composition::{
     CallContext, CallInput, CallNotifier, CallStream, ConnectionContext, DaemonSide, Driver,
     Handler, InputSender,
 };
+use crate::crash_report;
 use crate::endpoint::{Authorities, same_token};
 use crate::engine_context::EngineContext;
 use crate::events::{Credits, Events};
 use crate::log::{ConnectionLog, LogEvents};
 use crate::mask::{Masks, Scope};
+use crate::metrics::Metrics;
 use crate::product::{Identity, Requested};
 use crate::runs::Runs;
 use crate::tasks::TaskOwner;
@@ -84,7 +94,8 @@ use goodfetch_protocol::run::RunKind;
 /// How many bytes one read takes from the Connection.
 const READ_CHUNK: usize = 8 * 1024;
 
-/// How many calls one Connection keeps in flight before it stops reading.
+/// How many calls one Connection keeps in flight: one more is refused with
+/// `too_many_calls`, and every other message is still read (issue 2312).
 const MAX_IN_FLIGHT: usize = 256;
 
 /// How many lines wait for the writer before their senders wait.
@@ -115,6 +126,8 @@ pub(crate) struct Dispatch {
     /// The engine's Counted work, what its Connections' messages add to
     /// (ADR 0140's E1).
     pub(crate) work: CountedWork,
+    /// The runtime's metrics, which count a call's panic (ADR 0148).
+    pub(crate) metrics: Metrics,
 }
 
 /// How a Connection reached the engine, which says what its `hello` must
@@ -574,7 +587,6 @@ impl Session<'_> {
                     return true;
                 }
             }
-            let open = !ended && self.in_flight.len() < MAX_IN_FLIGHT;
             let sending = self.state != ConnectionState::Opening;
             tokio::select! {
                 biased;
@@ -586,7 +598,7 @@ impl Session<'_> {
                         return ended;
                     }
                 }
-                more = reading.read(&mut pending), if open => {
+                more = reading.read(&mut pending), if !ended => {
                     ended = !more;
                 }
             }
@@ -902,6 +914,9 @@ impl Session<'_> {
             } else {
                 let handler = handler.clone();
                 match trace_context(params) {
+                    // Refused last, so a call the engine would never start
+                    // keeps its own refusal at the cap.
+                    Ok(_) if self.in_flight.len() >= MAX_IN_FLIGHT => Some(too_many_calls()),
                     Ok((params, meta)) => {
                         self.call(id, &handler, params, meta.as_ref());
                         return Flow::Continue;
@@ -976,9 +991,17 @@ impl Session<'_> {
             stream,
             call_input,
         );
-        let answer = handler
-            .call(params.unwrap_or(Value::Object(Map::new())), context)
-            .instrument(span.clone());
+        // The call's watch (ADR 0148): a panic in its handler is answered
+        // here, in the task the call already has, and never reaches the
+        // Connection's owner.
+        let metrics = self.dispatch.metrics.clone();
+        let answer = AssertUnwindSafe(
+            handler
+                .call(params.unwrap_or(Value::Object(Map::new())), context)
+                .instrument(span.clone()),
+        )
+        .catch_unwind()
+        .map(move |answered| answered.unwrap_or_else(|_| Err(engine_panicked(&metrics))));
         self.in_flight.insert(
             id.clone(),
             InFlight {
@@ -1142,5 +1165,36 @@ fn person_required(method: &str) -> CallError {
             "`{method}` is a person's answer: give it in the Kennel, or in the CLI's interactive prompt"
         ),
         &serde_json::Map::new(),
+    )
+}
+
+/// `too_many_calls`: the Connection holds [`MAX_IN_FLIGHT`] calls in flight,
+/// so one more is refused, the Connection still reading everything else.
+fn too_many_calls() -> CallError {
+    CallError::new(
+        &TOO_MANY_CALLS,
+        format!(
+            "The Connection already has {MAX_IN_FLIGHT} calls in flight: make the call again once one of them ended"
+        ),
+        &TooManyCallsDetails {
+            max: u64::try_from(MAX_IN_FLIGHT).unwrap_or(u64::MAX),
+        },
+    )
+}
+
+/// `engine_panicked` for a call whose handler panicked, counted on
+/// `metrics`: it names the crash report the panic left, when one was
+/// written, and never the panic's own text (ADR 0148). Made where the
+/// panic was caught, on the thread that panicked.
+fn engine_panicked(metrics: &Metrics) -> CallError {
+    metrics.panicked(PanicEnded::Call);
+    CallError::new(
+        &ENGINE_PANICKED,
+        "The engine hit a bug in Goodfetch while it served this call, which ended the call; its Connection goes on",
+        &EnginePanickedDetails {
+            ended: PanicEnded::Call,
+            id: None,
+            crash_report: crash_report::take_written(),
+        },
     )
 }

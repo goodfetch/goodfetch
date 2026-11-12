@@ -33,6 +33,7 @@ mod evict_caches;
 mod features;
 mod fixture_size;
 mod floor_guard;
+mod foxhound_module;
 mod foxhound_side;
 mod gate;
 mod git;

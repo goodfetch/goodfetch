@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, Row};
-use goodfetch_protocol::connection::Surface;
+use goodfetch_protocol::connection::{PanicEnded, Surface};
 use goodfetch_protocol::governor::{
     KIND_LABEL, PRESSURE_SOURCE, PressureSource, SATURATION, SOURCE_LABEL, SystemInfo, TARGET,
     WorkKind,
@@ -18,8 +18,8 @@ use goodfetch_protocol::governor::{
 use goodfetch_protocol::ops::{
     BROWSER_LABEL, BROWSER_MEMORY, BROWSER_RECYCLED, BROWSER_RUNNING, CLIENT_CONNECTED,
     COMPLETENESS_LABEL, COUNTED_WORK, COUNTED_WORK_PATH_LABEL, COUNTED_WORK_WORK_LABEL,
-    DAEMON_DRAINING, LIFECYCLE_LABEL, RECYCLE_REASON_LABEL, RUN_ACTIVE, RUN_ENDED, RUN_KIND_LABEL,
-    SURFACE_LABEL, VERDICT_LABEL,
+    DAEMON_DRAINING, ENGINE_PANICS, LIFECYCLE_LABEL, PANIC_ENDED_LABEL, RECYCLE_REASON_LABEL,
+    RUN_ACTIVE, RUN_ENDED, RUN_KIND_LABEL, SURFACE_LABEL, VERDICT_LABEL,
 };
 use goodfetch_protocol::run::{RunKind, RunReport};
 use goodfetch_protocol::storage::{
@@ -48,6 +48,7 @@ struct Instruments {
     run_ended: Counter<u64>,
     client_connected: UpDownCounter<i64>,
     daemon_draining: Gauge<u64>,
+    engine_panics: Counter<u64>,
     governor_saturation: Gauge<f64>,
     governor_target: Gauge<u64>,
     governor_pressure_source: Gauge<u64>,
@@ -152,6 +153,11 @@ impl Metrics {
                 .i64_up_down_counter(RUN_ACTIVE.name)
                 .with_description(RUN_ACTIVE.description)
                 .with_unit(RUN_ACTIVE.unit)
+                .build(),
+            engine_panics: meter
+                .u64_counter(ENGINE_PANICS.name)
+                .with_description(ENGINE_PANICS.description)
+                .with_unit(ENGINE_PANICS.unit)
                 .build(),
             run_ended: meter
                 .u64_counter(RUN_ENDED.name)
@@ -264,6 +270,13 @@ impl Metrics {
                 KeyValue::new(COMPLETENESS_LABEL.name, report.completeness.as_str()),
             ],
         );
+    }
+
+    /// A panic in the engine ended `ended` (ADR 0148).
+    pub(crate) fn panicked(&self, ended: PanicEnded) {
+        self.0
+            .engine_panics
+            .add(1, &[KeyValue::new(PANIC_ENDED_LABEL.name, ended.as_str())]);
     }
 
     /// A Client of `surface` connected, when `by` is 1, or left, when -1.

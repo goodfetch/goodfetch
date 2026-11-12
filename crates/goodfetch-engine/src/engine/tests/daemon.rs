@@ -30,9 +30,14 @@ use crate::ops::Ops;
 use crate::runs::{EndedBy, Start, Started};
 use crate::transport::{self, InMemoryDialer, Network};
 
+mod listener;
+
 pub(super) const TOKEN: &str = "the-launch-token";
 
 const MINUTE: Duration = Duration::from_secs(60);
+
+/// `daemon.drain_grace`'s default.
+const DRAIN_GRACE: Duration = Duration::from_secs(110);
 
 /// A Succession whose answer the test fixes, counting the handovers begun.
 struct Fixed {
@@ -74,7 +79,10 @@ pub(super) fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
             pick,
             handovers: Arc::clone(handovers),
         }),
-        drain: None,
+        drain: Drain {
+            asked: None,
+            grace: DRAIN_GRACE,
+        },
         install: None,
         ops: Ops::default(),
         websocket: None,
@@ -824,6 +832,8 @@ const STUCK: goodfetch_protocol::catalog::Operation = goodfetch_protocol::catalo
     result: goodfetch_protocol::catalog::schema_of::<Value>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: goodfetch_protocol::catalog::Stability::Experimental,
     deprecated: None,
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
@@ -867,10 +877,10 @@ pub(super) fn stuck() -> Contribution {
 pub(super) fn draining(asked: &CancellationToken) -> DaemonOptions {
     DaemonOptions {
         keep_alive: true,
-        drain: Some(Drain {
-            asked: asked.clone(),
-            grace: Duration::from_secs(110),
-        }),
+        drain: Drain {
+            asked: Some(asked.clone()),
+            grace: DRAIN_GRACE,
+        },
         ..the_pick()
     }
 }

@@ -120,9 +120,49 @@ pub enum TransportError {
     /// The in-memory network's engine went away.
     #[error("the in-memory network's engine is gone")]
     EngineGone,
-    /// The OS failed to accept a Connection on the Daemon's listener.
-    #[error("the Daemon's listener cannot accept: {0}")]
+    /// One attempt to accept a Connection failed for want of something the
+    /// process may get back, such as `EMFILE` while it has no descriptor
+    /// left: the listener still listens, and a later attempt may pass.
+    #[error("the listener failed to accept a Connection: {0}")]
     Accept(io::Error),
+    /// One accepted stream was no use and is dropped: its peer gave it up
+    /// before the accept, or the OS refused its `TCP_NODELAY`. It says
+    /// nothing of the listener or of the next stream.
+    #[error("an accepted stream was dropped: {0}")]
+    Stream(io::Error),
+    /// The listener is closed for good: the OS says its descriptor is no
+    /// listening socket any more, so no later attempt can pass.
+    #[error("the listener is closed: {0}")]
+    ListenerClosed(io::Error),
+}
+
+/// What a failed `accept` on a listener is: the listener's end when the OS
+/// says its descriptor is closed or no listening socket; one stream's when
+/// its peer gave it up before the accept (`ECONNABORTED`, `ECONNRESET`,
+/// `ECONNREFUSED`); else that one attempt's (`EMFILE`, `ENFILE`, `ENOBUFS`,
+/// `ENOMEM` and whatever else leaves the listener listening).
+fn accept_failure(error: io::Error) -> TransportError {
+    if error.raw_os_error().is_some_and(names_a_closed_listener) {
+        return TransportError::ListenerClosed(error);
+    }
+    match error.kind() {
+        io::ErrorKind::ConnectionAborted
+        | io::ErrorKind::ConnectionReset
+        | io::ErrorKind::ConnectionRefused => TransportError::Stream(error),
+        _ => TransportError::Accept(error),
+    }
+}
+
+#[cfg(unix)]
+fn names_a_closed_listener(code: i32) -> bool {
+    [libc::EBADF, libc::EINVAL, libc::ENOTSOCK].contains(&code)
+}
+
+#[cfg(not(unix))]
+fn names_a_closed_listener(code: i32) -> bool {
+    /// Winsock's `WSAEBADF`, `WSAEINVAL` and `WSAENOTSOCK`.
+    const CLOSED: [i32; 3] = [10009, 10022, 10038];
+    CLOSED.contains(&code)
 }
 
 impl Network {
@@ -136,11 +176,7 @@ impl Network {
     pub async fn attached_connection(&mut self) -> Result<Connection, TransportError> {
         match self {
             Self::Os => Ok(stdio()),
-            Self::InMemory(network) => network
-                .incoming
-                .recv()
-                .await
-                .ok_or(TransportError::DialerClosed),
+            Self::InMemory(network) => network.accept().await,
         }
     }
 }
@@ -328,28 +364,29 @@ impl DaemonListener {
     ///
     /// # Errors
     ///
-    /// `DialerClosed` once every in-memory dialer is gone, or the OS's
-    /// failure to accept.
+    /// `DialerClosed` once every in-memory dialer is gone; `Accept` when
+    /// this attempt failed and the listener still listens; `Stream` when
+    /// the accepted stream was dropped, one whose `TCP_NODELAY` the OS
+    /// refused among them; `ListenerClosed` when the listener is closed
+    /// for good.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future loses no Connection.
     pub async fn accept(&mut self) -> Result<Connection, TransportError> {
         match &mut self.0 {
-            Listening::InMemory(network) => network
-                .incoming
-                .recv()
-                .await
-                .ok_or(TransportError::DialerClosed),
+            Listening::InMemory(network) => network.accept().await,
             #[cfg(unix)]
             Listening::Unix(listener) => {
-                let (stream, _) = listener.accept().await.map_err(TransportError::Accept)?;
+                let (stream, _) = listener.accept().await.map_err(accept_failure)?;
                 let (reader, writer) = stream.into_split();
                 Ok(Connection::new(reader, writer))
             }
             Listening::Tcp(listener) => {
-                let (stream, _) = listener.accept().await.map_err(TransportError::Accept)?;
-                stream.set_nodelay(true).map_err(TransportError::Accept)?;
+                let (stream, _) = listener.accept().await.map_err(accept_failure)?;
+                // The stream's own failure, whatever its code, never the
+                // listener's.
+                stream.set_nodelay(true).map_err(TransportError::Stream)?;
                 let (reader, writer) = stream.into_split();
                 Ok(Connection::new(reader, writer))
             }
@@ -412,14 +449,25 @@ fn stdio() -> Connection {
 
 /// The engine's side of an in-memory network.
 pub struct InMemoryNetwork {
-    incoming: mpsc::Receiver<Connection>,
+    incoming: mpsc::Receiver<io::Result<Connection>>,
+}
+
+impl InMemoryNetwork {
+    /// The next Connection a dialer opened, or the failure one injected.
+    async fn accept(&mut self) -> Result<Connection, TransportError> {
+        match self.incoming.recv().await {
+            Some(Ok(connection)) => Ok(connection),
+            Some(Err(error)) => Err(accept_failure(error)),
+            None => Err(TransportError::DialerClosed),
+        }
+    }
 }
 
 /// The Client's side of an in-memory network, which opens Connections to
 /// its engine.
 #[derive(Clone)]
 pub struct InMemoryDialer {
-    outgoing: mpsc::Sender<Connection>,
+    outgoing: mpsc::Sender<io::Result<Connection>>,
 }
 
 /// A new in-memory network and its dialer.
@@ -439,10 +487,29 @@ impl InMemoryDialer {
         let (client_reader, client_writer) = tokio::io::split(client);
         let (engine_reader, engine_writer) = tokio::io::split(engine);
         self.outgoing
-            .send(Connection::new(engine_reader, engine_writer))
+            .send(Ok(Connection::new(engine_reader, engine_writer)))
             .await
             .map_err(|_| TransportError::EngineGone)?;
         Ok(Connection::new(client_reader, client_writer))
+    }
+
+    /// Fails the engine's next accept with `error`, as the OS fails a
+    /// listener's: the fault this adapter injects (ADR 0060), read as the
+    /// OS's own, so `EMFILE` ends one attempt, `ECONNABORTED` one stream
+    /// and `EBADF` the listener.
+    ///
+    /// # Errors
+    ///
+    /// `EngineGone` when the engine no longer accepts.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future before it resolves fails no accept.
+    pub async fn fail_accept(&self, error: io::Error) -> Result<(), TransportError> {
+        self.outgoing
+            .send(Err(error))
+            .await
+            .map_err(|_| TransportError::EngineGone)
     }
 }
 

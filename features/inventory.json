@@ -1288,6 +1288,17 @@
       ]
     },
     {
+      "id": "error:engine_panicked",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:executable_blocked_by_smart_app_control",
       "kind": "error",
       "area": 3,
@@ -2069,6 +2080,17 @@
       "id": "error:target_not_unique",
       "kind": "error",
       "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:too_many_calls",
+      "kind": "error",
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

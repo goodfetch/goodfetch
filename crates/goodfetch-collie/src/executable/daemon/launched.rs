@@ -24,7 +24,7 @@ use goodfetch_engine::children::give_huge_pages_as_started;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::files::{DaemonFiles, FileLock};
 use goodfetch_engine::daemon::service::LaunchedCommand;
-use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Holds, Succession};
+use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, Succession};
 use goodfetch_engine::endpoint::new_token;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::installed::{InstalledList, Seen, pick, stores_floor};
@@ -35,7 +35,9 @@ use goodfetch_engine::transport::{DaemonListener, Network};
 use goodfetch_engine::{Dependencies, Engine, Identity};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile, DaemonToken, IDLE_TIMEOUT};
+use goodfetch_protocol::daemon::{
+    DRAIN_GRACE, DaemonEndpoint, DaemonRuntimeFile, DaemonToken, IDLE_TIMEOUT,
+};
 
 use super::{Failure, Machine, multi_thread_runtime, now_of, per_install, unavailable};
 use crate::executable::output;
@@ -147,6 +149,7 @@ pub(in crate::executable) fn launched(
         }
     };
     let idle_timeout: Duration = get_or_default(Some(settings), &IDLE_TIMEOUT);
+    let drain_grace: Duration = get_or_default(Some(settings), &DRAIN_GRACE);
     let install = match install_database(machine, &dependencies, Some(settings)) {
         Ok(install) => install,
         Err(failure) => return failure.report(),
@@ -187,7 +190,10 @@ pub(in crate::executable) fn launched(
                 pid,
                 activated,
             )),
-            drain: None,
+            drain: Drain {
+                asked: None,
+                grace: drain_grace,
+            },
             install,
             ops: Ops::default(),
             websocket: None,

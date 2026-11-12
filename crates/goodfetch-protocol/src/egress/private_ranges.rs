@@ -133,6 +133,8 @@ pub const EGRESS_PRIVATE_RANGES: Setting = Setting {
     clearable: false,
     authority: Authority::NotByModelRecipeAllowedBy(EGRESS_RECIPE_PRIVATE_RANGES.name),
     weakens: Some(lists_any),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -147,5 +149,7 @@ pub const EGRESS_RECIPE_PRIVATE_RANGES: Setting = Setting {
     clearable: false,
     authority: Authority::OperatorPolicy,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };

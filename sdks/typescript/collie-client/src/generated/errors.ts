@@ -312,6 +312,15 @@ export class EngineOutputInvalidError extends InternalError {
 }
 
 /**
+ * A bug in Goodfetch made the engine panic, which ended what `ended` names and only that: for `call`, this call, while its Connection, its Run and its Page go on. Making the same call again is likely to hit the same bug. Report it with the crash report `crash_report` names, a file in the engine's crash-report folder on its machine.
+ */
+export class EnginePanickedError extends InternalError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "engine_panicked", group: "internal", retryable: false });
+  }
+}
+
+/**
  * Windows refused to start the file: Smart App Control, or another App Control policy, blocks executables without a signature or reputation it trusts. Goodfetch never re-signs a file it did not build. For a browser, use the Goodfetch Chromium or an installed Chrome by channel; otherwise turn Smart App Control off, or ask the device's administrator to allow the file.
  */
 export class ExecutableBlockedBySmartAppControlError extends RefusedError {
@@ -834,6 +843,15 @@ export class TargetNotUniqueError extends PageError {
 }
 
 /**
+ * The Connection already has as many calls in flight as the engine serves on one, which `max` gives, so the engine refused this call at once and did nothing for it; the calls in flight go on, and the engine still reads their `$/cancel`, their `$/credit` and the replies to its own requests. Make the call again once an earlier call ended, cancel the calls no longer needed, or open another Connection.
+ */
+export class TooManyCallsError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "too_many_calls", group: "refused", retryable: true });
+  }
+}
+
+/**
  * The navigation followed as many redirects as it may and was redirected again, as a redirect loop is: the browser's count is 20 requests in a navigation's chain, its first included, so Chromium follows 19 redirects. The details name the first URL, the hops followed and the count. A retry meets the same chain.
  */
 export class TooManyRedirectsError extends PageError {
@@ -887,6 +905,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   engine_exited: EngineExitedError,
   engine_not_found: EngineNotFoundError,
   engine_output_invalid: EngineOutputInvalidError,
+  engine_panicked: EnginePanickedError,
   executable_blocked_by_smart_app_control: ExecutableBlockedBySmartAppControlError,
   file_write_failed: FileWriteFailedError,
   format_version_unsupported: FormatVersionUnsupportedError,
@@ -945,6 +964,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   setting_unknown: SettingUnknownError,
   site_preferences_refused: SitePreferencesRefusedError,
   target_not_unique: TargetNotUniqueError,
+  too_many_calls: TooManyCallsError,
   too_many_redirects: TooManyRedirectsError,
   upgrade_source_unsupported: UpgradeSourceUnsupportedError,
   value_invalid: ValueInvalidError,

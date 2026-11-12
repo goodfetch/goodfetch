@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::daemon::{DaemonOptions, Holds, Succession};
+use goodfetch_engine::daemon::{DaemonOptions, Drain, Holds, Succession};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::needs_you::{
@@ -105,6 +105,8 @@ const CONSENT_WALL: Operation = Operation {
     result: schema_of::<Value>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
@@ -136,6 +138,8 @@ const REFETCH_STOPPED: Operation = Operation {
     result: schema_of::<Value>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
@@ -322,7 +326,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             keep_alive: true,
             holds: Holds::new(),
             succession: Arc::new(ThePick),
-            drain: None,
+            drain: Drain {
+                asked: None,
+                grace: Duration::from_secs(110),
+            },
             install: None,
             ops: Ops::default(),
             websocket: None,

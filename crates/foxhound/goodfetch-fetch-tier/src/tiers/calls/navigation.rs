@@ -265,7 +265,7 @@ impl HopGate for Navigating {
 
     /// A handler's navigation is no crawl request's own send: it takes no
     /// token of its domain's sends, whichever hop it is.
-    fn sending<'a>(&'a self, hop: &'a Hop, _lead: bool) -> Gating<'a, ()> {
+    fn sending<'a>(&'a self, hop: &'a Hop, _lead: bool) -> Gating<'a, Result<(), Stop>> {
         Box::pin(self.hand_over.sending(hop, false))
     }
 

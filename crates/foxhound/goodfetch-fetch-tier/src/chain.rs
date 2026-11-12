@@ -147,7 +147,12 @@ pub trait HopGate: Send + Sync {
     /// first hop, its request's own send, which a rated run sends only
     /// once its domain's sends left it a token: the answer comes once it
     /// may go.
-    fn sending<'a>(&'a self, hop: &'a Hop, lead: bool) -> Gating<'a, ()>;
+    ///
+    /// # Errors
+    ///
+    /// [`Stop::Failed`] when the send could not be recorded: the hop is
+    /// then not sent, since its domain's delay could not be kept.
+    fn sending<'a>(&'a self, hop: &'a Hop, lead: bool) -> Gating<'a, Result<(), Stop>>;
 
     /// Records that `hop`'s answer arrived `latency` after it was sent,
     /// for its domain's adaptive delay.
@@ -263,7 +268,7 @@ where
     let mut hop = first;
     let mut permit: Option<Permit> = None;
     loop {
-        gate.sending(&hop, hops.is_empty()).await;
+        gate.sending(&hop, hops.is_empty()).await?;
         let sent = clock.now();
         let fetched = fetch(hop.clone()).await.map_err(|error| {
             if error.code() != EGRESS_REFUSED.name {

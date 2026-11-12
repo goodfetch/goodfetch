@@ -563,11 +563,12 @@ pub const HANDLER_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
-/// A site failing for now, or holding a crawl request unsent past the
-/// bound on its `Retry-After` (ADRs 0093 and 0118).
+/// A site failing for now, or a crawl request held unsent: past the bound
+/// on its `Retry-After`, or with a start the Politeness file could not
+/// record (ADRs 0093, 0118 and 0086).
 pub const RESPONSE_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "response_unavailable",
-    description: "The site is failing for now: its 5xx or 408 response stayed after the retries ran out, or its `Retry-After` asked for a time further away than `politeness.retry_after.max`, so nothing is sent to its domain before then and nothing waits for it. The details name the response's `status` (`null` for a request held unsent), the time the site asked for as `retry_after` when it asked, and a `fix`. `run.retry_failed` re-admits the request once the site is back.",
+    description: "The site is failing for now: its 5xx or 408 response stayed after the retries ran out, or its `Retry-After` asked for a time further away than `politeness.retry_after.max`, so nothing is sent to its domain before then and nothing waits for it. A request whose start could not be recorded for its domain's Politeness is held unsent with it too, since its delay could not be kept. The details name the response's `status` (`null` for a request held unsent), the time the site asked for as `retry_after` when it asked, and a `fix`. `run.retry_failed` re-admits the request once the site is back.",
     group: ErrorGroup::Page,
     retryable: true,
     exit_code: None,

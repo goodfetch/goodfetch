@@ -106,7 +106,7 @@ impl HopGate for SitemapHops<'_> {
         })
     }
 
-    fn sending<'a>(&'a self, hop: &'a Hop, lead: bool) -> Gating<'a, ()> {
+    fn sending<'a>(&'a self, hop: &'a Hop, lead: bool) -> Gating<'a, Result<(), Stop>> {
         Box::pin(self.0.sending(hop, lead))
     }
 

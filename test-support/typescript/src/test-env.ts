@@ -74,6 +74,12 @@ export interface TestEnvStart {
   /** The Product whose Daemon to start in the test's home, when given. */
   readonly daemon?: Product | undefined;
   /**
+   * Whether the home is prepared for an engine that launches a browser:
+   * its Browser cache laid out, and the Proving ground's hosts, when one
+   * starts, reachable through its user configuration.
+   */
+  readonly browser?: boolean | undefined;
+  /**
    * How long, in milliseconds, `goodfetch-test-env` has to tear down once
    * its stdin closes; ten seconds when absent. A test of a teardown past the
    * deadline sets a short one, so it waits no real ten seconds.
@@ -125,9 +131,10 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
       ? []
       : ["--proving-ground", String(start.provingGroundSeed)];
   const daemon = start.daemon === undefined ? [] : [`--daemon=${start.daemon}`];
+  const browser = start.browser === true ? ["--browser"] : [];
   const started = start.processes.spawn(
     program.command,
-    [...program.args, "--test-name", start.testName, ...provingGround, ...daemon],
+    [...program.args, "--test-name", start.testName, ...provingGround, ...daemon, ...browser],
     {
       env,
     },

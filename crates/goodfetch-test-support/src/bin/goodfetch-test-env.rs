@@ -10,6 +10,12 @@
 //! home, or of Foxhound's with `--daemon=foxhound` (ADR 0094); the
 //! description names its socket and token, and at teardown it is stopped
 //! with its executable's `daemon stop` and must leave no runtime file.
+//! `--browser` prepares the home for an engine that launches a browser, as
+//! an SDK's Attached engine does for a program that opens a page: it lays
+//! out the Browser cache there, so nothing is downloaded, and, with
+//! `--proving-ground`, its user configuration maps the Proving ground's
+//! hosts and lists them in `egress.private_ranges`, as a Rust test's Run
+//! settings do.
 //! `--print-schemas` prints the JSON
 //! Schemas of the crate's file types for `xtask codegen` and starts nothing;
 //! `--print-canary-rule` prints the Secret canaries' `gitleaks` rule for it,
@@ -25,7 +31,8 @@ use std::process::ExitCode;
 use clap::Parser;
 use goodfetch_test_support::{
     DAEMON_DEADLINE, Daemon, Description, PROVING_GROUND_DEADLINE, Product, ProvingGround,
-    SecretKind, TestEnv, Tool, Variables, gitleaks_rule, schemas, tools,
+    ProvingGroundDescription, SecretKind, TestEnv, Tool, Variables, browser_cache_in_home,
+    gitleaks_rule, schemas, tools,
 };
 
 #[derive(Parser)]
@@ -33,6 +40,10 @@ use goodfetch_test_support::{
     name = "goodfetch-test-env",
     about = "Prepares one test's setup and prints its description",
     args_conflicts_with_subcommands = true
+)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each is a switch of the command line, which clap reads as a bool"
 )]
 struct Arguments {
     #[cfg(target_os = "linux")]
@@ -63,6 +74,10 @@ struct Arguments {
         default_missing_value = "collie"
     )]
     daemon: Option<Product>,
+    /// Lays out the Browser cache in the test's home and, with
+    /// `--proving-ground`, lets the home's engines reach its hosts.
+    #[arg(long)]
+    browser: bool,
     /// Prints the JSON Schemas of test support's file types, keyed by their
     /// paths under `test-support/fixtures/`, and starts nothing.
     #[arg(long, exclusive = true)]
@@ -201,6 +216,12 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
         }
         None => None,
     };
+    if arguments.browser {
+        browser_cache_in_home(&env)?;
+        if let Some(started) = &proving_ground {
+            env.user_configuration(&reaching(started.description()));
+        }
+    }
     let daemon = match arguments.daemon {
         Some(product) => {
             // Its process joins the TestEnv's record too.
@@ -233,6 +254,28 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
     drop(proving_ground);
     drop(env);
     Ok(())
+}
+
+/// The settings, lines of a user configuration, with which an engine
+/// reaches `proving_ground`'s hosts: each mapped to its address, and listed
+/// in `egress.private_ranges`, since that address is loopback and listing
+/// the names keeps `localhost` and literal loopback addresses refused.
+fn reaching(proving_ground: &ProvingGroundDescription) -> String {
+    let hosts: Vec<String> = proving_ground
+        .resolve
+        .keys()
+        .map(|host| format!("{host:?}"))
+        .collect();
+    let mapping: Vec<String> = proving_ground
+        .resolve
+        .iter()
+        .map(|(host, address)| format!("{host:?} = [{address:?}]"))
+        .collect();
+    format!(
+        "egress.private_ranges = [{}]\nnetwork.resolve = {{ {} }}\n",
+        hosts.join(", "),
+        mapping.join(", ")
+    )
 }
 
 fn write_line(line: &str) -> Result<(), Failure> {

@@ -46,6 +46,16 @@ use crate::enqueue::links::defer_links;
 use crate::serving::Crawls;
 use crate::work_items::FieldsRead;
 
+/// The field of a Record that holds when its page was read: each run of
+/// an attempt reads at its own time, so a sample's comparison leaves it
+/// out (ADR 0020).
+pub(crate) const FETCHED_AT: &str = "fetched_at";
+
+/// The fields of a code-free crawl's Record that two runs of one attempt
+/// never hold alike, which a sample's comparison leaves out: `fetched_at`.
+pub(crate) static NOT_COMPARED: std::sync::LazyLock<std::collections::BTreeSet<String>> =
+    std::sync::LazyLock::new(|| std::collections::BTreeSet::from([FETCHED_AT.to_owned()]));
+
 /// The locator whose links `follow: scope` admits from each page.
 const LINKS: &str = "a[href]";
 
@@ -217,7 +227,7 @@ fn page_schema(formats: &FormatsRequest) -> Value {
             }),
         );
         properties.insert(
-            "fetched_at".to_owned(),
+            FETCHED_AT.to_owned(),
             json!({
                 "description": "When the engine read the page, in UTC (RFC 3339).",
                 "type": "string",
@@ -226,7 +236,7 @@ fn page_schema(formats: &FormatsRequest) -> Value {
         );
     }
     if let Some(required) = schema["required"].as_array_mut() {
-        required.extend([json!("status"), json!("fetched_at")]);
+        required.extend([json!("status"), json!(FETCHED_AT)]);
     }
     schema
 }
@@ -288,7 +298,7 @@ pub(crate) fn record_of(
     let mut record = serde_json::to_value(formats).expect("invariant: formats encode as JSON");
     if let Some(properties) = record.as_object_mut() {
         properties.insert("status".to_owned(), json!(status));
-        properties.insert("fetched_at".to_owned(), json!(fetched_at));
+        properties.insert(FETCHED_AT.to_owned(), json!(fetched_at));
         properties.extend(fields);
     }
     record

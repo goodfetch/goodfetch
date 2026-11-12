@@ -98,6 +98,7 @@ use serde_json::Value;
 use crate::blocks::{Block, BlockClassifier, NoBlocks};
 use crate::browser_fetch;
 use crate::dialogs::{self, Dialogs};
+use crate::document_request::DocumentRequest;
 use crate::driver::{Destination, SerializedDocument};
 use crate::guard::{self, Action, Request, Window};
 use crate::hiding::Hidden;
@@ -866,6 +867,10 @@ impl BrowserPages for Opener {
                 tracing::debug!(%error, page_id = %page_id.0, "a handler's browser page was closed already");
             }
         })
+    }
+
+    fn document_request(&self) -> Option<DocumentRequest> {
+        self.pages.sessions.document_request()
     }
 
     fn retire<'a>(

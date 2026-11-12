@@ -143,6 +143,8 @@ mod extra_loopback;
 mod fetch_tiers;
 mod frontier;
 mod governor;
+mod http_cookies;
+mod http_identity;
 mod in_memory_crawl;
 mod journeys;
 mod kept_responses;

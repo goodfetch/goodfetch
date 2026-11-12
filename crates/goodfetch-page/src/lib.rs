@@ -18,6 +18,7 @@ mod browser_fetch;
 mod clean_up_versions;
 mod consent;
 mod dialogs;
+pub mod document_request;
 mod driver;
 mod egress_relay;
 mod errors;

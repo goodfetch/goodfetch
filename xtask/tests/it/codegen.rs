@@ -893,6 +893,282 @@ fn each_sdk_layer_is_generated_as_its_snapshot(#[case] folder: &str) {
     insta::assert_snapshot!(folder.replace('/', "__"), layer);
 }
 
+/// A name no SDK can spell by its one rule is refused, so the catalog
+/// renames the entry for every surface and no language needs an alias
+/// (ADRs 0079 and 0099): a member TypeScript gives meaning on every value,
+/// `call`, which is every handle's raw call, and an error class that would
+/// shadow a built-in one.
+///
+/// Covers: story:11-176
+#[rstest]
+#[case::then("\"sample.echo\"", "\"sample.then\"", "operation `sample.then`")]
+#[case::constructor(
+    "\"sample.echo\"",
+    "\"sample.constructor\"",
+    "operation `sample.constructor`"
+)]
+#[case::call("\"sample.echo\"", "\"sample.call\"", "operation `sample.call`")]
+#[case::plugin_method_then(
+    "name: \"put\"",
+    "name: \"then\"",
+    "Plugin kind method `sample_store.then`"
+)]
+#[case::timeout_error("\"sample_refused\"", "\"timeout\"", "Error code `timeout`")]
+#[case::connection_error("\"sample_refused\"", "\"connection\"", "Error code `connection`")]
+#[case::permission_error("\"sample_refused\"", "\"permission\"", "Error code `permission`")]
+#[case::abort_error("\"sample_refused\"", "\"abort\"", "Error code `abort`")]
+#[case::type_error("\"sample_refused\"", "\"type\"", "Error code `type`")]
+fn codegen_refuses_a_name_no_sdk_can_spell_naming_its_entry(
+    #[case] from: &str,
+    #[case] to: &str,
+    #[case] entry: &str,
+) {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(SAMPLE, from, to);
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+    assert!(outcome.stderr.contains(entry), "{}", outcome.stderr);
+}
+
+/// Two entries that would give one receiver one member are refused across a
+/// Product's whole catalog: Foxhound's holds Collie's `sample.to_http_s` beside
+/// its own `sample.to_https`, which both spell `toHTTPS`.
+///
+/// Covers: story:11-176
+#[test]
+fn codegen_refuses_two_entries_that_give_one_receiver_one_member() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(SAMPLE, "\"sample.echo\"", "\"sample.to_http_s\"");
+    workspace.edit(FOXHOUND, "\"sample.crawl\"", "\"sample.to_https\"");
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+    assert!(
+        outcome
+            .stderr
+            .contains("`sample.to_http_s` and `sample.to_https` are one member"),
+        "{}",
+        outcome.stderr
+    );
+}
+
+/// No entry has a second name in TypeScript (ADR 0099): each operation is
+/// sent by one member of its layer, and no export renames another.
+///
+/// Covers: story:11-176
+#[rstest]
+#[case::collie_client(
+    "sdks/typescript/collie-client/src/generated",
+    "crates/goodfetch-protocol/generated/collie.json",
+    "collie"
+)]
+#[case::foxhound(
+    "sdks/typescript/foxhound/src/generated",
+    "crates/goodfetch-protocol/generated/foxhound.json",
+    "foxhound"
+)]
+fn the_typescript_layer_holds_no_alias(
+    #[case] folder: &str,
+    #[case] projection: &str,
+    #[case] product: &str,
+) {
+    let workspace = Workspace::from_fixture("codegen");
+    codegen(&workspace);
+    let projection: Value = serde_json::from_str(&workspace.read_text(projection)).unwrap();
+    let operations = workspace.read_text(&format!("{folder}/operations.ts"));
+
+    let senders: Vec<(String, usize)> = names_and_products(&projection, "operations")
+        .into_iter()
+        .filter(|(_, entry_product)| entry_product == product)
+        .map(|(name, _)| {
+            let sent = operations
+                .matches(&format!("this.#caller.call({name:?},"))
+                .count();
+            (name, sent)
+        })
+        .filter(|(_, sent)| *sent != 1)
+        .collect();
+    let renamed: Vec<(String, String)> = generated_files(&workspace)
+        .into_iter()
+        .filter(|(path, _)| path.starts_with(folder))
+        .flat_map(|(path, contents)| {
+            contents
+                .lines()
+                .filter(|line| line.starts_with("export") && line.contains(" as "))
+                .map(|line| (path.clone(), line.to_owned()))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    assert_eq!((senders, renamed), (vec![], vec![]));
+}
+
+const EMIT: &str = "crates/goodfetch-protocol/src/emit.rs";
+const COLLIE_CLIENT: &str = "sdks/typescript/collie-client";
+
+/// The `codegen` workspace with the forms catalog (`codegen-forms/forms.rs`)
+/// among its entry modules: one entry of each kind an SDK gives a form.
+fn workspace_with_the_forms_catalog() -> Workspace {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.add_fixture_file(
+        "codegen-forms/forms.rs",
+        "crates/goodfetch-protocol/src/forms.rs",
+    );
+    workspace.edit(
+        "crates/goodfetch-protocol/src/lib.rs",
+        "pub mod foxhound;",
+        "pub mod forms;\npub mod foxhound;",
+    );
+    workspace.edit(
+        EMIT,
+        "const MODULES: [&Entries; 2] = [&sample::ENTRIES, &foxhound::ENTRIES];",
+        "const MODULES: [&Entries; 3] = [&sample::ENTRIES, &crate::forms::ENTRIES, &foxhound::ENTRIES];",
+    );
+    for prefix in ["run.", "page.", "locator."] {
+        workspace.append(
+            "features/areas.toml",
+            &format!("[[area]]\nnumber = 1\nkind = \"operation\"\nprefix = \"{prefix}\"\n"),
+        );
+    }
+    workspace
+}
+
+/// A prefix keeps its one meaning and a query never waits (ADR 0099):
+/// `xtask codegen` refuses a catalog that says otherwise, naming the
+/// operation, in place of writing a member whose name or options lie.
+///
+/// Covers: story:11-178
+#[rstest]
+#[case::a_waiter_without_the_prefix(
+    "\"page.wait_for_ready\"",
+    "\"page.ready\"",
+    "operation `page.ready`"
+)]
+#[case::the_prefix_on_a_round_trip(
+    "\"page.close\"",
+    "\"page.wait_for_close\"",
+    "operation `page.wait_for_close`"
+)]
+#[case::a_query_with_a_timeout(
+    "result: schema_of::<Readiness>,",
+    "result: schema_of::<Readiness>,\n            params: schema_of::<WaitForReadyParams>,",
+    "operation `page.is_ready`"
+)]
+#[case::new_on_a_query(
+    "\"page.is_ready\"",
+    "\"page.new_ready\"",
+    "operation `page.new_ready`"
+)]
+#[case::is_on_a_round_trip("\"page.close\"", "\"page.is_closed\"", "operation `page.is_closed`")]
+#[case::on_on_a_round_trip("\"page.close\"", "\"page.on_close\"", "operation `page.on_close`")]
+#[case::get_by_on_an_operation(
+    "\"page.is_ready\"",
+    "\"page.get_by_ready\"",
+    "operation `page.get_by_ready`"
+)]
+#[case::a_handle_id_without_a_type(
+    "pub page_id: PageId,\n    /// The URL to navigate to.",
+    "pub page_id: String,\n    /// The URL to navigate to.",
+    "operation `page.goto`"
+)]
+fn codegen_refuses_a_member_whose_form_its_kind_does_not_give(
+    #[case] from: &str,
+    #[case] to: &str,
+    #[case] refusal: &str,
+) {
+    let workspace = workspace_with_the_forms_catalog();
+    workspace.edit("crates/goodfetch-protocol/src/forms.rs", from, to);
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+    assert!(outcome.stderr.contains(refusal), "{}", outcome.stderr);
+}
+
+/// Each declared kind has one TypeScript form (ADR 0099), which the
+/// generator writes on the handle its namespace and its handle ID name: the
+/// generated handles type-check with the client package's own hand-written
+/// modules under `tsc` with `skipLibCheck: false`, and
+/// `codegen-forms/forms.types.ts` holds what a program can and cannot write
+/// against them.
+///
+/// Covers: story:11-178
+#[test]
+fn each_declared_kind_generates_its_typescript_form_which_type_checks() {
+    let workspace = workspace_with_the_forms_catalog();
+    codegen(&workspace);
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    for module in ["caller.ts", "handle.ts"] {
+        let contents =
+            std::fs::read(repository.join(COLLIE_CLIENT).join("src").join(module)).unwrap();
+        workspace.write(&format!("{COLLIE_CLIENT}/src/{module}"), &contents);
+    }
+    workspace.add_fixture_file(
+        "codegen-forms/forms.types.ts",
+        &format!("{COLLIE_CLIENT}/src/forms.types.ts"),
+    );
+    workspace.add_fixture_file(
+        "codegen-forms/tsconfig.json",
+        &format!("{COLLIE_CLIENT}/tsconfig.json"),
+    );
+    workspace.link_installed_runners();
+
+    let checked = workspace
+        .command(repository.join("node_modules/.bin/tsc"))
+        .args(["-p", &format!("{COLLIE_CLIENT}/tsconfig.json")])
+        .output()
+        .unwrap();
+
+    assert!(
+        checked.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&checked.stdout),
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    insta::assert_snapshot!(
+        "typescript_forms_handles",
+        workspace.read_text(&format!("{COLLIE_CLIENT}/src/generated/handles.ts"))
+    );
+}
+
+/// Python's layer does not read the kinds yet (issue 1233): the forms
+/// catalog gives it the flat methods it gives any operation.
+///
+/// Covers: story:11-178
+#[test]
+fn the_forms_catalog_leaves_pythons_layer_one_method_an_operation() {
+    let workspace = workspace_with_the_forms_catalog();
+
+    codegen(&workspace);
+
+    let operations = workspace
+        .read_text("sdks/python/collie-client/src/goodfetch_collie_client/generated/operations.py");
+    let methods: Vec<&str> = operations
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("async def "))
+        .filter_map(|line| line.split('(').next())
+        .collect();
+    assert_eq!(
+        methods,
+        vec![
+            "locator_click",
+            "page_close",
+            "page_goto",
+            "page_is_ready",
+            "page_keyboard_press",
+            "page_wait_for_ready",
+            "run_new_page",
+            "run_start",
+            "sample_echo",
+        ]
+    );
+}
+
 /// An Experimental or deprecated entry's docstring adds paragraphs after
 /// its description, which keeps every line it has.
 /// Covers: story:1-57

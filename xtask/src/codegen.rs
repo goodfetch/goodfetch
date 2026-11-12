@@ -44,12 +44,14 @@ mod emit;
 mod emitter;
 mod executables;
 mod facts;
+mod handles;
 mod helpers;
 mod layer;
 mod names;
 mod naming;
 mod projection;
 mod python;
+mod refused;
 mod special_purpose;
 mod test_support;
 mod typescript;
@@ -338,6 +340,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
 
     let collie = projection::project(&catalog, &bundle, Product::Collie)?;
     let foxhound = projection::project(&catalog, &bundle, Product::Foxhound)?;
+    refused::check(&[&collie, &foxhound])?;
     files.insert(
         format!("{PROTOCOL_GENERATED}/collie.json"),
         json_text(&collie)?,
@@ -407,7 +410,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     for package in &PACKAGES {
         let layer = Layer::new(&bundle, &collie, &foxhound, package.product, &version)?;
         let generated = match package.language {
-            Language::TypeScript => typescript::generate(&layer),
+            Language::TypeScript => typescript::generate(&layer)?,
             Language::Python => python::generate(&layer),
         };
         for (name, text) in generated.files {

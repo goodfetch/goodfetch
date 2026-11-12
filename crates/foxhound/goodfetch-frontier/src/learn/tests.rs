@@ -4,9 +4,11 @@
 //! what the Frontier then answers, reports and says of the Run's
 //! Completeness, in a run file in memory; no owned code is mocked.
 mod model;
+mod settled;
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod};
@@ -20,7 +22,7 @@ use super::{EndMerged, Ended, PageSeen, Redirect, completeness_reasons, learn, l
 use crate::admit::{Candidate, admit};
 use crate::bounds::{self, Bounds};
 use crate::identity;
-use crate::identity::Declared;
+use crate::identity::{Declared, SLICE};
 use crate::rules::{self, learned_rules};
 use crate::scope::{self, Narrowing, Patterns, Scope, Strategy};
 
@@ -31,6 +33,8 @@ struct Crawl {
     scope: Scope,
     ids: BTreeMap<String, String>,
     requests: Requests,
+    /// What counts the rows of evidence its learning reads.
+    work: CountedWork,
 }
 
 /// The crawl's requests as the Frontier's merges end them: those whose
@@ -111,6 +115,7 @@ impl Crawl {
             ),
             ids: BTreeMap::new(),
             requests: Requests::default(),
+            work: CountedWork::default(),
         }
     }
 
@@ -174,6 +179,7 @@ impl Crawl {
                 canonical: canonical.as_ref(),
             },
             &mut self.requests,
+            &self.work,
         )
         .unwrap();
     }
@@ -189,8 +195,30 @@ impl Crawl {
                 body: None,
             },
             &mut self.requests,
+            &self.work,
         )
         .unwrap();
+    }
+
+    /// How many rows each of the learned rules' tables holds, those with
+    /// none left out.
+    fn rows(&self) -> BTreeMap<String, i64> {
+        rules::TABLES
+            .statements
+            .iter()
+            .filter_map(|statement| statement.strip_prefix("CREATE TABLE IF NOT EXISTS "))
+            .map(|rest| rest.split_whitespace().next().unwrap().to_owned())
+            .map(|table| {
+                let count = self
+                    .connection
+                    .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                        row.get(0)
+                    })
+                    .unwrap();
+                (table, count)
+            })
+            .filter(|(_, count)| *count != 0)
+            .collect()
     }
 
     fn rules(&self) -> Vec<LearnedRule> {
@@ -645,25 +673,9 @@ fn with_learning_off_admission_keeps_no_evidence_and_refuses_nothing() {
 
     let next = next_offset(&mut crawl, 3, 20);
 
-    let rows: Vec<(String, i64)> = rules::TABLES
-        .statements
-        .iter()
-        .filter_map(|statement| statement.strip_prefix("CREATE TABLE IF NOT EXISTS "))
-        .map(|rest| rest.split_whitespace().next().unwrap().to_owned())
-        .map(|table| {
-            let count = crawl
-                .connection
-                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
-                    row.get(0)
-                })
-                .unwrap();
-            (table, count)
-        })
-        .filter(|(_, count)| *count != 0)
-        .collect();
     assert_eq!(
-        (next, crawl.rules(), crawl.completeness(), rows),
-        ("added".to_owned(), Vec::new(), Vec::new(), Vec::new())
+        (next, crawl.rules(), crawl.completeness(), crawl.rows()),
+        ("added".to_owned(), Vec::new(), Vec::new(), BTreeMap::new())
     );
 }
 
@@ -1283,6 +1295,73 @@ fn a_learned_or_contradicted_rule_rekeys_its_host_through_bounded_reads() {
             rule_reads(&few_learning),
             rule_reads(&few_contradicting),
             few.rules().remove(0).merged,
+        )
+    );
+}
+
+thread_local! {
+    /// The most rows one statement that reads the visited set returned on
+    /// the traced connection of this thread, and those of the statement
+    /// running.
+    static VISITED_ROWS: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+fn count_visited_rows(event: rusqlite::trace::TraceEvent<'_>) {
+    match event {
+        rusqlite::trace::TraceEvent::Stmt(..) => {
+            VISITED_ROWS.set((VISITED_ROWS.get().0, 0));
+        }
+        rusqlite::trace::TraceEvent::Row(statement) if statement.sql().contains("FROM visited") => {
+            let (most, running) = VISITED_ROWS.get();
+            VISITED_ROWS.set((most.max(running + 1), running + 1));
+        }
+        _ => {}
+    }
+}
+
+/// A rule learned on a host that holds more visited identities than two
+/// slices, then contradicted, re-keys them a slice at a time: no read of
+/// the visited set returns more than a slice of it, and the requests of
+/// its first, its middle and its last slice are merged, then given their
+/// own identities back.
+///
+/// Covers: story:6-216, story:6-218
+#[test]
+fn a_rule_rekeys_a_large_host_a_slice_of_its_visited_set_at_a_time() {
+    let rows = u32::try_from(2 * SLICE + 50).unwrap();
+    let mut crawl = Crawl::new();
+    crawl.seed(&format!("{ITEM}?n=0"));
+    crawl.enqueue(ITEM, &format!("{ITEM}?n=7"));
+    crawl.enqueue(ITEM, &format!("{ITEM}?n=7&ref=x"));
+    crawl.fetched(&format!("{ITEM}?n=7"), "Item 7");
+    let in_flight = crawl.ids[&format!("{ITEM}?n=7&ref=x")].clone();
+    crawl.requests.fetched.insert(in_flight);
+    for row in 0..rows {
+        crawl.enqueue(ITEM, &format!("{ITEM}?n={}&ref=r", 1000 + row));
+    }
+    let sampled = [0, rows / 2, rows - 1].map(|row| format!("{ITEM}?n={}", 1000 + row));
+    crawl.connection.trace_v2(
+        rusqlite::trace::TraceEventCodes::SQLITE_TRACE_STMT
+            | rusqlite::trace::TraceEventCodes::SQLITE_TRACE_ROW,
+        Some(count_visited_rows),
+    );
+
+    for (number, reference) in [(1, "a"), (2, "b"), (3, "c")] {
+        pair(&mut crawl, number, reference, None);
+    }
+    let merged = sampled.clone().map(|url| crawl.enqueue(ITEM, &url));
+    crawl.fetched(&format!("{ITEM}?n=7&ref=x"), "Item 7, as x sees it");
+    let stopped = sampled.map(|url| crawl.enqueue(ITEM, &url));
+
+    crawl
+        .connection
+        .trace_v2(rusqlite::trace::TraceEventCodes::empty(), None);
+    assert_eq!(
+        (VISITED_ROWS.get().0 <= SLICE, merged, stopped),
+        (
+            true,
+            ["duplicate"; 3].map(str::to_owned),
+            ["added"; 3].map(str::to_owned)
         )
     );
 }

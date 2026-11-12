@@ -172,7 +172,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 95] = [
+const ROWS: [Row; 96] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -268,6 +268,16 @@ const ROWS: [Row; 95] = [
     },
     Row {
         name: "F2.writer_reads",
+        family: "B1",
+        unit: "pages",
+        happens: false,
+        valgrind: None,
+    },
+    // The rows of evidence the Frontier's learning reads, where it runs
+    // (ADR 0140's note of 2026-11-10): none on a site whose URLs have no
+    // query, so the default cell does none.
+    Row {
+        name: "F2.evidence_reads",
         family: "B1",
         unit: "pages",
         happens: false,

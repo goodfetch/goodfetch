@@ -2783,7 +2783,12 @@ class TierProvenance(BaseModel):
     forced_by: ForcedBy | None = None
     """What forced it, when `chosen` is `forced`."""
     tier: FetchTier
-    """The tier."""
+    """
+    The tier that sent the document's request, whoever chose it:
+    `browser_fetch` when it left from inside the Session's browser, as
+    under `auto`, and `http` when the Session's own HTTP transport sent
+    it.
+    """
 
 
 class TimeRange(BaseModel):

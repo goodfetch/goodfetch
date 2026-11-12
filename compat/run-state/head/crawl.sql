@@ -279,7 +279,6 @@ CREATE TABLE rules_offset_values (
         ) STRICT, WITHOUT ROWID;
 INSERT INTO "rules_offset_values" VALUES('list.test','/items','n',1,'https://list.test/items?n=1');
 INSERT INTO "rules_offset_values" VALUES('list.test','/items','n',2,'https://list.test/items?n=2');
-INSERT INTO "rules_offset_values" VALUES('list.test','/items','n',3,'https://list.test/items?n=3');
 INSERT INTO "rules_offset_values" VALUES('list.test','/rows','offset',0,'https://list.test/rows?offset=0');
 INSERT INTO "rules_offset_values" VALUES('list.test','/rows','offset',20,'https://list.test/rows?offset=20');
 INSERT INTO "rules_offset_values" VALUES('list.test','/rows','offset',40,'https://list.test/rows?offset=40');
@@ -295,7 +294,7 @@ CREATE TABLE rules_offsets (
             paged INTEGER NOT NULL,
             PRIMARY KEY (host, path, parameter)
         ) STRICT, WITHOUT ROWID;
-INSERT INTO "rules_offsets" VALUES('list.test','/items','n',1,1,1,3,3,0);
+INSERT INTO "rules_offsets" VALUES('list.test','/items','n',1,1,1,2,2,0);
 INSERT INTO "rules_offsets" VALUES('list.test','/rows','offset',0,20,0,40,3,1);
 CREATE TABLE rules_pages (
             crawl_request TEXT NOT NULL PRIMARY KEY,
@@ -325,8 +324,6 @@ CREATE TABLE rules_pairs (
 INSERT INTO "rules_pairs" VALUES('list.test','ref','','https://list.test/items?n=1','https://list.test/items?n=1&ref=a',1);
 INSERT INTO "rules_pairs" VALUES('list.test','n','','https://list.test/items?n=1','https://list.test/items?n=2',0);
 INSERT INTO "rules_pairs" VALUES('list.test','ref','','https://list.test/items?n=2','https://list.test/items?n=2&ref=b',1);
-INSERT INTO "rules_pairs" VALUES('list.test','n','','https://list.test/items?n=1','https://list.test/items?n=3',0);
-INSERT INTO "rules_pairs" VALUES('list.test','n','','https://list.test/items?n=2','https://list.test/items?n=3',0);
 INSERT INTO "rules_pairs" VALUES('list.test','ref','','https://list.test/items?n=3','https://list.test/items?n=3&ref=c',1);
 INSERT INTO "rules_pairs" VALUES('list.test','','trailing_slash','https://list.test/guide','https://list.test/guide/',0);
 CREATE TABLE rules_patterns (
@@ -349,15 +346,12 @@ CREATE TABLE rules_residues (
             signature BLOB NOT NULL,
             PRIMARY KEY (crawl_request, parameter)
         ) STRICT, WITHOUT ROWID;
-INSERT INTO "rules_residues" VALUES('10','n','list.test','/items','ref=c','https://list.test/items?n=3&ref=c',X'3333333333333333333333333333333333333333333333333333333333333333');
 INSERT INTO "rules_residues" VALUES('10','ref','list.test','/items','n=3','https://list.test/items?n=3&ref=c',X'3333333333333333333333333333333333333333333333333333333333333333');
 INSERT INTO "rules_residues" VALUES('5','n','list.test','/items','','https://list.test/items?n=1',X'3131313131313131313131313131313131313131313131313131313131313131');
 INSERT INTO "rules_residues" VALUES('6','n','list.test','/items','ref=a','https://list.test/items?n=1&ref=a',X'3131313131313131313131313131313131313131313131313131313131313131');
 INSERT INTO "rules_residues" VALUES('6','ref','list.test','/items','n=1','https://list.test/items?n=1&ref=a',X'3131313131313131313131313131313131313131313131313131313131313131');
 INSERT INTO "rules_residues" VALUES('7','n','list.test','/items','','https://list.test/items?n=2',X'3232323232323232323232323232323232323232323232323232323232323232');
-INSERT INTO "rules_residues" VALUES('8','n','list.test','/items','ref=b','https://list.test/items?n=2&ref=b',X'3232323232323232323232323232323232323232323232323232323232323232');
 INSERT INTO "rules_residues" VALUES('8','ref','list.test','/items','n=2','https://list.test/items?n=2&ref=b',X'3232323232323232323232323232323232323232323232323232323232323232');
-INSERT INTO "rules_residues" VALUES('9','n','list.test','/items','','https://list.test/items?n=3',X'3333333333333333333333333333333333333333333333333333333333333333');
 CREATE TABLE rules_signatures (
             host TEXT NOT NULL,
             signature BLOB NOT NULL,

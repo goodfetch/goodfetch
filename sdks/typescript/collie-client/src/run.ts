@@ -1,18 +1,26 @@
-// A Run, always opened by its program (ADRs 0078 and 0102): `finish()` ends
-// it and answers its Run report; `close()` frees the value and, while the Run
-// is still running, stops it as an abort by its Client, resumable by its Run
-// ID. Any other call on a closed Run fails with `closed`.
-import { ClosedError, type RunReport, type RunStarted, type StartedAs } from "./generated/index.ts";
-import type { CallOptions } from "./generated/index.ts";
+// A Run, always opened by its program (ADRs 0078 and 0102). Its members are
+// the catalog's, generated (ADR 0099): `finish()` ends it and answers its Run
+// report. Hand-written here is what no catalog entry gives: its ID and how it
+// started, read without a call, its Key-value store, and `close()`, which
+// frees the value and, while the Run is still running, stops it as an abort
+// by its Client, resumable by its Run ID. Any other call on a closed Run
+// fails with `closed`.
+import type { CallOptions, Caller } from "./caller.ts";
+import {
+  ClosedError,
+  Run as RunMembers,
+  type CollieOperationTypes,
+  type RunStarted,
+  type StartedAs,
+} from "./generated/index.ts";
+import type { HandleHost } from "./handle.ts";
 import { KeyValueStore, type KeyValueStoreHost } from "./key-value-store.ts";
 import { holdInRealm } from "./realm.ts";
 
 /** What a Run reaches its engine through: its Connection. */
 export interface RunHost {
-  /** Ends the Run as `finished`, answering its report. */
-  finish(runId: string, options: CallOptions): Promise<RunReport>;
-  /** Stops the Run as an abort by its Client, answering its report. */
-  abort(runId: string): Promise<RunReport>;
+  /** The Connection's calls. */
+  readonly calls: Caller<CollieOperationTypes>;
   /** Whether the Connection can still reach the engine. */
   reachable(): boolean;
   /** Forgets a closed Run. */
@@ -21,52 +29,148 @@ export interface RunHost {
   readonly keyValueStore: KeyValueStoreHost;
 }
 
-type RunState = "running" | "ended" | "closed";
+/** What a Run and the calls made through it share: its ID and where it stands. */
+interface RunScope {
+  readonly id: string;
+  state: "running" | "ended" | "closed";
+}
+
+/** A value a program holds under a Run: a Session, a page, or a Locator built on one. */
+interface ValueScope {
+  /** The value that opened or built it, when the Run did not. */
+  readonly parent: ValueScope | undefined;
+  /** Whether its program closed it. */
+  closed: boolean;
+  /** Its `close` in flight. */
+  closing: Promise<void> | undefined;
+}
+
+function ensureOpen(scope: RunScope, operation: string): void {
+  if (scope.state === "closed") {
+    throw new ClosedError(
+      `${operation}: the Run ${scope.id} is closed; start it again by its Run ID`,
+      {
+        fix: "Start the Run again by its Run ID to reach it.",
+      },
+    );
+  }
+}
+
+/** Whether `value`, or a value that opened or built it, is closed. */
+function isClosed(value: ValueScope | undefined): boolean {
+  for (let held = value; held !== undefined; held = held.parent) {
+    if (held.closed) return true;
+  }
+  return false;
+}
+
+/** Whether `result` is an answer that says its Run is no longer running. */
+function saysEnded(result: unknown): boolean {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    "lifecycle" in result &&
+    result.lifecycle !== "running"
+  );
+}
+
+/**
+ * What a handle of ID `id` in the Run of `run` reaches the engine through
+ * (ADR 0078): each call fails with `closed`, with no round trip, once the
+ * Run, the handle's `value` or a value above it is closed. The Run's own
+ * calls, which have no `value`, also read their answer, since a Run report
+ * says when the Run ended.
+ */
+function hostIn<Id>(
+  calls: Caller<CollieOperationTypes>,
+  run: RunScope,
+  value: ValueScope | undefined,
+  id: Id,
+): HandleHost<Id, CollieOperationTypes> {
+  return {
+    id,
+    async call<Name extends keyof CollieOperationTypes>(
+      operation: Name,
+      params: CollieOperationTypes[Name]["params"],
+      options: CallOptions,
+    ): Promise<CollieOperationTypes[Name]["result"]> {
+      ensureOpen(run, operation);
+      if (isClosed(value)) {
+        throw new ClosedError(
+          `${operation}: the value it is called on is closed, or the one that opened it is`,
+          { fix: "Open another from its Run: a closed value never reopens." },
+        );
+      }
+      const result = await calls.call(operation, params, options);
+      if (value === undefined && run.state === "running" && saysEnded(result)) {
+        run.state = "ended";
+      }
+      return result;
+    },
+    child: <ChildId>(childId: ChildId) =>
+      hostIn(calls, run, { parent: value, closed: false, closing: undefined }, childId),
+    async close<Name extends keyof CollieOperationTypes>(
+      operation: Name,
+      params: CollieOperationTypes[Name]["params"],
+    ): Promise<void> {
+      if (value === undefined) {
+        throw new TypeError("invariant: a Run closes through its own close(), never its host's");
+      }
+      // What its Run or the value above it closed is closed with it, and
+      // the engine holds it no more: nothing is left to send.
+      if (run.state === "closed" || isClosed(value)) {
+        value.closed = true;
+        return;
+      }
+      // A close the engine refuses, or that was never sent, closed nothing:
+      // the next one sends again.
+      value.closing ??= (async (): Promise<void> => {
+        await calls.call(operation, params, {});
+        value.closed = true;
+      })();
+      try {
+        await value.closing;
+      } catch (error) {
+        value.closing = undefined;
+        throw error;
+      }
+    },
+  };
+}
 
 /** A Run its program drives, opened by `start()` on a Connection. */
-export class Run implements AsyncDisposable {
+export class Run extends RunMembers implements AsyncDisposable {
   readonly #host: RunHost;
-  readonly #id: string;
+  readonly #scope: RunScope;
   readonly #startedAs: StartedAs;
-  #state: RunState;
   #closing: Promise<void> | undefined;
   /** The Run's Key-value store (ADR 0103), kept in its run state across a resume. */
   readonly keyValueStore: KeyValueStore;
 
   /** @internal The Connection's start opens a Run; a program never constructs one. */
   constructor(host: RunHost, started: RunStarted) {
+    const scope: RunScope = {
+      id: started.run_id,
+      state: started.lifecycle === "running" ? "running" : "ended",
+    };
+    super(hostIn(host.calls, scope, undefined, started.run_id));
     this.#host = host;
-    this.#id = started.run_id;
+    this.#scope = scope;
     this.#startedAs = started.started_as;
-    this.#state = started.lifecycle === "running" ? "running" : "ended";
-    this.keyValueStore = new KeyValueStore(host.keyValueStore, this.#id, (operation) =>
-      this.#ensureOpen(operation),
-    );
+    this.keyValueStore = new KeyValueStore(host.keyValueStore, scope.id, (operation) => {
+      ensureOpen(scope, operation);
+    });
     holdInRealm(this);
   }
 
   /** The Run's ID, which names it for good. Read without a round trip. */
   id(): string {
-    return this.#id;
+    return this.#scope.id;
   }
 
   /** Whether the start began the Run (`new`) or found it (`existing`). Read without a round trip. */
   startedAs(): StartedAs {
     return this.#startedAs;
-  }
-
-  /**
-   * Lets the Run finish and answers its Run report: a Run its program
-   * drives ends at once, `finished` and `complete`. Aborting `signal` ends
-   * only the wait. Fails with `closed` once the Run is closed.
-   */
-  async finish(options: CallOptions = {}): Promise<RunReport> {
-    this.#ensureOpen("run.finish");
-    const report = await this.#host.finish(this.#id, options);
-    if (this.#state === "running" && report.lifecycle !== "running") {
-      this.#state = "ended";
-    }
-    return report;
   }
 
   /**
@@ -83,23 +187,12 @@ export class Run implements AsyncDisposable {
     await this.close();
   }
 
-  #ensureOpen(operation: string): void {
-    if (this.#state === "closed") {
-      throw new ClosedError(
-        `${operation}: the Run ${this.#id} is closed; start it again by its Run ID`,
-        {
-          fix: "Start the Run again by its Run ID to reach it.",
-        },
-      );
-    }
-  }
-
   async #close(): Promise<void> {
-    const running = this.#state === "running";
-    this.#state = "closed";
+    const running = this.#scope.state === "running";
+    this.#scope.state = "closed";
     try {
       if (running && this.#host.reachable()) {
-        await this.#host.abort(this.#id);
+        await this.#host.calls.call("run.abort", { run_id: this.#scope.id }, {});
       }
     } finally {
       this.#host.forget(this);

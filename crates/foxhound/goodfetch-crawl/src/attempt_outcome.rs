@@ -35,6 +35,8 @@ pub(crate) struct Learning {
     pub(crate) signature: [u8; 32],
     pub(crate) canonical: Option<Url>,
     pub(crate) ended_at: PointInTime,
+    /// What counts the rows of evidence its teaching reads.
+    pub(crate) work: CountedWork,
 }
 
 impl Learning {
@@ -53,6 +55,7 @@ impl Learning {
             signature,
             canonical,
             ended_at,
+            work,
         } = self;
         let mut merged = Merged {
             ended_at,
@@ -69,6 +72,7 @@ impl Learning {
                 canonical: canonical.as_ref(),
             },
             &mut merged,
+            &work,
         )?;
         Ok(merged.moved)
     }

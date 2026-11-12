@@ -61,6 +61,7 @@ pub(super) async fn learn(
         signature: signed.signature,
         canonical: signed.canonical,
         ended_at: run.point_in_time(),
+        work: run.metrics().counted_work().clone(),
     };
     if in_outcome {
         return Taught {

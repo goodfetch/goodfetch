@@ -33,10 +33,14 @@ case "${1:-}" in
     # The musl target the command builds for links through ci/musl/link-cc:
     # cargo-zigbuild keeps a linker the environment already names, and
     # still sets `CC_<target>`, which the script links through.
-    target=""
+    # The target is Cargo's own choice: its last `--target`, else
+    # `CARGO_BUILD_TARGET`. A build for another target links as before.
+    target=${CARGO_BUILD_TARGET:-}
     previous=""
     for argument in "$@"; do
-      if [[ "$argument" == --target=* ]]; then
+      if [[ "$argument" == -- ]]; then
+        break
+      elif [[ "$argument" == --target=* ]]; then
         target=${argument#--target=}
       elif [[ "$previous" == --target ]]; then
         target=$argument

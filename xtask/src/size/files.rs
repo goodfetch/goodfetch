@@ -78,10 +78,16 @@ pub(crate) struct Measured {
 
 impl Measured {
     pub(crate) fn id(&self) -> String {
-        match &self.target {
-            Some(target) => format!("{}/{target}/{}", self.product.as_str(), self.name),
-            None => format!("{}/{}", self.product.as_str(), self.name),
-        }
+        identifier(self.product, self.target.as_deref(), &self.name)
+    }
+}
+
+/// A built file's identifier: `<product>/<target>/<name>`, or
+/// `<product>/<name>` for a crate tarball, which has no target.
+fn identifier(product: Product, target: Option<&str>, name: &str) -> String {
+    match target {
+        Some(target) => format!("{}/{target}/{name}", product.as_str()),
+        None => format!("{}/{name}", product.as_str()),
     }
 }
 
@@ -103,11 +109,12 @@ struct Descriptor {
 pub(crate) struct Executable {
     /// `<product>/<target>/<name>`, as [`Measured::id`] writes it.
     pub(crate) id: String,
+    pub(crate) product: Product,
     pub(crate) target: String,
     pub(crate) path: PathBuf,
 }
 
-fn read(root: &Path, path: &Path) -> Result<Manifest> {
+fn read_manifest(root: &Path, path: &Path) -> Result<Manifest> {
     let path = root.join(path);
     let text =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -116,7 +123,7 @@ fn read(root: &Path, path: &Path) -> Result<Manifest> {
 
 /// Reads the manifest at `path` and measures every file it names.
 pub(crate) fn measure(root: &Path, path: &Path) -> Result<(Profile, Vec<Measured>)> {
-    let manifest = read(root, path)?;
+    let manifest = read_manifest(root, path)?;
     let measured = manifest
         .files
         .into_iter()
@@ -128,7 +135,7 @@ pub(crate) fn measure(root: &Path, path: &Path) -> Result<(Profile, Vec<Measured
 /// The executables the manifest at `path` names, each with its path under
 /// `root`.
 pub(crate) fn executables(root: &Path, path: &Path) -> Result<Vec<Executable>> {
-    read(root, path)?
+    read_manifest(root, path)?
         .files
         .into_iter()
         .filter(|entry| entry.kind == Kind::Executable)
@@ -138,7 +145,8 @@ pub(crate) fn executables(root: &Path, path: &Path) -> Result<Vec<Executable>> {
                 .target
                 .with_context(|| format!("{}: the file needs a target", entry.path.display()))?;
             Ok(Executable {
-                id: format!("{}/{target}/{name}", entry.product.as_str()),
+                id: identifier(entry.product, Some(&target), &name),
+                product: entry.product,
                 target,
                 path: root.join(&entry.path),
             })

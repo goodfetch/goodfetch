@@ -49,8 +49,8 @@ grep -v -e '^ld\.lld ' -e '^ar rcs ' "$log" >&2 || true
 # The executable's link is the last LLD command Zig ran; the ones before it
 # build Zig's own runtime objects, on a first link.
 command=$(grep '^ld\.lld ' "$log" | tail -n 1 || true)
-if [[ " $command " != *" -static -pie "* ]]; then
-  echo "error: Zig's cc did not link $target's executable as a static-PIE: its LLD command has no \`-static -pie\`: ${command:-none printed}" >&2
+if [[ " $command " != *" -pie "* || "$command" != *"/rcrt1.o "* ]]; then
+  echo "error: Zig's cc did not link $target's executable as a static-PIE: its LLD command has no \`-pie\` or no \`rcrt1.o\`: ${command:-none printed}" >&2
   exit 1
 fi
 # Zig prints the arguments separated by spaces and unquoted, so a path

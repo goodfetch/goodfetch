@@ -113,8 +113,15 @@ fn write_executables(workspace: &Workspace, target: &str, contents: &[u8]) {
     workspace.write("dist/files.toml", manifest.as_bytes());
 }
 
-fn static_pie(workspace: &Workspace) -> Outcome {
-    workspace.xtask(&["static-pie", "--files", "dist/files.toml"])
+/// Runs the check as the cell that built for `target` does.
+fn static_pie(workspace: &Workspace, target: &str) -> Outcome {
+    workspace.xtask(&[
+        "static-pie",
+        "--target",
+        target,
+        "--files",
+        "dist/files.toml",
+    ])
 }
 
 /// The finding of `kind` on each Product's executable for `target`.
@@ -130,7 +137,7 @@ fn static_pie_with_packed_relocations_passes(#[values(MUSL_X64, MUSL_ARM64)] tar
     let workspace = Workspace::from_fixture("empty");
     write_executables(&workspace, target, &Elf::static_pie().bytes());
 
-    let outcome = static_pie(&workspace);
+    let outcome = static_pie(&workspace, target);
 
     assert_eq!(outcome.findings(), vec![]);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
@@ -148,7 +155,7 @@ fn executable_linked_at_a_fixed_base_fails() {
     };
     write_executables(&workspace, MUSL_X64, &fixed.bytes());
 
-    let outcome = static_pie(&workspace);
+    let outcome = static_pie(&workspace, MUSL_X64);
 
     assert_eq!(outcome.findings(), on_both_products("fixed-base", MUSL_X64));
     assert_eq!(outcome.code, 1);
@@ -178,9 +185,28 @@ fn position_independent_executable_that_is_no_packed_static_pie_fails(
     let workspace = Workspace::from_fixture("empty");
     write_executables(&workspace, MUSL_ARM64, &elf.bytes());
 
-    let outcome = static_pie(&workspace);
+    let outcome = static_pie(&workspace, MUSL_ARM64);
 
     assert_eq!(outcome.findings(), on_both_products(kind, MUSL_ARM64));
+    assert_eq!(outcome.code, 1);
+}
+
+/// A musl cell whose manifest lacks a Product's executable for its target
+/// fails: the check never passes on nothing.
+#[test]
+fn musl_cell_without_its_executables_fails() {
+    let workspace = Workspace::from_fixture("empty");
+    write_executables(&workspace, MUSL_X64, &Elf::static_pie().bytes());
+
+    let outcome = static_pie(&workspace, MUSL_ARM64);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![
+            finding("no-executable", &format!("collie/{MUSL_ARM64}")),
+            finding("no-executable", &format!("foxhound/{MUSL_ARM64}")),
+        ]
+    );
     assert_eq!(outcome.code, 1);
 }
 
@@ -198,7 +224,7 @@ fn executable_of_another_target_is_not_read(
     let workspace = Workspace::from_fixture("empty");
     write_executables(&workspace, target, b"not an ELF image");
 
-    let outcome = static_pie(&workspace);
+    let outcome = static_pie(&workspace, target);
 
     assert_eq!(outcome.findings(), vec![]);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
@@ -211,7 +237,7 @@ fn musl_executable_that_cannot_be_read_is_an_error(#[case] contents: Vec<u8>) {
     let workspace = Workspace::from_fixture("empty");
     write_executables(&workspace, MUSL_X64, &contents);
 
-    let outcome = static_pie(&workspace);
+    let outcome = static_pie(&workspace, MUSL_X64);
 
     assert_eq!(outcome.code, 2, "{}", outcome.stdout);
 }

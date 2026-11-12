@@ -2,8 +2,8 @@
 //! target is a static-PIE with packed relative relocations (ADR 0024's note
 //! of 2026-11-12), so it loads at a randomised base and its relocations
 //! cost a few kibibytes. It reads the executables a manifest of built files
-//! names, as `xtask size` does, and holds each `*-linux-musl` one to four
-//! facts of its ELF image:
+//! names for the cell's target, as `xtask size` does. On a `*-linux-musl`
+//! target each Product must have one, held to four facts of its ELF image:
 //!
 //! - its type is `ET_DYN`, position-independent, not `ET_EXEC` at a fixed
 //!   base, which is what Zig's `cc` links by itself;
@@ -12,7 +12,7 @@
 //! - its dynamic section has a `DT_RELR` entry, the packed relocations
 //!   musl's start-up applies.
 //!
-//! The other targets' executables are not read.
+//! On any other target nothing is read.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -23,6 +23,8 @@ use std::io::{Read as _, Seek as _, SeekFrom};
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
+
+use goodfetch_protocol::catalog::Product;
 
 use crate::check::Finding;
 use crate::size;
@@ -48,13 +50,34 @@ struct Linkage {
     packed_relocations: bool,
 }
 
-pub(crate) fn check(root: &Path, files: &Path) -> Result<Vec<Finding>> {
+/// The findings on the executables the manifest at `files` names for
+/// `target`, the cell's: none for a target that is no static musl one, whose
+/// executables are not read.
+pub(crate) fn check(root: &Path, files: &Path, target: &str) -> Result<Vec<Finding>> {
+    if !target.ends_with("-linux-musl") {
+        return Ok(Vec::new());
+    }
+    let executables: Vec<_> = size::executables(root, files)?
+        .into_iter()
+        .filter(|executable| executable.target == target)
+        .collect();
     let mut findings = Vec::new();
-    for executable in size::executables(root, files)? {
-        if !executable.target.ends_with("-linux-musl") {
-            continue;
+    // A cell that built no executable of a Product has nothing to hold: it
+    // fails, so the check never passes on an empty manifest.
+    for product in Product::ALL {
+        if !executables
+            .iter()
+            .any(|executable| executable.product == product)
+        {
+            findings.push(Finding::new(
+                "no-executable",
+                format!("{}/{target}", product.as_str()),
+                "the manifest names no executable of the Product for the target",
+            ));
         }
-        let linkage = read(&executable.path)
+    }
+    for executable in executables {
+        let linkage = read_linkage(&executable.path)
             .with_context(|| format!("reading {}", executable.path.display()))?;
         findings.extend(
             problems(&linkage)
@@ -101,7 +124,7 @@ fn problems(linkage: &Linkage) -> Vec<(&'static str, String)> {
 
 /// Reads the linkage of the 64-bit little-endian ELF image at `path`, the
 /// form both static musl targets have.
-fn read(path: &Path) -> Result<Linkage> {
+fn read_linkage(path: &Path) -> Result<Linkage> {
     let mut file = File::open(path)?;
     let header = bytes_at(&mut file, 0, FILE_HEADER).context("reading the ELF file header")?;
     if !header.starts_with(b"\x7fELF\x02\x01") {
@@ -124,12 +147,14 @@ fn read(path: &Path) -> Result<Linkage> {
         packed_relocations: false,
     };
     for index in 0..count {
-        let header = bytes_at(
-            &mut file,
-            program_headers + index * entry_size as u64,
-            PROGRAM_HEADER,
-        )
-        .context("reading a program header")?;
+        // Offsets the file states are checked: one past the file's end, or
+        // past what an offset can hold, is an error.
+        let offset = index
+            .checked_mul(entry_size as u64)
+            .and_then(|offset| offset.checked_add(program_headers))
+            .context("a program header's offset overflows")?;
+        let header =
+            bytes_at(&mut file, offset, PROGRAM_HEADER).context("reading a program header")?;
         match u32::from_le_bytes(field(&header, 0)) {
             PT_INTERP => linkage.interpreter = true,
             PT_DYNAMIC => {

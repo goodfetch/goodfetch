@@ -115,9 +115,10 @@ case "$part" in
     cargo run --quiet --locked --bin xtask -- size estimate \
       --files target/release-suite/size-files.toml \
       --save "target/release-suite/size-report-$tree-$target.json"
-    # A musl cell's executables are static-PIEs with packed relocations
-    # (ADR 0024's note of 2026-11-12); the other cells' are not read.
-    cargo run --quiet --locked --bin xtask -- static-pie \
+    # A musl cell's executables, both Products', are static-PIEs with
+    # packed relocations (ADR 0024's note of 2026-11-12); the other cells'
+    # are not read.
+    cargo run --quiet --locked --bin xtask -- static-pie --target "$target" \
       --files target/release-suite/size-files.toml
     ;;
   rust)

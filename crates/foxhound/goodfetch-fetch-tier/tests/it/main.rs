@@ -24,6 +24,7 @@ use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::tls::{CertificateExceptions, Trust, read_certificates};
 use goodfetch_fetch_tier::{HttpProfile, Reqwest, Transport, TransportConfig, Wreq};
+use goodfetch_page::ProxyRoute;
 use goodfetch_test_support::ProvingGround;
 use url::Url;
 
@@ -92,7 +93,10 @@ fn config(proving_ground: &ProvingGround, proxy: Option<Url>, trusted: &[&str]) 
         trust,
         exceptions: CertificateExceptions::default(),
         client_certificates: None,
-        proxy,
+        proxy: proxy.map(|url| ProxyRoute {
+            url: url.to_string(),
+            credentials: None,
+        }),
         egress: Policy::new(&["*"], &[] as &[&str])
             .unwrap()
             .with_private_ranges(&hosts)

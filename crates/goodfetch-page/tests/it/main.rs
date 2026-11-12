@@ -14,6 +14,7 @@ mod locator_fill;
 mod navigation_gate;
 mod page_navigation;
 mod page_request;
+mod proxy_challenge;
 mod robots_txt;
 mod session_counts;
 mod url_pattern;

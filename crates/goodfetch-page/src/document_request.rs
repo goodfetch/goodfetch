@@ -156,7 +156,7 @@ fn brands(major: usize) -> String {
         BRAND_VERSIONS[major % BRAND_VERSIONS.len()],
     );
     let chromium = format!("\"Chromium\";v=\"{major}\"");
-    if major % 2 == 0 {
+    if major.is_multiple_of(2) {
         format!("{made_up}, {chromium}")
     } else {
         format!("{chromium}, {made_up}")

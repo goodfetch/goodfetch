@@ -434,7 +434,7 @@ fn scan_item(item: &syn::Item, depth: usize, scope: Scope<'_>, imported: &mut BT
     scan_tokens(item.to_token_stream(), depth, scope, imported);
 }
 
-fn is_path_separator(tokens: &[TokenTree], index: usize) -> bool {
+pub(crate) fn is_path_separator(tokens: &[TokenTree], index: usize) -> bool {
     matches!(
         (tokens.get(index), tokens.get(index + 1)),
         (Some(TokenTree::Punct(first)), Some(TokenTree::Punct(second)))
@@ -442,7 +442,7 @@ fn is_path_separator(tokens: &[TokenTree], index: usize) -> bool {
     )
 }
 
-fn is_ident(tokens: &[TokenTree], index: usize, word: &str) -> bool {
+pub(crate) fn is_ident(tokens: &[TokenTree], index: usize, word: &str) -> bool {
     matches!(tokens.get(index), Some(TokenTree::Ident(ident)) if ident == word)
 }
 
@@ -494,7 +494,7 @@ fn scan_tokens(
 
 /// Records the module a path names after `crate::`: one name, or each first
 /// name of a `{…}` group.
-fn record_targets(tokens: &[TokenTree], index: usize, imported: &mut BTreeSet<String>) {
+pub(crate) fn record_targets(tokens: &[TokenTree], index: usize, imported: &mut BTreeSet<String>) {
     match tokens.get(index) {
         Some(TokenTree::Ident(ident)) if ident != "self" => {
             imported.insert(ident.to_string());

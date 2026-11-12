@@ -824,6 +824,8 @@ const STUCK: goodfetch_protocol::catalog::Operation = goodfetch_protocol::catalo
     result: goodfetch_protocol::catalog::schema_of::<Value>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: goodfetch_protocol::catalog::Stability::Experimental,
     deprecated: None,
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,

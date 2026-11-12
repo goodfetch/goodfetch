@@ -31,7 +31,8 @@ use std::sync::Arc;
 
 use goodfetch_dataset::{Began, Datasets};
 use goodfetch_engine::run::{checkpoint_interval, run_error, run_id, settings_error, start_error};
-use goodfetch_engine::runs::{EndedBy, RunError, Start, Started};
+use goodfetch_engine::run_state::Syncing;
+use goodfetch_engine::runs::{Driving, EndedBy, RunError, Start, Started};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_fetch_tier::FetchTiers;
@@ -40,7 +41,9 @@ use goodfetch_frontier::{Bounds, Scope};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound::crawl::{CRAWL_SERVE, CRAWL_START, CrawlStartParams, Seed};
 use goodfetch_protocol::foxhound::frontier::PAYLOAD_SCHEMA_CHANGED;
-use goodfetch_protocol::foxhound::settings::{FEATURE_SWITCHED_OFF, SWITCHED_OFF_FEATURES};
+use goodfetch_protocol::foxhound::settings::{
+    FEATURE_SWITCHED_OFF, PROVENANCE_LOG, SWITCHED_OFF_FEATURES,
+};
 use goodfetch_protocol::run::{
     Lifecycle, RUN_NOT_FOUND, RunDetails, RunId, RunKind, RunParams, RunReport, RunStarted,
     StartInput, StartedAs,
@@ -129,8 +132,19 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
                     delivery::resume(run, context, settings, crawls, tiers).await;
                 })
             }),
+            DRIVING,
         )
 }
+
+/// How a crawl goes, which the engine learns with its driver (ADR 0099):
+/// its driver ends it once its work is done, its start declares the bound
+/// of the charges its claims defer (ADR 0138's note of #1926, #2117), and
+/// `provenance.log` says whether it keeps a Provenance log.
+const DRIVING: Driving = Driving {
+    ended_by: EndedBy::Driver,
+    start: Syncing::Declaring,
+    provenance_log: Some(&PROVENANCE_LOG),
+};
 
 /// Joins the calling Connection's handler to the live crawl the params
 /// name, until the Run ends, whose report it answers, or the call ends.
@@ -222,7 +236,7 @@ async fn start(
             kind: RunKind::Crawl,
             needs: Product::Foxhound,
             inputs,
-            ended_by: EndedBy::Driver,
+            ended_by: DRIVING.ended_by,
             initialize: Some(Box::new(move |connection| {
                 scope.record(connection)?;
                 bounds.record(connection)?;

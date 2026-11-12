@@ -199,6 +199,8 @@ pub const PROXY_SERVER: Setting = Setting {
     clearable: true,
     authority: Authority::NotByRecipeOrModel,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -211,6 +213,8 @@ pub const PROXY_BYPASS: Setting = Setting {
     clearable: true,
     authority: Authority::NotByRecipeOrModel,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -223,6 +227,8 @@ pub const PROXY_USERNAME: Setting = Setting {
     clearable: true,
     authority: Authority::NotByRecipeOrModel,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -235,6 +241,8 @@ pub const PROXY_PASSWORD: Setting = Setting {
     clearable: true,
     authority: Authority::NotByRecipeOrModel,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -749,6 +757,8 @@ pub const PROXY_PROVIDER: Setting = Setting {
     clearable: true,
     authority: Authority::NotByRecipeOrModel,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -761,6 +771,8 @@ pub const PROXY_KIND: Setting = Setting {
     clearable: true,
     authority: Authority::NotByModel,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -773,6 +785,8 @@ pub const PROXY_COUNTRY: Setting = Setting {
     clearable: true,
     authority: Authority::NotByRecipe,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -785,6 +799,8 @@ pub const PROXY_STICKY_LIFETIME: Setting = Setting {
     clearable: true,
     authority: Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -812,6 +828,8 @@ pub const PROXY_PROVIDERS: Setting = Setting {
     clearable: false,
     authority: Authority::ConfigurationProjectLimited(names_no_price),
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 

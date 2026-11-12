@@ -57,11 +57,10 @@ use goodfetch_protocol::catalog::{
 };
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::events::EVENTS;
-use goodfetch_protocol::foxhound_names;
 use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::run::RunReport;
 use schemars::generate::SchemaSettings;
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 
 use super::daemon::Machine;
 use super::engine_choice::{
@@ -142,11 +141,6 @@ fn own_of(commands: &'static [OwnCommand], operation: &Operation) -> Option<&'st
 /// operation to a namespace a hand-written group takes.
 const JOINED_PRODUCT: Product = Product::Collie;
 
-/// The operations whose call takes a stream of values from the Client
-/// (ADR 0024), with the notification that carries them and the field that
-/// lists them: a command reads them from stdin, one per line.
-const INPUTS: [(&str, &str, &str); 1] = [("run.add_seeds", "$/seeds", "seeds")];
-
 /// The flag that prints the result as JSON.
 const JSON: &str = "json";
 
@@ -164,10 +158,6 @@ const DAEMON: &str = "daemon";
 /// The flag of a command that answers a Run report that exits `21` when
 /// the Run's Verdict is not `verified` (ADR 0069).
 pub const REQUIRE_VERIFIED: &str = "require-verified";
-
-/// The type in the bundle's `$defs` of a Run report, by which a command's
-/// exit code follows how its Run ended.
-const RUN_REPORT: &str = "RunReport";
 
 /// The param that is a call's own timeout (ADR 0080): an operation that may
 /// wait takes it, in milliseconds or `null` for none, and one that never
@@ -434,7 +424,7 @@ pub enum Offer {
     /// item as it arrives, until the page that says `ended`.
     Pages,
     /// A sequence whose call takes a stream of values from the Client
-    /// ([`INPUTS`]): its command reads them from stdin, one per line, and
+    /// (`Operation::input`): its command reads them from stdin, one per line, and
     /// prints what the call answers each batch with as it arrives.
     Input,
 }
@@ -442,8 +432,8 @@ pub enum Offer {
 /// How the CLI offers `operation`, if it does (ADR 0099): every round trip,
 /// query, read and opener is a command, a round trip that answers pages
 /// ([`Offer::Pages`]) one that follows them under `--follow`, and every
-/// sequence one with `--follow`, a sequence of Foxhound's, which reads
-/// what a crawl committed, printing it once it ends without one
+/// sequence one with `--follow`, a sequence the catalog gives a bound, which
+/// reads what a Run committed, printing it once it ends without one
 /// ([`Offer::Committed`]), and one taking a stream reading it from stdin
 /// ([`Offer::Input`]), unless the catalog keeps it off the CLI, to the
 /// SDKs or to a person; a waiter or an event is none. An operation the catalog's
@@ -459,14 +449,10 @@ pub fn offer(operation: &Operation) -> Option<Offer> {
         | OperationKind::Query
         | OperationKind::Read
         | OperationKind::Opener => Some(Offer::Command),
-        OperationKind::Sequence if INPUTS.iter().any(|(name, _, _)| *name == operation.name) => {
-            Some(Offer::Input)
-        }
-        // Foxhound's sequences read what a crawl committed, so each ends
-        // once it sent the Records of a Run that ended.
-        OperationKind::Sequence if foxhound_names::OPERATIONS.contains(&operation.name) => {
-            Some(Offer::Committed)
-        }
+        OperationKind::Sequence if operation.input.is_some() => Some(Offer::Input),
+        // A sequence the catalog gives a bound reads what a Run committed,
+        // so it ends once it sent the Records of a Run that ended.
+        OperationKind::Sequence if operation.bound.is_some() => Some(Offer::Committed),
         OperationKind::Sequence => Some(Offer::Follow),
         OperationKind::Waiter | OperationKind::Event => None,
     }
@@ -849,8 +835,8 @@ fn generated_parameters(
 /// Whether `operation` answers a Run report, by which its command exits.
 fn answers_a_run_report(operation: &Operation) -> bool {
     let mut generator = SchemaSettings::draft2020_12().into_generator();
-    let result = Value::from((operation.result)(&mut generator));
-    result["$ref"].as_str() == Some(&format!("#/$defs/{RUN_REPORT}"))
+    (operation.result)(&mut generator)
+        == goodfetch_protocol::catalog::schema_of::<RunReport>(&mut generator)
 }
 
 /// The fields of `operation`'s result that are points in time, from its
@@ -1050,8 +1036,10 @@ impl Call {
         // Without `--follow` or `--through`, a sequence of what a crawl
         // committed reads through the last Record committed when it began,
         // which its first call reads; it prints each Record as it arrives.
-        let bounded =
-            offered == Some(Offer::Committed) && !self.follow && params.get(THROUGH).is_none();
+        let bound = self
+            .operation
+            .bound
+            .filter(|bound| !self.follow && params.get(bound.through).is_none());
         let array = RefCell::new(JsonArray::default());
         let mut print_sent = |method: &str, sent: &Value| Some(follow(json, method, sent));
         let mut print_committed = |method: &str, sent: &Value| {
@@ -1094,13 +1082,11 @@ impl Call {
         };
         // The bound's read is the first call; the sequence, through its
         // `through`, the next.
-        let bounding = Cell::new(bounded);
+        let bounding = Cell::new(bound.is_some());
         let mut sequence = params.clone();
         let mut read_through = |page: &Value| {
-            if !bounding.replace(false) {
-                return None;
-            }
-            sequence[THROUGH] = page[THROUGH].clone();
+            let bound = bound.filter(|_| bounding.replace(false))?;
+            sequence[bound.through] = page[bound.through].clone();
             Some(Next {
                 method: self.operation.name,
                 params: sequence.clone(),
@@ -1108,18 +1094,14 @@ impl Call {
                 followed: true,
             })
         };
-        let (method, cancellable) = if bounded {
-            params = json!({
-                "run_id": params["run_id"],
-                "dataset": params["dataset"],
-                "limit": 1,
-                "columns": [],
-            });
-            (BOUND, bound_of(self.product).cancellable)
-        } else {
-            (self.operation.name, self.operation.cancellable)
+        let (method, cancellable) = match bound {
+            Some(bound) => {
+                params = (bound.params)(&params);
+                (bound.read.name, bound.read.cancellable)
+            }
+            None => (self.operation.name, self.operation.cancellable),
         };
-        let pager: Option<Pager<'_>> = if bounded {
+        let pager: Option<Pager<'_>> = if bound.is_some() {
             Some(&mut read_through)
         } else {
             (offered == Some(Offer::Pages) && self.follow).then_some(&mut next_page)
@@ -1129,14 +1111,11 @@ impl Call {
             let refused = Arc::clone(&refused);
             move |sender| read_stdin(&sender, &refused)
         });
-        let input = INPUTS
-            .iter()
-            .find(|(name, _, _)| *name == self.operation.name)
-            .map(|(_, method, field)| Input {
-                method,
-                field,
-                values: Values::Read(&mut stdin),
-            });
+        let input = self.operation.input.map(|input| Input {
+            method: input.notification,
+            field: input.field,
+            values: Values::Read(&mut stdin),
+        });
         let call = CommandCall {
             method,
             params,
@@ -1162,11 +1141,9 @@ impl Call {
             human.failure(problem, &[]);
             return ExitCode::from(goodfetch_protocol::cli::USAGE.code);
         }
-        let failing = if bounding.get() {
-            BOUND
-        } else {
-            self.operation.name
-        };
+        let failing = bound
+            .filter(|_| bounding.get())
+            .map_or(self.operation.name, |bound| bound.read.name);
         self.answered(answer, opened, failing, human)
     }
 
@@ -1318,23 +1295,6 @@ impl JsonArray {
         self.opened
     }
 }
-
-/// The name of the read whose `through` bounds a sequence of what a crawl
-/// committed without `--follow`: the last Record committed when the command
-/// began. Written as its name, as `foxhound_names` lists it, since this crate
-/// names no Foxhound contract (ADR 0099).
-const BOUND: &str = "dataset.page";
-
-/// The read [`BOUND`] names, of `product`, which offers such a sequence.
-fn bound_of(product: Product) -> &'static Operation {
-    goodfetch_protocol::entries::operations_of(product)
-        .find(|operation| operation.name == BOUND)
-        .expect("invariant: a Product that offers what a crawl committed offers its bound's read")
-}
-
-/// The param of such a sequence, and the field of [`BOUND`]'s answer, that
-/// names the last Record it reads.
-const THROUGH: &str = "through";
 
 /// The param of a call that answers page by page that names where its
 /// page starts.

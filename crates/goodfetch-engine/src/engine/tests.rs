@@ -85,6 +85,8 @@ const WAIT: Operation = Operation {
     result: schema_of::<Value>,
     events: &[],
     cancellable: true,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,

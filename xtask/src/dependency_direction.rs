@@ -21,6 +21,10 @@
 //!   executables through what they print (ADR 0072). Its tests may take
 //!   any crate as a dev-dependency.
 //!
+//! Beside them, a rule the manifests cannot hold: outside `crates/foxhound/`,
+//! only `goodfetch-protocol` and `xtask` name the protocol's `foxhound`
+//! module in their source (ADR 0099, [`crate::foxhound_module`]).
+//!
 //! `goodfetch-workspace-hack`, which every member takes (ADR 0094), holds no
 //! code, so no rule counts it as a Goodfetch crate.
 //!
@@ -32,6 +36,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result};
 
 use crate::check::Finding;
+use crate::foxhound_module;
 use crate::metadata::{self, Dependency, Package};
 
 const TEST_SUPPORT: &str = "goodfetch-test-support";
@@ -125,6 +130,9 @@ pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
                     dependency.name
                 ),
             ));
+        }
+        if package.name != PROTOCOL && package.name != XTASK {
+            foxhound_module::check(&root, package, &mut findings)?;
         }
         if package.name == XTASK
             && let Some(dependency) =

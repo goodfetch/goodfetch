@@ -33,6 +33,20 @@ pub(crate) fn find(name: &str) -> Option<Key> {
     all().find(|key| key.setting.name == name)
 }
 
+/// The keys whose feature is not built (`Setting::unbuilt`), in the
+/// catalog's order, read once: no product code reads one, so a scope that
+/// sets one away from its default is refused as it opens (ADR 0083).
+static UNBUILT: LazyLock<Vec<(&'static Setting, &'static str)>> = LazyLock::new(|| {
+    all()
+        .filter_map(|key| key.setting.unbuilt.map(|feature| (key.setting, feature)))
+        .collect()
+});
+
+/// Each setting whose feature is not built, with the feature.
+pub(crate) fn unbuilt() -> impl Iterator<Item = (&'static Setting, &'static str)> {
+    UNBUILT.iter().copied()
+}
+
 /// Every key's catalog default, built once: a pure function of the
 /// catalog's constants.
 static DEFAULTS: LazyLock<BTreeMap<&'static str, Value>> = LazyLock::new(|| {

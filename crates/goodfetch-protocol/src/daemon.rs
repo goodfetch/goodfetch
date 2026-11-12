@@ -88,6 +88,8 @@ pub const IDLE_TIMEOUT: Setting = Setting {
     clearable: false,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -121,6 +123,8 @@ pub const ADDRESS: Setting = Setting {
     clearable: false,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -137,6 +141,8 @@ pub const DRAIN_GRACE: Setting = Setting {
     clearable: false,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -260,6 +266,8 @@ pub const STATUS: Operation = Operation {
     result: schema_of::<DaemonState>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Stable,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -276,6 +284,8 @@ pub const STOP: Operation = Operation {
     result: schema_of::<DaemonStopping>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Stable,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -331,6 +341,8 @@ pub const HEALTH: Operation = Operation {
     result: schema_of::<DaemonHealth>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Stable,
     deprecated: None,
     arrived_in: ARRIVED_IN,

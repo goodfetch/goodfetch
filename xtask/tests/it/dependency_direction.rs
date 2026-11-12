@@ -186,3 +186,97 @@ fn xtask_building_a_goodfetch_crate_fails(#[case] manifest: &str) {
     );
     assert_eq!(outcome.code, 1);
 }
+
+const ENGINE_ROOT: &str = "crates/goodfetch-engine/src/lib.rs";
+
+/// Outside `crates/foxhound/`, only `goodfetch-protocol` and `xtask` name
+/// the protocol's `foxhound` module (ADR 0099), in product code, tests and
+/// benches alike.
+#[rstest]
+#[case::through_use(ENGINE_ROOT, "use goodfetch_protocol::foxhound::crawl::CRAWL_START;\n")]
+#[case::inside_a_use_group(ENGINE_ROOT, "use goodfetch_protocol::{catalog::Product, foxhound};\n")]
+#[case::through_a_qualified_path(
+    ENGINE_ROOT,
+    "pub fn name() -> &'static str {\n    goodfetch_protocol::foxhound::crawl::CRAWL_START.name\n}\n"
+)]
+#[case::inside_a_macro(
+    ENGINE_ROOT,
+    "pub fn log() {\n    tracing::info!(name = goodfetch_protocol::foxhound::crawl::CRAWL_START.name);\n}\n"
+)]
+#[case::under_the_crates_other_name(
+    ENGINE_ROOT,
+    "use goodfetch_protocol as protocol;\n\npub fn name() -> &'static str {\n    protocol::foxhound::crawl::CRAWL_START.name\n}\n"
+)]
+#[case::in_a_test(
+    "crates/goodfetch-engine/tests/it/main.rs",
+    "use goodfetch_protocol::foxhound::settings::PROVENANCE_LOG;\n"
+)]
+#[case::in_a_bench(
+    "crates/goodfetch-engine/benches/messages.rs",
+    "use goodfetch_protocol::foxhound::crawl::CRAWL_START;\n"
+)]
+fn crate_outside_foxhound_naming_the_foxhound_module_fails(
+    #[case] file: &str,
+    #[case] source: &str,
+) {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.write(
+        file,
+        format!("//! Fixture engine crate.\n\n{source}").as_bytes(),
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("names-foxhound-module", file)]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// The generated names of what only Foxhound carries are how a Collie
+/// engine refuses them (ADR 0087): they are not the module.
+#[test]
+fn crate_outside_foxhound_naming_the_generated_names_passes() {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.write(
+        ENGINE_ROOT,
+        b"//! Fixture engine crate.\n\nuse goodfetch_protocol::foxhound_names;\n\n/// Foxhound's, a word and no path.\npub fn foxhound() -> usize {\n    foxhound_names::OPERATIONS.len()\n}\n",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0);
+}
+
+/// `goodfetch-protocol` defines the module, `xtask` reads it for codegen and
+/// Foxhound's crates are whom it is for.
+#[rstest]
+#[case::the_protocol("crates/goodfetch-protocol/tests/it/main.rs")]
+#[case::xtask("xtask/src/lib.rs")]
+#[case::a_crate_of_foxhound("crates/foxhound/goodfetch-crawl/src/lib.rs")]
+fn crate_that_may_name_the_foxhound_module_passes(#[case] file: &str) {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.write(
+        "Cargo.toml",
+        b"[workspace]\nresolver = \"3\"\nmembers = [\"crates/goodfetch-*\", \"crates/foxhound/goodfetch-*\", \"proving-ground\", \"xtask\"]\n",
+    );
+    workspace.write(
+        "crates/foxhound/goodfetch-crawl/Cargo.toml",
+        b"[package]\nname = \"goodfetch-crawl\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\ngoodfetch-workspace-hack = { path = \"../../goodfetch-workspace-hack\" }\n",
+    );
+    workspace.write(
+        "crates/foxhound/goodfetch-crawl/src/lib.rs",
+        b"//! Fixture crate of Foxhound.\n",
+    );
+    workspace.write(
+        file,
+        b"//! Fixture.\n\nuse goodfetch_protocol::foxhound::crawl::CRAWL_START;\n",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
+    assert_eq!(outcome.code, 0);
+}

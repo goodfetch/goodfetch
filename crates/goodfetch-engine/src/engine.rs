@@ -21,7 +21,7 @@ use std::sync::Arc;
 use goodfetch_protocol::connection::PrivateEndpoint;
 use goodfetch_protocol::connection::{EngineInstance, ProductVersion};
 use goodfetch_protocol::governor::{SYSTEM_INFO, SystemInfo};
-use goodfetch_protocol::run::RunOwner;
+use goodfetch_protocol::run::{RunKind, RunOwner};
 use goodfetch_protocol::secret_reference::Provider;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -50,7 +50,7 @@ use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
-use crate::runs::{CleanUpVersions, ProgressPart, ReportPart, Runs, RunsSetup};
+use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Runs, RunsSetup};
 use crate::sandbox_probe::{self, SandboxProbe};
 use crate::secrets::{self, Carried, Keychain, ProviderFactory, Secrets};
 use crate::settings::{Settings, SettingsFiles};
@@ -66,6 +66,7 @@ use crate::transport::{Connection, DaemonListener, Network, TransportError};
 pub struct Engine {
     dispatch: Arc<Dispatch>,
     tables: Vec<RunStateTables>,
+    driving: BTreeMap<RunKind, Driving>,
     politeness_tables: Vec<PolitenessTables>,
     report_parts: Vec<Arc<dyn ReportPart>>,
     progress_parts: Vec<Arc<dyn ProgressPart>>,
@@ -119,6 +120,7 @@ impl Engine {
                 work: CountedWork::default(),
             }),
             tables: composition.run_state_tables(),
+            driving: composition.driving(),
             politeness_tables: composition.politeness_tables(),
             report_parts: composition.report_parts(),
             progress_parts: composition.progress_parts(),
@@ -376,6 +378,7 @@ impl Engine {
                 },
                 install: install.map(Arc::new),
                 tables: self.tables.clone(),
+                driving: self.driving.clone(),
                 report_parts: self.report_parts.clone(),
                 progress_parts: self.progress_parts.clone(),
                 clean_up: self.clean_up.clone(),

@@ -11,7 +11,6 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
-use goodfetch_protocol::foxhound::frontier::FIXED_FOR_A_RUN;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::{
     ExplainedSetting, Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsExplanation,
@@ -22,7 +21,6 @@ use serde_json::Value;
 use super::error::SettingsError;
 use super::hosts;
 use super::keys::{self, Key};
-use super::unbuilt::UNBUILT;
 use super::values::{Given, Values};
 
 /// An Operator policy: what it sets, locks and caps.
@@ -304,7 +302,7 @@ impl Resolved {
     }
 
     /// Refuses these settings when one whose feature the engine does not
-    /// build yet (`super::unbuilt`) is set away
+    /// build yet (`Setting::unbuilt`) is set away
     /// from its default: nothing reads it, so the scope would open as if
     /// the value applied (ADR 0083).
     ///
@@ -313,8 +311,7 @@ impl Resolved {
     /// `capability_unavailable` naming the first such key, the layer that
     /// set it and its default.
     pub fn refuse_unbuilt(&self) -> Result<(), SettingsError> {
-        for unbuilt in &UNBUILT {
-            let setting = unbuilt.setting;
+        for (setting, feature) in keys::unbuilt() {
             let Some(effective) = self.settings.get(setting.name) else {
                 continue;
             };
@@ -325,7 +322,7 @@ impl Resolved {
             return Err(SettingsError::Unavailable {
                 key: setting.name.to_owned(),
                 layer: effective.layer,
-                feature: unbuilt.feature.to_owned(),
+                feature: feature.to_owned(),
                 fix: format!("`{}: {default}`", setting.name),
             });
         }
@@ -563,7 +560,7 @@ fn user_settable(key: &str) -> bool {
 
 /// Whether `key` is fixed for a Run's life (ADRs 0102 and 0120).
 fn fixed_for_run(key: &str) -> bool {
-    FIXED_FOR_A_RUN.iter().any(|fixed| fixed.name == key)
+    keys::find(key).is_some_and(|found| found.setting.fixed_for_run)
 }
 
 /// The Products that honour a key of `product`'s mark.

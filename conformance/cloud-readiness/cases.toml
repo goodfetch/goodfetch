@@ -8,7 +8,7 @@
 # kind's capabilities (`GatewaySuite::embedded`) and writes one
 # `conformance` document per target. A gateway case opens its own
 # Connections as the Clients it names (a Collie or Foxhound Client, a
-# model's Client through the MCP server, the Console), each presenting the
+# model's Client through the MCP server), each presenting the
 # gateway's token in its `hello`, and tells which engine a run landed on
 # from what that engine answers: `not_in_product` naming Collie and no
 # install, worded for the gateway, comes only from Collie's engine behind

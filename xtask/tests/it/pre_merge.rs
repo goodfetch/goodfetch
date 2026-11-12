@@ -1109,7 +1109,7 @@ fn incremental_plan(workspace: &Workspace) -> String {
         "earlier",
         "planned",
         "a b c :unowned",
-        "console/screens.spec.ts",
+        "website/pages.spec.ts",
         &[
             ("perf", "reuse", "-", "green on earlier"),
             ("pre-merge", "reuse", "-", "green on earlier"),
@@ -1147,7 +1147,7 @@ fn the_incremental_gate_reruns_only_what_its_plan_reruns_and_records_each_result
         );
     }
     for rerun in [
-        "test quick --shuffled-all a b console/screens.spec.ts",
+        "test quick --shuffled-all a b website/pages.spec.ts",
         "stress  earlier target/gate-runs/planned.earned  a :unowned",
         "lint",
         "linux",

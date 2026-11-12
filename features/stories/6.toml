@@ -352,7 +352,7 @@ status = "active"
 
 [[story]]
 id = 44
-title = "As a user, I want `cache stats`, `cache clear` (everything, or by domain, Run or partition) and `cache verify`, from the CLI and the Console, so that I can see and empty it (ADR 0046)."
+title = "As a user, I want `cache stats`, `cache clear` (everything, or by domain, Run or partition) and `cache verify`, from the CLI, so that I can see and empty it (ADR 0046)."
 milestone = "M2 Client surfaces"
 journey = false
 not_journey = "part"
@@ -368,7 +368,7 @@ status = "active"
 
 [[story]]
 id = 46
-title = "As a user, I want a cache hit recorded in Provenance with its original fetch time and Run, counted as a fetch for Completeness but in Usage apart from fetches, and a Run that used `replay` marked in its report, the Console and the CLI, so that I know what was not fetched (ADR 0046)."
+title = "As a user, I want a cache hit recorded in Provenance with its original fetch time and Run, counted as a fetch for Completeness but in Usage apart from fetches, and a Run that used `replay` marked in its report and the CLI, so that I know what was not fetched (ADR 0046)."
 milestone = "M3 Browser automation"
 journey = false
 not_journey = "part"

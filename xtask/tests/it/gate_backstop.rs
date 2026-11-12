@@ -1140,7 +1140,7 @@ fn a_gate_worktree_keeps_its_npm_packages_but_not_vites_prebundled_dependencies(
     let prebundled = [
         "node_modules/.vite/vitest/0a1b/deps",
         "node_modules/.cache/storybook/10.6.3/0c2d/sb-vitest/vitest/0e3f/deps",
-        "console/collie/node_modules/.vite/deps",
+        "website/node_modules/.vite/deps",
     ];
     for deps in prebundled {
         workspace.write(&format!("{worktree}/{deps}/_metadata.json"), b"{}");
@@ -1148,7 +1148,7 @@ fn a_gate_worktree_keeps_its_npm_packages_but_not_vites_prebundled_dependencies(
     }
     let kept = [
         "node_modules/react/index.js",
-        "console/collie/node_modules/.bin/vite",
+        "website/node_modules/.bin/vite",
         "node_modules/.vite/vitest/0a1b/results.json",
     ];
     for file in kept {

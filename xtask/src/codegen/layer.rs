@@ -73,8 +73,9 @@ pub(super) struct Operation {
 }
 
 impl Operation {
-    /// Whether an SDK offers it: not a person's answer, which only the
-    /// Console and the CLI's interactive prompt give (ADR 0041).
+    /// Whether an SDK offers it: not a person's answer, which only a
+    /// person's surface, such as the CLI's interactive prompt, gives (ADR
+    /// 0041).
     fn offered(&self) -> bool {
         self.reach.as_deref() != Some("person_only")
     }

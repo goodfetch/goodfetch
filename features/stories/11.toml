@@ -1007,7 +1007,7 @@ status = "active"
 
 [[story]]
 id = 128
-title = "As a developer, I want `finish()` and `stop()` to return the Run report (Lifecycle, Verdict, Completeness, Usage, `PlanReport`, `recording`, `uncertainEffects`, `weakened`, `nothingDone`, `consoleUrl`), so that I see how a Run ended and what it ran without (ADRs 0102, 0029; K05)."
+title = "As a developer, I want `finish()` and `stop()` to return the Run report (Lifecycle, Verdict, Completeness, Usage, `PlanReport`, `recording`, `uncertainEffects`, `weakened`, `nothingDone`), so that I see how a Run ended and what it ran without (ADRs 0102, 0029; K05)."
 milestone = "M2 Client surfaces"
 journey = true
 status = "active"
@@ -1654,7 +1654,7 @@ status = "active"
 
 [[story]]
 id = 210
-title = "As a script author, I want those prompts under `--json`, in a pipe or from a script to be refused with `person_required` (a `RefusedError`, not retryable, naming the Console or the interactive command) and exit `4`, so that a script cannot answer for a person (ADR 0011; person-only marker)."
+title = "As a script author, I want those prompts under `--json`, in a pipe or from a script to be refused with `person_required` (a `RefusedError`, not retryable, naming the interactive command) and exit `4`, so that a script cannot answer for a person (ADR 0011; person-only marker)."
 milestone = "M2 Client surfaces"
 journey = false
 not_journey = "part"
@@ -1686,7 +1686,7 @@ status = "active"
 
 [[story]]
 id = 214
-title = "As a developer, I want `daemon start|restart|install`, `console`, `browser install` and `browser clean [--dry-run]`, `upgrade-files` and the `--group-member` flag on a start, so that I manage the engine without leaving the CLI (ADRs 0024, 0055, 0098)."
+title = "As a developer, I want `daemon start|restart|install`, `browser install` and `browser clean [--dry-run]`, `upgrade-files` and the `--group-member` flag on a start, so that I manage the engine without leaving the CLI (ADRs 0024, 0055, 0098)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -2025,7 +2025,7 @@ status = "active"
 
 [[story]]
 id = 258
-title = "As an operator, I want the HTTP listener off until `http_listener.enabled` (`false` by default) is set, on `http_listener.address` (`127.0.0.1`) and `http_listener.port` (the Console's port plus one for the major), with a token from `daemon http-listener-token` rotated by `daemon rotate-token`, and TLS through the Exposed Daemon's keys, so that workflow tools reach a Daemon only on purpose (ADRs 0027, 0030, 0049)."
+title = "As an operator, I want the HTTP listener off until `http_listener.enabled` (`false` by default) is set, on `http_listener.address` (`127.0.0.1`) and `http_listener.port` (a port of its own for the major), with a token from `daemon http-listener-token` rotated by `daemon rotate-token`, and TLS through the Exposed Daemon's keys, so that workflow tools reach a Daemon only on purpose (ADRs 0027, 0030, 0049)."
 milestone = "M4 Everything else"
 journey = false
 not_journey = "part"
@@ -2087,7 +2087,7 @@ status = "active"
 
 [[story]]
 id = 266
-title = "As a person who started a login, I want a Human pause waiting Notification with a link to the Live view, pointing at `notifications.console_url` and carrying no credential, so that I return to finish the login, an Attached engine starting the Daemon on demand to serve the link (ADRs 0006, 0031, 0113)."
+title = "As a person who started a login, I want a Human pause waiting Notification with a link to the Live view that carries no credential, so that I return to finish the login, an Attached engine starting the Daemon on demand to serve the link (ADRs 0006, 0031, 0113)."
 milestone = "M4 Everything else"
 journey = true
 status = "active"

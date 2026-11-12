@@ -204,7 +204,7 @@ export class CDPURLNotAllowedError extends RefusedError {
 }
 
 /**
- * A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt or the Console, which no agent, Recipe or `--json` command can do.
+ * A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt, which no agent, Recipe or `--json` command can do.
  */
 export class CertificateChangedError extends RefusedError {
   constructor(message: string, fields: ErrorFields = {}) {

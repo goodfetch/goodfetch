@@ -2,8 +2,8 @@
 //! the language of the Client's surface, so an error shows the caller the
 //! locator they wrote, and each match of an ambiguous one the locator that
 //! reaches it alone. TypeScript keeps Playwright's single quotes; Python,
-//! Rust and every surface with no language of its own (the CLI, MCP, the
-//! Console) take the catalog's form, with double quotes.
+//! Rust and every surface with no language of its own (the CLI, MCP) take
+//! the catalog's form, with double quotes.
 
 use goodfetch_protocol::connection::Surface;
 

@@ -113,7 +113,7 @@ fn the_failure_says_the_figure_its_multiple_and_the_limit() {
 #[test]
 fn a_size_limit_entry_over_1_10_times_its_reference_fails() {
     let workspace = Workspace::from_fixture("empty");
-    let entry = |size: u64| format!(r#"[{{"name":"collie-console","size":{size}}}]"#);
+    let entry = |size: u64| format!(r#"[{{"name":"collie-sdk","size":{size}}}]"#);
     workspace.write("perf/size-head.json", entry(111_000).as_bytes());
     workspace.write("perf/size-reference.json", entry(100_000).as_bytes());
 
@@ -129,10 +129,7 @@ fn a_size_limit_entry_over_1_10_times_its_reference_fails() {
     assert_eq!(
         (outcome.findings(), outcome.code),
         (
-            vec![finding(
-                "drift-reference",
-                "size-limit/collie-console brotli"
-            )],
+            vec![finding("drift-reference", "size-limit/collie-sdk brotli")],
             1
         ),
         "{}",

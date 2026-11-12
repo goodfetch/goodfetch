@@ -407,7 +407,7 @@ kind = "format"
 prefix = "usage-ledger"
 
 # Area 3's person-only marker (#232): the refusal of a person's answer
-# asked by any surface but the Console and the CLI's interactive prompt.
+# asked by any surface but a person's, such as the CLI's interactive prompt.
 [[area]]
 number = 3
 kind = "error"

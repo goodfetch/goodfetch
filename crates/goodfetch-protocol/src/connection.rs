@@ -932,7 +932,7 @@ pub const ENGINE_OUTPUT_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
 /// prompt (ADR 0141).
 pub const PERSON_REQUIRED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "person_required",
-    description: "Only a person gives this answer, in the Kennel or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Kennel, or run the command in a terminal.",
+    description: "Only a person gives this answer: no agent surface, SDK, script or command run under `--json` or without a terminal may. Run the Operation's command in a terminal, where the CLI has one, or answer it in the Kennel where the Kennel offers the Operation.",
     group: ErrorGroup::Refused,
     retryable: false,
     exit_code: None,

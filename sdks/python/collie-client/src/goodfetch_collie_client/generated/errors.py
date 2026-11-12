@@ -435,7 +435,7 @@ class PatternUnsupportedError(ProgramError):
 
 
 class PersonRequiredError(RefusedError):
-    """Only a person gives this answer, in the Kennel or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Kennel, or run the command in a terminal."""
+    """Only a person gives this answer: no agent surface, SDK, script or command run under `--json` or without a terminal may. Run the Operation's command in a terminal, where the CLI has one, or answer it in the Kennel where the Kennel offers the Operation."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""

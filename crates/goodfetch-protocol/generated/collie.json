@@ -10886,6 +10886,7 @@
             "effect_syncs",
             "encodes",
             "entries",
+            "evidence_reads",
             "fetch_messages_no_rule",
             "file_opens",
             "fill_commands",

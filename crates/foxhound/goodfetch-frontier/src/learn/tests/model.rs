@@ -472,6 +472,7 @@ fn fetch(connection: &Connection, id: usize, asked: Asked, text: &str) -> rusqli
             canonical: None,
         },
         &mut Requests,
+        &goodfetch_counted_work::CountedWork::default(),
     )
 }
 

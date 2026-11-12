@@ -8119,6 +8119,7 @@ dependencies = [
  "jsonschema",
  "libc",
  "proc-macro2",
+ "proptest",
  "quick-xml 0.41.0",
  "quote",
  "regex",

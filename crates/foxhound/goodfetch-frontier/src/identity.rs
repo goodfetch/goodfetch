@@ -245,6 +245,9 @@ pub(crate) struct OnePage {
 /// learned rules merge is a `duplicate` from then on, whichever of the two
 /// was admitted; answers each set of crawl requests the rule just showed to
 /// be one page, the requests admitted before it was learned among them.
+/// It holds the identities the host's rules change, which those sets are
+/// made of and whose order is the order the crawl ends them in; the host's
+/// visited set it reads a slice at a time.
 ///
 /// # Errors
 ///
@@ -254,16 +257,21 @@ pub(crate) fn merge_learned(
     merging: &rules::Merging,
 ) -> rusqlite::Result<Vec<OnePage>> {
     let mut pages: BTreeMap<String, (OnePage, bool)> = BTreeMap::new();
-    for (learned, rules, crawl_request) in visited_on(connection, &merging.hosts)? {
-        let changed = rules.contains(&merging.rule);
-        if changed {
-            learn_identity(connection, &learned, merging.rule, &crawl_request)?;
-        }
-        let page = pages.entry(learned).or_default();
-        page.0.requests.insert(crawl_request);
-        page.0.rules.extend(rules);
-        page.1 |= changed;
-    }
+    visited_on(
+        connection,
+        &merging.hosts,
+        |learned, rules, crawl_request| {
+            let changed = rules.contains(&merging.rule);
+            if changed {
+                learn_identity(connection, &learned, merging.rule, &crawl_request)?;
+            }
+            let page = pages.entry(learned).or_default();
+            page.0.requests.insert(crawl_request);
+            page.0.rules.extend(rules);
+            page.1 |= changed;
+            Ok(())
+        },
+    )?;
     let mut groups = Vec::new();
     for (learned, (mut page, changed)) in pages {
         if !changed {
@@ -292,12 +300,14 @@ pub(crate) fn unmerge(connection: &Connection, merging: &rules::Merging) -> rusq
             )?
             .execute((low, high))?;
     }
-    for (learned, rules, crawl_request) in visited_on(connection, &merging.hosts)? {
-        if let Some(rule) = rules.last() {
-            learn_identity(connection, &learned, *rule, &crawl_request)?;
-        }
-    }
-    Ok(())
+    visited_on(
+        connection,
+        &merging.hosts,
+        |learned, rules, crawl_request| match rules.last() {
+            Some(rule) => learn_identity(connection, &learned, *rule, &crawl_request),
+            None => Ok(()),
+        },
+    )
 }
 
 /// A table of identities, read by ranges of its key.
@@ -369,47 +379,82 @@ fn host_ranges(
 /// How a declared key's identity begins.
 const DECLARED: &str = "key:";
 
-/// Each visited identity whose URL is on one of `hosts`, under the learned
-/// rules that hold, read once per host for the call: its identity under
-/// them, the rules that changed it and its crawl request.
+/// How many visited identities a re-keying reads at once: what it holds of
+/// a host's visited set, however many identities the host has.
+pub(crate) const SLICE: usize = 256;
+
+/// Hands `each` every visited identity whose URL is on one of `hosts` and
+/// that the learned rules that hold change, in the order of the visited
+/// set's key within each of the hosts' ranges: its identity under those
+/// rules, the rules that changed it and its crawl request. The rules are
+/// read once per host for the call, and the visited set [`SLICE`]
+/// identities at a time, each slice read whole before `each` writes.
 fn visited_on(
     connection: &Connection,
     hosts: &[String],
-) -> rusqlite::Result<Vec<(String, Vec<i64>, String)>> {
+    mut each: impl FnMut(String, Vec<i64>, String) -> rusqlite::Result<()>,
+) -> rusqlite::Result<()> {
     let mut holding = rules::Holding::of(connection);
-    let mut found = Vec::new();
     for (low, high) in host_ranges(connection, Keyed::Visited, hosts)? {
-        let mut statement = connection.prepare_cached(
-            "SELECT identity, crawl_request FROM visited WHERE identity >= ?1 AND identity < ?2",
-        )?;
-        let candidates = statement
-            .query_map((low, high), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        for (visited, crawl_request) in candidates {
-            let Some((method, rest)) = visited.split_once(' ') else {
-                continue;
-            };
-            let (key, hash) = rest
-                .split_once(' ')
-                .map_or((rest, None), |(key, hash)| (key, Some(hash)));
-            let Ok(url) = Url::parse(key) else {
-                continue;
-            };
-            let (merged, rules) = holding.without_learned(&url)?;
-            if rules.is_empty() {
-                continue;
+        let mut last: Option<String> = None;
+        loop {
+            let slice = visited_slice(connection, (&low, last.as_deref()), &high)?;
+            for (visited, crawl_request) in &slice {
+                let Some((method, rest)) = visited.split_once(' ') else {
+                    continue;
+                };
+                let (key, hash) = rest
+                    .split_once(' ')
+                    .map_or((rest, None), |(key, hash)| (key, Some(hash)));
+                let Ok(url) = Url::parse(key) else {
+                    continue;
+                };
+                let (merged, rules) = holding.without_learned(&url)?;
+                if rules.is_empty() {
+                    continue;
+                }
+                let mut learned = format!("{method} {}", url_key(&merged));
+                if let Some(hash) = hash {
+                    learned.push(' ');
+                    learned.push_str(hash);
+                }
+                each(learned, rules, crawl_request.clone())?;
             }
-            let mut learned = format!("{method} {}", url_key(&merged));
-            if let Some(hash) = hash {
-                learned.push(' ');
-                learned.push_str(hash);
+            if slice.len() < SLICE {
+                break;
             }
-            found.push((learned, rules, crawl_request));
+            last = slice.into_iter().next_back().map(|(visited, _)| visited);
         }
     }
-    Ok(found)
+    Ok(())
+}
+
+/// At most [`SLICE`] visited identities with their crawl requests, in the
+/// order of the key: those after `after`, or from `low` on when none was
+/// read yet, and before `high`.
+fn visited_slice(
+    connection: &Connection,
+    (low, after): (&str, Option<&str>),
+    high: &str,
+) -> rusqlite::Result<Vec<(String, String)>> {
+    let limit = i64::try_from(SLICE).unwrap_or(i64::MAX);
+    let read = |row: &rusqlite::Row<'_>| Ok((row.get(0)?, row.get(1)?));
+    match after {
+        None => connection
+            .prepare_cached(
+                "SELECT identity, crawl_request FROM visited
+                 WHERE identity >= ?1 AND identity < ?2 ORDER BY identity LIMIT ?3",
+            )?
+            .query_map((low, high, limit), read)?
+            .collect(),
+        Some(after) => connection
+            .prepare_cached(
+                "SELECT identity, crawl_request FROM visited
+                 WHERE identity > ?1 AND identity < ?2 ORDER BY identity LIMIT ?3",
+            )?
+            .query_map((after, high, limit), read)?
+            .collect(),
+    }
 }
 
 /// `url`'s key, as a URL, without its fragment.

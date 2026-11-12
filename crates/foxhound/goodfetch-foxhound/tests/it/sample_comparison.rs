@@ -161,17 +161,17 @@ fn a_listing_whose_links_appear_only_after_script_enqueues_nothing_over_http_and
             chosen(&env, "sample-listing", &["leaf"])
                 .iter()
                 .filter(|line| line.ends_with("compared"))
-                .all(|line| line == "leaf http compared"),
+                .all(|line| line == "leaf browser_fetch compared"),
         ),
         (
             &json!("finished"),
             listing,
             [
-                "listing http sample",
+                "listing browser_fetch sample",
                 "listing browser sample",
-                "listing http sample",
+                "listing browser_fetch sample",
                 "listing browser sample",
-                "listing http sample",
+                "listing browser_fetch sample",
                 "listing browser sample",
                 "listing browser compared",
             ]
@@ -255,11 +255,11 @@ fn a_samples_discarded_http_run_teaches_the_frontier_nothing() {
                 ))
                 .collect::<Vec<_>>(),
             [
-                "list http sample",
+                "list browser_fetch sample",
                 "list browser sample",
-                "list http sample",
+                "list browser_fetch sample",
                 "list browser sample",
-                "list http sample",
+                "list browser_fetch sample",
                 "list browser sample",
                 "list browser compared",
             ]
@@ -332,7 +332,7 @@ fn records_that_differ_only_in_whitespace_match_and_the_browsers_run_commits_eit
         ),
         (
             &json!("finished"),
-            vec!["spaced http compared".to_owned()],
+            vec!["spaced browser_fetch compared".to_owned()],
             vec![
                 json!({ "path": "/blog/1", "tier": "browser" }),
                 json!({ "path": "/blog/2", "tier": "browser" }),
@@ -390,11 +390,11 @@ fn a_script_redirect_keeps_the_label_on_the_browser() {
         (
             &json!("finished"),
             [
-                "moving http sample",
+                "moving browser_fetch sample",
                 "moving browser sample",
-                "moving http sample",
+                "moving browser_fetch sample",
                 "moving browser sample",
-                "moving http sample",
+                "moving browser_fetch sample",
                 "moving browser sample",
                 "moving browser compared",
             ]
@@ -448,9 +448,9 @@ fn a_sample_count_below_three_is_a_weakened_control() {
             &json!("finished"),
             vec![(json!("fetch.sample.count"), json!(1))],
             [
-                "page http sample",
+                "page browser_fetch sample",
                 "page browser sample",
-                "page http compared"
+                "page browser_fetch compared"
             ]
             .map(str::to_owned)
             .to_vec(),
@@ -509,14 +509,14 @@ fn a_choice_that_served_its_requests_is_sampled_again() {
             &json!("finished"),
             true,
             [
-                "page http sample",
+                "page browser_fetch sample",
                 "page browser sample",
-                "page http sample",
+                "page browser_fetch sample",
                 "page browser sample",
-                "page http sample",
+                "page browser_fetch sample",
                 "page browser sample",
-                "page http compared",
-                "page http sample",
+                "page browser_fetch compared",
+                "page browser_fetch sample",
                 "page browser sample",
             ]
             .map(str::to_owned)

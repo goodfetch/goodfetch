@@ -27,6 +27,7 @@ mod progress;
 mod report;
 mod resume;
 mod safe_point;
+mod sent_from;
 mod staging;
 
 use std::path::PathBuf;
@@ -314,6 +315,11 @@ fn declaring_pages(method: &str, mut params: Value) -> Value {
 /// per-domain queues, the Session pool's and the Datasets' tables and the
 /// crawl's.
 pub(crate) fn engine() -> Engine {
+    engine_on(goodfetch_fetch_tier::FetchTiers::new())
+}
+
+/// [`engine`], its crawl fetching on `tiers`.
+pub(crate) fn engine_on(tiers: goodfetch_fetch_tier::FetchTiers) -> Engine {
     let identity = Identity {
         product: Product::Foxhound,
         product_version: ProductVersion::parse("1.4.0").unwrap(),
@@ -324,7 +330,7 @@ pub(crate) fn engine() -> Engine {
         .with(goodfetch_frontier::contribution())
         .with(goodfetch_session_pool::contribution())
         .with(goodfetch_dataset::contribution(crate::url_of))
-        .with(super::contribution(goodfetch_fetch_tier::FetchTiers::new()));
+        .with(super::contribution(tiers));
     Engine::new(identity, &composition).unwrap()
 }
 

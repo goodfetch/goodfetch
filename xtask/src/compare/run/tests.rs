@@ -1,8 +1,8 @@
 use std::path::Path;
 
-use super::{counted_output, order, set_aside, spider_executable};
+use super::{Executables, Options, counted_output, order, run, set_aside, spider_executable};
 use crate::compare::matrix::{self, SpiderBuild};
-use crate::compare::trials::{CountedRun, Tool, Work};
+use crate::compare::trials::{Comparison, CountedCell, CountedRun, Tool, Work};
 
 /// Each of Spider's side's builds runs the executable Cargo left in the
 /// build's own target folder, under the profile's: the main row's from
@@ -224,4 +224,61 @@ fn a_cell_whose_strace_run_missed_pages_runs_no_later_run() {
     assert!(set_aside(&done, cell("spider"), 1000));
     assert!(!set_aside(&done, cell("crawlee"), 1000));
     assert!(!set_aside(&done, cell("scrapy"), 1000));
+}
+
+/// A run of hours keeps what it has measured: the trials file's contents
+/// are handed over once the timed trials are in and again once the
+/// system-call cell is, so a failure in a later cell loses neither (the
+/// base run of #2281 lost 220 trials to its first Callgrind run). Before
+/// its cell has run, the file says the run did not reach it.
+#[test]
+fn a_run_hands_over_its_trials_after_the_timed_part_and_after_the_strace_part() {
+    let nowhere = Path::new("/nowhere");
+    let executables = Executables {
+        proving_ground: nowhere,
+        foxhound: nowhere,
+        spider_builds: nowhere,
+        spider_profile: "release",
+        crawlee: nowhere,
+        scrapy: nowhere,
+        browser: nowhere,
+    };
+    // No scenario, so no cell: every part runs, over nothing.
+    let options = Options {
+        trials: 1,
+        growth: false,
+        spider_pages: None,
+        scenarios: Vec::new(),
+        callgrind_outputs: nowhere.to_owned(),
+    };
+    let reached = |cell: &CountedCell| match cell {
+        CountedCell::NotRun { reason } => reason.clone(),
+        CountedCell::Measured { .. } => "measured".to_owned(),
+    };
+    let mut kept = Vec::new();
+
+    let whole = run(
+        &executables,
+        "0".repeat(40),
+        &options,
+        &mut |so_far: &Comparison| {
+            kept.push((reached(&so_far.syscalls), reached(&so_far.instructions)));
+            Ok(())
+        },
+    )
+    .unwrap();
+
+    let not_reached = |cell: &str| format!("the run ended before its {cell} cell");
+    let strace = if crate::compare::trial::strace_missing().is_some() {
+        reached(&whole.syscalls)
+    } else {
+        "measured".to_owned()
+    };
+    assert_eq!(
+        kept,
+        vec![
+            (not_reached("system-call"), not_reached("Callgrind")),
+            (strace, not_reached("Callgrind")),
+        ]
+    );
 }

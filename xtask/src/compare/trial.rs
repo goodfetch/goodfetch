@@ -899,6 +899,13 @@ pub(crate) fn strace_missing() -> Option<String> {
     missing(STRACE)
 }
 
+/// The file a counted trial's counting tool writes to, `--output`, named
+/// from the root: the tool is started in another folder than this one.
+pub(crate) fn counting_output(output: Option<&Path>) -> Result<PathBuf> {
+    let output = output.context("a counted trial takes --output")?;
+    std::path::absolute(output).with_context(|| format!("naming {}", output.display()))
+}
+
 /// The instructions a Callgrind output file totals: its `totals:` line, of
 /// the one event it counted.
 pub(crate) fn instructions_of(output: &str) -> Result<u64> {

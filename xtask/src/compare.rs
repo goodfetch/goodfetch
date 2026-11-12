@@ -206,11 +206,9 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     },
                     callgrind_outputs: folder.join(CALLGRIND_OUTPUTS),
                 },
+                &mut |so_far| write(so_far, &out),
             )?;
-            std::fs::create_dir_all(folder)
-                .with_context(|| format!("creating {}", folder.display()))?;
-            std::fs::write(&out, serde_json::to_vec_pretty(&trials)?)
-                .with_context(|| format!("writing {}", out.display()))?;
+            write(&trials, &out)?;
             report(&mut trials, &out)
         }
         Command::Report(arguments) => {
@@ -223,12 +221,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
         }
         Command::Trial(arguments) => {
             let (cell, config) = trial::cell_of(arguments.scenario, &arguments.cell)?;
-            let output_file = || {
-                arguments
-                    .output
-                    .clone()
-                    .context("a counted trial takes --output")
-            };
+            let output_file = || trial::counting_output(arguments.output.as_deref());
             let mode = match arguments.mode {
                 Mode::Timed => trial::Mode::Timed,
                 Mode::Syscalls => trial::Mode::Syscalls(output_file()?),
@@ -261,6 +254,16 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+/// Writes the trials file at `out`, creating its folder: the whole run's,
+/// and before that what the run has measured so far, which `report` reads
+/// as a run that did not reach its later cells.
+fn write(trials: &Comparison, out: &Path) -> Result<()> {
+    let folder = out.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(folder).with_context(|| format!("creating {}", folder.display()))?;
+    std::fs::write(out, serde_json::to_vec_pretty(trials)?)
+        .with_context(|| format!("writing {}", out.display()))
 }
 
 /// Holds the trials to the same-work check, then writes the report beside

@@ -641,18 +641,63 @@ fn counted(
     })
 }
 
-/// Runs every declared trial and returns the trials file's contents.
+/// What a run of `options` declares before its first trial.
+fn declared(options: &Options) -> Declared {
+    Declared {
+        trials: options.trials,
+        statistic: STATISTIC.to_owned(),
+        concurrency: CONCURRENCY,
+        site: format!("/sites/{SITE_PAGES}/1"),
+        spider: SPIDER_VERSION.to_owned(),
+        crawlee: CRAWLEE_VERSION.to_owned(),
+        scrapy: SCRAPY_VERSION.to_owned(),
+        playwright: PLAYWRIGHT_VERSION.to_owned(),
+        scrapy_playwright: SCRAPY_PLAYWRIGHT_VERSION.to_owned(),
+        browser: crate::test_facts::CHROME_FOR_TESTING_BUILD.to_owned(),
+        scenarios: options.scenarios.clone(),
+    }
+}
+
+/// Why a cell the run has not reached yet is not run, as the trials file
+/// kept before it says.
+fn not_reached(cell: &str) -> String {
+    format!("the run ended before its {cell} cell")
+}
+
+/// Runs every declared trial and returns the trials file's contents. `keep`
+/// is handed them as they stand once the timed trials are in, and again
+/// once the system-call cell is, so a failure in a later cell loses
+/// neither.
 pub(crate) fn run(
     executables: &Executables<'_>,
     commit: String,
     options: &Options,
+    keep: &mut dyn FnMut(&Comparison) -> Result<()>,
 ) -> Result<Comparison> {
     let machine = machine();
     let order_seed = drawn_seed();
     let mut state = order_seed;
     let (trials, stopped) = timed(executables, options, SITE_PAGES, &mut state, "")?;
+    let mut comparison = Comparison {
+        declared: declared(options),
+        machine,
+        commit,
+        order_seed,
+        trials,
+        stopped,
+        syscalls: CountedCell::NotRun {
+            reason: not_reached("system-call"),
+        },
+        growth: GrowthCell::NotRun {
+            reason: not_reached("growth"),
+        },
+        instructions: CountedCell::NotRun {
+            reason: not_reached("Callgrind"),
+        },
+    };
+    keep(&comparison)?;
     let measured = measured(options);
-    let syscalls = if let Some(reason) = strace_missing() {
+    comparison.syscalls = if let Some(reason) = strace_missing() {
         output::line(&format!("The system-call cell does not run: {reason}."));
         CountedCell::NotRun { reason }
     } else {
@@ -668,7 +713,8 @@ pub(crate) fn run(
             &mut state,
         )?
     };
-    let growth = if options.growth {
+    keep(&comparison)?;
+    comparison.growth = if options.growth {
         let (trials_run, stopped) =
             timed(executables, options, GROWTH_PAGES, &mut state, "growth ")?;
         GrowthCell::Measured {
@@ -696,7 +742,7 @@ pub(crate) fn run(
                 && INSTRUCTION_TOOLS.contains(&config.tool())
         })
         .collect();
-    let instructions = match callgrind_missing() {
+    comparison.instructions = match callgrind_missing() {
         _ if scenario_1.is_empty() => CountedCell::NotRun {
             reason: "the run asked for no scenario 1 cell".to_owned(),
         },
@@ -722,29 +768,7 @@ pub(crate) fn run(
             cell
         }
     };
-    Ok(Comparison {
-        declared: Declared {
-            trials: options.trials,
-            statistic: STATISTIC.to_owned(),
-            concurrency: CONCURRENCY,
-            site: format!("/sites/{SITE_PAGES}/1"),
-            spider: SPIDER_VERSION.to_owned(),
-            crawlee: CRAWLEE_VERSION.to_owned(),
-            scrapy: SCRAPY_VERSION.to_owned(),
-            playwright: PLAYWRIGHT_VERSION.to_owned(),
-            scrapy_playwright: SCRAPY_PLAYWRIGHT_VERSION.to_owned(),
-            browser: crate::test_facts::CHROME_FOR_TESTING_BUILD.to_owned(),
-            scenarios: options.scenarios.clone(),
-        },
-        machine,
-        commit,
-        order_seed,
-        trials,
-        stopped,
-        syscalls,
-        growth,
-        instructions,
-    })
+    Ok(comparison)
 }
 
 #[cfg(test)]

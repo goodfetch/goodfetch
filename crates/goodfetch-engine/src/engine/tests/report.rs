@@ -23,7 +23,7 @@ use goodfetch_protocol::catalog::{
 };
 use goodfetch_protocol::run::{
     EndingError, NothingDone, PlanReport, PlanStatus, PluginRun, RUN_STOP, RecordingReport, RunId,
-    RunKind, RunReport, RunWarning, StopReason, Tags, UncertainEffect,
+    RunKind, RunReport, RunWarning, StopReason, Tags, UNCERTAIN_EFFECTS, UncertainEffect,
 };
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
@@ -720,7 +720,7 @@ fn a_seeded_runs_report_holds_every_part() {
         ),
         (
             &json!("needs_review"),
-            &json!("uncertain_effects"),
+            &json!(UNCERTAIN_EFFECTS),
             &json!(1),
             Some(1)
         ),

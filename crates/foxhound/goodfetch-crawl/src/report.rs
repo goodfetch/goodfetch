@@ -42,7 +42,7 @@ impl ReportPart for CrawlParts {
             report.needs_review(AxisReason {
                 code: FETCH_BLOCK_CLASSIFICATION.name.to_owned(),
                 message: format!(
-                    "`{}` was switched off: no document was read for a Challenge or a captcha, so a Block page may stand among the results.",
+                    "`{}` was switched off: no document was read for a Challenge or a captcha, so a page a site blocked may be among the results.",
                     FETCH_BLOCK_CLASSIFICATION.name
                 ),
                 count: None,

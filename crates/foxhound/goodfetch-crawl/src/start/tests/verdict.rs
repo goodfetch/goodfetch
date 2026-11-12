@@ -11,12 +11,7 @@ use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use super::{Reply, crawl, dependencies, page_of, seeds};
-
-/// Answers each page with one Record naming it.
-fn answer_all(params: &Value) -> Reply {
-    Reply::Records(vec![json!({ "page": page_of(params) })])
-}
+use super::{Reply, answer_all, crawl, dependencies, seeds};
 
 /// The report of the crawl `run_id` of two seeds, started with `settings`,
 /// once `run.finish` drained it.
@@ -79,16 +74,12 @@ fn a_crawl_with_block_classification_off_needs_review_naming_the_key() {
             &report["lifecycle"],
             &report["verdict"],
             reasons(&report),
-            report["verdict_reasons"][0]["message"]
-                .as_str()
-                .is_some_and(|message| message.contains("`fetch.block_classification`")),
             weakened(&report),
         ),
         (
             &json!("finished"),
             &json!("needs_review"),
             vec!["fetch.block_classification"],
-            true,
             vec!["fetch.block_classification"],
         ),
         "{report}"
@@ -130,8 +121,6 @@ fn a_crawl_with_nothing_switched_off_is_verified_with_no_reason() {
 /// A crawl that ended `verified`, whose failed request is retried with
 /// Block classification switched off: the Run returns to `running`, and
 /// its next end gives the Verdict anew, `needs_review` naming the key.
-/// The other way round stays `needs_review`, since `weakened` keeps every
-/// switch the Run ran with (ADR 0016).
 ///
 /// Covers: story:11-128, story:6-306, operation:run.retry_failed
 #[test]

@@ -348,6 +348,10 @@ pub enum Verdict {
     NeedsReview,
 }
 
+/// The code of the Verdict reason a Run that left an Effect uncertain is
+/// given, `needs_review` (ADR 0029).
+pub const UNCERTAIN_EFFECTS: &str = "uncertain_effects";
+
 impl Verdict {
     /// Every value, in declaration order.
     pub const ALL: [Self; 3] = [Self::Verified, Self::Rejected, Self::NeedsReview];

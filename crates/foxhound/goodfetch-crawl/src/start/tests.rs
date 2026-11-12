@@ -614,6 +614,11 @@ pub(super) fn page_of(params: &Value) -> String {
     params["crawl_request"]["url"].as_str().unwrap().to_owned()
 }
 
+/// Answers each page with one Record naming it.
+pub(super) fn answer_all(params: &Value) -> Reply {
+    Reply::Records(vec![json!({ "page": page_of(params) })])
+}
+
 /// Covers: story:3-41, operation:crawl.start, operation:run.finish
 #[test]
 fn a_crawls_seeds_reach_the_handler_and_their_records_commit_once() {

@@ -14,7 +14,7 @@ use goodfetch_protocol::run::completeness::{FAILED, STOPPED};
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, KindUsage, Lifecycle,
     NothingDone, PointInTime, ProxyKindBytes, RunId, RunReport, RunUsage, RunWarning, StopReason,
-    UsageAmount, Verdict,
+    UNCERTAIN_EFFECTS, UsageAmount, Verdict,
 };
 use goodfetch_protocol::settings::{ExplainedSetting, WeakenedSetting};
 use goodfetch_protocol::usage::{
@@ -87,7 +87,7 @@ pub(super) fn assemble(
     let uncertain = report.uncertain_effects.as_ref().map_or(0, Vec::len);
     if uncertain > 0 {
         report.needs_review(AxisReason {
-            code: "uncertain_effects".to_owned(),
+            code: UNCERTAIN_EFFECTS.to_owned(),
             message: format!(
                 "{uncertain} Effect(s) left uncertain: a person says whether each happened."
             ),

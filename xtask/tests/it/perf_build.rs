@@ -50,9 +50,10 @@ fn crate_with_benches(workspace: &Workspace, benches: &[&str]) {
     workspace.write("ci/perf-reference.toml", b"");
 }
 
-/// A stand-in for Cargo that hands every command but `fetch` and `bench` to
-/// the real one. It logs each `fetch` and `bench` as it starts and ends, with
-/// its folder, `CARGO_TARGET_DIR` and arguments, and hands `fetch` on too.
+/// A stand-in for Cargo that hands every command but `fetch`, `bench` and
+/// `run` to the real one. It logs each of the three as it starts and ends,
+/// with its folder, `CARGO_TARGET_DIR` and arguments, hands `fetch` on too,
+/// and runs nothing for `run`.
 /// Each `bench` waits, up to 10 s, until the other side's has started, and
 /// fails when the sides build one after the other; then it writes a line to
 /// stderr and exits with `status`.
@@ -67,7 +68,7 @@ fn building_cargo(workspace: &Workspace, status: u8) -> std::path::PathBuf {
     let script = format!(
         r#"#!/bin/sh
 case "$1" in
-  fetch | bench) ;;
+  fetch | bench | run) ;;
   *) exec "{real}" "$@" ;;
 esac
 case "$CARGO_TARGET_DIR" in
@@ -76,6 +77,10 @@ case "$CARGO_TARGET_DIR" in
 esac
 log() {{ printf '%s\t%s\t%s\t%s\n' "$1" "$(pwd -P)" "$CARGO_TARGET_DIR" "$2" >> "{log}"; }}
 log start "$*"
+if [ "$1" = run ]; then
+  log end "$*"
+  exit 0
+fi
 if [ "$1" = fetch ]; then
   "{real}" "$@" || exit $?
   log end "$*"
@@ -216,6 +221,86 @@ fn the_bases_and_the_heads_bench_targets_build_at_the_same_time() {
             outcome.stderr
         );
     }
+}
+
+/// A side whose tree still has a Console, as a base that predates the
+/// Console's removal does (ADR 0137, issue 2516), builds it with its own
+/// packages and its own `xtask console build`, in its tree and target
+/// folder, before its bench targets, whose Collie executable embeds it. The
+/// head, which has none, builds none.
+#[cfg(unix)]
+#[test]
+fn a_side_that_still_has_a_console_builds_it_with_its_own_xtask_before_its_bench_targets() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let workspace = Workspace::from_fixture("empty");
+    crate_with_bench(&workspace, "instructions");
+    workspace.write("xtask/src/console.rs", b"//! The Console's build.\n");
+    let base = workspace.commit_all();
+    workspace.remove("xtask/src/console.rs");
+    workspace.commit_all();
+    let cargo = building_cargo(&workspace, 0);
+    let stand_in = workspace.path().join("stand-in");
+    let pnpm = stand_in.join("pnpm");
+    std::fs::write(
+        &pnpm,
+        format!(
+            "#!/bin/sh\nprintf 'start\\t%s\\t\\tpnpm %s\\n' \"$(pwd -P)\" \"$*\" >> \"{}\"\n",
+            stand_in.join("log").display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&pnpm, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut path = vec![stand_in];
+    path.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap()));
+    let path = std::env::join_paths(path).unwrap();
+
+    let outcome = workspace.xtask_with_env(
+        &[
+            "perf",
+            "build",
+            "--base",
+            &base,
+            "--bench-targets",
+            "goodfetch-frontier/instructions",
+        ],
+        &[("CARGO", cargo.as_os_str()), ("PATH", path.as_os_str())],
+    );
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let plan: Value =
+        serde_json::from_slice(&workspace.read("target/perf/plan.json").unwrap()).unwrap();
+    let base_directory = format!("{}/perf-base", plan["target_directory"].as_str().unwrap());
+    let root = workspace.path().canonicalize().unwrap();
+    let tree = root.join("target/perf-base-tree");
+    let logged = logged(&workspace);
+    let started = |folder: &std::path::Path| -> Vec<(&str, &str)> {
+        logged
+            .iter()
+            .filter(|logged| logged.event == "start" && logged.folder == folder)
+            .map(|logged| (logged.target_directory.as_str(), logged.args.as_str()))
+            .collect()
+    };
+    let bench = "bench --locked --package goodfetch-frontier --bench instructions --no-run";
+    assert_eq!(
+        started(&tree),
+        vec![
+            (base_directory.as_str(), "fetch --locked"),
+            ("", "pnpm install --frozen-lockfile"),
+            (
+                base_directory.as_str(),
+                "run --locked --package xtask -- console build"
+            ),
+            (base_directory.as_str(), bench),
+        ]
+    );
+    assert_eq!(
+        started(&root)
+            .into_iter()
+            .map(|(_, args)| args)
+            .collect::<Vec<_>>(),
+        vec![bench]
+    );
 }
 
 /// When both sides fail, the build fails naming each failure, not only the

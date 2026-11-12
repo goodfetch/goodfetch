@@ -300,6 +300,53 @@ fn a_test_quarantined_and_lifted_on_a_merged_branch_runs_200_times() {
     );
 }
 
+/// A base that still has a Console, as one that predates the Console's
+/// removal does (ADR 0137, issue 2516): its crate embeds its Console build
+/// and does not compile without it, so its checkout builds it with its own
+/// `xtask console build` before nextest lists its tests. The head has none.
+#[test]
+fn a_base_that_still_has_a_console_builds_it_with_its_own_xtask_before_it_is_listed() {
+    let workspace = Workspace::from_fixture("stress");
+    workspace.install_runners();
+    workspace.write("quarantine.toml", b"");
+    let manifest = workspace.read_text("Cargo.toml");
+    let library = workspace.read_text("src/lib.rs");
+    workspace.write(
+        "Cargo.toml",
+        format!("{manifest}members = [\"xtask\"]\n").as_bytes(),
+    );
+    workspace.write(
+        "Cargo.lock",
+        b"version = 4\n\n[[package]]\nname = \"stressed\"\nversion = \"0.0.0\"\n\n[[package]]\nname = \"xtask\"\nversion = \"0.0.0\"\n",
+    );
+    workspace.write(
+        "xtask/Cargo.toml",
+        b"[package]\nname = \"xtask\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n",
+    );
+    workspace.write("xtask/src/console.rs", b"//! The Console's build.\n");
+    workspace.write(
+        "xtask/src/main.rs",
+        b"//! Builds the Console.\n\nmod console;\n\nfn main() {\n    let arguments: Vec<String> = std::env::args().skip(1).collect();\n    assert_eq!(arguments, [\"console\", \"build\"]);\n    std::fs::create_dir_all(\"console-build\").unwrap();\n    std::fs::write(\"console-build/page\", \"built\").unwrap();\n}\n",
+    );
+    workspace.write(
+        "src/lib.rs",
+        format!("{library}\n/// The embedded Console build.\npub const CONSOLE: &str = include_str!(\"../console-build/page\");\n")
+            .as_bytes(),
+    );
+    let base = workspace.commit_all();
+    workspace.remove_folder("xtask");
+    workspace.remove("Cargo.lock");
+    workspace.write("Cargo.toml", manifest.as_bytes());
+    workspace.write("src/lib.rs", library.as_bytes());
+    workspace.edit("src/changed.rs", "fn kept() {}", &rstest_cases(&["case_1"]));
+    workspace.commit_all();
+
+    let selection = select(&workspace, &["--base", &base, "--within", "stressed"]);
+
+    let added = selected(CHANGED, "nextest", "stressed changed::tests::reads::case_1");
+    assert!(selection.contains(&added), "{selection:?}");
+}
+
 /// The other workspace builds a test of its own after this one is copied and
 /// frees its target folder first. Were this one to take that folder then, its
 /// older sources would read as already built, and its listing would hold the

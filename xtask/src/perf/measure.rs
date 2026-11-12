@@ -50,7 +50,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{Context as _, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::{git, metadata, output};
+use crate::{base_console, git, metadata, output};
 
 use super::budget;
 use super::gungraun;
@@ -277,7 +277,8 @@ struct Side<'a> {
     target_directory: &'a Path,
 }
 
-/// Builds `side`'s `targets`.
+/// Builds `side`'s `targets`, after its own Console when its tree still has
+/// one.
 fn build_side(cargo: &OsStr, builds: &AtOnce, side: &Side<'_>, targets: &[String]) -> Result<()> {
     if !targets.is_empty() {
         builds.run(
@@ -285,6 +286,20 @@ fn build_side(cargo: &OsStr, builds: &AtOnce, side: &Side<'_>, targets: &[String
             cargo_command(cargo, side.tree, side.target_directory).args(["fetch", "--locked"]),
             &format!("cargo fetch in the {}", side.name),
         )?;
+        // A side that predates the Console's removal builds its own Console
+        // first (issue 2516).
+        if base_console::in_tree(side.tree) {
+            builds.run(
+                side.name,
+                &mut base_console::install(side.tree),
+                &format!("installing the {}'s packages", side.name),
+            )?;
+            builds.run(
+                side.name,
+                &mut base_console::build(cargo, side.tree, side.target_directory),
+                &format!("building the {}'s Console", side.name),
+            )?;
+        }
     }
     for target in targets {
         builds.run(

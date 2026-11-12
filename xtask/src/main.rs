@@ -13,6 +13,7 @@ mod advisories;
 mod affected;
 mod all_green;
 mod allure;
+mod base_console;
 mod budgets;
 mod ceiling;
 mod check;

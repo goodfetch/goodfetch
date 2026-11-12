@@ -12,7 +12,7 @@ use super::plan::{
     gate_input, narrowed, plan, unit,
 };
 use super::steps::{Entry, Form, Kind, entries};
-use super::{plan_value, render, runs};
+use super::{plan_value, render, runs, step_variables};
 use crate::affected::{Job, RepoPath};
 
 const BASE: &str = "base";
@@ -139,6 +139,23 @@ const ALWAYS: [&str; 12] = [
     "journeys-tasks",
     "features-tests",
 ];
+
+#[test]
+fn a_variable_only_the_launcher_reads_is_not_one_of_the_steps() {
+    let launched = "CARGO_INCREMENTAL=0\nGOODFETCH_GATE_MIN_FREE_GB=60\nGOODFETCH_LAZYFS=/lazyfs";
+
+    assert_eq!(
+        step_variables(launched),
+        "CARGO_INCREMENTAL=0\nGOODFETCH_LAZYFS=/lazyfs"
+    );
+}
+
+#[test]
+fn a_variable_whose_name_only_starts_as_the_launchers_stays() {
+    let launched = "GOODFETCH_GATE_MIN_FREE_GB_PER_STEP=2\nNEXTEST_DOUBLE_SPAWN=0";
+
+    assert_eq!(step_variables(launched), launched);
+}
 
 #[test]
 fn without_an_earlier_run_every_step_runs_in_full() {

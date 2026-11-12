@@ -600,7 +600,7 @@ fn a_damaged_pin_row_stops_the_host_as_a_changed_key() {
         json!({
             "host": "expired.listed.test",
             "presented_spki_sha256": through.presented.to_string(),
-            "fix": "A person accepts the new key of expired.listed.test with `certs accept expired.listed.test` in a terminal or the Kennel, or removes its pin with `certs forget expired.listed.test`; no agent, Recipe or `--json` command can.",
+            "fix": "A person accepts the new key of expired.listed.test with `certs accept expired.listed.test` in a terminal, or removes its pin with `certs forget expired.listed.test`; no agent, Recipe or `--json` command can.",
         })
     );
 }

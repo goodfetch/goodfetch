@@ -96,7 +96,7 @@ impl CertificateChanged {
             pinned_spki_sha256: self.pinned.map(|key| key.to_string()),
             presented_spki_sha256: self.presented.to_string(),
             fix: format!(
-                "A person accepts the new key of {host} with `certs accept {host}` in a terminal or the Kennel, or removes its pin with `certs forget {host}`; no agent, Recipe or `--json` command can."
+                "A person accepts the new key of {host} with `certs accept {host}` in a terminal, or removes its pin with `certs forget {host}`; no agent, Recipe or `--json` command can."
             ),
         }
     }

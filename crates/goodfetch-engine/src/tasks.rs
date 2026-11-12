@@ -122,7 +122,7 @@ impl TaskOwner {
     /// to its holder ([`TaskOwner::panicked`]).
     #[must_use]
     pub fn child(&self) -> Self {
-        self.child_for(self.panics.kind)
+        self.child_for(self.panics.kind())
     }
 
     /// An owner under this one, as [`TaskOwner::child`], of `kind`, such
@@ -158,7 +158,7 @@ impl TaskOwner {
     /// Dropping the future stops waiting; a later wait still sees a panic
     /// told before it.
     pub fn panicked(&self) -> impl Future<Output = ()> + Send + 'static {
-        CancellationToken::clone(&self.panics.panicked).cancelled_owned()
+        self.panics.panicked().clone().cancelled_owned()
     }
 
     /// Whether one of its tasks, its actors or its blocking work whose
@@ -167,7 +167,7 @@ impl TaskOwner {
     /// before the task ends, so once its tasks ended ([`TaskOwner::wait`])
     /// this reads every panic among them.
     pub fn has_panicked(&self) -> bool {
-        self.panics.panicked.is_cancelled()
+        self.panics.panicked().is_cancelled()
     }
 
     /// Its blocking policy.
@@ -412,31 +412,45 @@ impl BlockingThreads {
 
 /// Where an owner's panics are told: logged at `error` with its kind, then
 /// told to whoever awaits [`TaskOwner::panicked`], its parent.
+///
+/// One pointer, which every task's watch holds: a call's task (ADR 0140's
+/// E1 starts one a call) grows by no more, and starting one copies no token.
 #[derive(Clone, Debug)]
-struct Panics {
+struct Panics(Arc<Telling>);
+
+/// What an owner's tasks tell, shared by their watches.
+#[derive(Debug)]
+struct Telling {
     kind: OwnerKind,
-    /// Cancelled once one of the owner's tasks panicked; shared, so that
-    /// starting a task copies no token (ADR 0140's E1 starts one a call).
-    panicked: Arc<CancellationToken>,
+    /// Cancelled once one of the owner's tasks panicked.
+    panicked: CancellationToken,
 }
 
 impl Panics {
     fn new(kind: OwnerKind) -> Self {
-        Self {
+        Self(Arc::new(Telling {
             kind,
-            panicked: Arc::new(CancellationToken::new()),
-        }
+            panicked: CancellationToken::new(),
+        }))
+    }
+
+    fn kind(&self) -> OwnerKind {
+        self.0.kind
+    }
+
+    fn panicked(&self) -> &CancellationToken {
+        &self.0.panicked
     }
 
     /// Tells a panic of one of the owner's tasks, whose crash report is
     /// `crash_report`, when one was written.
     fn tell(&self, crash_report: Option<&str>) {
         tracing::error!(
-            owner = self.kind.as_str(),
+            owner = self.kind().as_str(),
             crash_report,
             "a task panicked, and its owner's parent is told"
         );
-        self.panicked.cancel();
+        self.panicked().cancel();
     }
 }
 

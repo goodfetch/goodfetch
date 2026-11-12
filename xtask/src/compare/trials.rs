@@ -27,6 +27,13 @@ pub(crate) const SITE_PAGES: u64 = crate::rss::crawl::PAGES;
 /// resident memory is read at.
 pub(crate) const GROWTH_PAGES: u64 = 100_000;
 pub(crate) const MILESTONES: [u64; 3] = [1_000, 10_000, 100_000];
+/// The sites the sizes cell crawls, and the requests in flight it crawls
+/// each at: [`CONCURRENCY`] first, the one Foxhound's peak is held to
+/// Spider's at, then 1 and 64, reported without that bar (spec #2165).
+pub(crate) const SIZES: [u64; 3] = [100, 1_000, 10_000];
+pub(crate) const SIZE_CONCURRENCIES: [u32; 3] = [CONCURRENCY, 1, 64];
+/// The tools the sizes cell crawls with, each on its scenario 1 main row.
+pub(crate) const SIZE_TOOLS: [Tool; 2] = [Tool::Foxhound, Tool::Spider];
 /// Spider's pinned version, which `xtask/compare-spider/Cargo.toml` pins
 /// (a unit test holds the two equal).
 pub(crate) const SPIDER_VERSION: &str = "2.53.9";
@@ -152,6 +159,14 @@ pub(crate) struct Sampled {
     /// each page two of its processes share counted once. None when a
     /// sample could not read a live process's.
     pub(crate) peak_pss_bytes: Option<u64>,
+    /// The tree's private memory at its highest sample: what its
+    /// processes allocated, its resident pages less those backed by a file
+    /// or shared memory (`RssAnon`).
+    pub(crate) peak_private_bytes: u64,
+    /// The followed process's executable's own file-backed pages at their
+    /// highest sample, its code and read-only data (#2114): none when the
+    /// trial did not read them or no sample could.
+    pub(crate) peak_executable_bytes: Option<u64>,
     /// The most cores the tree used over any window of
     /// [`super::sampler::CORE_WINDOW_SAMPLES`] samples; none for a crawl
     /// that ended within one window.
@@ -177,6 +192,8 @@ pub(crate) struct Trial {
     pub(crate) number: u32,
     /// The pages of the site it crawled.
     pub(crate) site_pages: u64,
+    /// Requests it had in flight at once.
+    pub(crate) concurrency: u32,
     /// The 1-minute load average when it started, where the OS gives one:
     /// a quiet machine is under [`QUIET_LOAD`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -307,6 +324,36 @@ pub(crate) enum GrowthCell {
     },
 }
 
+/// A sizes cell's trial stopped twice: its cell is not measured at that
+/// size and concurrency.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct StoppedSize {
+    pub(crate) site_pages: u64,
+    pub(crate) concurrency: u32,
+    #[serde(flatten)]
+    pub(crate) run: StoppedRun,
+}
+
+/// The sizes cell: scenario 1's Foxhound and Spider main cells' crawls of
+/// each site of [`SIZES`] at each concurrency of [`SIZE_CONCURRENCIES`],
+/// their samples reading the executable's own pages, for the peak memory
+/// of each (spec #2165).
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub(crate) enum SizesCell {
+    NotRun {
+        reason: String,
+    },
+    Measured {
+        /// Trials of each cell at each size and concurrency.
+        trials: u32,
+        trials_run: Vec<Trial>,
+        /// The points whose trial was stopped twice: not measured.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        stopped: Vec<StoppedSize>,
+    },
+}
+
 /// The trials file: one comparison.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Comparison {
@@ -324,6 +371,7 @@ pub(crate) struct Comparison {
     /// strace's count of each measured cell's system calls and syncs.
     pub(crate) syscalls: CountedCell,
     pub(crate) growth: GrowthCell,
+    pub(crate) sizes: SizesCell,
     /// Callgrind's count of scenario 1's instructions, Foxhound's and
     /// Spider's: ADR 0140's row compares those two, and instructions are no
     /// metric of the owner's list for the other tools.

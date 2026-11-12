@@ -1030,8 +1030,11 @@ release-ci cells="all" commit="":
 # executables with the `ci` profile the Release suite's cells build, for the
 # Rust target they ship for here (the static musl one on Linux, ADR 0024),
 # runs the scenario (every scenario when none is named: idle-attached-engine,
-# idle-daemon and crawl, the last on Foxhound against a Proving ground it
-# serves) on each executable it runs on, then holds each peak to its ceiling in
+# idle-daemon, and Foxhound's crawl of 100, 1,000 and 10,000 pages against a
+# Proving ground it serves, each size with `governor.huge_pages` off and, on
+# Linux alone, on: crawl-100, crawl-1000, crawl-10000 and each with
+# -huge-pages) on each executable it runs on, each run once the executable
+# is dropped from the page cache, then holds each peak to its ceiling in
 # ci/rss-ceilings.toml and shows it against its Performance target. With no
 # ceilings file it reports and gates nothing. The JUnit file and the figures
 # the results store keeps go to target/junit/.
@@ -1081,7 +1084,12 @@ rss-propose *scenarios:
 # installed it (`pnpm exec playwright install chromium`). A cell a tool
 # cannot run says why: 10 trials of each measured cell in random order,
 # each tool in a fresh process against a fresh Proving ground at 16
-# requests at once over the scenario's 1,000-page site.
+# requests at once over the scenario's 1,000-page site; then the sizes cell,
+# scenario 1's main rows of Foxhound and Spider over the sites of 100, 1,000
+# and 10,000 pages at 16, 1 and 64 requests at once, for their peak memory
+# (spec #2165). Foxhound is built for the Rust target it ships for here (the
+# static musl one on Linux, ADR 0024), Spider for the host's; every
+# executable is dropped from the page cache before each trial.
 # Every metric is measured from outside the tools (the OS's accounting of
 # the waited-for children, /proc samples of the process tree, the Proving
 # ground's observations, the data folder left), then each cell's system
@@ -1103,7 +1111,8 @@ rss-propose *scenarios:
 # xtask/compare-spider needs).
 # Runs the comparison matrix on this machine.
 compare profile="release" *args:
-    cargo run --quiet --bin xtask -- test-tools build --cargo-profile {{ profile }} --out "$PWD/target/compare/test-tools.json"
+    {{ if os() == "linux" { "ci/musl/install.sh" } else { "true" } }}
+    cargo run --quiet --bin xtask -- test-tools build --cargo-profile {{ profile }} --shipped-target --out "$PWD/target/compare/test-tools.json"
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/spider
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features chrome --target-dir {{ compare_spider_builds }}/spider-chrome
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features defaults --target-dir {{ compare_spider_builds }}/spider-defaults
@@ -1166,10 +1175,11 @@ musl-toolchain:
 # each owner test: each Product's release build for the Rust target it ships
 # for here (the static musl one on Linux, ADR 0024), its startup to `hello`
 # with hyperfine (10 warm-up runs, then 100; median), and its idle Attached
-# engine's, idle Daemon's and (Foxhound's) 1,000-page crawl's peaks (median
-# of 5 runs each; on Linux, beside each, how much is the executable's own
-# file-backed pages), with the pages per second of the latest
-# `just compare` report's scenario 1. Writes target/targets/report.md: each
+# engine's, idle Daemon's and (Foxhound's) 100-, 1,000- and 10,000-page
+# crawls' peaks (median of 5 runs each; on Linux, beside each, how much is
+# the executable's own file-backed pages), each crawl's against Spider's
+# peak at its size in the latest `just compare` report (the bar of spec
+# #2165), with the pages per second of that report's scenario 1. Writes target/targets/report.md: each
 # target, its figure, met or missed with its gap and the optimization
 # pass's write-up from ci/performance-target-gaps.toml. Labelled
 # `local-controlled`, never published (ADR 0076); it fails on no miss.
@@ -1179,7 +1189,7 @@ targets:
     cargo run --quiet --bin xtask -- test-tools build --cargo-profile release --shipped-target --out "$PWD/target/targets/test-tools.json"
     rm -f target/targets/peaks.jsonl target/targets/startup-*.json
     cargo run --quiet --bin xtask -- targets startup --tools target/targets/test-tools.json --out target/targets
-    cargo run --quiet --bin xtask -- rss measure idle-attached-engine idle-daemon crawl --runs 5 --tools target/targets/test-tools.json --out target/targets/peaks.jsonl
+    cargo run --quiet --bin xtask -- rss measure idle-attached-engine idle-daemon crawl-100 crawl-1000 crawl-10000 --runs 5 --tools target/targets/test-tools.json --out target/targets/peaks.jsonl
     cargo run --quiet --bin xtask -- targets report --measured target/targets
 
 # The Counted work of each row of the Quality register on its benchmark,

@@ -2,7 +2,7 @@ use super::{check, strace_runs_of_other_work_set_aside};
 use crate::compare::matrix::{self, Row, Scenario};
 use crate::compare::trials::{
     Comparison, CountedCell, CountedRun, Declared, GrowthCell, INSTRUCTION_TOOLS, Machine,
-    Measured, Tool, Trial, Work,
+    Measured, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, Tool, Trial, Work,
 };
 
 /// The work of a trial that fetched every page of the 4-page site once,
@@ -30,6 +30,7 @@ fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
                 tool: config.tool(),
                 number,
                 site_pages: 4,
+                concurrency: 16,
                 load: None,
                 retried: None,
                 measured: Measured {
@@ -70,6 +71,9 @@ fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
             reason: "a test".to_owned(),
         },
         growth: GrowthCell::NotRun {
+            reason: "a test".to_owned(),
+        },
+        sizes: SizesCell::NotRun {
             reason: "a test".to_owned(),
         },
         instructions: CountedCell::NotRun {
@@ -470,5 +474,82 @@ fn a_run_fetched_the_site_when_it_reached_each_of_its_pages_and_no_other() {
             ..work(0)
         }
         .is_the_site_of(4)
+    );
+}
+
+/// Three trials of each scenario 1 main cell of Foxhound and Spider at
+/// each size and concurrency, each fetching its site's pages once, the
+/// first at 100 pages and 64 in flight short of a page.
+fn sizes() -> SizesCell {
+    let trials_run = matrix::measured()
+        .filter(|(cell, config)| {
+            cell.scenario == Scenario::Raw
+                && cell.row == Row::Main
+                && SIZE_TOOLS.contains(&config.tool())
+        })
+        .flat_map(|(cell, config)| {
+            SIZES.into_iter().flat_map(move |pages| {
+                SIZE_CONCURRENCIES.into_iter().flat_map(move |concurrency| {
+                    (1..=3).map(move |number| {
+                        let short = (pages, concurrency, number) == (100, 64, 1);
+                        let fetched = if short { pages - 1 } else { pages };
+                        Trial {
+                            scenario: cell.scenario,
+                            cell: cell.name.to_owned(),
+                            tool: config.tool(),
+                            number,
+                            site_pages: pages,
+                            concurrency,
+                            load: None,
+                            retried: None,
+                            measured: Measured {
+                                seconds: 1.0,
+                                work: Work {
+                                    pages: fetched,
+                                    missing: if short {
+                                        vec!["/sites/100/100".to_owned()]
+                                    } else {
+                                        Vec::new()
+                                    },
+                                    extra: Vec::new(),
+                                    requests: fetched,
+                                    bytes: 600 * fetched,
+                                    first_bytes: 600 * fetched,
+                                },
+                                ..Measured::default()
+                            },
+                        }
+                    })
+                })
+            })
+        })
+        .collect();
+    SizesCell::Measured {
+        trials: 3,
+        trials_run,
+        stopped: Vec::new(),
+    }
+}
+
+/// The sizes cell's trials are held to their own size's site, each size
+/// and concurrency apart: the trial short of a page at 100 pages and 64 in
+/// flight is named there, and no point is short of its trials.
+#[test]
+fn a_sizes_trial_is_held_to_its_own_sizes_site() {
+    let mut trials = comparison(|_, _| work(0));
+    trials.sizes = sizes();
+
+    assert_eq!(
+        named(&trials),
+        vec![
+            (
+                "different_pages",
+                "raw foxhound sizes 100 pages at 64 trial 1".to_owned()
+            ),
+            (
+                "different_pages",
+                "raw spider sizes 100 pages at 64 trial 1".to_owned()
+            ),
+        ]
     );
 }

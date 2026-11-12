@@ -63,7 +63,7 @@ fn each_cells_trials_run_once_each_interleaved_with_the_others() {
 
     let mut ran: Vec<(&str, u32)> = order
         .iter()
-        .map(|(cell, _, number)| (cell.name, *number))
+        .map(|((cell, _), number)| (cell.name, *number))
         .collect();
     let first_half: Vec<&str> = ran[..ran.len() / 2].iter().map(|(name, _)| *name).collect();
     let mixed = cells

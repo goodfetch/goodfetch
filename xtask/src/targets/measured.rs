@@ -15,6 +15,7 @@ use goodfetch_protocol::catalog::Product;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
+use crate::rss::crawl::CONCURRENCY;
 use crate::rss::peaks::{self, Peak, parse_name};
 use crate::rss::scenario::Scenario;
 
@@ -74,8 +75,9 @@ pub(crate) struct Startup {
     pub(crate) runs: usize,
 }
 
-/// One tool's median pages per second in scenario 1 of a `just compare` report;
-/// the crawl's peak is the resident-memory check's `crawl` scenario's.
+/// One tool's median pages per second in scenario 1 of a `just compare`
+/// report; the crawl's peaks are the resident-memory check's crawl
+/// scenarios'.
 #[derive(Deserialize)]
 pub(crate) struct CrawlFigures {
     pub(crate) pages_per_second: f64,
@@ -87,11 +89,38 @@ pub(crate) struct SpiderTools {
     pub(crate) spider: CrawlFigures,
 }
 
+/// One tool's figures at one point of the sizes cell: its peak, when
+/// measured.
+#[derive(Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub(crate) enum SizeFigures {
+    Measured { peak_bytes: u64 },
+    NotMeasured {},
+}
+
+/// One size and concurrency of the sizes cell, each tool's figures by its
+/// name.
+#[derive(Deserialize)]
+pub(crate) struct SizePoint {
+    pub(crate) site_pages: u64,
+    pub(crate) concurrency: u32,
+    pub(crate) tools: BTreeMap<String, SizeFigures>,
+}
+
+/// The sizes cell of a `just compare` report.
+#[derive(Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub(crate) enum Sizes {
+    NotRun {},
+    Measured { points: Vec<SizePoint> },
+}
+
 /// The parts of a `just compare` report the targets read.
 #[derive(Deserialize)]
 pub(crate) struct SpiderReport {
     pub(crate) commit: String,
     pub(crate) tools: SpiderTools,
+    pub(crate) sizes: Sizes,
 }
 
 #[derive(Deserialize)]
@@ -154,6 +183,22 @@ impl Measured {
             .filter(|peak| peak.product == product && peak.scenario == scenario)
             .filter_map(|peak| peak.executable_bytes)
             .collect()
+    }
+
+    /// Spider's median peak at `pages` pages and [`CONCURRENCY`] in flight
+    /// in the latest `just compare` report, with its commit, if measured.
+    pub(crate) fn spider_peak(&self, pages: u64) -> Option<(u64, &str)> {
+        let report = self.spider.as_ref()?;
+        let Sizes::Measured { points } = &report.sizes else {
+            return None;
+        };
+        let point = points
+            .iter()
+            .find(|point| point.site_pages == pages && point.concurrency == CONCURRENCY)?;
+        match point.tools.get("spider")? {
+            SizeFigures::Measured { peak_bytes } => Some((*peak_bytes, report.commit.as_str())),
+            SizeFigures::NotMeasured {} => None,
+        }
     }
 
     /// The optimization pass's write-up of `target` on `product`.

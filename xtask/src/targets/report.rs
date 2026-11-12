@@ -111,12 +111,15 @@ fn markdown(platform: &str, rows: &[Row], measured: &Measured) -> String {
         text,
         "\nStartup to `hello` is hyperfine's median after {WARMUP} warm-up runs and {RUNS} runs, \
          each from the engine's start to its exit once `hello` on its input is answered and its \
-         input ends. Every resident-memory figure, idle and the crawl's peak, is the median of \
-         the resident-memory check's scenario's peaks (`xtask rss measure`); its executable's \
+         input ends. Every resident-memory figure, idle and the crawl's peaks, is the median of \
+         the resident-memory check's scenario's peaks (`xtask rss measure`), each run once the \
+         executable is dropped from the page cache; its executable's \
          pages are the median of the highest samples, on Linux, of the measured executable's own \
          file-backed resident pages (its mappings' `Rss` less `Anonymous` in `/proc/<pid>/smaps`), \
-         the part of the figure that is its code and read-only data rather than what it allocated. Only the crawl's \
-         pages per second is Foxhound's median in scenario 1 of the latest `just compare` report{}.\n",
+         the part of the figure that is its code and read-only data rather than what it allocated. \
+         Each crawl peak's target, the bar of spec #2165, is Spider's median peak at the same size and \
+         16 in flight in the sizes cell of the latest `just compare` report, and the crawl's \
+         pages per second is Foxhound's median in scenario 1 of that report{}.\n",
         if measured.spider.is_some() {
             ""
         } else {

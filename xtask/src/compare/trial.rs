@@ -469,6 +469,9 @@ pub(crate) struct Plan<'a> {
     /// Chrome for Testing's folder, which the headless browser scenario's
     /// tools run.
     pub(crate) browser: Option<&'a Path>,
+    /// Whether a timed trial's sampler reads the tool's executable's own
+    /// pages: the sizes cell's trials do (spec #2165).
+    pub(crate) executable_pages: bool,
 }
 
 impl Plan<'_> {
@@ -755,7 +758,7 @@ impl Plan<'_> {
         mark(&self.site, &self.kind().host_of(1))?;
         let started_wall = wall();
         let started = now();
-        let sampler = Sampler::start(started);
+        let sampler = Sampler::start(started, self.executable_pages);
         let crawled = self.crawl(
             home.path(),
             Some(&sampler),

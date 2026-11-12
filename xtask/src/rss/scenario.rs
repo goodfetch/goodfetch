@@ -1,8 +1,10 @@
 //! The resident-memory scenarios (ADRs 0071, 0094 and 0134): an Attached
 //! engine idle after `hello` and an idle Daemon, on each Product's
-//! executable, and the 1,000-page HTTP crawl of the local Proving ground,
-//! on Foxhound's. Each names the Products whose executables it runs on, its
-//! Performance target and how it drives the executable.
+//! executable, and the HTTP crawl of the local Proving ground's 100-,
+//! 1,000- and 10,000-page sites, on Foxhound's, with `governor.huge_pages`
+//! off as shipped and on (spec #2165). Each names the Products whose
+//! executables it runs on, its Performance target and how it drives the
+//! executable.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: a scenario idles its child on a blocking sleep and writes its home's configuration with blocking fs (STYLE.md)"
@@ -18,6 +20,7 @@ use anyhow::{Context as _, Result, bail};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile};
+use goodfetch_protocol::home::{USER_CONFIGURATION_FILE, per_major};
 use goodfetch_protocol::jsonrpc::{Message, Request, RequestId, Version};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -51,39 +54,122 @@ pub(crate) enum Scenario {
     IdleAttachedEngine,
     /// A Daemon with no run, idle once it printed its runtime file.
     IdleDaemon,
-    /// Foxhound's code-free HTTP crawl of the Proving ground's 1,000-page
-    /// site at M1's concurrency.
-    Crawl,
+    /// Foxhound's code-free HTTP crawl of the Proving ground's 100-page
+    /// site at M1's concurrency, as shipped.
+    #[value(name = "crawl-100")]
+    #[serde(rename = "crawl-100")]
+    Crawl100,
+    /// The same crawl of the 1,000-page site.
+    #[value(name = "crawl-1000")]
+    #[serde(rename = "crawl-1000")]
+    Crawl1000,
+    /// The same crawl of the 10,000-page site.
+    #[value(name = "crawl-10000")]
+    #[serde(rename = "crawl-10000")]
+    Crawl10000,
+    /// The 100-page crawl with `governor.huge_pages` on (ADR 0138).
+    #[value(name = "crawl-100-huge-pages")]
+    #[serde(rename = "crawl-100-huge-pages")]
+    Crawl100HugePages,
+    /// The 1,000-page crawl with `governor.huge_pages` on.
+    #[value(name = "crawl-1000-huge-pages")]
+    #[serde(rename = "crawl-1000-huge-pages")]
+    Crawl1000HugePages,
+    /// The 10,000-page crawl with `governor.huge_pages` on.
+    #[value(name = "crawl-10000-huge-pages")]
+    #[serde(rename = "crawl-10000-huge-pages")]
+    Crawl10000HugePages,
 }
 
+/// One crawl scenario's site and setting.
+#[derive(Clone, Copy)]
+pub(crate) struct CrawlRow {
+    /// The pages of the site crawled.
+    pub(crate) pages: u64,
+    /// Whether its home's user configuration turns `governor.huge_pages`
+    /// on, which only Linux honours.
+    pub(crate) huge_pages: bool,
+}
+
+/// The crawl scenarios' user configuration with huge pages on:
+/// `governor.huge_pages` has Machine authority, so a Run's settings cannot
+/// carry it (ADR 0138).
+const HUGE_PAGES_CONFIGURATION: &str =
+    "version = \"0.1\"\n\n[settings]\ngovernor.huge_pages = true\n";
+
 impl Scenario {
-    pub(crate) const ALL: [Self; 3] = [Self::IdleAttachedEngine, Self::IdleDaemon, Self::Crawl];
+    pub(crate) const ALL: [Self; 8] = [
+        Self::IdleAttachedEngine,
+        Self::IdleDaemon,
+        Self::Crawl100,
+        Self::Crawl1000,
+        Self::Crawl10000,
+        Self::Crawl100HugePages,
+        Self::Crawl1000HugePages,
+        Self::Crawl10000HugePages,
+    ];
 
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::IdleAttachedEngine => "idle-attached-engine",
             Self::IdleDaemon => "idle-daemon",
-            Self::Crawl => "crawl",
+            Self::Crawl100 => "crawl-100",
+            Self::Crawl1000 => "crawl-1000",
+            Self::Crawl10000 => "crawl-10000",
+            Self::Crawl100HugePages => "crawl-100-huge-pages",
+            Self::Crawl1000HugePages => "crawl-1000-huge-pages",
+            Self::Crawl10000HugePages => "crawl-10000-huge-pages",
         }
+    }
+
+    /// The crawl it is, if it crawls the Proving ground, which `measure`
+    /// serves outside the probe, so its memory is never the measured
+    /// process's.
+    pub(crate) fn crawl(self) -> Option<CrawlRow> {
+        let (pages, huge_pages) = match self {
+            Self::IdleAttachedEngine | Self::IdleDaemon => return None,
+            Self::Crawl100 => (100, false),
+            Self::Crawl1000 => (1_000, false),
+            Self::Crawl10000 => (10_000, false),
+            Self::Crawl100HugePages => (100, true),
+            Self::Crawl1000HugePages => (1_000, true),
+            Self::Crawl10000HugePages => (10_000, true),
+        };
+        Some(CrawlRow { pages, huge_pages })
     }
 
     /// The Products whose executables it runs on: each, for a figure of the
-    /// executable itself, and Foxhound alone for the crawl, which it carries
+    /// executable itself, and Foxhound alone for a crawl, which it carries
     /// (ADR 0094).
     pub(crate) fn products(self) -> &'static [Product] {
-        match self {
-            Self::IdleAttachedEngine | Self::IdleDaemon => &[Product::Collie, Product::Foxhound],
-            Self::Crawl => &[Product::Foxhound],
+        if self.crawl().is_some() {
+            &[Product::Foxhound]
+        } else {
+            &[Product::Collie, Product::Foxhound]
         }
     }
 
-    /// Its Performance target in bytes (ADR 0134), which never gates.
+    /// Its Performance target in bytes (ADR 0134), which never gates: a
+    /// crawl's at every size, which `just targets` tightens to Spider's
+    /// peak where that is lower (spec #2165).
     pub(crate) fn target_bytes(self) -> u64 {
         match self {
             Self::IdleAttachedEngine => 8 * MIB,
             Self::IdleDaemon => 16 * MIB,
-            Self::Crawl => 32 * MIB,
+            Self::Crawl100
+            | Self::Crawl1000
+            | Self::Crawl10000
+            | Self::Crawl100HugePages
+            | Self::Crawl1000HugePages
+            | Self::Crawl10000HugePages => 32 * MIB,
         }
+    }
+
+    /// Whether it runs on this OS: the huge-pages rows on Linux alone,
+    /// the only OS whose allocator `governor.huge_pages` changes.
+    pub(crate) fn runs_here(self) -> bool {
+        self.crawl()
+            .is_none_or(|crawl| !crawl.huge_pages || cfg!(target_os = "linux"))
     }
 
     /// The arguments the executable takes for this scenario: the Daemon
@@ -91,15 +177,30 @@ impl Scenario {
     /// before it is stopped.
     pub(crate) fn arguments(self) -> &'static [&'static str] {
         match self {
-            Self::IdleAttachedEngine | Self::Crawl => &[goodfetch_protocol::cli::ATTACHED_ENGINE],
+            Self::IdleAttachedEngine
+            | Self::Crawl100
+            | Self::Crawl1000
+            | Self::Crawl10000
+            | Self::Crawl100HugePages
+            | Self::Crawl1000HugePages
+            | Self::Crawl10000HugePages => &[goodfetch_protocol::cli::ATTACHED_ENGINE],
             Self::IdleDaemon => &["daemon", "launched", "--keep-alive"],
         }
     }
 
-    /// Whether it crawls the Proving ground, which `measure` serves outside
-    /// the probe, so its memory is never the measured process's.
-    pub(crate) fn crawls(self) -> bool {
-        self == Self::Crawl
+    /// Writes `home`'s user configuration for this scenario: a huge-pages
+    /// crawl's alone; every other home has none, as shipped.
+    pub(crate) fn configure(self, home: &Path) -> Result<()> {
+        if !self.crawl().is_some_and(|crawl| crawl.huge_pages) {
+            return Ok(());
+        }
+        let version = ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+            .context("reading the workspace's Product version")?;
+        let major = per_major(home, &version);
+        std::fs::create_dir_all(&major).with_context(|| format!("creating {}", major.display()))?;
+        let configuration = major.join(USER_CONFIGURATION_FILE);
+        std::fs::write(&configuration, HUGE_PAGES_CONFIGURATION)
+            .with_context(|| format!("writing {}", configuration.display()))
     }
 
     /// Drives the started executable, `child`, through the scenario until
@@ -119,7 +220,12 @@ impl Scenario {
         match self {
             Self::IdleAttachedEngine => idle_attached_engine(needs, stdin, stdout),
             Self::IdleDaemon => idle_daemon(needs, child, stdin, stdout),
-            Self::Crawl => {
+            Self::Crawl100
+            | Self::Crawl1000
+            | Self::Crawl10000
+            | Self::Crawl100HugePages
+            | Self::Crawl1000HugePages
+            | Self::Crawl10000HugePages => {
                 let site = site.context("the crawl needs the Proving ground's address")?;
                 crawl::crawl(stdin, stdout, site)
             }

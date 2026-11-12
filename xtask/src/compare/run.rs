@@ -1,7 +1,8 @@
 //! `run`: every measured cell's declared trials in one random order, each
-//! against a fresh Proving ground, then the system-call cell's, the growth
-//! cell's (when asked for) and the Callgrind cell's runs in the same way,
-//! written to the trials file.
+//! against a fresh Proving ground, then the sizes cell's, the system-call
+//! cell's, the growth cell's (when asked for) and the Callgrind cell's runs
+//! in the same way, written to the trials file. Every executable a trial
+//! runs is dropped from the page cache before it starts (spec #2165).
 
 use std::io::{Read as _, Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -12,6 +13,7 @@ use anyhow::{Context as _, Result, bail};
 
 use crate::output;
 use crate::rss::crawl::serve;
+use crate::rss::page_cache;
 
 use super::matrix::{self, Cell, Config, Row, Scenario, SpiderBuild};
 use super::sampler;
@@ -20,7 +22,8 @@ use super::trials::{
     CONCURRENCY, CRAWLEE_VERSION, Comparison, CountedCell, CountedRun, Declared, GROWTH_PAGES,
     GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_TOOLS, Machine, Measured, PLAYWRIGHT_VERSION,
     QUIET_LOAD, QUIET_WAIT_SECONDS, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES,
-    SPIDER_VERSION, STATISTIC, StoppedRun, Trial,
+    SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SPIDER_VERSION, STATISTIC, SizesCell, StoppedRun,
+    StoppedSize, Trial,
 };
 
 /// The executables a run takes.
@@ -80,15 +83,12 @@ fn next(state: &mut u64) -> u64 {
     z ^ (z >> 31)
 }
 
-/// `runs` runs of each cell of `cells`, shuffled by `state` (Fisher–Yates).
-fn order(
-    cells: &[(&'static Cell, Config)],
-    runs: u32,
-    state: &mut u64,
-) -> Vec<(&'static Cell, Config, u32)> {
-    let mut order: Vec<_> = cells
+/// `runs` runs of each of `items`, each with its number from 1, shuffled
+/// by `state` (Fisher–Yates).
+fn order<T: Copy>(items: &[T], runs: u32, state: &mut u64) -> Vec<(T, u32)> {
+    let mut order: Vec<_> = items
         .iter()
-        .flat_map(|&(cell, config)| (1..=runs).map(move |number| (cell, config, number)))
+        .flat_map(|&item| (1..=runs).map(move |number| (item, number)))
         .collect();
     for last in (1..order.len()).rev() {
         let pick = usize::try_from(next(state) % (last as u64 + 1))
@@ -202,22 +202,34 @@ pub(crate) fn spider_executable(builds: &Path, profile: &str, build: SpiderBuild
     ))
 }
 
-/// One trial of `cell` against a fresh Proving ground, through `xtask
-/// compare trial`, which prints its figures as one JSON line. `mode` and
-/// `output` name a counted trial's tool and file; `watch`, what the
-/// comparison stops once [`stopped`] says why.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "xtask is synchronous: a trial runs as a blocking child process (STYLE.md)"
-)]
-fn trial<T: serde::de::DeserializeOwned>(
-    executables: &Executables<'_>,
-    cell: &Cell,
-    config: Config,
-    pages: u64,
-    mode: (&str, Option<&Path>),
-    watch: Watch,
-) -> Result<Outcome<T>> {
+/// Where a trial crawls: the site's pages and the requests it has in
+/// flight at once, and whether its samples read the tool's executable's
+/// own pages.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Crawl {
+    pub(crate) pages: u64,
+    pub(crate) concurrency: u32,
+    pub(crate) executable_pages: bool,
+}
+
+impl Crawl {
+    /// The [`SITE_PAGES`]-page site at [`CONCURRENCY`], every cell's but the
+    /// sizes cell's.
+    const MAIN: Self = Self {
+        pages: SITE_PAGES,
+        concurrency: CONCURRENCY,
+        executable_pages: false,
+    };
+
+    /// The same crawl of the site of `pages` pages.
+    fn of(self, pages: u64) -> Self {
+        Self { pages, ..self }
+    }
+}
+
+/// The executables a trial of `config` runs: the tool's, and the
+/// interpreter that runs it when it is a script.
+fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf> {
     let executable = match config {
         Config::Foxhound { .. } => executables.foxhound.to_owned(),
         Config::Spider { build, .. } => {
@@ -226,19 +238,55 @@ fn trial<T: serde::de::DeserializeOwned>(
         Config::Crawlee => executables.crawlee.to_owned(),
         Config::Scrapy => executables.scrapy.to_owned(),
     };
+    let program = trial::invocation(config, &executable).program;
+    let mut run = vec![executable];
+    if program != run[0] {
+        run.push(program);
+    }
+    run
+}
+
+/// One trial of `cell` against a fresh Proving ground, through `xtask
+/// compare trial`, which prints its figures as one JSON line, once each
+/// executable it runs is dropped from the page cache, so it pages them in
+/// by its own faults, as a first start does. `mode` and `output` name a
+/// counted trial's tool and file; `watch`, what the comparison stops once
+/// [`stopped`] says why.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "xtask is synchronous: a trial runs as a blocking child process (STYLE.md)"
+)]
+fn trial<T: serde::de::DeserializeOwned>(
+    executables: &Executables<'_>,
+    cell: &Cell,
+    config: Config,
+    crawl: Crawl,
+    mode: (&str, Option<&Path>),
+    watch: Watch,
+) -> Result<Outcome<T>> {
+    let run = executables_of(executables, config);
+    let executable = &run[0];
+    for path in &run {
+        page_cache::drop_cached(path)?;
+    }
     let serving = serve(executables.proving_ground)?;
     let probe = std::env::current_exe().context("finding xtask's own executable")?;
     let mut command = Command::new(probe);
     command
         .args(["compare", "trial", "--scenario", cell.scenario.name()])
         .args(["--cell", cell.name, "--executable"])
-        .arg(&executable)
-        .args(["--address", &serving.address, "--pages", &pages.to_string()])
-        .args(["--concurrency", &CONCURRENCY.to_string(), "--mode", mode.0])
+        .arg(executable)
+        .args(["--address", &serving.address])
+        .args(["--pages", &crawl.pages.to_string()])
+        .args(["--concurrency", &crawl.concurrency.to_string()])
+        .args(["--mode", mode.0])
         .arg("--browser")
         .arg(executables.browser);
     if let Some(output) = mode.1 {
         command.arg("--output").arg(output);
+    }
+    if crawl.executable_pages {
+        command.arg("--executable-pages");
     }
     // A file rather than a pipe: a watched trial is waited for by polling,
     // with no reader of a pipe beside it.
@@ -424,28 +472,82 @@ fn pages_of(config: Config, pages: u64, spider_pages: Option<u64>) -> u64 {
     }
 }
 
-/// Runs the timed trials of each measured cell over the site of `pages`,
-/// each watched (see [`stopped`]): a stopped trial runs once more, and a
-/// cell whose trial is stopped twice is not measured, its later trials not
-/// run. Returns the trials and the cells stopped.
+/// A timed trial's cell, its tool's configuration and its crawl.
+type Point = (&'static Cell, Config, Crawl);
+
+/// Each measured cell at `pages` pages, Spider's at `--spider-pages` when
+/// given, on [`Crawl::MAIN`].
+fn main_points(options: &Options, pages: u64) -> Vec<Point> {
+    measured(options)
+        .into_iter()
+        .map(|(cell, config)| {
+            let site_pages = pages_of(config, pages, options.spider_pages);
+            (cell, config, Crawl::MAIN.of(site_pages))
+        })
+        .collect()
+}
+
+/// The sizes cell's points: each scenario 1 main cell of [`SIZE_TOOLS`]
+/// the run measures, at each site of [`SIZES`] and each concurrency of
+/// [`SIZE_CONCURRENCIES`], its samples reading the executable's own pages.
+fn size_points(options: &Options) -> Vec<Point> {
+    let cells: Vec<_> = measured(options)
+        .into_iter()
+        .filter(|(cell, config)| {
+            cell.scenario == Scenario::Raw
+                && cell.row == Row::Main
+                && SIZE_TOOLS.contains(&config.tool())
+        })
+        .collect();
+    SIZES
+        .iter()
+        .flat_map(|&pages| {
+            SIZE_CONCURRENCIES.iter().map(move |&concurrency| Crawl {
+                pages,
+                concurrency,
+                executable_pages: true,
+            })
+        })
+        .flat_map(|crawl| {
+            cells
+                .iter()
+                .map(move |&(cell, config)| (cell, config, crawl))
+        })
+        .collect()
+}
+
+/// Runs `options.trials` timed trials of each of `points`, in one random
+/// order, each watched (see [`stopped`]): a stopped trial runs once more,
+/// and a point whose trial is stopped twice is not measured, its later
+/// trials not run. Returns the trials and the points stopped.
 fn timed(
     executables: &Executables<'_>,
     options: &Options,
-    pages: u64,
+    points: &[Point],
     state: &mut u64,
     pass: &str,
-) -> Result<(Vec<Trial>, Vec<StoppedRun>)> {
-    let cells = measured(options);
+) -> Result<(Vec<Trial>, Vec<StoppedSize>)> {
     let mut trials = Vec::new();
-    let mut stopped: Vec<StoppedRun> = Vec::new();
-    for (cell, config, number) in order(&cells, options.trials, state) {
-        if stopped
-            .iter()
-            .any(|run| run.scenario == cell.scenario && run.cell == cell.name)
-        {
+    let mut stopped: Vec<StoppedSize> = Vec::new();
+    let is_stopped = |stopped: &[StoppedSize], scenario, cell: &str, crawl: Crawl| {
+        stopped.iter().any(|point| {
+            point.run.scenario == scenario
+                && point.run.cell == cell
+                && point.site_pages == crawl.pages
+                && point.concurrency == crawl.concurrency
+        })
+    };
+    for ((cell, config, crawl), number) in order(points, options.trials, state) {
+        if is_stopped(&stopped, cell.scenario, cell.name, crawl) {
             continue;
         }
-        let site_pages = pages_of(config, pages, options.spider_pages);
+        let named = format!(
+            "{pass}{} {} trial {number} ({} pages, {} in flight)",
+            cell.scenario.name(),
+            cell.name,
+            crawl.pages,
+            crawl.concurrency,
+        );
         let mut started_at = None;
         let outcome = retried(|| {
             started_at = if waits_for_quiet(options) {
@@ -457,16 +559,12 @@ fn timed(
                 executables,
                 cell,
                 config,
-                site_pages,
+                crawl,
                 ("timed", None),
-                Watch::Timed(number, site_pages),
+                Watch::Timed(number, crawl.pages),
             )?;
             if let Outcome::Stopped(reason) = &outcome {
-                output::line(&format!(
-                    "{pass}{} {} trial {number}: {reason}.",
-                    cell.scenario.name(),
-                    cell.name,
-                ));
+                output::line(&format!("{named}: {reason}."));
             }
             Ok(outcome)
         })?;
@@ -474,46 +572,53 @@ fn timed(
             Retried::Done { measured, retried } => (measured, retried),
             Retried::Stopped(reason) => {
                 output::line(&format!(
-                    "{pass}{} {} trial {number} was stopped twice; the cell is not measured.",
-                    cell.scenario.name(),
-                    cell.name,
+                    "{named} was stopped twice; the cell is not measured there."
                 ));
-                stopped.push(StoppedRun {
-                    scenario: cell.scenario,
-                    cell: cell.name.to_owned(),
-                    tool: config.tool(),
-                    number,
-                    reason,
+                stopped.push(StoppedSize {
+                    site_pages: crawl.pages,
+                    concurrency: crawl.concurrency,
+                    run: StoppedRun {
+                        scenario: cell.scenario,
+                        cell: cell.name.to_owned(),
+                        tool: config.tool(),
+                        number,
+                        reason,
+                    },
                 });
                 continue;
             }
         };
         output::line(&format!(
-            "{pass}{} {} trial {number}: {} pages in {:.3} s, peak {} bytes",
-            cell.scenario.name(),
-            cell.name,
-            measured.work.pages,
-            measured.seconds,
-            measured.peak_bytes,
+            "{named}: {} pages in {:.3} s, peak {} bytes",
+            measured.work.pages, measured.seconds, measured.peak_bytes,
         ));
         trials.push(Trial {
             scenario: cell.scenario,
             cell: cell.name.to_owned(),
             tool: config.tool(),
             number,
-            site_pages,
+            site_pages: crawl.pages,
+            concurrency: crawl.concurrency,
             load: started_at,
             retried,
             measured,
         });
     }
-    // A stopped cell's trials before its stop are no figure either.
+    // A stopped point's trials before its stop are no figure either.
     trials.retain(|trial| {
-        !stopped
-            .iter()
-            .any(|run| run.scenario == trial.scenario && run.cell == trial.cell)
+        !stopped.iter().any(|point| {
+            point.run.scenario == trial.scenario
+                && point.run.cell == trial.cell
+                && point.site_pages == trial.site_pages
+                && point.concurrency == trial.concurrency
+        })
     });
     Ok((trials, stopped))
+}
+
+/// The stopped runs of `points`, each at its cell's one size.
+fn runs_of(points: Vec<StoppedSize>) -> Vec<StoppedRun> {
+    points.into_iter().map(|point| point.run).collect()
 }
 
 /// The file in `folder` the counting tool of `cell`'s run `number` writes
@@ -571,7 +676,7 @@ fn counted(
 ) -> Result<CountedCell> {
     let mut done: Vec<CountedRun> = Vec::new();
     let mut stopped: Vec<StoppedRun> = Vec::new();
-    for (cell, config, number) in order(cells, runs, state) {
+    for ((cell, config), number) in order(cells, runs, state) {
         if stopped
             .iter()
             .any(|run| run.scenario == cell.scenario && run.cell == cell.name)
@@ -590,7 +695,7 @@ fn counted(
             executables,
             cell,
             config,
-            pages,
+            Crawl::MAIN.of(pages),
             (mode, Some(&out)),
             if watched {
                 Watch::Counted(number)
@@ -664,37 +769,88 @@ fn not_reached(cell: &str) -> String {
     format!("the run ended before its {cell} cell")
 }
 
+/// Runs the sizes cell's trials, [`size_points`], or says why it does not.
+fn sizes(executables: &Executables<'_>, options: &Options, state: &mut u64) -> Result<SizesCell> {
+    let points = size_points(options);
+    if points.is_empty() {
+        return Ok(SizesCell::NotRun {
+            reason: "the run asked for no scenario 1 main cell of Foxhound or Spider".to_owned(),
+        });
+    }
+    let (trials_run, stopped) = timed(executables, options, &points, state, "sizes ")?;
+    Ok(SizesCell::Measured {
+        trials: options.trials,
+        trials_run,
+        stopped,
+    })
+}
+
+/// Runs the growth cell's trials when the run asks for it with `--growth`,
+/// or says why it does not.
+fn growth(executables: &Executables<'_>, options: &Options, state: &mut u64) -> Result<GrowthCell> {
+    if !options.growth {
+        return Ok(GrowthCell::NotRun {
+            reason: format!(
+                "the growth cell runs with `--growth`: each measured cell crawls the {GROWTH_PAGES}-page site {} times, hours at `run_state.durability: full`",
+                options.trials
+            ),
+        });
+    }
+    let points = main_points(options, GROWTH_PAGES);
+    let (trials_run, stopped) = timed(executables, options, &points, state, "growth ")?;
+    Ok(GrowthCell::Measured {
+        trials: options.trials,
+        site_pages: GROWTH_PAGES,
+        trials_run,
+        stopped: runs_of(stopped),
+    })
+}
+
 /// Runs every declared trial and returns the trials file's contents. `keep`
-/// is handed them as they stand once the timed trials are in, and again
-/// once the system-call cell is, so a failure in a later cell loses
-/// neither.
+/// is handed them as they stand once the timed trials are in, again once
+/// the sizes cell is, and again once the system-call cell is, so a failure
+/// in a later cell loses none.
 pub(crate) fn run(
     executables: &Executables<'_>,
     commit: String,
     options: &Options,
     keep: &mut dyn FnMut(&Comparison) -> Result<()>,
 ) -> Result<Comparison> {
+    if !page_cache::DROPS {
+        output::line(page_cache::NOT_DROPPED);
+    }
     let machine = machine();
     let order_seed = drawn_seed();
     let mut state = order_seed;
-    let (trials, stopped) = timed(executables, options, SITE_PAGES, &mut state, "")?;
+    let (trials, stopped) = timed(
+        executables,
+        options,
+        &main_points(options, SITE_PAGES),
+        &mut state,
+        "",
+    )?;
     let mut comparison = Comparison {
         declared: declared(options),
         machine,
         commit,
         order_seed,
         trials,
-        stopped,
+        stopped: runs_of(stopped),
         syscalls: CountedCell::NotRun {
             reason: not_reached("system-call"),
         },
         growth: GrowthCell::NotRun {
             reason: not_reached("growth"),
         },
+        sizes: SizesCell::NotRun {
+            reason: not_reached("sizes"),
+        },
         instructions: CountedCell::NotRun {
             reason: not_reached("Callgrind"),
         },
     };
+    keep(&comparison)?;
+    comparison.sizes = sizes(executables, options, &mut state)?;
     keep(&comparison)?;
     let measured = measured(options);
     comparison.syscalls = if let Some(reason) = strace_missing() {
@@ -714,23 +870,7 @@ pub(crate) fn run(
         )?
     };
     keep(&comparison)?;
-    comparison.growth = if options.growth {
-        let (trials_run, stopped) =
-            timed(executables, options, GROWTH_PAGES, &mut state, "growth ")?;
-        GrowthCell::Measured {
-            trials: options.trials,
-            site_pages: GROWTH_PAGES,
-            trials_run,
-            stopped,
-        }
-    } else {
-        GrowthCell::NotRun {
-            reason: format!(
-                "the growth cell runs with `--growth`: each measured cell crawls the {GROWTH_PAGES}-page site {} times, hours at `run_state.durability: full`",
-                options.trials
-            ),
-        }
-    };
+    comparison.growth = growth(executables, options, &mut state)?;
     // ADR 0140's row compares Foxhound's instructions with Spider's, each
     // on its main row.
     let scenario_1: Vec<_> = measured

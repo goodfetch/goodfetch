@@ -10,7 +10,8 @@
 //! whose links past the first page only a script adds, a trial that missed
 //! pages is named for the script-rendered pages it never reached. Each
 //! counted cell and the growth cell are held to it among themselves, as
-//! other cells of the comparison (ADR 0140). A strace run that did other
+//! other cells of the comparison (ADR 0140), and the sizes cell's trials at
+//! each size and concurrency among themselves (spec #2165). A strace run that did other
 //! work fails nothing: strace's slowdown alone can keep a headless browser
 //! crawl from its last pages, so that cell's system calls are not
 //! measured, with the pages the run reached, and the timed figures count
@@ -22,8 +23,8 @@ use crate::check::Finding;
 
 use super::matrix::{self, Row, Scenario};
 use super::trials::{
-    Comparison, CountedCell, CountedRun, GrowthCell, INSTRUCTION_TOOLS, StoppedRun, Tool, Trial,
-    Work,
+    Comparison, CountedCell, CountedRun, GrowthCell, INSTRUCTION_TOOLS, SIZE_CONCURRENCIES,
+    SIZE_TOOLS, SIZES, SizesCell, StoppedRun, Tool, Trial, Work,
 };
 
 /// What one trial of a pass did, whichever pass.
@@ -34,11 +35,12 @@ struct Done<'a> {
     work: &'a Work,
 }
 
-/// One pass of trials: the timed one, a counted cell or the growth cell.
+/// One pass of trials: the timed one, a counted cell, the growth cell or
+/// one size and concurrency of the sizes cell.
 struct Pass<'a> {
-    /// ` callgrind`, ` strace`, ` growth` or nothing, as a finding names the
-    /// cell.
-    suffix: &'static str,
+    /// ` callgrind`, ` strace`, ` growth`, ` sizes 100 pages at 16` or
+    /// nothing, as a finding names the cell.
+    suffix: String,
     declared: u32,
     site_pages: u64,
     /// The scenarios whose measured cells the pass runs, those cells'
@@ -67,9 +69,9 @@ impl Pass<'_> {
     }
 }
 
-fn of_trials(trials: &[Trial]) -> Vec<Done<'_>> {
+fn of_trials<'a>(trials: impl IntoIterator<Item = &'a Trial>) -> Vec<Done<'a>> {
     trials
-        .iter()
+        .into_iter()
         .map(|trial| Done {
             scenario: trial.scenario,
             cell: &trial.cell,
@@ -101,9 +103,9 @@ fn is_main(done: &Done<'_>) -> bool {
 const EVERY_ROW: &[Row] = &[Row::Main, Row::Sensitivity];
 
 /// The cells of stopped runs or trials, not measured.
-fn of_stopped(stopped: &[StoppedRun]) -> Vec<(Scenario, &str)> {
+fn of_stopped<'a>(stopped: impl IntoIterator<Item = &'a StoppedRun>) -> Vec<(Scenario, &'a str)> {
     stopped
-        .iter()
+        .into_iter()
         .map(|run| (run.scenario, run.cell.as_str()))
         .collect()
 }
@@ -135,7 +137,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         &[]
     };
     let mut findings = check_pass(&Pass {
-        suffix: "",
+        suffix: String::new(),
         declared,
         site_pages: pages,
         scenarios: ran,
@@ -170,7 +172,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         } = cell
         {
             let pass = Pass {
-                suffix,
+                suffix: suffix.to_owned(),
                 declared: *declared,
                 site_pages: pages,
                 scenarios,
@@ -195,7 +197,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
     } = &trials.growth
     {
         findings.extend(check_pass(&Pass {
-            suffix: " growth",
+            suffix: " growth".to_owned(),
             declared: *declared,
             site_pages: *site_pages,
             scenarios: ran,
@@ -204,6 +206,46 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             done: of_trials(trials_run),
             stopped: of_stopped(stopped),
         }));
+    }
+    findings.extend(check_sizes(&trials.sizes, raw));
+    findings
+}
+
+/// Each finding of the sizes cell, one pass per size and concurrency, of
+/// the scenario 1 main cells of [`SIZE_TOOLS`] when `raw` holds scenario 1.
+fn check_sizes(sizes: &SizesCell, raw: &[Scenario]) -> Vec<Finding> {
+    let SizesCell::Measured {
+        trials: declared,
+        trials_run,
+        stopped,
+    } = sizes
+    else {
+        return Vec::new();
+    };
+    let mut findings = Vec::new();
+    for site_pages in SIZES {
+        for concurrency in SIZE_CONCURRENCIES {
+            let at = |pages, at_concurrency| pages == site_pages && at_concurrency == concurrency;
+            findings.extend(check_pass(&Pass {
+                suffix: format!(" sizes {site_pages} pages at {concurrency}"),
+                declared: *declared,
+                site_pages,
+                scenarios: raw,
+                tools: &SIZE_TOOLS,
+                rows: &[Row::Main],
+                done: of_trials(
+                    trials_run
+                        .iter()
+                        .filter(|trial| at(trial.site_pages, trial.concurrency)),
+                ),
+                stopped: of_stopped(
+                    stopped
+                        .iter()
+                        .filter(|point| at(point.site_pages, point.concurrency))
+                        .map(|point| &point.run),
+                ),
+            }));
+        }
     }
     findings
 }
@@ -352,14 +394,14 @@ pub(crate) fn strace_runs_of_other_work_set_aside(trials: &mut Comparison) {
         return;
     };
     let pass = Pass {
-        suffix: " strace",
+        suffix: " strace".to_owned(),
         declared: *declared,
         site_pages: pages,
         scenarios: &trials.declared.scenarios,
         tools: &Tool::ALL,
         rows: EVERY_ROW,
         done: of_runs(runs),
-        stopped: of_stopped(stopped),
+        stopped: of_stopped(stopped.iter()),
     };
     let mut aside: Vec<StoppedRun> = Vec::new();
     for (done, finding) in other_work(&pass) {

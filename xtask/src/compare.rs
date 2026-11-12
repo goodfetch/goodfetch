@@ -12,7 +12,10 @@
 //! tool in the declared number of trials, interleaved in random order, each
 //! tool in a fresh process at the same concurrency and, in a run of the
 //! full trials, once the machine is quiet, measuring every metric of the
-//! owner's list from outside the tools; then
+//! owner's list from outside the tools, each executable dropped from the
+//! page cache before its trial; then crawls scenario 1's main cells of
+//! Foxhound and Spider again at 100, 1,000 and 10,000 pages, each at 1, 16
+//! and 64 in flight, for their peak memory (spec #2165); then
 //! counts each cell's system calls under strace, stopping a run whose crawl
 //! stalls and leaving its cell not measured, crawls the 100,000-page
 //! site for the growth of resident memory when asked, and counts scenario
@@ -163,6 +166,9 @@ pub(crate) struct TrialArguments {
     /// Where a counted trial's tool writes its counts.
     #[arg(long)]
     output: Option<PathBuf>,
+    /// Reads the tool's executable's own pages in a timed trial's samples.
+    #[arg(long)]
+    executable_pages: bool,
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
@@ -243,6 +249,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 mode,
                 goodfetch_variables: &environment.goodfetch_variables,
                 browser: arguments.browser.as_deref(),
+                executable_pages: arguments.executable_pages,
             };
             let line = match plan.mode {
                 trial::Mode::Timed => serde_json::to_string(&plan.timed()?)?,

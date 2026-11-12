@@ -5,6 +5,7 @@
 use goodfetch_protocol::catalog::Product;
 use serde::Serialize;
 
+use crate::rss::crawl::CONCURRENCY;
 use crate::rss::scenario::Scenario;
 
 use super::measured::Measured;
@@ -23,7 +24,12 @@ pub(crate) enum Target {
     /// the median of that scenario's peaks.
     IdleAttachedEngine,
     IdleDaemon,
-    CrawlPeak,
+    /// The bar (spec #2165): the peak of the resident-memory check's crawl
+    /// of 100, 1,000 or 10,000 pages, at most Spider's at that size and 16
+    /// in flight in the latest `just compare` report.
+    CrawlPeak100,
+    CrawlPeak1000,
+    CrawlPeak10000,
     /// At least Spider's pages per second, in the same comparison run.
     CrawlPagesPerSecond,
 }
@@ -31,14 +37,16 @@ pub(crate) enum Target {
 impl Target {
     /// Each target with the Products it is measured on, in the report's
     /// order.
-    pub(crate) const ALL: [(Self, &'static [Product]); 5] = [
+    pub(crate) const ALL: [(Self, &'static [Product]); 7] = [
         (Self::StartupToHello, &[Product::Collie, Product::Foxhound]),
         (
             Self::IdleAttachedEngine,
             &[Product::Collie, Product::Foxhound],
         ),
         (Self::IdleDaemon, &[Product::Collie, Product::Foxhound]),
-        (Self::CrawlPeak, &[Product::Foxhound]),
+        (Self::CrawlPeak100, &[Product::Foxhound]),
+        (Self::CrawlPeak1000, &[Product::Foxhound]),
+        (Self::CrawlPeak10000, &[Product::Foxhound]),
         (Self::CrawlPagesPerSecond, &[Product::Foxhound]),
     ];
 
@@ -48,7 +56,9 @@ impl Target {
             Self::StartupToHello => "startup-to-hello",
             Self::IdleAttachedEngine => "idle-attached-engine",
             Self::IdleDaemon => "idle-daemon",
-            Self::CrawlPeak => "crawl-peak",
+            Self::CrawlPeak100 => "crawl-peak-100",
+            Self::CrawlPeak1000 => "crawl-peak-1000",
+            Self::CrawlPeak10000 => "crawl-peak-10000",
             Self::CrawlPagesPerSecond => "crawl-pages-per-second",
         }
     }
@@ -58,7 +68,9 @@ impl Target {
         match self {
             Self::IdleAttachedEngine => Some(Scenario::IdleAttachedEngine),
             Self::IdleDaemon => Some(Scenario::IdleDaemon),
-            Self::CrawlPeak => Some(Scenario::Crawl),
+            Self::CrawlPeak100 => Some(Scenario::Crawl100),
+            Self::CrawlPeak1000 => Some(Scenario::Crawl1000),
+            Self::CrawlPeak10000 => Some(Scenario::Crawl10000),
             Self::StartupToHello | Self::CrawlPagesPerSecond => None,
         }
     }
@@ -66,6 +78,9 @@ impl Target {
     /// Its value, as the report states it before a figure is measured.
     fn stated(self) -> String {
         match (self, self.scenario()) {
+            (Self::CrawlPeak100 | Self::CrawlPeak1000 | Self::CrawlPeak10000, _) => {
+                "at most Spider's".to_owned()
+            }
             (_, Some(scenario)) => mebibytes(scenario.target_bytes()),
             (Self::StartupToHello, None) => milliseconds(STARTUP_TO_HELLO_SECONDS),
             (_, None) => "at least Spider's".to_owned(),
@@ -78,8 +93,10 @@ impl Target {
             Self::StartupToHello => "Startup to `hello`, Attached engine, median",
             Self::IdleAttachedEngine => "Idle RSS of an Attached engine after `hello`",
             Self::IdleDaemon => "Idle RSS of a Daemon with no run",
-            Self::CrawlPeak => "Peak RSS of the 1,000-page HTTP crawl",
-            Self::CrawlPagesPerSecond => "Pages per second on that crawl",
+            Self::CrawlPeak100 => "Peak RSS of the 100-page HTTP crawl, 16 in flight",
+            Self::CrawlPeak1000 => "Peak RSS of the 1,000-page HTTP crawl, 16 in flight",
+            Self::CrawlPeak10000 => "Peak RSS of the 10,000-page HTTP crawl, 16 in flight",
+            Self::CrawlPagesPerSecond => "Pages per second on the 1,000-page HTTP crawl",
         }
     }
 }
@@ -127,6 +144,11 @@ enum Figure {
         figure: u64,
         target: u64,
     },
+    /// Foxhound's peak against Spider's at the same size.
+    PeakAgainstSpider {
+        figure: u64,
+        spider: u64,
+    },
     /// Foxhound's pages per second against Spider's.
     PagesPerSecond {
         figure: f64,
@@ -156,6 +178,9 @@ impl Figure {
         match *self {
             Self::Seconds { target, .. } => milliseconds(target),
             Self::Bytes { target, .. } => mebibytes(target),
+            Self::PeakAgainstSpider { spider, .. } => {
+                format!("at most Spider's {}", mebibytes(spider))
+            }
             Self::PagesPerSecond { spider, .. } => {
                 format!("at least Spider's {}", pages_per_second(spider))
             }
@@ -165,7 +190,9 @@ impl Figure {
     fn figure(&self) -> String {
         match *self {
             Self::Seconds { figure, .. } => milliseconds(figure),
-            Self::Bytes { figure, .. } => mebibytes(figure),
+            Self::Bytes { figure, .. } | Self::PeakAgainstSpider { figure, .. } => {
+                mebibytes(figure)
+            }
             Self::PagesPerSecond { figure, .. } => pages_per_second(figure),
         }
     }
@@ -176,7 +203,11 @@ impl Figure {
             Self::Seconds { figure, target } => {
                 (figure > target).then(|| milliseconds(figure - target))
             }
-            Self::Bytes { figure, target } => (figure > target).then(|| mebibytes(figure - target)),
+            Self::Bytes { figure, target }
+            | Self::PeakAgainstSpider {
+                figure,
+                spider: target,
+            } => (figure > target).then(|| mebibytes(figure - target)),
             Self::PagesPerSecond { figure, spider } => {
                 (figure < spider).then(|| pages_per_second(spider - figure))
             }
@@ -212,26 +243,53 @@ fn figure(target: Target, product: Product, measured: &Measured) -> (Option<Figu
             ),
             None => (None, "no hyperfine export; run `just targets`".to_owned()),
         },
-        Target::IdleAttachedEngine | Target::IdleDaemon | Target::CrawlPeak => {
+        Target::IdleAttachedEngine
+        | Target::IdleDaemon
+        | Target::CrawlPeak100
+        | Target::CrawlPeak1000
+        | Target::CrawlPeak10000 => {
             let Some(scenario) = target.scenario() else {
                 return (None, "no scenario measures it".to_owned());
             };
             let peaks = measured.peaks(scenario, product);
             let runs = peaks.len();
-            match median(peaks) {
-                Some(bytes) => (
+            let Some(bytes) = median(peaks) else {
+                return (
+                    None,
+                    format!("no {} peak; run `just targets`", scenario.name()),
+                );
+            };
+            let source = format!(
+                "`xtask rss measure {}`, median of {runs} runs",
+                scenario.name()
+            );
+            let Some(crawl) = scenario.crawl() else {
+                return (
                     Some(Figure::Bytes {
                         figure: bytes,
                         target: scenario.target_bytes(),
                     }),
+                    source,
+                );
+            };
+            match measured.spider_peak(crawl.pages) {
+                Some((spider, commit)) => (
+                    Some(Figure::PeakAgainstSpider {
+                        figure: bytes,
+                        spider,
+                    }),
                     format!(
-                        "`xtask rss measure {}`, median of {runs} runs",
-                        scenario.name()
+                        "{source}; Spider's from the sizes cell of `just compare`'s report at {} pages and {CONCURRENCY} in flight, commit `{commit}`",
+                        crawl.pages
                     ),
                 ),
                 None => (
                     None,
-                    format!("no {} peak; run `just targets`", scenario.name()),
+                    format!(
+                        "{source} gave {}, but the latest `just compare` report has no Spider peak at {} pages and {CONCURRENCY} in flight",
+                        mebibytes(bytes),
+                        crawl.pages
+                    ),
                 ),
             }
         }

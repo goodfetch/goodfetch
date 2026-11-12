@@ -1,8 +1,10 @@
 //! The report: for each scenario, each cell's mapping and every metric of
 //! the owner's list, each the median of the cell's trials with its spread
 //! (the lowest and the highest trial), or why the cell or the metric gives
-//! no figure; and `foxhound.spider_instruction_ratio` from the Callgrind
-//! cell. Labelled `local-controlled` with the machine and never published
+//! no figure; `foxhound.spider_instruction_ratio` from the Callgrind
+//! cell; and the sizes cell's peak memory of Foxhound and Spider at each
+//! size and concurrency, with the bar at 16 in flight (spec #2165).
+//! Labelled `local-controlled` with the machine and never published
 //! (ADR 0076), and written only once the same-work check passed.
 
 use std::collections::BTreeMap;
@@ -13,8 +15,8 @@ use serde::Serialize;
 use super::matrix::{CELLS, Cell, Row, Scenario, Status};
 use super::sampler::{CORE_WINDOW_SAMPLES, INTERVAL_MILLISECONDS};
 use super::trials::{
-    Comparison, CountedCell, CountedRun, Declared, GrowthCell, LatencyEnd, MILESTONES, Machine,
-    QUIET_LOAD, TRIALS, Trial,
+    CONCURRENCY, Comparison, CountedCell, CountedRun, Declared, GrowthCell, LatencyEnd, MILESTONES,
+    Machine, QUIET_LOAD, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, TRIALS, Tool, Trial,
 };
 
 /// The span of one window of the core sampling.
@@ -117,6 +119,48 @@ pub(crate) enum Instructions<'a> {
     },
 }
 
+/// One tool's peak memory at one size and concurrency of the sizes cell,
+/// each the median of its trials.
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub(crate) enum SizeFigures {
+    Measured {
+        trials: usize,
+        /// The process tree's peak RSS ([`peak`]).
+        peak_bytes: u64,
+        /// The tree's peak resident memory no file backs (`RssAnon`), where
+        /// every trial sampled it.
+        private_bytes: Option<u64>,
+        /// The peak of the tool's executable's own resident pages, where
+        /// every trial read them.
+        executable_bytes: Option<u64>,
+    },
+    /// Its trial at this point was stopped twice.
+    NotMeasured { reason: String },
+}
+
+/// The sizes cell at one size and concurrency.
+#[derive(Serialize)]
+pub(crate) struct SizePoint {
+    pub(crate) site_pages: u64,
+    pub(crate) concurrency: u32,
+    /// Each tool's figures, by its name, which `just targets` reads.
+    pub(crate) tools: BTreeMap<&'static str, SizeFigures>,
+    /// At [`CONCURRENCY`] in flight, whether Foxhound's peak RSS is at most
+    /// Spider's (spec #2165); none at another concurrency, or when either
+    /// is not measured.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) bar_met: Option<bool>,
+}
+
+/// The sizes cell's report.
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub(crate) enum Sizes<'a> {
+    NotRun { reason: &'a str },
+    Measured { points: Vec<SizePoint> },
+}
+
 /// The report, as `report.json` holds it.
 #[derive(Serialize)]
 pub(crate) struct Report<'a> {
@@ -132,6 +176,7 @@ pub(crate) struct Report<'a> {
     pub(crate) scenarios: Vec<ScenarioReport>,
     pub(crate) tools: BTreeMap<&'static str, Figures>,
     pub(crate) instructions: Instructions<'a>,
+    pub(crate) sizes: Sizes<'a>,
 }
 
 /// The median of `values`, the mean of the middle two for an even count.
@@ -194,6 +239,18 @@ fn peak(trial: &Trial) -> u64 {
         .as_ref()
         .map_or(0, |sampled| sampled.peak_bytes)
         .max(trial.measured.peak_bytes)
+}
+
+/// The median of `values` in whole bytes: the mean of the middle two,
+/// rounded down, for an even count; 0 for none.
+fn median_bytes(mut values: Vec<u64>) -> u64 {
+    values.sort_unstable();
+    let middle = values.len() / 2;
+    match values.len() {
+        0 => 0,
+        length if length % 2 == 0 => u64::midpoint(values[middle - 1], values[middle]),
+        _ => values[middle],
+    }
 }
 
 /// Every metric of the owner's list over `trials`, one cell's, with its
@@ -534,7 +591,88 @@ fn instructions(cell: &CountedCell) -> Instructions<'_> {
     }
 }
 
-/// The report of trials that passed the same-work check.
+/// Each tool's figures over `trials`, its trials at one size and
+/// concurrency, or why it has none.
+fn size_figures(trials: &[&Trial]) -> SizeFigures {
+    // Each figure only where every trial gave it.
+    let every = |figure: fn(&Trial) -> Option<u64>| {
+        trials
+            .iter()
+            .map(|trial| figure(trial))
+            .collect::<Option<Vec<u64>>>()
+            .map(median_bytes)
+    };
+    SizeFigures::Measured {
+        trials: trials.len(),
+        peak_bytes: median_bytes(trials.iter().map(|trial| peak(trial)).collect()),
+        private_bytes: every(|trial| {
+            trial
+                .measured
+                .sampled
+                .as_ref()
+                .map(|sampled| sampled.peak_private_bytes)
+        }),
+        executable_bytes: every(|trial| {
+            trial
+                .measured
+                .sampled
+                .as_ref()
+                .and_then(|sampled| sampled.peak_executable_bytes)
+        }),
+    }
+}
+
+/// The sizes cell's report: each size and concurrency, Foxhound's and
+/// Spider's figures, and at [`CONCURRENCY`] in flight the bar.
+fn sizes(cell: &SizesCell) -> Sizes<'_> {
+    let (trials_run, stopped) = match cell {
+        SizesCell::NotRun { reason } => return Sizes::NotRun { reason },
+        SizesCell::Measured {
+            trials_run,
+            stopped,
+            ..
+        } => (trials_run, stopped),
+    };
+    let mut points = Vec::new();
+    for concurrency in SIZE_CONCURRENCIES {
+        for site_pages in SIZES {
+            let at = |pages, at_concurrency| pages == site_pages && at_concurrency == concurrency;
+            let mut tools = BTreeMap::new();
+            for tool in SIZE_TOOLS {
+                let ran: Vec<&Trial> = trials_run
+                    .iter()
+                    .filter(|trial| trial.tool == tool && at(trial.site_pages, trial.concurrency))
+                    .collect();
+                let stop = stopped.iter().find(|point| {
+                    point.run.tool == tool && at(point.site_pages, point.concurrency)
+                });
+                let figures = match stop {
+                    Some(point) => SizeFigures::NotMeasured {
+                        reason: point.run.reason.clone(),
+                    },
+                    None if ran.is_empty() => continue,
+                    None => size_figures(&ran),
+                };
+                tools.insert(tool.name(), figures);
+            }
+            let peak_of = |tool: Tool| match tools.get(tool.name()) {
+                Some(SizeFigures::Measured { peak_bytes, .. }) => Some(*peak_bytes),
+                Some(SizeFigures::NotMeasured { .. }) | None => None,
+            };
+            let bar_met = (concurrency == CONCURRENCY)
+                .then(|| Some(peak_of(Tool::Foxhound)? <= peak_of(Tool::Spider)?))
+                .flatten();
+            points.push(SizePoint {
+                site_pages,
+                concurrency,
+                tools,
+                bar_met,
+            });
+        }
+    }
+    Sizes::Measured { points }
+}
+
 /// Why `cell`'s timed trial was stopped twice, if it was.
 fn stopped_reason(trials: &Comparison, cell: &Cell) -> Option<String> {
     trials
@@ -544,6 +682,7 @@ fn stopped_reason(trials: &Comparison, cell: &Cell) -> Option<String> {
         .map(|run| run.reason.clone())
 }
 
+/// The report of trials that passed the same-work check.
 pub(crate) fn of(trials: &Comparison) -> Report<'_> {
     let mut scenarios = Vec::new();
     let mut tools = BTreeMap::new();
@@ -568,18 +707,8 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
                         &growth_of(&trials.growth, cell),
                     );
                     if scenario == Scenario::Raw && cell.row == Row::Main {
-                        let mut peaks: Vec<u64> = ran.iter().map(|trial| peak(trial)).collect();
-                        peaks.sort_unstable();
-                        let middle = peaks.len() / 2;
-                        let peak_bytes = match peaks.len() {
-                            0 => 0,
-                            // Whole bytes: the mean of the middle two,
-                            // rounded down.
-                            length if length % 2 == 0 => {
-                                u64::midpoint(peaks[middle - 1], peaks[middle])
-                            }
-                            _ => peaks[middle],
-                        };
+                        let peak_bytes =
+                            median_bytes(ran.iter().map(|trial| peak(trial)).collect());
                         let rates: Vec<f64> = ran.iter().map(|trial| rate(trial)).collect();
                         tools.insert(
                             cell.tool.name(),
@@ -641,6 +770,7 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
         scenarios,
         tools,
         instructions: instructions(&trials.instructions),
+        sizes: sizes(&trials.sizes),
     }
 }
 
@@ -891,6 +1021,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             );
         }
     }
+    sizes_markdown(&mut text, &report.sizes);
     text.push_str("\n## Trials, in the order run\n\n");
     let unquiet = trials
         .trials
@@ -926,4 +1057,76 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
         );
     }
     text
+}
+
+/// A size's figure in MiB, or what it lacks.
+fn mib(bytes: Option<u64>) -> String {
+    bytes.map_or_else(
+        || "not measured".to_owned(),
+        |bytes| shown(float(bytes), Unit::Bytes),
+    )
+}
+
+/// The sizes cell's section: at [`CONCURRENCY`] in flight first, with the
+/// bar, then at each other concurrency, without one.
+fn sizes_markdown(text: &mut String, sizes: &Sizes<'_>) {
+    text.push_str("\n## Peak memory at three sizes\n\n");
+    let points = match sizes {
+        Sizes::NotRun { reason } => {
+            let _ = writeln!(text, "Not run: {reason}.");
+            return;
+        }
+        Sizes::Measured { points } => points,
+    };
+    let _ = writeln!(
+        text,
+        "Scenario 1's main rows of Foxhound and Spider, crawling the sites of 100, 1,000 and 10,000 \
+         pages at 16, 1 and 64 requests in flight, each trial started once every executable it runs \
+         was dropped from the page cache, so it pages them in as a first start does (spec #2165). The \
+         bar, at {CONCURRENCY} in flight alone: Foxhound's peak RSS at most Spider's. Private memory is \
+         the tree's resident memory no file backs; the executable's pages, the resident pages of the \
+         tool's own executable file. Each figure is the median of the tool's trials.\n"
+    );
+    text.push_str(
+        "| Pages | In flight | Tool | Trials | Peak RSS | Private | Executable's pages | Bar |\n\
+         |---:|---:|---|---:|---:|---:|---:|---|\n",
+    );
+    for point in points {
+        for (tool, figures) in &point.tools {
+            let bar = match point.bar_met {
+                Some(met) if *tool == Tool::Foxhound.name() => {
+                    if met {
+                        "met"
+                    } else {
+                        "missed"
+                    }
+                }
+                _ => "",
+            };
+            let (trials, peak, private, executable) = match figures {
+                SizeFigures::Measured {
+                    trials,
+                    peak_bytes,
+                    private_bytes,
+                    executable_bytes,
+                } => (
+                    trials.to_string(),
+                    mib(Some(*peak_bytes)),
+                    mib(*private_bytes),
+                    mib(*executable_bytes),
+                ),
+                SizeFigures::NotMeasured { reason } => (
+                    format!("not measured: {reason}"),
+                    String::new(),
+                    String::new(),
+                    String::new(),
+                ),
+            };
+            let _ = writeln!(
+                text,
+                "| {} | {} | {tool} | {trials} | {peak} | {private} | {executable} | {bar} |",
+                point.site_pages, point.concurrency
+            );
+        }
+    }
 }

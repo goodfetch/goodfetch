@@ -1,5 +1,6 @@
 //! The Cargo that `xtask` starts to build or run the workspace's targets,
-//! and the JSON messages its builds answer with.
+//! the JSON messages its builds answer with and the dep-info files they
+//! write.
 //! `cargo run` gives `xtask` its package's variables (`CARGO_MANIFEST_DIR`,
 //! `CARGO_PKG_NAME`, …), and a Cargo that inherits them sees each build
 //! script that names one in `rerun-if-env-changed`, as `ring`'s does, as
@@ -89,9 +90,41 @@ pub(crate) fn messages(stdout: &[u8]) -> anyhow::Result<Vec<Message>> {
         .collect()
 }
 
+/// The paths `text`, a Makefile-style dep-info file, names: each target and
+/// prerequisite, with `\ ` read as a space.
+pub(crate) fn dep_info_paths(text: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    for line in text.lines() {
+        let mut token = String::new();
+        let mut characters = line.chars().peekable();
+        while let Some(character) = characters.next() {
+            match character {
+                '\\' if characters.peek() == Some(&' ') => {
+                    token.push(' ');
+                    characters.next();
+                }
+                ' ' | '\t' => {
+                    push(&mut paths, &mut token);
+                }
+                _ => token.push(character),
+            }
+        }
+        push(&mut paths, &mut token);
+    }
+    paths
+}
+
+fn push(paths: &mut Vec<String>, token: &mut String) {
+    let path = token.trim_end_matches(':');
+    if !path.is_empty() {
+        paths.push(path.to_owned());
+    }
+    token.clear();
+}
+
 #[cfg(test)]
 mod tests {
-    use super::messages;
+    use super::{dep_info_paths, messages};
 
     const ARTIFACT: &str = r#"{"reason":"compiler-artifact","target":{"name":"collie","kind":["bin"]},"executable":"/target/collie"}"#;
 
@@ -114,5 +147,22 @@ mod tests {
         let output = format!("{ARTIFACT}\n{{\"kind\":\"no reason\"}}\n");
 
         assert!(messages(output.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn dep_info_lists_each_target_and_prerequisite() {
+        let text = "/r/target/debug/deps/it-1.d: crates/a/tests/it/main.rs /r/TESTING.md my\\ file.rs\n\ncrates/a/tests/it/main.rs:\n/r/TESTING.md:\n";
+
+        assert_eq!(
+            dep_info_paths(text),
+            [
+                "/r/target/debug/deps/it-1.d",
+                "crates/a/tests/it/main.rs",
+                "/r/TESTING.md",
+                "my file.rs",
+                "crates/a/tests/it/main.rs",
+                "/r/TESTING.md",
+            ]
+        );
     }
 }

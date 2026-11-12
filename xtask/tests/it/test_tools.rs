@@ -132,34 +132,75 @@ fn the_input_record_names_the_workspace_and_each_source_of_its_tools() {
     assert_eq!(source[1], metadata.len());
 }
 
-/// The record's writer and its reader, `goodfetch-test-support`, agree: a
-/// test reads the tools as built, is refused them once a merge or an edit
-/// changed a source, and reads them again once they are rebuilt.
+/// The record's writer and its reader, `goodfetch-test-support`, agree on
+/// its format: a test reads the tools as built.
 #[test]
-fn a_test_reads_the_built_tools_until_a_source_of_theirs_changes() {
+fn a_test_reads_the_tools_built_from_its_tree_as_it_is() {
+    let workspace = Workspace::from_fixture("test-tools");
+    let manifest = workspace.path().join("target/test-tools.json");
+    test_tools(&workspace);
+
+    let read = goodfetch_test_support::Tools::read_built_from(Some(&manifest), workspace.path());
+
+    assert!(read.is_ok(), "{}", read.unwrap_err());
+}
+
+/// What a merge or an edit leaves: a source newer than the tools.
+#[test]
+fn a_test_is_refused_the_built_tools_once_a_source_of_theirs_changed() {
     use goodfetch_test_support::{Tools, ToolsError};
 
     let workspace = Workspace::from_fixture("test-tools");
     let manifest = workspace.path().join("target/test-tools.json");
     test_tools(&workspace);
-    let built = Tools::read_built_from(Some(&manifest), workspace.path());
     workspace.append(
         "crates/goodfetch-test-support/src/lib.rs",
         "\npub fn merged() {}\n",
     );
 
-    let changed = Tools::read_built_from(Some(&manifest), workspace.path());
+    let read = Tools::read_built_from(Some(&manifest), workspace.path());
 
-    assert!(built.is_ok(), "{}", built.unwrap_err());
-    let error = changed.unwrap_err();
+    let error = read.unwrap_err();
     assert!(
         matches!(&error, ToolsError::Stale { input, .. }
             if input == Path::new("crates/goodfetch-test-support/src/lib.rs")),
         "{error}"
     );
+}
+
+#[test]
+fn a_test_reads_the_tools_again_once_they_are_rebuilt() {
+    let workspace = Workspace::from_fixture("test-tools");
+    let manifest = workspace.path().join("target/test-tools.json");
     test_tools(&workspace);
-    let rebuilt = Tools::read_built_from(Some(&manifest), workspace.path());
-    assert!(rebuilt.is_ok(), "{}", rebuilt.unwrap_err());
+    workspace.append(
+        "crates/goodfetch-test-support/src/lib.rs",
+        "\npub fn merged() {}\n",
+    );
+    test_tools(&workspace);
+
+    let read = goodfetch_test_support::Tools::read_built_from(Some(&manifest), workspace.path());
+
+    assert!(read.is_ok(), "{}", read.unwrap_err());
+}
+
+/// A skew run's engine was built elsewhere: the record is of the tools built
+/// here.
+#[test]
+fn an_engine_built_elsewhere_leaves_the_record_of_the_tools_built_here() {
+    let workspace = Workspace::from_fixture("test-tools");
+    let engine = workspace.path().join("engine");
+
+    test_tools_with(&workspace, &["--engine", engine.to_str().unwrap()]);
+
+    let record = input_record(&workspace);
+    let inputs = record["inputs"].as_array().unwrap();
+    assert!(
+        inputs
+            .iter()
+            .any(|input| input[0] == "crates/goodfetch-collie/src/main.rs"),
+        "{record}"
+    );
 }
 
 /// The fixture's tools were built from the fixture's copy, not from the

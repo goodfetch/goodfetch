@@ -53,7 +53,7 @@ use crate::run_state::{RunStateOptions, RunStateTables};
 use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Runs, RunsSetup};
 use crate::sandbox_probe::{self, SandboxProbe};
 use crate::secrets::{self, Carried, Keychain, ProviderFactory, Secrets};
-use crate::settings::{Settings, SettingsFiles};
+use crate::settings::{HostDefaults, HostSearch, Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 use crate::transition::{
     self,
@@ -607,10 +607,13 @@ async fn write_managed(context: EngineContext, version: ProductVersion) {
     }
 }
 
-/// The engine's settings, whose host defaults are `keychain`'s and those of
-/// `probe`, Chromium's sandbox's, their reads counted on `work`. The probe
-/// starts now, at startup (ADR 0049); the host's defaults wait for its
-/// answer, which each browser launch reads.
+/// The engine's settings, whose host defaults are those of `probe`,
+/// Chromium's sandbox's, and `keychain`'s, their reads counted on `work`.
+/// The probe starts now, at startup (ADR 0049); every opening of a Run's
+/// settings waits for its answer, which each browser launch reads. The
+/// keychain's are only asked for where they are needed, such as where a
+/// Run first makes its data key, so that an opening opens no OS keychain
+/// (issue 2204).
 fn host_settings(
     files: SettingsFiles,
     product: goodfetch_protocol::catalog::Product,
@@ -629,14 +632,22 @@ fn host_settings(
                 .await;
         });
     }
-    Settings::with_host(files, product, owner.child(), work, move || {
-        let keychain = keychain.clone();
+    let asking = keychain.clone();
+    let search = HostSearch::opening(move || {
         let (probing, probe) = (Arc::clone(&probing), probe.clone());
         Box::pin(async move {
             let probed = probing.blocking(move || probe.probed().clone()).await;
-            sandbox_probe::host_defaults(secrets::host_defaults(&keychain).await, &probed)
+            sandbox_probe::host_defaults(HostDefaults::default(), &probed)
         })
     })
+    .asking(
+        move || {
+            let keychain = asking.clone();
+            Box::pin(async move { secrets::host_defaults(&keychain).await })
+        },
+        move || secrets::known_host_defaults(&keychain),
+    );
+    Settings::with_host(files, product, owner.child(), work, search)
 }
 
 /// Sends each of the Resource governor's samples as `engine.system_info`

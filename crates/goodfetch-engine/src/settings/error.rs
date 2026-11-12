@@ -7,8 +7,8 @@ use goodfetch_protocol::checkpoint::FORMAT_VERSION_UNSUPPORTED;
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::settings::{
-    SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_APPLICABLE, SETTING_UNKNOWN, SettingLimit,
-    SettingsLayer,
+    CAPABILITY_UNAVAILABLE, SETTING_INVALID, SETTING_LOCKED, SETTING_NOT_APPLICABLE,
+    SETTING_UNKNOWN, SettingLimit, SettingsLayer,
 };
 
 /// A refused setting, a file that does not read, or a deployment variable
@@ -45,6 +45,22 @@ pub enum SettingsError {
         /// The layer that held it.
         layer: SettingsLayer,
         /// Where it can be set instead.
+        fix: String,
+    },
+    /// A value away from its default of a setting whose feature the
+    /// engine does not build yet, which nothing would read (ADR 0083).
+    #[error(
+        "`{key}` is set in {}, and this engine does not build what it asks for yet (`{feature}`), so its value would be ignored: leave it at its default, {fix}",
+        layer.as_str()
+    )]
+    Unavailable {
+        /// The key.
+        key: String,
+        /// The layer that set it.
+        layer: SettingsLayer,
+        /// The feature it asks for.
+        feature: String,
+        /// Its default, the value that does without the feature.
         fix: String,
     },
     /// A value a lower layer locked, capped or reserved.
@@ -156,6 +172,7 @@ impl SettingsError {
             Self::Unknown { .. } => SETTING_UNKNOWN.name,
             Self::Invalid { .. } => SETTING_INVALID.name,
             Self::NotApplicable { .. } => SETTING_NOT_APPLICABLE.name,
+            Self::Unavailable { .. } => CAPABILITY_UNAVAILABLE.name,
             Self::Locked { .. } => SETTING_LOCKED.name,
             Self::NotInProduct { .. } => NOT_IN_PRODUCT.name,
             Self::Format { .. } | Self::OlderMajorPolicy { .. } => FORMAT_VERSION_UNSUPPORTED.name,

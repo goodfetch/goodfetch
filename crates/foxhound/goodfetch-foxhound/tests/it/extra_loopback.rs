@@ -8,9 +8,10 @@
 //! `egress.local_addresses`, each Session from its own; a Session a block
 //! retired is replaced by one outside every `/30` block blocked on its
 //! domain, and, with every block blocked, by one within a block, which the
-//! Run report warns of. A Run that sets a proxy blocks the block all the
-//! same while its `http` tier sends direct, and a replacement serving its
-//! domain on the browser tier binds its relay to the pool's address too.
+//! Run report warns of. A replacement serving its domain on the browser
+//! tier binds its relay to the pool's address too. (A Run that sets a proxy
+//! beside the `http` tier fails its start until #1640 sends that tier
+//! through the proxy: `pool_proxies`.)
 //! Until the engine detects blocks itself (area 5), the test's handler
 //! names the Block cause of the pages it is told to.
 
@@ -222,50 +223,6 @@ fn a_replacement_after_a_block_reaches_the_site_from_an_unblocked_block() {
             vec![json!(["session-3"])],
         ),
         "{within}"
-    );
-}
-
-/// A Run that sets a proxy, while its `http` tier sends direct from its
-/// Sessions' addresses, still blocks the address the site saw: the
-/// replacement after a block leaves from outside the blocked `/30`, as
-/// without a proxy, since the proxy is no route its requests take (ADR
-/// 0044's #682 note).
-///
-/// Covers: story:4-109, setting:proxy.server
-#[test]
-fn a_replacement_after_a_block_on_the_http_tier_leaves_an_unblocked_block_though_the_run_sets_a_proxy()
- {
-    let env = TestEnv::new();
-    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let seeds: Vec<Value> = ["/consistency/1", "/consistency/2", "/version"]
-        .iter()
-        .map(|path| json!({ "url": proving_ground.url("access.test", path), "label": "page" }))
-        .collect();
-    let mut settings = settings(&proving_ground, &["127.0.0.2", "127.0.0.3", "127.0.0.4"]);
-    settings["proxy"] = json!({
-        "server": format!("http://{}", proving_ground.description().fixtures.proxies["datacenter"]),
-    });
-    let mut engine = attached(&env);
-
-    let report = crawl_with(
-        &mut engine,
-        "proxied-direct",
-        &seeds,
-        &settings,
-        &mut |_, handle| answer(handle, &["/consistency/1"]),
-    );
-    let observations = proving_ground.observations().unwrap();
-    assert!(engine.finished());
-
-    assert_eq!(
-        ["/consistency/1", "/consistency/2", "/version"]
-            .map(|page| sources_of(&observations, page)),
-        [
-            vec![ip("127.0.0.2")],
-            vec![ip("127.0.0.4")],
-            vec![ip("127.0.0.4")],
-        ],
-        "{report}"
     );
 }
 

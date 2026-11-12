@@ -128,12 +128,12 @@ fn project(env: &TestEnv) -> Value {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(
         &path,
-        "[settings]\nwall.domains = [\"walled.test\"]\nwall.refetch_domains = [\"walled.test\"]\n",
+        "[settings]\nwall.refetch_domains = [\"walled.test\"]\n",
     )
     .unwrap();
     json!({
         "path": path.display().to_string(),
-        "settings": { "wall": { "domains": [STOPPED], "refetch_domains": [STOPPED] } },
+        "settings": { "wall": { "refetch_domains": [STOPPED] } },
     })
 }
 

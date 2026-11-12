@@ -11,9 +11,10 @@
 //! refuses ends its request `skipped`, live in `run.outcomes`; a redirect's `Retry-After` delays
 //! its next hop, or past the crawl's bound fails the request with
 //! `response_unavailable`; and a refresh stub within
-//! `fetch.refresh.max_delay` hands the handler its target. A cookie jar,
-//! the `browser` tier and `Authorization` on a crawl request join these
-//! cases with their tickets.
+//! `fetch.refresh.max_delay` hands the handler its target. The cookie a
+//! redirect sets is Foxhound's own test, over TLS, where a `Secure` cookie
+//! is sent (`http_cookies`); the `browser` tier and `Authorization` on a
+//! crawl request join these cases with their tickets.
 
 use serde_json::{Value, json};
 

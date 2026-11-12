@@ -887,12 +887,12 @@ impl On<'_> {
         // HTTP from inside its browser, so its fingerprint and cookies stay
         // the Session's on both tiers (ADR 0020; pitfall H20), and so does
         // one forced onto `browser_fetch`.
-        let in_browser;
-        let http = if choice.forced.is_none() || choice.tier == FetchTier::BrowserFetch {
-            in_browser = tiers.in_browser(http, run, self.in_browser, hand_over, self.context);
-            &in_browser
+        // A Session forced onto its own transport keeps its cookies in a
+        // jar of its own there (ADR 0021).
+        let http = &if choice.forced.is_none() || choice.tier == FetchTier::BrowserFetch {
+            tiers.in_browser(http, run, self.in_browser, hand_over, self.context)
         } else {
-            http
+            http.keeping_cookies_of(&self.session.id)
         };
         let (served, facts) = self
             .document(tiering, http, choice, hand_over)

@@ -3,7 +3,10 @@
 //! equivalent configuration, and each cell writes that mapping. A tool that
 //! cannot do what a scenario asks has a cell saying so, and a Foxhound
 //! value that does not exist yet is marked pending with the ticket that
-//! brings it; neither gives a figure. Each scenario crawls a site of the
+//! brings it; neither gives a figure. A tool's main row carries the figures
+//! it is compared on; a sensitivity row beside it, labelled, runs the tool
+//! one setting apart, to show how far its figures move with that setting
+//! (#2213: Spider's). Each scenario crawls a site of the
 //! Proving ground of [`super::trials::SITE_PAGES`] pages in the same tree:
 //! `scale.test`'s, or for the polite and headless browser scenarios, the
 //! multi-domain and script-rendered sites the Proving ground serves for
@@ -172,6 +175,86 @@ impl Scenario {
     }
 }
 
+/// The capacity of the broadcast channel Spider's rows read its pages
+/// from. Spider's `Website` keeps a receiver that never reads, and Tokio
+/// frees a slot only once every receiver has read it, so the channel keeps
+/// that many whole pages alive: a capacity larger than the crawl needs is
+/// memory the harness adds to Spider's. Tokio rounds a capacity up to a
+/// power of two, so the powers of two were tried.
+///
+/// The smallest at which a 10,000-page crawl lost no page (#2213), on the
+/// gate host on 2026-11-11 at a 1-minute load of 7 to 11: of 40 crawls of
+/// scenario 1 at each capacity, 5 lost pages at 32 and none at 64 or 128.
+/// The figure holds for a machine with cores to spare, which is how the
+/// comparison runs: at a load of 17 to 20 on its 16 cores, 2 of 21 crawls
+/// at 64 lost pages, and a crawl that loses one fails its trial.
+pub(crate) const SPIDER_CAPACITY: usize = 64;
+
+/// The same for the extraction scenario, whose reader also writes each
+/// page: of 40 crawls at each capacity, 3 lost pages at 32, 2 at 64, 1 at
+/// 128 and none at 256, 512 or 1,024.
+pub(crate) const SPIDER_EXTRACTION_CAPACITY: usize = 256;
+
+/// The capacity Spider's rows had before #2213, kept as a sensitivity row.
+pub(crate) const SPIDER_CAPACITY_BEFORE: usize = 4096;
+
+/// A build of Spider's side, `xtask/compare-spider`: `just compare` builds
+/// each apart, with its Cargo feature or none, into a folder of its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SpiderBuild {
+    /// Spider's `basic` and `sync` features, default features off, on the
+    /// system's allocator: its HTTP mode.
+    Http,
+    /// With Spider's `chrome` feature: each page rendered in Chrome.
+    Chrome,
+    /// With Spider's default features, `io_uring` among them, on top of
+    /// [`Self::Http`]'s.
+    Defaults,
+    /// With Spider's `bloom` feature.
+    Bloom,
+    /// On `tikv-jemallocator`, the allocator Spider's README recommends
+    /// for a pure crawl.
+    Jemalloc,
+    /// On `mimalloc`, the allocator Spider's README recommends for a crawl
+    /// that also parses, and the one Foxhound's executable sets.
+    Mimalloc,
+}
+
+impl SpiderBuild {
+    /// The feature of `xtask/compare-spider` the build turns on, if any.
+    pub(crate) fn feature(self) -> Option<&'static str> {
+        match self {
+            Self::Http => None,
+            Self::Chrome => Some("chrome"),
+            Self::Defaults => Some("defaults"),
+            Self::Bloom => Some("bloom"),
+            Self::Jemalloc => Some("jemalloc"),
+            Self::Mimalloc => Some("mimalloc"),
+        }
+    }
+
+    /// The build's folder among Spider's side's builds.
+    pub(crate) fn folder(self) -> String {
+        self.feature().map_or_else(
+            || "spider".to_owned(),
+            |feature| format!("spider-{feature}"),
+        )
+    }
+}
+
+/// What a cell's row is read for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Row {
+    /// The tool's figures: what a target, a bar and the instruction ratio
+    /// read.
+    Main,
+    /// A variant of the tool's main row of the scenario, one setting
+    /// apart, which shows how much the tool's figures move with it; no
+    /// target, bar or ratio reads it.
+    Sensitivity,
+}
+
 /// How a measured cell runs its tool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Config {
@@ -183,9 +266,10 @@ pub(crate) enum Config {
         durability: &'static str,
         commit_interval: Option<u64>,
     },
-    /// Spider's HTTP mode, or with `chrome` its `chrome` feature's
-    /// executable rendering each page in Chrome; at the scenario's settings.
-    Spider { chrome: bool },
+    /// Spider's side at the scenario's settings: this build of it,
+    /// subscribed to Spider's pages with a broadcast channel of this
+    /// capacity.
+    Spider { build: SpiderBuild, capacity: usize },
     /// Crawlee's side at the scenario's settings: its `CheerioCrawler`, or
     /// its `PlaywrightCrawler` in the headless browser scenario.
     Crawlee,
@@ -227,11 +311,12 @@ pub(crate) struct Cell {
     /// Values the scenario asks for that the tool runs without yet, each
     /// with the nearest value it runs instead and the ticket that brings it.
     pub(crate) pending: &'static [&'static str],
+    pub(crate) row: Row,
     pub(crate) status: Status,
 }
 
 /// Every cell, in the report's order.
-pub(crate) const CELLS: [Cell; 21] = [
+pub(crate) const CELLS: [Cell; 27] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
@@ -243,6 +328,7 @@ pub(crate) const CELLS: [Cell; 21] = [
                   `frontier.learning: false`, `provenance.log: false`, `dataset.records: false` \
                   and `fetch.block_classification: false`",
         pending: &[],
+        row: Row::Main,
         status: Status::Measured(Config::Foxhound {
             durability: "off",
             commit_interval: None,
@@ -253,9 +339,16 @@ pub(crate) const CELLS: [Cell; 21] = [
         tool: Tool::Spider,
         name: "spider",
         mapping: "HTTP mode (`crawl_raw`, no `chrome` feature), `with_respect_robots_txt(false)`, \
-                  `with_concurrency_limit(16)`, no delay, nothing kept on disk",
+                  `with_concurrency_limit(16)`, no delay, nothing kept on disk, on the system's \
+                  allocator; each page read as it arrives from `subscribe(64)`, the smallest \
+                  capacity at which a 10,000-page crawl lost no page (#2213), since Spider \
+                  keeps that many pages alive in the channel",
         pending: &[],
-        status: Status::Measured(Config::Spider { chrome: false }),
+        row: Row::Main,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Http,
+            capacity: SPIDER_CAPACITY,
+        }),
     },
     Cell {
         scenario: Scenario::Raw,
@@ -267,6 +360,7 @@ pub(crate) const CELLS: [Cell; 21] = [
                   default), robots.txt not obeyed (its default), no delay, `enqueueLinks()` on \
                   the same hostname (its default), its default logging",
         pending: &[],
+        row: Row::Main,
         status: Status::Measured(Config::Crawlee),
     },
     Cell {
@@ -280,7 +374,63 @@ pub(crate) const CELLS: [Cell; 21] = [
                   level, where Scrapy's DEBUG logs every request), the first page through the \
                   duplicate filter like every other request, nothing kept on disk",
         pending: &[],
+        row: Row::Main,
         status: Status::Measured(Config::Scrapy),
+    },
+    Cell {
+        scenario: Scenario::Raw,
+        tool: Tool::Spider,
+        name: "spider capacity 4096",
+        mapping: "the spider row's settings with its pages read from `subscribe(4096)`, the \
+                  capacity every Spider row had before #2213: up to 4,096 pages stay alive in \
+                  the channel",
+        pending: &[],
+        row: Row::Sensitivity,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Http,
+            capacity: SPIDER_CAPACITY_BEFORE,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Raw,
+        tool: Tool::Spider,
+        name: "spider default features",
+        mapping: "the spider row's settings (`subscribe(64)`), built with Spider's default \
+                  features on top of the row's own: `io_uring`, `tcp_fastopen`, `splice`, `numa` \
+                  and `zero_copy`, as `cargo add spider` builds it",
+        pending: &[],
+        row: Row::Sensitivity,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Defaults,
+            capacity: SPIDER_CAPACITY,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Raw,
+        tool: Tool::Spider,
+        name: "spider bloom",
+        mapping: "the spider row's settings (`subscribe(64)`), built with Spider's `bloom` \
+                  feature: its set of visited links is a Bloom filter",
+        pending: &[],
+        row: Row::Sensitivity,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Bloom,
+            capacity: SPIDER_CAPACITY,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Raw,
+        tool: Tool::Spider,
+        name: "spider jemalloc",
+        mapping: "the spider row's settings (`subscribe(64)`), with `tikv-jemallocator` as its \
+                  global allocator, which Spider's README recommends for a pure crawl; the \
+                  spider row runs on the system's allocator and Foxhound on mimalloc",
+        pending: &[],
+        row: Row::Sensitivity,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Jemalloc,
+            capacity: SPIDER_CAPACITY,
+        }),
     },
     Cell {
         scenario: Scenario::Durable,
@@ -290,6 +440,7 @@ pub(crate) const CELLS: [Cell; 21] = [
                   outcome synced, and `dataset.records` on, as its resume is judged by them; killed with SIGKILL once half the site is served, then \
                   `run.resume` in a new process on the same home",
         pending: &[],
+        row: Row::Main,
         status: Status::Measured(Config::Foxhound {
             durability: "full",
             commit_interval: None,
@@ -303,6 +454,7 @@ pub(crate) const CELLS: [Cell; 21] = [
                   `run_state.commit_interval: 60s`, the like-for-like cell against Crawlee's \
                   `persistStorage` and Scrapy's `JOBDIR`",
         pending: &[],
+        row: Row::Main,
         status: Status::Measured(Config::Foxhound {
             durability: "periodic",
             commit_interval: Some(60_000),
@@ -314,6 +466,7 @@ pub(crate) const CELLS: [Cell; 21] = [
         name: "spider",
         mapping: "none: Spider keeps no crawl state it can resume from",
         pending: &[],
+        row: Row::Main,
         status: Status::NotSupported(
             "Spider keeps no crawl state on disk that a new process resumes from after a kill (the owner's matrix, 2026-10-30)",
         ),
@@ -324,6 +477,7 @@ pub(crate) const CELLS: [Cell; 21] = [
         name: "crawlee",
         mapping: "none: `persistStorage: true` (its default) loses pages to a kill",
         pending: &[],
+        row: Row::Main,
         status: Status::NotSupported(
             "Crawlee's `persistStorage` writes each request of its queue to a file of its own \
              with a plain write, so a SIGKILL can leave one half-written; the process started \
@@ -339,6 +493,7 @@ pub(crate) const CELLS: [Cell; 21] = [
         name: "scrapy",
         mapping: "none: `JOBDIR` resumes only a job stopped cleanly",
         pending: &[],
+        row: Row::Main,
         status: Status::NotSupported(
             "Scrapy's `JOBDIR` writes its queue's index only on a clean close, so after a SIGKILL \
              the process started again on the same `JOBDIR` has no request left to fetch: it \
@@ -360,6 +515,7 @@ pub(crate) const CELLS: [Cell; 21] = [
                   and `crawl.scope.strategy: all`, since the site spans 50 domains and links \
                   nothing else",
         pending: &[],
+        row: Row::Main,
         status: Status::Measured(Config::Foxhound {
             durability: "full",
             commit_interval: None,
@@ -371,6 +527,7 @@ pub(crate) const CELLS: [Cell; 21] = [
         name: "spider",
         mapping: "none: Spider's delay and robots.txt are its crawl's, not each domain's",
         pending: &[],
+        row: Row::Main,
         status: Status::NotSupported(SPIDER_NOT_POLITE),
     },
     Cell {
@@ -385,6 +542,7 @@ pub(crate) const CELLS: [Cell; 21] = [
                   since the site spans 50 domains and links nothing else; \
                   `persistStorage: false`",
         pending: &[],
+        row: Row::Main,
         status: Status::Measured(Config::Crawlee),
     },
     Cell {
@@ -398,6 +556,7 @@ pub(crate) const CELLS: [Cell; 21] = [
                   `CONCURRENT_REQUESTS_PER_DOMAIN: 1`, `CONCURRENT_REQUESTS: 16`, \
                   `LOG_LEVEL: INFO`, nothing kept on disk",
         pending: &[],
+        row: Row::Main,
         status: Status::Measured(Config::Scrapy),
     },
     Cell {
@@ -409,6 +568,7 @@ pub(crate) const CELLS: [Cell; 21] = [
                   `dataset.records` on, each page's Record committed to the code-free crawl's \
                   Dataset `pages` in its run file",
         pending: &[],
+        row: Row::Main,
         status: Status::Measured(Config::Foxhound {
             durability: "off",
             commit_interval: None,
@@ -420,9 +580,14 @@ pub(crate) const CELLS: [Cell; 21] = [
         name: "spider",
         mapping: "scenario 1's settings, each page's URL, title (Spider's page metadata) and HTML \
                   written as one JSON line to `pages.jsonl`: Spider reads no main content, so \
-                  its page content is what it writes",
+                  its page content is what it writes; its pages read from `subscribe(256)`, the \
+                  smallest capacity at which this scenario's 10,000-page crawl lost no page",
         pending: &[],
-        status: Status::Measured(Config::Spider { chrome: false }),
+        row: Row::Main,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Http,
+            capacity: SPIDER_EXTRACTION_CAPACITY,
+        }),
     },
     Cell {
         scenario: Scenario::Extraction,
@@ -433,6 +598,7 @@ pub(crate) const CELLS: [Cell; 21] = [
                   to `pushData`, its default Dataset kept on disk (`persistStorage: true`, its \
                   default, which keeps its request queue on disk too)",
         pending: &[],
+        row: Row::Main,
         status: Status::Measured(Config::Crawlee),
     },
     Cell {
@@ -443,7 +609,22 @@ pub(crate) const CELLS: [Cell; 21] = [
                   `main`, as Scrapy reads no main content of its own) yielded as an Item, which \
                   an Item pipeline writes as one JSON line to `items.jsonl`",
         pending: &[],
+        row: Row::Main,
         status: Status::Measured(Config::Scrapy),
+    },
+    Cell {
+        scenario: Scenario::Extraction,
+        tool: Tool::Spider,
+        name: "spider mimalloc",
+        mapping: "the spider row's settings (`subscribe(256)`), with `mimalloc` as its global \
+                  allocator, which Spider's README recommends for a crawl that also parses, and \
+                  the allocator Foxhound's executable sets; the spider row runs on the system's",
+        pending: &[],
+        row: Row::Sensitivity,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Mimalloc,
+            capacity: SPIDER_EXTRACTION_CAPACITY,
+        }),
     },
     Cell {
         scenario: Scenario::Browser,
@@ -453,6 +634,7 @@ pub(crate) const CELLS: [Cell; 21] = [
                   Chrome for Testing, its pinned build, from a Browser cache laid out beside \
                   the data folder (`GOODFETCH_BROWSERS_PATH`)",
         pending: &[],
+        row: Row::Main,
         status: Status::Measured(Config::Foxhound {
             durability: "off",
             commit_interval: None,
@@ -465,9 +647,13 @@ pub(crate) const CELLS: [Cell; 21] = [
         mapping: "Spider built with its `chrome` feature, `crawl()` rendering each page in the \
                   same headless Chrome for Testing (`CHROME_BIN`), with its own launch \
                   arguments, `with_respect_robots_txt(false)`, `with_concurrency_limit(16)`, \
-                  nothing kept on disk",
+                  nothing kept on disk, its pages read from `subscribe(64)`",
         pending: &[],
-        status: Status::Measured(Config::Spider { chrome: true }),
+        row: Row::Main,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Chrome,
+            capacity: SPIDER_CAPACITY,
+        }),
     },
     Cell {
         scenario: Scenario::Browser,
@@ -478,6 +664,7 @@ pub(crate) const CELLS: [Cell; 21] = [
                   not obeyed (its default), `enqueueLinks()` once the page loaded, \
                   `persistStorage: false`",
         pending: &[],
+        row: Row::Main,
         status: Status::Measured(Config::Crawlee),
     },
     Cell {
@@ -489,9 +676,28 @@ pub(crate) const CELLS: [Cell; 21] = [
                   `CONCURRENT_REQUESTS` and `CONCURRENT_REQUESTS_PER_DOMAIN` 16, \
                   `ROBOTSTXT_OBEY: False`, `LOG_LEVEL: INFO`, nothing kept on disk",
         pending: &[],
+        row: Row::Main,
         status: Status::Measured(Config::Scrapy),
     },
+    Cell {
+        scenario: Scenario::Browser,
+        tool: Tool::Spider,
+        name: "spider smart",
+        mapping: "none: Spider's `smart` feature, `crawl_smart()`, which fetches each page over \
+                  HTTP first and renders it in Chrome only where Spider finds it needs a browser",
+        pending: &[],
+        row: Row::Sensitivity,
+        status: Status::NotSupported(SPIDER_NOT_SMART),
+    },
 ];
+
+/// Why Spider's `smart` row has no figures: what its crawl of the
+/// script-rendered site fetched (#2213).
+const SPIDER_NOT_SMART: &str = "Spider's `crawl_smart()` fetched 1 of the site's 100 pages, which no same-work check \
+     passes: it renders a page only when its signs that the page needs a browser add up to its \
+     threshold, the feed page's did not, and the feed's items are linked by its script alone. \
+     On 2026-11-11 (#2213), 2 of 2 such crawls of Spider 2.53.9, built with its `smart` \
+     feature beside the spider row's settings, ended so, with no Chrome started";
 
 /// Why Spider has no polite cell: what a crawl of the multi-domain site
 /// with its delay and robots.txt showed.
@@ -516,3 +722,6 @@ pub(crate) fn measured() -> impl Iterator<Item = (&'static Cell, Config)> {
         Status::NotSupported(_) => None,
     })
 }
+
+#[cfg(test)]
+mod tests;

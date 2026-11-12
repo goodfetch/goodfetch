@@ -91,6 +91,19 @@ const SAMPLE_CRAWLED: Event = Event {
     arrived_in: ARRIVED_IN,
 };
 
+/// `crawl.sample_pages`: the sample crawl's setting, which the sample
+/// crawl does not read yet (the engine's list of unbuilt settings).
+pub const CRAWL_SAMPLE_PAGES: Setting = Setting {
+    name: "crawl.sample_pages",
+    description: "How many pages the sample crawl visits.",
+    kind: crate::catalog::ValueKind::Count,
+    default: one,
+    clearable: false,
+    authority: crate::catalog::Authority::Every,
+    weakens: None,
+    arrived_in: ARRIVED_IN,
+};
+
 fn one() -> serde_json::Value {
     serde_json::json!(1)
 }
@@ -143,16 +156,7 @@ pub const ENTRIES: Entries = Entries {
         stability: Stability::Experimental,
         arrived_in: ARRIVED_IN,
     }],
-    settings: &[Setting {
-        name: "crawl.sample_pages",
-        description: "How many pages the sample crawl visits.",
-        kind: crate::catalog::ValueKind::Count,
-        default: one,
-        clearable: false,
-        authority: crate::catalog::Authority::Every,
-        weakens: None,
-        arrived_in: ARRIVED_IN,
-    }],
+    settings: &[CRAWL_SAMPLE_PAGES],
     hook_stages: &[HookStage {
         name: "sample_crawled_page",
         description: "After the sample crawl visits a page.",

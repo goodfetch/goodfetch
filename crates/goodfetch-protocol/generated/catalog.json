@@ -4911,6 +4911,23 @@
     {
       "arrived_in": "0.1",
       "authority": "every",
+      "clearable": true,
+      "default": 5,
+      "description": "How many levels of sitemaps a sitemap seed reads under the sitemap or robots.txt it names, each sitemap an index or a robots.txt names one level deeper than it: a sitemap nested deeper is not fetched, the seed's report keeps its URL with `max_sitemap_nesting`, and a Run that refused one ends `incomplete`. 5 by default; `null` turns the bound off.",
+      "name": "crawl.max_sitemap_nesting",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
       "clearable": false,
       "default": 10000,
       "description": "How many admissions one attempt may stage before it commits: its enqueues, `enqueueLinks` calls and seeds added through `ctx.run`, each held in the engine's memory with the attempt until its commit or its discard. One more fails with `staging_full`, and nothing is staged. 10,000 by default.",
@@ -8994,6 +9011,13 @@
       "arrived_in": "0.1",
       "description": "`crawl.max_segment_repeats` refused URLs the crawl would otherwise have admitted, counted: `unverified`.",
       "name": "crawl.max_segment_repeats",
+      "product": "foxhound",
+      "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "`crawl.max_sitemap_nesting` refused sitemaps nested deeper under their sitemap seed, counted: `incomplete`.",
+      "name": "crawl.max_sitemap_nesting",
       "product": "foxhound",
       "type": "completeness_reason_code"
     },

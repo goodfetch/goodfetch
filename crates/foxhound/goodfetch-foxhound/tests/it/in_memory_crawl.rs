@@ -533,7 +533,7 @@ fn frontier_crawl(globs: bool, schema: bool, planted: bool) -> Frontiers {
             metrics,
             settings: settings.as_object().unwrap().clone(),
             plant,
-            frontier: Some(Frontier { schema }),
+            frontier: Some(Frontier { schema, items: 0 }),
             small_pages: true,
             ..Options::default()
         },
@@ -592,6 +592,7 @@ struct RunStateCounts {
     transactions: u64,
     syncs: u64,
     writer_reads: u64,
+    evidence_reads: u64,
     configuration_reads: u64,
     prunes: u64,
     effect_syncs: u64,
@@ -605,6 +606,7 @@ impl RunStateCounts {
             "F2.transactions" => self.transactions,
             "F2.syncs" => self.syncs,
             "F2.writer_reads" => self.writer_reads,
+            "F2.evidence_reads" => self.evidence_reads,
             "F2.configuration_reads" => self.configuration_reads,
             "F2.prunes" => self.prunes,
             "F2.effect_syncs" => self.effect_syncs,
@@ -645,6 +647,7 @@ fn run_state_counts(settings: &Value, planted: Option<&str>) -> RunStateCounts {
         transactions: work.read(Row::RunTransactions),
         syncs: vfs.syncs(),
         writer_reads: work.read(Row::WriterReads),
+        evidence_reads: work.read(Row::EvidenceReads),
         configuration_reads: work.read(Row::ConfigurationReads),
         prunes: work.read(Row::Prunes),
         effect_syncs: work.read(Row::EffectSyncs),
@@ -658,6 +661,7 @@ fn run_state_counts(settings: &Value, planted: Option<&str>) -> RunStateCounts {
 #[case::transactions("F2.transactions")]
 #[case::syncs("F2.syncs")]
 #[case::writer_reads("F2.writer_reads")]
+#[case::evidence_reads("F2.evidence_reads")]
 #[case::configuration_reads("F2.configuration_reads")]
 #[case::prunes("F2.prunes")]
 #[case::effect_syncs("F2.effect_syncs")]

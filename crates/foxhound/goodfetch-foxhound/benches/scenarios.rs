@@ -22,7 +22,9 @@
 //! [`Frontier`] adds the outcomes the Frontier's rows count beyond a links
 //! batch, for the counts cell alone, so the heap benchmark's crawl stays as it
 //! is: a seed that redirects, a sitemap seed and a seed with a Payload under
-//! its Label's schema, each reaching one small page more.
+//! its Label's schema, each reaching one small page more; and, for the one
+//! cell that asks for them, pages `/item?id=<n>` that differ by one
+//! parameter, which the Frontier's learning reads its evidence for.
 #![expect(
     clippy::disallowed_types,
     reason = "the site's one counter of the bytes it sent, read once the crawl ended: no lock and no order to test under loom (ADR 0060)"
@@ -144,8 +146,9 @@ struct Site {
     attempts: Arc<AtomicU64>,
     /// Run once per page it serves: the benchmark's own extra unit of work.
     plant: Option<Plant>,
-    /// Whether it also serves [`Frontier`]'s paths.
-    frontier: bool,
+    /// Whether it also serves [`Frontier`]'s paths, and how many of its
+    /// items with them.
+    frontier: Option<usize>,
     /// Whether each page has no paragraphs, as [`Options::small_pages`] says.
     small_pages: bool,
     hops: Arc<AtomicU64>,
@@ -170,6 +173,25 @@ const SITEMAP: &str = "/sitemap.xml";
 const FROM_SITEMAP: &str = "/from-sitemap";
 /// The seed with a Payload.
 const WITH_PAYLOAD: &str = "/with-payload";
+
+/// The path of [`Frontier`]'s items, `/item?id=<n>`.
+const ITEM: &str = "/item";
+
+/// The item `/item?<query>` of a site serving `items` of them, each
+/// linking the next: a page of its own title, so no two read alike.
+fn item_page(query: Option<&str>, items: usize) -> Option<Page> {
+    let number: usize = query?.strip_prefix("id=")?.parse().ok()?;
+    let next = number + 1;
+    let links = if next < items {
+        format!("<li><a href=\"{ITEM}?id={next}\">Item {next}</a></li>")
+    } else {
+        String::new()
+    };
+    (number < items).then(|| Page {
+        head: head(&format!("Item {number}"), &links),
+        paragraphs: 0,
+    })
+}
 
 /// The page at one of the paths only [`Frontier`] serves.
 fn frontier_page(path: &str) -> Option<Page> {
@@ -218,7 +240,7 @@ impl Transport for Site {
             ))));
         }
         let path = hop.url.path();
-        if self.frontier && path == MOVED {
+        if self.frontier.is_some() && path == MOVED {
             self.hops.fetch_add(1, Ordering::Relaxed);
             let location = ("location".to_owned(), MOVED_TO.to_owned());
             return Box::pin(std::future::ready(Ok(plain(
@@ -227,7 +249,7 @@ impl Transport for Site {
                 String::new(),
             ))));
         }
-        if self.frontier && path == SITEMAP {
+        if self.frontier.is_some() && path == SITEMAP {
             self.sitemaps.fetch_add(1, Ordering::Relaxed);
             let body = format!(
                 "<?xml version=\"1.0\"?><urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"><url><loc>http://{HOST}{FROM_SITEMAP}</loc></url></urlset>"
@@ -246,7 +268,8 @@ impl Transport for Site {
             Arc::new(AtomicU64::new(0))
         };
         let page = page
-            .or_else(|| self.frontier.then(|| frontier_page(path)).flatten())
+            .or_else(|| self.frontier.and_then(|_| frontier_page(path)))
+            .or_else(|| (path == ITEM).then(|| item_page(hop.url.query(), self.frontier?))?)
             .map(|page| Page {
                 paragraphs: if self.small_pages { 0 } else { page.paragraphs },
                 ..page
@@ -501,6 +524,20 @@ pub(crate) struct Options {
 pub(crate) struct Frontier {
     /// Whether the seed's Payload has a schema to fit.
     pub(crate) schema: bool,
+    /// How many pages `/item?id=<n>` the whole site serves beside its own,
+    /// the first a seed and each linking the next: URLs that differ by one
+    /// parameter, each page its own, which the Frontier's learning reads
+    /// its evidence for (`F2.evidence_reads`).
+    pub(crate) items: usize,
+}
+
+impl Frontier {
+    /// The items a site linking `linked` of [`PAGES`] serves: as large a
+    /// share of them as of its pages, so a shorter site's crawl has fewer
+    /// of each.
+    pub(crate) fn items_on(self, linked: usize) -> usize {
+        self.items * linked / PAGES.len()
+    }
 }
 
 /// A Limit of `amount` `requests` on the install, set in `home`'s ledger at
@@ -569,7 +606,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         sent: Arc::clone(&sent),
         attempts: Arc::clone(&attempts),
         plant,
-        frontier: frontier.is_some(),
+        frontier: frontier.map(|frontier| frontier.items_on(linked)),
         small_pages,
         hops: Arc::clone(&hops),
         sitemaps: Arc::clone(&sitemaps),
@@ -718,6 +755,9 @@ fn crawl_start(
                 "payload": { "isbn": "1" },
             }),
         ]);
+        if frontier.items_on(linked) > 0 {
+            seeds.push(json!({ "url": format!("http://{HOST}{ITEM}?id=0"), "label": "page" }));
+        }
         if frontier.schema {
             labels = json!({ "typed": { "payload": {
                 "type": "object",

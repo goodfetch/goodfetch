@@ -14,7 +14,9 @@
 //! parent through [`TaskOwner::panicked`]. The parent carries out the
 //! reaction, ending the owner through an end that already exists, never the
 //! owner that failed: stopping an owner waits for its tasks, so none of
-//! them can stop it. Nothing is restarted in place.
+//! them can stop it. The task that serves a Connection ends it as when its
+//! Client goes away; until a Run's parent and the engine's await it (spec
+//! #2425), the log is their panic's only trace. Nothing is restarted in place.
 //!
 //! Blocking work runs under the owner's [`BlockingPolicy`], a value: in
 //! production on tracked blocking threads, and an actor that owns blocking
@@ -156,7 +158,16 @@ impl TaskOwner {
     /// Dropping the future stops waiting; a later wait still sees a panic
     /// told before it.
     pub fn panicked(&self) -> impl Future<Output = ()> + Send + 'static {
-        self.panics.told.clone().cancelled_owned()
+        CancellationToken::clone(&self.panics.panicked).cancelled_owned()
+    }
+
+    /// Whether one of its tasks, its actors or its blocking work whose
+    /// caller has gone panicked already: what [`TaskOwner::panicked`] waits
+    /// for, read where its holder no longer waits. A task's panic is told
+    /// before the task ends, so once its tasks ended ([`TaskOwner::wait`])
+    /// this reads every panic among them.
+    pub fn has_panicked(&self) -> bool {
+        self.panics.panicked.is_cancelled()
     }
 
     /// Its blocking policy.
@@ -404,15 +415,16 @@ impl BlockingThreads {
 #[derive(Clone, Debug)]
 struct Panics {
     kind: OwnerKind,
-    /// Cancelled once one of the owner's tasks panicked.
-    told: CancellationToken,
+    /// Cancelled once one of the owner's tasks panicked; shared, so that
+    /// starting a task copies no token (ADR 0140's E1 starts one a call).
+    panicked: Arc<CancellationToken>,
 }
 
 impl Panics {
     fn new(kind: OwnerKind) -> Self {
         Self {
             kind,
-            told: CancellationToken::new(),
+            panicked: Arc::new(CancellationToken::new()),
         }
     }
 
@@ -422,20 +434,24 @@ impl Panics {
         tracing::error!(
             owner = self.kind.as_str(),
             crash_report,
-            "a task panicked; its owner ends"
+            "a task panicked, and its owner's parent is told"
         );
-        self.told.cancel();
+        self.panicked.cancel();
     }
 }
 
-/// `future`, whose panic is caught where it runs and told to `panics`.
-async fn watched<F>(future: F, panics: Panics)
+/// `future`, whose panic is caught where it runs and told to `panics`,
+/// on the thread it panicked on, so its crash report's name goes with it.
+/// A combinator, not an `async fn`, which would hold `future` twice.
+fn watched<F>(future: F, panics: Panics) -> impl Future<Output = ()>
 where
     F: Future<Output = ()>,
 {
-    if AssertUnwindSafe(future).catch_unwind().await.is_err() {
-        panics.tell(crash_report::take_written().as_deref());
-    }
+    AssertUnwindSafe(future).catch_unwind().map(move |caught| {
+        if caught.is_err() {
+            panics.tell(crash_report::take_written().as_deref());
+        }
+    })
 }
 
 /// A panic that blocking work caught on its thread, with the name of its

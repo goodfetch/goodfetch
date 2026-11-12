@@ -5,7 +5,7 @@ use std::time::Duration;
 use rstest::rstest;
 use tokio::sync::{mpsc, oneshot};
 
-use super::{BlockingPolicy, TaskOwner};
+use super::{BlockingPolicy, OwnerKind, TaskOwner};
 
 #[test]
 fn stopping_an_owner_cancels_its_tasks_and_waits_for_them() {
@@ -270,9 +270,9 @@ async fn within<F: Future<Output = ()>>(policy: BlockingPolicy, owed: F) -> bool
     }
 }
 
-/// A child owner's task that panics is told to its parent, which then stops
-/// the child: the stop ends, a sibling task that waits for its cancellation
-/// included (ADR 0148).
+/// A child owner's task that panics is told to its parent, which can also
+/// read it at once, and then stops the child: the stop ends, a sibling task
+/// that waits for its cancellation included (ADR 0148).
 #[rstest]
 #[case::on_threads(BlockingPolicy::Threads)]
 #[case::inline(BlockingPolicy::Inline)]
@@ -286,13 +286,47 @@ fn a_child_task_that_panics_is_told_to_its_parent_which_stops_the_child(
         child.spawn(async move { token.cancelled().await });
         child.spawn(async { panic!("the task's own panic") });
 
-        let told = within(policy, child.panicked()).await;
+        let told = within(policy, child.panicked()).await && child.has_panicked();
         let stopped = within(policy, child.stop()).await;
         parent.stop().await;
         (told, stopped)
     });
 
     assert_eq!((told, stopped), (true, true));
+}
+
+/// The panic of a task whose owner's parent has no reaction yet, a Run's,
+/// is logged at `error` with the owner's kind, its only trace (ADR 0148).
+#[test]
+fn a_task_that_panics_is_logged_at_error_with_its_owners_kind() {
+    let (told, logged) = goodfetch_test_support::logged(|| {
+        goodfetch_test_support::runtime().block_on(async {
+            let parent = TaskOwner::root(BlockingPolicy::Inline);
+            let run = parent.child_for(OwnerKind::Run);
+            run.spawn(async { panic!("the task's own panic") });
+            let told = within(BlockingPolicy::Inline, run.panicked()).await;
+            run.stop().await;
+            parent.stop().await;
+            told
+        })
+    });
+
+    let logged = String::from_utf8_lossy(&logged);
+    let told_lines: Vec<&str> = logged
+        .lines()
+        .filter(|line| line.contains("goodfetch_engine::tasks"))
+        .collect();
+    assert_eq!(
+        (
+            told,
+            told_lines.len(),
+            told_lines
+                .iter()
+                .all(|line| line.contains("ERROR") && line.contains(r#"owner="run""#)),
+        ),
+        (true, 1, true),
+        "{logged}"
+    );
 }
 
 /// A child owner's actor whose handler panics is told to its parent, which
@@ -361,7 +395,7 @@ fn an_owner_whose_tasks_ended_is_not_told_of_a_panic() {
         let owner = TaskOwner::root(BlockingPolicy::Inline);
         owner.spawn(async {});
         owner.stop().await;
-        tokio::time::timeout(OWED, owner.panicked()).await.is_ok()
+        tokio::time::timeout(OWED, owner.panicked()).await.is_ok() || owner.has_panicked()
     });
 
     assert!(!told);

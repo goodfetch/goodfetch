@@ -86,7 +86,7 @@ use crate::mask::{Masks, Scope};
 use crate::metrics::Metrics;
 use crate::product::{Identity, Requested};
 use crate::runs::Runs;
-use crate::tasks::TaskOwner;
+use crate::tasks::{OwnerKind, TaskOwner};
 use crate::trace;
 use crate::transition::engine::{
     ConnectionEffect, ConnectionEvent, ConnectionState, InvalidConnectionTransition,
@@ -330,6 +330,7 @@ pub(crate) async fn serve(
     if AssertUnwindSafe(serving).catch_unwind().await.is_err() {
         metrics.panicked(PanicEnded::Connection);
         tracing::error!(
+            owner = OwnerKind::Connection.as_str(),
             crash_report = crash_report::take_written().as_deref(),
             "the task that serves a Connection panicked; the Connection ends"
         );
@@ -367,17 +368,18 @@ async fn serve_carried(
         dispatch.masks.clone(),
         dispatch.work.clone(),
     ));
+    let metrics = dispatch.metrics.clone();
     let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
     // The watch of its own tasks (ADR 0148): a panic of one is told to the
     // serving loop, which ends the Connection; this ends once that loop
     // stopped listening.
-    let (panicked, told) = (owner.panicked(), completed.clone());
+    let (panicked, telling) = (owner.panicked(), completed.clone());
     owner.spawn(async move {
         tokio::select! {
             () = panicked => {
-                let _ = told.send(Told::OwnTaskPanicked).await;
+                let _ = telling.send(Told::OwnTaskPanicked).await;
             }
-            () = told.closed() => {}
+            () = telling.closed() => {}
         }
     });
     let (client, requests) = Client::new(dispatch.work.clone());
@@ -433,7 +435,14 @@ async fn serve_carried(
     session.cancel_in_flight();
     drop(session);
     owner.wait().await;
-    if !ended {
+    // Every task of its owner ended, so a panic among them was told, even
+    // one the serving loop met first as its writer gone (ADR 0148): it
+    // counts once, and the Connection ends without lingering.
+    let panicked = owner.has_panicked();
+    if panicked {
+        metrics.panicked(PanicEnded::Connection);
+    }
+    if !ended && !panicked {
         linger(&mut reading, clock).await;
     }
 }
@@ -591,9 +600,10 @@ struct Pending {
 }
 
 impl Session<'_> {
-    /// Serves the Connection until the Client's input ended, or one of
-    /// its own tasks panicked, and every call was answered, or the engine
-    /// closed it; answers whether the input ended or a task panicked.
+    /// Serves the Connection until the Client's input ended and every call
+    /// was answered, until one of its own tasks panicked and its calls
+    /// were cancelled, or until the engine closed it; answers whether the
+    /// input ended or a task panicked.
     async fn run(&mut self, reading: &mut Reading) -> bool {
         let mut pending = Vec::new();
         let mut ended = false;
@@ -622,6 +632,12 @@ impl Session<'_> {
                             return true;
                         }
                     }
+                }
+                // A call's own task may be what panicked, and never
+                // ends in `in_flight`: the calls' tasks are waited for as
+                // the Connection's owner's, once this returns.
+                if self.own_task_panicked {
+                    return true;
                 }
                 if self.in_flight.is_empty() {
                     if let Err(refused) = self.transition(ConnectionEvent::CallsEnded) {
@@ -1102,17 +1118,14 @@ impl Session<'_> {
     }
 
     /// Takes in what one of its tasks told: a call that ended gives its
-    /// place in flight back, and a panic of one of its own tasks, counted
-    /// as one that ended a Connection, ends the Connection.
+    /// place in flight back, and a panic of one of its own tasks ends the
+    /// Connection.
     fn told(&mut self, told: Told) {
         match told {
             Told::CallEnded(id) => {
                 self.in_flight.remove(&id);
             }
-            Told::OwnTaskPanicked => {
-                self.own_task_panicked = true;
-                self.dispatch.metrics.panicked(PanicEnded::Connection);
-            }
+            Told::OwnTaskPanicked => self.own_task_panicked = true,
         }
     }
 

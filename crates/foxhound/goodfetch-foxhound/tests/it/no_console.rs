@@ -1,10 +1,13 @@
 //! Foxhound's executable carries no Console (ADR 0137): its command line has
-//! no `console` command, and no `console.*` setting is one it knows.
+//! no `console` command, no `console.*` setting is one it knows, and the
+//! Daemon it starts publishes its endpoint and no Console's address.
+
+use std::collections::BTreeSet;
 
 use goodfetch_collie::executable::command;
 use goodfetch_protocol::catalog::Product;
-use goodfetch_test_support::{TestEnv, cli};
-use serde_json::{Value, json};
+use goodfetch_test_support::{console_address_answer, runtime_file_members};
+use serde_json::json;
 
 const FOXHOUND: &str = env!("CARGO_BIN_EXE_goodfetch-foxhound");
 
@@ -21,18 +24,17 @@ fn the_command_line_has_no_console_command() {
 
 #[test]
 fn a_console_address_is_no_setting() {
-    let env = TestEnv::new();
-    env.user_configuration("console.address = \"127.0.0.1:0\"\n");
+    let answer = console_address_answer(FOXHOUND.as_ref()).unwrap();
 
-    let output = cli(&env, FOXHOUND)
-        .args(["config", "explain", "--json"])
-        .run()
-        .unwrap();
-    let printed: Value = serde_json::from_str(&output.stdout).unwrap_or(Value::Null);
+    assert_eq!(answer, (Some(3), json!("setting_unknown")));
+}
+
+#[test]
+fn the_daemons_runtime_file_names_its_endpoint_and_no_console() {
+    let members = runtime_file_members(FOXHOUND.as_ref()).unwrap();
 
     assert_eq!(
-        (output.exit, printed["error"]["code"].clone()),
-        (Some(3), json!("setting_unknown")),
-        "{output}"
+        members,
+        BTreeSet::from(["endpoint", "pid", "token", "version"].map(String::from))
     );
 }

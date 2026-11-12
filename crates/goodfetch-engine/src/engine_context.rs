@@ -169,3 +169,6 @@ impl EngineContext {
         Refusals::new(self.audit().clone(), Arc::clone(&self.owner), self.clock)
     }
 }
+
+#[cfg(test)]
+mod tests;

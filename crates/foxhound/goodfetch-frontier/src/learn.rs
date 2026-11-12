@@ -18,6 +18,7 @@
 
 use std::collections::BTreeSet;
 
+use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::runs::CompletenessReason;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use rusqlite::Connection;
@@ -114,7 +115,8 @@ pub fn completeness_reasons(connection: &Connection) -> rusqlite::Result<Vec<Com
 }
 
 /// Learns from `page` in the run file `connection` holds, once per crawl
-/// request, handing `pending` the requests a rule it teaches merges.
+/// request, handing `pending` the requests a rule it teaches merges;
+/// `work` counts the rows of evidence it reads (`F2.evidence_reads`).
 ///
 /// # Errors
 ///
@@ -123,6 +125,7 @@ pub fn learn(
     connection: &Connection,
     page: PageSeen<'_>,
     pending: &mut dyn EndMerged,
+    work: &CountedWork,
 ) -> rusqlite::Result<()> {
     if !is_evidence(page.method, page.body) {
         return Ok(());
@@ -137,12 +140,14 @@ pub fn learn(
             signature: &page.signature,
             canonical: canonical.as_ref(),
         },
+        work,
     )?;
     apply(connection, changes, pending)
 }
 
 /// Learns from `redirect` in the run file `connection` holds, handing
-/// `pending` the requests a rule it teaches merges.
+/// `pending` the requests a rule it teaches merges; `work` counts the rows
+/// of evidence it reads.
 ///
 /// # Errors
 ///
@@ -151,6 +156,7 @@ pub fn learn_redirect(
     connection: &Connection,
     redirect: Redirect<'_>,
     pending: &mut dyn EndMerged,
+    work: &CountedWork,
 ) -> rusqlite::Result<()> {
     if !is_evidence(redirect.method, redirect.body) {
         return Ok(());
@@ -159,6 +165,7 @@ pub fn learn_redirect(
         connection,
         &identity::keyed(redirect.from),
         &identity::keyed(redirect.to),
+        work,
     )?;
     apply(connection, change.into_iter().collect(), pending)
 }

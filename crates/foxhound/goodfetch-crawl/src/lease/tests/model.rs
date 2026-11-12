@@ -632,6 +632,7 @@ fn commit(
                     canonical: None,
                     ended_at: ended_at(),
                     request: leased.crawl_request.clone(),
+                    work: goodfetch_counted_work::CountedWork::default(),
                 }),
                 ending: Ending::Commit {
                     commit,

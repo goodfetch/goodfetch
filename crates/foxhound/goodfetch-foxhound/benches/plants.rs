@@ -103,6 +103,13 @@ pub(crate) fn run_state_plant(name: &str, counted: &Counted<'_>) -> Plant {
             let work = counted.work.clone();
             Arc::new(move |_: &str| work.count(Row::WriterReads))
         }
+        // The Frontier reads its evidence inside a page's learning, which
+        // nothing beside the crawl enters: the row's counted seam is the
+        // count alone.
+        "F2.evidence_reads" => {
+            let work = counted.work.clone();
+            Arc::new(move |_: &str| work.count(Row::EvidenceReads))
+        }
         "F2.configuration_reads" => {
             let (runtime, folder) = beside_the_crawl();
             let version = ProductVersion::parse("1.4.0").expect("invariant: a literal version");

@@ -50,6 +50,7 @@ use goodfetch_engine::tls::{
 use goodfetch_engine::{CallContext, CallError, GuardAnswer};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_page::blocks::Block;
+use goodfetch_page::document_request::DocumentRequest;
 use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, KeptFrom, KeptTree, Observer, PageValue, PooledSession,
     ProgramPages, Reader, ServedDocument,
@@ -96,6 +97,7 @@ use crate::choice::{
     ENCODING_CALL, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unserved,
 };
 use crate::content_types::{Accepts, ContentTypes, is_document, typed};
+use crate::cookies::{Jars, WithJar};
 use crate::discovered_api::Plan;
 use crate::document::{self, FieldElement, LocatorInvalid, Matched, SelectorInvalid, matched};
 use crate::driver::{FetchBounds, Hop, Transport, fetch_accepting, fetch_start};
@@ -1078,7 +1080,16 @@ impl FetchTiers {
             resolver: ResolverConfiguration::system().map_err(|error| error.to_string())?,
             local,
         };
-        let reqwest = Reqwest::new(config.clone()).map_err(|error| error.to_string())?;
+        // Every Session of the Run launches one build, so the document
+        // request its own transport presents is read once, here.
+        let presents = self
+            .served
+            .browser
+            .get()
+            .and_then(|pages| pages.document_request());
+        let reqwest = Reqwest::new(config.clone())
+            .map_err(|error| error.to_string())?
+            .presenting(presents.clone());
         let addresses = reqwest.address_check();
         let transport: Arc<dyn Transport> = match &self.served.transport {
             Some(transport) => Arc::clone(transport),
@@ -1093,8 +1104,10 @@ impl FetchTiers {
             following: Following::of(settings),
             sessions: Arc::new(SessionTransports::new(
                 config,
+                presents,
                 usize::try_from(settings.get::<u64>(&SESSION_POOL_MAX_SIZE)).unwrap_or(usize::MAX),
             )),
+            jars: Arc::default(),
         })
     }
 
@@ -2194,6 +2207,9 @@ pub struct HttpTier {
     /// The reqwest transports of the Run's Sessions that hold their own
     /// local addresses, which every clone shares.
     sessions: Arc<SessionTransports>,
+    /// The cookie jars of the Run's Sessions that send their HTTP
+    /// themselves, which every clone shares.
+    jars: Arc<Jars>,
 }
 
 /// The reqwest transport of each local source a Session of the Run sends
@@ -2207,6 +2223,8 @@ pub struct HttpTier {
 struct SessionTransports {
     /// The Run's transport configuration, its `local` replaced for each.
     config: TransportConfig,
+    /// The document request each presents: its Sessions' browser's.
+    presents: Option<DocumentRequest>,
     /// The most transports kept.
     most: usize,
     built: Mutex<Built>,
@@ -2221,9 +2239,10 @@ struct Built {
 }
 
 impl SessionTransports {
-    fn new(config: TransportConfig, most: usize) -> Self {
+    fn new(config: TransportConfig, presents: Option<DocumentRequest>, most: usize) -> Self {
         Self {
             config,
+            presents,
             most: most.max(1),
             built: Mutex::new(Built::default()),
         }
@@ -2251,7 +2270,8 @@ impl SessionTransports {
             local: Some(local.clone()),
             ..self.config.clone()
         })
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())?
+        .presenting(self.presents.clone());
         let addresses = transport.address_check();
         let transport = (Arc::new(transport), addresses);
         if built.transports.len() >= self.most
@@ -2295,6 +2315,26 @@ impl HttpTier {
             addresses,
             ..self.clone()
         })
+    }
+
+    /// The tier as the pool Session `session` sends on it itself: its
+    /// hops carry the cookies the answers to its earlier hops set, a
+    /// redirect's among them, and keep those their own answers set (RFC
+    /// 6265), in a jar no other Session reads (ADR 0021).
+    #[must_use]
+    pub fn keeping_cookies_of(&self, session: &SessionId) -> HttpTier {
+        HttpTier {
+            transport: Arc::new(WithJar {
+                transport: Arc::clone(&self.transport),
+                jar: self.jars.of(session),
+            }),
+            ..self.clone()
+        }
+    }
+
+    /// Forgets the cookies of `session`, retired: its jar ends with it.
+    pub fn forget_cookies_of(&self, session: &SessionId) {
+        self.jars.forget(session);
     }
 
     /// The address check of the tier's connections, which judges a crawl

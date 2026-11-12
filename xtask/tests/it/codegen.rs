@@ -1006,6 +1006,169 @@ fn the_typescript_layer_holds_no_alias(
     assert_eq!((senders, renamed), (vec![], vec![]));
 }
 
+const EMIT: &str = "crates/goodfetch-protocol/src/emit.rs";
+const COLLIE_CLIENT: &str = "sdks/typescript/collie-client";
+
+/// The `codegen` workspace with the forms catalog (`codegen-forms/forms.rs`)
+/// among its entry modules: one entry of each kind an SDK gives a form.
+fn workspace_with_the_forms_catalog() -> Workspace {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.add_fixture_file(
+        "codegen-forms/forms.rs",
+        "crates/goodfetch-protocol/src/forms.rs",
+    );
+    workspace.edit(
+        "crates/goodfetch-protocol/src/lib.rs",
+        "pub mod foxhound;",
+        "pub mod forms;\npub mod foxhound;",
+    );
+    workspace.edit(
+        EMIT,
+        "const MODULES: [&Entries; 2] = [&sample::ENTRIES, &foxhound::ENTRIES];",
+        "const MODULES: [&Entries; 3] = [&sample::ENTRIES, &crate::forms::ENTRIES, &foxhound::ENTRIES];",
+    );
+    for prefix in ["run.", "page.", "locator."] {
+        workspace.append(
+            "features/areas.toml",
+            &format!("[[area]]\nnumber = 1\nkind = \"operation\"\nprefix = \"{prefix}\"\n"),
+        );
+    }
+    workspace
+}
+
+/// A prefix keeps its one meaning and a query never waits (ADR 0099):
+/// `xtask codegen` refuses a catalog that says otherwise, naming the
+/// operation, in place of writing a member whose name or options lie.
+///
+/// Covers: story:11-178
+#[rstest]
+#[case::a_waiter_without_the_prefix(
+    "\"page.wait_for_ready\"",
+    "\"page.ready\"",
+    "operation `page.ready`"
+)]
+#[case::the_prefix_on_a_round_trip(
+    "\"page.close\"",
+    "\"page.wait_for_close\"",
+    "operation `page.wait_for_close`"
+)]
+#[case::a_query_with_a_timeout(
+    "result: schema_of::<Readiness>,",
+    "result: schema_of::<Readiness>,\n            params: schema_of::<WaitForReadyParams>,",
+    "operation `page.is_ready`"
+)]
+#[case::new_on_a_query(
+    "\"page.is_ready\"",
+    "\"page.new_ready\"",
+    "operation `page.new_ready`"
+)]
+#[case::is_on_a_round_trip("\"page.close\"", "\"page.is_closed\"", "operation `page.is_closed`")]
+#[case::on_on_a_round_trip("\"page.close\"", "\"page.on_close\"", "operation `page.on_close`")]
+#[case::get_by_on_an_operation(
+    "\"page.is_ready\"",
+    "\"page.get_by_ready\"",
+    "operation `page.get_by_ready`"
+)]
+#[case::a_handle_id_without_a_type(
+    "pub page_id: PageId,\n    /// The URL to navigate to.",
+    "pub page_id: String,\n    /// The URL to navigate to.",
+    "operation `page.goto`"
+)]
+fn codegen_refuses_a_member_whose_form_its_kind_does_not_give(
+    #[case] from: &str,
+    #[case] to: &str,
+    #[case] refusal: &str,
+) {
+    let workspace = workspace_with_the_forms_catalog();
+    workspace.edit("crates/goodfetch-protocol/src/forms.rs", from, to);
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+    assert!(outcome.stderr.contains(refusal), "{}", outcome.stderr);
+}
+
+/// Each declared kind has one TypeScript form (ADR 0099), which the
+/// generator writes on the handle its namespace and its handle ID name: the
+/// generated handles type-check with the client package's own hand-written
+/// modules under `tsc` with `skipLibCheck: false`, and
+/// `codegen-forms/forms.types.ts` holds what a program can and cannot write
+/// against them.
+///
+/// Covers: story:11-178
+#[test]
+fn each_declared_kind_generates_its_typescript_form_which_type_checks() {
+    let workspace = workspace_with_the_forms_catalog();
+    codegen(&workspace);
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    for module in ["caller.ts", "handle.ts"] {
+        let contents =
+            std::fs::read(repository.join(COLLIE_CLIENT).join("src").join(module)).unwrap();
+        workspace.write(&format!("{COLLIE_CLIENT}/src/{module}"), &contents);
+    }
+    workspace.add_fixture_file(
+        "codegen-forms/forms.types.ts",
+        &format!("{COLLIE_CLIENT}/src/forms.types.ts"),
+    );
+    workspace.add_fixture_file(
+        "codegen-forms/tsconfig.json",
+        &format!("{COLLIE_CLIENT}/tsconfig.json"),
+    );
+    workspace.link_installed_runners();
+
+    let checked = workspace
+        .command(repository.join("node_modules/.bin/tsc"))
+        .args(["-p", &format!("{COLLIE_CLIENT}/tsconfig.json")])
+        .output()
+        .unwrap();
+
+    assert!(
+        checked.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&checked.stdout),
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    insta::assert_snapshot!(
+        "typescript_forms_handles",
+        workspace.read_text(&format!("{COLLIE_CLIENT}/src/generated/handles.ts"))
+    );
+}
+
+/// Python's layer does not read the kinds yet (issue 1233): the forms
+/// catalog gives it the flat methods it gives any operation.
+///
+/// Covers: story:11-178
+#[test]
+fn the_forms_catalog_leaves_pythons_layer_one_method_an_operation() {
+    let workspace = workspace_with_the_forms_catalog();
+
+    codegen(&workspace);
+
+    let operations = workspace
+        .read_text("sdks/python/collie-client/src/goodfetch_collie_client/generated/operations.py");
+    let methods: Vec<&str> = operations
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("async def "))
+        .filter_map(|line| line.split('(').next())
+        .collect();
+    assert_eq!(
+        methods,
+        vec![
+            "locator_click",
+            "page_close",
+            "page_goto",
+            "page_is_ready",
+            "page_keyboard_press",
+            "page_wait_for_ready",
+            "run_new_page",
+            "run_start",
+            "sample_echo",
+        ]
+    );
+}
+
 /// An Experimental or deprecated entry's docstring adds paragraphs after
 /// its description, which keeps every line it has.
 /// Covers: story:1-57

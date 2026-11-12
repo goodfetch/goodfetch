@@ -20,7 +20,7 @@
 
 [suite]
 name = "clients"
-version = "5"
+version = "6"
 
 [[capability]]
 name = "lifecycle"
@@ -46,6 +46,18 @@ modes = ["attached"]
 [[capability.case]]
 id = "nothing-at-import-or-connect"
 covers = ["story:11-15"]
+surfaces = ["sdk-typescript"]
+modes = ["attached"]
+
+# The catalog's operations reach the engine through the members generated
+# from them (ADR 0099; issue 2399). TypeScript leads; the Python and Rust
+# SDKs join with the rest of issue 1233.
+[[capability]]
+name = "catalog-mapping"
+
+[[capability.case]]
+id = "catalog-mapping"
+covers = ["story:11-178"]
 surfaces = ["sdk-typescript"]
 modes = ["attached"]
 

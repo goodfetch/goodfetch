@@ -1,0 +1,53 @@
+// What a program can and cannot write against the handles `xtask codegen`
+// generates from the forms catalog (ADR 0099): `tsc` fails on a wrong one.
+import { expectTypeOf } from "vitest";
+import type { Locator, Page, PageKeyboard, Run } from "./generated/handles.ts";
+import type { Acted, Navigated, Readiness } from "./generated/types.ts";
+
+declare const run: Run;
+declare const page: Page;
+declare const otherKeyboard: PageKeyboard;
+
+// A round trip: its required texts are positional in the catalog's order,
+// which is not the alphabet's, its required boolean and its optional
+// parameter are named, and it can be cancelled.
+expectTypeOf(page.goto).parameters.toEqualTypeOf<
+  [
+    url: string,
+    referrer: string,
+    options: {
+      readonly fresh: boolean;
+      readonly timeout?: number | null | undefined;
+      readonly signal?: AbortSignal | undefined;
+    },
+  ]
+>();
+expectTypeOf(page.goto).returns.toEqualTypeOf<Promise<Navigated>>();
+// @ts-expect-error a boolean is never positional
+void page.goto("https://example.test/", "https://example.test/from", true);
+
+// A query takes nothing to wait with: no options at all here.
+expectTypeOf(page.isReady).parameters.toEqualTypeOf<[]>();
+expectTypeOf(page.isReady).returns.toEqualTypeOf<Promise<Readiness>>();
+// @ts-expect-error a query has no timeout
+void page.isReady({ timeout: 1 });
+
+// A waiter keeps its timeout.
+expectTypeOf(page.waitForReady).toBeCallableWith({ timeout: 1 });
+
+// A `new` member returns the value it opens, which closes with its scope.
+expectTypeOf(run.newPage).returns.toEqualTypeOf<Promise<Page>>();
+expectTypeOf<Page>().toExtend<AsyncDisposable>();
+
+// A value built without a call is returned at once, by a sync method.
+expectTypeOf(page.locator).parameters.toEqualTypeOf<[selector: string]>();
+expectTypeOf(page.locator).returns.toEqualTypeOf<Locator>();
+expectTypeOf(page.locator("button").click).returns.toEqualTypeOf<Promise<Acted>>();
+
+// A sub-object is a property the program cannot replace.
+expectTypeOf(page.keyboard).toEqualTypeOf<PageKeyboard>();
+// @ts-expect-error a sub-object is read-only
+page.keyboard = otherKeyboard;
+expectTypeOf(page.keyboard.press).parameters.toEqualTypeOf<
+  [key: string, options?: { readonly signal?: AbortSignal | undefined } | undefined]
+>();

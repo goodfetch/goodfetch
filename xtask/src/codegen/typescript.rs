@@ -10,10 +10,12 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
+use anyhow::Result;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::cli::ATTACHED_ENGINE;
 use goodfetch_protocol::settings::COLLIE_ENGINE_PATH_VARIABLE;
 
+use super::handles::{self, Form, Handle, HandleId, Member, Parameters};
 use super::layer::{Deprecation, Layer, Stability};
 use super::naming::{camel, pascal};
 use super::{Generated, TypesFile};
@@ -32,7 +34,13 @@ const CALLER_MODULE: &str = "../caller.ts";
 /// re-export.
 const GOODFETCH_ERROR_MODULE: &str = "../goodfetch-error.ts";
 
-pub(super) fn generate(layer: &Layer) -> Generated {
+pub(super) fn generate(layer: &Layer) -> Result<Generated> {
+    // Collie's client package holds the handles (ADR 0117); what Foxhound's
+    // operations add to them joins with its own package's ticket.
+    let handles = match layer.product {
+        Product::Collie => handles::handles(layer)?,
+        Product::Foxhound => Vec::new(),
+    };
     let (input, replaced) = layer
         .generator_input(&format!("{}Types", layer.product.name()), |name| {
             ("tsType", name.to_owned())
@@ -45,7 +53,7 @@ pub(super) fn generate(layer: &Layer) -> Generated {
         format!("{HEADER}\n{}\n", import_line(&replaced, CLIENT_PACKAGE))
     };
     let mut files = vec![
-        ("index.ts", index(layer)),
+        ("index.ts", index(layer, &handles)),
         ("operations.ts", operations(layer)),
         ("events.ts", events(layer)),
         ("errors.ts", errors(layer)),
@@ -57,7 +65,10 @@ pub(super) fn generate(layer: &Layer) -> Generated {
     if !layer.shared_types.is_empty() {
         files.push(("shared-types.ts", shared_types(layer)));
     }
-    Generated {
+    if !handles.is_empty() {
+        files.push(("handles.ts", handle_classes(layer, &handles)));
+    }
+    Ok(Generated {
         files,
         types: TypesFile {
             output: "types.ts",
@@ -65,7 +76,7 @@ pub(super) fn generate(layer: &Layer) -> Generated {
             prefix,
             header: String::new(),
         },
-    }
+    })
 }
 
 fn import_line<'a>(names: impl IntoIterator<Item = &'a String>, from: &str) -> String {
@@ -130,16 +141,26 @@ fn doc(
 /// `./generated`.
 const PACKAGE_MAP: &str = "\
 // Where the main types live (ADR 0117): `@goodfetch/collie` holds `Collie`;
-// the Collie client package, `@goodfetch/collie-client`, holds `Run`, and
-// will hold `Page`, `Session` and `Locator`; `@goodfetch/foxhound` holds
+// the Collie client package, `@goodfetch/collie-client`, holds `Run`,
+// `Session`, `Page` and `Locator`; `@goodfetch/foxhound` holds
 // `Foxhound`, `Crawl`, `Label`, `Dataset` and `CrawlContext`.
 ";
 
 /// The layer's exports, after the map of where the main types live: each
 /// type it defines, never the generator's root, which holds no value, and
-/// every other module whole.
-fn index(layer: &Layer) -> String {
-    let types: Vec<&str> = layer.definitions.keys().map(String::as_str).collect();
+/// every other module whole. A handle's class takes its name, so a type of
+/// that name, the value a handle is built from, stays in `types.ts`.
+fn index(layer: &Layer, handles: &[Handle<'_>]) -> String {
+    let classes: Vec<String> = handles
+        .iter()
+        .map(|handle| pascal(handle.namespace))
+        .collect();
+    let types: Vec<&str> = layer
+        .definitions
+        .keys()
+        .map(String::as_str)
+        .filter(|name| !classes.iter().any(|class| class == name))
+        .collect();
     let mut text = format!("{HEADER}\n{PACKAGE_MAP}\n");
     if !types.is_empty() {
         let _ = writeln!(
@@ -154,6 +175,9 @@ fn index(layer: &Layer) -> String {
     text.push_str("export * from \"./operations.ts\";\nexport * from \"./events.ts\";\nexport * from \"./errors.ts\";\nexport * from \"./plugins.ts\";\n");
     if !layer.shared_types.is_empty() {
         text.push_str("export type * from \"./shared-types.ts\";\n");
+    }
+    if !handles.is_empty() {
+        text.push_str("export * from \"./handles.ts\";\n");
     }
     text
 }
@@ -521,6 +545,269 @@ fn plugins(layer: &Layer) -> String {
                 camel(&method.name),
                 method.params.0,
                 method.result.0
+            );
+        }
+        text.push_str("}\n");
+    }
+    text
+}
+
+/// The hand-written module of Collie's client package that declares what a
+/// generated handle reaches its engine through.
+const HANDLE_MODULE: &str = "../handle.ts";
+
+/// The words TypeScript reserves, which a positional parameter cannot be
+/// named: it takes a trailing `_` in the declaration, which no caller
+/// writes (ADR 0099).
+const RESERVED_WORDS: [&str; 48] = [
+    "with",
+    "yield",
+    "arguments",
+    "await",
+    "break",
+    "case",
+    "catch",
+    "class",
+    "const",
+    "continue",
+    "debugger",
+    "default",
+    "delete",
+    "do",
+    "else",
+    "enum",
+    "eval",
+    "export",
+    "extends",
+    "false",
+    "finally",
+    "for",
+    "function",
+    "if",
+    "implements",
+    "import",
+    "in",
+    "instanceof",
+    "interface",
+    "let",
+    "new",
+    "null",
+    "package",
+    "private",
+    "protected",
+    "public",
+    "return",
+    "static",
+    "super",
+    "switch",
+    "this",
+    "throw",
+    "true",
+    "try",
+    "typeof",
+    "var",
+    "void",
+    "while",
+];
+
+/// A positional parameter's name in a declaration.
+fn positional_name(name: &str) -> String {
+    let spelled = camel(name);
+    if RESERVED_WORDS.contains(&spelled.as_str()) || spelled == "options" {
+        format!("{spelled}_")
+    } else {
+        spelled
+    }
+}
+
+/// A method's parameter list and the object it makes of it, which starts
+/// with the handle's ID as `id`: positional parameters first, then the
+/// options object, which holds the named ones and, for a call that can be
+/// cancelled, `signal`. Each type is the params type's own,
+/// `types.<Params>["<name>"]`.
+fn signature(
+    parameters: &Parameters,
+    type_name: &str,
+    cancellable: bool,
+    id: &str,
+) -> (String, String) {
+    let mut declared = Vec::new();
+    let mut entries = vec![format!("{id}: this.#host.id")];
+    for name in &parameters.positional {
+        let local = positional_name(name);
+        declared.push(format!("{local}: types.{type_name}[{name:?}]"));
+        entries.push(if local == *name {
+            local
+        } else {
+            format!("{name}: {local}")
+        });
+    }
+    let mut options = Vec::new();
+    for name in &parameters.named {
+        options.push(format!(
+            "readonly {}: types.{type_name}[{name:?}]",
+            camel(name)
+        ));
+        entries.push(format!("{name}: options.{}", camel(name)));
+    }
+    for name in &parameters.optional {
+        options.push(format!(
+            "readonly {}?: types.{type_name}[{name:?}] | undefined",
+            camel(name)
+        ));
+        entries.push(format!("{name}: options.{}", camel(name)));
+    }
+    if cancellable {
+        options.push("readonly signal?: AbortSignal | undefined".to_owned());
+    }
+    if !options.is_empty() {
+        let default = if parameters.named.is_empty() {
+            " = {}"
+        } else {
+            ""
+        };
+        declared.push(format!("options: {{ {} }}{default}", options.join("; ")));
+    }
+    let object = format!("{{ {} }}", entries.join(", "));
+    // An optional parameter left out is left out of the object, never sent
+    // as `undefined`.
+    let object = if parameters.optional.is_empty() {
+        object
+    } else {
+        format!("defined({object})")
+    };
+    (declared.join(", "), object)
+}
+
+/// One member, a method of the class that holds `host`.
+fn member(member: &Member<'_>, id: &HandleId) -> String {
+    let operation = member.operation;
+    let (params, result) = (&operation.params.0, &operation.result.0);
+    let (declared, sent) = signature(&member.parameters, params, operation.cancellable, &id.param);
+    let call_options = if operation.cancellable {
+        "{ signal: options.signal }"
+    } else {
+        "{}"
+    };
+    let call = format!(
+        "this.#host.call({:?}, {sent}, {call_options})",
+        operation.name
+    );
+    let mut text = doc(
+        "  ",
+        &operation.description,
+        operation.stability,
+        operation.deprecated.as_ref(),
+    );
+    let name = camel(member.name);
+    match &member.form {
+        Form::RoundTrip | Form::Query | Form::Waiter => {
+            let _ = write!(
+                text,
+                "  async {name}({declared}): Promise<types.{result}> {{\n    return {call};\n  }}\n"
+            );
+        }
+        Form::Opens(opened) => {
+            let class = pascal(opened);
+            let _ = write!(
+                text,
+                "  async {name}({declared}): Promise<{class}> {{\n    const opened = await {call};\n    return new {class}(this.#host.child(opened.{opened}_id));\n  }}\n"
+            );
+        }
+    }
+    text
+}
+
+/// The handles of Collie's client package (ADR 0099): one class a
+/// namespace, with its members in the form their kind gives them, the
+/// values it builds without a call and its sub-objects.
+fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
+    let operation_types = format!("{}OperationTypes", layer.product.name());
+    let mut text = format!(
+        "{HEADER}\nimport {{ defined, type HandleHost }} from \"{HANDLE_MODULE}\";\nimport type {{ {operation_types} }} from \"./operations.ts\";\nimport type * as types from \"./types.ts\";\n"
+    );
+    for handle in handles {
+        let class = pascal(handle.namespace);
+        let host = format!(
+            "HandleHost<types.{}, {operation_types}>",
+            handle.id.type_name
+        );
+        for sub_object in &handle.sub_objects {
+            let sub_class = format!("{class}{}", pascal(sub_object.name));
+            let _ = write!(
+                text,
+                "\n/** The `{}` of a `{class}` (ADR 0099). */\nexport class {sub_class} {{\n  readonly #host: {host};\n\n  /** @internal A `{class}` holds its own; a program never constructs one. */\n  constructor(host: {host}) {{\n    this.#host = host;\n  }}\n",
+                camel(sub_object.name)
+            );
+            for held in &sub_object.members {
+                text.push('\n');
+                text.push_str(&member(held, &handle.id));
+            }
+            text.push_str("}\n");
+        }
+        let implements = if handle.closes() {
+            " implements AsyncDisposable"
+        } else {
+            ""
+        };
+        let _ = write!(
+            text,
+            "\n/** A `{}` a program holds: the members the catalog gives it (ADR 0099). */\nexport class {class}{implements} {{\n  readonly #host: {host};\n",
+            handle.namespace
+        );
+        for sub_object in &handle.sub_objects {
+            let _ = writeln!(
+                text,
+                "  /** Its `{name}`. */\n  readonly {name}: {class}{};",
+                pascal(sub_object.name),
+                name = camel(sub_object.name)
+            );
+        }
+        let _ = write!(
+            text,
+            "\n  /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */\n  constructor(host: {host}) {{\n    this.#host = host;\n"
+        );
+        for sub_object in &handle.sub_objects {
+            let _ = writeln!(
+                text,
+                "    this.{} = new {class}{}(host);",
+                camel(sub_object.name),
+                pascal(sub_object.name)
+            );
+        }
+        text.push_str("  }\n");
+        for held in &handle.members {
+            text.push('\n');
+            text.push_str(&member(held, &handle.id));
+        }
+        for builder in &handle.builders {
+            let built = pascal(&builder.builds);
+            let (declared, value) = signature(
+                &builder.parameters,
+                &builder.type_name,
+                false,
+                &handle.id.param,
+            );
+            text.push('\n');
+            text.push_str(&doc(
+                "  ",
+                &format!(
+                    "{}\n\nBuilt without a call (ADR 0099).",
+                    builder.description
+                ),
+                Stability::Stable,
+                None,
+            ));
+            let _ = write!(
+                text,
+                "  {}({declared}): {built} {{\n    return new {built}(this.#host.child<types.{}>({value}));\n  }}\n",
+                camel(&builder.builds),
+                builder.type_name
+            );
+        }
+        if handle.closes() {
+            text.push_str(
+                "\n  async [Symbol.asyncDispose](): Promise<void> {\n    await this.close();\n  }\n",
             );
         }
         text.push_str("}\n");

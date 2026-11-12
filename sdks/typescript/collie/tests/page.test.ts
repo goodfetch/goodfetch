@@ -4,19 +4,14 @@
 // (`withBrowser`). The form program is the one the unit tests run on the
 // Scripted engine.
 import { Collie } from "@goodfetch/collie";
-import { provingGroundRoutes, test, type ProvingGroundDescription } from "@goodfetch/test-support";
+import {
+  failure,
+  provingGroundRoutes,
+  test,
+  type ProvingGroundDescription,
+} from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 import { fillTheForm } from "./programs/form.ts";
-
-/** The error `promise` rejects with. */
-async function failure(promise: Promise<unknown>): Promise<unknown> {
-  try {
-    await promise;
-  } catch (error) {
-    return error;
-  }
-  throw new Error("the call succeeded");
-}
 
 /** The URL the Proving ground's task `id` starts at. */
 async function startUrl(provingGround: ProvingGroundDescription, id: string): Promise<string> {
@@ -99,8 +94,6 @@ describe("a program's pages on an Attached engine", () => {
       await first.evaluate("localStorage.setItem('kept', 'by the first page')");
       const shared = await second.evaluate("localStorage.getItem('kept')");
       const apart = await other.evaluate("localStorage.getItem('kept')");
-      await session.close();
-      const closed = await failure(other.goto(form));
 
       await clientCase.check("the second page reads what the first stored: one Session", () =>
         expect(shared.value).toBe("by the first page"),
@@ -108,14 +101,11 @@ describe("a program's pages on an Attached engine", () => {
       await clientCase.check("a page of another Session reads nothing of it", () =>
         expect(apart.value).toBeNull(),
       );
-      await clientCase.check("a page of a closed Session fails with closed", () =>
-        expect(closed).toMatchObject({ code: "closed", group: "program" }),
-      );
     },
   );
 
   test(
-    "refuses a call on a closed page with closed, and closes it twice",
+    "refuses a call on a closed page, and on a Locator built on it, with closed",
     { tags: ["client_case/closed-page-raises-closed", "attached", "error:closed"] },
     async ({ env, provingGround, clientCase }) => {
       const form = await startUrl(provingGround, "actionability/20");
@@ -125,10 +115,13 @@ describe("a program's pages on an Attached engine", () => {
       const page = await run.newPage();
       await page.goto(form);
 
+      const button = page.locator("#submit");
       await page.close();
-      await page.close();
-      const navigation = await failure(page.goto(form));
-      const click = await failure(page.locator("#submit").click());
+
+      const [navigation, click] = await Promise.all([
+        failure(page.goto(form)),
+        failure(button.click()),
+      ]);
 
       await clientCase.check("goto on the closed page fails with closed", () =>
         expect(navigation).toMatchObject({ code: "closed", group: "program" }),

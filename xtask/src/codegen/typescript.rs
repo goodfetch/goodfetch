@@ -711,7 +711,14 @@ fn member(member: &Member<'_>, id: &HandleId) -> String {
             let class = pascal(opened);
             let _ = write!(
                 text,
-                "  async {name}({declared}): Promise<{class}> {{\n    const opened = await {call};\n    return new {class}(this.#host.child({opened:?}, opened.{opened}_id));\n  }}\n"
+                "  async {name}({declared}): Promise<{class}> {{\n    const opened = await {call};\n    return new {class}(this.#host.child(opened.{opened}_id));\n  }}\n"
+            );
+        }
+        Form::Closes => {
+            let _ = write!(
+                text,
+                "  async {name}({declared}): Promise<void> {{\n    await this.#host.close({:?}, {sent});\n  }}\n",
+                operation.name
             );
         }
     }
@@ -800,10 +807,9 @@ fn handle_classes(layer: &Layer, handles: &[Handle<'_>]) -> String {
             ));
             let _ = write!(
                 text,
-                "  {}({declared}): {built} {{\n    return new {built}(this.#host.child<types.{}>({:?}, {value}));\n  }}\n",
+                "  {}({declared}): {built} {{\n    return new {built}(this.#host.child<types.{}>({value}));\n  }}\n",
                 camel(&builder.builds),
-                builder.type_name,
-                builder.builds
+                builder.type_name
             );
         }
         if handle.closes() {

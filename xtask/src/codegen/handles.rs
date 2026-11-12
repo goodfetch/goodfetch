@@ -11,7 +11,8 @@
 //!   member: it is how a program gets the value (`run.start`).
 //! - A round trip, a query and a waiter are members; a query declares no
 //!   `timeout`, and a waiter's name starts with `wait_for`. A round trip
-//!   named `new_<value>` opens that value, whose ID its result carries. A
+//!   named `new_<value>` opens that value, whose ID its result carries, and
+//!   a handle's own `close` that takes no required parameter closes it. A
 //!   read, a sequence and an event get their forms with their own tickets
 //!   (issue 1233), as does an opener, which opens its own namespace's value.
 //! - A prefix has one meaning: `new_` starts a round trip or an opener,
@@ -65,6 +66,9 @@ pub(super) enum Form {
     /// A round trip that opens a value of this namespace, whose ID its
     /// result carries as `<namespace>_id`.
     Opens(String),
+    /// The handle's own `close` (ADR 0078): idempotent, it answers nothing,
+    /// and every other call on the value then fails with `closed`.
+    Closes,
 }
 
 /// An operation as a member of a handle or of one of its sub-objects.
@@ -103,14 +107,12 @@ pub(super) struct Handle<'a> {
 }
 
 impl Handle<'_> {
-    /// Whether a program closes the value: its catalog has a `close` that
-    /// takes nothing a caller must pass.
+    /// Whether a program closes the value: its catalog has a `close` in
+    /// the closing form.
     pub(super) fn closes(&self) -> bool {
-        self.members.iter().any(|member| {
-            member.name == "close"
-                && member.parameters.positional.is_empty()
-                && member.parameters.named.is_empty()
-        })
+        self.members
+            .iter()
+            .any(|member| member.form == Form::Closes)
     }
 }
 
@@ -251,11 +253,20 @@ pub(super) fn handles(layer: &Layer) -> Result<Vec<Handle<'_>>> {
             let Some(form) = form(operation, name, schema)? else {
                 continue;
             };
+            let parameters = parameters(schema, &id.param);
+            // A handle's own `close` that takes nothing a caller must pass
+            // and cannot be cancelled is how its program closes it.
+            let closes = sub_object.is_none()
+                && name == "close"
+                && form == Form::RoundTrip
+                && !operation.cancellable
+                && parameters.positional.is_empty()
+                && parameters.named.is_empty();
             let member = Member {
                 operation,
                 name,
-                form,
-                parameters: parameters(schema, &id.param),
+                form: if closes { Form::Closes } else { form },
+                parameters,
             };
             let handle = found.get_or_insert_with(|| Handle {
                 namespace,

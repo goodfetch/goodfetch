@@ -11,12 +11,18 @@ export interface HandleHost<
 > extends Caller<Types> {
   /** The ID each of the handle's calls carries. */
   readonly id: Id;
+  /** The host of a handle this one opens or builds, whose calls carry `id`. */
+  child<ChildId>(id: ChildId): HandleHost<ChildId, Types>;
   /**
-   * The host of a handle this one opens or builds: `namespace` names its
-   * operations, among them the `close` that closes it, and its calls carry
-   * `id`.
+   * Closes the handle through `operation`, its own `close` (ADR 0078);
+   * idempotent. It is sent once: a handle already closed, by its program or
+   * with the value that opened it, sends nothing. Every other call on the
+   * handle, and on a handle it opened or built, then fails with `closed`.
    */
-  child<ChildId>(namespace: string, id: ChildId): HandleHost<ChildId, Types>;
+  close<Name extends keyof Types & string>(
+    operation: Name,
+    params: Types[Name]["params"],
+  ): Promise<void>;
 }
 
 /** `Params` without the entries a caller left out. */

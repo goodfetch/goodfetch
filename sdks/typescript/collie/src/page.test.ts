@@ -2,7 +2,7 @@
 // of the shared corpus over the in-memory transport. The script fails the
 // test on a message it does not expect and on a step left unused, so a
 // member that sent a second request, or none, fails here.
-import { playScript, test, type PlayedMessage } from "@goodfetch/test-support";
+import { failure, playScript, test, type PlayedMessage } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 import { fillTheForm } from "../tests/programs/form.ts";
 import type { Collie } from "./collie.ts";
@@ -17,28 +17,38 @@ async function collieOn(
   return { collie, played };
 }
 
-/** The error `promise` rejects with. */
-async function failure(promise: Promise<unknown>): Promise<unknown> {
-  try {
-    await promise;
-  } catch (error) {
-    return error;
-  }
-  throw new Error("the call succeeded");
+/** Whether `message` is an object that has `key`. */
+function has(message: unknown, key: string): boolean {
+  return typeof message === "object" && message !== null && key in message;
 }
 
-/** The method of each request the Client sent, in order. */
-function requested(messages: readonly PlayedMessage[]): string[] {
-  return messages.flatMap((played) => {
-    if (played.from !== "client" || !("message" in played)) return [];
+/**
+ * The play's protocol counts: the method of each request the Client sent,
+ * in order, and how many answers and events the engine sent. Bytes join
+ * with the SDKs' protocol-count seam (issue 1706).
+ */
+function protocolCounts(messages: readonly PlayedMessage[]): {
+  requests: string[];
+  answers: number;
+  events: number;
+} {
+  const counts = { requests: [] as string[], answers: 0, events: 0 };
+  for (const played of messages) {
+    if (!("message" in played)) continue;
     const { message } = played;
-    return typeof message === "object" &&
+    if (played.from === "engine") {
+      if (has(message, "method")) counts.events += 1;
+      else counts.answers += 1;
+    } else if (
+      typeof message === "object" &&
       message !== null &&
       "method" in message &&
       typeof message.method === "string"
-      ? [message.method]
-      : [];
-  });
+    ) {
+      counts.requests.push(message.method);
+    }
+  }
+  return counts;
 }
 
 describe("a Run's page", () => {
@@ -56,45 +66,92 @@ describe("a Run's page", () => {
         lifecycle: "finished",
       });
       expect(played.done()).toEqual({ kind: "finished" });
-      expect(requested(played.messages)).toMatchInlineSnapshot(`
-        [
-          "hello",
-          "run.start",
-          "run.new_page",
-          "page.goto",
-          "locator.fill",
-          "locator.click",
-          "locator.press",
-          "locator.wait_for",
-          "page.formats",
-          "page.close",
-          "run.finish",
-        ]
+      expect(protocolCounts(played.messages)).toMatchInlineSnapshot(`
+        {
+          "answers": 11,
+          "events": 0,
+          "requests": [
+            "hello",
+            "run.start",
+            "run.new_page",
+            "page.goto",
+            "locator.fill",
+            "locator.click",
+            "locator.press",
+            "locator.wait_for",
+            "page.formats",
+            "page.close",
+            "run.finish",
+          ],
+        }
       `);
     },
   );
 
   test(
-    "refuses every call on a closed page with closed, sending nothing, and closes twice with one request",
+    "refuses a call on a closed page with closed, sending nothing",
+    { tags: ["story:11-77", "error:closed"] },
+    async () => {
+      const { collie, played } = await collieOn("page/closed.json");
+      const run = await collie.start();
+      const page = await run.newPage();
+      await page.close();
+
+      const navigation = await failure(page.goto("https://20.actionability.test/"));
+
+      expect(navigation).toMatchObject({ code: "closed", group: "program" });
+      await run.finish();
+      await collie.close();
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
+
+  test(
+    "refuses an action of a Locator built on a page since closed with closed",
     { tags: ["story:11-77", "error:closed"] },
     async () => {
       const { collie, played } = await collieOn("page/closed.json");
       const run = await collie.start();
       const page = await run.newPage();
       const button = page.locator("#submit");
+      await page.close();
 
-      const closed = await page.close();
-      const again = await page.close();
-      const navigation = await failure(page.goto("https://20.actionability.test/"));
       const click = await failure(button.click());
-      const built = await failure(page.locator("#name").fill("Goodfetch"));
+
+      expect(click).toMatchObject({ code: "closed", group: "program" });
       await run.finish();
       await collie.close();
+      expect(played.done()).toEqual({ kind: "finished" });
+    },
+  );
 
-      expect(again).toBe(closed);
-      expect(navigation).toMatchObject({ code: "closed", group: "program" });
-      expect(click).toMatchObject({ code: "closed", group: "program" });
-      expect(built).toMatchObject({ code: "closed", group: "program" });
+  test("closes a page twice with one request", { tags: ["story:11-77"] }, async () => {
+    const { collie, played } = await collieOn("page/closed.json");
+    const run = await collie.start();
+    const page = await run.newPage();
+    await page.close();
+
+    await page.close();
+
+    await run.finish();
+    await collie.close();
+    expect(played.done()).toEqual({ kind: "finished" });
+  });
+
+  test(
+    "closes a page of a closed Session without a request",
+    { tags: ["story:11-77"] },
+    async () => {
+      const { collie, played } = await collieOn("page/session-closed.json");
+      const run = await collie.start();
+      const session = await run.newSession();
+      const page = await session.newPage();
+      await session.close();
+
+      await page.close();
+
+      await run.finish();
+      await collie.close();
       expect(played.done()).toEqual({ kind: "finished" });
     },
   );

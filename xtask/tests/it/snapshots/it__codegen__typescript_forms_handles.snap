@@ -22,7 +22,7 @@ export class Run {
    */
   async newPage(options: { readonly viewport?: types.NewPageParams["viewport"] | undefined } = {}): Promise<Page> {
     const opened = await this.#host.call("run.new_page", defined({ run_id: this.#host.id, viewport: options.viewport }), {});
-    return new Page(this.#host.child("page", opened.page_id));
+    return new Page(this.#host.child(opened.page_id));
   }
 }
 
@@ -58,8 +58,8 @@ export class Page implements AsyncDisposable {
   /**
    * Closes the page.
    */
-  async close(): Promise<types.Acted> {
-    return this.#host.call("page.close", { page_id: this.#host.id }, {});
+  async close(): Promise<void> {
+    await this.#host.close("page.close", { page_id: this.#host.id });
   }
 
   /**
@@ -89,7 +89,7 @@ export class Page implements AsyncDisposable {
    * Built without a call (ADR 0099).
    */
   locator(selector: types.Locator["selector"]): Locator {
-    return new Locator(this.#host.child<types.Locator>("locator", { page_id: this.#host.id, selector }));
+    return new Locator(this.#host.child<types.Locator>({ page_id: this.#host.id, selector }));
   }
 
   async [Symbol.asyncDispose](): Promise<void> {

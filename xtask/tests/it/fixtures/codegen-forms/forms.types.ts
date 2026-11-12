@@ -39,6 +39,9 @@ expectTypeOf(page.waitForReady).toBeCallableWith({ timeout: 1 });
 expectTypeOf(run.newPage).returns.toEqualTypeOf<Promise<Page>>();
 expectTypeOf<Page>().toExtend<AsyncDisposable>();
 
+// A handle's own close answers nothing: it is idempotent (ADR 0078).
+expectTypeOf(page.close).returns.toEqualTypeOf<Promise<void>>();
+
 // A value built without a call is returned at once, by a sync method.
 expectTypeOf(page.locator).parameters.toEqualTypeOf<[selector: string]>();
 expectTypeOf(page.locator).returns.toEqualTypeOf<Locator>();

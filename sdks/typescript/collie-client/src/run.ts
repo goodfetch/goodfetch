@@ -37,13 +37,12 @@ interface RunScope {
 
 /** A value a program holds under a Run: a Session, a page, or a Locator built on one. */
 interface ValueScope {
-  /** The namespace of its operations, such as `page`. */
-  readonly namespace: string;
-  readonly id: unknown;
   /** The value that opened or built it, when the Run did not. */
   readonly parent: ValueScope | undefined;
-  /** Its `close`'s answer, from the moment its program closes it. */
-  closing: Promise<unknown> | undefined;
+  /** Whether its program closed it. */
+  closed: boolean;
+  /** Its `close` in flight. */
+  closing: Promise<void> | undefined;
 }
 
 function ensureOpen(scope: RunScope, operation: string): void {
@@ -57,16 +56,12 @@ function ensureOpen(scope: RunScope, operation: string): void {
   }
 }
 
-/** Fails with `closed` when `value`, or a value it was opened or built by, is closed. */
-function ensureValueOpen(value: ValueScope | undefined, operation: string): void {
+/** Whether `value`, or a value that opened or built it, is closed. */
+function isClosed(value: ValueScope | undefined): boolean {
   for (let held = value; held !== undefined; held = held.parent) {
-    if (held.closing !== undefined) {
-      const named = typeof held.id === "string" ? `${held.namespace} ${held.id}` : held.namespace;
-      throw new ClosedError(`${operation}: the ${named} is closed; a closed value never reopens`, {
-        fix: `Open another ${held.namespace} from its Run: a closed one never reopens.`,
-      });
-    }
+    if (held.closed) return true;
   }
+  return false;
 }
 
 /** Whether `result` is an answer that says its Run is no longer running. */
@@ -82,10 +77,9 @@ function saysEnded(result: unknown): boolean {
 /**
  * What a handle of ID `id` in the Run of `run` reaches the engine through
  * (ADR 0078): each call fails with `closed`, with no round trip, once the
- * Run, the handle's `value` or a value above it is closed. A value's own
- * `close` is idempotent: it is sent once, and each later one answers what
- * the first did. The Run's own calls, which have no `value`, also read
- * their answer, since a Run report says when the Run ended.
+ * Run, the handle's `value` or a value above it is closed. The Run's own
+ * calls, which have no `value`, also read their answer, since a Run report
+ * says when the Run ended.
  */
 function hostIn<Id>(
   calls: Caller<CollieOperationTypes>,
@@ -101,26 +95,45 @@ function hostIn<Id>(
       options: CallOptions,
     ): Promise<CollieOperationTypes[Name]["result"]> {
       ensureOpen(run, operation);
-      if (value === undefined) {
-        const result = await calls.call(operation, params, options);
-        if (run.state === "running" && saysEnded(result)) {
-          run.state = "ended";
-        }
-        return result;
+      if (isClosed(value)) {
+        throw new ClosedError(
+          `${operation}: the value it is called on is closed, or the one that opened it is`,
+          { fix: "Open another from its Run: a closed value never reopens." },
+        );
       }
-      if (operation !== `${value.namespace}.close`) {
-        ensureValueOpen(value, operation);
-        return calls.call(operation, params, options);
+      const result = await calls.call(operation, params, options);
+      if (value === undefined && run.state === "running" && saysEnded(result)) {
+        run.state = "ended";
       }
-      if (value.closing === undefined) {
-        ensureValueOpen(value.parent, operation);
-        value.closing = calls.call(operation, params, options);
-      }
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `closing` holds the answer of this same operation, the value's own `close`, sent once.
-      return value.closing as Promise<CollieOperationTypes[Name]["result"]>;
+      return result;
     },
-    child: <ChildId>(namespace: string, childId: ChildId) =>
-      hostIn(calls, run, { namespace, id: childId, parent: value, closing: undefined }, childId),
+    child: <ChildId>(childId: ChildId) =>
+      hostIn(calls, run, { parent: value, closed: false, closing: undefined }, childId),
+    async close<Name extends keyof CollieOperationTypes>(
+      operation: Name,
+      params: CollieOperationTypes[Name]["params"],
+    ): Promise<void> {
+      if (value === undefined) {
+        throw new TypeError("invariant: a Run closes through its own close(), never its host's");
+      }
+      // What its Run or the value above it closed is closed with it, and
+      // the engine holds it no more: nothing is left to send.
+      if (run.state === "closed" || isClosed(value)) {
+        value.closed = true;
+        return;
+      }
+      // A close the engine refuses, or that was never sent, closed nothing:
+      // the next one sends again.
+      value.closing ??= calls.call(operation, params, {}).then(() => {
+        value.closed = true;
+      });
+      try {
+        await value.closing;
+      } catch (error) {
+        value.closing = undefined;
+        throw error;
+      }
+    },
   };
 }
 

@@ -1,7 +1,8 @@
 //! The document request of an installed browser (issue 2532): the version
-//! its executable prints for `--version`, read through the crate's public
-//! interface from stand-in executables in the test's own folder and from
-//! the Browser cache's Chrome for Testing.
+//! its executable prints for `--version`, read through the installed branch
+//! of `DocumentRequest::of_source`, the one a Session's browser takes on a
+//! platform with no pinned build, from stand-in executables in the test's
+//! own folder and from the Browser cache's Chrome for Testing.
 
 #![cfg(unix)]
 #![expect(
@@ -11,7 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use goodfetch_engine::browser_cache::BuildPlatform;
+use goodfetch_engine::browser_cache::{BrowserSource, BuildPlatform};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_page::document_request::{DocumentRequest, Unread};
@@ -41,10 +42,16 @@ fn executable(folder: &Path, name: &str, script: &str) -> PathBuf {
     path
 }
 
-/// The document request of the installed browser among `candidates`.
-async fn of_installed(candidates: &[PathBuf]) -> Result<DocumentRequest, Unread> {
+/// The document request of a Session's browser where it is the one
+/// installed among `candidates`, as on a platform with no pinned build: no
+/// pin is offered, so a request can only come from the version read.
+async fn of_installed(candidates: &[PathBuf]) -> Result<Option<DocumentRequest>, Unread> {
     let owner = TaskOwner::root(BlockingPolicy::Inline);
-    DocumentRequest::of_installed(candidates, &owner.blocking_threads(), &Clock::system()).await
+    let source = BrowserSource::Installed {
+        candidates: candidates.to_vec(),
+        notice: None,
+    };
+    DocumentRequest::of_source(source, &[], &owner.blocking_threads(), &Clock::system()).await
 }
 
 /// The distribution's Chromium, the first of the paths that exists,
@@ -63,7 +70,9 @@ async fn an_installed_browsers_request_is_that_of_the_version_it_prints() {
 
     assert_eq!(
         request,
-        Ok(DocumentRequest::of_build("141.0.7390.54", hosts_platform()).unwrap())
+        Ok(Some(
+            DocumentRequest::of_build("141.0.7390.54", hosts_platform()).unwrap()
+        ))
     );
 }
 
@@ -131,10 +140,24 @@ async fn no_installed_browser_gives_no_request() {
     assert_eq!(request, Err(Unread::NotInstalled { looked_in }));
 }
 
+/// The state `/proc` reports for `process`, none once it is gone.
+#[cfg(target_os = "linux")]
+fn state_of(process: &str) -> Option<String> {
+    std::fs::read_to_string(Path::new("/proc").join(process).join("stat"))
+        .ok()
+        .and_then(|stat| {
+            stat.rsplit_once(')')
+                .and_then(|(_, rest)| rest.split_whitespace().next().map(str::to_owned))
+        })
+}
+
 /// A browser that leaves a process behind when it prints its version:
-/// none outlives the read. The process held the output open, so the read
-/// ended only once it had exited: it is gone, or a zombie its new parent
-/// has yet to reap.
+/// none outlives the read. The process holds the output open until it
+/// exits, and closes it while it exits, so the read can end while the
+/// killed process is still running its exit (state `R`): it ends at once,
+/// gone or a zombie its new parent has yet to reap, where one left alive
+/// would sleep (state `S`) for its 600 seconds, far past the 5 the test
+/// waits.
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn no_process_outlives_the_version_read() {
@@ -153,16 +176,17 @@ async fn no_process_outlives_the_version_read() {
 
     assert!(request.is_ok(), "{request:?}");
     let process = std::fs::read_to_string(&left).unwrap();
-    let state = std::fs::read_to_string(Path::new("/proc").join(process.trim()).join("stat"))
-        .ok()
-        .and_then(|stat| {
-            stat.rsplit_once(')')
-                .and_then(|(_, rest)| rest.split_whitespace().next().map(str::to_owned))
-        });
+    let process = process.trim();
+    let ended = |state: &Option<String>| matches!(state.as_deref(), None | Some("Z" | "X"));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut state = state_of(process);
+    while !ended(&state) && std::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        state = state_of(process);
+    }
     assert!(
-        matches!(state.as_deref(), None | Some("Z" | "X")),
-        "{} outlived the read in state {state:?}",
-        process.trim()
+        ended(&state),
+        "{process} outlived the read in state {state:?}"
     );
 }
 
@@ -178,6 +202,8 @@ async fn chrome_for_testing_read_as_an_installed_browser_presents_its_pinned_req
 
     assert_eq!(
         request,
-        Ok(DocumentRequest::of_build(CHROME_FOR_TESTING_BUILD, hosts_platform()).unwrap())
+        Ok(Some(
+            DocumentRequest::of_build(CHROME_FOR_TESTING_BUILD, hosts_platform()).unwrap()
+        ))
     );
 }

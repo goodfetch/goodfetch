@@ -166,35 +166,50 @@ impl DocumentRequest {
     ///
     /// Dropping the future kills the version read's processes.
     pub async fn of_browser(pins: &[PinnedArtifact], run: &Run) -> Result<Option<Self>, Unread> {
-        let BrowserSource::Installed { candidates, .. } = browser_source(
+        let source = browser_source(
             Platform::current(),
             &BrowserChoice::Default,
             &BTreeMap::new(),
-        ) else {
-            return Ok(Self::of_pinned(pins));
-        };
-        Self::of_installed(&candidates, &run.owner().blocking_threads(), &run.clock())
-            .await
-            .map(Some)
+        );
+        Self::of_source(source, pins, &run.owner().blocking_threads(), &run.clock()).await
     }
 
-    /// The document request of the browser installed at the first of
-    /// `candidates` that exists, on this platform: that of the version its
-    /// executable prints for `--version`, which prints it and exits
-    /// without starting a browser. The executable has 10 seconds to exit,
-    /// and no process it started outlives the read.
+    /// The document request of the browser `source` names: the pinned
+    /// build's, among `pins`, or, for an installed browser, that of the
+    /// version printed for `--version` by the executable at the first of its
+    /// candidates that exists, which prints it and exits without starting a
+    /// browser. The executable has 10 seconds to exit, and no process it
+    /// started outlives the read. None where no pinned build tells it.
     ///
     /// # Errors
     ///
-    /// [`Unread`] when no candidate exists, the executable could not be
-    /// started, or it printed no version, exited with an error or did not
-    /// exit in time.
+    /// [`Unread`] where `source` is an installed browser and no candidate
+    /// exists, the executable could not be started, or it printed no
+    /// version, exited with an error or did not exit in time.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future kills the executable and every process it
     /// started.
-    pub async fn of_installed(
+    pub async fn of_source(
+        source: BrowserSource,
+        pins: &[PinnedArtifact],
+        blocking: &BlockingThreads,
+        clock: &Clock,
+    ) -> Result<Option<Self>, Unread> {
+        match source {
+            BrowserSource::Pinned { .. } => Ok(Self::of_pinned(pins)),
+            BrowserSource::Installed { candidates, .. } => {
+                Self::of_installed(&candidates, blocking, clock)
+                    .await
+                    .map(Some)
+            }
+        }
+    }
+
+    /// The document request of the browser installed at the first of
+    /// `candidates` that exists, as [`DocumentRequest::of_source`] reads it.
+    async fn of_installed(
         candidates: &[PathBuf],
         blocking: &BlockingThreads,
         clock: &Clock,

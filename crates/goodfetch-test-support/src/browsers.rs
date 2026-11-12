@@ -14,11 +14,13 @@
 
 use std::fs;
 use std::io;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::env::{START_TIME, TestEnv};
 use crate::facts::{CHROME_FOR_TESTING_BUILD, LIGHTPANDA_BUILD};
+use crate::process::Process;
 use crate::variables::{PLAYWRIGHT_BROWSERS_VARIABLE, Variables};
 
 /// Playwright's revision of the Chrome for Testing build Collie pins, which
@@ -143,6 +145,46 @@ pub fn chrome_for_testing(cache: &Path) -> PathBuf {
     files
         .join(platform)
         .join("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
+}
+
+/// Starts the pinned build of the Browser cache at `cache`, headless, to
+/// load `url` once, print the page's DOM once loaded, its scripts run
+/// (`--dump-dom`), and exit: a stock launch but for `switches`, for a test
+/// of what a site sees of the pinned browser. `host` resolves to `address`,
+/// and no certificate is checked, which changes nothing the ClientHello
+/// sends, so a site of the Proving ground is reached over TLS. Each call
+/// takes a profile of its own in `env`'s folder, so several may run at
+/// once.
+///
+/// # Errors
+///
+/// When the browser cannot start.
+pub fn chrome_for_testing_dumping_dom(
+    env: &TestEnv,
+    cache: &Path,
+    (host, address): (&str, IpAddr),
+    switches: &[&str],
+    url: &str,
+) -> io::Result<Process> {
+    let mut command = env.process_command(chrome_for_testing(cache));
+    command.args([
+        "--headless",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--password-store=basic",
+        "--use-mock-keychain",
+        "--ignore-certificate-errors",
+    ]);
+    command.args(switches);
+    command.arg(format!(
+        "--user-data-dir={}",
+        env.folder()
+            .join(env.unique_name("chrome-profile"))
+            .display()
+    ));
+    command.arg(format!("--host-resolver-rules=MAP {host} {address}"));
+    command.args(["--dump-dom", url]);
+    env.spawn(&mut command)
 }
 
 /// How long a test's own browser has to report its debugging port.

@@ -117,6 +117,7 @@ pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
 use crate::borrowed::Lookups;
 use crate::clean_up_versions::Versions;
+use crate::consent::Handling;
 use crate::driver::{Child, ChildKind, OnChild, OnWorker, PageDriver, ServiceWorkers};
 use crate::page_events::Refusals;
 use crate::url_pattern::UrlPattern;
@@ -377,8 +378,14 @@ pub(crate) struct Cosmetic {
 
 impl Cosmetic {
     /// The cosmetic rules of step 4's `blocking`, its Filter lists of the
-    /// version `version`, when any list is on.
-    fn of(blocking: &steps::Blocking, version: Option<String>) -> Option<Self> {
+    /// version `version`, when any list is on and `run`'s
+    /// `consent.handling` is not `off`, under which no cosmetic rule acts,
+    /// live or in extracted content, while the lists still block requests
+    /// (#2434).
+    fn of(blocking: &steps::Blocking, version: Option<String>, run: &Run) -> Option<Self> {
+        if Handling::of(run) == Handling::Off {
+            return None;
+        }
         blocking
             .lists
             .as_ref()
@@ -511,7 +518,7 @@ impl Interception {
             .then(|| clean_up::effective(resolved, own, &BROWSER_BLOCK_RESOURCES).to_string());
         let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
         let clean_up = PageCleanUp {
-            cosmetic: Cosmetic::of(&blocking, version),
+            cosmetic: Cosmetic::of(&blocking, version, run),
             live_hiding: clean_up::live_hiding(resolved, own),
         };
         if let Some(blocked) = blocked {
@@ -833,7 +840,8 @@ impl Interception {
 
     /// The cosmetic rules a document a fetch tier served `run` is read with,
     /// as in every tier, HTTP included (ADR 0047): those of the Run's
-    /// Filter lists, when any is on, of the version it holds to.
+    /// Filter lists, when any is on, of the version it holds to; none under
+    /// `consent.handling: off` (#2434).
     ///
     /// They are made on the Run's first served document and held until the
     /// Run ends, so its Filter lists are compiled once for it.
@@ -857,7 +865,7 @@ impl Interception {
                 &Values::default(),
             );
             let (blocking, version) = self.shared.clean_up.blocking(choices, run).await;
-            Cosmetic::of(&blocking, version)
+            Cosmetic::of(&blocking, version, run)
         })
         .await
         .clone()

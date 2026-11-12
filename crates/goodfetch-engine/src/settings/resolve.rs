@@ -867,6 +867,7 @@ fn authority(
 ) -> Result<(), SettingsError> {
     let name = key.setting.name;
     let above_configuration = matches!(layer, SettingsLayer::Recipe | SettingsLayer::Run);
+    let recipe_or_model = layer == SettingsLayer::Recipe || for_model;
     let configuration_only = || {
         refused(
             current.clone(),
@@ -939,8 +940,7 @@ fn authority(
             ))
         }
         Authority::HostsNarrowedByRecipeOrModel(list)
-            if (layer == SettingsLayer::Recipe || for_model)
-                && !hosts::narrows(list, value, &current.value) =>
+            if recipe_or_model && !hosts::narrows(list, value, &current.value) =>
         {
             Err(refused(
                 current.clone(),
@@ -949,8 +949,12 @@ fn authority(
                 ),
             ))
         }
+        Authority::NotWeakenedByRecipeOrModel if recipe_or_model => {
+            not_weakened(key, value, current, refused)
+        }
         Authority::Every
         | Authority::HostsNarrowedByRecipeOrModel(_)
+        | Authority::NotWeakenedByRecipeOrModel
         | Authority::OperatorPolicy
         | Authority::Configuration
         | Authority::ConfigurationExcept(_)
@@ -961,6 +965,28 @@ fn authority(
         | Authority::NotByModelRecipeAllowedBy(_)
         | Authority::Narrowed => Ok(()),
     }
+}
+
+/// [`Authority::NotWeakenedByRecipeOrModel`] over a Recipe's `value`, or a
+/// Client's acting for a model: never one the key's `weakens` names unless
+/// the layers below already give it, `current` (#2434).
+fn not_weakened(
+    key: Key,
+    value: &Value,
+    current: &SettingLimit,
+    refused: &dyn Fn(SettingLimit, String) -> SettingsError,
+) -> Result<(), SettingsError> {
+    let weakens = key.setting.weakens.is_some_and(|weakens| weakens(value));
+    if !weakens || *value == current.value {
+        return Ok(());
+    }
+    let name = key.setting.name;
+    Err(refused(
+        current.clone(),
+        format!(
+            "a Recipe or a Client acting for a model never sets `{name}` to {value}, which weakens the run, unless the layers below already give it: set it in the program's own code, in configuration or in an Operator policy"
+        ),
+    ))
 }
 
 /// Whether `higher` allows no more than `lower`; `null`, where a key can be

@@ -67,7 +67,7 @@ const LIVE_VIEW_FRAME: &[Row] = &[
     Row::LiveViewSeals,
 ];
 
-fn cells() -> [Cell; 6] {
+fn cells() -> [Cell; 7] {
     [
         // The cell with a viewer, once #959 gives B2's Session one.
         Cell {
@@ -94,12 +94,22 @@ fn cells() -> [Cell; 6] {
             counts_none_of: LIVE_VIEW_FRAME,
         },
         // The Consent prompt runner still starts and looks with its handling
-        // off (ADR 0048), so its reads and its entry stay.
+        // at `detect` (ADR 0048), so its reads and its entry stay.
+        Cell {
+            name: "consent_handling_detect",
+            browsers: session::Browsers::Borrowed,
+            settings: json!({ "consent": { "handling": "detect" } }),
+            removes: &[],
+            counts_none_of: &[],
+        },
+        // With its handling `off`, nothing of the runner is registered or
+        // started and no cosmetic rule acts (#2434): its detection reads go,
+        // and with them and live hiding's domains, commands to the browser.
         Cell {
             name: "consent_handling_off",
             browsers: session::Browsers::Borrowed,
-            settings: json!({ "consent": { "handling": false } }),
-            removes: &[],
+            settings: json!({ "consent": { "handling": "off" } }),
+            removes: &[Row::NavigationDetectionReads, Row::CdpSends],
             counts_none_of: &[],
         },
         // Navigations with a Page check: it compiles its glob and reads its

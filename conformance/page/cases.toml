@@ -534,7 +534,11 @@ id = "runtime-is-never-enabled-and-a-snippets-world-is-as-the-snippet-table-says
 covers = ["story:5-100"]
 
 [[capability.case]]
-id = "consent-handling-off-leaves-prompts-alone"
+id = "consent-handling-detect-leaves-prompts-alone"
+covers = ["story:5-100", "setting:consent.handling"]
+
+[[capability.case]]
+id = "consent-handling-off-registers-no-runner-and-no-cosmetic-rule-acts"
 covers = ["story:5-100", "setting:consent.handling"]
 
 [[capability]]
@@ -549,7 +553,7 @@ id = "a-walls-navigation-raises-it-before-any-call-reads-the-page-even-one-a-fil
 covers = ["story:5-101", "error:blocked", "operation:page.goto"]
 
 [[capability.case]]
-id = "with-consent-handling-off-the-wall-test-still-raises-blocked"
+id = "with-consent-handling-detect-the-wall-test-still-raises-blocked"
 covers = ["story:5-101", "setting:consent.handling", "error:blocked"]
 
 [[capability.case]]

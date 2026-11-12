@@ -18172,10 +18172,10 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_recipe_or_model",
       "clearable": false,
-      "default": true,
-      "description": "Whether a browser Session answers Consent prompts: on by default in every Access mode, refusing each prompt in every frame and hiding one with no refusal that leaves the content readable. Off stops only the answering: the wall test still runs, and a consent wall is still `consent_required`.",
+      "default": "answer",
+      "description": "What a browser Session does with Consent prompts: `answer` (the default, in every Access mode) refuses each prompt in every frame and hides one with no refusal that leaves the content readable; `detect` only looks: nothing is clicked or hidden, the wall test still runs, and a consent wall is still `consent_required`; `off` registers and starts no Consent prompt runner and lets no cosmetic rule act on the live page or in extracted content, so no consent wall is reported and the page's text is returned as served, while the Filter lists still block requests; the Run report lists `off` in `weakened`. A Recipe, and a Client acting for a model, never set `off` unless the layers below already give it: `setting_locked`; set it in the program's own code, in configuration or in an Operator policy.",
       "name": "consent.handling",
       "product": "collie",
       "products": [
@@ -18183,9 +18183,13 @@
         "foxhound"
       ],
       "value": {
-        "type": "boolean"
+        "enum": [
+          "answer",
+          "detect",
+          "off"
+        ]
       },
-      "weakens": false
+      "weakens": true
     },
     {
       "arrived_in": "0.1",

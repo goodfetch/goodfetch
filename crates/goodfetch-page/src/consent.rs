@@ -25,7 +25,7 @@
 //! - sets its part of the document's hiding sheet, the one live hiding
 //!   writes too ([`Sheets`]), which no `document.styleSheets` lists;
 //! - answers whether a consent wall is accepted: only on a domain a person
-//!   approved in `consent.domains`, and never while the answering is off;
+//!   approved in `consent.domains`, and never while it only detects;
 //! - records what it did with each prompt in the Run trace's Provenance,
 //!   an acceptance with its domain and the approval it came from, and
 //!   keeps a wall left in the page's main frame for the page's next call,
@@ -33,9 +33,10 @@
 //!   records its domain in the Run index, which "Needs you" offers for
 //!   `consent.domains`.
 //!
-//! With `consent.handling` off the runner still starts, to run the wall
+//! With `consent.handling: detect` the runner still starts, to run the wall
 //! test, but only looks: it clicks nothing, hides nothing and runs nothing
-//! in the main world. A prompt with no refusal that leaves the content
+//! in the main world. With `consent.handling: off` nothing of the runner is
+//! registered or started, and no wall is reported (#2434). A prompt with no refusal that leaves the content
 //! readable and asks for no payment is hidden while the runner answers;
 //! any other in the top frame is a consent wall. The Decision
 //! provider (area 9's) is not here yet, nor `consent.on_wall: ask`, which
@@ -113,9 +114,10 @@ impl Consent {
     /// `driver` drives for `run`: the bundle in the guard's world of every
     /// frame from the next document on, out-of-process iframes attached as
     /// they appear, hiding through the page's `sheets`; with the Run's
-    /// `consent.handling` off, only looking. It answers what the runner
-    /// does with each of the page's children before it runs: an
-    /// out-of-process iframe is prepared as the page is.
+    /// `consent.handling: detect`, only looking; with `off`, not at all
+    /// (#2434). It answers what the runner does with each of the page's
+    /// children before it runs: an out-of-process iframe is prepared as the
+    /// page is, and with `off` none is.
     ///
     /// # Errors
     ///
@@ -150,7 +152,11 @@ impl Consent {
                 },
             ));
         }
-        let answering = get_or_default(resolved, &CONSENT_HANDLING);
+        let answering = match Handling::of(run) {
+            Handling::Answer => true,
+            Handling::Detect => false,
+            Handling::Off => return Ok(Arc::new(|_: &Child| Box::pin(async { true }))),
+        };
         let approval = resolved
             .and_then(|resolved| resolved.effective(&CONSENT_DOMAINS))
             .and_then(|effective| Approval::of(&effective.value, effective.layer));
@@ -199,6 +205,33 @@ impl Consent {
                 true
             })
         }))
+    }
+}
+
+/// What a Run's `consent.handling` says the Consent prompt runner does
+/// (ADR 0048, #2434).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Handling {
+    /// It answers each prompt: the default.
+    Answer,
+    /// It only looks, and still runs the wall test.
+    Detect,
+    /// It is neither registered nor started, and no cosmetic rule acts.
+    Off,
+}
+
+impl Handling {
+    /// `run`'s `consent.handling`.
+    pub(crate) fn of(run: &Run) -> Self {
+        let resolved = run
+            .settings()
+            .map(goodfetch_engine::settings::RunSettings::resolved);
+        match get_or_default::<&str>(resolved, &CONSENT_HANDLING) {
+            "detect" => Self::Detect,
+            "off" => Self::Off,
+            // The resolver takes only the catalog's values: this is `answer`.
+            _ => Self::Answer,
+        }
     }
 }
 

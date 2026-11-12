@@ -1453,7 +1453,10 @@ impl Pages {
         navigated: bool,
     ) -> Result<(), CallError> {
         let walls = self.sessions.consent_walls();
+        // With `consent.handling: off` no runner looks, so there is nothing
+        // to ask (#2434).
         if navigated
+            && crate::consent::Handling::of(&page.run) != crate::consent::Handling::Off
             && crate::consent::first_pass_found(&page.driver, page.run.metrics().counted_work())
                 .await
         {

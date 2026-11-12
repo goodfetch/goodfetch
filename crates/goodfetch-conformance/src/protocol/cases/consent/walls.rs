@@ -4,7 +4,7 @@
 //! covers the content or offers a subscription instead, is the Block cause
 //! `consent_required`, raised as `blocked` by the call that waited for its
 //! navigation or else by the page's next call, the Session kept, nothing
-//! answered; with `consent.handling` off the wall test still runs. On a
+//! answered; with `consent.handling: detect` the wall test still runs. On a
 //! domain user configuration lists in `consent.domains`, the wall is
 //! accepted through a trusted click and Provenance records the acceptance
 //! and the approval it came from, while a prompt with a refusal is still
@@ -211,16 +211,16 @@ pub(super) fn walls_at_once(
     finish(connection, run_id)
 }
 
-/// With `consent.handling` off, the wall test still runs: the wall is
+/// With `consent.handling: detect`, the wall test still runs: the wall is
 /// `consent_required`, raised as `blocked`.
-pub(super) fn walls_off(
+pub(super) fn walls_detect(
     connection: &mut Connection,
     home: Option<&str>,
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let run_id = "conformance-consent-walls-off";
-    let settings = json!({ "consent": { "handling": false } });
+    let run_id = "conformance-consent-walls-detect";
+    let settings = json!({ "consent": { "handling": "detect" } });
     let Some(page) = open(connection, site, run_id, &settings, checks)? else {
         return finish(connection, run_id);
     };

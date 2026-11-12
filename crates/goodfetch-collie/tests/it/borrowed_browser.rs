@@ -678,14 +678,14 @@ fn data_keys(env: &TestEnv, run_id: &str) -> u32 {
 /// The `cdp_url` a Session borrows its browser through, which names the
 /// one browser and may carry its provider's access token, is sealed in run
 /// state under the Run's data key: its browser's own name is in no byte of
-/// the run file, its WAL or its Checkpoint, plain or encoded, and the Run
-/// resumed after its engine was killed still opens it, since its Session's
-/// next page opens on that browser. The Run made one data key for it.
+/// the run file, its WAL or its Checkpoint, plain or encoded, once its
+/// engine was killed. The Run made one data key for it. That a resumed Run
+/// opens it again is `a_resumed_run_reopens_a_borrowed_session_on_its_browser`.
 ///
-/// Covers: story:4-64, story:5-60, operation:run.resume
+/// Covers: story:4-64
 #[cfg(unix)]
 #[test]
-fn a_borrowed_sessions_cdp_url_is_sealed_in_run_state_and_opens_after_a_resume() {
+fn a_borrowed_sessions_cdp_url_is_sealed_in_run_state() {
     let env = TestEnv::new();
     let cache = browser_cache(&env).unwrap();
     let lent = Lent::start(&env, &cache);
@@ -698,6 +698,7 @@ fn a_borrowed_sessions_cdp_url_is_sealed_in_run_state_and_opens_after_a_resume()
     let _ = program.new_page(&session);
     let checkpointed = program.call("run.checkpoint", &json!({ "run_id": "sealed-source" }));
     program.engine.kill();
+    lent.stop();
 
     let folder = HomeLayout::of(env.home()).run_folder("sealed-source");
     let files = ["run.sqlite", "run.sqlite-wal", "checkpoint.sqlite"].map(|file| folder.join(file));
@@ -712,33 +713,20 @@ fn a_borrowed_sessions_cdp_url_is_sealed_in_run_state_and_opens_after_a_resume()
         .into_iter()
         .map(|hit| format!("{} in {}", hit.canary, hit.output))
         .collect();
-    let keys = data_keys(&env, "sealed-source");
-    let mut resumed = Program::start(&env, &cache, Surface::SdkTypescript);
-    let resume = resumed.call(
-        "run.resume",
-        &json!({ "run_id": "sealed-source", "settings": { "network": { "resolve": {} } } }),
-    );
-    let page = resumed.call("session.new_page", &json!({ "session_id": session }));
-    let launched = launched_by_the_engine(&env);
-    resumed.finish("sealed-source");
-    lent.stop();
 
     assert_eq!(
         (
             leaks,
             checkpointed.get("result").is_some() && files[2].exists(),
-            keys,
-            &resume["result"]["started_as"],
-            page["result"]["page_id"].is_string(),
-            launched,
+            data_keys(&env, "sealed-source"),
         ),
-        (Vec::new(), true, 1, &json!("resumed"), true, 0),
-        "{page}"
+        (Vec::new(), true, 1),
+        "{checkpointed}"
     );
 }
 
 /// A Run whose Sessions borrow no browser writes no secret column, so it
-/// makes no data key and never reaches the key-encryption key.
+/// makes no data key.
 ///
 /// Covers: story:4-64
 #[test]

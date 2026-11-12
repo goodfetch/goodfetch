@@ -1389,7 +1389,10 @@ impl Run {
     ///
     /// # Cancel safety
     ///
-    /// As [`Run::open`]'s.
+    /// Dropping the future of the caller that makes the key abandons the
+    /// making, and the next caller makes one again. A drop once the
+    /// wrapped key's write was queued may leave it stored: the next making
+    /// then takes that key rather than store another.
     pub async fn seal(
         &self,
         column: &SecretColumn,
@@ -1406,26 +1409,31 @@ impl Run {
     }
 
     /// The plaintext of `sealed`, read from the row `row` of the secret
-    /// column `column`, in this Run or after its resume.
+    /// column `column`, in this Run or after its resume. It never makes a
+    /// data key: a Run with none held, unwrapped at its resume or stored
+    /// by a making whose caller was dropped, sealed nothing, so nothing it
+    /// holds opens.
     ///
     /// # Errors
     ///
-    /// As [`RunKeyError`] says: `Key` when the value was sealed for another
-    /// place or another Run, or changed since.
+    /// `Key` when the value was sealed for another place or another Run,
+    /// or changed since, or when the Run has no data key.
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future of the caller that makes the key abandons the
-    /// making, and the next caller makes one again. A drop once the
-    /// wrapped key's write was queued may leave it stored: the next making
-    /// then takes that key rather than store another.
+    /// Dropping its future abandons the read of the stored key, which
+    /// writes nothing; the next call reads it again.
     pub async fn open(
         &self,
         column: &SecretColumn,
         row: &str,
         sealed: &Sealed,
     ) -> Result<Zeroizing<Vec<u8>>, RunKeyError> {
-        let key = self.key().await?;
+        let key = self
+            .shared
+            .key
+            .get_or_try_init(|| self.stored_key())
+            .await?;
         Ok(key.open(column.table, column.column, row, sealed.as_bytes())?)
     }
 
@@ -1433,6 +1441,27 @@ impl Run {
     /// columns, made at its first use.
     async fn key(&self) -> Result<&RunKey, RunKeyError> {
         self.shared.key.get_or_try_init(|| self.make_key()).await
+    }
+
+    /// The data key its run state holds wrapped, which a making whose
+    /// caller was dropped stored without the Run taking it, unwrapped by
+    /// the key-encryption key its settings name; it never makes one, nor
+    /// the engine's default key-encryption key.
+    async fn stored_key(&self) -> Result<RunKey, RunKeyError> {
+        let stored = self
+            .state
+            .read(run_key::stored)
+            .await?
+            .ok_or(KeyError::DoesNotOpen)?;
+        let kek = if let Some(kek) = self.secrets().held_for(RUN_STATE_KEY_REFERENCE.name).await {
+            kek
+        } else {
+            let (reference, layer) = self.runs.key_reference(self.settings()).await;
+            self.runs
+                .key_encryption_key(self.secrets(), &reference, layer, &self.id, Making::No)
+                .await?
+        };
+        Ok(RunKey::unwrap(self.id.clone(), &stored.wrapped, &kek)?)
     }
 
     /// Makes its data key, stored only wrapped by the key-encryption key

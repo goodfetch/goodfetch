@@ -381,7 +381,7 @@ impl Resolved {
                 cap: effective.cap.clone(),
                 weakens: effective.weakens,
                 user_settable: effective.locked_by.is_none() && user_settable(key),
-                fixed_for_run: fixed_for_run(key),
+                fixed_for_run: keys::fixed_for_run(key),
             })
             .chain(
                 self.unapplied
@@ -397,7 +397,7 @@ impl Resolved {
                         cap: None,
                         weakens: false,
                         user_settable: false,
-                        fixed_for_run: fixed_for_run(key),
+                        fixed_for_run: keys::fixed_for_run(key),
                     }),
             )
             .filter(|setting| wanted(&setting.key))
@@ -556,11 +556,6 @@ fn user_settable(key: &str) -> bool {
             Authority::OperatorPolicy | Authority::Fixed
         )
     })
-}
-
-/// Whether `key` is fixed for a Run's life (ADRs 0102 and 0120).
-fn fixed_for_run(key: &str) -> bool {
-    keys::find(key).is_some_and(|found| found.setting.fixed_for_run)
 }
 
 /// The Products that honour a key of `product`'s mark.

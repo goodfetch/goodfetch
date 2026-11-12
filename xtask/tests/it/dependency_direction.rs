@@ -207,6 +207,15 @@ const ENGINE_ROOT: &str = "crates/goodfetch-engine/src/lib.rs";
     ENGINE_ROOT,
     "use goodfetch_protocol as protocol;\n\npub fn name() -> &'static str {\n    protocol::foxhound::crawl::CRAWL_START.name\n}\n"
 )]
+#[case::under_the_other_name_a_use_group_gives(
+    ENGINE_ROOT,
+    "use goodfetch_protocol::{self as protocol, catalog::Product};\n\npub fn name() -> &'static str {\n    protocol::foxhound::crawl::CRAWL_START.name\n}\n"
+)]
+#[case::through_a_glob_of_the_crates_root(ENGINE_ROOT, "use goodfetch_protocol::*;\n")]
+#[case::through_a_glob_inside_a_use_group(
+    ENGINE_ROOT,
+    "use goodfetch_protocol::{catalog::Product, *};\n"
+)]
 #[case::in_a_test(
     "crates/goodfetch-engine/tests/it/main.rs",
     "use goodfetch_protocol::foxhound::settings::PROVENANCE_LOG;\n"
@@ -234,6 +243,59 @@ fn crate_outside_foxhound_naming_the_foxhound_module_fails(
     assert_eq!(outcome.code, 1);
 }
 
+/// A name the crate's root gives the protocol's crate is a way to the module
+/// from every file of the crate.
+#[test]
+fn crate_outside_foxhound_naming_the_foxhound_module_under_a_name_another_file_gives_fails() {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.write(
+        ENGINE_ROOT,
+        b"//! Fixture engine crate.\n\npub(crate) use goodfetch_protocol as protocol;\n\nmod other;\n",
+    );
+    workspace.write(
+        "crates/goodfetch-engine/src/other.rs",
+        b"//! Fixture module.\n\nuse crate::protocol::foxhound::crawl::CRAWL_START;\n",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "names-foxhound-module",
+            "crates/goodfetch-engine/src/other.rs"
+        )],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// A manifest may rename the dependency (`package = "goodfetch-protocol"`):
+/// the name it gives is the crate's in that package's code.
+#[test]
+fn crate_outside_foxhound_naming_the_foxhound_module_under_its_manifests_name_fails() {
+    let workspace = Workspace::from_fixture("dependency-direction");
+    workspace.write(
+        "crates/goodfetch-engine/Cargo.toml",
+        b"[package]\nname = \"goodfetch-engine\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\ngoodfetch-workspace-hack = { path = \"../goodfetch-workspace-hack\" }\nwire-types = { package = \"goodfetch-protocol\", path = \"../goodfetch-protocol\" }\n",
+    );
+    workspace.write(
+        ENGINE_ROOT,
+        b"//! Fixture engine crate.\n\nuse wire_types::foxhound::crawl::CRAWL_START;\n",
+    );
+
+    let outcome = workspace.xtask(&["dependency-direction"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("names-foxhound-module", ENGINE_ROOT)],
+        "{}",
+        outcome.stderr
+    );
+    assert_eq!(outcome.code, 1);
+}
+
 /// The generated names of what only Foxhound carries are how a Collie
 /// engine refuses them (ADR 0087): they are not the module.
 #[test]
@@ -241,7 +303,7 @@ fn crate_outside_foxhound_naming_the_generated_names_passes() {
     let workspace = Workspace::from_fixture("dependency-direction");
     workspace.write(
         ENGINE_ROOT,
-        b"//! Fixture engine crate.\n\nuse goodfetch_protocol::foxhound_names;\n\n/// Foxhound's, a word and no path.\npub fn foxhound() -> usize {\n    foxhound_names::OPERATIONS.len()\n}\n",
+        b"//! Fixture engine crate.\n\nuse goodfetch_protocol::catalog::*;\nuse goodfetch_protocol::foxhound_names;\n\n/// Foxhound's, a word and no path.\npub fn foxhound() -> usize {\n    foxhound_names::OPERATIONS.len()\n}\n",
     );
 
     let outcome = workspace.xtask(&["dependency-direction"]);

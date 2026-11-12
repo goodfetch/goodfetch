@@ -31,7 +31,6 @@ use std::sync::Arc;
 
 use goodfetch_dataset::{Began, Datasets};
 use goodfetch_engine::run::{checkpoint_interval, run_error, run_id, settings_error, start_error};
-use goodfetch_engine::run_state::Syncing;
 use goodfetch_engine::runs::{Driving, EndedBy, RunError, Start, Started};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
@@ -137,12 +136,12 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
 }
 
 /// How a crawl goes, which the engine learns with its driver (ADR 0099):
-/// its driver ends it once its work is done, its start declares the bound
-/// of the charges its claims defer (ADR 0138's note of #1926, #2117), and
+/// its driver ends it once its work is done, its claims defer their charges
+/// (ADR 0138's note of #1926), so its start declares their bound (#2117), and
 /// `provenance.log` says whether it keeps a Provenance log.
 const DRIVING: Driving = Driving {
     ended_by: EndedBy::Driver,
-    start: Syncing::Declaring,
+    defers_charges: true,
     provenance_log: Some(&PROVENANCE_LOG),
 };
 

@@ -602,7 +602,7 @@ fn scan_tokens(
 
 /// Records the module a path names after `crate::`: one name, or each first
 /// name of a `{…}` group.
-pub(crate) fn record_targets(tokens: &[TokenTree], index: usize, imported: &mut BTreeSet<String>) {
+fn record_targets(tokens: &[TokenTree], index: usize, imported: &mut BTreeSet<String>) {
     match tokens.get(index) {
         Some(TokenTree::Ident(ident)) if ident != "self" => {
             imported.insert(ident.to_string());

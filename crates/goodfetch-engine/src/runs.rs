@@ -269,10 +269,10 @@ pub enum EndedBy {
 pub struct Driving {
     /// Who ends a Run of the kind that a resume starts again.
     pub ended_by: EndedBy,
-    /// How its start commits: a kind whose claims defer their charges (ADR
-    /// 0138's note of #1926) declares their bound in its start's own synced
-    /// commit rather than its first claim's (#2117).
-    pub start: Syncing,
+    /// Whether its claims defer their charges (ADR 0138's note of #1926):
+    /// its start then declares their bound in its own synced commit rather
+    /// than its first claim's (#2117).
+    pub defers_charges: bool,
     /// The setting that says whether its Run trace keeps a Provenance log
     /// (ADR 0138); none when it always does.
     pub provenance_log: Option<&'static Setting>,
@@ -282,7 +282,7 @@ impl Default for Driving {
     fn default() -> Self {
         Self {
             ended_by: EndedBy::Finish,
-            start: Syncing::Required,
+            defers_charges: false,
             provenance_log: None,
         }
     }
@@ -5063,7 +5063,7 @@ impl Registry {
         let tags = start.tags.clone();
         let initialize = start.initialize;
         state
-            .write_with(self.driving(start.kind).start, move |connection| {
+            .write_with(self.start_syncing(start.kind), move |connection| {
                 row.insert(connection)?;
                 for (position, tag) in tags.iter().enumerate() {
                     connection.execute(
@@ -5304,6 +5304,16 @@ impl Registry {
     /// kind's driver says.
     fn driving(&self, kind: RunKind) -> Driving {
         self.setup.driving.get(&kind).copied().unwrap_or_default()
+    }
+
+    /// How the start of a Run of `kind` commits: synced, and declaring the
+    /// bound of its deferred charges when its claims defer them.
+    fn start_syncing(&self, kind: RunKind) -> Syncing {
+        if self.driving(kind).defers_charges {
+            Syncing::Declaring
+        } else {
+            Syncing::Required
+        }
     }
 
     /// The live Run `run_id`, of `kind`, as its driver holds it, writing

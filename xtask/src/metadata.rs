@@ -51,6 +51,10 @@ struct GoodfetchMetadata {
 #[derive(Deserialize)]
 pub(crate) struct Dependency {
     pub(crate) name: String,
+    /// The name the manifest gives it in the package's code, when that is
+    /// not its own (`package = "…"`).
+    #[serde(default)]
+    pub(crate) rename: Option<String>,
     /// `None` for a normal dependency, `dev` or `build` otherwise.
     pub(crate) kind: Option<String>,
 }

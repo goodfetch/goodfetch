@@ -29,7 +29,7 @@ import {
 import type { JsonValue } from "./key-value-store.ts";
 import { holdInRealm } from "./realm.ts";
 import { Run, type RunHost } from "./run.ts";
-import { Channel, type Transport, type TransportEnd } from "./rpc.ts";
+import { Channel, type ChannelBounds, type Transport, type TransportEnd } from "./rpc.ts";
 
 /** How long `close()` waits for an Attached engine to stop: `timeout.close`'s default (ADR 0080). */
 const CLOSE_TIMEOUT = 30_000;
@@ -68,6 +68,10 @@ export interface ClientConnectionOptions {
   readonly needs: Product;
   /** The error class of each code the Client's Product knows. */
   readonly errorClasses: ErrorClasses;
+  /** What the Connection lets wait before it refuses a new call; the defaults when left out. */
+  readonly bounds?: ChannelBounds | undefined;
+  /** Cancels the opening: `open` rejects with its reason once the transport and its engine are ended. */
+  readonly signal?: AbortSignal | undefined;
 }
 
 /** The common Connection under each Product's Connection type. */
@@ -84,10 +88,14 @@ export class ClientConnection implements AsyncDisposable {
   private constructor(options: ClientConnectionOptions) {
     this.#engine = options.engine;
     const { errorClasses } = options;
-    this.#channel = new Channel(options.transport, {
-      ended: (end) => this.#endedWith(end),
-      failure: (error) => errorOfReply(error, errorClasses),
-    });
+    this.#channel = new Channel(
+      options.transport,
+      {
+        ended: (end) => this.#endedWith(end),
+        failure: (error) => errorOfReply(error, errorClasses),
+      },
+      options.bounds,
+    );
     this.#operations = new CollieOperations(this.#caller());
     this.#runHost = {
       finish: (runId, callOptions) => this.#operations.runFinish({ run_id: runId }, callOptions),
@@ -133,13 +141,14 @@ export class ClientConnection implements AsyncDisposable {
 
   /**
    * Opens a Connection over `transport` and finishes `hello` before it
-   * returns: a refused Product or protocol version fails here, and the
-   * transport and its engine are ended.
+   * returns: a refused Product or protocol version fails here, as does an
+   * aborted `signal`, with its reason, and the transport and its engine
+   * are ended before it rejects.
    */
   static async open(options: ClientConnectionOptions): Promise<ClientConnection> {
     const connection = new ClientConnection(options);
     try {
-      await connection.#hello(options.needs);
+      await connection.#hello(options.needs, options.signal);
     } catch (error) {
       await connection.#end();
       throw error;
@@ -206,14 +215,14 @@ export class ClientConnection implements AsyncDisposable {
     };
   }
 
-  async #hello(needs: Product): Promise<void> {
+  async #hello(needs: Product, signal: AbortSignal | undefined): Promise<void> {
     const params: HelloParams = {
       protocol_version: PROTOCOL_VERSION,
       surface: "sdk_typescript",
       needs,
       product_version: PRODUCT_VERSION,
     };
-    const answer = await this.#channel.call("hello", params);
+    const answer = await this.#channel.call("hello", params, { signal });
     const spoken = protocolVersionOf(answer);
     if (spoken === undefined || !speaks(spoken)) {
       throw new ProtocolVersionUnsupportedError(
@@ -295,9 +304,13 @@ export class ClientConnection implements AsyncDisposable {
     return { failure };
   }
 
-  /** Ends the Client's side and waits for the engine to stop. */
+  /**
+   * Ends a Connection that never opened: both sides at once, since nothing
+   * it still holds to write or to read matters, then waits for the engine,
+   * which stops at the end of its input, to be gone.
+   */
   async #end(): Promise<void> {
-    await this.#channel.close();
+    this.#channel.abandon();
     if (this.#engine !== undefined) {
       await this.#engine.stop(CLOSE_TIMEOUT);
     }
@@ -325,7 +338,7 @@ export class ClientConnection implements AsyncDisposable {
         : `the engine ended before its Connection was closed, with ${exit.signal ?? `exit code ${exit.exitCode}`}`,
       {
         details: { exit_code: exit.exitCode, signal: exit.signal, stderr_tail: exit.stderrTail },
-        cause: end.kind === "failed" ? end.cause : undefined,
+        cause: end.kind === "ended" ? undefined : end.cause,
       },
     );
   }

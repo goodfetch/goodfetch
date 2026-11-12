@@ -893,6 +893,119 @@ fn each_sdk_layer_is_generated_as_its_snapshot(#[case] folder: &str) {
     insta::assert_snapshot!(folder.replace('/', "__"), layer);
 }
 
+/// A name no SDK can spell by its one rule is refused, so the catalog
+/// renames the entry for every surface and no language needs an alias
+/// (ADRs 0079 and 0099): a member TypeScript gives meaning on every value,
+/// `call`, which is every handle's raw call, and an error class that would
+/// shadow a built-in one.
+///
+/// Covers: story:11-176
+#[rstest]
+#[case::then("\"sample.echo\"", "\"sample.then\"", "operation `sample.then`")]
+#[case::constructor(
+    "\"sample.echo\"",
+    "\"sample.constructor\"",
+    "operation `sample.constructor`"
+)]
+#[case::call("\"sample.echo\"", "\"sample.call\"", "operation `sample.call`")]
+#[case::plugin_method_then(
+    "name: \"put\"",
+    "name: \"then\"",
+    "Plugin kind method `sample_store.then`"
+)]
+#[case::timeout_error("\"sample_refused\"", "\"timeout\"", "Error code `timeout`")]
+#[case::connection_error("\"sample_refused\"", "\"connection\"", "Error code `connection`")]
+#[case::permission_error("\"sample_refused\"", "\"permission\"", "Error code `permission`")]
+#[case::abort_error("\"sample_refused\"", "\"abort\"", "Error code `abort`")]
+#[case::type_error("\"sample_refused\"", "\"type\"", "Error code `type`")]
+fn codegen_refuses_a_name_no_sdk_can_spell_naming_its_entry(
+    #[case] from: &str,
+    #[case] to: &str,
+    #[case] entry: &str,
+) {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(SAMPLE, from, to);
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+    assert!(outcome.stderr.contains(entry), "{}", outcome.stderr);
+}
+
+/// Two entries that would give one receiver one member are refused across a
+/// Product's whole catalog: Foxhound's holds Collie's `sample.to_http_s` beside
+/// its own `sample.to_https`, which both spell `toHTTPS`.
+///
+/// Covers: story:11-176
+#[test]
+fn codegen_refuses_two_entries_that_give_one_receiver_one_member() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(SAMPLE, "\"sample.echo\"", "\"sample.to_http_s\"");
+    workspace.edit(FOXHOUND, "\"sample.crawl\"", "\"sample.to_https\"");
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stderr);
+    assert!(
+        outcome
+            .stderr
+            .contains("`sample.to_http_s` and `sample.to_https` are one member"),
+        "{}",
+        outcome.stderr
+    );
+}
+
+/// No entry has a second name in TypeScript (ADR 0099): each operation is
+/// sent by one member of its layer, and no export renames another.
+///
+/// Covers: story:11-176
+#[rstest]
+#[case::collie_client(
+    "sdks/typescript/collie-client/src/generated",
+    "crates/goodfetch-protocol/generated/collie.json",
+    "collie"
+)]
+#[case::foxhound(
+    "sdks/typescript/foxhound/src/generated",
+    "crates/goodfetch-protocol/generated/foxhound.json",
+    "foxhound"
+)]
+fn the_typescript_layer_holds_no_alias(
+    #[case] folder: &str,
+    #[case] projection: &str,
+    #[case] product: &str,
+) {
+    let workspace = Workspace::from_fixture("codegen");
+    codegen(&workspace);
+    let projection: Value = serde_json::from_str(&workspace.read_text(projection)).unwrap();
+    let operations = workspace.read_text(&format!("{folder}/operations.ts"));
+
+    let senders: Vec<(String, usize)> = names_and_products(&projection, "operations")
+        .into_iter()
+        .filter(|(_, entry_product)| entry_product == product)
+        .map(|(name, _)| {
+            let sent = operations
+                .matches(&format!("this.#caller.call({name:?},"))
+                .count();
+            (name, sent)
+        })
+        .filter(|(_, sent)| *sent != 1)
+        .collect();
+    let renamed: Vec<(String, String)> = generated_files(&workspace)
+        .into_iter()
+        .filter(|(path, _)| path.starts_with(folder))
+        .flat_map(|(path, contents)| {
+            contents
+                .lines()
+                .filter(|line| line.starts_with("export") && line.contains(" as "))
+                .map(|line| (path.clone(), line.to_owned()))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    assert_eq!((senders, renamed), (vec![], vec![]));
+}
+
 /// An Experimental or deprecated entry's docstring adds paragraphs after
 /// its description, which keeps every line it has.
 /// Covers: story:1-57

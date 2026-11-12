@@ -33,6 +33,7 @@ const SUMMARIES: Readonly<Record<string, MessageDescriptor>> = {
   certificate_changed: msg`A pinned host presented a certificate with another key, so nothing was sent to it.`,
   certificate_invalid: msg`The host's certificate failed verification, so nothing was sent to it.`,
   closed: msg`The call was made on something its program had closed.`,
+  connection_overloaded: msg`The Connection already held as many calls or bytes waiting as its bounds allow, so the call was not sent.`,
   connection_lost: msg`The Connection to the engine dropped before the call was answered, so whether it took effect is unknown.`,
   console_port_in_use: msg`The Console did not start: another program holds its port.`,
   daemon_draining: msg`The Daemon is stopping, so it takes no run.`,

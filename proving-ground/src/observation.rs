@@ -800,6 +800,11 @@ impl Connection {
         }
     }
 
+    /// The connection's `ClientHello`; `None` over plain text.
+    pub(crate) fn tls(&self) -> Option<Arc<ClientHello>> {
+        self.state().tls.clone()
+    }
+
     /// Records a request whose head has arrived, if its host is served; a
     /// connection's first request decides its host when TLS did not.
     pub(crate) fn request(&self, head: RequestHead) -> Option<RequestId> {

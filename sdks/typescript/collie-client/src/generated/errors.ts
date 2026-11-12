@@ -240,6 +240,15 @@ export class ConnectionLostError extends UnavailableError {
 }
 
 /**
+ * The Connection already holds as many calls waiting for their answer, or as many bytes waiting to be written to the engine, as its bounds allow, so the call was refused at once and never sent; the calls made before it go on. The details name the bound, `pending_calls` or `queued_write_bytes`, and its value. Wait for earlier calls to end, or raise the bound where the Connection opens.
+ */
+export class ConnectionOverloadedError extends RefusedError {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, code: "connection_overloaded", group: "refused", retryable: true });
+  }
+}
+
+/**
  * The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon.
  */
 export class ConsolePortInUseError extends UnavailableError {
@@ -879,6 +888,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   certificate_invalid: CertificateInvalidError,
   closed: ClosedError,
   connection_lost: ConnectionLostError,
+  connection_overloaded: ConnectionOverloadedError,
   console_port_in_use: ConsolePortInUseError,
   daemon_draining: DaemonDrainingError,
   daemon_unreachable: DaemonUnreachableError,

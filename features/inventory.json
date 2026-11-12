@@ -1160,6 +1160,17 @@
       ]
     },
     {
+      "id": "error:connection_overloaded",
+      "kind": "error",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:console_port_in_use",
       "kind": "error",
       "area": 12,

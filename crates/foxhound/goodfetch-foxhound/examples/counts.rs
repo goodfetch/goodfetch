@@ -43,6 +43,11 @@
 //! the Frontier's outcomes beyond a links batch: a hop's, a sitemap's and a
 //! Payload's rows say "no hops" there.
 //!
+//! The cell `varying_parameter` crawls, beside the site, as many pages
+//! `/item?id=<n>` as the site has pages, each its own, with learning on: the
+//! input `F2.evidence_reads` is read on, and its `--shorter` run serves half
+//! of them, so `F2.prepares` sees what each of them prepares too.
+//!
 //! The default cell's crawl meets a Limit of `requests`, so each request is
 //! charged through the counted ledger (E3), and fails if nothing was; B3
 //! holds E3's rows. The other cells meet none, so the ledger's prepares stay
@@ -237,10 +242,6 @@ const RUN_STATE: &str = "goodfetch_engine::run_state::";
 /// How many of [`PAGES`] a `--shorter` run's site links: half of them.
 const SHORTER: usize = PAGES.len() / 2;
 
-/// The pages the whole site serves beyond a `--shorter` run's: the unit
-/// `F2.prepares` divides by.
-const ADDED_PAGES: u64 = (PAGES.len() - SHORTER) as u64;
-
 /// The row the counting VFS reads.
 const SYNCS: &str = "F2.syncs";
 
@@ -327,7 +328,41 @@ struct Cell {
 }
 
 /// The Frontier's outcomes, the Payload under its schema.
-const FRONTIER: Option<Frontier> = Some(Frontier { schema: true });
+const FRONTIER: Option<Frontier> = Some(Frontier {
+    schema: true,
+    items: 0,
+});
+
+/// The Frontier's outcomes with a seed whose Payload has no schema to fit.
+const UNTYPED: Option<Frontier> = Some(Frontier {
+    schema: false,
+    items: 0,
+});
+
+/// How many items the cell [`VARYING_PARAMETER`]'s site serves: as many as
+/// its pages.
+const ITEMS: usize = PAGES.len();
+
+/// The cell whose site also serves [`ITEMS`] pages `/item?id=<n>`, each its
+/// own, with learning on: the second refuses `id`, and each later one reads
+/// the pair that refused it and no more (`F2.evidence_reads`, ADR 0005's
+/// note of 2026-11-10). Its crawl fails if learning read no evidence.
+const VARYING_PARAMETER: &str = "varying_parameter";
+
+fn varying_parameter() -> Cell {
+    Cell {
+        name: VARYING_PARAMETER,
+        settings: scoped(json!({})),
+        frontier: Some(Frontier {
+            schema: true,
+            items: ITEMS,
+        }),
+        removes: &[],
+        removes_syncs: false,
+        handler: false,
+        limit: false,
+    }
+}
 
 /// A glob in the Scope, which is what a Frontier's reads of it compile.
 fn scoped(mut settings: Value) -> Value {
@@ -453,7 +488,7 @@ fn cells() -> Vec<Cell> {
         Cell {
             name: "payload_schema_off",
             settings: scoped(json!({})),
-            frontier: Some(Frontier { schema: false }),
+            frontier: UNTYPED,
             removes: &[Row::PayloadCompilations, Row::PayloadValidations],
             removes_syncs: false,
             handler: false,
@@ -517,7 +552,7 @@ fn cells() -> Vec<Cell> {
             limit: false,
         },
     ];
-    cells.extend(switched_off());
+    cells.extend(switched_off().into_iter().chain([varying_parameter()]));
     cells
 }
 
@@ -528,7 +563,7 @@ struct Prepared {
     /// the whole site: `E6.opens`' part.
     politeness: u64,
     /// Beneath the `run_state` writer's, on the whole site less on
-    /// [`SHORTER`] of its pages: `F2.prepares`, over [`ADDED_PAGES`].
+    /// [`SHORTER`] of its pages: `F2.prepares`, over [`added_pages`].
     per_added_pages: u64,
 }
 
@@ -536,6 +571,8 @@ struct Prepared {
 struct Counted {
     name: &'static str,
     pages: u64,
+    /// The pages its whole site serves beyond a `--shorter` run's.
+    added_pages: u64,
     hops: u64,
     sitemaps: u64,
     /// The entries its Run trace holds, read from its files.
@@ -665,9 +702,19 @@ fn crawl(cell: &Cell, planted: Option<&str>, bypassed: Option<&str>, pages: Page
 
 /// The pages a crawl of `cell` on a site linking `linked` of [`PAGES`]
 /// serves: the index and its pages, and with the Frontier's outcomes the
-/// redirect's target, the sitemap's entry and the seed with a Payload.
+/// redirect's target, the sitemap's entry, the seed with a Payload and
+/// its items.
 fn pages_of(cell: &Cell, linked: usize) -> usize {
-    linked + if cell.frontier.is_some() { 4 } else { 1 }
+    linked
+        + cell
+            .frontier
+            .map_or(1, |frontier| 4 + frontier.items_on(linked))
+}
+
+/// The pages the whole site of `cell` serves beyond a `--shorter` run's:
+/// the unit `F2.prepares` divides by.
+fn added_pages(cell: &Cell) -> usize {
+    pages_of(cell, PAGES.len()) - pages_of(cell, SHORTER)
 }
 
 /// Runs `cell`, and each outcome's prepares when `planted` asks for no other row
@@ -702,6 +749,10 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
             "the site sends each body once"
         );
         let pages = pages_of(cell, PAGES.len());
+        assert!(
+            cell.name != VARYING_PARAMETER || work.read(Row::EvidenceReads) > 0,
+            "the crawl's learning read no evidence"
+        );
         if cell.name == RECORDS_OFF_CELL {
             assert!(crawled.records.is_empty(), "the crawl kept a Record");
         } else if cell.handler {
@@ -737,6 +788,7 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
         Counted {
             name: cell.name,
             pages: u64::try_from(pages).expect("invariant: a dozen pages"),
+            added_pages: u64::try_from(added_pages(cell)).expect("invariant: a dozen pages"),
             hops: crawled.hops,
             sitemaps: crawled.sitemaps,
             entries,
@@ -976,7 +1028,7 @@ fn asked<'a>(arguments: &[&'a str]) -> (Pages, Option<&'a str>, Option<&'a str>,
     }
 }
 
-/// The shorter site's crawl of `cell`, `ran`, served [`ADDED_PAGES`] pages
+/// The shorter site's crawl of `cell`, `ran`, served [`added_pages`] pages
 /// fewer than the whole site's, as its Records or its handler count them; a
 /// cell that keeps no Record has none to count.
 fn assert_shorter(cell: &Cell, ran: &Crawl) {
@@ -990,7 +1042,8 @@ fn assert_shorter(cell: &Cell, ran: &Crawl) {
     assert_eq!(
         served,
         pages_of(cell, SHORTER),
-        "the shorter site serves {ADDED_PAGES} pages fewer"
+        "the shorter site serves {} pages fewer",
+        added_pages(cell)
     );
 }
 
@@ -1070,7 +1123,7 @@ fn main() {
         counts.insert(OFF_WORK.to_owned(), json!(if off { off_work } else { 0 }));
         let units = json!({
             "pages": cell.pages,
-            "added_pages": ADDED_PAGES,
+            "added_pages": cell.added_pages,
             "records": if cell.name == RECORDS_OFF_CELL { 0 } else { cell.pages },
             "links_batches": if cell.handler { 0 } else { cell.pages },
             "hops": cell.hops,

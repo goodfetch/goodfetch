@@ -7,6 +7,8 @@ use hyper::body::Bytes;
 use hyper::{Method, StatusCode};
 use serde::Serialize;
 
+use crate::client_hello::ClientHello;
+
 /// The parts of a request a page family reads.
 pub(crate) struct Request<'a> {
     pub(crate) method: &'a Method,
@@ -20,6 +22,9 @@ pub(crate) struct Request<'a> {
     pub(crate) body: &'a Bytes,
     /// The address the request came from, as the site sees it.
     pub(crate) peer: IpAddr,
+    /// The `ClientHello` of the request's connection; `None` over plain
+    /// text.
+    pub(crate) tls: Option<&'a ClientHello>,
 }
 
 impl Request<'_> {

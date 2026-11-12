@@ -1364,6 +1364,7 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `F2.syncs` | syncs per attempt at `full` | ≤ 1 | 1.539 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.prepares` | statement preparations per page added | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.writer_reads` | reads through the writer per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
+| `F2.evidence_reads` | rows of the evidence the Frontier's learning reads per page (0 on a site whose URLs have no query, and with `frontier.learning` off) | no cap (ratchet) | 0.429 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.configuration_reads` | configuration reads per Run | 1 | 2 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F2.prunes` | prune passes per attempt | 0 | 0 | B1 | must not grow | `just counts` | implementer done, merge gate |
 | `F3.invariant_reads` | reads of the Scope, Payload rules or Fragments per links batch | 0 | 6 | B1 | must not grow | `just counts` | implementer done, merge gate |

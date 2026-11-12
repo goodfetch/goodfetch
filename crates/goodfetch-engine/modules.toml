@@ -1,6 +1,6 @@
 # Which of goodfetch-engine's top-level modules may import which (ADR 0126).
 [modules]
-admission = ["clock", "entropy", "politeness", "settings"]
+admission = ["clock", "entropy", "politeness", "run_state", "settings"]
 age_notice = ["home", "product", "settings"]
 attached = ["endpoint", "rpc", "transport"]
 audit = ["durable", "home", "settings", "sqlite_store"]

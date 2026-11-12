@@ -18,7 +18,8 @@
 //! reads run beside the writer, on a bounded group of read-only
 //! connections it keeps ([`readers`], ADR 0138). The writer stops once every handle on it is gone, or once its last write
 //! commits, as a Run's end writes its record: whatever any handle queues
-//! after that is refused (#1763).
+//! after that is refused (#1763). Beside those writes it takes Run-state
+//! batches, rows memory already decided ([`batch`], ADR 0142).
 //!
 //! The file holds its format's `major.minor` (ADR 0066), the Run's own row
 //! and tags, and the tables each contribution of the composition adds, such
@@ -61,11 +62,13 @@ use crate::sqlite_store::{
 use crate::tasks::TaskOwner;
 use wal_checkpointer::{WalCheckpointer, note_wal_pages, open_wal_checkpointer};
 
+mod batch;
 pub mod install;
 mod readers;
 pub mod run_row;
 mod wal_checkpointer;
 
+pub use batch::{BatchRows, BatchStatement, BatchWriter, SealRequest, SealedBatch, Seals};
 pub(crate) use readers::RunStateReaders;
 
 /// How many writes wait for the writer before their callers wait.
@@ -445,6 +448,20 @@ where
     T: Send + 'static,
     F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
 {
+    queued_holding(work, ())
+}
+
+/// As [`queued`], the write holding `held` until its commit ended and its
+/// answer is sent, or until the writer drops it unrun.
+fn queued_holding<T, F, H>(
+    work: F,
+    held: H,
+) -> (QueuedWrite, oneshot::Receiver<Result<T, RunStateError>>)
+where
+    T: Send + 'static,
+    F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    H: Send + 'static,
+{
     let (answer, answered) = oneshot::channel();
     let job: QueuedWrite = Box::new(move |transaction: Option<(&Connection, &Path)>| {
         let mut ends_group = None;
@@ -461,6 +478,7 @@ where
         };
         let completion: Completion = Box::new(move |committed: Result<(), RunStateError>| {
             let _ = answer.send(committed.and(done));
+            drop(held);
         });
         (completion, ends_group)
     });
@@ -533,6 +551,7 @@ pub struct RunState {
     epoch: u64,
     watched: std::sync::Arc<Watched>,
     readers: std::sync::Arc<RunStateReaders>,
+    batches: std::sync::Arc<batch::Batches>,
 }
 
 /// What a writer's watchers follow: its acknowledged commits and its first
@@ -660,6 +679,7 @@ impl RunState {
             epoch,
             watched: std::sync::Arc::new(Watched { commits, failures }),
             readers,
+            batches: std::sync::Arc::new(batch::Batches::new()),
         })
     }
 

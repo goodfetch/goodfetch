@@ -52,7 +52,7 @@ References: the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines
 - **Module files are `foo.rs` beside a `foo/` folder, never `mod.rs`.** `lib.rs` only declares modules and re-exports.
   _Why:_ editor tabs full of `mod.rs` are unreadable, and a short `lib.rs` shows the crate's shape at a glance.
 - **Each crate and each module opens with a `//!` comment stating its role.**
-- **Each crate's `modules.toml` lists which of its top-level modules may import which** (ADR 0126). An `xtask` check in the Quick suite fails on any other import (type-only imports included, `#[cfg(test)]` code excepted), on a cycle, on a name that is no module of the crate, and on a module the file does not list.
+- **Each crate's `modules.toml` lists which of its top-level modules may import which** (ADR 0126). An `xtask` check in the Quick suite fails on any other import (type-only imports and a sibling's item imported through the root's re-export included, `#[cfg(test)]` code excepted), on a cycle, on a name that is no module of the crate, on a module the file does not list, and on a root that re-exports a module's items with a glob.
   _Why:_ Rust's visibility does not stop one sibling module from using another, and import rules held in the research only where a tool checked them.
 - **A Rust file over 1,000 lines states why it is still one concern**, in a `Size:` line of its `//!` header, or the same `xtask` check fails. Every line of a file under `src/` counts, except `#[cfg(test)]` items (and files only they declare) and generated code. It is an alarm, not a cap.
 

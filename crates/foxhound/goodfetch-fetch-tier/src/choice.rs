@@ -2,11 +2,10 @@
 //! serve exactly leads to (spec #579's `tiers`; ADRs 0020, 0023 and 0093).
 //!
 //! `fetch.tier` forces a tier for the Run, or for one Label, whose own
-//! value wins for its requests. Under an `auto` set for its Label or its
-//! Run the engine chooses: the crawl learns the tier per Label on a domain
-//! (`goodfetch-crawl`'s `tier_choice`), while a request left at the
-//! built-in default is handed to its handler alone, as before any tier was
-//! built, until #1602. A Label also takes `fetch.encoding`,
+//! value wins for its requests. Under `auto`, set for its Label or its
+//! Run or left at the built-in default, the engine chooses: the crawl
+//! learns the tier per Label on a domain (`goodfetch-crawl`'s
+//! `tier_choice`). A Label also takes `fetch.encoding`,
 //! `crawl.content_types` and `session.page_check`. A call the request's tier cannot serve exactly
 //! escalates the request to the browser under `auto`, and fails with
 //! `browser_required` under a forced tier, which nothing escalates.
@@ -61,9 +60,7 @@ pub struct LabelSettings {
 /// How a request's tier is chosen.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Choosing {
-    /// It takes no tier: its handler is given its request alone.
-    Alone,
-    /// `auto` is set: the engine chooses.
+    /// Under `auto`, set or the built-in default: the engine chooses.
     Engine,
     /// `fetch.tier` forces this tier.
     Forced(TierChoice),
@@ -72,11 +69,9 @@ pub enum Choosing {
 /// The Run's `fetch.tier`, or a declared Label's own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SetTier {
-    /// None is set: for a Label, the Run's applies; for the Run, the
-    /// built-in `auto`, which hands each handler its request alone until
-    /// the engine's tier choice is built.
+    /// None is set, for a Label: the Run's applies.
     Unset,
-    /// `auto`, set.
+    /// `auto`: set, or for the Run the built-in default.
     Auto,
     /// A tier it forces.
     Forced(FetchTier),
@@ -268,11 +263,6 @@ impl LabelSettings {
         })
     }
 
-    /// Whether a declared Label sets `fetch.tier`.
-    pub fn any(&self) -> bool {
-        self.tiers.values().any(|tier| *tier != SetTier::Unset)
-    }
-
     /// How the tier of a request of `label` is chosen, the Run's own
     /// `fetch.tier` being `run`.
     pub fn choose(&self, label: &str, run: SetTier) -> Choosing {
@@ -286,12 +276,13 @@ impl LabelSettings {
                     label: Some(label.to_owned()),
                 }),
             }),
-            (SetTier::Auto, _) | (SetTier::Unset, SetTier::Auto) => Choosing::Engine,
+            (SetTier::Auto, _) | (SetTier::Unset, SetTier::Auto | SetTier::Unset) => {
+                Choosing::Engine
+            }
             (SetTier::Unset, SetTier::Forced(tier)) => Choosing::Forced(TierChoice {
                 tier,
                 forced: Some(Forced { label: None }),
             }),
-            (SetTier::Unset, SetTier::Unset) => Choosing::Alone,
         }
     }
 }

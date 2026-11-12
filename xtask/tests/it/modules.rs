@@ -9,6 +9,8 @@ use rstest::rstest;
 use crate::workspace::{Workspace, finding};
 
 const CLOCK: &str = "crates/goodfetch-engine/src/clock.rs";
+const DISPATCH: &str = "crates/goodfetch-engine/src/dispatch.rs";
+const ROOT: &str = "crates/goodfetch-engine/src/lib.rs";
 const MODULES_FILE: &str = "crates/goodfetch-engine/modules.toml";
 
 #[test]
@@ -61,6 +63,134 @@ fn import_the_file_does_not_allow_fails(
     assert_eq!(
         outcome.findings(),
         vec![finding("forbidden-import", subject)]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// An item a sibling defines and the crate's root re-exports is that
+/// sibling's: importing it through the root imports the sibling.
+#[rstest]
+#[case::through_use("dispatch-uses-a-root-re-export.rs", DISPATCH)]
+#[case::inside_a_use_group("dispatch-uses-a-root-re-export-in-a-group.rs", DISPATCH)]
+#[case::from_a_submodule_through_super(
+    "route-reaches-a-root-re-export-through-super.rs",
+    "crates/goodfetch-engine/src/dispatch/route.rs"
+)]
+fn import_through_the_roots_re_export_the_file_does_not_allow_fails(
+    #[case] case: &str,
+    #[case] file: &str,
+) {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.add_fixture_file(&format!("modules-cases/{case}"), file);
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "forbidden-import",
+            "goodfetch-engine/dispatch->clock"
+        )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// The fixture's root, with `more` after its own re-exports.
+fn root_with(more: &str) -> String {
+    format!(
+        "//! A fixture engine crate.\n\nmod clock;\nmod dispatch;\nmod retry;\n\npub use clock::Tick;\npub use dispatch::dispatch;\n{more}\n"
+    )
+}
+
+/// `dispatch`, whose body is `body`.
+fn dispatch_with(body: &str) -> String {
+    format!(
+        "//! Dispatch.\n\nmod route;\n\npub fn dispatch() -> u64 {{\n    {body};\n    route::route()\n}}\n"
+    )
+}
+
+/// The name the root gives is the one a module imports, however the root
+/// spells the path it re-exports.
+#[rstest]
+#[case::under_another_name("pub use clock::Tick as Beat;", "let _beat = crate::Beat")]
+#[case::from_a_group_through_crate("pub use crate::clock::{Tick as Beat, now};", "crate::now()")]
+#[case::through_self("pub use self::clock::now;", "crate::now()")]
+#[case::the_module_itself_under_another_name("pub use clock as time;", "crate::time::now()")]
+#[case::a_name_the_root_imported_first(
+    "use clock::Tick as Inner;\npub use Inner as Beat;",
+    "let _beat = crate::Beat"
+)]
+fn import_through_a_re_export_the_root_spells_another_way_fails(
+    #[case] re_export: &str,
+    #[case] body: &str,
+) {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.write(ROOT, root_with(re_export).as_bytes());
+    workspace.write(DISPATCH, dispatch_with(body).as_bytes());
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "forbidden-import",
+            "goodfetch-engine/dispatch->clock"
+        )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// A crate's library and its executable are two roots: a name the
+/// executable's root imports from elsewhere hides none of the library's.
+#[test]
+fn import_through_the_re_export_of_the_library_fails_beside_the_same_name_in_the_executable() {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.write(
+        "crates/goodfetch-engine/src/main.rs",
+        b"//! A fixture executable.\n\nuse std::time::Duration as Tick;\n\nfn main() {\n    let _wait = Tick::ZERO;\n}\n",
+    );
+    workspace.add_fixture_file("modules-cases/dispatch-uses-a-root-re-export.rs", DISPATCH);
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding(
+            "forbidden-import",
+            "goodfetch-engine/dispatch->clock"
+        )]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+/// `::clock` is another crate, whatever the crate's own modules are called.
+#[test]
+fn re_export_of_another_crates_item_is_no_modules() {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.write(ROOT, root_with("pub use ::clock::Level;").as_bytes());
+    workspace.write(
+        DISPATCH,
+        dispatch_with("let _level = crate::Level::High").as_bytes(),
+    );
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0);
+}
+
+/// A glob names nothing the check can read, so the root may not re-export
+/// a module's items with one.
+#[test]
+fn root_that_re_exports_a_module_with_a_glob_fails() {
+    let workspace = Workspace::from_fixture("modules");
+    workspace.write(ROOT, root_with("pub use clock::*;").as_bytes());
+
+    let outcome = workspace.xtask(&["modules"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("glob-re-export", "goodfetch-engine/clock")]
     );
     assert_eq!(outcome.code, 1);
 }

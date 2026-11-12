@@ -209,12 +209,7 @@ pub(crate) async fn drive(
         in_flight: 0,
         gone: false,
     }];
-    // A code-free crawl fetches every request: with no tier set, the
-    // engine chooses each, as under `auto` (ADR 0103).
-    let run_tier = match FetchTiers::run_tier(settings.resolved()) {
-        SetTier::Unset if code_free.is_some() => SetTier::Auto,
-        set => set,
-    };
+    let run_tier = FetchTiers::run_tier(settings.resolved());
     let races: bool = settings.resolved().get(&FETCH_TIER_RACE);
     // One HTTP tier for the Run, so its hops share connections (#763); the
     // navigation gate fetches robots.txt on it too, from the first
@@ -226,16 +221,13 @@ pub(crate) async fn drive(
     };
     let http = match built {
         Ok(http) => Some(http),
-        // A request may take the `http` tier: the Run cannot go on.
-        Err(error) if labels.settings.any() || run_tier != SetTier::Unset || races => {
+        // Every request may take the `http` tier, forced or by the engine's
+        // choice: the Run cannot go on.
+        Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the crawl's HTTP tier could not be built");
             run.end(failed(&run, &error)).await;
             crawls.close(run.id()).await;
             return;
-        }
-        Err(error) => {
-            tracing::warn!(%error, run_id = %run.id(), "the navigation gate has no transport for robots.txt; every robots.txt it reads is unreachable");
-            None
         }
     };
     let untouched = Untouched::of(&run, &labels, code_free.as_ref());
@@ -935,11 +927,8 @@ impl Drawing {
         let local = pool.local_addresses(&session.id);
         // A sitemap's fetch runs no handler and takes no tier choice: its
         // attempt fetches it on the Run's HTTP tier.
-        let choosing = if leased.sitemap {
-            Choosing::Alone
-        } else {
-            self.labels.settings.choose(&request.label, self.run_tier)
-        };
+        let choosing =
+            (!leased.sitemap).then(|| self.labels.settings.choose(&request.label, self.run_tier));
         // A request keeping its URL's fragment is served only by a tier
         // that runs the page's scripts, which the engine's choice is then
         // (ADR 0120); the start refused it on any forced tier but those.
@@ -958,17 +947,15 @@ impl Drawing {
             (plan, unit.cloned())
         };
         let (chosen, counted) = match choosing {
-            Choosing::Alone | Choosing::Engine if keeps_fragment => {
-                (Chosen::Planned(browser), None)
-            }
-            Choosing::Alone | Choosing::Engine if self.races && !to_browser && !leased.sitemap => {
+            None => (Chosen::Planned(AttemptPlan::Sitemap), None),
+            Some(Choosing::Engine) if keeps_fragment => (Chosen::Planned(browser), None),
+            Some(Choosing::Engine) if self.races && !to_browser => {
                 let (plan, counted) = learned();
                 (Chosen::Racing(plan), counted)
             }
-            Choosing::Alone => (Chosen::Planned(AttemptPlan::Alone), None),
-            Choosing::Forced(choice) => (Chosen::Planned(AttemptPlan::On(choice)), None),
-            Choosing::Engine if to_browser => (Chosen::Planned(browser), None),
-            Choosing::Engine => {
+            Some(Choosing::Forced(choice)) => (Chosen::Planned(AttemptPlan::On(choice)), None),
+            Some(Choosing::Engine) if to_browser => (Chosen::Planned(browser), None),
+            Some(Choosing::Engine) => {
                 let (plan, counted) = learned();
                 (Chosen::Planned(plan), counted)
             }

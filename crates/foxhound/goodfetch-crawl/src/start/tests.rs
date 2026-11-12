@@ -172,7 +172,7 @@ impl Client {
         params: Value,
         handler: &mut impl FnMut(&Value) -> Reply,
     ) -> Value {
-        let params = declaring_pages(method, params);
+        let params = as_sent(method, params);
         let id = self.next_id;
         self.next_id += 1;
         self.send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))
@@ -302,24 +302,122 @@ pub(crate) fn default_dependencies(env: &TestEnv, run_state: RunStateOptions) ->
     }
 }
 
-/// `params` of a call of `method`, a `crawl.start` that declares no
-/// Dataset declaring `pages`, which the harness pushes every Record into.
-fn declaring_pages(method: &str, mut params: Value) -> Value {
-    if method == "crawl.start" && params.get("datasets").is_none() {
+/// The address the harness maps each seed's host to: a public one, which
+/// the egress policy lets through with nothing weakened, and which no
+/// connection reaches, since the engine's fetch tiers serve from memory
+/// ([`engine`]).
+const SITE_ADDRESS: &str = "93.184.216.34";
+
+thread_local! {
+    /// The site settings the test's last `crawl.start` went out with, which
+    /// its later resumes go out with too: a resume's settings are the
+    /// Run's from then on, so it names the forced tier again.
+    static SITE_SETTINGS: std::cell::RefCell<Option<(Value, Value)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// `params` of a call of `method` as the harness sends it. A `crawl.start`
+/// that declares no Dataset declares `pages`, which the harness pushes
+/// every Record into; one that sets no `fetch.tier` forces `http`, the one
+/// tier an engine with no browser pages serves every request on; and one
+/// that sets no `network.resolve` maps each seed's host to
+/// [`SITE_ADDRESS`], so no name is looked up. A `run.resume` or a
+/// `run.retry_failed` that sets neither goes out with the last
+/// `crawl.start`'s.
+pub(crate) fn as_sent(method: &str, mut params: Value) -> Value {
+    match method {
+        "crawl.start" => {}
+        "run.resume" | "run.retry_failed" => {
+            if let Some((tier, resolve)) = SITE_SETTINGS.with_borrow(Clone::clone) {
+                if params["settings"]["fetch"].get("tier").is_none() {
+                    params["settings"]["fetch"]["tier"] = tier;
+                }
+                if params["settings"]["network"].get("resolve").is_none() {
+                    params["settings"]["network"]["resolve"] = resolve;
+                }
+            }
+            return params;
+        }
+        _ => return params,
+    }
+    if params.get("datasets").is_none() {
         params["datasets"] = json!([{ "name": "pages" }]);
     }
+    if params["settings"]["fetch"].get("tier").is_none() {
+        params["settings"]["fetch"]["tier"] = json!("http");
+    }
+    if params["settings"]["network"].get("resolve").is_none() {
+        let hosts: serde_json::Map<String, Value> = params["seeds"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|seed| seed["url"].as_str().or_else(|| seed["sitemap"].as_str()))
+            .filter_map(|url| url.split("://").nth(1)?.split(['/', ':', '?', '#']).next())
+            .map(|host| (host.to_owned(), json!([SITE_ADDRESS])))
+            .collect();
+        params["settings"]["network"]["resolve"] = Value::Object(hosts);
+    }
+    SITE_SETTINGS.set(Some((
+        params["settings"]["fetch"]["tier"].clone(),
+        params["settings"]["network"]["resolve"].clone(),
+    )));
     params
+}
+
+/// The site every crawl of the harness fetches from memory, through the
+/// fetch tiers' test seam: every URL answers one small document, and no
+/// site has a robots.txt.
+struct Site;
+
+/// A body sent whole in one chunk.
+struct Whole(Option<bytes::Bytes>);
+
+impl goodfetch_fetch_tier::Body for Whole {
+    fn chunk(&mut self) -> goodfetch_fetch_tier::Sending<'_, Option<bytes::Bytes>> {
+        Box::pin(std::future::ready(Ok(self.0.take())))
+    }
+}
+
+impl goodfetch_fetch_tier::Transport for Site {
+    fn send<'a>(
+        &'a self,
+        hop: &'a goodfetch_fetch_tier::Hop,
+        _reuse: goodfetch_fetch_tier::Reuse,
+    ) -> goodfetch_fetch_tier::Sending<'a, goodfetch_fetch_tier::Sent> {
+        let (status, body) = if hop.url.path() == "/robots.txt" {
+            (404, "")
+        } else {
+            (
+                200,
+                "<!doctype html><html><head><title>Page</title></head><body><h1>Page</h1></body></html>",
+            )
+        };
+        Box::pin(std::future::ready(Ok(goodfetch_fetch_tier::Sent {
+            status,
+            headers: vec![
+                (
+                    "content-type".to_owned(),
+                    "text/html; charset=utf-8".to_owned(),
+                ),
+                ("content-length".to_owned(), body.len().to_string()),
+            ],
+            body: Box::new(Whole(Some(bytes::Bytes::from_static(body.as_bytes())))),
+            reused: false,
+            decoded: false,
+            certificate_exception: None,
+        })))
+    }
+}
+
+/// The fetch tiers of the harness's engine, serving [`Site`] from memory.
+pub(crate) fn tiers() -> goodfetch_fetch_tier::FetchTiers {
+    goodfetch_fetch_tier::FetchTiers::serving(std::sync::Arc::new(Site))
 }
 
 /// A Foxhound engine composed of the engine's operations, the Frontier's
 /// per-domain queues, the Session pool's and the Datasets' tables and the
-/// crawl's.
+/// crawl's, fetching [`Site`] from memory.
 pub(crate) fn engine() -> Engine {
-    engine_on(goodfetch_fetch_tier::FetchTiers::new())
-}
-
-/// [`engine`], its crawl fetching on `tiers`.
-pub(crate) fn engine_on(tiers: goodfetch_fetch_tier::FetchTiers) -> Engine {
     let identity = Identity {
         product: Product::Foxhound,
         product_version: ProductVersion::parse("1.4.0").unwrap(),
@@ -330,7 +428,7 @@ pub(crate) fn engine_on(tiers: goodfetch_fetch_tier::FetchTiers) -> Engine {
         .with(goodfetch_frontier::contribution())
         .with(goodfetch_session_pool::contribution())
         .with(goodfetch_dataset::contribution(crate::url_of))
-        .with(super::contribution(tiers));
+        .with(super::contribution(tiers()));
     Engine::new(identity, &composition).unwrap()
 }
 

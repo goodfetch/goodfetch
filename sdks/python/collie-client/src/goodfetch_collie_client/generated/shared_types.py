@@ -89,7 +89,7 @@ received (ADR 0079).
 - `wall_refetch_stopped`: A domain on which a Run's refetch without the site's stored data stopped, at a Block cause, a 401 or 403 status or a login page (ADR 0052); `details` give the `domain`, the `cause`, and the `layer` of `wall.refetch_domains` that lists it with its `file`, and whether `only_star` covers it there; `run` is the last Run whose refetch stopped there. Its actions offer `needs_you.remove_refetch_domain`, except for a domain project configuration lists, which is changed in its file, and `needs_you.deny_wall_domain`. It leaves the list once no layer lists the domain, once `wall.denied_domains` denies it, or when a person dismisses it.
 """
 
-RunWarningCode: TypeAlias = Literal["baseline_unavailable", "block_resources_visible", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "browser_version_unread", "clean_up_rules_fallback", "clean_up_rules_stale", "cpu_throttled", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "human_input_fallback", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "storage_low"] | str
+RunWarningCode: TypeAlias = Literal["baseline_unavailable", "block_resources_visible", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "clean_up_rules_fallback", "clean_up_rules_stale", "cpu_throttled", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "human_input_fallback", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "storage_low"] | str
 """A `run_warning_code`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -101,7 +101,6 @@ received (ADR 0079).
 - `browser_build_outdated`: A Session's browser build is outdated.
 - `browser_build_plugin`: A Session ran a browser build a Plugin gave.
 - `browser_build_third_party`: A Session ran a third party's browser build.
-- `browser_version_unread`: The installed browser's version could not be read, so a `standard` Session's own HTTP transport presented no browser identity.
 - `clean_up_rules_fallback`: The Run holds to other Clean-up rules than `clean_up.update` or `clean_up.version` ask for, such as the embedded part when the daily channel cannot be reached; Provenance names both.
 - `clean_up_rules_stale`: The Run's Clean-up rules are older than 14 days.
 - `cpu_throttled`: The host throttled the engine's CPU.

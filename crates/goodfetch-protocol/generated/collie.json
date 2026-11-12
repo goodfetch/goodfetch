@@ -15800,13 +15800,6 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The installed browser's version could not be read, so a `standard` Session's own HTTP transport presented no browser identity.",
-      "name": "browser_version_unread",
-      "product": "collie",
-      "type": "run_warning_code"
-    },
-    {
-      "arrived_in": "0.1",
       "description": "A page that asks a person to prove they are human.",
       "name": "captcha",
       "product": "collie",

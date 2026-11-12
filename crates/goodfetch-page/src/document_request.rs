@@ -28,14 +28,16 @@
 
 use goodfetch_engine::browser_cache::{
     BrowserChoice, BrowserSource, BuildPlatform, Os, PinnedArtifact, Platform, browser_source,
+    installed_browser,
 };
 use goodfetch_engine::children::Children;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::tasks::BlockingThreads;
 use goodfetch_protocol::browser_cache::ArtifactKind;
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::foxhound::report::BROWSER_VERSION_UNREAD;
 use goodfetch_protocol::run::RunWarning;
-use goodfetch_protocol::run::warning::BROWSER_VERSION_UNREAD;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
@@ -45,7 +47,7 @@ use tokio::process::Command;
 use url::{Host, Url};
 
 /// How long an installed browser has to print its version and exit.
-pub const VERSION_READ: Duration = Duration::from_secs(10);
+const VERSION_READ: Duration = Duration::from_secs(10);
 
 /// The most of a browser's `--version` output read.
 const PRINTED_MOST: u64 = 4096;
@@ -183,13 +185,14 @@ impl DocumentRequest {
     /// The document request of the browser installed at the first of
     /// `candidates` that exists, on this platform: that of the version its
     /// executable prints for `--version`, which prints it and exits
-    /// without starting a browser. The executable has [`VERSION_READ`] to
-    /// exit, and no process it started outlives the read.
+    /// without starting a browser. The executable has 10 seconds to exit,
+    /// and no process it started outlives the read.
     ///
     /// # Errors
     ///
-    /// [`Unread`] when no candidate exists, or the executable printed no
-    /// version, exited with an error or did not exit in time.
+    /// [`Unread`] when no candidate exists, the executable could not be
+    /// started, or it printed no version, exited with an error or did not
+    /// exit in time.
     ///
     /// # Cancel safety
     ///
@@ -200,19 +203,29 @@ impl DocumentRequest {
         blocking: &BlockingThreads,
         clock: &Clock,
     ) -> Result<Self, Unread> {
-        let looked_in = candidates.to_vec();
-        let found = blocking
-            .run(move || looked_in.into_iter().find(|path| path.is_file()))
+        // The launcher's own lookup, so the version read is the executable a
+        // launch would start; its error, worded for a launch, is not kept.
+        let found = installed_browser(
+            blocking,
+            &BrowserChoice::Default,
+            candidates,
+            Product::Foxhound,
+        )
+        .await
+        .map_err(|_| Unread::NotInstalled {
+            looked_in: candidates.to_vec(),
+        })?;
+        let printed = printed_version(&found, clock)
             .await
-            .ok_or_else(|| Unread::NotInstalled {
-                looked_in: candidates.to_vec(),
+            .map_err(|error| Unread::Unstarted {
+                executable: found.clone(),
+                error: error.to_string(),
             })?;
         let platform = user_agent_platform(Platform::current());
-        printed_version(&found, clock)
-            .await
-            .and_then(|printed| {
-                version_in(&printed).and_then(|version| Self::of_build(version, platform))
-            })
+        printed
+            .as_deref()
+            .and_then(version_in)
+            .and_then(|version| Self::of_build(version, platform))
             .ok_or(Unread::NoVersion { executable: found })
     }
 
@@ -230,13 +243,23 @@ impl DocumentRequest {
 
 /// Why an installed browser's document request could not be read.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Unread {
     /// No browser is installed at any of the paths.
     NotInstalled {
         /// The paths, in the order they were looked in.
         looked_in: Vec<PathBuf>,
     },
-    /// The executable printed no version for `--version` and exited.
+    /// The executable could not be started, such as one the engine's user
+    /// may not run.
+    Unstarted {
+        /// The executable.
+        executable: PathBuf,
+        /// Why, as the system said it.
+        error: String,
+    },
+    /// The executable printed no version for `--version`, exited with an
+    /// error or did not exit in time.
     NoVersion {
         /// The executable.
         executable: PathBuf,
@@ -256,6 +279,10 @@ impl Unread {
                     .map(|path| path.display().to_string())
                     .collect::<Vec<_>>()
                     .join(", "),
+            ),
+            Self::Unstarted { executable, error } => format!(
+                "The browser at {} could not be started for `--version` ({error}), so a `standard` Session's own HTTP transport presents no browser identity: let the engine's user run it, or reinstall the distribution's Chromium package.",
+                executable.display(),
             ),
             Self::NoVersion { executable } => format!(
                 "The browser at {} printed no version for `--version`, so a `standard` Session's own HTTP transport presents no browser identity: reinstall the distribution's Chromium package.",
@@ -286,16 +313,24 @@ fn user_agent_platform(platform: Platform) -> BuildPlatform {
 /// exited with success within [`VERSION_READ`]; none otherwise. Its process
 /// group goes once it exited or its time ran out, every process it started
 /// with it.
-async fn printed_version(executable: &Path, clock: &Clock) -> Option<String> {
+///
+/// # Errors
+///
+/// When the executable could not be started.
+async fn printed_version(executable: &Path, clock: &Clock) -> std::io::Result<Option<String>> {
     let mut command = Command::new(executable);
     command
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    let mut group = Children::new().ok()?;
-    let mut child = group.spawn(command).ok()?;
-    let mut stdout = child.stdout.take()?.take(PRINTED_MOST);
+    let mut group = Children::new()?;
+    let mut child = group.spawn(command)?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .expect("invariant: the command's output is piped")
+        .take(PRINTED_MOST);
     let deadline = clock.now() + VERSION_READ;
     let exited = tokio::select! {
         status = child.wait() => status.ok().filter(ExitStatus::success),
@@ -310,8 +345,9 @@ async fn printed_version(executable: &Path, clock: &Clock) -> Option<String> {
         () = clock.sleep_until(deadline) => None,
     };
     let _ = child.wait().await;
-    exited.and(read)?;
-    String::from_utf8(printed).ok()
+    Ok(exited
+        .and(read)
+        .and_then(|_| String::from_utf8(printed).ok()))
 }
 
 /// The version in what a browser printed for `--version`, such as

@@ -432,12 +432,18 @@ fn a_session_with_an_upstream_proxy_is_chained_through_it_and_the_address_check_
     assert_eq!((to_target, connections), (Vec::new(), 0));
 }
 
-/// With `security.raw_cdp_egress_proxy` off the Session connects directly:
-/// the same page naming `localhost` reaches the watched target, the switch
-/// is recorded in the Audit log (A04-03), and Provenance names the
-/// rebinding gap, as on a Borrowed browser.
+/// With `security.raw_cdp_egress_proxy` off the Session connects directly,
+/// held by interception alone, which resolves each host in the engine and
+/// judges its answers (#2435): a page of a host the Run lists loads, the
+/// watched target named `localhost` is refused as a private address, the
+/// switch is recorded in the Audit log (A04-03), and Provenance names the
+/// rebinding gap, as on a Borrowed browser. The target's count of
+/// connections is no oracle here: the browser preconnects to a host as its
+/// navigation starts, before the interception judges it, on a connection
+/// that carries nothing; the SSRF table's `launched_without_relay` layer
+/// counts the requests that reach a site.
 ///
-/// Covers: story:4-10, setting:security.raw_cdp_egress_proxy, operation:page.goto
+/// Covers: story:4-10, setting:security.raw_cdp_egress_proxy, operation:page.goto, error:egress_refused
 #[test]
 fn with_the_switch_off_the_session_connects_directly_and_provenance_names_the_gap() {
     let env = TestEnv::new();
@@ -451,9 +457,10 @@ fn with_the_switch_off_the_session_connects_directly_and_provenance_names_the_ga
         &[],
     );
     let page = program.new_page("direct");
+    let site = proving_ground.url("catalog.test", "/catalog/1");
 
-    let _ = program.goto(&page, &format!("http://localhost:{port}/direct"));
-    let connections = target_connections(&proving_ground);
+    let reached = program.goto(&page, &site);
+    let refused = program.goto(&page, &format!("http://localhost:{port}/direct"));
     program.finish("direct");
     let exported = cli(&env, COLLIE)
         .args(["audit", "export"])
@@ -461,7 +468,16 @@ fn with_the_switch_off_the_session_connects_directly_and_provenance_names_the_ga
         .unwrap()
         .stdout;
 
-    assert!(connections >= 1, "{connections}");
+    assert_eq!(
+        &reached["result"]["response"]["url"],
+        &json!(site),
+        "{reached}"
+    );
+    assert_eq!(
+        (error(&refused).0, error(&refused).1["rule"].clone()),
+        (json!("egress_refused"), json!("private_address")),
+        "{refused}"
+    );
     assert_eq!(
         provenance(&env, "direct", "interception_only")
             .iter()

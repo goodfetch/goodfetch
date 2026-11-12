@@ -180,6 +180,18 @@ source "$(dirname "$0")/output-value.sh"
 gate_worktree_lock
 locked=1
 
+# The nightly fuzzing gives way to a gate (ci/fuzz-nightly.sh): it takes its
+# lock before it reads this one, as the gate has taken this one before it reads
+# the fuzzing's, so of the two starting together at least one sees the other.
+# The gate stops a night it sees and waits for that stop alone: the job ends
+# what it started and writes its line before its lock goes.
+fuzzing=$(fuzz_nightly_holder)
+if [[ -n $fuzzing ]]; then
+  echo "Stopping the nightly fuzzing, process $fuzzing, before the gate starts"
+  kill -TERM "$fuzzing" 2>/dev/null || true
+  while [[ -n $(fuzz_nightly_holder) ]]; do sleep 1; done
+fi
+
 # A run in the backstop's worktree, a test-health run or the backstop's own
 # full run, shares the host's cores with whatever runs beside it, and on
 # 2026-11-08 a test-health run's load failed a gate on a leak timeout. The gate

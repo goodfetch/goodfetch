@@ -53,12 +53,12 @@ static HUGE_PAGES_OFF: extern "C" fn() = {
     huge_pages_off
 };
 
-/// Gives the process back the host's transparent huge pages, as
-/// `governor.huge_pages: true` asks: it clears the flag mimalloc's
-/// constructor set and lets mimalloc advise its arena again. Called from
+/// Turns transparent huge pages on for the process, as
+/// `governor.huge_pages: true` asks: it clears the process's flag and
+/// lets mimalloc advise the memory it maps from then on. Called from
 /// [`super::main`] right after it read the machine's settings, before the
-/// process starts a thread. Linux only; elsewhere the process never left
-/// the host's state.
+/// process starts a thread. Linux only; elsewhere nothing was turned
+/// off.
 pub(super) fn huge_pages_on() {
     #[cfg(target_os = "linux")]
     // SAFETY: `prctl(PR_SET_THP_DISABLE, 0, 0, 0, 0)` takes no pointer and

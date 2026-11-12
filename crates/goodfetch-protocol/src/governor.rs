@@ -242,7 +242,7 @@ pub const HOST_MEMORY: Setting = Setting {
 /// `governor.huge_pages` (ADR 0138).
 pub const HUGE_PAGES: Setting = Setting {
     name: "governor.huge_pages",
-    description: "Whether the engine's own memory may be backed by the operating system's transparent huge pages: off, so the allocator reserves no memory the engine never touches, and the engine's resident memory is smaller. On, the engine keeps the host's huge-page state, which is faster for some workloads and holds more memory. Read once, when the engine starts, on Linux; elsewhere it changes nothing. The browsers and other programs the engine starts keep the host's state either way.",
+    description: "Whether the engine's own memory may be backed by the operating system's transparent huge pages: off, so the allocator reserves no memory the engine never touches, and the engine's resident memory is smaller. On, huge pages may back it, which is faster for some workloads and holds more memory. Read once, when the engine starts, on Linux; elsewhere it changes nothing. The browsers and other programs the engine starts keep the state the engine itself was started with either way.",
     kind: ValueKind::Boolean,
     default: off,
     clearable: false,

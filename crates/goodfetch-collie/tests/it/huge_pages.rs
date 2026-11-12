@@ -1,8 +1,9 @@
 //! Transparent huge pages through Collie's executable (spec #2165, issue
 //! 2199): the engine starts with them off for itself unless
 //! `governor.huge_pages` turns them on, and the browser it starts keeps
-//! the host's state either way. Linux only, where the kernel has the
-//! per-process flag `/proc/<pid>/status` shows as `THP_enabled`.
+//! the state the engine was started with either way. Linux only, where
+//! the kernel has the per-process flag `/proc/<pid>/status` shows as
+//! `THP_enabled`.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -11,6 +12,12 @@
     clippy::disallowed_methods,
     reason = "the test reads `/proc` on its own thread, never an async worker"
 )]
+#![expect(
+    unsafe_code,
+    reason = "the engine is started with a chosen huge-page flag, which only `prctl` sets, between fork and exec (STYLE.md, `unsafe`)"
+)]
+
+use std::os::unix::process::CommandExt;
 
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
 use rstest::rstest;
@@ -32,18 +39,28 @@ fn huge_page_backed_kb(pid: u32) -> Option<u64> {
     line.trim().strip_suffix("kB")?.trim().parse().ok()
 }
 
+/// `THP_enabled` as `/proc/<pid>/status` shows a process with huge pages
+/// `on` for it.
+fn shown(on: bool) -> Vec<String> {
+    vec![format!("THP_enabled: {}", u8::from(on))]
+}
+
 /// An engine started with `governor.huge_pages` unset or off has turned
 /// transparent huge pages off for itself, and none backs its memory; set
-/// on, it has the flag clear. The browser it starts has the host's flag,
-/// the test runner's, whatever the engine's.
-/// Covers: setting:governor.huge_pages, operation:run.new_page
+/// on, it has them on. Either way the browser it starts has the state the
+/// engine was started with, on a host that left them on and on one that
+/// turned them off.
+/// Covers: setting:governor.huge_pages
 #[rstest]
-#[case::by_default("", "THP_enabled: 0")]
-#[case::off("governor.huge_pages = false\n", "THP_enabled: 0")]
-#[case::on("governor.huge_pages = true\n", "THP_enabled: 1")]
-fn the_engine_has_huge_pages_as_the_setting_says_and_its_browser_has_the_hosts(
+#[case::by_default_where_the_host_has_them("", true, false)]
+#[case::off_where_the_host_has_them("governor.huge_pages = false\n", true, false)]
+#[case::on_where_the_host_has_them("governor.huge_pages = true\n", true, true)]
+#[case::by_default_where_the_host_has_none("", false, false)]
+#[case::on_where_the_host_has_none("governor.huge_pages = true\n", false, true)]
+fn the_engine_has_huge_pages_as_the_setting_says_and_its_browser_as_the_host(
     #[case] settings: &str,
-    #[case] engines: &str,
+    #[case] host: bool,
+    #[case] engines: bool,
 ) {
     let env = TestEnv::new();
     env.user_configuration(settings);
@@ -55,14 +72,27 @@ fn the_engine_has_huge_pages_as_the_setting_says_and_its_browser_has_the_hosts(
         &proving_ground,
         "huge-pages",
         &Map::new(),
-        |_| {},
+        |command| {
+            // The test's own process links the executable's allocator,
+            // which turned huge pages off here too, so the engine is
+            // given the host's state the case names.
+            let off = libc::c_ulong::from(!host);
+            // SAFETY: the closure runs in the child between fork and
+            // exec, and makes one async-signal-safe system call, which
+            // takes no pointer.
+            unsafe {
+                command.pre_exec(move || {
+                    if libc::prctl(libc::PR_SET_THP_DISABLE, off, 0, 0, 0) == 0 {
+                        Ok(())
+                    } else {
+                        Err(std::io::Error::last_os_error())
+                    }
+                });
+            }
+        },
     );
     opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "huge-pages" })));
 
-    // The test's own process links the executable's allocator, whose
-    // constructor turned huge pages off here too: the host's state is the
-    // one of the runner that started the test.
-    let hosts = status_of(std::os::unix::process::parent_id(), &["THP_enabled"]);
     let engine_status = status_of(engine.pid(), &["THP_enabled"]);
     let backed = huge_page_backed_kb(engine.pid());
     let browsers: Vec<Vec<String>> = browser_processes(&env, |line| !line.contains("--type="))
@@ -71,9 +101,9 @@ fn the_engine_has_huge_pages_as_the_setting_says_and_its_browser_has_the_hosts(
         .collect();
     engine.finish();
 
-    assert_eq!(engine_status, [engines]);
-    if engines.ends_with('0') {
+    assert_eq!(engine_status, shown(engines));
+    if !engines {
         assert_eq!(backed, Some(0));
     }
-    assert_eq!(browsers, [hosts]);
+    assert_eq!(browsers, [shown(host)]);
 }

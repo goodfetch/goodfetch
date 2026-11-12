@@ -2832,15 +2832,7 @@ impl Runs {
         // Only a reference a layer set resolves here: the default's item,
         // in the OS keychain or the encrypted local file, is the engine's
         // own, made when run state first wraps a data key with it (#617).
-        if let Some((reference, layer)) = start.settings.as_ref().and_then(|settings| {
-            let resolved = settings.resolved();
-            let layer = resolved.effective(&RUN_STATE_KEY_REFERENCE)?.layer;
-            (layer != SettingsLayer::Default).then_some(())?;
-            Some((
-                resolved.get::<Option<SecretReference>>(&RUN_STATE_KEY_REFERENCE)?,
-                layer,
-            ))
-        }) {
+        if let Some((reference, layer)) = layer_set_key_reference(start.settings.as_ref()) {
             // The key-encryption key is used as the Run starts, to wrap its
             // data key (ADR 0015), so it resolves now, before the Run exists.
             secrets
@@ -3245,15 +3237,7 @@ impl Runs {
         &self,
         settings: Option<&RunSettings>,
     ) -> (SecretReference, SettingsLayer) {
-        if let Some((reference, layer)) = settings.and_then(|settings| {
-            let resolved = settings.resolved();
-            let layer = resolved.effective(&RUN_STATE_KEY_REFERENCE)?.layer;
-            (layer != SettingsLayer::Default).then_some(())?;
-            Some((
-                resolved.get::<Option<SecretReference>>(&RUN_STATE_KEY_REFERENCE)?,
-                layer,
-            ))
-        }) {
+        if let Some((reference, layer)) = layer_set_key_reference(settings) {
             return (reference, layer);
         }
         let default = self
@@ -6375,20 +6359,36 @@ impl Recording {
     }
 }
 
-/// The settings `run`'s report keeps, explained: a default only asked for
-/// of the host shows its value once known, as where the Run made its data
-/// key, its catalog's before; asked for here, it would open the OS
-/// keychain (issue 2204).
+/// The settings `run`'s report keeps, explained. The host's default of
+/// `run_state.key_reference` shows only once the Run holds its data key,
+/// when the host has answered it; before, the catalog's shows, since
+/// asking for it here would open the OS keychain (issue 2204).
 fn kept_settings(run: &Run) -> Option<Vec<ExplainedSetting>> {
-    let resolved = run.settings()?.resolved();
-    let explained = match run.runs.engine.settings().known_host_defaults() {
-        Some(known) => resolved
-            .clone()
-            .with_host_defaults(&known)
-            .explain(&[], Vec::new()),
-        None => resolved.explain(&[], Vec::new()),
-    };
-    Some(explained.settings)
+    let mut settings = run.settings()?.resolved().explain(&[], Vec::new()).settings;
+    if run.shared.key.get().is_some()
+        && let Some(known) = run.runs.engine.settings().known_host_defaults()
+        && let Some(default) = settings.iter_mut().find(|explained| {
+            explained.key == RUN_STATE_KEY_REFERENCE.name
+                && explained.layer == SettingsLayer::Default
+        })
+    {
+        default.value = known.of(&RUN_STATE_KEY_REFERENCE);
+    }
+    Some(settings)
+}
+
+/// The Secret reference of the key-encryption key that a layer of
+/// `settings` set, and that layer; none where the default stands.
+fn layer_set_key_reference(
+    settings: Option<&RunSettings>,
+) -> Option<(SecretReference, SettingsLayer)> {
+    let resolved = settings?.resolved();
+    let layer = resolved.effective(&RUN_STATE_KEY_REFERENCE)?.layer;
+    (layer != SettingsLayer::Default).then_some(())?;
+    Some((
+        resolved.get::<Option<SecretReference>>(&RUN_STATE_KEY_REFERENCE)?,
+        layer,
+    ))
 }
 
 /// A Run on its way to its end.

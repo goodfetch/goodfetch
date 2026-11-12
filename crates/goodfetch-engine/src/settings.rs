@@ -87,14 +87,12 @@ pub type Finding = std::pin::Pin<Box<dyn std::future::Future<Output = HostDefaul
 pub struct HostSearch {
     /// Finds those every opening reads, such as the sandbox probe's;
     /// called once, on first use.
-    pub opening: Box<dyn Fn() -> Finding + Send + Sync>,
-    /// Finds those only asked for, such as `run_state.key_reference`'s,
-    /// opening the OS keychain if no one has; called at each ask, the
-    /// keychain keeping what it found.
-    pub asked: Box<dyn Fn() -> Finding + Send + Sync>,
-    /// Those of `asked` already found, without opening anything; none
-    /// before the keychain was first asked.
-    pub known: Box<dyn Fn() -> Option<HostDefaults> + Send + Sync>,
+    opening: Box<dyn Fn() -> Finding + Send + Sync>,
+    /// Finds those only asked for, such as `run_state.key_reference`'s;
+    /// called at each ask.
+    asked: Box<dyn Fn() -> Finding + Send + Sync>,
+    /// Those of `asked` already found, without finding anything.
+    known: Box<dyn Fn() -> Option<HostDefaults> + Send + Sync>,
 }
 
 impl HostSearch {
@@ -104,6 +102,22 @@ impl HostSearch {
             opening: Box::new(find),
             asked: Box::new(|| Box::pin(std::future::ready(HostDefaults::default()))),
             known: Box::new(|| Some(HostDefaults::default())),
+        }
+    }
+
+    /// The same, with the defaults `asked` finds only where their value is
+    /// needed, and `known` giving what it found, without finding anything:
+    /// none before it first found them, and after, what it found.
+    #[must_use]
+    pub fn asking(
+        self,
+        asked: impl Fn() -> Finding + Send + Sync + 'static,
+        known: impl Fn() -> Option<HostDefaults> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            asked: Box::new(asked),
+            known: Box::new(known),
+            ..self
         }
     }
 }

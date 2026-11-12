@@ -632,20 +632,20 @@ fn host_settings(
         });
     }
     let asking = keychain.clone();
-    let search = HostSearch {
-        opening: Box::new(move || {
-            let (probing, probe) = (Arc::clone(&probing), probe.clone());
-            Box::pin(async move {
-                let probed = probing.blocking(move || probe.probed().clone()).await;
-                sandbox_probe::host_defaults(HostDefaults::default(), &probed)
-            })
-        }),
-        asked: Box::new(move || {
+    let search = HostSearch::opening(move || {
+        let (probing, probe) = (Arc::clone(&probing), probe.clone());
+        Box::pin(async move {
+            let probed = probing.blocking(move || probe.probed().clone()).await;
+            sandbox_probe::host_defaults(HostDefaults::default(), &probed)
+        })
+    })
+    .asking(
+        move || {
             let keychain = asking.clone();
             Box::pin(async move { secrets::host_defaults(&keychain).await })
-        }),
-        known: Box::new(move || secrets::known_host_defaults(&keychain)),
-    };
+        },
+        move || secrets::known_host_defaults(&keychain),
+    );
     Settings::with_host(files, product, owner.child(), work, search)
 }
 

@@ -362,23 +362,6 @@ impl Resolved {
             .collect()
     }
 
-    /// The same, with `host`'s defaults in place of the values the default
-    /// layer set: for a default only asked for of the host once it is
-    /// known (issue 2204).
-    #[must_use]
-    pub fn with_host_defaults(mut self, host: &HostDefaults) -> Self {
-        for (name, value) in &host.0 {
-            if let Some(effective) = self
-                .settings
-                .get_mut(name)
-                .filter(|effective| effective.layer == SettingsLayer::Default)
-            {
-                effective.value = value.clone();
-            }
-        }
-        self
-    }
-
     /// What `config explain` shows for the keys `prefixes` name (every key
     /// when empty), with the files read.
     pub fn explain(&self, prefixes: &[String], files: Vec<SettingsFile>) -> SettingsExplanation {

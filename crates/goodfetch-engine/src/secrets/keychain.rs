@@ -29,15 +29,17 @@ use crate::tasks::TaskOwner;
 #[derive(Clone)]
 pub struct Keychain(Arc<Opening>);
 
-enum Opening {
-    /// This OS's keychain, opened on first use by its opener; none where it
-    /// does not open.
-    Os(OnceCell<Option<Backend>>, Opener),
-    /// A keychain chosen for the engine, or none.
-    Chosen(Option<Backend>),
+/// A keychain's opening: what opened, once it has, and what opens it.
+struct Opening {
+    /// What the keychain is, for its debug view.
+    kind: &'static str,
+    /// What opened: a backend, or none where the keychain does not open.
+    opened: OnceCell<Option<Backend>>,
+    /// What opens it, called once, on first use.
+    open: Opener,
 }
 
-/// What opens the OS keychain: [`open_os`], or a test's stand-in.
+/// What opens a keychain: [`open_os`], or a backend chosen for the engine.
 type Opener = Box<dyn Fn() -> Pin<Box<dyn Future<Output = Option<Backend>> + Send>> + Send + Sync>;
 
 /// What reaches a keychain's items.
@@ -52,45 +54,42 @@ enum Backend {
 
 impl std::fmt::Debug for Keychain {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let opening = match &*self.0 {
-            Opening::Os(..) => "os",
-            Opening::Chosen(Some(_)) => "chosen",
-            Opening::Chosen(None) => "absent",
-        };
-        formatter.debug_tuple("Keychain").field(&opening).finish()
+        formatter
+            .debug_tuple("Keychain")
+            .field(&self.0.kind)
+            .finish()
     }
 }
 
 impl Keychain {
     /// This OS's keychain, opened on first use.
     pub fn os() -> Self {
-        Self(Arc::new(Opening::Os(
-            OnceCell::new(),
-            Box::new(|| Box::pin(open_os())),
-        )))
+        Self::opened_by("os", Box::new(|| Box::pin(open_os())))
     }
 
-    /// A keychain opened on first use as this OS's is, by `open`, which
-    /// answers the store it opened, or none where it does not open: a
-    /// test's view of when, and how often, the OS keychain opens.
-    #[cfg(test)]
-    pub(crate) fn opened_by(
-        open: impl Fn() -> Option<Arc<CredentialStore>> + Send + Sync + 'static,
-    ) -> Self {
-        Self(Arc::new(Opening::Os(
-            OnceCell::new(),
-            Box::new(move || Box::pin(std::future::ready(open().map(Backend::Store)))),
-        )))
-    }
-
-    /// No keychain, as on a host without one.
+    /// No keychain, as on a host without one, found on first use as this
+    /// OS's would be.
     pub fn absent() -> Self {
-        Self(Arc::new(Opening::Chosen(None)))
+        Self::opened_by("absent", Box::new(|| Box::pin(std::future::ready(None))))
     }
 
-    /// The keychain `store` holds, such as keyring-core's mock store.
+    /// The keychain `store` holds, such as keyring-core's mock store,
+    /// opened on first use as this OS's is.
     pub fn of(store: Arc<CredentialStore>) -> Self {
-        Self(Arc::new(Opening::Chosen(Some(Backend::Store(store)))))
+        Self::opened_by(
+            "chosen",
+            Box::new(move || {
+                Box::pin(std::future::ready(Some(Backend::Store(Arc::clone(&store)))))
+            }),
+        )
+    }
+
+    fn opened_by(kind: &'static str, open: Opener) -> Self {
+        Self(Arc::new(Opening {
+            kind,
+            opened: OnceCell::new(),
+            open,
+        }))
     }
 
     /// Whether this host has the keychain: whether it opens, which it does
@@ -106,10 +105,7 @@ impl Keychain {
     /// Whether this host has the keychain, once it opened or found it does
     /// not, without opening it: none before.
     pub fn answered(&self) -> Option<bool> {
-        match &*self.0 {
-            Opening::Os(opened, _) => opened.get().map(Option::is_some),
-            Opening::Chosen(backend) => Some(backend.is_some()),
-        }
+        self.0.opened.get().map(Option::is_some)
     }
 
     /// Stores `value` as `service`'s `account`, in place of any value it
@@ -214,10 +210,12 @@ impl Keychain {
     }
 
     async fn backend(&self) -> Option<Backend> {
-        match &*self.0 {
-            Opening::Os(opened, open) => opened.get_or_init(open).await.clone(),
-            Opening::Chosen(backend) => backend.clone(),
-        }
+        let opening = &*self.0;
+        opening
+            .opened
+            .get_or_init(|| (opening.open)())
+            .await
+            .clone()
     }
 }
 

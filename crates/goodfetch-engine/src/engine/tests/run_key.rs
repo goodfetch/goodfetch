@@ -683,22 +683,13 @@ fn with_an_os_keychain_the_key_comes_from_it_and_a_paused_run_resumes_with_it() 
 /// makes no data key opens no OS keychain, on Linux a Secret Service
 /// session over D-Bus: the keychain opens once, when the Run first makes
 /// its key, here on a host where it does not open, so the key-encryption
-/// key is the encrypted local file's, as before (#2204).
+/// key is the encrypted local file's, as before (issue 2204).
 /// Covers: setting:run_state.key_reference
 #[test]
-#[expect(
-    clippy::disallowed_types,
-    reason = "a test's counter, which no loom model runs (ADR 0060)"
-)]
 fn a_run_opens_the_os_keychain_only_once_it_first_makes_its_key() {
     let env = TestEnv::new();
-    let opened = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let counted = Arc::clone(&opened);
-    let keychain = crate::secrets::Keychain::opened_by(move || {
-        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        None
-    });
-    let count = || opened.load(std::sync::atomic::Ordering::SeqCst);
+    let keychain = crate::secrets::Keychain::absent();
+    let watched = keychain.clone();
     let folder = run_folder(&env, "lazy");
 
     let (started, sealed, wrapped_by) = on(
@@ -713,14 +704,14 @@ fn a_run_opens_the_os_keychain_only_once_it_first_makes_its_key() {
                 json!({ "run_id": "lazy", "opens_settings": true }),
             )
             .await;
-            let started = count();
+            let started = watched.answered();
             talk.ok(
                 3,
                 "test.seal",
                 json!({ "run_id": "lazy", "row": 1, "value": "sealed" }),
             )
             .await;
-            let sealed = count();
+            let sealed = watched.answered();
             talk.ok(4, "run.finish", json!({ "run_id": "lazy" })).await;
             let wrapped_by: String = rusqlite::Connection::open(folder.join("run.sqlite"))
                 .unwrap()
@@ -732,7 +723,7 @@ fn a_run_opens_the_os_keychain_only_once_it_first_makes_its_key() {
 
     assert_eq!(
         (started, sealed, wrapped_by),
-        (0, 1, "secretfile:run-state-key".to_owned())
+        (None, Some(false), "secretfile:run-state-key".to_owned())
     );
 }
 

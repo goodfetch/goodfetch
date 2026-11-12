@@ -131,7 +131,7 @@ fn just_compare_builds_each_of_spiders_sides_builds_into_its_folder() {
                 .map_or_else(String::new, |feature| format!(" --features {feature}"));
             let built = recipes.contains(&format!(
                 "cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml \
-                 --profile {{{{ profile }}}}{features} --target-dir target/compare-spider/{}\n",
+                 --profile {{{{ profile }}}}{features} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
                 build.folder()
             ));
             let declared = build

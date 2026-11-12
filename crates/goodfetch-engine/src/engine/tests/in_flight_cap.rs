@@ -4,8 +4,6 @@
 //! request and the end of the Client's input are read and acted on as
 //! below the cap.
 
-use std::time::Duration;
-
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, PROTOCOL_VERSION, Product, Reach, Stability,
     schema_of,
@@ -13,17 +11,9 @@ use goodfetch_protocol::catalog::{
 use serde_json::{Value, json};
 
 use super::trace::asking;
-use super::{Client, attached, engine_with, hello};
+use super::{Client, IN_FLIGHT_CAP, attached, engine_with, opened, owed, request};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
-
-/// How many calls a Connection keeps in flight, as `too_many_calls` names
-/// it.
-const CAP: i64 = 256;
-
-/// How long a test waits, on the paused clock, for a message the engine
-/// owes: one it never sends fails the test instead of hanging it.
-const OWED: Duration = Duration::from_secs(5);
 
 /// A streaming call that answers once its Client granted it a credit.
 const CREDITED: Operation = Operation {
@@ -55,27 +45,9 @@ fn operations() -> Contribution {
     )
 }
 
-fn call(id: i64, method: &str) -> Value {
-    json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": {} })
-}
-
 /// `test.wait` calls under each id of `ids`: each waits for its `$/cancel`.
 fn waits(ids: std::ops::RangeInclusive<i64>) -> Vec<Value> {
-    ids.map(|id| call(id, "test.wait")).collect()
-}
-
-/// The next message the engine owes, or `None` once it closed the
-/// Connection.
-async fn owed(client: &mut Client) -> Option<Value> {
-    tokio::time::timeout(OWED, client.next())
-        .await
-        .expect("the engine sends what it owes")
-}
-
-/// A Client past its `hello`.
-async fn opened(client: &mut Client) {
-    client.send(&[hello("collie", "0.1")]).await;
-    assert!(client.next().await.unwrap().get("result").is_some());
+    ids.map(|id| request(id, "test.wait")).collect()
 }
 
 /// Puts as many calls in flight as the cap, each ending only on a message
@@ -85,8 +57,8 @@ async fn opened(client: &mut Client) {
 async fn in_flight_at_the_cap_after(client: &mut Client, first: &[Value]) -> Value {
     let taken = i64::try_from(first.len()).unwrap();
     client.send(first).await;
-    client.send(&waits(taken + 1..=CAP - 1)).await;
-    client.send(&[call(CAP, "test.ask")]).await;
+    client.send(&waits(taken + 1..=IN_FLIGHT_CAP - 1)).await;
+    client.send(&[request(IN_FLIGHT_CAP, "test.ask")]).await;
     let asked = owed(client).await.expect("the engine asks");
     assert_eq!(asked["method"], json!("test.asked"), "{asked}");
     asked
@@ -130,7 +102,7 @@ fn a_credit_is_granted_with_as_many_calls_in_flight_as_the_cap() {
     let engine = engine_with(Product::Collie, Some(operations()));
     let answered = attached(&engine, |mut client: Client| async move {
         opened(&mut client).await;
-        in_flight_at_the_cap_after(&mut client, &[call(1, "test.credited")]).await;
+        in_flight_at_the_cap_after(&mut client, &[request(1, "test.credited")]).await;
         client
             .send(&[json!({ "jsonrpc": "2.0", "method": "$/credit", "params": { "id": 1, "credits": 1 } })])
             .await;
@@ -155,7 +127,9 @@ fn a_call_the_engine_would_not_start_is_refused_for_its_own_reason_at_the_cap() 
     let refused = attached(&engine, |mut client: Client| async move {
         opened(&mut client).await;
         in_flight_at_the_cap(&mut client).await;
-        client.send(&[call(CAP + 1, "test.unknown")]).await;
+        client
+            .send(&[request(IN_FLIGHT_CAP + 1, "test.unknown")])
+            .await;
         let refused = owed(&mut client).await.expect("the call is refused");
         client.close().await;
         refused
@@ -163,7 +137,7 @@ fn a_call_the_engine_would_not_start_is_refused_for_its_own_reason_at_the_cap() 
 
     assert_eq!(
         (&refused["id"], &refused["error"]["code"]),
-        (&json!(CAP + 1), &json!(-32601)),
+        (&json!(IN_FLIGHT_CAP + 1), &json!(-32601)),
         "{refused}"
     );
 }
@@ -179,7 +153,9 @@ fn a_call_past_the_cap_is_refused_at_once_and_a_reply_still_reaches_its_waiter()
     let (refused, answered) = attached(&engine, |mut client: Client| async move {
         opened(&mut client).await;
         let asked = in_flight_at_the_cap(&mut client).await;
-        client.send(&[call(CAP + 1, "test.wait")]).await;
+        client
+            .send(&[request(IN_FLIGHT_CAP + 1, "test.wait")])
+            .await;
         let refused = owed(&mut client).await.expect("the call is refused");
         client
             .send(&[json!({ "jsonrpc": "2.0", "id": asked["id"], "result": { "because": 1 } })])
@@ -197,16 +173,16 @@ fn a_call_past_the_cap_is_refused_at_once_and_a_reply_still_reaches_its_waiter()
             &refused["error"]["data"]["max"],
         ),
         (
-            &json!(CAP + 1),
+            &json!(IN_FLIGHT_CAP + 1),
             &json!("too_many_calls"),
             &json!(true),
-            &json!(CAP),
+            &json!(IN_FLIGHT_CAP),
         ),
         "{refused}"
     );
     assert_eq!(
         (&answered["id"], &answered["result"]),
-        (&json!(CAP), &json!({ "because": 1 })),
+        (&json!(IN_FLIGHT_CAP), &json!({ "because": 1 })),
         "{answered}"
     );
 }
@@ -231,5 +207,5 @@ fn the_end_of_the_clients_input_at_the_cap_cancels_its_calls_and_ends_the_connec
         (cancelled, others)
     });
 
-    assert_eq!((cancelled, others), (CAP, Vec::<Value>::new()));
+    assert_eq!((cancelled, others), (IN_FLIGHT_CAP, Vec::<Value>::new()));
 }

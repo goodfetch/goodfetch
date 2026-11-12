@@ -118,6 +118,7 @@ impl Engine {
                 log_events: None,
                 masks: Masks::new(),
                 work: CountedWork::default(),
+                metrics: Metrics::none(),
             }),
             tables: composition.run_state_tables(),
             driving: composition.driving(),
@@ -139,7 +140,9 @@ impl Engine {
     /// The same, recording the runtime's metrics on `metrics` (ADR 0050).
     #[must_use]
     pub fn with_metrics(mut self, metrics: Metrics) -> Self {
-        Arc::make_mut(&mut self.dispatch).work = metrics.counted_work().clone();
+        let dispatch = Arc::make_mut(&mut self.dispatch);
+        dispatch.work = metrics.counted_work().clone();
+        dispatch.metrics = metrics.clone();
         self.metrics = metrics;
         self
     }

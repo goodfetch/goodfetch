@@ -4,6 +4,7 @@
 //! folder but a person: no report is ever sent.
 
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
@@ -18,17 +19,49 @@ pub fn record_panics(folder: PathBuf, executable: String, clock: Clock, masks: M
     std::panic::set_hook(Box::new(move |panic| {
         let report = report(&executable, clock, panic, &masks);
         match write(&folder, &report) {
-            Ok(path) => tracing::error!(
-                report = %path.display(),
-                "the process panicked; its crash report stays on this machine"
-            ),
-            Err(error) => tracing::error!(
-                %error,
-                folder = %folder.display(),
-                "the process panicked, and its crash report cannot be written"
-            ),
+            Ok(path) => {
+                LAST_WRITTEN.set(Some(report.name));
+                tracing::error!(
+                    report = %path.display(),
+                    "the process panicked; its crash report stays on this machine"
+                );
+            }
+            Err(error) => {
+                LAST_WRITTEN.set(None);
+                tracing::error!(
+                    %error,
+                    folder = %folder.display(),
+                    "the process panicked, and its crash report cannot be written"
+                );
+            }
         }
     }));
+}
+
+thread_local! {
+    /// The file name of the crash report of this thread's latest panic,
+    /// until whoever caught that panic takes it; `None` when its report
+    /// could not be written.
+    static LAST_WRITTEN: Cell<Option<String>> = const { Cell::new(None) };
+}
+
+/// The file name of the crash report written for the panic the caller just
+/// caught, on the thread that panicked: `None` when the process records
+/// no panics ([`record_panics`]), or when the report could not be written.
+/// The hook runs on the panicking thread before it unwinds, and
+/// [`resume_unwind`] hands the name on with a panic it moves to another
+/// thread, so a caller that takes it where it caught the unwind reads its
+/// own panic's.
+pub(crate) fn take_written() -> Option<String> {
+    LAST_WRITTEN.take()
+}
+
+/// Resumes `panic`, caught on another thread, on this one, with `written`,
+/// the name [`take_written`] took where it was caught: resuming runs no
+/// panic hook, so the panic's report is named here for whoever catches it.
+pub(crate) fn resume_unwind(panic: Box<dyn std::any::Any + Send>, written: Option<String>) -> ! {
+    LAST_WRITTEN.set(written);
+    std::panic::resume_unwind(panic)
 }
 
 /// The report of `panic`.

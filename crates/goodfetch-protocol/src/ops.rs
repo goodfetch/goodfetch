@@ -9,7 +9,7 @@ use crate::catalog::{
     Authority, Entries, Instrument, Metric, MetricLabel, ProtocolVersion, Setting, Stability,
     ValueKind,
 };
-use crate::connection::Surface;
+use crate::connection::{PanicEnded, Surface};
 use crate::run::{Completeness, Lifecycle, RunKind, Verdict};
 use crate::wire_name;
 
@@ -99,6 +99,24 @@ pub const RECYCLE_REASON_LABEL: MetricLabel = MetricLabel {
 pub const SURFACE_LABEL: MetricLabel = MetricLabel {
     name: "surface",
     values: || wire_name::all(&Surface::ALL),
+};
+
+/// The `ended` label of `goodfetch.engine.panics`: every [`PanicEnded`].
+pub const PANIC_ENDED_LABEL: MetricLabel = MetricLabel {
+    name: "ended",
+    values: || wire_name::all(&PanicEnded::ALL),
+};
+
+/// `goodfetch.engine.panics`: the panics the engine survived or stopped
+/// on, by what each ended (ADR 0148).
+pub const ENGINE_PANICS: Metric = Metric {
+    name: "goodfetch.engine.panics",
+    description: "The panics in the engine, each a bug in Goodfetch with a crash report on the machine, by what it ended: a call, an attempt, a Page, a Session, a browser, a Run, a Connection or the engine (ADR 0148).",
+    instrument: Instrument::Counter,
+    unit: "{panic}",
+    labels: &[PANIC_ENDED_LABEL],
+    stability: Stability::Experimental,
+    arrived_in: ARRIVED_IN,
 };
 
 /// `goodfetch.run.active`: the live Runs.
@@ -228,6 +246,7 @@ pub const ENTRIES: Entries = Entries {
         CLIENT_CONNECTED,
         DAEMON_DRAINING,
         COUNTED_WORK,
+        ENGINE_PANICS,
     ],
     settings: &[ADDRESS, OTLP_METRICS_ENDPOINT],
     hook_stages: &[],

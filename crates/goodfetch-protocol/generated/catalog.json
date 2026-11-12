@@ -332,6 +332,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A bug in Goodfetch made the engine panic, which ended what `ended` names and only that: for `call`, this call, while its Connection, its Run and its Page go on. Making the same call again is likely to hit the same bug. Report it with the crash report `crash_report` names, a file in the engine's crash-report folder on its machine.",
+      "exit_code": null,
+      "group": "internal",
+      "json_rpc_class": -32007,
+      "name": "engine_panicked",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Windows refused to start the file: Smart App Control, or another App Control policy, blocks executables without a signature or reputation it trusts. Goodfetch never re-signs a file it did not build. For a browser, use the Goodfetch Chromium or an installed Chrome by channel; otherwise turn Smart App Control off, or ask the device's administrator to allow the file.",
       "exit_code": null,
       "group": "refused",
@@ -1871,6 +1881,30 @@
       "product": "collie",
       "stability": "stable",
       "unit": "{daemon}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The panics in the engine, each a bug in Goodfetch with a crash report on the machine, by what it ended: a call, an attempt, a Page, a Session, a browser, a Run, a Connection or the engine (ADR 0148).",
+      "instrument": "counter",
+      "labels": [
+        {
+          "name": "ended",
+          "values": [
+            "call",
+            "attempt",
+            "page",
+            "session",
+            "browser",
+            "run",
+            "connection",
+            "engine"
+          ]
+        }
+      ],
+      "name": "goodfetch.engine.panics",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "{panic}"
     },
     {
       "arrived_in": "0.1",

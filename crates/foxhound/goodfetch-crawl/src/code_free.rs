@@ -51,6 +51,11 @@ use crate::work_items::FieldsRead;
 /// out (ADR 0020).
 pub(crate) const FETCHED_AT: &str = "fetched_at";
 
+/// The fields of a code-free crawl's Record that two runs of one attempt
+/// never hold alike, which a sample's comparison leaves out: `fetched_at`.
+pub(crate) static NOT_COMPARED: std::sync::LazyLock<std::collections::BTreeSet<String>> =
+    std::sync::LazyLock::new(|| std::collections::BTreeSet::from([FETCHED_AT.to_owned()]));
+
 /// The locator whose links `follow: scope` admits from each page.
 const LINKS: &str = "a[href]";
 

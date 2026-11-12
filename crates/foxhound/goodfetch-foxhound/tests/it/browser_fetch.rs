@@ -449,8 +449,8 @@ fn reach_over_tls(
 }
 
 /// `fetch.tier: browser_fetch` forces the HTTP tier sent from inside the
-/// Session's browser: the handler is given the `browser_fetch` tier, and
-/// its `page.request` shows the site the browser's TLS `ClientHello`, the
+/// Session's browser: the handler is given the `browser_fetch` tier,
+/// Provenance records it as forced by the Run, and its `page.request` shows the site the browser's TLS `ClientHello`, the
 /// one a `browser` run's navigation shows.
 ///
 /// Covers: story:5-121, setting:fetch.tier, operation:page.request
@@ -486,6 +486,18 @@ fn a_forced_browser_fetch_tier_sends_from_inside_the_sessions_browser() {
     assert_eq!(
         (forced, browser),
         (vec![json!("browser_fetch")], vec![json!("browser")])
+    );
+    // Provenance records the tier that sent each document, forced by the
+    // Run (ADR 0023).
+    assert_eq!(
+        (
+            crate::fetch_tiers::tiers(&env, "forced"),
+            crate::fetch_tiers::tiers(&env, "browser"),
+        ),
+        (
+            vec![json!(["a", "browser_fetch", "forced", "run", null])],
+            vec![json!(["a", "browser", "forced", "run", null])],
+        )
     );
     assert!(
         !forced_handshakes.is_empty()

@@ -65,7 +65,7 @@ impl Transport for Site {
 )]
 fn tiers(env: &TestEnv, run_id: &str) -> Vec<Value> {
     std::fs::read_to_string(run_folder(env, run_id).join(RUN_TRACE_PROVENANCE))
-        .unwrap_or_default()
+        .unwrap()
         .lines()
         .map(|line| serde_json::from_str::<Value>(line).unwrap())
         .filter(|entry| entry["action"] == "fetch_tier")
@@ -75,10 +75,6 @@ fn tiers(env: &TestEnv, run_id: &str) -> Vec<Value> {
 
 /// Covers: story:5-116
 #[test]
-#[expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
 fn a_document_the_http_transport_sent_under_auto_is_recorded_on_http() {
     let env = TestEnv::new();
 

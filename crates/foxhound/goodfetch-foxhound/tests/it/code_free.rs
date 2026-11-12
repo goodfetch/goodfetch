@@ -512,26 +512,23 @@ fn a_document_sent_from_the_sessions_browser_under_auto_is_recorded_on_browser_f
     assert!(engine.finished());
 
     assert!(started.get("result").is_some(), "{started}");
-    let recorded = tiers(&env, "sent-from-the-browser");
-    let learned: Vec<&Value> = recorded
-        .iter()
-        .filter(|entry| entry[2] == "compared")
-        .collect();
+    let sample = [
+        json!(["page", "browser_fetch", "sample", null, null]),
+        json!(["page", "browser", "sample", null, null]),
+    ];
+    let learned = json!(["page", "browser_fetch", "compared", null, null]);
     assert_eq!(
+        (records.len(), tiers(&env, "sent-from-the-browser")),
         (
-            records.len(),
-            learned.is_empty(),
-            learned
-                .iter()
-                .all(|entry| **entry == json!(["page", "browser_fetch", "compared", null, null])),
-            recorded.iter().filter(|entry| entry[1] == "http").count(),
-            recorded
-                .iter()
-                .filter(|entry| **entry == json!(["page", "browser_fetch", "sample", null, null]))
-                .count(),
-        ),
-        (5, false, true, 0, 3),
-        "{recorded:?}"
+            5,
+            [
+                &sample[..],
+                &sample[..],
+                &sample[..],
+                &[learned.clone(), learned]
+            ]
+            .concat()
+        )
     );
 }
 

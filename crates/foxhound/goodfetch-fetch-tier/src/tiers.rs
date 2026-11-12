@@ -2339,7 +2339,7 @@ impl HttpTier {
     /// names more than who sends, as `discovered_api` and `light_browser`
     /// do.
     #[must_use]
-    pub fn sends(&self, chosen: FetchTier) -> FetchTier {
+    pub fn sent_on(&self, chosen: FetchTier) -> FetchTier {
         match chosen {
             FetchTier::Http | FetchTier::BrowserFetch => self.transport.tier(),
             FetchTier::DiscoveredApi | FetchTier::LightBrowser | FetchTier::Browser => chosen,

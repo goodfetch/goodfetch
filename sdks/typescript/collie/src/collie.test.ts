@@ -317,9 +317,99 @@ describe("connect() over a transport whose writes the engine's side rejects", ()
   );
 });
 
+/**
+ * The transport of `played`, which takes only the first message written,
+ * `hello`: each later one goes to `write` instead.
+ */
+function afterHello(
+  played: ReturnType<typeof playScript>,
+  write: (bytes: Uint8Array) => void | Promise<void>,
+): { readable: ReadableStream<Uint8Array>; writable: WritableStream<Uint8Array> } {
+  const engine = played.transport.writable.getWriter();
+  let greeted = false;
+  const writable = new WritableStream<Uint8Array>({
+    write: (bytes) => {
+      if (greeted) {
+        return write(bytes);
+      }
+      greeted = true;
+      return engine.write(bytes);
+    },
+  });
+  return { readable: played.transport.readable, writable };
+}
+
+describe("a call on a Connection whose writes the engine's side then rejects", () => {
+  test(
+    "fails with the write's cause, though the engine's bytes to read stay open",
+    { tags: ["error:engine_exited"] },
+    async () => {
+      const refused = new Error("the pipe is broken");
+      const played = playScript("connect/accepted-by-foxhound.json");
+      const collie = await connectOver(afterHello(played, () => Promise.reject(refused)));
+
+      const error = await failure(collie.start());
+
+      expect(error).toBeInstanceOf(EngineExitedError);
+      expect(error).toMatchObject({ code: "engine_exited", cause: refused });
+    },
+  );
+});
+
+describe("a Connection opened with bounds of its own", () => {
+  test(
+    "refuses the call past its bound on calls waiting",
+    { tags: ["error:connection_overloaded"] },
+    async () => {
+      const played = playScript("connect/accepted-by-foxhound.json");
+      const transport = afterHello(played, () => {});
+      const collie = await connectOver(transport, { maxPendingCalls: 1 });
+      void collie.start();
+
+      const error = await failure(collie.start());
+
+      expect(error).toMatchObject({
+        code: "connection_overloaded",
+        details: { bound: "pending_calls", value: 1 },
+      });
+    },
+  );
+
+  test(
+    "refuses the call past its bound on bytes waiting to be written",
+    { tags: ["error:connection_overloaded"] },
+    async () => {
+      const played = playScript("connect/accepted-by-foxhound.json");
+      const transport = afterHello(played, () => new Promise<void>(() => {}));
+      const collie = await connectOver(transport, { maxQueuedWriteBytes: 1 });
+      void collie.start();
+
+      const error = await failure(collie.start());
+
+      expect(error).toMatchObject({
+        code: "connection_overloaded",
+        details: { bound: "queued_write_bytes", value: 1 },
+      });
+    },
+  );
+
+  test(
+    "fails to open on a bound that is no count, before it takes the transport",
+    { tags: ["error:setting_invalid"] },
+    async () => {
+      const played = playScript("connect/accepted-by-foxhound.json");
+
+      const error = await failure(connectOver(played.transport, { maxPendingCalls: 0 }));
+
+      expect(error).toMatchObject({ code: "setting_invalid" });
+      expect(played.transport.writable.locked).toBe(false);
+    },
+  );
+});
+
 describe("connect() aborted before its hello is answered", () => {
   test("fails with the signal's reason and leaves neither stream open", async () => {
-    const streams = { cancelled: false, closed: false };
+    const streams = { cancelled: false, aborted: false };
     const transport = {
       readable: new ReadableStream<Uint8Array>({
         cancel: () => {
@@ -327,8 +417,8 @@ describe("connect() aborted before its hello is answered", () => {
         },
       }),
       writable: new WritableStream<Uint8Array>({
-        close: () => {
-          streams.closed = true;
+        abort: () => {
+          streams.aborted = true;
         },
       }),
     };
@@ -339,7 +429,21 @@ describe("connect() aborted before its hello is answered", () => {
     aborting.abort(reason);
 
     expect(await connecting).toBe(reason);
-    expect(streams).toEqual({ cancelled: true, closed: true });
+    expect(streams).toEqual({ cancelled: true, aborted: true });
+  });
+
+  test("fails with the signal's reason though its hello is never written", async () => {
+    const transport = {
+      readable: new ReadableStream<Uint8Array>(),
+      writable: new WritableStream<Uint8Array>({ write: () => new Promise<void>(() => {}) }),
+    };
+    const aborting = new AbortController();
+    const reason = new Error("the program gave up");
+
+    const connecting = failure(connectOver(transport, { signal: aborting.signal }));
+    aborting.abort(reason);
+
+    expect(await connecting).toBe(reason);
   });
 
   test("fails with the reason of a signal aborted already, writing nothing", async () => {

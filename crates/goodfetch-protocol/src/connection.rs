@@ -902,9 +902,7 @@ pub struct InternalDetails {
     pub event: String,
 }
 
-/// A call a Connection's own bounds refused before it was sent (ADRs 0079
-/// and 0081), raised by the SDK runtime: no SDK keeps a queue of calls that
-/// grows without limit.
+/// A call an SDK runtime's own bounds refused unsent (ADRs 0079 and 0081).
 pub const CONNECTION_OVERLOADED: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "connection_overloaded",
     description: "The Connection already holds as many calls waiting for their answer, or as many bytes waiting to be written to the engine, as its bounds allow, so the call was refused at once and never sent; the calls made before it go on. The details name the bound, `pending_calls` or `queued_write_bytes`, and its value. Wait for earlier calls to end, or raise the bound where the Connection opens.",

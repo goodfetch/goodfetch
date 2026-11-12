@@ -11,7 +11,7 @@
 export { AttachedEngine, type AttachedEngineStart, type EngineExit } from "./attached-engine.ts";
 export { ClientConnection, type ClientConnectionOptions } from "./client-connection.ts";
 export type { ErrorClasses } from "./errors.ts";
-export type { ChannelBounds, Transport } from "./rpc.ts";
+export { boundsOf, type ChannelBounds, type Transport } from "./rpc.ts";
 export { holdInRealm } from "./realm.ts";
 export {
   COLLIE_ENGINE_PATH_VARIABLE,

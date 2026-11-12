@@ -12,6 +12,7 @@ import {
 } from "@goodfetch/collie-client";
 import {
   AttachedEngine,
+  boundsOf,
   ClientConnection,
   holdInRealm,
   type ChannelBounds,
@@ -28,7 +29,9 @@ export interface ConnectOverOptions {
   readonly signal?: AbortSignal | undefined;
   /**
    * How many calls may wait for their answer at once, 10,000 when left
-   * out: past it a new call fails at once with `connection_overloaded`.
+   * out: past it a new call fails at once with `connection_overloaded`. A
+   * whole number of 1 or more, as is the next bound, or the opening fails
+   * with `setting_invalid`.
    */
   readonly maxPendingCalls?: ChannelBounds["maxPendingCalls"];
   /**
@@ -79,6 +82,8 @@ export class Collie implements Connection {
    */
   static async connect(options: ConnectOptions = {}): Promise<Collie> {
     options.signal?.throwIfAborted();
+    // Read before the engine starts, so a refused option leaves none behind.
+    const common = opening(options);
     const env = options.env ?? processEnvironment();
     const location = locateEngine(env);
     const engine = await AttachedEngine.start({
@@ -93,7 +98,7 @@ export class Collie implements Connection {
         engine,
         needs: "collie",
         errorClasses: collieErrorClasses,
-        ...opening(options),
+        ...common,
       }),
     );
   }
@@ -132,25 +137,31 @@ export class Collie implements Connection {
  * `connect()`'s, with no process behind it. Programs reach it through
  * `@goodfetch/collie/testing`.
  */
-export function connectOver(
+export async function connectOver(
   transport: Transport,
   options: ConnectOverOptions = {},
 ): Promise<Collie> {
-  return ClientConnection.open({
-    transport,
-    needs: "collie",
-    errorClasses: collieErrorClasses,
-    ...opening(options),
-  }).then(open);
+  return open(
+    await ClientConnection.open({
+      transport,
+      needs: "collie",
+      errorClasses: collieErrorClasses,
+      ...opening(options),
+    }),
+  );
 }
 
-/** The common Connection's part of `options`. */
+/**
+ * The common Connection's part of `options`.
+ *
+ * @throws {SettingInvalidError} when a bound is no whole number of 1 or more.
+ */
 function opening(options: ConnectOverOptions): {
   readonly bounds: ChannelBounds;
   readonly signal: AbortSignal | undefined;
 } {
   const { signal, maxPendingCalls, maxQueuedWriteBytes } = options;
-  return { bounds: { maxPendingCalls, maxQueuedWriteBytes }, signal };
+  return { bounds: boundsOf({ maxPendingCalls, maxQueuedWriteBytes }), signal };
 }
 
 /** The process's own environment, its unset entries left out. */

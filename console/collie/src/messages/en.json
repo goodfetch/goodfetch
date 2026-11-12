@@ -349,6 +349,7 @@
   "WtgbF_": "The call was stopped before it ended.",
   "4ytRcg": "The call's deadline passed before what it waited for came.",
   "F1MDkf": "The certificate of <0>{host}</0> changed its key",
+  "DcIF-3": "The Connection already held as many calls or bytes waiting as its bounds allow, so the call was not sent.",
   "5gg1D4": "The Connection to the engine dropped before the call was answered, so whether it took effect is unknown.",
   "MsR_iW": "The Console did not start: another program holds its port.",
   "ZHfOEF": "the Daemon at <0>{at}</0>",

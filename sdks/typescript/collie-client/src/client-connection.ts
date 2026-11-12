@@ -305,16 +305,15 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   /**
-   * Ends the Client's side and waits for the engine to stop, then leaves
-   * what the engine's side still holds unread: a transport with no process
-   * behind it may never end its bytes.
+   * Ends a Connection that never opened: both sides at once, since nothing
+   * it still holds to write or to read matters, then waits for the engine,
+   * which stops at the end of its input, to be gone.
    */
   async #end(): Promise<void> {
-    await this.#channel.close();
+    this.#channel.abandon();
     if (this.#engine !== undefined) {
       await this.#engine.stop(CLOSE_TIMEOUT);
     }
-    this.#channel.stopReading();
     await this.#channel.ended;
   }
 

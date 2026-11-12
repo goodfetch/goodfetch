@@ -160,12 +160,12 @@ describe("a Channel", () => {
       const text = "x".repeat(100);
 
       // One message larger than the bound is taken while nothing waits, or it could never be sent.
-      void channel.call("sample.echo", { text }).catch(() => {});
+      void channel.call("sample.echo", { text });
       const error = await failure(channel.call("sample.echo", {}));
       await settled();
       writes.shift()?.();
       await settled();
-      void channel.call("sample.echo", {}).catch(() => {});
+      void channel.call("sample.echo", {});
       await settled();
 
       expect(error).toMatchObject({
@@ -175,6 +175,66 @@ describe("a Channel", () => {
       expect(writes).toHaveLength(1);
     },
   );
+
+  test.for([0, -1, 1.5, Number.NaN])(
+    "refuses a bound of %s, taking neither stream",
+    { tags: ["error:setting_invalid"] },
+    (bound) => {
+      const { transport } = playedEngine();
+
+      expect(() => new Channel(transport, owner, { maxPendingCalls: bound })).toThrow(
+        expect.objectContaining({ code: "setting_invalid" }),
+      );
+      expect(() => new Channel(transport, owner, { maxQueuedWriteBytes: bound })).toThrow(
+        expect.objectContaining({ code: "setting_invalid" }),
+      );
+      expect([transport.readable.locked, transport.writable.locked]).toEqual([false, false]);
+    },
+  );
+
+  test("stops reading the engine's bytes once one of its lines is no message", async () => {
+    const stopped: unknown[] = [];
+    const readable = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        controller.enqueue(new TextEncoder().encode("no message\n"));
+      },
+      cancel: (reason) => {
+        stopped.push(reason);
+      },
+    });
+    const channel = new Channel({ readable, writable: new WritableStream<Uint8Array>() }, owner);
+
+    await channel.ended;
+
+    expect(stopped).toHaveLength(1);
+  });
+
+  test("ends on a line that is no message as such, though a write was rejected too", async () => {
+    const readable = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        controller.enqueue(new TextEncoder().encode("no message\n"));
+      },
+    });
+    const writable = new WritableStream<Uint8Array>({
+      write: () => Promise.reject(new Error("the pipe is broken")),
+    });
+    const ends: TransportEnd[] = [];
+    const channel = new Channel(
+      { readable, writable },
+      {
+        ...owner,
+        ended: (end) => {
+          ends.push(end);
+          return Promise.resolve(new ClosedError("the transport ended"));
+        },
+      },
+    );
+
+    await failure(channel.call("run.start", {}));
+    await channel.ended;
+
+    expect(ends).toEqual([{ kind: "invalid", line: "no message" }]);
+  });
 
   test("fails a call in flight with the cause of a write the engine's side rejected, its readable still open", async () => {
     const refused = new Error("the pipe is broken");

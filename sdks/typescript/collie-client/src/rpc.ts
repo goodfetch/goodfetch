@@ -5,7 +5,11 @@
 // (ADR 0081: no SDK keeps a queue of calls): past its bound on calls waiting
 // or on bytes waiting to be written, a new call is refused at once.
 import { encodeMessage, readLines, type Message, type MessageId } from "./framing.ts";
-import { ConnectionOverloadedError, type GoodfetchError } from "./generated/index.ts";
+import {
+  ConnectionOverloadedError,
+  SettingInvalidError,
+  type GoodfetchError,
+} from "./generated/index.ts";
 
 /** The notification that cancels a call in flight (ADR 0038), `goodfetch-protocol`'s `connection::CANCEL`. */
 const CANCEL = "$/cancel";
@@ -52,6 +56,34 @@ const MAX_PENDING_CALLS = 10_000;
 /** The default bound on bytes waiting to be written. */
 const MAX_QUEUED_WRITE_BYTES = 64 * 1024 * 1024;
 
+/** A Connection's bounds, each given or its default. */
+export interface CheckedBounds {
+  readonly maxPendingCalls: number;
+  readonly maxQueuedWriteBytes: number;
+}
+
+/**
+ * `bounds` with each default filled in.
+ *
+ * @throws {SettingInvalidError} when a bound is no whole number of 1 or
+ * more: such a bound would refuse every call, or none.
+ */
+export function boundsOf(bounds: ChannelBounds): CheckedBounds {
+  const bound = (name: keyof ChannelBounds, fallback: number): number => {
+    const value = bounds[name] ?? fallback;
+    if (!Number.isSafeInteger(value) || value < 1) {
+      throw new SettingInvalidError(`${name} is ${value}, which is no whole number of 1 or more`, {
+        fix: `Pass ${name} a whole number of 1 or more, or leave it out for its default of ${fallback}.`,
+      });
+    }
+    return value;
+  };
+  return {
+    maxPendingCalls: bound("maxPendingCalls", MAX_PENDING_CALLS),
+    maxQueuedWriteBytes: bound("maxQueuedWriteBytes", MAX_QUEUED_WRITE_BYTES),
+  };
+}
+
 interface Waiting {
   resolve(result: unknown): void;
   reject(error: unknown): void;
@@ -87,16 +119,16 @@ export class Channel {
   #failure: GoodfetchError | undefined;
   /** The first write the engine's side rejected, which ends the transport. */
   #writeFailure: { readonly cause: unknown } | undefined;
-  readonly #maxPendingCalls: number;
-  readonly #maxQueuedWriteBytes: number;
+  readonly #bounds: CheckedBounds;
+  /** How stopping the engine's bytes went, once it was asked for. */
+  #readingStopped: Promise<{ readonly cause: unknown } | undefined> | undefined;
   /** The bytes handed to the writer that it has not written yet. */
   #queuedWriteBytes = 0;
   /** Settles once the engine's side has ended and every waiting call failed. */
   readonly ended: Promise<void>;
 
   constructor(transport: Transport, owner: ChannelOwner, bounds: ChannelBounds = {}) {
-    this.#maxPendingCalls = bounds.maxPendingCalls ?? MAX_PENDING_CALLS;
-    this.#maxQueuedWriteBytes = bounds.maxQueuedWriteBytes ?? MAX_QUEUED_WRITE_BYTES;
+    this.#bounds = boundsOf(bounds);
     this.#writer = transport.writable.getWriter();
     this.#owner = owner;
     this.#reader = transport.readable.getReader();
@@ -183,22 +215,23 @@ export class Channel {
    * already counted, and a `$/cancel` is what frees one.
    */
   #overloadedBy(length: number): ConnectionOverloadedError | undefined {
-    if (this.#waiting.size >= this.#maxPendingCalls) {
+    const { maxPendingCalls, maxQueuedWriteBytes } = this.#bounds;
+    if (this.#waiting.size >= maxPendingCalls) {
       return new ConnectionOverloadedError(
         `the Connection already holds ${this.#waiting.size} calls waiting for their answer, its bound, so this call was not sent`,
         {
           fix: "Wait for earlier calls to end, or raise maxPendingCalls where the Connection opens.",
-          details: { bound: "pending_calls", value: this.#maxPendingCalls },
+          details: { bound: "pending_calls", value: maxPendingCalls },
         },
       );
     }
     const queued = this.#queuedWriteBytes;
-    if (queued > 0 && queued + length > this.#maxQueuedWriteBytes) {
+    if (queued > 0 && queued + length > maxQueuedWriteBytes) {
       return new ConnectionOverloadedError(
-        `the Connection already holds ${queued} bytes waiting to be written to the engine, and this call's ${length} would pass its bound of ${this.#maxQueuedWriteBytes}, so it was not sent`,
+        `the Connection already holds ${queued} bytes waiting to be written to the engine, and this call's ${length} would pass its bound of ${maxQueuedWriteBytes}, so it was not sent`,
         {
           fix: "Wait for the engine to read earlier calls, or raise maxQueuedWriteBytes where the Connection opens.",
-          details: { bound: "queued_write_bytes", value: this.#maxQueuedWriteBytes },
+          details: { bound: "queued_write_bytes", value: maxQueuedWriteBytes },
         },
       );
     }
@@ -206,11 +239,28 @@ export class Channel {
   }
 
   /**
-   * Stops reading the engine's bytes, so `ended` settles though the
-   * engine's side never ends them; nothing when they ended already.
+   * Ends the Client's side without waiting for what is still to be written,
+   * which is dropped, and stops reading the engine's bytes, so `ended`
+   * settles though the engine's side never ends them.
    */
-  stopReading(): void {
-    this.#reader.cancel().catch(() => {});
+  abandon(): void {
+    // A transport that fails to drop its writes ends as one that rejected one.
+    void this.#writer.abort().catch((cause: unknown) => {
+      this.#writeFailure ??= { cause };
+    });
+    void this.#stopReading(undefined);
+  }
+
+  /**
+   * Stops reading the engine's bytes, once, for `reason`: answers the cause
+   * when the transport failed to stop them, which `ended` reports.
+   */
+  #stopReading(reason: unknown): Promise<{ readonly cause: unknown } | undefined> {
+    this.#readingStopped ??= this.#reader.cancel(reason).then(
+      () => undefined,
+      (cause: unknown) => ({ cause }),
+    );
+    return this.#readingStopped;
   }
 
   #send(message: Readonly<Record<string, unknown>>): void {
@@ -228,10 +278,8 @@ export class Channel {
         // The engine's bytes to read may stay open for ever after a rejected
         // write, so the write ends the transport itself: reading stops, and
         // `ended` reports the first rejection's cause to every waiting call.
-        if (this.#writeFailure === undefined) {
-          this.#writeFailure = { cause };
-          this.#reader.cancel(cause).catch(() => {});
-        }
+        this.#writeFailure ??= { cause };
+        void this.#stopReading(cause);
       });
   }
 
@@ -259,8 +307,13 @@ export class Channel {
     } catch (cause) {
       end = { kind: "failed", cause };
     }
-    if (this.#writeFailure !== undefined) {
+    // Whatever ended the reading, the engine's bytes are let go of: a line
+    // that is no message leaves them open otherwise.
+    const unstopped = await this.#stopReading(undefined);
+    if (end.kind === "ended" && this.#writeFailure !== undefined) {
       end = { kind: "write_failed", cause: this.#writeFailure.cause };
+    } else if (end.kind === "ended" && unstopped !== undefined) {
+      end = { kind: "failed", cause: unstopped.cause };
     }
     const failure = await this.#owner.ended(end);
     this.#failure = failure;

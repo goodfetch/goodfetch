@@ -25,7 +25,7 @@ pub struct RecordProvenance {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub request_id: String,
     /// The tier that fetched that request's document, and how it was
-    /// chosen; none where the handler was given its request alone.
+    /// chosen; none where no document was fetched.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub tier: Option<TierProvenance>,

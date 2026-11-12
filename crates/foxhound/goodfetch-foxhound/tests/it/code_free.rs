@@ -149,7 +149,7 @@ fn paths(records: &[Value]) -> Vec<String> {
 fn a_crawl_with_no_code_fills_pages_keyed_by_url_with_each_pages_markdown() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
 
     let (started, records) = crawl(
@@ -221,7 +221,7 @@ fn a_crawl_with_no_code_fills_pages_keyed_by_url_with_each_pages_markdown() {
 fn follow_none_fetches_only_the_seeds() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
     let page = format!("{index}/headings/levels");
 
@@ -262,7 +262,7 @@ fn follow_none_fetches_only_the_seeds() {
 fn follow_sitemap_reads_the_sitemap_the_sites_robots_txt_names() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let about = proving_ground.url(SITEMAP_SITE, "/about");
 
     let (_, records) = crawl(
@@ -410,7 +410,7 @@ fn fields_of(records: &[Value]) -> (Value, Value, Value) {
 fn a_crawl_with_fields_fills_each_by_its_value_transform_and_provenance_names_it() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let page = proving_ground.url("extraction.test", "/values");
     let origin = proving_ground.url("extraction.test", "");
 
@@ -631,7 +631,7 @@ fn a_code_free_start_with_an_xpath_the_engine_refuses_is_refused() {
 fn with_every_per_page_feature_off_the_crawl_fetches_and_follows_and_keeps_nothing_else() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let mut engine = attached(&env);
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
     let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
     let switched_off = json!({
         "fetch": { "tier": "http", "block_classification": false },

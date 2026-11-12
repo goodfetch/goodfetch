@@ -37,7 +37,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
 use tokio::runtime::Runtime;
 
-use super::{POLICY, configure, default_dependencies, dependencies, engine};
+use super::{POLICY, as_sent, configure, default_dependencies, dependencies, engine};
 use crate::policy::CrawlPolicy;
 
 /// The model's crawls take one work item at a time.
@@ -453,10 +453,13 @@ impl StateMachineTest for Subject {
         let seeds: Vec<Value> = (1..=model.items.len())
             .map(|page| json!({ "url": format!("https://shop.test/{page}"), "label": "page" }))
             .collect();
-        subject.send(&json!({
-            "jsonrpc": "2.0", "id": "start", "method": "crawl.start",
-            "params": { "run_id": "model", "seeds": seeds, "datasets": [{ "name": "pages" }, { "name": "links" }] },
-        }));
+        let params = as_sent(
+            "crawl.start",
+            json!({ "run_id": "model", "seeds": seeds, "datasets": [{ "name": "pages" }, { "name": "links" }] }),
+        );
+        subject.send(
+            &json!({ "jsonrpc": "2.0", "id": "start", "method": "crawl.start", "params": params }),
+        );
         assert_eq!(subject.next()["result"]["started_as"], "new");
         subject
     }

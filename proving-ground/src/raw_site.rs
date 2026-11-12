@@ -1,6 +1,7 @@
 //! The host names the raw server answers (#162, ADRs 0118 and 0119): the
 //! lab's HTTP incidents, access-policy and identity sites, ported, the
-//! fetch edge pages, the content-coding pages and the body-limits pages. Each is served over TLS,
+//! fetch edge pages, the content-coding pages, the body-limits pages and the
+//! plain hosts, where every path is a page. Each is served over TLS,
 //! where the raw server reads a connection's server name to know its host
 //! before its first request, and over plain HTTP/1.1, where the first
 //! request's `Host` names it, for a client such as a browser that does not
@@ -17,6 +18,7 @@ mod directory;
 mod edge;
 mod identity;
 mod incidents;
+mod plain;
 mod policy;
 mod shelf;
 
@@ -40,7 +42,7 @@ const FAMILY_HOSTS: [&str; 6] = [
 
 /// Whether the raw server answers `host` (a host name without its port).
 pub(crate) fn serves(host: &str) -> bool {
-    family_of(host).is_some()
+    family_of(host).is_some() || plain::serves(host)
 }
 
 /// Whether `host` offers HTTP/1.1 alone in its TLS handshake's ALPN.
@@ -65,6 +67,7 @@ pub(crate) fn hosts() -> Vec<String> {
         .chain(edge::NAMED_HOSTS)
         .chain(policy::NAMED_HOSTS)
         .chain(body_limits::NAMED_HOSTS)
+        .chain(plain::NAMED_HOSTS)
         .map(str::to_owned)
         .collect()
 }
@@ -129,6 +132,7 @@ fn ordinal(host: &str) -> Option<u64> {
 pub(crate) struct RawSite {
     seed: u64,
     hits: Mutex<HashMap<(String, String), u64>>,
+    released: plain::Released,
 }
 
 impl RawSite {
@@ -136,6 +140,7 @@ impl RawSite {
         Self {
             seed,
             hits: Mutex::default(),
+            released: plain::Released::default(),
         }
     }
 
@@ -165,6 +170,7 @@ impl raw::Pages for RawSite {
             Some(coding::HOST) => coding::answer(&host, request),
             Some(body_limits::HOST) => body_limits::answer(&host, request),
             Some(_) => edge::answer(&host, request, earlier),
+            None if plain::serves(&host) => plain::answer(&self.released, request).await,
             None => Answer::Page(raw::Page::text(404, "not found")),
         }
     }

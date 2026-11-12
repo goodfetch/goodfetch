@@ -147,7 +147,7 @@ class CDPURLNotAllowedError(RefusedError):
 
 
 class CertificateChangedError(RefusedError):
-    """A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt or the Console, which no agent, Recipe or `--json` command can do."""
+    """A pinned host presented a certificate whose public key is not its pin, or its pin row cannot be read, so nothing was sent to it, nor is for the rest of the run. The details carry the host, both SHA-256 hashes and the fix: a person accepts the new key with `certs accept` in an interactive prompt, which no agent, Recipe or `--json` command can do."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
@@ -184,14 +184,6 @@ class ConnectionOverloadedError(RefusedError):
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
         super().__init__(message, code="connection_overloaded", group="refused", retryable=True)
-
-
-class ConsolePortInUseError(UnavailableError):
-    """The Console did not start: another program holds the port of `console.address`. The Daemon still serves its Clients. Stop the other program, or set `console.address` to a free port (port 0 takes any free one) and restart the Daemon."""
-
-    def __init__(self, message: str) -> None:
-        """Takes the message the engine rendered."""
-        super().__init__(message, code="console_port_in_use", group="unavailable", retryable=False)
 
 
 class DaemonDrainingError(UnavailableError):
@@ -443,7 +435,7 @@ class PatternUnsupportedError(ProgramError):
 
 
 class PersonRequiredError(RefusedError):
-    """Only a person gives this answer, in the Console, the Kennel or an interactive CLI prompt: no agent surface, SDK, script or command run under `--json` or without a terminal may. Answer it in the Console or the Kennel, or run the command in a terminal."""
+    """Only a person gives this answer: no agent surface, SDK, script or command run under `--json` or without a terminal may. Run the Operation's command in a terminal, where the CLI has one, or answer it in the Kennel where the Kennel offers the Operation."""
 
     def __init__(self, message: str) -> None:
         """Takes the message the engine rendered."""
@@ -757,7 +749,6 @@ ERROR_CLASSES: Final[Mapping[str, Callable[[str], GoodfetchError]]] = {
     "closed": ClosedError,
     "connection_lost": ConnectionLostError,
     "connection_overloaded": ConnectionOverloadedError,
-    "console_port_in_use": ConsolePortInUseError,
     "daemon_draining": DaemonDrainingError,
     "daemon_unreachable": DaemonUnreachableError,
     "dialog_already_handled": DialogAlreadyHandledError,

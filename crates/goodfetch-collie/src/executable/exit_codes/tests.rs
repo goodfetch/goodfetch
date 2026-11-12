@@ -29,7 +29,6 @@ use super::{DAEMON_REFUSED, of_ending, of_error, of_report};
 #[case::run_not_found("run_not_found", ErrorGroup::Program, 3)]
 #[case::deadline_exceeded("deadline_exceeded", ErrorGroup::DeadlineExceeded, 7)]
 #[case::call_cancelled("call_cancelled", ErrorGroup::Unavailable, 8)]
-#[case::console_port_in_use("console_port_in_use", ErrorGroup::Unavailable, 8)]
 #[case::engine_output_invalid("engine_output_invalid", ErrorGroup::Internal, 1)]
 #[case::a_code_no_entry_declares("made_up_code", ErrorGroup::Page, 5)]
 #[case::a_model_code_no_entry_declares("made_up_code", ErrorGroup::Model, 6)]
@@ -137,7 +136,6 @@ fn report(lifecycle: Lifecycle, verdict: Verdict) -> RunReport {
         recording: None,
         checkpoint: None,
         nothing_done: None,
-        console_url: None,
         uncertain_effects: None,
         error: None,
         kind_parts: serde_json::Map::new(),

@@ -154,6 +154,7 @@ mod learned_rules;
 mod light_browser;
 mod limits;
 mod navigation_gate;
+mod no_console;
 mod operator_policy;
 mod outcomes;
 mod pacing;

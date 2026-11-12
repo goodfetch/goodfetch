@@ -53,10 +53,6 @@ const CLEAN_TESTING: &str = "\
 | `C1.file_opens` | directories created and files opened per CDP command | 0 | after #1583 | B2 | must not grow |
 | `C1.instructions` | instructions per command | 1.10 × the figure after #1577 | after #1583 | B2 | must not grow |
 | `frontier.heap_per_url` | heap bytes per URL | ≤ 8 (ADR 0134) | after #1583 | `goodfetch-frontier`'s `heap::frontier::enqueue` (`hundred_thousand_urls` less `no_urls`) | must not grow |
-| `console.collie` | whole build, bytes brotli | ≤ 1,000,000 | after #1583 | `size-limit/collie-console` | must not grow |
-| `console.collie_initial_route` | initial route, bytes brotli | ≤ 139,779 | after #1583 | `size-limit/collie-console-initial-route` | must not grow |
-| `console.foxhound` | whole build, bytes brotli | ≤ 1,000,000 | after #1583 | `size-limit/foxhound-console` | must not grow |
-| `console.foxhound_initial_route` | initial route, bytes brotli | ≤ 161,174 | after #1583 | `size-limit/foxhound-console-initial-route` | must not grow |
 | `coverage.project` | project line coverage | none: a ratchet | the next job | `just coverage all` | must not fall |
 
 ### Exceptions
@@ -242,15 +238,10 @@ fn a_row_above_its_contract_fails(#[case] from: &str, #[case] to: &str, #[case] 
     "| ≤ 7 (ADR 0134) |",
     "goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls"
 )]
-#[case::a_size_ceiling_with_a_longer_namesake(
-    "| ≤ 139,779 |",
-    "| ≤ 139,780 |",
-    "size-limit/collie-console-initial-route"
-)]
 #[case::a_ceiling_with_no_row(
-    "`size-limit/foxhound-console` |",
-    "`size-limit/renamed` |",
-    "size-limit/foxhound-console"
+    "`heap::crawl::in_memory_pages` |",
+    "`heap::crawl::renamed` |",
+    "goodfetch-foxhound/heap::crawl::in_memory_pages"
 )]
 fn a_difference_from_the_ceilings_of_xtask_perf_fails(
     #[case] from: &str,

@@ -1,6 +1,6 @@
 id = "J-001"
-title = "Start the Daemon and open the local Console"
-goal = "A person starts the Daemon and opens its local Console, which MUST open with no login."
+title = "Start the Daemon and read its status"
+goal = "A person starts the Daemon and reads its status, which MUST say it runs."
 area = 3
 product = "collie"
 status = "active"
@@ -8,15 +8,15 @@ covers = ["row:CN-03"]
 
 [surfaces]
 cli = "M1"
-console = "M1"
+sdk-typescript = "M2"
 
 [[steps]]
 text = "Start the Daemon"
 on = "cli"
 
 [[steps]]
-text = "See the system browser open the local Console"
-manual = "only a person sees which window the system browser opened"
+text = "See the Daemon's notice on the desktop"
+manual = "only a person sees what the desktop shows"
 
 [[expect]]
-text = "The local Console opens with no login"
+text = "The status says the Daemon runs"

@@ -159,13 +159,9 @@ fn a_host_naming_an_address_passes(#[case] host: Option<&str>, #[case] passes: b
     assert_eq!(names_an_address(host), passes);
 }
 
-/// The Console's names, and a content origin's beside them.
-fn console() -> Authorities {
+/// An Exposed Daemon's names.
+fn exposed() -> Authorities {
     Authorities::loopback(SocketAddr::from(([127, 0, 0, 1], 4000)))
-}
-
-fn content() -> Authorities {
-    Authorities::only("content.example")
 }
 
 /// A listener whose `Host` and `Origin` rule a table's row names.
@@ -173,15 +169,11 @@ fn content() -> Authorities {
 enum Listener {
     Ops,
     Handshake,
-    Read,
-    Content,
 }
 
 /// Each listener's `Host` and `Origin` rule: the ops listener takes any
-/// address and no `Origin`; a WebSocket handshake or a Console write needs
-/// one of its own origins; a Console read takes its own or none; the
-/// content origin takes its own, the Console's or none. The `Host` is
-/// judged first.
+/// address and no `Origin`; a WebSocket handshake needs one of its own
+/// origins. The `Host` is judged first.
 ///
 /// Covers: story:4-21
 #[rstest]
@@ -228,54 +220,16 @@ enum Listener {
     Some("https://127.0.0.1:4000"),
     Some(Refusal::OriginForeign)
 )]
-#[case::read_with_no_origin(Listener::Read, Some("LOCALHOST:4000"), None, None)]
-#[case::read_from_another_page(
-    Listener::Read,
-    Some("127.0.0.1:4000"),
-    Some("http://attacker.example"),
-    Some(Refusal::OriginForeign)
-)]
-#[case::read_with_no_host(Listener::Read, None, None, Some(Refusal::HostForeign))]
-#[case::content_from_its_own_page(
-    Listener::Content,
-    Some("content.example"),
-    Some("http://content.example"),
-    None
-)]
-#[case::content_with_no_origin(Listener::Content, Some("content.example"), None, None)]
-#[case::content_framed_by_the_console(
-    Listener::Content,
-    Some("content.example"),
-    Some("http://localhost:4000"),
-    None
-)]
-#[case::content_naming_the_consoles_host(
-    Listener::Content,
-    Some("127.0.0.1:4000"),
-    None,
-    Some(Refusal::HostForeign)
-)]
-#[case::content_from_another_page(
-    Listener::Content,
-    Some("content.example"),
-    Some("http://attacker.example"),
-    Some(Refusal::OriginForeign)
-)]
 fn a_request_passes_only_with_a_host_and_origin_its_listener_admits(
     #[case] listener: Listener,
     #[case] host: Option<&str>,
     #[case] origin: Option<&str>,
     #[case] refused: Option<Refusal>,
 ) {
-    let (console, content) = (console(), content());
+    let exposed = exposed();
     let (hosts, origins) = match listener {
         Listener::Ops => (Hosts::Address, Origins::Forbidden),
-        Listener::Handshake => (Hosts::Named(&console), Origins::Required(&[&console])),
-        Listener::Read => (Hosts::Named(&console), Origins::Allowed(&[&console])),
-        Listener::Content => (
-            Hosts::Named(&content),
-            Origins::Allowed(&[&content, &console]),
-        ),
+        Listener::Handshake => (Hosts::Named(&exposed), Origins::Required(&[&exposed])),
     };
 
     assert_eq!(refusal(host, origin, hosts, origins), refused);

@@ -39,8 +39,8 @@ use std::process::{Command as Process, ExitCode};
 use anyhow::{Context as _, Result, bail};
 
 use crate::affected::{Kind, UNOWNED, WorkspaceMembers};
+use crate::base_console;
 use crate::check::{self, Finding};
-use crate::console;
 use crate::environment::Environment;
 use crate::gate;
 use crate::git;
@@ -355,17 +355,22 @@ fn base_listings(
     if !missing.is_empty() {
         let target_directory = metadata::target_directory(runners.cargo, root)?.join(BASE_TARGET);
         let checkout = Checkout::new(root, base)?;
-        let listed = missing
-            .iter()
-            .map(|&runner| {
-                output::error(&format!(
-                    "{}: no listing is saved for the base, so it is listed from a checkout of {base}",
-                    runner.name()
-                ));
-                let output = runners.checkout_output(runner, checkout.path(), &target_directory)?;
-                Ok((runner, ids(runner, checkout.path(), &output)?))
-            })
-            .collect::<Result<Vec<_>>>();
+        let listed = checkout
+            .build_console(runners.cargo, &target_directory)
+            .and_then(|()| {
+                missing
+                    .iter()
+                    .map(|&runner| {
+                        output::error(&format!(
+                            "{}: no listing is saved for the base, so it is listed from a checkout of {base}",
+                            runner.name()
+                        ));
+                        let output =
+                            runners.checkout_output(runner, checkout.path(), &target_directory)?;
+                        Ok((runner, ids(runner, checkout.path(), &output)?))
+                    })
+                    .collect::<Result<Vec<_>>>()
+            });
         checkout.remove()?;
         listings.extend(listed?);
     }
@@ -480,9 +485,7 @@ impl<'a> Checkout<'a> {
 
     /// Installs the commit's npm packages and Python environment from its
     /// own lockfiles, as `just fetch` does, from the package store and uv's
-    /// cache where it can, then builds its Consoles, which its Products'
-    /// executables embed (ADR 0057): nextest builds the commit's tests to
-    /// list them, and Collie's fail to compile without its Console build.
+    /// cache where it can.
     /// The head's would not do: pnpm links each workspace package to the
     /// head's sources, and uv installs each workspace member editable from
     /// them, so the commit's Vitest and Playwright configs and its pytest
@@ -493,7 +496,6 @@ impl<'a> Checkout<'a> {
             Process::new("pnpm").args(["install", "--frozen-lockfile", "--prefer-offline"]),
             "pnpm install",
         )?;
-        console::build(&self.path).context("building the Consoles in the checkout of the base")?;
         // A project environment set for the head would be synced to the
         // base's lockfile; the checkout's runners use its own `.venv`.
         self.run_install(
@@ -501,6 +503,20 @@ impl<'a> Checkout<'a> {
                 .args(["sync", "--frozen", "--all-extras"])
                 .env_remove("UV_PROJECT_ENVIRONMENT"),
             "uv sync",
+        )
+    }
+
+    /// Builds the checkout's own Console, from the packages `install` gave
+    /// it, when the commit predates the Console's removal: nextest builds
+    /// the commit's tests to list them, and its executables do not compile
+    /// without their Console build (issue 2516).
+    fn build_console(&self, cargo: &OsStr, target_directory: &Path) -> Result<()> {
+        if !base_console::in_tree(&self.path) {
+            return Ok(());
+        }
+        self.run_install(
+            &mut base_console::build(cargo, &self.path, target_directory),
+            "xtask console build",
         )
     }
 

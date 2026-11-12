@@ -16,8 +16,5 @@ goodfetch-test-support.workspace = true
 serde_json.workspace = true
 goodfetch-workspace-hack.workspace = true
 
-[dev-dependencies]
-rstest.workspace = true
-
 [lints]
 workspace = true

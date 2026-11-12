@@ -29,7 +29,7 @@ export interface Tools {
   readonly scripted_engine?: string | undefined;
   /** `goodfetch-conformance`, whose `read` loads a result document through `goodfetch-protocol`'s reader. */
   readonly conformance?: string | undefined;
-  /** `goodfetch-stub-gateway`, the Stub gateway the Console conformance suite runs against (ADR 0096). */
+  /** `goodfetch-stub-gateway`, the Stub gateway (ADR 0096). */
   readonly stub_gateway?: string | undefined;
 }
 
@@ -79,8 +79,6 @@ export interface TestEnvStart {
    * starts, reachable through its user configuration.
    */
   readonly browser?: boolean | undefined;
-  /** The named port its Console keeps across its restarts, when given; else one the OS chooses at each start. */
-  readonly consolePort?: number | undefined;
   /**
    * How long, in milliseconds, `goodfetch-test-env` has to tear down once
    * its stdin closes; ten seconds when absent. A test of a teardown past the
@@ -133,20 +131,10 @@ export async function startTestEnv(start: TestEnvStart): Promise<StartedTestEnv>
       ? []
       : ["--proving-ground", String(start.provingGroundSeed)];
   const daemon = start.daemon === undefined ? [] : [`--daemon=${start.daemon}`];
-  const consolePort =
-    start.consolePort === undefined ? [] : ["--console-port", String(start.consolePort)];
   const browser = start.browser === true ? ["--browser"] : [];
   const started = start.processes.spawn(
     program.command,
-    [
-      ...program.args,
-      "--test-name",
-      start.testName,
-      ...provingGround,
-      ...daemon,
-      ...consolePort,
-      ...browser,
-    ],
+    [...program.args, "--test-name", start.testName, ...provingGround, ...daemon, ...browser],
     {
       env,
     },

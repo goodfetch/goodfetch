@@ -2,10 +2,12 @@
 # Cargo for the static musl build (ADR 0024's note of 2026-11-06): a `build`
 # or `test` runs through cargo-zigbuild, so Zig compiles the C and C++ code
 # (DuckDB, BoringSSL) against musl and links the executable, at the versions
-# ci/musl/toolchain.sh pins; any other command is Cargo's own. `xtask
-# test-tools` runs it for a `*-linux-musl` target, and nextest through
-# `CARGO` (ci/release/cell.sh). Without the install, it names the recipe
-# that makes it.
+# ci/musl/toolchain.sh pins; any other command is Cargo's own. The musl
+# target's linker is ci/musl/link-cc, which links each executable as a
+# static-PIE with packed relocations through Zig's `cc` and its LLD (ADR
+# 0024's note of 2026-11-12). `xtask test-tools` runs it for a
+# `*-linux-musl` target, and nextest through `CARGO` (ci/release/cell.sh).
+# Without the install, it names the recipe that makes it.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -28,6 +30,27 @@ case "${1:-}" in
       exit 2
     fi
     export CARGO_ZIGBUILD_ZIG_PATH="$musl_toolchain/zig/zig"
+    # The musl target the command builds for links through ci/musl/link-cc:
+    # cargo-zigbuild keeps a linker the environment already names, and
+    # still sets `CC_<target>`, which the script links through.
+    # The target is Cargo's own choice: its last `--target`, else
+    # `CARGO_BUILD_TARGET`. A build for another target links as before.
+    target=${CARGO_BUILD_TARGET:-}
+    previous=""
+    for argument in "$@"; do
+      if [[ "$argument" == -- ]]; then
+        break
+      elif [[ "$argument" == --target=* ]]; then
+        target=${argument#--target=}
+      elif [[ "$previous" == --target ]]; then
+        target=$argument
+      fi
+      previous=$argument
+    done
+    if [[ "$target" == *-linux-musl ]]; then
+      export GOODFETCH_MUSL_LINK_TARGET="$target"
+      export "CARGO_TARGET_$(tr 'a-z-' 'A-Z_' <<<"$target")_LINKER=$here/link-cc"
+    fi
     command=$1
     shift
     [[ "$command" == build ]] && command=zigbuild

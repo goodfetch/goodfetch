@@ -2,7 +2,10 @@
 
 ADR 0037 orders the specs of V1's fourteen areas by the contracts they consume, but it orders nothing about delivery. Building in spec order would leave the owner with nothing to try until the Console, area 12, is built. V1 is therefore delivered in four milestones, each a GitHub milestone carried by every ticket. Each of the first three ends at a test the owner runs by hand before the next starts:
 
+> Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): the local Console leaves V1's Product scope and M1's contents. The person-facing capabilities ADR 0037's matrix gives the Console (run status, the Live view, replay) stay in scope through Clients; the hosted dashboard is Goodfetch Cloud's.
+
 1. **M1 Core: a fully working extraction and crawl framework.** The engine on one machine, the Operation catalog over JSON-RPC, the CLI generated from it, a single-user local Console, crawling over HTTP and with browser rendering, `standard` and `identified` access, the Frontier and extraction, the Dataset, every Export format and the results stream.
+   > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 2. **M2 Client surfaces:** the TypeScript, Python and Rust SDKs, MCP and agent skills.
 3. **M3 Browser automation:** actions and the guard, Firefox and WebKit, stealth and the Challenge solver, the Live view with takeover, the Browser host and Session sources.
 4. **M4 Everything else**, ending at V1's release gates.
@@ -12,11 +15,14 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
 ## Considered Options
 
 - **Delivery in ADR 0037's spec order**: rejected. It gives the owner nothing to test hands-on until the Console, area 12, is built.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **The Console specified right after the engine**, amending ADR 0037's order: rejected. The Console would be designed before the accounts, Datasets and Schedules it shows (areas 4, 6 and 10), and reworked when they arrive.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 - **Every spec written before any code**: rejected. Nothing would run until every area is specified.
 - **An HTTP-only first milestone**: rejected by the owner, who asked for a fully working crawl framework in M1; M1 therefore renders pages and leaves only browser automation to M3.
 - **The SDKs first, before the Console**: rejected by the owner, who wants to test the engine through the CLI and the Console first.
   > Note (owner's decisions of 2026-11-10, in the grilling of decision G-01 of the consolidated review, Q1, Q5, Q9 and Q15, answered "Yes, all four", "Yes, all ten" and "Yes, and confirmed"): this rejection no longer orders the work. The Console it waited for is taken out of both Products (ADR 0137), and a first TypeScript `Page` needs no engine change: the operations it calls are in the catalog, generated and served (`crates/goodfetch-protocol/src/entries.rs:179-218`, `sdks/typescript/collie-client/src/generated/operations.ts:29-81`, `crates/goodfetch-page/src/pages.rs:397-766`, read at `094c96b2d`). A first program is therefore built by relay while the refactor runs, TypeScript leading each concern; Python's and Rust's parts follow as tickets of their own, neither waiting for the other, and are built in the Features step. The crawl with a handler waits for no refactor ticket but [#2167](https://github.com/goodfetch/goodfetch/issues/2167). `docs/agents/rollout-order.md` holds the tickets. What each milestone holds is unchanged.
+  > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
 
 ## Consequences
 
@@ -26,6 +32,7 @@ Every V1 capability stays in V1 (ADR 0037); the milestones order the work, they 
   - the security and egress controls of area 4, built before the fetch tiers because ADR 0017's egress policy wraps every fetch;
   - the Operation catalog over JSON-RPC as the only API, and the CLI generated from it;
   - the single-user local Console of ADR 0031: Runs, a run's drawer, Datasets, Engine & settings and "Needs you";
+    > Amended by [ADR 0137](0137-the-console-leaves-both-products-and-the-engine-and-the-owners-monitoring-tool-is-designed-apart.md): no Product carries a Console, so what this says of the Console ends; the rest stands.
   - from area 5: the HTTP tiers (reqwest and wreq's TLS impersonation), browser rendering for crawling (the CDP driver's navigation, waits and extraction, the per-route tier choice of ADR 0020, screenshots and PDF, the browser pool), proxies, Sessions and the Session pool, block causes and escalation, and Politeness defaults (ADR 0021);
   - from area 6: the Frontier, extraction in every format, the Dataset, every Export format and the results stream;
   - from areas 1 and 2: the build and test gates (#132–#137), the full platform matrix (#145), `xtask size` (#201), the local Proving ground (#158–#167) and the conformance harness (#169, #170, #172).

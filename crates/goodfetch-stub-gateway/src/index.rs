@@ -3,12 +3,10 @@
 //! where every call naming the run goes. A start that names its Run ID
 //! reserves it before it starts an engine, so a second start of that ID
 //! joins the first's engine instead of starting another (`run.start` and
-//! `crawl.start` are idempotent writes). And the keys a start's settings
-//! name, which the routing rule reads.
+//! `crawl.start` are idempotent writes).
 
 use std::sync::Arc;
 
-use serde_json::{Map, Value};
 use tokio::sync::OnceCell;
 
 use crate::engines::Engine;
@@ -105,29 +103,6 @@ impl RunIndex {
     fn entry(&self, run_id: &str) -> Option<&Indexed> {
         self.runs.iter().find(|indexed| indexed.run_id == run_id)
     }
-}
-
-/// Every key `settings` names, nested by key as a start carries them, with
-/// each of its prefixes: `{"crawl": {"max_requests": 10}}` names `crawl`
-/// and `crawl.max_requests`, so a setting whose value is itself a map is
-/// named too.
-pub(crate) fn setting_keys(settings: &Map<String, Value>) -> Vec<String> {
-    let mut keys = Vec::new();
-    let mut stack: Vec<(String, &Map<String, Value>)> = vec![(String::new(), settings)];
-    while let Some((prefix, map)) = stack.pop() {
-        for (name, value) in map {
-            let key = if prefix.is_empty() {
-                name.clone()
-            } else {
-                format!("{prefix}.{name}")
-            };
-            if let Value::Object(nested) = value {
-                stack.push((key.clone(), nested));
-            }
-            keys.push(key);
-        }
-    }
-    keys
 }
 
 #[cfg(test)]

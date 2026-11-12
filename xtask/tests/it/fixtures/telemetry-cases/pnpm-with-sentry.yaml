@@ -2,7 +2,7 @@
 lockfileVersion: "9.0"
 
 importers:
-  console/app:
+  website/app:
     dependencies:
       "@sentry/react":
         specifier: 10.0.0

@@ -407,7 +407,7 @@ kind = "format"
 prefix = "usage-ledger"
 
 # Area 3's person-only marker (#232): the refusal of a person's answer
-# asked by any surface but the Console and the CLI's interactive prompt.
+# asked by any surface but a person's, such as the CLI's interactive prompt.
 [[area]]
 number = 3
 kind = "error"
@@ -1191,25 +1191,7 @@ number = 5
 kind = "error"
 prefix = "browser_host_outdated"
 
-# Area 12, the Console (spec #592): its address and the Error code of its
-# port taken (#811).
-[[area]]
-number = 12
-kind = "error"
-prefix = "console_"
-
-[[area]]
-number = 12
-kind = "setting"
-prefix = "console."
-
-# Its sign-ins (#826): the person-only `sign_in.*` and `console.rotate_key`,
-# and the accounts store that keeps them.
-[[area]]
-number = 12
-kind = "operation"
-prefix = "sign_in."
-
+# Area 12 (spec #592).
 # Foxhound's Datasets screen (#1211, spec #593): `dataset.list` and
 # `dataset.page`, which the Records grid reads.
 [[area]]
@@ -1239,29 +1221,7 @@ number = 12
 kind = "command"
 prefix = "needs-you"
 
-[[area]]
-number = 12
-kind = "operation"
-prefix = "console."
-
-[[area]]
-number = 12
-kind = "format"
-prefix = "accounts-store"
-
-# Every screen of the Console, whose routes its packages commit (#868).
-[[area]]
-number = 12
-kind = "screen"
-prefix = "/"
-
-# The `console` command that opens it signed in, and the Error code its
-# Client raises when its Connection drops (#817).
-[[area]]
-number = 12
-kind = "command"
-prefix = "console"
-
+# The Error code a Client raises when its Connection drops (#817).
 [[area]]
 number = 12
 kind = "error"

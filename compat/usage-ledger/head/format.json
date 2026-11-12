@@ -87,7 +87,7 @@
         "oneOf": [
           {
             "const": "person",
-            "description": "A person, in the Console or an interactive CLI prompt.",
+            "description": "A person, in the Kennel or an interactive CLI prompt.",
             "type": "string"
           },
           {

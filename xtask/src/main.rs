@@ -13,7 +13,7 @@ mod advisories;
 mod affected;
 mod all_green;
 mod allure;
-mod axe_exceptions;
+mod base_console;
 mod budgets;
 mod ceiling;
 mod check;
@@ -23,7 +23,6 @@ mod codegen;
 mod commit_messages;
 mod compare;
 mod compat;
-mod console;
 mod containment;
 mod counts;
 mod dco;
@@ -73,6 +72,7 @@ mod scan;
 mod screenshots;
 mod self_hosted;
 mod size;
+mod static_pie;
 mod stress;
 mod sweep_target;
 mod targets;
@@ -114,11 +114,6 @@ enum Command {
     /// The "all green" check: every needed job succeeded, and no earlier
     /// attempt of the run had a failed test step (ADR 0064).
     AllGreen(all_green::Arguments),
-    /// The axe exception file, `console/axe-exceptions.toml` (ADR 0073).
-    AxeExceptions {
-        #[command(subcommand)]
-        command: axe_exceptions::Command,
-    },
     /// The budget check (ADR 0061): opens or updates one `needs-triage`
     /// issue per suite or job whose median of its last 20 runs in its own
     /// tier, read from the results store, is past its budget in TESTING.md;
@@ -173,11 +168,6 @@ enum Command {
     Compat {
         #[command(subcommand)]
         command: compat::Command,
-    },
-    /// The Console's build, which each executable embeds (ADR 0057).
-    Console {
-        #[command(subcommand)]
-        command: console::Command,
     },
     /// Fails unless every generated contract of Collie's is in Foxhound's,
     /// unchanged (ADR 0094).
@@ -335,6 +325,18 @@ enum Command {
     Size {
         #[command(subcommand)]
         mode: size::Command,
+    },
+    /// Fails on a Product's executable built for a static musl target that is
+    /// no static-PIE with packed relative relocations (ADR 0024).
+    StaticPie {
+        /// The Rust target the cell built for; nothing is read for one that
+        /// is no `*-linux-musl` target.
+        #[arg(long)]
+        target: String,
+        /// The TOML manifest naming each built file's Product, target, kind
+        /// and path, as `xtask size` reads it.
+        #[arg(long)]
+        files: PathBuf,
     },
     /// The stress run before merge (ADR 0064): each new
     /// or changed test runs 20 times, and a test taken off the quarantine
@@ -508,7 +510,6 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Advisories { command } => advisories::run(&command, environment),
         Command::Affected(arguments) => affected::run(arguments, environment),
         Command::AllGreen(arguments) => all_green::run(&arguments, environment),
-        Command::AxeExceptions { command } => axe_exceptions::run(command, environment),
         Command::Budgets(arguments) => budgets::run(&arguments, environment),
         Command::Clients { command } => clients::run(&command, environment),
         Command::Codegen(arguments) => codegen::run(arguments, environment),
@@ -517,7 +518,6 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         )),
         Command::FloorGuard { base, head } => floor_guard::run(root, &base, &head),
         Command::Compat { command } => compat::run(command, environment),
-        Command::Console { command } => console::run(&command, environment),
         Command::Containment => Ok(check::report(&containment::check(root)?)),
         Command::Counts(arguments) => counts::run(&arguments, environment),
         Command::Dco { base, head } => Ok(check::report(&dco::check(root, &base, &head)?)),
@@ -560,6 +560,9 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::SelfHosted { command } => self_hosted::run(command, environment),
         Command::Size { mode } => size::run(&mode, environment),
+        Command::StaticPie { target, files } => {
+            Ok(check::report(&static_pie::check(root, &files, &target)?))
+        }
         Command::Stress { command } => stress::run(command, environment),
         Command::SweepTarget(arguments) => sweep_target::run(&arguments, environment),
         Command::Targets { command } => targets::run(command, environment),

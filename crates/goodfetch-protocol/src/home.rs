@@ -10,7 +10,6 @@
 //!     runs/<run id>/run.sqlite    a run folder and its run file
 //!     runs/<run id>/trace/…       the run's trace files
 //!     run-index.sqlite            the Run index
-//!     accounts-store.sqlite
 //!     operator-policy.toml,       the major's settings files (ADR 0098)
 //!     configuration.toml
 //!     daemon.json, daemon.lock, … the Daemon's files (`DaemonFile`)
@@ -35,9 +34,6 @@ pub const RUNS: &str = "runs";
 /// The Run index's file in the per-major folder.
 pub const RUN_INDEX: &str = "run-index.sqlite";
 
-/// The per-major accounts store, beside the Operator policy (spec #592).
-pub const ACCOUNTS_STORE: &str = "accounts-store.sqlite";
-
 /// The Operator policy's file in the per-major folder, which both
 /// Products read (ADRs 0028 and 0098).
 pub const OPERATOR_POLICY_FILE: &str = "operator-policy.toml";
@@ -60,9 +56,6 @@ pub const AUDIT_LOG_HEAD: &str = "audit-log-head.json";
 
 /// The known-certificates store, beside the Usage ledger (ADR 0042).
 pub const KNOWN_CERTIFICATES: &str = "known-certificates.sqlite";
-
-/// The Console key, outside the per-major folders (ADR 0098).
-pub const CONSOLE_KEY: &str = "console-key";
 
 /// The log folder, outside the per-major folders, where every Daemon but
 /// `daemon run` writes its JSON lines (ADR 0122).
@@ -121,13 +114,11 @@ pub enum DaemonFile {
     OpsToken,
     /// The HTTP listener's token, mode 0600.
     HttpListenerToken,
-    /// The page that opens the Console's sign-in link in a browser.
-    ConsoleOpener,
 }
 
 impl DaemonFile {
     /// Every one of them.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 8] = [
         Self::RuntimeFile,
         Self::Socket,
         Self::ServingLock,
@@ -136,7 +127,6 @@ impl DaemonFile {
         Self::ServiceRecord,
         Self::OpsToken,
         Self::HttpListenerToken,
-        Self::ConsoleOpener,
     ];
 
     /// Its name in the per-major folder.
@@ -150,7 +140,6 @@ impl DaemonFile {
             Self::ServiceRecord => "daemon-service.json",
             Self::OpsToken => "ops.token",
             Self::HttpListenerToken => "http-listener.token",
-            Self::ConsoleOpener => "console.html",
         }
     }
 

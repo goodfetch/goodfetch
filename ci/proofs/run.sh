@@ -24,8 +24,7 @@
 #     downloads it on its first run, so this runs before the egress deny);
 #     cargo-hack over feature
 #     combinations; the MSRV build; Miri on a use after free (STYLE.md,
-#     `unsafe`); cargo-shear on an unused dependency; the Console packages
-#     (ADR 0087).
+#     `unsafe`); cargo-shear on an unused dependency.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 2
 
@@ -186,57 +185,6 @@ else
   fail cargo-shear "findings: ${codes:-none}"
 fi
 
-# The Console's packages (ADR 0087): Collie's build cannot resolve Foxhound's
-# screens' package, which Foxhound's build declares and resolves; the lint
-# configuration refuses a relative import that leaves its package.
-if ! (cd ci/proofs/console-packages && pnpm install --offline --frozen-lockfile --silent); then
-  fail console-packages "installing the fixture's workspace failed"
-else
-  if output=$(pnpm exec tsc -p ci/proofs/console-packages/collie/tsconfig.json 2>&1) ||
-    ! grep -q 'TS2307' <<<"$output"; then
-    fail console-packages "Collie's build resolved Foxhound's screens"
-  elif ! pnpm exec tsc -p ci/proofs/console-packages/foxhound/tsconfig.json >/dev/null 2>&1; then
-    fail console-packages "Foxhound's build did not resolve its screens"
-  else
-    pass "Collie's Console build cannot import Foxhound's screens' package"
-  fi
-fi
-codes=$(pnpm exec oxlint -c ci/proofs/oxlint/proof.oxlintrc.json --format json ci/proofs/oxlint/console/collie/src/screens.ts 2>/dev/null |
-  jq -r '.diagnostics[].code' | tally)
-if [[ "$codes" == "1 import(no-relative-parent-imports)" ]]; then
-  pass "oxlint refuses a relative import that leaves a Console package"
-else
-  fail oxlint-console "findings: ${codes:-none}"
-fi
-
-# ADR 0073's `lingui/no-unlocalized-strings`, through oxlint's pinned JS
-# plugins: a Console component with hard-coded text fails, the same one with
-# its text in `<Trans>` passes, and a Console test file is not checked.
-codes=$(pnpm exec oxlint -c ci/proofs/oxlint/proof.oxlintrc.json --format json \
-  ci/proofs/oxlint/console/collie/src/unlocalized.tsx ci/proofs/oxlint/console/collie/src/localized.tsx \
-  ci/proofs/oxlint/console/collie/src/greeting.test.tsx 2>/dev/null |
-  jq -r '.diagnostics[] | .code + " " + .filename' | tally)
-if [[ "$codes" == "1 lingui(no-unlocalized-strings) ci/proofs/oxlint/console/collie/src/unlocalized.tsx" ]]; then
-  pass "oxlint refuses an unlocalized Console string and accepts a localized one"
-else
-  fail oxlint-lingui "findings: ${codes:-none}"
-fi
-
-# ADR 0073's "every oxlint `jsx-a11y` rule is an error", on the Console: a
-# component with an image without a text alternative and a clickable `<div>`
-# fails each rule it breaks, as an error, and the localized component passes.
-codes=$(pnpm exec oxlint -c ci/proofs/oxlint/proof.oxlintrc.json --format json \
-  ci/proofs/oxlint/console/collie/src/inaccessible.tsx ci/proofs/oxlint/console/collie/src/localized.tsx 2>/dev/null |
-  jq -r '.diagnostics[] | .code + " " + .severity + " " + .filename' | tally)
-expected="1 jsx-a11y(alt-text) error ci/proofs/oxlint/console/collie/src/inaccessible.tsx
-1 jsx-a11y(click-events-have-key-events) error ci/proofs/oxlint/console/collie/src/inaccessible.tsx
-1 jsx-a11y(no-static-element-interactions) error ci/proofs/oxlint/console/collie/src/inaccessible.tsx"
-if [[ "$codes" == "$expected" ]]; then
-  pass "oxlint refuses an inaccessible Console component, each jsx-a11y rule as an error"
-else
-  fail oxlint-jsx-a11y "findings: ${codes:-none}"
-fi
-
 codes=$(pnpm exec oxlint -c ci/proofs/oxlint/proof.oxlintrc.json --format json ci/proofs/oxlint/mocking.test.ts 2>/dev/null |
   jq -r '.diagnostics[].code' | grep -c 'no-restricted-vi-methods')
 if [[ "$codes" == 7 ]]; then
@@ -247,7 +195,7 @@ fi
 
 # ADR 0068's test-file bans: every browser and context comes from test
 # support's fixtures, no test sleeps, none redefines a property, and none
-# writes a cookie or storage state the Console did not set.
+# writes a cookie or storage state its page did not set.
 codes=$(pnpm exec oxlint -c ci/proofs/oxlint/proof.oxlintrc.json --format json ci/proofs/oxlint/contexts.spec.ts 2>/dev/null |
   jq -r '.diagnostics[] | select(.code == "eslint(no-restricted-properties)") | .message | capture("^.(?<name>[A-Za-z.]+). is restricted").name' | tally | tr '\n' ' ')
 if [[ "$codes" == "1 Object.defineProperties 1 Object.defineProperty 1 Reflect.defineProperty 1 addCookies 1 browser.newPage 1 connect 1 connectOverCDP 1 document.cookie 1 launch 1 launchPersistentContext 2 newContext 1 setStorageState 1 waitForTimeout " ]]; then

@@ -2,19 +2,14 @@
 //! Goodfetch home is mounted through LazyFS, a file is written through the
 //! engine's interface, LazyFS drops every write that was never synced, and
 //! the home is mounted again, as after a reboot. The Audit log's head file
-//! and the Console key then hold what was written. LazyFS 0.3.1 passes a
+//! then holds what was written. LazyFS 0.3.1 passes a
 //! rename straight to its backing folder and has no folder sync, so these
 //! tests show a file's own sync; the folder's sync after the rename is the
 //! engine's `durable` module's. Only the Release suite runs them, on Linux
 //! x64 (`just lazyfs-test`); nextest's profiles leave them out elsewhere.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the tests read the files back as a reboot would, outside any async worker"
-)]
 
 use goodfetch_engine::audit::{AuditLog, Origin};
 use goodfetch_engine::home::Home;
-use goodfetch_engine::people::ConsoleKey;
 use goodfetch_protocol::audit::{Actor, AuditVerified, SECRET_REFERENCE_USED};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_test_support::{LazyFs, TestEnv};
@@ -57,29 +52,5 @@ fn an_audit_log_recorded_on_a_mounted_home_verifies_intact_after_clear_cache() {
             entries: 2,
             first_broken: None,
         }
-    );
-}
-
-/// A rotated Console key is the key after a power cut, never an empty
-/// file, which the next sign-in would replace and so sign everyone out.
-#[test]
-fn a_console_key_rotated_on_a_mounted_home_survives_clear_cache() {
-    let env = TestEnv::for_lazyfs();
-    let home = Home::new(env.home().to_path_buf());
-    let mounted = LazyFs::mount(&env, env.home()).unwrap();
-    let key = ConsoleKey::at(home.console_key());
-    let rotated = key.replace().unwrap();
-    let written = std::fs::read_to_string(home.console_key()).unwrap();
-
-    mounted.clear_cache().unwrap();
-    drop(mounted);
-    let _remounted = LazyFs::mount(&env, env.home()).unwrap();
-
-    assert_eq!(
-        (
-            std::fs::read_to_string(home.console_key()).unwrap(),
-            ConsoleKey::at(home.console_key()).read_or_create().unwrap() == rotated,
-        ),
-        (written, true)
     );
 }

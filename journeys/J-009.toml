@@ -3,17 +3,16 @@ id = "J-009"
 title = "See where each setting's value comes from"
 goal = """
 A person sets settings at several layers and asks where each value comes \
-from. For each effective value, `config explain` and the Console's Engine & \
-settings MUST show the value, the layer that set it and the layer that \
-locked it, if any, so that the person can tell why a value applies."""
+from. For each effective value, `config explain` MUST show the value, the \
+layer that set it and the layer that locked it, if any, so that the person \
+can tell why a value applies."""
 area = 3
 product = "collie"
 status = "active"
-covers = ["row:RT-22", "story:3-89", "story:12-94"]
+covers = ["row:RT-22", "story:3-89"]
 
 [surfaces]
 cli = "M1"
-console = "M1"
 
 [[steps]]
 text = "Set one setting in the user configuration, and set it and a second setting in the project configuration"

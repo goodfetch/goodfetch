@@ -95,18 +95,6 @@ reason = "A review rule no test reaches: the pull request that adds a feature al
 link = "TESTING.md#review-checklist"
 
 [[exception]]
-feature = "story:12-135"
-evidence = "check"
-reason = "The perf job measures Collie's Console build with size-limit (`.size-limit.json`) on the base and the head of every pull request that changes it: `xtask perf` holds the whole build under 1 MB brotli and its initial route under the ceiling the owner approved, and refuses growth over 5 kB brotli per entry without the \"Performance change\" section (ADRs 0057, 0071 and 0087); the Console counts against Collie's Size budget as part of its executable."
-link = ".github/workflows/pull-request.yml#perf"
-
-[[exception]]
-feature = "story:12-234"
-evidence = "check"
-reason = "The perf job measures Foxhound's Console build with size-limit (`.size-limit.json`'s `foxhound-console` and `foxhound-console-initial-route`) on the base and the head of every pull request that changes it: `xtask perf` holds the whole build under 1 MB brotli and its initial route (the page, its entry script, its stylesheet and Foxhound's English catalog) under the ceiling the owner approved, 1.25 times its first measure, and refuses growth over 5 kB brotli per entry without the \"Performance change\" section (ADRs 0071 and 0087); the build counts against Foxhound's Size budget as part of its executable."
-link = ".github/workflows/pull-request.yml#perf"
-
-[[exception]]
 feature = "error:browser_host_outdated"
 evidence = "none"
 reason = "Declared for ADR 0069's exit-code table (#1188), but nothing raises it yet: the engine settles on the lower minor with a Browser host, and fails a Session that needs more with this code, in #755, whose Browser host cases test it and remove this exception."

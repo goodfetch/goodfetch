@@ -330,8 +330,8 @@ pub struct ExplainedSetting {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub weakens: bool,
     /// Whether user configuration may set it: its authority lets user
-    /// configuration hold it and no lower layer locked it, so the Console
-    /// offers its user-level value for editing (ADR 0031).
+    /// configuration hold it and no lower layer locked it, so a person
+    /// surface may offer its user-level value for editing (ADR 0031).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub user_settable: bool,

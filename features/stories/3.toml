@@ -15,7 +15,7 @@ status = "active"
 
 [[story]]
 id = 2
-title = "As a developer, I want my SDK to use the Daemon when one is configured or already running, so that several scripts share one engine and one Console."
+title = "As a developer, I want my SDK to use the Daemon when one is configured or already running, so that several scripts share one engine."
 milestone = "M1 Core"
 journey = true
 status = "active"
@@ -70,7 +70,7 @@ status = "active"
 
 [[story]]
 id = 9
-title = "As a Console user, I want every event to carry a position that only goes up and a resubscribe from that position after a reconnect, with a fresh snapshot when the position is gone, so that no lossless event is missed."
+title = "As a developer writing a Client, I want every event to carry a position that only goes up and a resubscribe from that position after a reconnect, with a fresh snapshot when the position is gone, so that no lossless event is missed."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -148,7 +148,7 @@ status = "active"
 
 [[story]]
 id = 19
-title = "As a user, I want a visible Console tab to count as a connected Client, so that the Daemon never stops while I am looking at it."
+title = "As a user, I want a connected Client to hold the Daemon, so that the Daemon never stops while I am using it."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -172,7 +172,7 @@ status = "active"
 
 [[story]]
 id = 22
-title = "As a user with two majors installed, I want each major to run its own Daemon, runtime file, socket, Console port and data folders, so that a 1.x and a 2.x project never restart each other's."
+title = "As a user with two majors installed, I want each major to run its own Daemon, runtime file, socket and data folders, so that a 1.x and a 2.x project never restart each other's."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -362,7 +362,7 @@ status = "active"
 
 [[story]]
 id = 46
-title = "As a Console user, I want a reader to test whether a run's writer is alive without making a writer that tries at the same moment think the owner is alive, so that taking over a dead run never fails by accident (ADR 0037's consequence)."
+title = "As a user reading a run through a Client, I want a reader to test whether a run's writer is alive without making a writer that tries at the same moment think the owner is alive, so that taking over a dead run never fails by accident (ADR 0037's consequence)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -591,7 +591,7 @@ status = "active"
 
 [[story]]
 id = 75
-title = "As a user, I want only a person in the Console or an interactive CLI prompt to raise a Limit, while any Client may lower or first set Limits covering only its own work, so that an agent stopped by a cap cannot lift it."
+title = "As a user, I want only a person, at an interactive CLI prompt, to raise a Limit, while any Client may lower or first set Limits covering only its own work, so that an agent stopped by a cap cannot lift it."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -599,7 +599,7 @@ status = "active"
 
 [[story]]
 id = 76
-title = "As a user, I want a run marked *uncapped* when it can spend money with nothing capping it, and `init` and the Console's first launch to offer a monthly install Limit, so that I see unbounded spending."
+title = "As a user, I want a run marked *uncapped* when it can spend money with nothing capping it, and `init` to offer a monthly install Limit, so that I see unbounded spending."
 milestone = "M1 Core"
 journey = true
 status = "active"
@@ -1082,7 +1082,7 @@ status = "active"
 
 [[story]]
 id = 138
-title = "As a user who installs, upgrades or removes a Product, I want a Daemon that is no longer its major's pick to hand over to the pick once it hosts no live run and no Client other than a Console, so that the change takes effect without cutting a run (ADR 0098)."
+title = "As a user who installs, upgrades or removes a Product, I want a Daemon that is no longer its major's pick to hand over to the pick once it hosts no live run and no Client that holds it, so that the change takes effect without cutting a run (ADR 0098)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"
@@ -1210,7 +1210,7 @@ status = "active"
 
 [[story]]
 id = 154
-title = "As a developer or a person reading a Run, I want its Run report to hold its three axes with their reasons, its stop reason with its details (a Limit with its scope, scope ID and period reset, `timeout`, `abort` with who, `engine_lost`, `resources` with the resource and folder), its Usage, every setting that weakened it, its Plan, Operator policy version, settings, Plugins, warnings, recording, Checkpoint, uncertain Effects, Console page and times, and for a crawl how its requests ended, its Records, Sinks, learned rules and sitemaps, a part no area supplied being absent rather than zero, so that nobody has to recompute what a Run did (ADR 0102)."
+title = "As a developer or a person reading a Run, I want its Run report to hold its three axes with their reasons, its stop reason with its details (a Limit with its scope, scope ID and period reset, `timeout`, `abort` with who, `engine_lost`, `resources` with the resource and folder), its Usage, every setting that weakened it, its Plan, Operator policy version, settings, Plugins, warnings, recording, Checkpoint, uncertain Effects and times, and for a crawl how its requests ended, its Records, Sinks, learned rules and sitemaps, a part no area supplied being absent rather than zero, so that nobody has to recompute what a Run did (ADR 0102)."
 milestone = "M1 Core"
 journey = false
 not_journey = "part"

@@ -4,7 +4,7 @@
 //! Today the command line holds `--version`, the hidden Attached-engine
 //! entry, which an SDK starts, the hidden `command-line`, which prints the
 //! command line for `xtask codegen` (ADR 0072), `browser install`, `browser
-//! clean`, `console`, `config explain`,
+//! clean`, `config explain`,
 //! `daemon start|stop|restart|status|health|install|uninstall|rotate-token|http-listener-token|run`,
 //! with the hidden `daemon launched` a start or the installed service
 //! runs, `runs reindex` and `upgrade-files`, beside the commands the
@@ -58,7 +58,6 @@ use goodfetch_engine::age_notice::AgeNotice;
 use goodfetch_engine::audit::AuditEvents;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::crash_report;
-use goodfetch_engine::daemon::DaemonConsole;
 use goodfetch_engine::entropy::{Entropy, NoSeed};
 use goodfetch_engine::governor::System;
 use goodfetch_engine::home::{Home, RunStateLocation};
@@ -87,7 +86,6 @@ pub mod catalog_commands;
 mod certs;
 mod command_line;
 mod config;
-mod console;
 mod daemon;
 mod daemon_command;
 pub mod engine_choice;
@@ -135,12 +133,6 @@ enum Command {
     /// input: what an SDK starts.
     #[command(hide = true, name = ATTACHED_ENGINE)]
     AttachedEngine {
-        /// Serves the engine's own Console at this `host:port` while it
-        /// runs, as a script that wants no Daemon asks (ADR 0031); its
-        /// `hello` answers the Console's sign-in link. Port 0 takes a free
-        /// port. None by default: an Attached engine serves no Console.
-        #[arg(long, value_name = "ADDRESS")]
-        console_address: Option<String>,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -172,18 +164,6 @@ enum Command {
     Certs {
         #[command(subcommand)]
         command: certs::CertsCommand,
-        #[command(flatten)]
-        _colour: ColourFlag,
-    },
-    /// Opens the Console in the browser, signed in: starts the major's
-    /// Daemon unless one runs.
-    Console {
-        /// Opens no browser: prints the sign-in link instead.
-        #[arg(long)]
-        no_browser: bool,
-        /// Prints the sign-in link as JSON.
-        #[arg(long)]
-        json: bool,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -657,9 +637,7 @@ fn run(
     match command {
         // Printed before the executable is set up (`main`).
         Command::PrintedCommandLine { .. } => command_line::print(engine.identity().product, own),
-        Command::AttachedEngine {
-            console_address, ..
-        } => run_attached(engine, dependencies, &machine, console_address.as_deref()),
+        Command::AttachedEngine { .. } => run_attached(engine, dependencies, &machine),
         Command::Browser {
             command: BrowserCommand::Install { json },
             ..
@@ -668,9 +646,6 @@ fn run(
             command: BrowserCommand::Clean { dry_run, json },
             ..
         } => browsers::clean(&machine, (dry_run, json), human),
-        Command::Console {
-            no_browser, json, ..
-        } => console::open(&machine, no_browser, json, human),
         Command::Config {
             command:
                 ConfigCommand::Explain {
@@ -854,7 +829,6 @@ fn run_attached(
     engine: &Engine,
     dependencies: Dependencies,
     machine: &daemon::Machine<'_>,
-    console_address: Option<&str>,
 ) -> ExitCode {
     // Settings it cannot read leave their defaults here: the engine refuses
     // its Client's calls with their Error code, on the Connection.
@@ -888,16 +862,8 @@ fn run_attached(
                 Err(error) => Err(format!("the Daemon at {endpoint} does not answer: {error}")),
             };
         }
-        // `console.address` has no value on an Attached engine but the one
-        // its script gives for its run (ADR 0031).
-        let console = match console_address {
-            Some(address) if engine.serves_console() => {
-                daemon::start_console(address, settings).await.0
-            }
-            Some(_) | None => DaemonConsole::Absent,
-        };
         engine
-            .run_attached_with_console(Network::Os, dependencies, console)
+            .run_attached(Network::Os, dependencies)
             .await
             .map_err(|error| error.to_string())
     });

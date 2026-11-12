@@ -11,8 +11,8 @@ import { text } from "node:stream/consumers";
 import { WebSocketServer } from "ws";
 
 /**
- * The Console's Content Security Policy (ADR 0031); `production-csp.spec.ts` holds it to the executable's.
- * A Console with a content origin, `contentOrigin`, may frame that origin and nothing else's, and loosens no other directive.
+ * The strict Content Security Policy served tests run under (ADR 0068).
+ * A page given `contentOrigin` may frame that origin and nothing else's, and loosens no other directive.
  */
 export function productionCsp(contentOrigin?: string): string {
   return [
@@ -33,7 +33,7 @@ export function productionCsp(contentOrigin?: string): string {
   ].join("; ");
 }
 
-/** The policy of a Console with no content origin, which the fixture pages and the stand-in Console serve. */
+/** The policy with no framed origin, which the fixture pages serve. */
 export const PRODUCTION_CSP: string = productionCsp();
 
 /** The served fixture pages. */

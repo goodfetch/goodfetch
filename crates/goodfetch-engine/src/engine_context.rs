@@ -7,6 +7,8 @@
 //! calls and to its listeners, so no module reaches these values through the
 //! Runs.
 
+use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::sync::Arc;
 
 use jiff::Timestamp;
@@ -26,6 +28,22 @@ use crate::tasks::TaskOwner;
 /// 0102), the only caller until accounts arrive (area 12), and the
 /// partition of the user's stores it reads and writes.
 pub(crate) const CALLER: &str = "os_user";
+
+/// The OS user's name, as the engine's environment map gives it: `USER`
+/// or `LOGNAME` on Unix, `USERNAME` on Windows; [`CALLER`] when none is
+/// set, as for a Daemon started with an empty environment.
+pub(crate) fn os_user(environment: &BTreeMap<OsString, OsString>) -> String {
+    ["USER", "LOGNAME", "USERNAME"]
+        .into_iter()
+        .find_map(|name| {
+            environment
+                .get(&OsString::from(name))
+                .and_then(|value| value.to_str())
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or(CALLER)
+        .to_owned()
+}
 
 /// What every Run and call of one engine is given beside its own inputs.
 /// Clones share its stores.
@@ -151,3 +169,6 @@ impl EngineContext {
         Refusals::new(self.audit().clone(), Arc::clone(&self.owner), self.clock)
     }
 }
+
+#[cfg(test)]
+mod tests;

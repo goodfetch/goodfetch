@@ -1,6 +1,6 @@
-// A served test never writes a cookie or storage state the Console did not
-// set (ADR 0068): it signs in through `signIn`, so a test that gives its
-// context Playwright's `storageState` fails.
+// A served test never writes a cookie or storage state its page did not
+// set (ADR 0068), so a test that gives its context Playwright's
+// `storageState` fails.
 import { TestSupportError } from "./errors.ts";
 
 /** The options of a Playwright test that could give its context a storage state. */
@@ -14,7 +14,7 @@ export function refuseStorageState(options: StorageStateOptions): void {
   if (options.storageState !== undefined || options.contextOptions?.storageState !== undefined) {
     throw new TestSupportError(
       "storage_state_refused",
-      "storageState is set: a served test signs in through the signIn fixture, never with cookies or storage the Console did not set (ADR 0068)",
+      "storageState is set: a served test never starts with cookies or storage its page did not set (ADR 0068)",
     );
   }
 }

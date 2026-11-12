@@ -46,23 +46,6 @@ pub(crate) const INCREASE_PERCENT: u64 = 5;
 /// ADRs' kB is 1,000 bytes).
 pub(crate) const BUNDLE_INCREASE_BYTES: u64 = 5_000;
 
-/// ADRs 0071 and 0087: each Product's whole embedded Console build stays
-/// under 1 MB brotli, whatever the pull request says.
-const CONSOLE_CEILING_BYTES: u64 = 1_000_000;
-
-/// ADR 0071: Collie's Console's initial route (what loads before the Runs
-/// screen's first render: the page, its entry script and its stylesheet)
-/// stays under 1.25 times the first build's 111,823 bytes brotli, rounded
-/// up, the ceiling the owner approved (#937).
-const COLLIE_INITIAL_ROUTE_CEILING_BYTES: u64 = 139_779;
-
-/// ADRs 0071 and 0087: Foxhound's Console's initial route (the page, its
-/// entry script, its stylesheet and Foxhound's English catalog, which the
-/// entry awaits before the first render) stays under 1.25 times the first
-/// build's 128,939 bytes brotli, rounded up, the ceiling the owner approved
-/// (#1235).
-const FOXHOUND_INITIAL_ROUTE_CEILING_BYTES: u64 = 161_174;
-
 /// ADR 0134: at most 8 heap bytes per URL in the Frontier.
 const FRONTIER_BYTES_PER_URL: u64 = 8;
 
@@ -76,6 +59,10 @@ const PAGE_BYTES_PER_BODY_BYTE: u64 = 2;
 /// reads. A "Performance change" section never passes one (ADR 0134).
 pub(crate) enum Ceiling {
     /// One figure of one benchmark or size-limit entry, at most `max`.
+    #[expect(
+        dead_code,
+        reason = "ADR 0134's tuned ceilings are of this kind, and none is approved yet"
+    )]
     Figure {
         subject: &'static str,
         figure: Figure,
@@ -126,29 +113,9 @@ impl Ceiling {
     }
 }
 
-/// The fixed ceilings of ADRs 0071, 0087 and 0134. Each starts when its benchmark
-/// or entry first runs.
-pub(crate) const FIXED_CEILINGS: [Ceiling; 6] = [
-    Ceiling::Figure {
-        subject: "size-limit/collie-console",
-        figure: Figure::Brotli,
-        max: CONSOLE_CEILING_BYTES,
-    },
-    Ceiling::Figure {
-        subject: "size-limit/collie-console-initial-route",
-        figure: Figure::Brotli,
-        max: COLLIE_INITIAL_ROUTE_CEILING_BYTES,
-    },
-    Ceiling::Figure {
-        subject: "size-limit/foxhound-console",
-        figure: Figure::Brotli,
-        max: CONSOLE_CEILING_BYTES,
-    },
-    Ceiling::Figure {
-        subject: "size-limit/foxhound-console-initial-route",
-        figure: Figure::Brotli,
-        max: FOXHOUND_INITIAL_ROUTE_CEILING_BYTES,
-    },
+/// The fixed ceilings of ADR 0134. Each starts when its benchmark first
+/// runs.
+pub(crate) const FIXED_CEILINGS: [Ceiling; 2] = [
     Ceiling::PerUrl {
         subject: "goodfetch-frontier/heap::frontier::enqueue/hundred_thousand_urls",
         empty: "goodfetch-frontier/heap::frontier::enqueue/no_urls",

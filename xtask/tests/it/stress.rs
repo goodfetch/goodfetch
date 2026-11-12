@@ -471,6 +471,42 @@ fn a_trailer_naming_a_deleted_test_accepts_it() {
     );
 }
 
+/// A test's ID may itself hold `: `, as a Vitest or Playwright title does. A
+/// trailer names it by the whole ID before its reason; one that stops at the
+/// ID's own `: ` names another subject, and the test stays deleted.
+#[rstest]
+#[case::the_whole_id("changed > kept: at one: removed with its helper", false)]
+#[case::up_to_its_inner_colon("changed > kept: removed with its helper", true)]
+fn a_trailer_names_a_test_whose_id_holds_a_colon_by_its_whole_id(
+    #[case] trailer: &str,
+    #[case] refused: bool,
+) {
+    let workspace = Workspace::from_fixture("stress");
+    workspace.edit(
+        "web/changed.test.ts",
+        "  test(\"kept\", () => {",
+        "  test(\"kept: at one\", () => {\n    expect(1).toBe(1);\n  });\n\n  test(\"kept\", () => {",
+    );
+    workspace.install_runners();
+    let base = workspace.commit_all();
+    workspace.edit(
+        "web/changed.test.ts",
+        "  test(\"kept: at one\", () => {\n    expect(1).toBe(1);\n  });\n\n",
+        "",
+    );
+    workspace.commit_all_with(&format!("test: drop a test\n\nQuality-change: {trailer}"));
+
+    let outcome = workspace.xtask(&["stress", "select", "--base", &base]);
+
+    // The whole line: a finding's subject is read up to its first `: `.
+    let deleted = outcome
+        .stderr
+        .lines()
+        .any(|line| line.starts_with("error[deleted-test] changed > kept: at one: vitest lists"));
+    assert_eq!(deleted, refused, "{}", outcome.stderr);
+    assert_eq!(outcome.code, i32::from(refused), "{}", outcome.stderr);
+}
+
 /// The tests `changed.rs` gains in a module `reads`, as rstest generates
 /// the cases of a test `reads`: one test per case, `case_<n>_<description>`
 /// or `case_<n>` with none, `<n>` its position zero-padded to the width of

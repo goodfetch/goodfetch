@@ -1190,7 +1190,7 @@ async fn quiet(units: &Units, work: &CountedWork) {
 /// `page_id`, which the program then drives as its own.
 const OPEN_POOL_PAGE: Operation = Operation {
     name: "test.open_pool_page",
-    description: "Opens a page of the Run's Session pool through BrowserPages, navigated to a URL.",
+    description: "Opens a page of the Run's browser pool through BrowserPages, navigated to a URL.",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -1198,6 +1198,8 @@ const OPEN_POOL_PAGE: Operation = Operation {
     result: schema_of::<Value>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: PROTOCOL_VERSION,
@@ -1206,7 +1208,7 @@ const OPEN_POOL_PAGE: Operation = Operation {
 /// Closes a page [`OPEN_POOL_PAGE`] opened: `{ page_id }`.
 const CLOSE_POOL_PAGE: Operation = Operation {
     name: "test.close_pool_page",
-    description: "Closes a page of the Run's Session pool through BrowserPages.",
+    description: "Closes a page of the Run's browser pool through BrowserPages.",
     ..OPEN_POOL_PAGE
 };
 

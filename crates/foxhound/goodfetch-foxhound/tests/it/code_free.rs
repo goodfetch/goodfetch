@@ -25,7 +25,7 @@ use serde_json::{Value, json};
 
 use crate::attached;
 use crate::attached_with;
-use crate::fetch_tiers::settings;
+use crate::fetch_tiers::{settings, tiers};
 
 /// The Proving ground's seed.
 const SEED: u64 = 994;
@@ -471,6 +471,64 @@ fn an_xpath_field_reads_alike_on_every_tier(#[case] tier: &str, #[case] read_on:
             records[0]["provenance"]["tier"]["call"].clone(),
         ),
         (value_record(&origin), read_on, Value::Null)
+    );
+}
+
+/// Provenance names the tier that sent a document, whoever chose it
+/// (issue 2409): under `auto`, in an engine with browser pages, a Label's
+/// samples send their cheaper run from inside the Session's browser, and
+/// so does each request once the Label is learned onto the document tier;
+/// every such run is recorded on `browser_fetch`, none on `http`, and how
+/// it was chosen stays `sample` or `compared`.
+///
+/// Covers: story:5-116, story:6-304, operation:crawl.start
+#[test]
+fn a_document_sent_from_the_sessions_browser_under_auto_is_recorded_on_browser_fetch() {
+    const HOST: &str = "tiers.test";
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    });
+    let seeds: Vec<Value> = (1..=5)
+        .map(|page| {
+            let url = proving_ground.url(HOST, &format!("/products/{page}"));
+            json!({ "url": url, "label": "page" })
+        })
+        .collect();
+
+    let (started, records) = crawl(
+        &mut engine,
+        &proving_ground,
+        ("sent-from-the-browser", &seeds),
+        &json!({
+            "formats": {},
+            "follow": "none",
+            "fields": { "title": { "locator": { "kind": "css", "selector": "h1" } } },
+        }),
+        &json!({ "fetch": { "tier": "auto" }, "politeness": { "domain": { "concurrency": 1 } } }),
+    );
+    assert!(engine.finished());
+
+    assert!(started.get("result").is_some(), "{started}");
+    let sample = [
+        json!(["page", "browser_fetch", "sample", null, null]),
+        json!(["page", "browser", "sample", null, null]),
+    ];
+    let learned = json!(["page", "browser_fetch", "compared", null, null]);
+    assert_eq!(
+        (records.len(), tiers(&env, "sent-from-the-browser")),
+        (
+            5,
+            [
+                &sample[..],
+                &sample[..],
+                &sample[..],
+                &[learned.clone(), learned]
+            ]
+            .concat()
+        )
     );
 }
 

@@ -125,6 +125,33 @@ describe("a Collie Connection on an Attached engine", () => {
       });
     },
   );
+  test(
+    "reaches the engine through the members generated from the catalog",
+    { tags: ["client_case/catalog-mapping", "attached", "story:11-178"] },
+    async ({ env, clientCase }) => {
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      await using collie = await Collie.connect({ env });
+      const run = await collie.start();
+
+      const set = await run.setProgressMessage("three pages left");
+      const read = await run.progress();
+      const finished = await run.finish();
+      const report = await run.report();
+
+      await clientCase.check("a member with a positional parameter reaches its operation", () =>
+        expect(set).toMatchObject({ run_id: run.id(), lifecycle: "running" }),
+      );
+      await clientCase.check("a member with only options answers what the engine holds", () =>
+        expect(read.message).toEqual(set.message),
+      );
+      await clientCase.check("a member that ends the Run answers its report", () =>
+        expect(finished).toMatchObject({ run_id: run.id(), lifecycle: "finished" }),
+      );
+      await clientCase.check("the engine holds what the members did", () =>
+        expect(report).toMatchObject({ run_id: run.id(), lifecycle: "finished" }),
+      );
+    },
+  );
 });
 
 describe("a Collie Connection on the Scripted engine as its Attached engine", () => {

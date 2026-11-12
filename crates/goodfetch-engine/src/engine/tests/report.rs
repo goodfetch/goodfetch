@@ -22,9 +22,8 @@ use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
 use goodfetch_protocol::run::{
-    AxisReason, EndingError, NothingDone, PlanReport, PlanStatus, PluginRun, RUN_STOP,
-    RecordingReport, RunId, RunKind, RunReport, RunWarning, StopReason, Tags, UncertainEffect,
-    Verdict,
+    EndingError, NothingDone, PlanReport, PlanStatus, PluginRun, RUN_STOP, RecordingReport, RunId,
+    RunKind, RunReport, RunWarning, StopReason, Tags, UncertainEffect,
 };
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
@@ -274,13 +273,6 @@ impl ReportPart for Seeded {
             first_command: Some("Input.dispatchMouseEvent".to_owned()),
             since: report.started_at.clone(),
         }]);
-        report.verdict = Verdict::NeedsReview;
-        report.verdict_reasons.push(AxisReason {
-            code: "uncertain_effects".to_owned(),
-            message: "An Effect is uncertain.".to_owned(),
-            count: None,
-            call_id: None,
-        });
         report
             .kind_parts
             .insert("requests".to_owned(), json!({ "succeeded": 1 }));
@@ -718,6 +710,21 @@ fn a_seeded_runs_report_holds_every_part() {
             "warnings",
             "weakened",
         ]
+    );
+    assert_eq!(
+        (
+            &report["verdict"],
+            &report["verdict_reasons"][0]["code"],
+            &report["verdict_reasons"][0]["count"],
+            report["verdict_reasons"].as_array().map(Vec::len),
+        ),
+        (
+            &json!("needs_review"),
+            &json!("uncertain_effects"),
+            &json!(1),
+            Some(1)
+        ),
+        "{report}"
     );
 }
 

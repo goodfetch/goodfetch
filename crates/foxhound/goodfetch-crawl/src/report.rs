@@ -8,8 +8,10 @@
 //! those it could not read with their URL and why, and how many of their
 //! entries were added and not added, by reason (ADRs 0093 and 0102); and,
 //! for a crawl that finished with no seed reaching a handler, `nothingDone`'s
-//! `no_seed_handled`, counting its seeds by why each never reached one. A
-//! Run of another kind gets none of them.
+//! `no_seed_handled`, counting its seeds by why each never reached one; and
+//! the Verdict `needs_review` when it ran with `fetch.block_classification`
+//! switched off, a check its results rely on (ADR 0029). A Run of another
+//! kind gets none of them.
 
 use std::collections::BTreeMap;
 
@@ -20,7 +22,8 @@ use goodfetch_protocol::foxhound::outcomes::{
     CrawlRequestOutcome, DatasetRecords, Ending, OutcomeKind,
 };
 use goodfetch_protocol::foxhound::report::{CountOf, RequestCounts};
-use goodfetch_protocol::run::{Lifecycle, NothingDone, RunKind, RunReport, SeedsKept};
+use goodfetch_protocol::foxhound::settings::FETCH_BLOCK_CLASSIFICATION;
+use goodfetch_protocol::run::{AxisReason, Lifecycle, NothingDone, RunKind, RunReport, SeedsKept};
 use rusqlite::{Connection, OptionalExtension as _};
 
 /// The crawl's part of its Run's report.
@@ -30,6 +33,21 @@ impl ReportPart for CrawlParts {
     fn fill(&self, connection: &Connection, report: &mut RunReport) -> rusqlite::Result<()> {
         if !run_row::is_of_kind(connection, RunKind::Crawl)? {
             return Ok(());
+        }
+        if report
+            .weakened
+            .iter()
+            .any(|setting| setting.key == FETCH_BLOCK_CLASSIFICATION.name)
+        {
+            report.needs_review(AxisReason {
+                code: FETCH_BLOCK_CLASSIFICATION.name.to_owned(),
+                message: format!(
+                    "`{}` was switched off: no document was read for a Challenge or a captcha, so a Block page may stand among the results.",
+                    FETCH_BLOCK_CLASSIFICATION.name
+                ),
+                count: None,
+                call_id: None,
+            });
         }
         let (requests, records) = ended(connection)?;
         report.kind_parts.insert(

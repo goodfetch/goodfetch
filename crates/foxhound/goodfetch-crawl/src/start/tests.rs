@@ -29,6 +29,7 @@ mod resume;
 mod safe_point;
 mod sent_from;
 mod staging;
+mod verdict;
 
 use std::path::PathBuf;
 use std::sync::mpsc;

@@ -66,18 +66,20 @@ impl On<'_> {
         let decoy = reached_through_trap(leased);
         if decoy.is_none() {
             run.spawn(
-                Navigation {
-                    run: run.clone(),
-                    tiers: tiers.clone(),
-                    hand_over: Arc::clone(hand_over),
-                    pooled: self.in_browser.clone(),
-                    url: leased.crawl_request.url.clone(),
-                    context: self.context.clone(),
-                    second_copies: tiering.second_copies.clone(),
-                    domain_key: leased.waiting.key.clone(),
-                    at: started + raced.delay,
-                }
-                .run(cancelled, sending, navigated),
+                self.watch.over(
+                    Navigation {
+                        run: run.clone(),
+                        tiers: tiers.clone(),
+                        hand_over: Arc::clone(hand_over),
+                        pooled: self.in_browser.clone(),
+                        url: leased.crawl_request.url.clone(),
+                        context: self.context.clone(),
+                        second_copies: tiering.second_copies.clone(),
+                        domain_key: leased.waiting.key.clone(),
+                        at: started + raced.delay,
+                    }
+                    .run(cancelled, sending, navigated),
+                ),
             );
         }
         let document = Box::pin(async {

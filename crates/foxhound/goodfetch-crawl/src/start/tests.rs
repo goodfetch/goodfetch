@@ -24,6 +24,7 @@ mod masking;
 mod metrics;
 mod model;
 mod needs_you;
+mod panics;
 mod progress;
 mod report;
 mod resume;
@@ -60,6 +61,7 @@ pub(crate) const POLICY: CrawlPolicy = CrawlPolicy {
     handler_timeout: Duration::from_secs(1),
     retry_max: 2,
     retry_handler_failed: false,
+    retry_engine_panicked: true,
     handler_concurrency: 4,
 };
 
@@ -271,10 +273,11 @@ pub(crate) fn configure(env: &TestEnv, policy: CrawlPolicy) {
     std::fs::write(
         folder.join("configuration.toml"),
         format!(
-            "version = \"0.1\"\n\n[settings]\ntimeout.handler = {}\ncrawl.retry.max = {}\ncrawl.retry.handler_failed = {}\ncrawl.handler.concurrency = {}\n",
+            "version = \"0.1\"\n\n[settings]\ntimeout.handler = {}\ncrawl.retry.max = {}\ncrawl.retry.handler_failed = {}\ncrawl.retry.engine_panicked = {}\ncrawl.handler.concurrency = {}\n",
             policy.handler_timeout.as_millis(),
             policy.retry_max,
             policy.retry_handler_failed,
+            policy.retry_engine_panicked,
             policy.handler_concurrency,
         ),
     )
@@ -370,9 +373,13 @@ pub(crate) fn as_sent(method: &str, mut params: Value) -> Value {
 /// the first three pages [`seeds`] names.
 pub(crate) const SITEMAP: &str = "/sitemap.xml";
 
+/// The path whose fetch panics, inside the attempt that fetches it, as a
+/// bug in the engine would (issue 2285).
+pub(crate) const PANICS: &str = "/panics";
+
 /// The site every crawl of the harness fetches from memory, through the
-/// fetch tiers' test seam: every URL but [`SITEMAP`] answers one small
-/// document, and no site has a robots.txt.
+/// fetch tiers' test seam: every URL but [`SITEMAP`] and [`PANICS`]
+/// answers one small document, and no site has a robots.txt.
 struct Site;
 
 /// A body sent whole in one chunk.
@@ -391,6 +398,7 @@ impl goodfetch_fetch_tier::Transport for Site {
         _reuse: goodfetch_fetch_tier::Reuse,
     ) -> goodfetch_fetch_tier::Sending<'a, goodfetch_fetch_tier::Sent> {
         let (status, content_type, body) = match hop.url.path() {
+            PANICS => panic!("the test's site panics in the attempt that fetches {PANICS}"),
             "/robots.txt" => (404, "text/html; charset=utf-8", ""),
             SITEMAP => (200, "application/xml", SITEMAP_XML),
             _ => (

@@ -760,6 +760,20 @@ pub const CRAWL_RETRY_HANDLER_FAILED: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `crawl.retry.engine_panicked` (ADR 0148).
+pub const CRAWL_RETRY_ENGINE_PANICKED: Setting = Setting {
+    name: "crawl.retry.engine_panicked",
+    description: "Whether a work item whose attempt the engine's panic ended with `engine_panicked`, a bug in Goodfetch, is tried again, up to `crawl.retry.max`: `true`.",
+    kind: ValueKind::Boolean,
+    default: yes,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `crawl.handler.concurrency` (ADR 0093).
 pub const CRAWL_HANDLER_CONCURRENCY: Setting = Setting {
     name: "crawl.handler.concurrency",
@@ -820,6 +834,10 @@ fn sixteen() -> Value {
 
 fn no() -> Value {
     Value::Bool(false)
+}
+
+fn yes() -> Value {
+    Value::Bool(true)
 }
 
 /// `goodfetch.work_item.leased`: the crawls' work items whose attempt runs
@@ -883,6 +901,7 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_CONTENT_TYPES,
         CRAWL_RETRY_MAX,
         CRAWL_RETRY_HANDLER_FAILED,
+        CRAWL_RETRY_ENGINE_PANICKED,
         CRAWL_MAX_STAGED_ENQUEUES,
         CRAWL_HANDLER_CONCURRENCY,
         CRAWL_DOMAIN_KEYS,

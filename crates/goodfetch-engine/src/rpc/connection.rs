@@ -45,9 +45,9 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{Product, Reach};
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, ENGINE_PANICKED,
-    EnginePanickedDetails, HELLO, HelloParams, PERSON_REQUIRED, PanicEnded, PrivateEndpoint,
-    StoppedBy, Surface, TOO_MANY_CALLS, TooManyCallsDetails,
+    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams,
+    PERSON_REQUIRED, PanicEnded, PrivateEndpoint, StoppedBy, Surface, TOO_MANY_CALLS,
+    TooManyCallsDetails,
 };
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
@@ -1183,18 +1183,12 @@ fn too_many_calls() -> CallError {
 }
 
 /// `engine_panicked` for a call whose handler panicked, counted on
-/// `metrics`: it names the crash report the panic left, when one was
-/// written, and never the panic's own text (ADR 0148). Made where the
-/// panic was caught, on the thread that panicked.
+/// `metrics` ([`crash_report::engine_panicked`]). Made where the panic was
+/// caught, on the thread that panicked.
 fn engine_panicked(metrics: &Metrics) -> CallError {
-    metrics.panicked(PanicEnded::Call);
-    CallError::new(
-        &ENGINE_PANICKED,
+    crash_report::engine_panicked(
+        metrics,
+        PanicEnded::Call,
         "The engine hit a bug in Goodfetch while it served this call, which ended the call; its Connection goes on",
-        &EnginePanickedDetails {
-            ended: PanicEnded::Call,
-            id: None,
-            crash_report: crash_report::take_written(),
-        },
     )
 }

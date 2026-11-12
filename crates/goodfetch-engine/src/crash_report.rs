@@ -8,8 +8,12 @@ use std::cell::Cell;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
+use goodfetch_protocol::connection::{ENGINE_PANICKED, EnginePanickedDetails, PanicEnded};
+
+use crate::CallError;
 use crate::clock::Clock;
 use crate::mask::{Masks, Scope};
+use crate::metrics::Metrics;
 
 /// Writes a crash report into `folder` for each panic of this process,
 /// headed by `executable`, its name and version, and timed by `clock`, in
@@ -54,6 +58,23 @@ thread_local! {
 /// own panic's.
 pub(crate) fn take_written() -> Option<String> {
     LAST_WRITTEN.take()
+}
+
+/// `engine_panicked` for a panic the caller just caught, on the thread that
+/// panicked, which ended what `ended` names, as `message` tells it: counted
+/// on `metrics`, it names the crash report the panic left, when one was
+/// written, and never the panic's own text (ADR 0148).
+pub fn engine_panicked(metrics: &Metrics, ended: PanicEnded, message: &str) -> CallError {
+    metrics.panicked(ended);
+    CallError::new(
+        &ENGINE_PANICKED,
+        message,
+        &EnginePanickedDetails {
+            ended,
+            id: None,
+            crash_report: take_written(),
+        },
+    )
 }
 
 /// Resumes `panic`, caught on another thread, on this one, with `written`,

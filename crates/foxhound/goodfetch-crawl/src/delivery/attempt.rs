@@ -111,6 +111,7 @@ use goodfetch_session_pool::escalation::{self, Action, Met};
 use tokio::sync::{Mutex, oneshot};
 
 use super::failure::{AttemptFailure, Why};
+use super::watch::{self, Watch};
 use crate::code_free::CodeFree;
 use crate::lease::{CommitError, SoFar, WorkItemLease};
 use crate::progress::SharedInFlight;
@@ -292,15 +293,16 @@ pub(super) async fn run_hand_over(
 }
 
 /// The lease check of the handler pages of the attempt of `leased`,
-/// holding `lease` ([`HandlerLease`]); `in_flight` names its waits.
+/// holding `lease` and watched by `watch` ([`HandlerLease`]); `in_flight`
+/// names its waits.
 pub(super) fn handler_lease(
     run: &Run,
-    leased: &Leased,
-    lease: &WorkItemLease,
+    (leased, lease, watch): (&Leased, &WorkItemLease, &Watch),
     in_flight: &SharedInFlight,
 ) -> Arc<dyn LeaseCheck> {
     Arc::new(HandlerLease {
         lease: lease.clone(),
+        watch: watch.clone(),
         run: run.clone(),
         request_id: leased.crawl_request.id.clone(),
         in_flight: Arc::clone(in_flight),
@@ -310,10 +312,12 @@ pub(super) fn handler_lease(
 /// The lease check of an attempt's handler pages: the attempt's lease,
 /// renewed while a page waits for a navigation gate's permit, the wait
 /// named in the Run's live status, so a handler waiting for a permit is not
-/// timed out meanwhile (ADR 0093).
+/// timed out meanwhile (ADR 0093). A panic in the renewal ends the
+/// attempt ([`Watch`]).
 #[derive(Clone, Debug)]
 struct HandlerLease {
     lease: WorkItemLease,
+    watch: Watch,
     run: Run,
     request_id: String,
     in_flight: SharedInFlight,
@@ -334,7 +338,7 @@ impl LeaseCheck for HandlerLease {
     fn permit_wait(&self, _url: &str) -> PermitWait {
         let (stop, mut stopped) = oneshot::channel::<()>();
         let waiting = self.clone();
-        self.run.spawn(async move {
+        self.run.spawn(self.watch.over(async move {
             let id = &waiting.request_id;
             waiting
                 .in_flight
@@ -356,7 +360,7 @@ impl LeaseCheck for HandlerLease {
                 .lock()
                 .await
                 .permit_wait_ended(&waiting.run, id);
-        });
+        }));
         PermitWait::holding(stop)
     }
 }
@@ -401,13 +405,15 @@ pub(super) struct Attempt {
 /// first answer discarded. On `browser` the engine opens Collie's page
 /// for the handler, navigated to the request's URL through the gate. When
 /// the lease ends first, the request is cancelled and its answer left to
-/// [`late`].
+/// [`late`]. A panic in the attempt, or in a task it started while it
+/// runs, ends it failed with `engine_panicked` ([`Watch`]); what it holds
+/// is given back as for any other end.
 pub(super) async fn attempt(
     run: Run,
     server: usize,
     context: CallContext,
     (leased, (session, in_browser), counted): (Leased, (ServingSession, PooledSession), Counted),
-    lease: WorkItemLease,
+    (lease, watch): (WorkItemLease, Watch),
     (tiering, (hand_over, code_free)): (Tiering, (Arc<HandOver>, Option<Arc<CodeFree>>)),
     in_flight: SharedInFlight,
 ) -> Attempt {
@@ -428,65 +434,87 @@ pub(super) async fn attempt(
         hand_over: &hand_over,
         code_free: code_free.as_deref(),
         in_flight: &in_flight,
+        watch: &watch,
     };
-    let mut merged = Taught::default();
-    let mut sampled = None;
-    let mut raced = None;
-    let answer = match (&tiering.plan, &tiering.http) {
-        (AttemptPlan::Sitemap, Some(http)) => on.sitemap(http).await,
-        (AttemptPlan::Sitemap, None) => Answer::failed(AttemptFailure::named(
-            NAVIGATION_FAILED.name,
-            true,
-            "The crawl's HTTP tier could not be built, so the sitemap was not fetched.".to_owned(),
-        )),
-        (AttemptPlan::On(choice), _) if choice.tier == FetchTier::Browser => {
-            on.browser(&tiering.tiers, choice, Chosen::AsChosen).await
-        }
-        (AttemptPlan::On(choice), Some(http)) => {
-            let (answer, learned) = on.http(&tiering, http, choice, None).await;
-            merged = learned;
-            answer
-        }
-        (AttemptPlan::Replayed(plan), Some(http)) => {
-            let (answer, learned) = on.http(&tiering, http, &REPLAYED, Some(plan)).await;
-            merged = learned;
-            answer
-        }
-        (AttemptPlan::Sample(sample), Some(http)) => {
-            let (answer, learned, weighed) = Box::pin(on.sample(&tiering, http)).await;
-            merged = learned;
-            sampled = weighed.map(|weighed| (sample.clone(), weighed));
-            answer
-        }
-        (AttemptPlan::Race(race), Some(http)) => {
-            let (answer, learned, latency) = on.race(&tiering, http, race).await;
-            merged = learned;
-            raced = latency.map(|latency| (race.clone(), latency));
-            answer
-        }
-        (
-            AttemptPlan::On(_)
-            | AttemptPlan::Replayed(_)
-            | AttemptPlan::Sample(_)
-            | AttemptPlan::Race(_),
+    // Boxed: the attempt's future is large, and the watch holds it only
+    // while it runs.
+    let ran = watch
+        .ended(Box::pin(async {
+            let mut merged = Taught::default();
+            let mut sampled = None;
+            let mut raced = None;
+            let answer = match (&tiering.plan, &tiering.http) {
+                (AttemptPlan::Sitemap, Some(http)) => on.sitemap(http).await,
+                (AttemptPlan::Sitemap, None) => Answer::failed(AttemptFailure::named(
+                    NAVIGATION_FAILED.name,
+                    true,
+                    "The crawl's HTTP tier could not be built, so the sitemap was not fetched."
+                        .to_owned(),
+                )),
+                (AttemptPlan::On(choice), _) if choice.tier == FetchTier::Browser => {
+                    on.browser(&tiering.tiers, choice, Chosen::AsChosen).await
+                }
+                (AttemptPlan::On(choice), Some(http)) => {
+                    let (answer, learned) = on.http(&tiering, http, choice, None).await;
+                    merged = learned;
+                    answer
+                }
+                (AttemptPlan::Replayed(plan), Some(http)) => {
+                    let (answer, learned) = on.http(&tiering, http, &REPLAYED, Some(plan)).await;
+                    merged = learned;
+                    answer
+                }
+                (AttemptPlan::Sample(sample), Some(http)) => {
+                    let (answer, learned, weighed) = Box::pin(on.sample(&tiering, http)).await;
+                    merged = learned;
+                    sampled = weighed.map(|weighed| (sample.clone(), weighed));
+                    answer
+                }
+                (AttemptPlan::Race(race), Some(http)) => {
+                    let (answer, learned, latency) = on.race(&tiering, http, race).await;
+                    merged = learned;
+                    raced = latency.map(|latency| (race.clone(), latency));
+                    answer
+                }
+                (
+                    AttemptPlan::On(_)
+                    | AttemptPlan::Replayed(_)
+                    | AttemptPlan::Sample(_)
+                    | AttemptPlan::Race(_),
+                    None,
+                ) => Answer::failed(AttemptFailure::named(
+                    NAVIGATION_FAILED.name,
+                    true,
+                    "The crawl's HTTP tier could not be built, so the request was not fetched."
+                        .to_owned(),
+                )),
+            };
+            (answer, merged, sampled, raced)
+        }))
+        .await;
+    let (answer, taught, sampled, raced, ran) = match ran {
+        Ok((answer, merged, sampled, raced)) => (answer, merged, sampled, raced, true),
+        // What the attempt met before it panicked says nothing of its site:
+        // its domain neither backs off nor learns from it.
+        Err(panicked) => (
+            Answer::failed(AttemptFailure::panicked(&panicked)),
+            Taught::default(),
             None,
-        ) => Answer::failed(AttemptFailure::named(
-            NAVIGATION_FAILED.name,
-            true,
-            "The crawl's HTTP tier could not be built, so the request was not fetched.".to_owned(),
-        )),
+            None,
+            false,
+        ),
     };
     Attempt {
-        document: document.into_inner(),
-        handed_at: sent_at.into_inner(),
-        moved: moved.into_inner().is_some(),
+        document: document.into_inner().filter(|_| ran),
+        handed_at: sent_at.into_inner().filter(|_| ran),
+        moved: ran && moved.into_inner().is_some(),
         server,
         leased,
         _counted: counted,
         session,
         lease,
         answer,
-        taught: merged,
+        taught,
         sampled,
         raced,
     }
@@ -584,6 +612,9 @@ struct On<'a> {
     /// program's handler; none when the program handles them.
     code_free: Option<&'a CodeFree>,
     in_flight: &'a SharedInFlight,
+    /// The attempt's watch, over each task it starts on its Run while it
+    /// runs.
+    watch: &'a Watch,
     /// The site's answer to the request's own document, as the last run
     /// that fetched it met it, which its domain's Politeness reads (the
     /// `backoff_classes` rule).
@@ -1542,7 +1573,7 @@ async fn handled(
             },
             _ = lease.ended() => {
                 sent.cancel().await;
-                run.spawn(late(run.clone(), lease.clone(), sent));
+                run.spawn(watch::after(run.metrics(), late(run.clone(), lease.clone(), sent)));
                 Answer::LeaseEnded
             }
         },

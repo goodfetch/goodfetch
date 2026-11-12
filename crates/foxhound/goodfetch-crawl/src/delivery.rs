@@ -140,12 +140,14 @@ mod failure;
 use failure::{AttemptFailure, Why};
 mod pages;
 mod politeness;
+mod watch;
 
 use attempt::{
     Answer, Attempt, Taught, Tiering, effect, handler_lease, leased_count, run_hand_over,
 };
 use pages::{Pages, Start};
 use politeness::{RETRY_AFTER_FIX, domain_ending, end_unsent, held_past_bound};
+use watch::Watch;
 
 /// A Connection serving the crawl's handler requests, as the delivery
 /// keeps it.
@@ -689,15 +691,15 @@ impl Untouched {
 }
 
 impl Fetching<'_> {
-    /// What the attempt of `leased`, holding `lease`, hands over with its
-    /// Run's pages, built once as it is leased: `of_run`, what every
-    /// attempt of the Run hands over alike, with its own room beside the
-    /// Run's requests, `second_copies`, its HTTP admission and what its
-    /// request's Label declares.
+    /// What the attempt of `leased`, holding `lease` and watched by
+    /// `watch`, hands over with its Run's pages, built once as it is
+    /// leased: `of_run`, what every attempt of the Run hands over alike,
+    /// with its own room beside the Run's requests, `second_copies`, its
+    /// HTTP admission and what its request's Label declares.
     fn hand_over(
         &self,
         of_run: &std::sync::Arc<RunHandOver>,
-        (leased, lease): (&Leased, &WorkItemLease),
+        (leased, lease, watch): (&Leased, &WorkItemLease, &Watch),
         second_copies: &SecondCopies,
         fetch_admission: FetchAdmission,
     ) -> std::sync::Arc<HandOver> {
@@ -706,7 +708,7 @@ impl Fetching<'_> {
             of_run: std::sync::Arc::clone(of_run),
             domain_key: leased.waiting.key.clone(),
             second_copies: second_copies.clone(),
-            lease: handler_lease(&of_run.run, leased, lease, &self.in_flight),
+            lease: handler_lease(&of_run.run, (leased, lease, watch), &self.in_flight),
             fetch_admission,
             page_check: self.labels.settings.page_check(label).cloned(),
             extractor: self.labels.settings.extractor(label),
@@ -880,9 +882,10 @@ async fn lease_to_servers(
                     .pop()
                     .expect("invariant: one admission per work item admitted"),
             );
+            let watch = Watch::new(run.metrics());
             let hand_over = fetching.hand_over(
                 pooled.handing,
-                (&leased, &lease),
+                (&leased, &lease, &watch),
                 &copies,
                 admission.clone(),
             );
@@ -906,6 +909,7 @@ async fn lease_to_servers(
                 server: (place, server.context.clone()),
                 leased: (leased, (session, in_browser), leased_count(run)),
                 lease,
+                watch,
                 fetching: (tiering, (hand_over, fetching.code_free.clone())),
                 admission,
             });
@@ -1908,7 +1912,8 @@ fn refused(reason: SkipReason) -> Unsuccessful {
 /// attempt since its latest admission ends it under `policy`: retried
 /// while it is `retryable` and retries are left, failed otherwise; a
 /// handler's own failure is retryable only as `crawl.retry.handler_failed`
-/// says.
+/// says, and one the engine's panic ended only as
+/// `crawl.retry.engine_panicked` says (ADR 0148).
 fn retried_or_failed(
     policy: CrawlPolicy,
     attempt: u32,
@@ -1918,6 +1923,7 @@ fn retried_or_failed(
 ) -> Unsuccessful {
     let retryable = match why {
         Why::Handler => policy.retry_handler_failed,
+        Why::Panicked => policy.retry_engine_panicked,
         _ => retryable,
     };
     if retryable && policy.may_retry(attempt) {

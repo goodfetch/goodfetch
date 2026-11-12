@@ -19,6 +19,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::{JoinError, JoinSet};
 
 use super::attempt::{Attempt, Tiering, attempt};
+use super::watch::Watch;
 use crate::code_free::CodeFree;
 use crate::lease::WorkItemLease;
 use crate::progress::SharedInFlight;
@@ -30,12 +31,13 @@ const MAILBOX: usize = 64;
 
 /// An attempt to run: the Connection it is served on, by its place in the
 /// delivery's list and its call context, its work item as leased, its
-/// Session, its lease, how it is fetched and handed over, and the HTTP
-/// admission it holds until it ends.
+/// Session, its lease, its watch, how it is fetched and handed over, and
+/// the HTTP admission it holds until it ends.
 pub(super) struct Start {
     pub(super) server: (usize, CallContext),
     pub(super) leased: (Leased, (ServingSession, PooledSession), Counted),
     pub(super) lease: WorkItemLease,
+    pub(super) watch: Watch,
     pub(super) fetching: (Tiering, (Arc<HandOver>, Option<Arc<CodeFree>>)),
     pub(super) admission: FetchAdmission,
 }
@@ -161,6 +163,7 @@ async fn page(run: Run, in_flight: SharedInFlight, mailbox: mpsc::Sender<Ended>,
             server: (server, context),
             leased,
             lease,
+            watch,
             fetching,
             admission,
         } = start;
@@ -171,7 +174,7 @@ async fn page(run: Run, in_flight: SharedInFlight, mailbox: mpsc::Sender<Ended>,
             server,
             context,
             leased,
-            lease,
+            (lease, watch),
             fetching,
             Arc::clone(&in_flight),
         ))

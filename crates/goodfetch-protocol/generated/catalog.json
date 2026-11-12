@@ -4891,6 +4891,22 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": true,
+      "description": "Whether a work item whose attempt the engine's panic ended with `engine_panicked`, a bug in Goodfetch, is tried again, up to `crawl.retry.max`: `true`.",
+      "name": "crawl.retry.engine_panicked",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": false,
       "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
       "name": "crawl.retry.handler_failed",

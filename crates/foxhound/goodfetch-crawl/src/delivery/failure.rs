@@ -10,7 +10,7 @@
 
 use std::time::SystemTime;
 
-use goodfetch_engine::retry_after;
+use goodfetch_engine::{CallError, retry_after};
 use goodfetch_fetch_tier::{FetchFailure, TransportFailure};
 use goodfetch_frontier::backoff_classes::{Class, Met, class};
 use goodfetch_protocol::block::BlockCause;
@@ -52,6 +52,9 @@ pub(crate) enum Why {
     /// The run file refused the write of the attempt's outcome: the
     /// attempt is retried as one that failed (issue 2320).
     OutcomeNotWritten,
+    /// The engine panicked in the attempt (ADR 0148): retried only as
+    /// `crawl.retry.engine_panicked` says; its domain does not back off.
+    Panicked,
     /// Any other failure: nothing but its `retryable` acts on it.
     Other,
 }
@@ -103,6 +106,19 @@ impl AttemptFailure {
             retryable: true,
             message: format!("The attempt's outcome was not written: {cause}."),
             details: Map::new(),
+        }
+    }
+
+    /// The failure of an attempt the engine's panic ended, as `error`,
+    /// its `engine_panicked`, tells it (ADR 0148).
+    pub(crate) fn panicked(error: &CallError) -> Self {
+        Self {
+            why: Why::Panicked,
+            retry_after: None,
+            code: error.code().to_owned(),
+            retryable: error.retryable(),
+            message: error.message().to_owned(),
+            details: error.details().cloned().unwrap_or_default(),
         }
     }
 

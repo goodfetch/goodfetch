@@ -88,6 +88,7 @@ fn failure_ending(answer: &Answer, now: Instant, wall: SystemTime) -> Ended {
         | Why::Proxy
         | Why::Handler
         | Why::OutcomeNotWritten
+        | Why::Panicked
         | Why::Other => Ended::Done,
     }
 }

@@ -78,6 +78,8 @@ pub const SAMPLE_ECHO_REPEATS: Setting = Setting {
     clearable: false,
     authority: crate::catalog::Authority::Every,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("sample_echo_repeats"),
     arrived_in: ARRIVED_IN,
 };
 
@@ -98,6 +100,8 @@ pub const ENTRIES: Entries = Entries {
         result: schema_of::<SampleEchoResult>,
         events: &[&SAMPLE_ECHOED],
         cancellable: true,
+        input: None,
+        bound: None,
         stability: Stability::Experimental,
         deprecated: Some(Deprecation {
             since: ARRIVED_IN,

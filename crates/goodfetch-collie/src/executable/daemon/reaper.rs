@@ -26,6 +26,7 @@ use std::io;
 use std::path::Path;
 use std::process::ExitCode;
 
+use goodfetch_engine::children::give_huge_pages_as_started;
 use tokio::signal::unix::{SignalKind, signal};
 
 /// Runs the foreground Daemon from `executable` under this process as its
@@ -68,6 +69,7 @@ fn reap(
             .args(json.then_some("--json"))
             .env_clear()
             .envs(environment);
+        give_huge_pages_as_started(&mut command);
         {
             use std::os::unix::process::CommandExt as _;
             // SAFETY: the closure runs in the child between fork and exec,

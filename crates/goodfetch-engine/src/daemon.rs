@@ -12,6 +12,13 @@
 //! the pick. Its state changes only as the engine's transition table says
 //! (ADR 0128): an end that comes once another is decided changes nothing.
 //!
+//! A failed accept ends that one attempt: it is logged and the Daemon goes
+//! on accepting, at once after a stream it had to drop, and waiting a
+//! little longer before each new attempt while accepts keep failing, as
+//! they do while the process has no descriptor left.
+//! Only a listener closed for good ends the Daemon, as a listener failure,
+//! once its Runs drained as on a requested drain, within the drain grace.
+//!
 //! Which executable is the pick, and what a handover takes on the machine
 //! (the start lock, the runtime file), is the [`Succession`] its starter
 //! gives it; [`files`] holds the machine's side: the runtime file, the
@@ -37,6 +44,7 @@ use goodfetch_protocol::daemon::{
     NotADaemonDetails, STATUS, STOP,
 };
 use tokio::sync::{Mutex, mpsc, watch};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::call_error::CallError;
@@ -59,6 +67,14 @@ use crate::transport::{Connection, DaemonListener, TransportError};
 /// answer and close before it closes that Connection itself.
 const STOP_GRACE: Duration = Duration::from_secs(5);
 
+/// How long a Daemon waits before it accepts again once a second accept in
+/// a row failed, doubling with each further failure up to
+/// [`LONGEST_ACCEPT_WAIT`].
+const FIRST_ACCEPT_WAIT: Duration = Duration::from_millis(10);
+
+/// The longest a Daemon waits between two attempts to accept.
+const LONGEST_ACCEPT_WAIT: Duration = Duration::from_secs(1);
+
 /// What a Daemon runs with beside its engine's [`Dependencies`](crate::Dependencies).
 pub struct DaemonOptions {
     /// The per-launch token every `hello` must carry, from the OS
@@ -77,9 +93,9 @@ pub struct DaemonOptions {
     pub holds: Holds,
     /// Which executable is its major's pick, and how it hands over.
     pub succession: Arc<dyn Succession>,
-    /// How it drains when its starter asks, as `daemon run` does on
-    /// `SIGTERM` (ADR 0049); none for a Daemon on the machine.
-    pub drain: Option<Drain>,
+    /// How it drains: when its starter asks, as `daemon run` does on
+    /// `SIGTERM` (ADR 0049), and once its listener is closed for good.
+    pub drain: Drain,
     /// The install database it keeps every Run's run state in, in the
     /// per-install layout (`run_state.layout`, ADR 0002); none in the
     /// per-run layout.
@@ -93,15 +109,17 @@ pub struct DaemonOptions {
     pub websocket: Option<Authorities>,
 }
 
-/// How a foreground Daemon drains (ADR 0049): once `asked` is cancelled it
-/// takes no Run, stops each live Run at its next safe point with a
-/// Checkpoint, resumable by its Run ID, and ends once every one stopped or
-/// `grace` passed on its `Clock`, whichever comes first; a Run that reached
-/// no safe point by then stays resumable from its run file.
+/// How a Daemon drains (ADR 0049): once `asked` is cancelled, or its
+/// listener is closed for good, it takes no Run, stops each live Run at its
+/// next safe point with a Checkpoint, resumable by its Run ID, and ends
+/// once every one stopped or `grace` passed on its `Clock`, whichever comes
+/// first; a Run that reached no safe point by then stays resumable from its
+/// run file.
 #[derive(Clone, Debug)]
 pub struct Drain {
-    /// Cancelled when the Daemon must drain.
-    pub asked: CancellationToken,
+    /// Cancelled when the Daemon must drain, as `daemon run` asks on
+    /// `SIGTERM`; none for a Daemon on the machine, which no starter asks.
+    pub asked: Option<CancellationToken>,
     /// `daemon.drain_grace`.
     pub grace: Duration,
 }
@@ -128,7 +146,7 @@ pub enum DaemonEnd {
     /// It handed over to its major's pick, which its caller now starts with
     /// what [`Succession::begin_handover`] answered.
     HandedOver(Box<dyn Send>),
-    /// Its listener failed.
+    /// Its listener was closed for good, and it drained.
     ListenerFailed,
     /// It drained, as its starter asked.
     Drained,
@@ -444,15 +462,18 @@ fn count(live: usize) -> u32 {
 /// those of children of `owner`.
 pub(crate) async fn serve(
     serving: Serving,
-    mut listener: DaemonListener,
+    listener: DaemonListener,
     mut options: DaemonOptions,
     owner: &TaskOwner,
 ) -> DaemonEnd {
-    let drain = options.drain.take();
+    let Drain {
+        asked: drain_asked_by,
+        grace,
+    } = options.drain.clone();
     let ops = options.ops.listener.take();
     let asked = async {
-        match &drain {
-            Some(drain) => drain.asked.cancelled().await,
+        match &drain_asked_by {
+            Some(asked) => asked.cancelled().await,
             None => std::future::pending().await,
         }
     };
@@ -471,7 +492,7 @@ pub(crate) async fn serve(
     let clock = serving.engine.clock();
     let idle = idle(&shared, clock);
     tokio::pin!(idle);
-    let mut accepting = true;
+    let mut accepts = Accepts::new(listener, clock);
     let mut idled = false;
     let mut drain_asked = false;
     let end = loop {
@@ -511,30 +532,29 @@ pub(crate) async fn serve(
                 drain_asked = true;
                 // A drain once a handover is decided changes nothing.
                 if let Ok(EngineState::Draining) = shared.transition(EngineEvent::Drain).await {
-                    serving.metrics.draining(true);
-                    let grace = drain.as_ref().map_or(Duration::ZERO, |drain| drain.grace);
-                    drain_runs(&serving, grace).await;
-                    drop(listener);
-                    let _ = shared.transition(EngineEvent::Drained).await;
+                    drain_runs(&serving, &shared, grace).await;
+                    drop(accepts);
                     return finish(DaemonEnd::Drained, &connections_owner, &shared).await;
                 }
             }
-            accepted = listener.accept(), if accepting => match accepted {
+            accepted = accepts.next() => match accepted {
                 Ok(connection) => admit(&mut open, &mut next, |id| serve_connection(&serving, &shared, &connections_owner, connection, id, ended.clone())),
-                // Every in-memory dialer is gone: it goes on with its Clients.
-                Err(TransportError::DialerClosed) => accepting = false,
-                Err(error) => {
-                    tracing::error!(%error, "the Daemon's listener failed");
-                    accepting = false;
+                // It goes on with its Clients.
+                Err(NoMoreConnections::DialersGone) => {}
+                Err(NoMoreConnections::ListenerClosed(error)) => {
+                    tracing::error!(%error, "the Daemon's listener is closed: it drains its runs and stops");
+                    // A listener closed once a handover is decided changes nothing.
                     let failed = shared.transition(EngineEvent::ListenerFailed).await;
-                    if let Ok(EngineState::Stopping) = failed {
+                    if let Ok(EngineState::Draining) = failed {
+                        drain_runs(&serving, &shared, grace).await;
+                        drop(accepts);
                         return finish(DaemonEnd::ListenerFailed, &connections_owner, &shared).await;
                     }
                 }
             },
         }
     };
-    drop(listener);
+    drop(accepts);
     let end = match end {
         Ending::HandOver(begun) => DaemonEnd::HandedOver(begun),
         Ending::Stop(asking) => {
@@ -543,6 +563,103 @@ pub(crate) async fn serve(
         }
     };
     finish(end, &connections_owner, &shared).await
+}
+
+/// Why a listener gives no Connection any more.
+pub(crate) enum NoMoreConnections {
+    /// Every in-memory dialer is gone.
+    DialersGone,
+    /// It was closed for good, as the OS said with this failure.
+    ListenerClosed(TransportError),
+}
+
+/// The Connections an engine takes from a listener, a Daemon's or an
+/// Attached engine's private endpoint's, past each failed accept.
+pub(crate) struct Accepts {
+    listener: DaemonListener,
+    clock: Clock,
+    /// Whether the listener gives no Connection any more.
+    ended: bool,
+    /// How many accepts failed in a row.
+    failed: u32,
+    /// When it accepts again, after accepts that failed in a row.
+    again_at: Option<Instant>,
+}
+
+impl Accepts {
+    pub(crate) fn new(listener: DaemonListener, clock: Clock) -> Self {
+        Self {
+            listener,
+            clock,
+            ended: false,
+            failed: 0,
+            again_at: None,
+        }
+    }
+
+    /// The next Connection. A failed accept ends that attempt alone: it is
+    /// logged, and the next attempt follows, at once after a dropped
+    /// stream or one failure, and after a wait once failures repeat. Answers once why the listener
+    /// gives no Connection any more, and never resolves after that.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future loses no Connection, and a wait it began ends
+    /// when it would have.
+    pub(crate) async fn next(&mut self) -> Result<Connection, NoMoreConnections> {
+        loop {
+            if self.ended {
+                return std::future::pending().await;
+            }
+            if let Some(again_at) = self.again_at {
+                self.clock.sleep_until(again_at).await;
+                self.again_at = None;
+            }
+            match self.listener.accept().await {
+                Ok(connection) => {
+                    self.failed = 0;
+                    return Ok(connection);
+                }
+                Err(TransportError::DialerClosed) => {
+                    self.ended = true;
+                    return Err(NoMoreConnections::DialersGone);
+                }
+                // It says nothing of the next: no wait, however many follow.
+                Err(TransportError::Stream(error)) => {
+                    tracing::warn!(%error, "an accepted stream was dropped: the listener goes on accepting");
+                }
+                Err(TransportError::Accept(error)) => {
+                    self.failed = self.failed.saturating_add(1);
+                    let wait = wait_after(self.failed);
+                    tracing::warn!(
+                        %error,
+                        retry_in_ms = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX),
+                        "an accept failed: the listener goes on accepting"
+                    );
+                    self.again_at = (!wait.is_zero()).then(|| self.clock.now() + wait);
+                }
+                // `EngineGone` is a dialer's, never an accept's.
+                Err(error @ (TransportError::ListenerClosed(_) | TransportError::EngineGone)) => {
+                    self.ended = true;
+                    return Err(NoMoreConnections::ListenerClosed(error));
+                }
+            }
+        }
+    }
+}
+
+/// How long a Daemon waits before it accepts again once `failed` accepts
+/// failed in a row: no time after the first, since one failed attempt says
+/// nothing of the next, then [`FIRST_ACCEPT_WAIT`] doubled by each further
+/// failure, up to [`LONGEST_ACCEPT_WAIT`].
+fn wait_after(failed: u32) -> Duration {
+    match failed.checked_sub(2) {
+        None => Duration::ZERO,
+        Some(doublings) => 1_u32
+            .checked_shl(doublings)
+            .and_then(|factor| FIRST_ACCEPT_WAIT.checked_mul(factor))
+            .map_or(LONGEST_ACCEPT_WAIT, |wait| wait.min(LONGEST_ACCEPT_WAIT)),
+    }
 }
 
 /// Serves the next Connection, `next`, with `serve`, keeping the token
@@ -650,8 +767,10 @@ async fn close_all_but(
     }
 }
 
-/// Drains the Daemon's Runs, waiting at most `grace` for them to stop.
-async fn drain_runs(serving: &Serving, grace: Duration) {
+/// Drains the Daemon's Runs, waiting at most `grace` for them to stop,
+/// after which the Daemon, which was `Draining`, is `Stopping`.
+async fn drain_runs(serving: &Serving, shared: &Shared, grace: Duration) {
+    serving.metrics.draining(true);
     let clock = serving.engine.clock();
     let drained = async {
         let draining = serving.runs.drain().await;
@@ -668,6 +787,7 @@ async fn drain_runs(serving: &Serving, grace: Duration) {
             "the drain grace passed: each run not yet at a safe point stays resumable from its run file"
         ),
     }
+    let _ = shared.transition(EngineEvent::Drained).await;
 }
 
 /// Closes every Connection, then answers `end`.

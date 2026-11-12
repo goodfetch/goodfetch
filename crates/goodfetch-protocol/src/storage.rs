@@ -137,6 +137,8 @@ pub const LOW_FREE: Setting = Setting {
     clearable: true,
     authority: Authority::Machine,
     weakens: Some(is_off),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -149,6 +151,8 @@ pub const CRITICAL_FREE: Setting = Setting {
     clearable: true,
     authority: Authority::Machine,
     weakens: Some(is_off),
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 

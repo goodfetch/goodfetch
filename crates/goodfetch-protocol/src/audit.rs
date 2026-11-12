@@ -179,6 +179,8 @@ pub const AUDIT_EXPORT: Operation = Operation {
     result: schema_of::<AuditExported>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,
@@ -201,6 +203,8 @@ pub const AUDIT_RETENTION: Setting = Setting {
     clearable: true,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -213,6 +217,8 @@ pub const AUDIT_OTLP: Setting = Setting {
     clearable: false,
     authority: Authority::Machine,
     weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
     arrived_in: ARRIVED_IN,
 };
 
@@ -227,6 +233,8 @@ pub const AUDIT_VERIFY: Operation = Operation {
     result: schema_of::<AuditVerified>,
     events: &[],
     cancellable: false,
+    input: None,
+    bound: None,
     stability: Stability::Experimental,
     deprecated: None,
     arrived_in: ARRIVED_IN,

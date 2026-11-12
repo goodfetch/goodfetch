@@ -251,3 +251,118 @@ fn an_analysis_runs_inline_under_the_inline_policy() {
 
     assert!(answer);
 }
+
+/// How long an Inline test waits, on the paused clock, for what an owner
+/// owes: never once means the test fails rather than hangs. A test on
+/// threads waits without it, since the paused clock moves on while a
+/// thread of its own still runs.
+const OWED: Duration = Duration::from_mins(1);
+
+/// Awaits `owed` within [`OWED`] under [`BlockingPolicy::Inline`], and
+/// without a limit under [`BlockingPolicy::Threads`]: whether it came.
+async fn within<F: Future<Output = ()>>(policy: BlockingPolicy, owed: F) -> bool {
+    match policy {
+        BlockingPolicy::Inline => tokio::time::timeout(OWED, owed).await.is_ok(),
+        BlockingPolicy::Threads => {
+            owed.await;
+            true
+        }
+    }
+}
+
+/// A child owner's task that panics is told to its parent, which then stops
+/// the child: the stop ends, a sibling task that waits for its cancellation
+/// included (ADR 0148).
+#[rstest]
+#[case::on_threads(BlockingPolicy::Threads)]
+#[case::inline(BlockingPolicy::Inline)]
+fn a_child_task_that_panics_is_told_to_its_parent_which_stops_the_child(
+    #[case] policy: BlockingPolicy,
+) {
+    let (told, stopped) = goodfetch_test_support::runtime().block_on(async {
+        let parent = TaskOwner::root(policy);
+        let child = parent.child();
+        let token = child.token().clone();
+        child.spawn(async move { token.cancelled().await });
+        child.spawn(async { panic!("the task's own panic") });
+
+        let told = within(policy, child.panicked()).await;
+        let stopped = within(policy, child.stop()).await;
+        parent.stop().await;
+        (told, stopped)
+    });
+
+    assert_eq!((told, stopped), (true, true));
+}
+
+/// A child owner's actor whose handler panics is told to its parent, which
+/// then stops the child, on the actor's own thread as when it runs as a
+/// task.
+#[rstest]
+#[case::on_a_dedicated_thread(BlockingPolicy::Threads)]
+#[case::as_a_task(BlockingPolicy::Inline)]
+fn a_child_actor_that_panics_is_told_to_its_parent_which_stops_the_child(
+    #[case] policy: BlockingPolicy,
+) {
+    let (told, stopped) = goodfetch_test_support::runtime().block_on(async {
+        let parent = TaskOwner::root(policy);
+        let child = parent.child();
+        let (sender, mailbox) = mpsc::channel(8);
+        child
+            .actor("test-actor", mailbox, |_: Vec<i32>| {
+                panic!("the actor's own panic")
+            })
+            .unwrap();
+        sender.send(1).await.unwrap();
+
+        let told = within(policy, child.panicked()).await;
+        let stopped = within(policy, child.stop()).await;
+        parent.stop().await;
+        (told, stopped)
+    });
+
+    assert_eq!((told, stopped), (true, true));
+}
+
+/// Blocking work that panics once its caller was dropped, which only a
+/// blocking thread allows, is told to its owner's parent, which then stops
+/// the owner.
+#[test]
+fn blocking_work_that_panics_after_its_caller_dropped_is_told_to_its_parent() {
+    let stopped = goodfetch_test_support::runtime().block_on(async {
+        let parent = TaskOwner::root(BlockingPolicy::Threads);
+        let child = parent.child();
+        let (started, starting) = oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let caller = child.blocking(move || {
+            let _ = started.send(());
+            let _ = released.recv();
+            panic!("the work's own panic")
+        });
+        tokio::select! {
+            () = caller => unreachable!("the work waits for its release"),
+            _ = starting => {}
+        }
+        release.send(()).unwrap();
+
+        child.panicked().await;
+        child.stop().await;
+        parent.stop().await;
+        true
+    });
+
+    assert!(stopped);
+}
+
+/// An owner none of whose tasks panicked is never told so.
+#[test]
+fn an_owner_whose_tasks_ended_is_not_told_of_a_panic() {
+    let told = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        owner.spawn(async {});
+        owner.stop().await;
+        tokio::time::timeout(OWED, owner.panicked()).await.is_ok()
+    });
+
+    assert!(!told);
+}

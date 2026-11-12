@@ -7,7 +7,11 @@
 //! flight are cancelled at their next cancellation point, answered, and the
 //! Connection closes once they all are. A call whose handler panics is
 //! answered `engine_panicked` and gives its place in flight back, as any
-//! call that ended (ADR 0148). A Connection reads its Client
+//! call that ended (ADR 0148). A Connection whose own task panicked ends
+//! as when its Client goes away, and the panic counts as one that ended a
+//! Connection: its writer's and its log forwarder's, tasks of its owner,
+//! are told to the task that serves it, whose own panic is caught where it
+//! runs, so none reaches the engine. A Connection reads its Client
 //! whatever the number of calls in flight: at its cap only a new call is
 //! refused, with `too_many_calls`, so the `$/cancel`, the `$/credit` or the
 //! reply that frees a call is always read. A Connection the engine closes
@@ -299,23 +303,37 @@ pub(crate) async fn serve(
     access: Access,
     engine: EngineContext,
 ) {
-    let Some((reading, writing, listener)) = carriage(connection, &access, &engine).await else {
-        return;
+    let metrics = dispatch.metrics.clone();
+    let serving = async {
+        let Some((reading, writing, listener)) = carriage(connection, &access, &engine).await
+        else {
+            return;
+        };
+        serve_carried(
+            dispatch,
+            Carried {
+                reading,
+                writing,
+                listener,
+            },
+            owner,
+            runs,
+            events,
+            access,
+            engine,
+        )
+        .await;
     };
-    serve_carried(
-        dispatch,
-        Carried {
-            reading,
-            writing,
-            listener,
-        },
-        owner,
-        runs,
-        events,
-        access,
-        engine,
-    )
-    .await;
+    // The serving task's watch (ADR 0148): its own panic, such as one
+    // while it handles a message, ends only its Connection, which its
+    // caller then stops as when its Client went away.
+    if AssertUnwindSafe(serving).catch_unwind().await.is_err() {
+        metrics.panicked(PanicEnded::Connection);
+        tracing::error!(
+            crash_report = crash_report::take_written().as_deref(),
+            "the task that serves a Connection panicked; the Connection ends"
+        );
+    }
 }
 
 /// How a Connection's messages travel, and its listener.
@@ -350,6 +368,18 @@ async fn serve_carried(
         dispatch.work.clone(),
     ));
     let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
+    // The watch of its own tasks (ADR 0148): a panic of one is told to the
+    // serving loop, which ends the Connection; this ends once that loop
+    // stopped listening.
+    let (panicked, told) = (owner.panicked(), completed.clone());
+    owner.spawn(async move {
+        tokio::select! {
+            () = panicked => {
+                let _ = told.send(Told::OwnTaskPanicked).await;
+            }
+            () = told.closed() => {}
+        }
+    });
     let (client, requests) = Client::new(dispatch.work.clone());
     let daemon = access.daemon();
     let log = dispatch
@@ -387,6 +417,7 @@ async fn serve_carried(
         outgoing,
         completed,
         completions,
+        own_task_panicked: false,
         in_flight: BTreeMap::new(),
         state: ConnectionState::Opening,
         connection,
@@ -515,6 +546,14 @@ impl Message {
     }
 }
 
+/// What ended, as the Connection's tasks tell its serving loop.
+enum Told {
+    /// The call of this id, whose answer is on its way.
+    CallEnded(RequestId),
+    /// One of the Connection's own tasks, which panicked.
+    OwnTaskPanicked,
+}
+
 /// Whether the Connection goes on after a message.
 enum Flow {
     Continue,
@@ -525,8 +564,11 @@ struct Session<'owner> {
     dispatch: Arc<Dispatch>,
     owner: &'owner TaskOwner,
     outgoing: mpsc::Sender<Vec<u8>>,
-    completed: mpsc::Sender<RequestId>,
-    completions: mpsc::Receiver<RequestId>,
+    completed: mpsc::Sender<Told>,
+    completions: mpsc::Receiver<Told>,
+    /// Whether one of its own tasks panicked, which ends it as when its
+    /// Client goes away.
+    own_task_panicked: bool,
     in_flight: BTreeMap<RequestId, InFlight>,
     /// Where it is, which only the engine's table changes (ADR 0128).
     state: ConnectionState,
@@ -549,9 +591,9 @@ struct Pending {
 }
 
 impl Session<'_> {
-    /// Serves the Connection until the Client's input ended and every call
-    /// was answered, or the engine closed it; answers whether the input
-    /// ended.
+    /// Serves the Connection until the Client's input ended, or one of
+    /// its own tasks panicked, and every call was answered, or the engine
+    /// closed it; answers whether the input ended or a task panicked.
     async fn run(&mut self, reading: &mut Reading) -> bool {
         let mut pending = Vec::new();
         let mut ended = false;
@@ -562,6 +604,7 @@ impl Session<'_> {
                     return ended;
                 }
             }
+            ended |= self.own_task_panicked;
             if ended {
                 if !lost {
                     lost = true;
@@ -590,9 +633,7 @@ impl Session<'_> {
             let sending = self.state != ConnectionState::Opening;
             tokio::select! {
                 biased;
-                Some(id) = self.completions.recv() => {
-                    self.in_flight.remove(&id);
-                }
+                Some(told) = self.completions.recv() => self.told(told),
                 Some(request) = self.requests.recv(), if sending => {
                     if let Flow::Close = self.send_request(request).await {
                         return ended;
@@ -1044,7 +1085,7 @@ impl Session<'_> {
             // Ended before its answer is sent: the Client may reuse the id
             // as soon as the answer arrives, and `still_in_flight` then
             // finds this end waiting.
-            let _ = completed.send(id).await;
+            let _ = completed.send(Told::CallEnded(id)).await;
             let _ = outgoing.send(line).await;
         });
     }
@@ -1054,10 +1095,25 @@ impl Session<'_> {
     /// id of a call whose answer the Client read is free again (JSON-RPC
     /// 2.0), however the session's loop was scheduled.
     fn still_in_flight(&mut self, id: &RequestId) -> bool {
-        while let Ok(ended) = self.completions.try_recv() {
-            self.in_flight.remove(&ended);
+        while let Ok(told) = self.completions.try_recv() {
+            self.told(told);
         }
         self.in_flight.contains_key(id)
+    }
+
+    /// Takes in what one of its tasks told: a call that ended gives its
+    /// place in flight back, and a panic of one of its own tasks, counted
+    /// as one that ended a Connection, ends the Connection.
+    fn told(&mut self, told: Told) {
+        match told {
+            Told::CallEnded(id) => {
+                self.in_flight.remove(&id);
+            }
+            Told::OwnTaskPanicked => {
+                self.own_task_panicked = true;
+                self.dispatch.metrics.panicked(PanicEnded::Connection);
+            }
+        }
     }
 
     fn notification(&mut self, notification: &Notification) {

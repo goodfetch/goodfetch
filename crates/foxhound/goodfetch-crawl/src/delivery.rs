@@ -813,6 +813,9 @@ impl Fetching<'_> {
     /// attempt holds any more, for the call `context`.
     async fn retire(&self, run: &Run, pool: &mut SessionPool, context: &CallContext) {
         for session in pool.closable() {
+            if let Some(http) = self.http {
+                http.forget_cookies_of(&session);
+            }
             if let Err(error) = self.tiers.retire_browser(run.id(), &session, context).await {
                 tracing::error!(%error, run_id = %run.id(), session_id = %session.0, "a retired Session's browser context did not close");
             }

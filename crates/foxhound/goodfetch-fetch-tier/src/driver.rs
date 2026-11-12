@@ -7,10 +7,12 @@
 //! enum, [`TransportFailure`], with the Error code each variant ends an
 //! attempt with (ADR 0118). Cancelling a fetch is dropping it. A fetch is
 //! one hop: the `chain` module follows a crawl request's redirects and
-//! refresh stubs over it (#762); retries join with their ticket. A
-//! Session that may move to the browser keeps its cookies in its browser
-//! context, which browser-fetch sends from (`transports`); a Session that
-//! never moves keeps none yet.
+//! refresh stubs over it (#762); retries join with their ticket. Each hop
+//! leaves with the headers its transport's Session presents (ADR 0021),
+//! the hop's own over them. A Session that may move to the browser keeps
+//! its cookies in its browser context, which browser-fetch sends from
+//! (`transports`); one that sends its HTTP itself keeps them in its own
+//! jar (the `cookies` module).
 //!
 //! **Cut bodies (ADR 0118; pitfall H15):** once a hop's head arrived, any
 //! failure of its body, or a compressed stream that stops before its end,
@@ -162,6 +164,16 @@ pub enum Reuse {
 pub trait Transport: Send + Sync {
     /// Sends `hop` on a connection `reuse` allows and answers its head.
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent>;
+
+    /// The headers its Session presents on a request to `url` beside the
+    /// request's own (ADR 0021), their names in lowercase, in the order
+    /// they leave in: a `standard` Session's own transport presents its
+    /// browser's document request. None by default, for a transport whose
+    /// client presents its own, as the browser does on browser-fetch.
+    fn presents(&self, url: &Url) -> Vec<(String, String)> {
+        let _ = url;
+        Vec::new()
+    }
 }
 
 /// Why a hop got no whole answer: each transport's library, TLS and HTTP
@@ -589,6 +601,33 @@ pub(crate) async fn fetch_anew(
     fetch_on(transport, hop, Reuse::Never, bounds, clock, accepts, None).await
 }
 
+/// `hop` as it leaves on `transport`: the headers the transport's Session
+/// presents on a request to its URL (ADR 0021), in their order, each one
+/// the hop sets itself keeping the hop's value, then the hop's other
+/// headers, and the codings Chrome asks for when neither names any.
+fn asked(transport: &dyn Transport, hop: &Hop) -> Hop {
+    let mut headers = transport.presents(&hop.url);
+    for (name, value) in &hop.headers {
+        match headers
+            .iter_mut()
+            .find(|(presented, _)| presented.eq_ignore_ascii_case(name))
+        {
+            Some((_, presented)) => presented.clone_from(value),
+            None => headers.push((name.clone(), value.clone())),
+        }
+    }
+    if !headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("accept-encoding"))
+    {
+        headers.push(("accept-encoding".to_owned(), ACCEPT_ENCODING.to_owned()));
+    }
+    Hop {
+        headers,
+        ..hop.clone()
+    }
+}
+
 /// [`fetch`] whose first send goes on a connection `reuse` allows, judged
 /// by `accepts` as [`fetch_accepting`] says, keeping what `keep` says as
 /// [`fetch_start`] does.
@@ -602,21 +641,8 @@ async fn fetch_on(
     keep: Option<usize>,
 ) -> Result<Fetched, CallError> {
     let url = hop.url.as_str();
-    let asked;
-    let hop = if hop
-        .headers
-        .iter()
-        .any(|(name, _)| name.eq_ignore_ascii_case("accept-encoding"))
-    {
-        hop
-    } else {
-        let mut with_codings = hop.clone();
-        with_codings
-            .headers
-            .push(("accept-encoding".to_owned(), ACCEPT_ENCODING.to_owned()));
-        asked = with_codings;
-        &asked
-    };
+    let asked = asked(transport, hop);
+    let hop = &asked;
     let whole = async {
         let mut sent = bounds
             .first_byte

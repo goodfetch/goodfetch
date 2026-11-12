@@ -90,6 +90,7 @@ use self::lifecycle::{
 use crate::borrowed::{CdpUrl, Lookups, resolve_of};
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
+use crate::document_request::DocumentRequest;
 use crate::driver::{PageDriver, SessionEgress, Visibility};
 use crate::egress_relay::{self, EgressRelay};
 use crate::errors::{cancelled, invalid_transition};
@@ -395,6 +396,12 @@ impl Sessions {
             handler_pages,
             page_listeners: session_pages::PageListeners::default(),
         }
+    }
+
+    /// The request a Session's browser sends for a document, read from
+    /// the pinned build it would launch.
+    pub(crate) fn document_request(&self) -> Option<DocumentRequest> {
+        DocumentRequest::of_pinned(&self.pins)
     }
 
     /// The consent walls the pages' Consent prompt runners left for each

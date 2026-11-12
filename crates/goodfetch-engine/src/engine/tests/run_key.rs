@@ -39,7 +39,8 @@ use crate::run_key::{self, sealing};
 use crate::run_state::RunStateTables;
 use crate::runs::{EndedBy, Run, Start, Started};
 
-/// Starts a Collie Run its program drives, which the tests seal values in.
+/// Starts a Collie Run its program drives, which the tests seal values in;
+/// with `opens_settings`, its settings opened as a start opens them.
 const KEEP: Operation = Operation {
     name: "test.keep",
     description: "Starts a Run the tests seal values in.",
@@ -93,6 +94,19 @@ const SECRETS: RunStateTables = RunStateTables {
 /// stop ends.
 type Kept = Arc<tokio::sync::Mutex<BTreeMap<String, Weak<Run>>>>;
 
+/// A Collie Run's settings, opened as a start opens them, when `params`
+/// ask for them.
+async fn opened(params: &Value, context: &CallContext) -> Option<crate::settings::RunSettings> {
+    if params["opens_settings"] != true {
+        return None;
+    }
+    let opening = crate::settings::Opening {
+        run: Some(Product::Collie),
+        ..crate::settings::Opening::default()
+    };
+    Some(context.engine().settings().open(opening).await.unwrap().0)
+}
+
 fn sealing() -> Contribution {
     let kept = Kept::default();
     Contribution::new("test-run-key")
@@ -102,6 +116,7 @@ fn sealing() -> Contribution {
             move |params: Value, context: CallContext| {
                 let kept = Arc::clone(&kept);
                 async move {
+                    let settings = opened(&params, &context).await;
                     let started = context
                         .runs()
                         .start(Start {
@@ -118,7 +133,7 @@ fn sealing() -> Contribution {
                             clean_up_digest: None,
                             checkpoint_interval: None,
                             timeout: None,
-                            settings: None,
+                            settings,
                         })
                         .await
                         .unwrap();
@@ -661,6 +676,54 @@ fn with_an_os_keychain_the_key_comes_from_it_and_a_paused_run_resumes_with_it() 
             "keychain:goodfetch/run-state-key".to_owned(),
             false
         )
+    );
+}
+
+/// A Run that opens its settings, as `crawl.start` and `run.start` do, and
+/// makes no data key opens no OS keychain, on Linux a Secret Service
+/// session over D-Bus: the keychain opens once, when the Run first makes
+/// its key, here on a host where it does not open, so the key-encryption
+/// key is the encrypted local file's, as before (issue 2204).
+/// Covers: setting:run_state.key_reference
+#[test]
+fn a_run_opens_the_os_keychain_only_once_it_first_makes_its_key() {
+    let env = TestEnv::new();
+    let keychain = crate::secrets::Keychain::absent();
+    let watched = keychain.clone();
+    let folder = run_folder(&env, "lazy");
+
+    let (started, sealed, wrapped_by) = on(
+        || Dependencies {
+            keychain,
+            ..dependencies(&env)
+        },
+        |mut talk| async move {
+            talk.ok(
+                2,
+                "test.keep",
+                json!({ "run_id": "lazy", "opens_settings": true }),
+            )
+            .await;
+            let started = watched.answered();
+            talk.ok(
+                3,
+                "test.seal",
+                json!({ "run_id": "lazy", "row": 1, "value": "sealed" }),
+            )
+            .await;
+            let sealed = watched.answered();
+            talk.ok(4, "run.finish", json!({ "run_id": "lazy" })).await;
+            let wrapped_by: String = rusqlite::Connection::open(folder.join("run.sqlite"))
+                .unwrap()
+                .query_row("SELECT key_reference FROM run_key", [], |row| row.get(0))
+                .unwrap();
+            (started, sealed, wrapped_by)
+        },
+    );
+
+    assert_eq!(
+        (started, sealed, wrapped_by),
+        (None, Some(false), "secretfile:run-state-key".to_owned())
     );
 }
 

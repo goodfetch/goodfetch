@@ -3,7 +3,7 @@
 //! Proving ground, read from the per-user Politeness file every sharing run
 //! obeys: a site's 429, 502, 503 and 504, a refused or timed-out connection
 //! and an HTTP/2 `ENHANCE_YOUR_CALM` back its domain off on the `http` and
-//! `browser` tiers, and a 500 does not; the site's `Retry-After` holds the
+//! `browser` tiers and through browser-fetch, and a 500 does not; the site's `Retry-After` holds the
 //! domain until the time it asks, and a request admitted meanwhile is never
 //! sent; and through a forward proxy, the site's 429 backs its domain off
 //! and lowers no proxy ceiling.
@@ -48,6 +48,9 @@ const BACKOFF_INITIAL_MS: u64 = 120_000;
 #[derive(Clone, Copy, Debug)]
 enum Tier {
     Http,
+    /// The `http` tier sent through the Session's browser, whose own
+    /// error is the fetch's failure.
+    BrowserFetch,
     Browser,
 }
 
@@ -55,6 +58,7 @@ impl Tier {
     fn name(self) -> &'static str {
         match self {
             Self::Http => "http",
+            Self::BrowserFetch => "browser_fetch",
             Self::Browser => "browser",
         }
     }
@@ -295,7 +299,7 @@ fn no_other_program_can_take_the_refused_cases_address() {
 fn a_failing_site_backs_its_domain_off_and_a_500_does_not(
     #[case] page: Page,
     #[case] backs_off: bool,
-    #[values(Tier::Http, Tier::Browser)] tier: Tier,
+    #[values(Tier::Http, Tier::BrowserFetch, Tier::Browser)] tier: Tier,
 ) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();

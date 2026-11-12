@@ -11,7 +11,7 @@
 use std::time::SystemTime;
 
 use goodfetch_engine::retry_after;
-use goodfetch_fetch_tier::FetchFailure;
+use goodfetch_fetch_tier::{FetchFailure, TransportFailure};
 use goodfetch_frontier::backoff_classes::{Class, Met, class};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
@@ -90,8 +90,8 @@ impl AttemptFailure {
     }
 
     /// The failure of a fetch: a transport's failure is classed by what
-    /// its hop met, never by its error's text; any other is the error the
-    /// fetch tier ended with.
+    /// its hop met, never by its error's text; a browser's own failure
+    /// and any other are the error the fetch tier ended with.
     pub(crate) fn of_fetch(failure: &FetchFailure) -> Self {
         let error = failure.error();
         let entered = Self::entered(
@@ -100,8 +100,12 @@ impl AttemptFailure {
             error.message().to_owned(),
             error.details().cloned().unwrap_or_default(),
         );
-        let Some(transport) = failure.transport() else {
-            return entered;
+        let transport = match failure.transport() {
+            // The browser's own error is an error object entering the
+            // crawl, classed as one: its transport's failure names no
+            // network error of its own.
+            None | Some(TransportFailure::Browser(_)) => return entered,
+            Some(transport) => transport,
         };
         let why = match class(transport.met()) {
             Class::BackOff => Why::Unreachable,

@@ -39,7 +39,8 @@
 //! contribution of the writer's own since no Client sets those yet, with a
 //! warning and `nothingDone` its owners handed over, and three Sessions its
 //! program opened, its default one open, another closed, with a proxy of
-//! its own, and a third closed, on a Borrowed browser, which that
+//! its own, and a third closed, on a Borrowed browser, its source sealed
+//! (a fixed value of the sealed layout's shape), which that
 //! contribution records since no browser runs here, and a Download's file
 //! it keeps, which its Checkpoints carry, the robots.txt copies of two
 //! origins its program's navigation read, one the site answered, one it
@@ -681,12 +682,21 @@ fn bound() -> Contribution {
                 )
                 .await
                 .expect("the Download's file is kept");
+                // The Borrowed browser's Session holds its source sealed
+                // under the Run's data key: one of the layout's shape
+                // (version, nonce, the 90 bytes of its `cdp_url` record and
+                // their tag), fixed, since a real one is random and the set
+                // must be the same at each write. The Session is closed, so
+                // no resume opens it.
+                let sealed_source: Vec<u8> = std::iter::once(1_u8)
+                    .chain((0..24 + 90 + 16).map(|byte: u8| byte.wrapping_mul(53)))
+                    .collect();
                 run.state()
-                    .write(|connection| {
+                    .write(move |connection| {
                         connection
                             .execute(
-                                r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed, source) VALUES (1, 1, 0, '{}', 6178731391398722387, NULL), (2, 0, 1, '{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}', -2937466112876520115, NULL), (3, 0, 1, '{}', 4417291851073961183, '{"url":"ws://127.0.0.1:9222/devtools/browser/lent","layer":"run","acting_for_model":false}')"#,
-                                [],
+                                r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed, source) VALUES (1, 1, 0, '{}', 6178731391398722387, NULL), (2, 0, 1, '{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}', -2937466112876520115, NULL), (3, 0, 1, '{}', 4417291851073961183, ?1)"#,
+                                [sealed_source],
                             )
                             .map(drop)?;
                         // What a Label learned on a domain (#926): a split

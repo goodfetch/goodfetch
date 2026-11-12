@@ -12,10 +12,12 @@
     reason = "test support lays out the cache in the test's thread, never on an async worker"
 )]
 
+use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use crate::env::{START_TIME, TestEnv};
@@ -185,6 +187,63 @@ pub fn chrome_for_testing_dumping_dom(
     command.arg(format!("--host-resolver-rules=MAP {host} {address}"));
     command.args(["--dump-dom", url]);
     env.spawn(&mut command)
+}
+
+/// A browser of the pinned build that a test drives over CDP itself.
+pub struct DebuggedBrowser {
+    /// Its process.
+    pub process: Process,
+    /// The loopback port it listens for CDP on.
+    pub port: u16,
+    /// Its browser target's WebSocket URL on that port.
+    pub url: String,
+}
+
+/// Starts the pinned build of the Browser cache at `cache`, headless, on the
+/// profile at `profile`, with `switches` beside a stock headless launch's,
+/// listening for CDP on a loopback port it picks and reports; it opens
+/// `about:blank` and writes nothing to the test's output.
+///
+/// # Errors
+///
+/// When the browser cannot start.
+///
+/// # Panics
+///
+/// When it reports no port within its deadline.
+pub fn chrome_for_testing_debugged(
+    env: &TestEnv,
+    cache: &Path,
+    profile: &Path,
+    switches: impl IntoIterator<Item: AsRef<OsStr>>,
+) -> io::Result<DebuggedBrowser> {
+    let mut command = env.process_command(chrome_for_testing(cache));
+    command
+        .args([
+            "--headless",
+            "--no-first-run",
+            "--use-mock-keychain",
+            "--password-store=basic",
+            "--remote-debugging-port=0",
+        ])
+        .args(switches)
+        .arg(format!("--user-data-dir={}", profile.display()))
+        .arg("about:blank")
+        .stderr(Stdio::null());
+    let process = env.spawn(&mut command)?;
+    let port = reported_debugging_port(profile);
+    let reported = fs::read_to_string(profile.join("DevToolsActivePort"))?;
+    let path = reported.lines().nth(1).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "the browser reported no path on its port's second line",
+        )
+    })?;
+    Ok(DebuggedBrowser {
+        process,
+        port,
+        url: format!("ws://127.0.0.1:{port}{path}"),
+    })
 }
 
 /// How long a test's own browser has to report its debugging port.

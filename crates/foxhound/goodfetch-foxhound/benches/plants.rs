@@ -20,7 +20,7 @@ use goodfetch_engine::home::Home;
 use goodfetch_engine::politeness::{Politeness, PolitenessOptions, PolitenessTables};
 use goodfetch_engine::robots_txt::{Answer, Copies as _};
 use goodfetch_engine::run_state::{RunState, RunStateOptions, RunStateTables};
-use goodfetch_engine::settings::{HostDefaults, Settings, SettingsFiles};
+use goodfetch_engine::settings::{HostDefaults, HostSearch, Settings, SettingsFiles};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -118,7 +118,7 @@ pub(crate) fn run_state_plant(name: &str, counted: &Counted<'_>) -> Plant {
                 Product::Foxhound,
                 TaskOwner::root(BlockingPolicy::Inline),
                 counted.work.clone(),
-                || Box::pin(std::future::ready(HostDefaults::default())),
+                HostSearch::opening(|| Box::pin(std::future::ready(HostDefaults::default()))),
             );
             Arc::new(move |_: &str| {
                 let _kept = &folder;

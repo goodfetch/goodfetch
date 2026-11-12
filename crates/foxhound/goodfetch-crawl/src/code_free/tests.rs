@@ -3,6 +3,7 @@
 //! checked against it, and the sitemap seeds `follow: sitemap` adds.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use goodfetch_dataset::Datasets;
 use goodfetch_protocol::foxhound::crawl::{CrawlExtraction, PushedRecord, Seed};
@@ -10,7 +11,7 @@ use goodfetch_protocol::page::PageFormats;
 use goodfetch_protocol::run::PointInTime;
 use serde_json::{Map, Value, json};
 
-use super::{dataset, declare_into, record_of, sitemap_seeds};
+use super::{Pages, dataset, declare_into, record_of, sitemap_seeds};
 
 fn extraction(value: Value) -> CrawlExtraction {
     serde_json::from_value(value).unwrap()
@@ -36,7 +37,7 @@ fn pushed(data: Value) -> Vec<PushedRecord> {
 #[test]
 fn the_pages_schema_is_generated_from_the_formats_request_and_a_pages_record_holds_to_it() {
     let extraction = extraction(json!({ "formats": { "markdown": true, "links": true } }));
-    let declared = dataset(&extraction);
+    let declared = dataset(&extraction).unwrap();
     let datasets = Datasets::declare(std::slice::from_ref(&declared)).unwrap();
     let page = formats(json!({
         "url": "http://site.test/a",
@@ -97,8 +98,20 @@ fn the_pages_schema_is_generated_from_the_formats_request_and_a_pages_record_hol
 fn the_start_declares_page_and_pages_and_refuses_a_dataset_of_its_own() {
     let extraction = extraction(json!({ "formats": { "markdown": true } }));
     let (mut labels, mut datasets) = (BTreeMap::new(), Vec::new());
-    declare_into(&extraction, &mut labels, &mut datasets).unwrap();
-    let refused = declare_into(&extraction, &mut BTreeMap::new(), &mut datasets.clone());
+    let pages = Pages::default();
+    let refused = goodfetch_test_support::runtime().block_on(async {
+        declare_into(&extraction, &mut labels, &mut datasets, &pages)
+            .await
+            .unwrap();
+        declare_into(
+            &extraction,
+            &mut BTreeMap::new(),
+            &mut datasets.clone(),
+            &pages,
+        )
+        .await
+        .map(drop)
+    });
     assert_eq!(
         (
             labels.keys().cloned().collect::<Vec<_>>(),
@@ -167,7 +180,7 @@ fn the_pages_schema_holds_each_fields_type() {
             },
         },
     }));
-    let declared = dataset(&extraction);
+    let declared = dataset(&extraction).unwrap();
     let datasets = Datasets::declare(std::slice::from_ref(&declared)).unwrap();
     let page = formats(json!({
         "url": "http://site.test/a",
@@ -237,7 +250,37 @@ fn the_pages_schema_holds_each_fields_type() {
 fn the_start_refuses_a_field_it_cannot_hold_or_read(#[case] fields: Value) {
     let extraction = extraction(json!({ "formats": { "markdown": true }, "fields": fields }));
 
-    let refused = declare_into(&extraction, &mut BTreeMap::new(), &mut Vec::new());
+    let refused = goodfetch_test_support::runtime().block_on(declare_into(
+        &extraction,
+        &mut BTreeMap::new(),
+        &mut Vec::new(),
+        &Pages::default(),
+    ));
 
-    assert_eq!(refused.map_err(|error| error.code()), Err("invalid_params"));
+    assert_eq!(
+        refused.map(drop).map_err(|error| error.code()),
+        Err("invalid_params")
+    );
+}
+
+/// Two starts in one engine reading the same extraction share the Dataset
+/// `pages` built for the first, its schema generated and its validator
+/// compiled once; a start reading another extraction builds its own
+/// (issue 2204).
+#[test]
+fn two_starts_of_one_extraction_build_the_dataset_pages_once() {
+    let pages = Pages::default();
+    let asked = extraction(json!({ "formats": { "markdown": true } }));
+    let other = extraction(json!({ "formats": { "html": true } }));
+    let (first, second, third) = goodfetch_test_support::runtime().block_on(async {
+        (
+            pages.of(&asked).await.unwrap(),
+            pages.of(&asked).await.unwrap(),
+            pages.of(&other).await.unwrap(),
+        )
+    });
+    assert_eq!(
+        (Arc::ptr_eq(&first, &second), Arc::ptr_eq(&first, &third)),
+        (true, false)
+    );
 }

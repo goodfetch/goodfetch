@@ -4,8 +4,9 @@
 //! at a time, so steps under +5 % add up unseen; this one sees them. A figure
 //! past `budget::DRIFT_PERCENT` over its reference fails whatever `GATING`
 //! says and whatever a pull request accepts: only an ADR amendment the owner
-//! approves passes it. With no revision pinned, it reports that it has not
-//! run.
+//! approves passes it: the pin file's `accepted` list names each figure such
+//! an amendment accepts, with the value it is held to instead. With no
+//! revision pinned, it reports that it has not run.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -36,15 +37,63 @@ const ROW: &str = "drift.reference";
 struct Pin {
     /// The commit or tag of the reference build.
     revision: Option<String>,
+    /// The figures an amendment of ADR 0140 the owner approved accepts over
+    /// the limit. A release's pin starts the list again.
+    #[serde(default)]
+    accepted: Vec<Accepted>,
+}
+
+/// A figure the owner accepted over `budget::DRIFT_PERCENT`, by a note of
+/// ADR 0140: it is held to `up_to` instead, with the 0.5 % the register
+/// gives a figure read under Valgrind.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Accepted {
+    /// The figure's identifier, `<subject> <figure>`, as a finding names it.
+    figure: String,
+    /// The value the figure is held to.
+    up_to: u64,
+    /// Why the figure grew.
+    cause: String,
+    /// The note of ADR 0140 that records the owner's decision.
+    decision: String,
+}
+
+impl Accepted {
+    /// Whether `head` is past `up_to`, with the register's 0.5 % for a
+    /// figure read under Valgrind (Callgrind's and DHAT's) and none for a
+    /// size-limit entry's or a resident-memory peak.
+    fn passed_by(&self, figure: Figure, head: u64) -> bool {
+        // In thousandths, as `xtask counts` holds its rows.
+        let thousandths = |value: u64| u128::from(value) * 1_000;
+        let limit = if figure.is_benchmark() {
+            budget::with_valgrind_tolerance(thousandths(self.up_to))
+        } else {
+            thousandths(self.up_to)
+        };
+        thousandths(head) > limit
+    }
+}
+
+fn read(root: &Path) -> Result<Pin> {
+    let text = std::fs::read_to_string(root.join(PIN_FILE))
+        .with_context(|| format!("reading {PIN_FILE}"))?;
+    toml::from_str(&text).with_context(|| format!("parsing {PIN_FILE}"))
 }
 
 /// The revision `root`'s pin file names, when it names one. A missing file
 /// is an error: it is the gate's switch, and losing it must not stop the gate.
 pub(crate) fn pinned(root: &Path) -> Result<Option<String>> {
-    let text = std::fs::read_to_string(root.join(PIN_FILE))
-        .with_context(|| format!("reading {PIN_FILE}"))?;
-    let pin: Pin = toml::from_str(&text).with_context(|| format!("parsing {PIN_FILE}"))?;
-    Ok(pin.revision)
+    Ok(read(root)?.revision)
+}
+
+/// The figures `root`'s pin file accepts over the limit. A missing file
+/// accepts none, which can only hold the head tighter; `pinned` fails on it.
+pub(crate) fn accepted(root: &Path) -> Result<Vec<Accepted>> {
+    if !root.join(PIN_FILE).exists() {
+        return Ok(Vec::new());
+    }
+    Ok(read(root)?.accepted)
 }
 
 /// One head figure against the reference.
@@ -54,12 +103,27 @@ pub(crate) struct Held<'a> {
     /// `None` when the figure is new since the reference.
     reference: Option<u64>,
     head: u64,
+    /// The pin file's acceptance of this figure, when it has one.
+    accepted: Option<&'a Accepted>,
 }
 
 impl Held<'_> {
+    /// Over its limit: past its accepted value, or past
+    /// `budget::DRIFT_PERCENT` over its reference when none is accepted.
     fn over(&self) -> bool {
-        self.reference
-            .is_some_and(|reference| budget::drifted(reference, self.head))
+        self.reference.is_some_and(|reference| match self.accepted {
+            Some(accepted) => accepted.passed_by(self.figure, self.head),
+            None => budget::drifted(reference, self.head),
+        })
+    }
+
+    /// Accepted over the limit, yet back within it: its acceptance is no
+    /// longer needed.
+    fn acceptance_unneeded(&self) -> bool {
+        self.accepted.is_some()
+            && self
+                .reference
+                .is_some_and(|reference| !budget::drifted(reference, self.head))
     }
 }
 
@@ -70,8 +134,13 @@ pub(crate) enum Check<'a> {
     Compared(Vec<Held<'a>>),
 }
 
-/// Holds `rows`' figures to `reference`'s; `None` when none was measured.
-pub(crate) fn check(rows: &[Row], reference: Option<Vec<Measured>>) -> Check<'_> {
+/// Holds `rows`' figures to `reference`'s, each figure `accepted` names to
+/// its accepted value; `None` when none was measured.
+pub(crate) fn check<'a>(
+    rows: &'a [Row],
+    reference: Option<Vec<Measured>>,
+    accepted: &'a [Accepted],
+) -> Check<'a> {
     let Some(reference) = reference else {
         return Check::NotRunYet;
     };
@@ -86,6 +155,9 @@ pub(crate) fn check(rows: &[Row], reference: Option<Vec<Measured>>) -> Check<'_>
                 figure: row.measured.figure,
                 reference: reference.get(&row.measured.id()).copied(),
                 head: row.measured.head,
+                accepted: accepted
+                    .iter()
+                    .find(|accepted| accepted.figure == row.measured.id()),
             })
             .collect(),
     )
@@ -122,11 +194,15 @@ pub(crate) fn render(check: &Check<'_>) -> String {
     );
     for held in held {
         let (reference, times, verdict) = match held.reference {
-            None => ("—".to_owned(), "—".to_owned(), "new since it, not compared"),
+            None => (
+                "—".to_owned(),
+                "—".to_owned(),
+                "new since it, not compared".to_owned(),
+            ),
             Some(reference) => (
                 table::value(held.figure, reference),
                 multiple(reference, held.head).unwrap_or_else(|| "—".to_owned()),
-                if held.over() { "over" } else { "within" },
+                verdict(held),
             ),
         };
         let _ = writeln!(
@@ -140,8 +216,27 @@ pub(crate) fn render(check: &Check<'_>) -> String {
     table
 }
 
-/// What fails the change: each figure over the limit, and a reference that
-/// held none of the head's figures, which compared nothing.
+/// A compared figure's verdict: over or within its limit, and for an
+/// accepted figure, the value it is held to and why.
+fn verdict(held: &Held<'_>) -> String {
+    let over = if held.over() { "over" } else { "within" };
+    match held.accepted {
+        None => over.to_owned(),
+        Some(_) if held.acceptance_unneeded() => {
+            format!("{over}; its acceptance is no longer needed")
+        }
+        Some(accepted) => format!(
+            "{over}: accepted up to {} ({}): {}",
+            table::value(held.figure, accepted.up_to),
+            accepted.decision,
+            accepted.cause
+        ),
+    }
+}
+
+/// What fails the change: each figure over its limit, each acceptance of a
+/// figure back within the limit, which outlived its cause, and a reference
+/// that held none of the head's figures, which compared nothing.
 pub(crate) fn findings(check: &Check<'_>) -> Vec<Finding> {
     let Check::Compared(held) = check else {
         return Vec::new();
@@ -156,26 +251,57 @@ pub(crate) fn findings(check: &Check<'_>) -> Vec<Finding> {
             ),
         )];
     }
-    held.iter()
+    let mut findings: Vec<Finding> = held
+        .iter()
         .filter(|held| held.over())
         .filter_map(|held| {
-            let reference = held.reference?;
-            let value = |value| table::value(held.figure, value);
-            let figure = value(held.head);
-            let measured = match multiple(reference, held.head) {
-                Some(times) => {
-                    format!("{figure} is {times} times its reference's {}", value(reference))
-                }
-                None => format!("{figure} where its reference measured 0"),
+            let measured = measured(held)?;
+            let over = match held.accepted {
+                Some(accepted) => format!(
+                    "over its accepted {} ({}; {ROW})",
+                    table::value(held.figure, accepted.up_to),
+                    accepted.decision
+                ),
+                None => format!("over {} ({ROW})", limit()),
             };
             Some(Finding::new(
                 "drift-reference",
                 id(held.subject, held.figure),
                 format!(
-                    "{measured}, over {} ({ROW}); no pull request accepts this: only an ADR amendment the owner approves does (ADR 0140)",
-                    limit()
+                    "{measured}, {over}; no pull request accepts this: only an ADR amendment the owner approves does (ADR 0140)"
                 ),
             ))
         })
-        .collect()
+        .collect();
+    findings.extend(
+        held.iter()
+            .filter(|held| held.acceptance_unneeded())
+            .filter_map(|held| {
+                Some(Finding::new(
+                    "drift-reference-acceptance-unneeded",
+                    id(held.subject, held.figure),
+                    format!(
+                        "{}, within {} ({ROW}): remove its acceptance from {PIN_FILE}",
+                        measured(held)?,
+                        limit()
+                    ),
+                ))
+            }),
+    );
+    findings
+}
+
+/// The figure against its reference, `1250 is 1.25 times its reference's
+/// 1000`; `None` for a figure new since the reference.
+fn measured(held: &Held<'_>) -> Option<String> {
+    let reference = held.reference?;
+    let value = |value| table::value(held.figure, value);
+    let figure = value(held.head);
+    Some(match multiple(reference, held.head) {
+        Some(times) => format!(
+            "{figure} is {times} times its reference's {}",
+            value(reference)
+        ),
+        None => format!("{figure} where its reference measured 0"),
+    })
 }

@@ -32,7 +32,7 @@ use goodfetch_engine::egress::Policy;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::{BatchRows, BatchWriter, RunStateTables, run_row};
 use goodfetch_frontier::payload::{self, Payload};
-use goodfetch_frontier::{Candidate, Declared, Url, sitemap, trap_links};
+use goodfetch_frontier::{Candidate, Declared, Entering, Keyed, Url, sitemap, trap_links};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{CrawlRequest, Seed, SitemapSeed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpBody, HttpMethod};
@@ -443,6 +443,35 @@ pub(crate) fn admit(
         invariants,
         policy,
         candidate,
+        &mut admitting,
+        |url| add(connection, positions, url, adding),
+    );
+    positions.admitting = admitting;
+    answer
+}
+
+/// Admits the candidate given as `given` and keyed as `keyed` through the
+/// Frontier as [`admit`] does, entering as `entering` says: the part of a
+/// page's link's admission that needs the Run's state (#2244), its key
+/// made on the task that serves its call.
+///
+/// # Errors
+///
+/// The run state's.
+pub(crate) fn admit_keyed(
+    connection: &Connection,
+    positions: &mut Positions,
+    invariants: &goodfetch_frontier::Invariants,
+    (given, keyed): (&str, &Keyed),
+    entering: Entering<'_>,
+    adding: Adding<'_>,
+) -> rusqlite::Result<Enqueued> {
+    let mut admitting = std::mem::take(&mut positions.admitting);
+    let answer = goodfetch_frontier::admit_keyed(
+        connection,
+        invariants,
+        (given, keyed),
+        entering,
         &mut admitting,
         |url| add(connection, positions, url, adding),
     );

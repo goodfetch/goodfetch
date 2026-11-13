@@ -259,6 +259,24 @@ impl Bounds {
         budget: Option<&PathBudget>,
         staged: Option<&Staged>,
     ) -> rusqlite::Result<Option<NotAddedReason>> {
+        Ok(self
+            .past(connection, depth, budget, staged)?
+            .or_else(|| self.shape_refuses(url)))
+    }
+
+    /// The bound a request at `depth`, counted by the path budget `budget`,
+    /// is past, if any: its depth, then the Run's count of requests, then
+    /// its path budget's, each count read where the Run's state is held
+    /// (#2244), with what `staged` counted. The caps on its URL's shape,
+    /// which come after them, are read from the URL alone
+    /// ([`Bounds::shape_refuses`]).
+    pub(crate) fn past(
+        &self,
+        connection: &Connection,
+        depth: u64,
+        budget: Option<&PathBudget>,
+        staged: Option<&Staged>,
+    ) -> rusqlite::Result<Option<NotAddedReason>> {
         if self.max_depth.is_some_and(|max| depth > max) {
             return Ok(Some(NotAddedReason::MaxDepth));
         }
@@ -274,7 +292,7 @@ impl Bounds {
         {
             return Ok(Some(NotAddedReason::PathBudget));
         }
-        Ok(self.shape_refuses(url))
+        Ok(None)
     }
 
     /// Which cap on its shape `url` is past, if any.

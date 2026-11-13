@@ -153,10 +153,7 @@ pub(crate) fn issues_hold(
         .map_err(|error| format!("the quarantined tests' issues cannot be read: {error:#}"))?;
     match findings.first() {
         None => Ok(()),
-        Some(finding) => Err(format!(
-            "lint's quarantine check: {}: {}",
-            finding.subject, finding.message
-        )),
+        Some(finding) => Err(format!("{}: {}", finding.subject, finding.message)),
     }
 }
 

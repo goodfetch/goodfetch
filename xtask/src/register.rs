@@ -130,10 +130,7 @@ pub(crate) fn exceptions_hold(root: &Path, today: Date) -> Result<(), String> {
         .ok_or_else(|| format!("{}'s Quality register cannot be read", document::FILE))?;
     match exceptions(&register, today).findings.first() {
         None => Ok(()),
-        Some(finding) => Err(format!(
-            "lint's register check: {}: {}",
-            finding.subject, finding.message
-        )),
+        Some(finding) => Err(format!("{}: {}", finding.subject, finding.message)),
     }
 }
 

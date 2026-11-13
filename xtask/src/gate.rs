@@ -66,7 +66,9 @@ use crate::{git, github, metadata, output};
 use attribution::{Evidence, Judged, StressEvidence};
 use earlier::StressBase;
 use evidence::RustInputs;
-use plan::{Action, GateRun, Head, Outcome, Planned, Step, Touched, UNOWNED, short, unit};
+use plan::{
+    Action, GateRun, Head, LintReads, Outcome, Planned, Step, Touched, UNOWNED, short, unit,
+};
 
 /// The branch whose merge base with the head is the change's base.
 const BASE_BRANCH: &str = "origin/main";
@@ -302,7 +304,7 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
         root,
         &git::line(root, &["merge-base", BASE_BRANCH, "HEAD"])?,
     )?;
-    let host = host::fingerprint(
+    let host = host::host_fingerprint(
         root,
         &environment.cargo,
         &host::step_variables(&options.environment),
@@ -317,6 +319,7 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
         github: &options.github,
         token: environment.token(),
     };
+    let lint_holds = || lint.hold();
     let gated = Head {
         base: &base,
         members: &members,
@@ -324,7 +327,7 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
         tree: &git::line(root, &["rev-parse", "--verify", "HEAD^{tree}"])?,
         host: &host,
         now: options.now,
-        lint_holds: &|| lint.hold(),
+        lint: LintReads::new(&lint_holds),
     };
     let (previous, no_previous) = previous_run(root, records, &head, &gated, options)?;
     let target = match &options.target_dir {

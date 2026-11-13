@@ -48,7 +48,7 @@ enum Reach {
     Always,
     /// A check whose result follows from the tree and the host: it reruns on
     /// another tree, whatever the change reaches. Lint's also follows from
-    /// the day and GitHub ([`Step::reads_beyond_the_tree`]).
+    /// the day and GitHub, which the plan reads again ([`LintReads`]).
     Tree,
     /// The step runs when the selection runs this job of the pull-request
     /// tier.
@@ -179,13 +179,6 @@ impl Step {
     /// red run may leave part way ([`EarnedPasses`]).
     pub(crate) const fn counts_passes(self) -> bool {
         matches!(self, Self::Stress)
-    }
-
-    /// Whether the step reads more than the tree and the host, which the
-    /// plan reads again before it reuses its result ([`Head::lint_holds`]):
-    /// lint's register check reads the day, and its quarantine check GitHub.
-    const fn reads_beyond_the_tree(self) -> bool {
-        matches!(self, Self::Lint)
     }
 
     /// Whether the step compares the head with the change's base (the merge
@@ -473,10 +466,24 @@ pub(crate) struct Head<'a> {
     pub(crate) host: &'a str,
     /// Now, in seconds since the Unix epoch.
     pub(crate) now: u64,
-    /// Reads again, now, what lint reads besides the tree and the host: `Ok`
-    /// when a lint run now would read what a green one did, or why not. Asked
+    /// What lint reads besides the tree and the host, read again now. Asked
     /// only for a green lint this run would otherwise reuse.
-    pub(crate) lint_holds: &'a dyn Fn() -> Result<(), String>,
+    pub(crate) lint: LintReads<'a>,
+}
+
+/// What lint reads besides the tree and the host, its register check the
+/// day and its quarantine check GitHub, read again now: `Ok` when a lint run
+/// now would read what a green one did, or why not.
+pub(crate) struct LintReads<'a>(&'a dyn Fn() -> Result<(), String>);
+
+impl<'a> LintReads<'a> {
+    pub(crate) fn new(read: &'a impl Fn() -> Result<(), String>) -> Self {
+        Self(read)
+    }
+
+    fn hold(&self) -> Result<(), String> {
+        (self.0)()
+    }
 }
 
 /// What the run does with a step.
@@ -629,8 +636,9 @@ fn judge(
         outcome.at,
         (head, previous, touched),
     )?;
-    if step.reads_beyond_the_tree() {
-        (head.lint_holds)()?;
+    // Lint alone reads more than the tree and the host.
+    if matches!(step, Step::Lint) {
+        head.lint.hold()?;
     }
     Ok(outcome.clone())
 }

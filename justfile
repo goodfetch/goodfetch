@@ -91,6 +91,11 @@ lint-documents:
 # under target/steps/lint/ (ci/keep-going.sh). A check that needs an earlier
 # one's output comes after it and is skipped, named so, when it failed:
 # Clippy after the lockfile check, the `xtask` checks after xtask's build.
+# The gate reuses a green lint on the same tree and host (ADR 0135's note
+# of 2026-11-13). A check added here or to `lint-documents` that reads more
+# than the tree and the host's tools (the day, the network, GitHub) needs
+# `xtask gate plan` to read the same again (xtask/src/gate/lint.rs), or to
+# stop reusing lint.
 lint:
     #!/usr/bin/env bash
     set -euo pipefail

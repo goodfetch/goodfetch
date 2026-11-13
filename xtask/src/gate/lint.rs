@@ -41,7 +41,9 @@ impl Reads<'_> {
             .ok_or_else(|| format!("{} is no time to read the day from", self.now))?
             .to_zoned(jiff::tz::TimeZone::UTC)
             .date();
-        register::exceptions_hold(self.root, today)?;
+        register::exceptions_hold(self.root, today)
+            .map_err(|why| format!("lint's register check: {why}"))?;
         quarantine::issues_hold(self.root, self.github, self.token)
+            .map_err(|why| format!("lint's quarantine check: {why}"))
     }
 }

@@ -800,16 +800,7 @@ fn a_run_with_a_tool_at_another_version_reuses_nothing(#[case] tool: &str) {
         &stand_in.path().join(tool),
         "#!/bin/sh\necho 'another version'\n",
     );
-    let cargo_home = std::env::var_os("CARGO_HOME").map_or_else(
-        || Path::new(&std::env::var_os("HOME").unwrap()).join(".cargo"),
-        PathBuf::from,
-    );
-    let path = std::env::join_paths(
-        [stand_in.path().to_owned(), cargo_home.join("bin")]
-            .into_iter()
-            .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
-    )
-    .unwrap();
+    let path = path_starting_with(stand_in.path());
 
     let second = parse(&planned_at(
         &workspace,
@@ -826,13 +817,165 @@ fn a_run_with_a_tool_at_another_version_reuses_nothing(#[case] tool: &str) {
         "{:?}",
         second.steps
     );
-    assert_eq!(
-        second.why["perf"],
-        format!(
-            "the host or its tools changed since the run on {}",
-            &first[..10]
-        )
+    assert_eq!(second.why["perf"], host_changed_since(&first));
+}
+
+/// `PATH` with `folder` first, then Cargo's own folder, where Cargo looks
+/// for its subcommands before `PATH`, then the host's.
+fn path_starting_with(folder: &Path) -> std::ffi::OsString {
+    let cargo_home = std::env::var_os("CARGO_HOME").map_or_else(
+        || Path::new(&std::env::var_os("HOME").unwrap()).join(".cargo"),
+        PathBuf::from,
     );
+    std::env::join_paths(
+        [folder.to_owned(), cargo_home.join("bin")]
+            .into_iter()
+            .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+    )
+    .unwrap()
+}
+
+/// The reason every step gives after the host changed since the run on
+/// `head`.
+fn host_changed_since(head: &str) -> String {
+    format!(
+        "the host or its tools changed since the run on {}",
+        &head[..10]
+    )
+}
+
+/// The stand-ins above change the host by what they answer, never by
+/// standing first on `PATH`: a command no step runs, put there the same way,
+/// leaves the gate's results reused.
+#[test]
+fn a_command_no_step_runs_first_on_the_path_keeps_the_gates_results() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    first_run(&workspace, &records);
+    let stand_in = tempfile::tempdir().unwrap();
+    write_executable(
+        &stand_in.path().join("no-tool-of-the-gate"),
+        "#!/bin/sh\necho 'another version'\n",
+    );
+    let path = path_starting_with(stand_in.path());
+
+    let second = parse(&planned_at(
+        &workspace,
+        &records,
+        NOW,
+        "CI=",
+        &[],
+        &[("PATH", &path)],
+    ));
+
+    assert_eq!(action(&second, "perf").0, "reuse");
+}
+
+/// The proofs run Miri with no skip, so they fail on a toolchain without
+/// its `miri` component: a result recorded with it is not reused once a
+/// toolchain rustup holds has other components. `rustup` is a stand-in
+/// that lists one toolchain and, as its components, the file beside it.
+#[test]
+fn a_run_after_a_toolchain_lost_a_component_reuses_nothing() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let stand_in = tempfile::tempdir().unwrap();
+    let components = stand_in.path().join("components");
+    write_executable(
+        &stand_in.path().join("rustup"),
+        &format!(
+            "#!/bin/sh\ncase \"$1 $2\" in\n'toolchain list') echo 'nightly-2026-10-05-x86_64-unknown-linux-gnu' ;;\n'component list') cat '{}' ;;\nesac\n",
+            components.display()
+        ),
+    );
+    std::fs::write(&components, "miri-x86_64-unknown-linux-gnu\nrust-src\n").unwrap();
+    let path = path_starting_with(stand_in.path());
+    let plan_now = || {
+        parse(&planned_at(
+            &workspace,
+            &records,
+            NOW,
+            "CI=",
+            &[],
+            &[("PATH", &path)],
+        ))
+    };
+    let first = plan_now();
+    record(&workspace, &records, &first.head, "perf", "pass");
+    assert_eq!(action(&plan_now(), "perf").0, "reuse");
+
+    std::fs::write(&components, "rust-src\n").unwrap();
+    let after = plan_now();
+
+    assert_eq!(action(&after, "perf").0, "run");
+    assert_eq!(after.why["perf"], host_changed_since(&first.head));
+}
+
+/// Lint's pyright and mypy, and the suites' pytest, run on the Python of
+/// the project's environment, which no file of the tree pins and the
+/// system's `python3` need not be: a result recorded with the environment
+/// on one Python is not reused with it on another.
+#[test]
+fn a_run_with_the_python_environment_on_another_python_reuses_nothing() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    // The environment is no part of the tree, as in the repository.
+    workspace.write(".git/info/exclude", b".venv/\n");
+    workspace.write(".venv/pyvenv.cfg", b"version_info = 3.12.12\n");
+    let first = first_run(&workspace, &records);
+    assert_eq!(action(&plan(&workspace, &records), "perf").0, "reuse");
+
+    workspace.write(".venv/pyvenv.cfg", b"version_info = 3.14.4\n");
+    let second = plan(&workspace, &records);
+
+    assert_eq!(action(&second, "perf").0, "run");
+    assert_eq!(second.why["perf"], host_changed_since(&first));
+}
+
+/// Git also ignores what two files outside the tree name: the repository's
+/// own `info/exclude` and the user's. Lint's check of `.gitignore`
+/// (ci/ignored-sources.sh) and the tools that skip ignored files read them,
+/// so a result recorded under one of them is not reused once it changed.
+#[test]
+fn a_run_after_the_ignore_file_of_the_repository_changed_reuses_nothing() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let first = first_run(&workspace, &records);
+
+    workspace.write(".git/info/exclude", b"/target\n");
+    let second = plan(&workspace, &records);
+
+    assert_eq!(action(&second, "perf").0, "run");
+    assert_eq!(second.why["perf"], host_changed_since(&first));
+}
+
+#[test]
+fn a_run_after_the_ignore_file_of_the_user_changed_reuses_nothing() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let user = tempfile::tempdir().unwrap();
+    let ignore = user.path().join("ignore");
+    let config = user.path().join("gitconfig");
+    std::fs::write(
+        &config,
+        format!("[core]\n\texcludesFile = {}\n", ignore.display()),
+    )
+    .unwrap();
+    std::fs::write(&ignore, "*.orig\n").unwrap();
+    let plan_now = || {
+        parse(&planned_at(
+            &workspace,
+            &records,
+            NOW,
+            "CI=",
+            &[],
+            &[("GIT_CONFIG_GLOBAL", config.as_os_str())],
+        ))
+    };
+    let first = plan_now();
+    record(&workspace, &records, &first.head, "perf", "pass");
+    assert_eq!(action(&plan_now(), "perf").0, "reuse");
+
+    std::fs::write(&ignore, "*.orig\n/target\n").unwrap();
+    let after = plan_now();
+
+    assert_eq!(action(&after, "perf").0, "run");
+    assert_eq!(after.why["perf"], host_changed_since(&first.head));
 }
 
 /// A crate is judged by the dep-info of each of its test targets: one with

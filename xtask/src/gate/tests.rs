@@ -9,8 +9,8 @@ use rstest::rstest;
 
 use super::host::step_variables;
 use super::plan::{
-    Action, EarnedPasses, GateRun, Head, MAX_AGE, Outcome, Planned, Step, Touched, UNOWNED,
-    gate_input, narrowed, plan, unit,
+    Action, EarnedPasses, GateRun, Head, LintReads, MAX_AGE, Outcome, Planned, Step, Touched,
+    UNOWNED, gate_input, narrowed, plan, unit,
 };
 use super::steps::{Entry, Form, Kind, entries};
 use super::{plan_value, render, runs};
@@ -91,6 +91,7 @@ fn planned_shuffling(
     record: Option<&GateRun>,
     touched: &BTreeMap<String, Touched>,
 ) -> Vec<Planned> {
+    let lint_holds = || Ok(());
     let head = Head {
         base: BASE,
         members,
@@ -98,16 +99,17 @@ fn planned_shuffling(
         tree: HEAD_TREE,
         host: HOST,
         now: NOW,
-        lint_holds: &|| Ok(()),
+        lint: LintReads::new(&lint_holds),
     };
     plan(&head, record, "no earlier run", touched)
 }
 
 /// The plan for a head on `EARLIER`'s tree, where what lint reads besides
-/// the tree and the host reads `lint_holds` now.
+/// the tree and the host reads as `lint_holds` now.
 fn planned_on_earliers_tree(record: &GateRun, lint_holds: Result<(), &str>) -> Vec<Planned> {
     let members = members();
     let tree = green(EARLIER).tree;
+    let lint_holds = || lint_holds.map_err(str::to_owned);
     let head = Head {
         base: BASE,
         members: &members,
@@ -115,7 +117,7 @@ fn planned_on_earliers_tree(record: &GateRun, lint_holds: Result<(), &str>) -> V
         tree: &tree,
         host: HOST,
         now: NOW,
-        lint_holds: &|| lint_holds.map_err(str::to_owned),
+        lint: LintReads::new(&lint_holds),
     };
     plan(
         &head,

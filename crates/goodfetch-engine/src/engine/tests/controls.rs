@@ -120,7 +120,13 @@ fn started_twice(
             },
         )
     });
-    let log = AuditLog::of(&Home::new(env.home().to_owned()), None);
+    let log = AuditLog::of(
+        &Home::new(env.home().to_owned()),
+        None,
+        Arc::new(crate::tasks::TaskOwner::root(
+            crate::tasks::BlockingPolicy::Inline,
+        )),
+    );
     let entries = log
         .export()
         .unwrap()
@@ -194,18 +200,24 @@ fn a_generated_runs_first_entry_is_unchained_with_the_audit_chain_off() {
     );
 
     let run_id = started["result"]["run_id"].clone();
-    let entries: Vec<Value> = AuditLog::of(&Home::new(env.home().to_owned()), None)
-        .export()
-        .unwrap()
-        .into_iter()
-        .map(|exported| {
-            json!([
-                exported.entry.kind,
-                exported.entry.run_id,
-                exported.entry.chained
-            ])
-        })
-        .collect();
+    let entries: Vec<Value> = AuditLog::of(
+        &Home::new(env.home().to_owned()),
+        None,
+        Arc::new(crate::tasks::TaskOwner::root(
+            crate::tasks::BlockingPolicy::Inline,
+        )),
+    )
+    .export()
+    .unwrap()
+    .into_iter()
+    .map(|exported| {
+        json!([
+            exported.entry.kind,
+            exported.entry.run_id,
+            exported.entry.chained
+        ])
+    })
+    .collect();
     assert_eq!(
         entries,
         vec![
@@ -372,20 +384,26 @@ fn a_control_another_composition_registers_is_reported_as_the_engines_own() {
 /// Each Audit log entry of `env`'s home that is not a key reference's use,
 /// as its kind, its Run, the layer that set it and its details.
 fn recorded(env: &TestEnv) -> Vec<Value> {
-    AuditLog::of(&Home::new(env.home().to_owned()), None)
-        .export()
-        .unwrap()
-        .into_iter()
-        .filter(|exported| exported.entry.kind != "secret_reference_used")
-        .map(|exported| {
-            json!([
-                exported.entry.kind,
-                exported.entry.run_id,
-                exported.entry.layer,
-                exported.entry.details,
-            ])
-        })
-        .collect()
+    AuditLog::of(
+        &Home::new(env.home().to_owned()),
+        None,
+        Arc::new(crate::tasks::TaskOwner::root(
+            crate::tasks::BlockingPolicy::Inline,
+        )),
+    )
+    .export()
+    .unwrap()
+    .into_iter()
+    .filter(|exported| exported.entry.kind != "secret_reference_used")
+    .map(|exported| {
+        json!([
+            exported.entry.kind,
+            exported.entry.run_id,
+            exported.entry.layer,
+            exported.entry.details,
+        ])
+    })
+    .collect()
 }
 
 /// The Audit log kind the test's composition records its weakening as.

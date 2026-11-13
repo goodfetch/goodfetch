@@ -5,7 +5,8 @@
 //! apart. Each outcome the path has is in it: an entry chained, an entry of
 //! a Run whose chain is off, and an append that prunes under an
 //! `audit.retention`. The store opens through a counting VFS when one is
-//! named, which sees its syncs.
+//! named, which sees its syncs. The log's writer is an actor of an owner of
+//! the scenario's, on a runtime of one thread that blocks on each entry.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -15,12 +16,14 @@ use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::audit::{AuditLog, Origin};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::settings::SettingsFiles;
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::audit::{Actor, SECRET_REFERENCE_USED};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::run::RunId;
 use jiff::{SignedDuration, Timestamp};
 use serde_json::json;
+use tokio::runtime::Runtime;
 
 /// The entries each run records.
 pub(crate) const ENTRIES: u64 = 20;
@@ -34,8 +37,9 @@ pub(crate) enum Audit {
     Retained,
 }
 
-/// One extra unit of a row's work, called after each entry.
-pub(crate) type Plant = Arc<dyn Fn(&AuditLog) + Send + Sync>;
+/// One extra unit of a row's work, called after each entry with the log and
+/// the runtime its writer runs on.
+pub(crate) type Plant = Arc<dyn Fn(&AuditLog, &Runtime) + Send + Sync>;
 
 /// The Product version whose settings files the log reads.
 fn version() -> ProductVersion {
@@ -47,11 +51,19 @@ fn run_id() -> RunId {
     RunId::parse("audited").expect("invariant: a literal Run id")
 }
 
+/// The scenario's runtime, of one thread.
+pub(crate) fn runtime() -> Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("invariant: the OS gives a runtime of one thread")
+}
+
 /// The Audit log of `home`, as the engine's Runs open it, counting on
 /// `work`, its store opened through the VFS named `vfs`.
 pub(crate) fn log(home: &Path, vfs: Option<&str>, work: &CountedWork) -> AuditLog {
     let home = Home::new(home.to_owned());
-    AuditLog::of(&home, vfs.map(str::to_owned))
+    AuditLog::of(&home, vfs.map(str::to_owned), owner())
         .counting_on(work.clone())
         .retained_under(SettingsFiles::of(&home, &version()), Product::Collie)
 }
@@ -77,19 +89,20 @@ pub(crate) fn run(
         )
         .expect("invariant: a temporary folder takes a file");
     }
+    let runtime = runtime();
     let log = log(home, vfs, work);
     if audit == Audit::Unchained {
         log.unchain(run_id());
     }
     for index in 0..ENTRIES {
-        run_one(&log, index);
+        run_one(&log, &runtime, index);
         if let Some(plant) = plant {
-            plant(&log);
+            plant(&log, &runtime);
         }
     }
     if audit == Audit::Retained {
         // Read on a log that counts nowhere, so the check adds no open.
-        let exported = AuditLog::of(&Home::new(home.to_owned()), vfs.map(str::to_owned))
+        let exported = AuditLog::of(&Home::new(home.to_owned()), vfs.map(str::to_owned), owner())
             .export()
             .expect("invariant: the log reads back");
         assert!(
@@ -100,9 +113,14 @@ pub(crate) fn run(
     ENTRIES
 }
 
+/// The owner of a log's writer, which runs it as a task.
+fn owner() -> Arc<TaskOwner> {
+    Arc::new(TaskOwner::root(BlockingPolicy::Inline))
+}
+
 /// Records the scenario's entry numbered `index`, `index` seconds after its
-/// start.
-pub(crate) fn run_one(log: &AuditLog, index: u64) {
+/// start, blocking on `runtime`.
+pub(crate) fn run_one(log: &AuditLog, runtime: &Runtime, index: u64) {
     let origin = Origin {
         actor: Actor::Engine,
         surface: None,
@@ -113,13 +131,14 @@ pub(crate) fn run_one(log: &AuditLog, index: u64) {
         .parse()
         .expect("invariant: a literal time");
     let now = start + SignedDuration::from_secs(i64::try_from(index).unwrap_or(0));
-    log.record(
-        &origin,
-        &SECRET_REFERENCE_USED,
-        json!({ "reference": format!("env:SECRET_{index}"), "domain": "example.com" }),
-        now,
-    )
-    .expect("invariant: a temporary folder takes the Audit log");
+    runtime
+        .block_on(log.record(
+            &origin,
+            &SECRET_REFERENCE_USED,
+            json!({ "reference": format!("env:SECRET_{index}"), "domain": "example.com" }),
+            now,
+        ))
+        .expect("invariant: a temporary folder takes the Audit log");
 }
 
 /// The retention a planted prune pass prunes by.

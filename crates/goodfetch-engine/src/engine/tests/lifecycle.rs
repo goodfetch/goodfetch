@@ -2,24 +2,28 @@
 //! (ADR 0128), through its public interface over the in-memory network
 //! (spec #213's Seam 3): a late event changes nothing where the table says
 //! so, a program's refused transition answers its Error code, and a
-//! Connection's second `hello` is refused while it goes on serving.
+//! Connection's second `hello` is refused while it goes on serving, and
+//! an engine's stop ends its Audit log's writer.
 
 use std::collections::BTreeMap;
 use std::fs::OpenOptions;
 
+use goodfetch_protocol::audit::{Actor, SECURITY_SWITCH_TURNED_OFF};
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
 };
-use goodfetch_protocol::connection::StoppedBy;
+use goodfetch_protocol::connection::{StoppedBy, Surface};
 use goodfetch_protocol::run::{RunId, RunKind, Tags};
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
 use super::run::{call, index_row};
-use super::{attached_on, engine_with, hello};
+use super::{attached_on, dependencies, engine_with, hello};
+use crate::audit::{AuditError, Origin};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::runs::{EndedBy, Ending, Forwarded, Start, Started};
+use crate::tasks::TaskOwner;
 
 /// Starts a Run its driver ends, aborts it, and has the driver finish it
 /// while the abort's end is being written; answers what the abort and a
@@ -224,5 +228,44 @@ fn a_second_hello_is_invalid_request_and_the_connection_goes_on() {
     assert_eq!(
         (&again["error"]["data"]["code"], &info["result"]["product"]),
         (&json!("invalid_request"), &json!("collie"))
+    );
+}
+
+/// An engine's stop ends its Audit log's writer once its other tasks
+/// ended, and waits for it, as for every task it started (ADR 0060): an
+/// entry recorded before the stop is appended, and one recorded after it
+/// is refused, the writer no longer running.
+#[test]
+fn an_engines_stop_ends_its_audit_logs_writer() {
+    let env = TestEnv::new();
+    let engine = engine_with(Product::Collie, None);
+    let (before, after) = goodfetch_test_support::runtime().block_on(async {
+        let dependencies = dependencies(&env);
+        let owner = TaskOwner::root(dependencies.blocking);
+        let (runs, _events, context) = engine.start_runs(dependencies, &owner, None, None);
+        let origin = Origin {
+            actor: Actor::ClientSurface {
+                surface: Surface::Cli,
+            },
+            surface: None,
+            layer: None,
+            run_id: None,
+        };
+        let now = context.clock().timestamp();
+        let record = || {
+            context
+                .audit()
+                .record(&origin, &SECURITY_SWITCH_TURNED_OFF, json!({}), now)
+        };
+        let before = record().await;
+        runs.stop_all().await;
+        drop(runs);
+        owner.stop().await;
+        (before, record().await)
+    });
+
+    assert!(
+        before.is_ok() && matches!(after, Err(AuditError::Writer { .. })),
+        "{before:?} {after:?}"
     );
 }

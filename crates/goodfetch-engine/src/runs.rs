@@ -2897,11 +2897,7 @@ impl Runs {
                 }
                 let run_id = run.id().clone();
                 let now = self.limits.clock.timestamp();
-                let reported = self
-                    .limits
-                    .owner
-                    .blocking(move || switched.report(&audit, &run_id, now))
-                    .await;
+                let reported = switched.report(&audit, &run_id, now).await;
                 if let Err(error) = reported {
                     tracing::error!(
                         run_id = %run.id(),
@@ -3224,12 +3220,7 @@ impl Runs {
             Ok(Resumed::New { listed, .. }) => {
                 let switched = switched.beyond(listed);
                 let now = self.limits.clock.timestamp();
-                let reported_for = run_id.clone();
-                let reported = self
-                    .limits
-                    .owner
-                    .blocking(move || switched.report(&audit, &reported_for, now))
-                    .await;
+                let reported = switched.report(&audit, &run_id, now).await;
                 if let Err(error) = reported {
                     tracing::error!(
                         run_id = %run_id,
@@ -3854,22 +3845,33 @@ impl Runs {
     ///
     /// Dropping the future after it was sent still stops them.
     pub(crate) async fn stop_all(&self) {
-        self.stop_all_for(Cause::Asked).await;
+        self.stop_all_for(Cause::Asked).await.ended().await;
     }
 
     /// Stops every live Run as [`Runs::stop_all`] does, because a part
     /// every Run shares panicked on an Attached engine (ADR 0148): each is
     /// `stopped` for the engine's panic, never as aborted by its Client,
-    /// and its report carries the warning `engine_panicked`.
+    /// and its report carries the warning `engine_panicked`. It waits for
+    /// their ends only until `grace` resolves, as the part that panicked
+    /// may be what a Run's end, or the registry, waits on: a Run not ended
+    /// by then stays as it is, resumable from its run file.
     ///
     /// # Cancel safety
     ///
     /// As [`Runs::stop_all`]'s.
-    pub(crate) async fn stop_all_on_panic(&self) {
-        self.stop_all_for(Cause::Panic).await;
+    pub(crate) async fn stop_all_on_panic(&self, grace: impl Future<Output = ()>) -> PanicStop {
+        let mut grace = std::pin::pin!(grace);
+        let stopping = tokio::select! {
+            stopping = self.stop_all_for(Cause::Panic) => stopping,
+            () = &mut grace => return PanicStop::Unanswered,
+        };
+        tokio::select! {
+            () = stopping.ended() => PanicStop::Ended,
+            () = grace => PanicStop::NotEnded(stopping.not_ended()),
+        }
     }
 
-    async fn stop_all_for(&self, cause: Cause) {
+    async fn stop_all_for(&self, cause: Cause) -> Draining {
         let (answer, answered) = oneshot::channel();
         if self
             .commands
@@ -3877,11 +3879,9 @@ impl Runs {
             .await
             .is_err()
         {
-            return;
+            return Draining(Vec::new());
         }
-        for report in answered.await.unwrap_or_default() {
-            let _ = wait_for(report).await;
-        }
+        Draining(answered.await.unwrap_or_default())
     }
 
     /// Whether the registry's own task panicked (ADR 0148).
@@ -3890,7 +3890,19 @@ impl Runs {
     }
 }
 
-/// The Runs a drain stops (ADR 0049).
+/// How an Attached engine's stop on a panic left its Runs
+/// ([`Runs::stop_all_on_panic`]).
+#[derive(Debug)]
+pub(crate) enum PanicStop {
+    /// Each Run it stopped ended in time.
+    Ended,
+    /// This many Runs it stopped had not ended when the grace passed.
+    NotEnded(usize),
+    /// The registry had not answered the stop when the grace passed.
+    Unanswered,
+}
+
+/// The Runs a drain (ADR 0049), or a stop of every live Run, stops.
 pub(crate) struct Draining(Vec<watch::Receiver<Option<Ended>>>);
 
 impl Draining {
@@ -3899,13 +3911,21 @@ impl Draining {
         self.0.len()
     }
 
+    /// How many of them have not ended yet.
+    pub(crate) fn not_ended(&self) -> usize {
+        self.0
+            .iter()
+            .filter(|report| report.borrow().is_none())
+            .count()
+    }
+
     /// Answers once every one ended.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future loses only the wait.
-    pub(crate) async fn ended(self) {
-        for report in self.0 {
+    pub(crate) async fn ended(&self) {
+        for report in self.0.iter().cloned() {
             let _ = wait_for(report).await;
         }
     }
@@ -6431,7 +6451,7 @@ async fn given_back(run: &Run, writer: &TaskOwner) -> Vec<AppliedLimit> {
 /// it ends, by host and kind with the key each presented (ADR 0042):
 /// nothing when it reached no host through one. A failure to record is
 /// logged, and the Run ends all the same.
-async fn exceptions_used(run: &Run, writer: &TaskOwner, clock: Clock) {
+async fn exceptions_used(run: &Run, clock: Clock) {
     let used = run.secrets().exception_hosts().used().await;
     if used.is_empty() {
         return;
@@ -6448,17 +6468,16 @@ async fn exceptions_used(run: &Run, writer: &TaskOwner, clock: Clock) {
         layer: None,
         run_id: Some(run.id.clone()),
     };
-    let audit = run.runs.engine.audit().clone();
-    let now = clock.timestamp();
-    let recorded = writer
-        .blocking(move || {
-            audit.record(
-                &origin,
-                &CERTIFICATE_EXCEPTIONS_USED,
-                json!({ "hosts": hosts }),
-                now,
-            )
-        })
+    let recorded = run
+        .runs
+        .engine
+        .audit()
+        .record(
+            &origin,
+            &CERTIFICATE_EXCEPTIONS_USED,
+            json!({ "hosts": hosts }),
+            clock.timestamp(),
+        )
         .await;
     if let Err(error) = recorded {
         tracing::warn!(run_id = %run.id, %error, "the Audit log cannot record the certificate exceptions the Run used");
@@ -6641,7 +6660,7 @@ impl Closing {
             End::Stopped(reason) => (Some(reason), None, Vec::new()),
         };
         let limits = given_back(&run, &writer).await;
-        exceptions_used(&run, &writer, clock).await;
+        exceptions_used(&run, clock).await;
         let facts = EndFacts {
             run_id: run.id.clone(),
             lifecycle,

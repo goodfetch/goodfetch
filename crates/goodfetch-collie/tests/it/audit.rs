@@ -13,8 +13,11 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::sync::Arc;
+
 use goodfetch_engine::audit::{AuditLog, Origin};
 use goodfetch_engine::home::Home;
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::audit::{Actor, SECRET_REFERENCE_USED};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
@@ -38,24 +41,32 @@ fn written(env: &TestEnv, count: u64) -> AuditLog {
     written_at(env, count, "2026-01-05T09:00:00Z")
 }
 
-/// Writes `count` entries recorded at `time`, as [`written`] does.
+/// Writes `count` entries recorded at `time`, as [`written`] does. The log's
+/// writer runs on a runtime of the call's own, so its store is closed when
+/// the call returns; the log answered reads only.
 fn written_at(env: &TestEnv, count: u64, time: &str) -> AuditLog {
-    let log = AuditLog::of(&Home::new(env.home().to_path_buf()), None);
+    let log = AuditLog::of(
+        &Home::new(env.home().to_path_buf()),
+        None,
+        Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+    );
+    let runtime = goodfetch_test_support::runtime();
     for index in 1..=count {
-        log.record(
-            &Origin {
-                actor: Actor::ClientSurface {
-                    surface: Surface::Cli,
+        runtime
+            .block_on(log.record(
+                &Origin {
+                    actor: Actor::ClientSurface {
+                        surface: Surface::Cli,
+                    },
+                    surface: None,
+                    layer: None,
+                    run_id: None,
                 },
-                surface: None,
-                layer: None,
-                run_id: None,
-            },
-            &SECRET_REFERENCE_USED,
-            json!({ "reference": format!("env:SECRET_{index}"), "domain": "example.com" }),
-            time.parse().unwrap(),
-        )
-        .unwrap();
+                &SECRET_REFERENCE_USED,
+                json!({ "reference": format!("env:SECRET_{index}"), "domain": "example.com" }),
+                time.parse().unwrap(),
+            ))
+            .unwrap();
     }
     log
 }

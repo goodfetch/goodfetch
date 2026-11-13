@@ -8,15 +8,19 @@
 //! engine's `durable` module's. Only the Release suite runs them, on Linux
 //! x64 (`just lazyfs-test`); nextest's profiles leave them out elsewhere.
 
+use std::sync::Arc;
+
 use goodfetch_engine::audit::{AuditLog, Origin};
 use goodfetch_engine::home::Home;
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::audit::{Actor, AuditVerified, SECRET_REFERENCE_USED};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_test_support::{LazyFs, TestEnv};
 use serde_json::json;
 
 /// Entries recorded before a power cut still verify after it: the head file
-/// that names the last of them was synced before `record` answered.
+/// that names the last of them was synced before `record` answered. The
+/// log's writer ends first, which closes the store on the mount.
 #[test]
 fn an_audit_log_recorded_on_a_mounted_home_verifies_intact_after_clear_cache() {
     let env = TestEnv::for_lazyfs();
@@ -30,23 +34,30 @@ fn an_audit_log_recorded_on_a_mounted_home_verifies_intact_after_clear_cache() {
         layer: None,
         run_id: None,
     };
+    let (runtime, owner) = (
+        goodfetch_test_support::runtime(),
+        Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+    );
+    let log = AuditLog::of(&home, None, Arc::clone(&owner));
     for index in 1..=2 {
-        AuditLog::of(&home, None)
-            .record(
+        runtime
+            .block_on(log.record(
                 &origin,
                 &SECRET_REFERENCE_USED,
                 json!({ "reference": format!("env:SECRET_{index}"), "domain": "example.com" }),
                 "2026-01-05T09:00:00Z".parse().unwrap(),
-            )
+            ))
             .unwrap();
     }
+    drop(log);
+    runtime.block_on(owner.wait());
 
     mounted.clear_cache().unwrap();
     drop(mounted);
     let _remounted = LazyFs::mount(&env, env.home()).unwrap();
 
     assert_eq!(
-        AuditLog::of(&home, None).verify().unwrap(),
+        AuditLog::of(&home, None, owner).verify().unwrap(),
         AuditVerified {
             intact: true,
             entries: 2,

@@ -127,13 +127,20 @@ pub(crate) fn run_state_plant(name: &str, counted: &Counted<'_>) -> Plant {
             })
         }
         "F2.prunes" => {
-            let folder = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
-            let log = AuditLog::of(&Home::new(folder.path().to_owned()), None)
-                .counting_on(counted.work.clone());
+            let (runtime, folder) = beside_the_crawl();
+            let log = AuditLog::of(
+                &Home::new(folder.path().to_owned()),
+                None,
+                Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+            )
+            .counting_on(counted.work.clone());
             Arc::new(move |_: &str| {
                 let _kept = &folder;
-                log.prune(Duration::from_secs(1), None, jiff::Timestamp::UNIX_EPOCH)
-                    .expect("invariant: an Audit log with nothing to prune");
+                beside(
+                    runtime,
+                    log.prune(Duration::from_secs(1), None, jiff::Timestamp::UNIX_EPOCH),
+                )
+                .expect("invariant: an Audit log with nothing to prune");
             })
         }
         // The journal's synced commit is not built until #1550: its counted

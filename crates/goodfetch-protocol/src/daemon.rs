@@ -134,10 +134,11 @@ fn hundred_and_ten_seconds() -> serde_json::Value {
 
 /// `daemon.drain_grace` (ADR 0049): how long a Daemon drains, the
 /// foreground Daemon on `SIGTERM` and any Daemon whose listener is closed
-/// for good.
+/// for good, and how long an Attached engine stopping on a panic in a part
+/// every Run shares waits for its Runs (ADR 0148).
 pub const DRAIN_GRACE: Setting = Setting {
     name: "daemon.drain_grace",
-    description: "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+    description: "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. An Attached engine that stops on a panic in a part every run shares waits as long for its runs to stop, leaving each one not stopped resumable from its run file, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
     kind: ValueKind::Duration,
     default: hundred_and_ten_seconds,
     clearable: false,

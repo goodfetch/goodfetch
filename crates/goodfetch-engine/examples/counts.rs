@@ -119,26 +119,27 @@ fn plant(name: &str, work: &CountedWork) -> Plant {
 /// per entry, done for real through the code that counts it.
 fn audit_plant(name: &str, work: &CountedWork, vfs: &str) -> audit::Plant {
     match name {
-        // One entry more, on a log of its own beside the scenario's: a
+        // One entry more, on a log of its own beside the scenario's, made
+        // anew for each so that its writer opens its store again: a
         // configuration read, a store open, its transactions and a head-file
         // write the store syncs.
         "E2.configuration_reads" | "E2.opens" | "E2.transactions" | SYNCS => {
             let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
-            let log = audit::log(home.path(), Some(vfs), work);
-            let home = Arc::new(home);
-            Arc::new(move |_: &AuditLog| {
-                let _kept = &home;
-                audit::run_one(&log, 0);
+            let (vfs, work) = (vfs.to_owned(), work.clone());
+            Arc::new(move |_: &AuditLog, runtime: &tokio::runtime::Runtime| {
+                let log = audit::log(home.path(), Some(&vfs), &work);
+                audit::run_one(&log, runtime, 0);
             })
         }
         // A prune pass with nothing old enough to prune.
-        "E2.prunes" => Arc::new(|log: &AuditLog| {
-            log.prune(PLANTED_RETENTION, None, jiff::Timestamp::UNIX_EPOCH)
+        "E2.prunes" => Arc::new(|log: &AuditLog, runtime: &tokio::runtime::Runtime| {
+            runtime
+                .block_on(log.prune(PLANTED_RETENTION, None, jiff::Timestamp::UNIX_EPOCH))
                 .expect("invariant: an Audit log with nothing to prune");
         }),
         // Callgrind counts the process's calls of SQLite's own function, on
         // any connection.
-        PREPARES => Arc::new(|_: &AuditLog| {
+        PREPARES => Arc::new(|_: &AuditLog, _: &tokio::runtime::Runtime| {
             let connection = rusqlite::Connection::open_in_memory()
                 .expect("invariant: SQLite opens an in-memory database");
             let _ = connection

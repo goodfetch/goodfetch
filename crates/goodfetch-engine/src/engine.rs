@@ -17,9 +17,11 @@ use goodfetch_counted_work::CountedWork;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::sync::Arc;
+use std::time::Duration;
 
 use goodfetch_protocol::connection::PrivateEndpoint;
 use goodfetch_protocol::connection::{EngineInstance, PanicEnded, ProductVersion};
+use goodfetch_protocol::daemon::DRAIN_GRACE;
 use goodfetch_protocol::governor::{SYSTEM_INFO, SystemInfo};
 use goodfetch_protocol::run::{RunKind, RunOwner};
 use goodfetch_protocol::secret_reference::Provider;
@@ -50,10 +52,10 @@ use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
-use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Runs, RunsSetup};
+use crate::runs::{CleanUpVersions, Driving, PanicStop, ProgressPart, ReportPart, Runs, RunsSetup};
 use crate::sandbox_probe::{self, SandboxProbe};
 use crate::secrets::{self, Carried, Keychain, ProviderFactory, Secrets};
-use crate::settings::{HostDefaults, HostSearch, Settings, SettingsFiles};
+use crate::settings::{HostDefaults, HostSearch, Settings, SettingsFiles, get_or_default};
 use crate::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use crate::transition::{
     self,
@@ -79,6 +81,7 @@ pub struct Engine {
     metrics: Metrics,
     system: Option<System>,
     audit_events: Option<AuditEvents>,
+    drain_grace: Duration,
 }
 
 /// What an engine runs on, which `main` builds once (the system versions)
@@ -134,6 +137,7 @@ impl Engine {
             metrics: Metrics::none(),
             system: None,
             audit_events: None,
+            drain_grace: get_or_default(None, &DRAIN_GRACE),
         })
     }
 
@@ -186,6 +190,16 @@ impl Engine {
     #[must_use]
     pub fn with_events(mut self, options: EventsOptions) -> Self {
         self.events = options;
+        self
+    }
+
+    /// The same, an Attached engine that stops on a panic in a part every
+    /// Run shares waiting at most `grace` for its Runs: the value of
+    /// `daemon.drain_grace`, which a Daemon drains within (ADR 0148).
+    /// Without it, that setting's default.
+    #[must_use]
+    pub fn with_drain_grace(mut self, grace: Duration) -> Self {
+        self.drain_grace = grace;
         self
     }
 
@@ -446,11 +460,26 @@ impl Engine {
         (needs_you, sandbox_probe): (NeedsYou, SandboxProbe),
         owner: &TaskOwner,
     ) -> (EngineContext, Secrets) {
+        // The Audit log's writer is an actor of a part of its own, which
+        // `owner`'s stop would not end: a task of `owner` ends it once that
+        // stop began, which the engine starts after its Runs and
+        // Connections, which record, have stopped, and `owner`'s stop waits
+        // for that task (ADR 0060).
+        let writer = Arc::new(owner.part("Audit log"));
+        let (stopping, stopped) = (owner.token().clone(), Arc::clone(&writer));
+        owner.spawn(async move {
+            stopping.cancelled().await;
+            stopped.stop().await;
+        });
         let audit = Arc::new(
-            AuditLog::of(&dependencies.home, dependencies.run_state.vfs.clone())
-                .counting_on(dependencies.run_state.work.clone())
-                .retained_under(settings.files().clone(), settings.product())
-                .sending_to(self.audit_events.clone()),
+            AuditLog::of(
+                &dependencies.home,
+                dependencies.run_state.vfs.clone(),
+                writer,
+            )
+            .counting_on(dependencies.run_state.work.clone())
+            .retained_under(settings.files().clone(), settings.product())
+            .sending_to(self.audit_events.clone()),
         );
         let context = EngineContext::new(
             dependencies.home.clone(),
@@ -524,8 +553,10 @@ impl Engine {
     /// the OS, once its parent is gone, then stops every task it started
     /// and removes its private endpoint. A panic in a part every Run shares
     /// stops it too, with no drain: it stops its live Runs for the panic,
-    /// unless the Run registry is what panicked, cancels every task it
-    /// started and fails with [`AttachedFailure::Panicked`] (ADR 0148).
+    /// unless the Run registry is what panicked, waiting for them at most
+    /// its drain grace ([`Engine::with_drain_grace`]), each Run not stopped
+    /// by then left resumable from its run file; then it cancels every task
+    /// it started and fails with [`AttachedFailure::Panicked`] (ADR 0148).
     ///
     /// # Errors
     ///
@@ -545,6 +576,7 @@ impl Engine {
         let parent = on_the_os.then(ParentWatch::start);
         let connection = network.attached_connection().await?;
         let owner = TaskOwner::root(dependencies.blocking);
+        let clock = dependencies.clock;
         let private = if on_the_os {
             private_endpoint(network, &owner).await
         } else {
@@ -609,9 +641,9 @@ impl Engine {
             EngineEvent::PartPanicked | EngineEvent::RegistryPanicked => {
                 // A panic in a part every Run shares stops the engine with
                 // no drain, and its process exits 1 (ADR 0148). Its Runs
-                // stop for the panic first, unless the registry that stops
-                // them is what panicked: then each stays as it is, read as
-                // interrupted.
+                // stop for the panic first, within the drain grace, unless
+                // the registry that stops them is what panicked: then each
+                // stays as it is, read as interrupted.
                 let registry = matches!(ended, EngineEvent::RegistryPanicked);
                 tracing::error!(
                     part = owner.panicked_part(),
@@ -620,7 +652,7 @@ impl Engine {
                 );
                 self.metrics.panicked(PanicEnded::Engine);
                 if !registry {
-                    runs.stop_all_on_panic().await;
+                    stop_runs_on_panic(&runs, clock.sleep(self.drain_grace)).await;
                 }
                 drop(runs);
                 connection_owner.cancel();
@@ -787,6 +819,23 @@ async fn private_endpoint(
             tracing::warn!(%error, "the private endpoint cannot listen: no worker or Daemon reaches this engine");
             None
         }
+    }
+}
+
+/// Stops an Attached engine's live Runs for a panic in a part every Run
+/// shares, waiting for them until `grace`, its drain grace, ends; then logs
+/// how many it left, or that the Runs' registry never answered, each such
+/// Run resumable from its run file (ADR 0148).
+async fn stop_runs_on_panic(runs: &Runs, grace: impl Future<Output = ()>) {
+    match runs.stop_all_on_panic(grace).await {
+        PanicStop::Ended => {}
+        PanicStop::NotEnded(live_runs) => tracing::warn!(
+            live_runs,
+            "the drain grace passed: each run not yet stopped stays resumable from its run file"
+        ),
+        PanicStop::Unanswered => tracing::warn!(
+            "the drain grace passed before the Runs' registry answered: each live run stays resumable from its run file"
+        ),
     }
 }
 

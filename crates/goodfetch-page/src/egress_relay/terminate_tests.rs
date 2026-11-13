@@ -232,7 +232,11 @@ pub(super) fn stores() -> Stores {
         store: store.clone(),
         person: PERSON.to_owned(),
         run_id: None,
-        audit: Arc::new(AuditLog::of(&home, None)),
+        audit: Arc::new(AuditLog::of(
+            &home,
+            None,
+            Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+        )),
         owner: Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
         clock: Clock::system(),
     };

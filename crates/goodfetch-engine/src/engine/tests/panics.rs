@@ -6,11 +6,13 @@
 //! task panics ends alone, as when its Client goes away, and an Attached
 //! engine ends with it. A panic in a part every Run shares stops the
 //! engine and nothing is restarted: a Daemon drains its Runs and ends; an
-//! Attached engine stops its Runs for the panic and fails. Each such Run
-//! resumes by its Run ID. The panic comes from an extra operation the test
-//! hands the engine, or a task it starts on a Connection's or the engine's
-//! owner, never from a switch in a Product.
+//! Attached engine stops its Runs for the panic, waiting for them at most
+//! its drain grace, and fails. Each such Run resumes by its Run ID. The
+//! panic comes from an extra operation the test hands the engine, or a task
+//! it starts on a Connection's or the engine's owner, never from a switch
+//! in a Product.
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,14 +25,17 @@ use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 use tokio::sync::oneshot;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use super::daemon::{cli_hello, daemon, draining, opened as daemon_opened, sdk_hello, the_pick};
+use super::daemon::{
+    cli_hello, daemon, draining, opened as daemon_opened, sdk_hello, stuck_handler, the_pick,
+};
 use super::ops::{metering, series};
 use super::run::{call, index_row, run_folder, run_row};
 use super::{
     Client, IN_FLIGHT_CAP, OWED, attached_on, attached_with, dependencies, engine_with, opened,
-    owed, request,
+    owed, records_of, request,
 };
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
@@ -622,5 +627,83 @@ fn an_attached_engine_whose_shared_part_panics_stops_its_runs_and_fails() {
             true,
         ),
         "{report}"
+    );
+}
+
+/// Where the engine's own records are logged.
+const ENGINE_TARGET: &str = "goodfetch_engine::engine";
+
+/// An Attached engine stopping on a panic in a part every Run shares waits
+/// for its Runs at most its drain grace (`daemon.drain_grace`, ADR 0148):
+/// a Run that has not stopped by then stays `running`, resumable from its
+/// run file; the engine logs how many it left so, and fails at the grace.
+#[test]
+fn an_attached_engine_that_panicked_fails_at_its_drain_grace_leaving_a_stuck_run_resumable() {
+    let env = TestEnv::new();
+    let grace = Duration::from_secs(30);
+    // Past the grace, a test whose engine still waits fails, never hangs.
+    let bound = grace + Duration::from_secs(60);
+    let engine = engine_with(
+        Product::Collie,
+        Some(panicking_parts().with_handler(stuck_handler())),
+    )
+    .with_drain_grace(grace);
+
+    let mut ended = None;
+    let records = records_of(ENGINE_TARGET, || {
+        ended = Some(goodfetch_test_support::runtime().block_on(async {
+            let (network, dialer) = transport::in_memory();
+            let dependencies = dependencies(&env);
+            let clock = dependencies.clock;
+            // When the Client asked for the panic, which the engine's wait
+            // is measured from.
+            let panic_asked = Cell::new(None);
+            let served = async {
+                tokio::select! {
+                    served = engine.run_attached(Network::InMemory(network), dependencies) => {
+                        let waited = panic_asked.get().map(|asked: Instant| asked.elapsed());
+                        Some((format!("{served:?}"), waited))
+                    }
+                    () = clock.sleep(bound) => None,
+                }
+            };
+            let talk = async {
+                let (reader, writer) = dialer.connect().await.unwrap().split();
+                let mut client = Client {
+                    lines: BufReader::new(reader).lines(),
+                    writer,
+                };
+                opened(&mut client).await;
+                call(&mut client, 1, "test.stuck", json!({ "run_id": "stuck" })).await;
+                panic_asked.set(Some(Instant::now()));
+                client
+                    .send(&[request(2, "test.panic_in_a_shared_part")])
+                    .await;
+                let _ =
+                    tokio::time::timeout(bound, async { while client.next().await.is_some() {} })
+                        .await;
+            };
+            tokio::join!(served, talk).0
+        }));
+    });
+
+    let served = ended.unwrap();
+    // Read before the Run resumes, which rewrites its row.
+    let lifecycle = run_row(&run_folder(&env, "stuck"))["lifecycle"].clone();
+    let (_, resumed) = reported_then_resumed(&env, "stuck");
+    assert_eq!(
+        (
+            served,
+            lifecycle,
+            resumed["result"]["started_as"].clone(),
+            records.iter().any(|record| record.contains("live_runs=1")),
+        ),
+        (
+            Some(("Err(Panicked)".to_owned(), Some(grace))),
+            json!("running"),
+            json!("resumed"),
+            true,
+        ),
+        "{records:#?}"
     );
 }

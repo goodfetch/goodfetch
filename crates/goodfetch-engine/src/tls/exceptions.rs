@@ -447,19 +447,13 @@ impl PinBook {
     /// Records an entry of `kind` with `details` in the Audit log, by the
     /// engine for the Run.
     async fn record(&self, kind: &'static SharedTypeValue, details: Value) {
-        let now = self.now();
-        let audit = Arc::clone(&self.audit);
         let origin = Origin {
             actor: Actor::Engine,
             surface: None,
             layer: None,
             run_id: self.run_id.clone(),
         };
-        if let Err(error) = self
-            .owner
-            .blocking(move || audit.record(&origin, kind, details, now))
-            .await
-        {
+        if let Err(error) = self.audit.record(&origin, kind, details, self.now()).await {
             tracing::warn!(%error, kind = kind.name, "the Audit log cannot record a certificate exception");
         }
     }

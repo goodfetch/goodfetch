@@ -14,6 +14,7 @@
 
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -29,7 +30,7 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::daemon::{
-    cli_hello, daemon, daemon_within, draining, driven, opened as daemon_opened, sdk_hello,
+    TOKEN, cli_hello, daemon, daemon_within, draining, driven, opened as daemon_opened, sdk_hello,
     stuck_handler, the_pick,
 };
 use super::ops::{metering, series};
@@ -41,7 +42,7 @@ use super::{
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::crash_report::record_panics;
-use crate::engine::Engine;
+use crate::engine::{Engine, serve_private_endpoint};
 use crate::mask::Masks;
 use crate::run_state::MAILBOX;
 use crate::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
@@ -708,6 +709,78 @@ fn an_attached_engine_that_panicked_fails_at_its_drain_grace_leaving_a_stuck_run
         ),
         "{records:#?}"
     );
+}
+
+/// A call that cannot be cancelled and never answers.
+const NEVER_ANSWERS: Operation = Operation {
+    name: "test.never_answers",
+    description: "Never answers, whatever its cancellation.",
+    cancellable: false,
+    ..PANIC
+};
+
+/// An Attached engine's private endpoint stops at once, even while a call
+/// on one of its Connections cannot be cancelled and never answers: its
+/// stop waits for its accept loop alone, never for its Connections' calls,
+/// so the stop on a panic in a part every Run shares goes on to its Runs'
+/// stop, which the drain grace bounds (ADR 0148). The in-memory network
+/// serves an Attached engine no private endpoint, so the test serves one on
+/// an in-memory listener, as `run_attached` does on the OS.
+#[test]
+fn a_private_endpoints_stop_waits_for_no_call_of_its_connections() {
+    let env = TestEnv::new();
+    // Told once the call reached its handler.
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let reaching = Arc::clone(&reached);
+    let engine = engine_with(
+        Product::Collie,
+        Some(
+            Contribution::new("test_never_answers").with_handler(Handler::new(
+                &NEVER_ANSWERS,
+                move |_: Value, _: CallContext| {
+                    let reaching = Arc::clone(&reaching);
+                    async move {
+                        reaching.notify_one();
+                        std::future::pending::<Result<Value, CallError>>().await
+                    }
+                },
+            )),
+        ),
+    );
+
+    let waited = goodfetch_test_support::runtime().block_on(async {
+        let dependencies = dependencies(&env);
+        let clock = dependencies.clock;
+        let owner = TaskOwner::root(dependencies.blocking);
+        let (runs, events, context) = engine.start_runs(dependencies, &owner, None, None);
+        let (network, dialer) = transport::in_memory();
+        let (listener, _) = Network::InMemory(network)
+            .listen(Path::new("private"))
+            .await
+            .unwrap();
+        let accepting = owner.part("private endpoint");
+        serve_private_endpoint(
+            &accepting,
+            Arc::clone(&engine.dispatch),
+            listener,
+            Arc::from(TOKEN),
+            runs,
+            events,
+            context,
+        );
+        let mut client = daemon_opened(&dialer, cli_hello()).await;
+        client.send(&[request(1, "test.never_answers")]).await;
+        reached.notified().await;
+        let stopping = clock.now();
+        let waited = tokio::select! {
+            () = accepting.stop() => Some(clock.now() - stopping),
+            () = clock.sleep(Duration::from_secs(60)) => None,
+        };
+        owner.cancel();
+        waited
+    });
+
+    assert_eq!(waited, Some(Duration::ZERO));
 }
 
 /// Starts a Run whose run state takes no more writes, as one whose writer

@@ -89,7 +89,7 @@ describe("a Foxhound Connection", () => {
   );
 
   test(
-    "opens many times in one process, at once and after a close, and installs no handler in it",
+    "runs beside another Connection in the same process, installing no handler in it",
     { tags: ["story:11-1002"] },
     async () => {
       const before = processHandlers();
@@ -98,28 +98,33 @@ describe("a Foxhound Connection", () => {
       );
 
       const traced = await Promise.all(
-        scripts.map(async (played) => startAndFinish(await connectOver(played.transport))),
+        scripts.map(async (played) => {
+          const foxhound = await connectOver(played.transport);
+          const whileOpen = processHandlers();
+          return { ...(await startAndFinish(foxhound)), whileOpen };
+        }),
       );
-      const again = playScript("connect/foxhound-accepted.json");
-      await (await connectOver(again.transport)).close();
-      // The factory itself, as far as starting its engine's process.
-      const unstarted = await connectFailure({
-        GOODFETCH_FOXHOUND_ENGINE_PATH: "/nonexistent/goodfetch-foxhound",
-      });
 
-      expect({
-        lifecycles: traced.map(({ report }) => report.lifecycle),
-        played: [...scripts, again].map((played) => played.done().kind),
-        unstarted: unstarted instanceof client.EngineNotFoundError,
-        handlers: processHandlers(),
-      }).toEqual({
-        lifecycles: ["finished", "finished"],
-        played: ["finished", "finished", "finished"],
-        unstarted: true,
-        handlers: before,
-      });
+      expect(traced.map(({ report }) => report.lifecycle)).toEqual(["finished", "finished"]);
+      expect(scripts.map((played) => played.done().kind)).toEqual(["finished", "finished"]);
+      expect([...traced.map(({ whileOpen }) => whileOpen), processHandlers()]).toEqual([
+        before,
+        before,
+        before,
+      ]);
     },
   );
+
+  test("connects again after a close", { tags: ["story:11-1002"] }, async () => {
+    const first = playScript("connect/foxhound-accepted.json");
+    await (await connectOver(first.transport)).close();
+    const second = playScript("run/foxhound-started-and-finished.json");
+
+    const traced = await startAndFinish(await connectOver(second.transport));
+
+    expect(traced.report.lifecycle).toBe("finished");
+    expect([first.done(), second.done()]).toEqual([{ kind: "finished" }, { kind: "finished" }]);
+  });
 
   test(
     "carries every member of a Collie Connection under the same name",
@@ -130,34 +135,19 @@ describe("a Foxhound Connection", () => {
   );
 
   test(
-    "is taken by a helper typed for Connection as a Collie Connection is, and a Collie error class catches either one's error",
-    { tags: ["story:11-1003", "story:11-1004"] },
+    "raises the class of a code only Foxhound carries, which the client package's group class catches",
+    { tags: ["story:11-1004"] },
     async () => {
-      const onFoxhound = playScript("run/foxhound-started-and-finished.json");
-      const onCollie = playScript("run/started-and-finished.json");
-      const connections: readonly client.Connection[] = [
-        await connectOver(onFoxhound.transport),
-        await connectOverCollie(onCollie.transport),
-      ];
+      const played = playScript("run/foxhound-start-failed-with-a-foxhound-code.json");
+      const foxhound = await connectOver(played.transport);
 
-      const traced = [];
-      const closed = [];
-      for (const connection of connections) {
-        traced.push(await startAndFinish(connection));
-        closed.push((await failure(connection.start())) instanceof client.ClosedError);
-      }
+      const error = await failure(foxhound.start());
+      await foxhound.close();
 
-      const finished = {
-        startedAs: "new",
-        runId: "01ke6p4ym0j8x3v5wq2rtbn7hc",
-        report: { lifecycle: "finished", verdict: "verified", completeness: "complete" },
-      };
-      expect(traced).toMatchObject([finished, finished]);
-      expect(closed).toEqual([true, true]);
-      expect([onFoxhound.done(), onCollie.done()]).toEqual([
-        { kind: "finished" },
-        { kind: "finished" },
-      ]);
+      expect(error).toBeInstanceOf(foxhoundPackage.ClientGoneError);
+      expect(error).toBeInstanceOf(client.UnavailableError);
+      expect(error).toMatchObject({ code: "client_gone", group: "unavailable", retryable: true });
+      expect(played.done()).toEqual({ kind: "finished" });
     },
   );
 
@@ -182,6 +172,35 @@ describe("a Foxhound Connection", () => {
           foxhoundPackage.NotInProductError === client.NotInProductError,
         ],
       }).toEqual({ run: true, closed: true, reexported: [true, true, true] });
+    },
+  );
+});
+
+describe("a helper typed for Connection", () => {
+  test.for([
+    {
+      product: "Foxhound",
+      script: "run/foxhound-started-and-finished.json",
+      open: connectOver,
+    },
+    { product: "Collie", script: "run/started-and-finished.json", open: connectOverCollie },
+  ] as const)(
+    "takes $product's Connection, and a client package's class catches its error",
+    { tags: ["story:11-1003", "story:11-1004"] },
+    async ({ script, open }) => {
+      const played = playScript(script);
+      const connection: client.Connection = await open(played.transport);
+
+      const traced = await startAndFinish(connection);
+      const closed = await failure(connection.start());
+
+      expect(traced).toMatchObject({
+        startedAs: "new",
+        runId: "01ke6p4ym0j8x3v5wq2rtbn7hc",
+        report: { lifecycle: "finished", verdict: "verified", completeness: "complete" },
+      });
+      expect(closed).toBeInstanceOf(client.ClosedError);
+      expect(played.done()).toEqual({ kind: "finished" });
     },
   );
 });

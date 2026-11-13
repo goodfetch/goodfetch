@@ -8,7 +8,9 @@
 // re-exports the Collie client package, so a Foxhound program's Run, results
 // and error classes are the ones a Collie program holds, and adds the
 // Connection, which finds Foxhound's executable and reads only
-// `GOODFETCH_FOXHOUND_ENGINE_PATH`. It depends on no Collie package but the
+// `GOODFETCH_FOXHOUND_ENGINE_PATH`, and the classes of Foxhound's own Error
+// codes, each under a group class of the client package. It depends on no Collie package but the
 // client package. Importing it reads, patches and logs nothing (ADR 0078).
 export * from "@goodfetch/collie-client";
+export * from "./generated/errors.ts";
 export { Foxhound } from "./foxhound.ts";

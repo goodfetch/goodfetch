@@ -250,16 +250,22 @@ fn shared_types(layer: &Layer) -> String {
 /// executable and its engine-path variable (ADR 0090). The Connection's
 /// messages are among the layer's types.
 fn connection(layer: &Layer) -> String {
-    let shared = match layer.product {
-        Product::Collie => format!(
-            "/** The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066). */\nexport const PROTOCOL_VERSION = {:?};\n\n/** The Product version this package carries, `hello`'s `product_version`, which each Product's package pins exactly (ADRs 0090 and 0095). */\nexport const PRODUCT_VERSION = {:?};\n\n/** The executable's hidden command that serves one Connection over stdio. */\nexport const ATTACHED_ENGINE_COMMAND = {:?};\n\n",
-            layer.protocol_version, layer.product_version, ATTACHED_ENGINE,
+    let (shared, name, constant, variable) = match layer.product {
+        Product::Collie => (
+            format!(
+                "/** The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066). */\nexport const PROTOCOL_VERSION = {:?};\n\n/** The Product version this package carries, `hello`'s `product_version`, which each Product's package pins exactly (ADRs 0090 and 0095). */\nexport const PRODUCT_VERSION = {:?};\n\n/** The executable's hidden command that serves one Connection over stdio. */\nexport const ATTACHED_ENGINE_COMMAND = {:?};\n\n",
+                layer.protocol_version, layer.product_version, ATTACHED_ENGINE,
+            ),
+            "Collie",
+            "COLLIE",
+            COLLIE_ENGINE_PATH_VARIABLE,
         ),
-        Product::Foxhound => String::new(),
-    };
-    let (name, constant, variable) = match layer.product {
-        Product::Collie => ("Collie", "COLLIE", COLLIE_ENGINE_PATH_VARIABLE),
-        Product::Foxhound => ("Foxhound", "FOXHOUND", FOXHOUND_ENGINE_PATH_VARIABLE),
+        Product::Foxhound => (
+            String::new(),
+            "Foxhound",
+            "FOXHOUND",
+            FOXHOUND_ENGINE_PATH_VARIABLE,
+        ),
     };
     format!(
         "{HEADER}\n{shared}/** The variable naming {name}'s executable (ADR 0090). */\nexport const {constant}_ENGINE_PATH_VARIABLE = {variable:?};\n\n/** The name of {name}'s executable (ADR 0090). */\nexport const {constant}_EXECUTABLE = {:?};\n",

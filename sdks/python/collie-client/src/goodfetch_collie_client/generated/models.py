@@ -2626,6 +2626,19 @@ class StopReason8(BaseModel):
 
 class StopReason9(BaseModel):
     """
+    Its Attached engine stopped on a panic in a part every Run shares,
+    and stopped it first, resumable by its Run ID (ADR 0148); a Daemon
+    drains instead.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["engine_panicked"]
+
+
+class StopReason10(BaseModel):
+    """
     The resource governor ran out of a resource for it, and it stopped
     at its next safe point, resumable (ADRs 0040 and 0122).
     """
@@ -5210,6 +5223,7 @@ class StopReason(
         | StopReason7
         | StopReason8
         | StopReason9
+        | StopReason10
     ]
 ):
     root: (
@@ -5222,6 +5236,7 @@ class StopReason(
         | StopReason7
         | StopReason8
         | StopReason9
+        | StopReason10
     )
     """Why a Run stopped (ADRs 0029, 0080 and 0102)."""
 

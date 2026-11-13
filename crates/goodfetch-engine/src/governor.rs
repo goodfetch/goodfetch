@@ -120,7 +120,7 @@ impl Governor {
             clock,
             shares: shares.clone(),
             sender,
-            blocking: owner.child(),
+            blocking: owner.part("Resource governor"),
             folders: folders.clone(),
             stored,
             beginning,

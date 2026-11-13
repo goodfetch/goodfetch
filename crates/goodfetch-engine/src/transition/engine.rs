@@ -33,10 +33,16 @@
 //! | `Drain` | bug | `Draining` | — | — | — |
 //! | `Drained` | bug | bug | bug | `Stopping` | — |
 //! | `ListenerFailed` | bug | `Draining` | — | — | — |
+//! | `PartPanicked` | `Stopping` | `Draining` | — | — | — |
+//! | `RegistryPanicked` | `Stopping` | `Stopping` | — | — | — |
 //!
 //! A dash in `HandingOver`, `Draining` or `Stopping` is a late event: the end
 //! already decided ends the engine too. A Client lost by a Daemon changes
-//! nothing; its idle stop counts the Clients still connected.
+//! nothing; its idle stop counts the Clients still connected. A part every
+//! Run shares that panicked stops the engine (ADR 0148): a Daemon drains
+//! while its Runs' registry runs, an Attached engine, which has no drain,
+//! stops its Runs through the registry, and either stops at once when the
+//! registry is what panicked.
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
@@ -212,6 +218,23 @@ pub enum EngineEvent {
     Drained,
     /// A Daemon's listener is closed for good.
     ListenerFailed,
+    /// A task of the engine's own owner that belongs to no Run and no
+    /// Connection panicked, the Runs' registry still running (ADR 0148).
+    PartPanicked,
+    /// The Runs' registry's own task panicked (ADR 0148).
+    RegistryPanicked,
+}
+
+impl EngineEvent {
+    /// The panic of a part every Run shares, which is the Runs' registry
+    /// when `registry` (ADR 0148).
+    pub fn panicked(registry: bool) -> Self {
+        if registry {
+            Self::RegistryPanicked
+        } else {
+            Self::PartPanicked
+        }
+    }
 }
 
 /// A transition the engine's table refuses.
@@ -233,7 +256,10 @@ pub fn engine(
     match state {
         EngineState::Attached => match event {
             EngineEvent::ClientLost => Ok(EngineState::Attached),
-            EngineEvent::StdioEnded | EngineEvent::ParentGone => Ok(EngineState::Stopping),
+            EngineEvent::StdioEnded
+            | EngineEvent::ParentGone
+            | EngineEvent::PartPanicked
+            | EngineEvent::RegistryPanicked => Ok(EngineState::Stopping),
             EngineEvent::StopAsked => refused(Refusal::Program(NOT_A_DAEMON.name)),
             EngineEvent::Idle
             | EngineEvent::HandOver
@@ -243,9 +269,13 @@ pub fn engine(
         },
         EngineState::Serving => match event {
             EngineEvent::ClientLost => Ok(EngineState::Serving),
-            EngineEvent::Idle | EngineEvent::StopAsked => Ok(EngineState::Stopping),
+            EngineEvent::Idle | EngineEvent::StopAsked | EngineEvent::RegistryPanicked => {
+                Ok(EngineState::Stopping)
+            }
             EngineEvent::HandOver => Ok(EngineState::HandingOver),
-            EngineEvent::Drain | EngineEvent::ListenerFailed => Ok(EngineState::Draining),
+            EngineEvent::Drain | EngineEvent::ListenerFailed | EngineEvent::PartPanicked => {
+                Ok(EngineState::Draining)
+            }
             EngineEvent::StdioEnded | EngineEvent::ParentGone | EngineEvent::Drained => {
                 refused(Refusal::Internal)
             }
@@ -256,7 +286,9 @@ pub fn engine(
             | EngineEvent::StopAsked
             | EngineEvent::HandOver
             | EngineEvent::Drain
-            | EngineEvent::ListenerFailed => Ok(EngineState::HandingOver),
+            | EngineEvent::ListenerFailed
+            | EngineEvent::PartPanicked
+            | EngineEvent::RegistryPanicked => Ok(EngineState::HandingOver),
             EngineEvent::StdioEnded | EngineEvent::ParentGone | EngineEvent::Drained => {
                 refused(Refusal::Internal)
             }
@@ -267,7 +299,9 @@ pub fn engine(
             | EngineEvent::StopAsked
             | EngineEvent::HandOver
             | EngineEvent::Drain
-            | EngineEvent::ListenerFailed => Ok(EngineState::Draining),
+            | EngineEvent::ListenerFailed
+            | EngineEvent::PartPanicked
+            | EngineEvent::RegistryPanicked => Ok(EngineState::Draining),
             EngineEvent::Drained => Ok(EngineState::Stopping),
             EngineEvent::StdioEnded | EngineEvent::ParentGone => refused(Refusal::Internal),
         },
@@ -280,7 +314,9 @@ pub fn engine(
             | EngineEvent::HandOver
             | EngineEvent::Drain
             | EngineEvent::Drained
-            | EngineEvent::ListenerFailed => Ok(EngineState::Stopping),
+            | EngineEvent::ListenerFailed
+            | EngineEvent::PartPanicked
+            | EngineEvent::RegistryPanicked => Ok(EngineState::Stopping),
         },
     }
 }

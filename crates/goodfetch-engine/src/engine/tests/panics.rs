@@ -4,9 +4,12 @@
 //! panic's own text; its place in flight is given back, its Connection
 //! goes on, and the ops endpoint counts the panic. A Connection whose own
 //! task panics ends alone, as when its Client goes away, and an Attached
-//! engine ends with it. The panic comes from an extra operation the test
-//! hands the engine, or a task it starts on a Connection's owner, never
-//! from a switch in a Product.
+//! engine ends with it. A panic in a part every Run shares stops the
+//! engine and nothing is restarted: a Daemon drains its Runs and ends; an
+//! Attached engine stops its Runs for the panic and fails. Each such Run
+//! resumes by its Run ID. The panic comes from an extra operation the test
+//! hands the engine, or a task it starts on a Connection's or the engine's
+//! owner, never from a switch in a Product.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -20,10 +23,11 @@ use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 
-use super::daemon::{daemon, opened as daemon_opened, sdk_hello, the_pick};
+use super::daemon::{cli_hello, daemon, draining, opened as daemon_opened, sdk_hello, the_pick};
 use super::ops::{metering, series};
-use super::run::{call, index_row};
+use super::run::{call, index_row, run_folder, run_row};
 use super::{
     Client, IN_FLIGHT_CAP, OWED, attached_on, attached_with, dependencies, engine_with, opened,
     owed, request,
@@ -31,6 +35,7 @@ use super::{
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::crash_report::record_panics;
+use crate::engine::Engine;
 use crate::mask::Masks;
 use crate::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use crate::transport::{self, Connection, Network};
@@ -448,4 +453,174 @@ fn an_attached_engine_whose_serving_task_panics_ends() {
     });
 
     assert_eq!((cancelled(&sent, 1), closed), (true, true), "{sent:?}");
+}
+
+/// A call that starts a panicking task on the engine's own owner, as a
+/// part every Run shares would panic: the event stream, the governor's
+/// sampler, Politeness's store, the Needs-you list or a listener.
+const PANIC_IN_A_SHARED_PART: Operation = Operation {
+    name: "test.panic_in_a_shared_part",
+    description: "Panics in a part every Run shares.",
+    ..PANIC
+};
+
+fn panicking_parts() -> Contribution {
+    Contribution::new("test_panicking_parts").with_handler(Handler::new(
+        &PANIC_IN_A_SHARED_PART,
+        |_: Value, context: CallContext| async move {
+            context
+                .engine()
+                .owner()
+                .spawn(async { panic!("{PANIC_TEXT}") });
+            Ok::<Value, CallError>(json!({}))
+        },
+    ))
+}
+
+/// How the Daemon `engine` ended in `env` once a Client that started the
+/// Run `run_id` made a part every Run shares panic, and whether that
+/// Client's Connection closed; a Daemon still serving is asked to drain
+/// after the wait, so a Daemon that goes on ends too.
+fn daemon_panicked(engine: &Engine, env: &TestEnv, run_id: &str) -> (String, bool) {
+    let asked = CancellationToken::new();
+    let (end, closed) = daemon(engine, env, draining(&asked), |dialer| async move {
+        let mut client = daemon_opened(&dialer, cli_hello()).await;
+        call(&mut client, 1, "run.start", json!({ "run_id": run_id })).await;
+        client
+            .send(&[request(2, "test.panic_in_a_shared_part")])
+            .await;
+        let (_, closed) = until_closed(&mut client).await;
+        asked.cancel();
+        closed
+    });
+    (format!("{end:?}"), closed)
+}
+
+/// The report of the Run `run_id` in `env`, read by a new Attached engine,
+/// then the answer to `run.resume` with its Run ID.
+fn reported_then_resumed(env: &TestEnv, run_id: &str) -> (Value, Value) {
+    attached_on(
+        &engine_with(Product::Collie, None),
+        env,
+        |mut client: Client| async move {
+            opened(&mut client).await;
+            let report = call(&mut client, 1, "run.report", json!({ "run_id": run_id })).await;
+            let resumed = call(&mut client, 2, "run.resume", json!({ "run_id": run_id })).await;
+            client.close().await;
+            (report, resumed)
+        },
+    )
+}
+
+/// The codes of the warnings a Run's `report` answer carries.
+fn warnings(report: &Value) -> Vec<Value> {
+    report["result"]["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|warning| warning["code"].clone())
+        .collect()
+}
+
+/// A part every Run shares that panics stops a Daemon (ADR 0148): while
+/// its Runs' registry runs, it drains as on a requested drain, each live
+/// Run `stopped` for the drain and carrying the warning `engine_panicked`
+/// in its report, resumable by its Run ID, and ends as panicked, which its
+/// executable exits 1 on; the ops endpoint counts one panic that ended the
+/// engine.
+#[test]
+fn a_daemon_whose_shared_part_panics_drains_its_runs_and_ends() {
+    let env = TestEnv::new();
+    let (metrics, registry, _provider) = metering();
+    let engine = engine_with(Product::Collie, Some(panicking_parts())).with_metrics(metrics);
+
+    let (end, closed) = daemon_panicked(&engine, &env, "drained");
+
+    let stopped = run_row(&run_folder(&env, "drained"));
+    let (report, resumed) = reported_then_resumed(&env, "drained");
+    assert_eq!(
+        (
+            end,
+            closed,
+            stopped["lifecycle"].clone(),
+            stopped["stop_reason"].clone(),
+            warnings(&report),
+            resumed["result"]["started_as"].clone(),
+            series(&registry).contains(r#"goodfetch_engine_panics_total{ended="engine"} 1"#),
+        ),
+        (
+            "Panicked".to_owned(),
+            true,
+            json!("stopped"),
+            json!({ "kind": "drain" }),
+            vec![json!("engine_panicked")],
+            json!("resumed"),
+            true,
+        ),
+        "{report}"
+    );
+}
+
+/// A part every Run shares that panics stops an Attached engine, which
+/// has no drain (ADR 0148): it stops its Runs through the registry, as
+/// when its program goes away, each `stopped` for the engine's panic,
+/// never as aborted by its Client, with the warning `engine_panicked` in
+/// its report and resumable by its Run ID; its Connection closes and the
+/// engine returns its failure, which its executable exits 1 on, so its
+/// program reads `engine_exited` with that code.
+#[test]
+fn an_attached_engine_whose_shared_part_panics_stops_its_runs_and_fails() {
+    let env = TestEnv::new();
+    let (metrics, registry, _provider) = metering();
+    let engine = engine_with(Product::Collie, Some(panicking_parts())).with_metrics(metrics);
+
+    let (served, closed) = goodfetch_test_support::runtime().block_on(async {
+        let (network, dialer) = transport::in_memory();
+        let talk = async {
+            let (reader, writer) = dialer.connect().await.unwrap().split();
+            let mut client = Client {
+                lines: BufReader::new(reader).lines(),
+                writer,
+            };
+            opened(&mut client).await;
+            call(&mut client, 1, "run.start", json!({ "run_id": "stopped" })).await;
+            client
+                .send(&[request(2, "test.panic_in_a_shared_part")])
+                .await;
+            let (_, closed) = until_closed(&mut client).await;
+            if !closed {
+                client.close().await;
+            }
+            closed
+        };
+        let (served, closed) = tokio::join!(
+            engine.run_attached(Network::InMemory(network), dependencies(&env)),
+            talk
+        );
+        (format!("{served:?}"), closed)
+    });
+
+    let stopped = run_row(&run_folder(&env, "stopped"));
+    let (report, resumed) = reported_then_resumed(&env, "stopped");
+    assert_eq!(
+        (
+            served,
+            closed,
+            stopped["lifecycle"].clone(),
+            stopped["stop_reason"].clone(),
+            warnings(&report),
+            resumed["result"]["started_as"].clone(),
+            series(&registry).contains(r#"goodfetch_engine_panics_total{ended="engine"} 1"#),
+        ),
+        (
+            "Err(Panicked)".to_owned(),
+            true,
+            json!("stopped"),
+            json!({ "kind": "engine_panicked" }),
+            vec![json!("engine_panicked")],
+            json!("resumed"),
+            true,
+        ),
+        "{report}"
+    );
 }

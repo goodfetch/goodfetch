@@ -588,6 +588,19 @@
             "type": "object"
           },
           {
+            "description": "Its Attached engine stopped on a panic in a part every Run shares,\nand stopped it first, resumable by its Run ID (ADR 0148); a Daemon\ndrains instead.",
+            "properties": {
+              "kind": {
+                "const": "engine_panicked",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
             "description": "The resource governor ran out of a resource for it, and it stopped\nat its next safe point, resumable (ADRs 0040 and 0122).",
             "properties": {
               "folder": {

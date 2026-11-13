@@ -10,6 +10,8 @@
     reason = "the tests read the corpus files and edit the store's rows as a damaged disk would"
 )]
 
+use std::sync::Arc;
+
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::run::{PointInTime, RunId};
 use goodfetch_protocol::tls::CertificatePin;
@@ -20,6 +22,7 @@ use rusqlite::Connection;
 
 use super::{Accepted, Found, KeyHash, KnownCertificates, KnownCertificatesError, Pinned};
 use crate::home::Home;
+use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// ADR 0059's test `Clock` start, when every pin is made.
 fn now() -> Timestamp {
@@ -32,7 +35,13 @@ fn at_start() -> PointInTime {
 }
 
 fn store(env: &TestEnv) -> KnownCertificates {
-    KnownCertificates::of(&Home::new(env.home().to_path_buf()), None)
+    KnownCertificates::of(&Home::new(env.home().to_path_buf()), None, owner())
+}
+
+/// An owner of the store's writer and lookups, as tasks of the test's
+/// runtime.
+fn owner() -> Arc<TaskOwner> {
+    Arc::new(TaskOwner::root(BlockingPolicy::Inline))
 }
 
 /// A key's hash, distinct for each `byte`.
@@ -56,8 +65,8 @@ fn a_key_hash_is_written_as_sha256_and_its_base64() {
 }
 
 /// Covers: story:4-35, format:known-certificates
-#[test]
-fn a_pin_is_found_for_its_person_and_host_only() {
+#[tokio::test]
+async fn a_pin_is_found_for_its_person_and_host_only() {
     let env = TestEnv::new();
     let store = store(&env);
 
@@ -69,17 +78,23 @@ fn a_pin_is_found_for_its_person_and_host_only() {
             Some(&run("first")),
             now(),
         )
+        .await
         .unwrap();
 
     assert_eq!(pinned, Pinned::First);
     assert_eq!(
         (
-            store.find("os_user", "expired.certificates.test").unwrap(),
+            store
+                .find("os_user", "expired.certificates.test")
+                .await
+                .unwrap(),
             store
                 .find("os_user", "self-signed.certificates.test")
+                .await
                 .unwrap(),
             store
                 .find("someone_else", "expired.certificates.test")
+                .await
                 .unwrap(),
         ),
         (Found::Pinned(key(1)), Found::Unpinned, Found::Unpinned)
@@ -89,8 +104,8 @@ fn a_pin_is_found_for_its_person_and_host_only() {
 /// Story 4-43: two people's pins on one store are kept apart; each one's
 /// list holds only their own, the same host pinned to another key by each.
 /// Covers: story:4-43, format:known-certificates
-#[test]
-fn two_peoples_pins_on_one_store_are_kept_apart() {
+#[tokio::test]
+async fn two_peoples_pins_on_one_store_are_kept_apart() {
     let env = TestEnv::new();
     let store = store(&env);
     store
@@ -101,9 +116,11 @@ fn two_peoples_pins_on_one_store_are_kept_apart() {
             Some(&run("adas-run")),
             now(),
         )
+        .await
         .unwrap();
     store
         .pin("ada", "wiki.intranet.example", &key(2), None, now())
+        .await
         .unwrap();
     store
         .pin(
@@ -113,10 +130,11 @@ fn two_peoples_pins_on_one_store_are_kept_apart() {
             Some(&run("graces-run")),
             now(),
         )
+        .await
         .unwrap();
 
     assert_eq!(
-        store.list("ada").unwrap(),
+        store.list("ada").await.unwrap(),
         [
             CertificatePin {
                 host: "intranet.example".to_owned(),
@@ -135,7 +153,7 @@ fn two_peoples_pins_on_one_store_are_kept_apart() {
         ]
     );
     assert_eq!(
-        store.list("grace").unwrap(),
+        store.list("grace").await.unwrap(),
         [CertificatePin {
             host: "intranet.example".to_owned(),
             spki_sha256: Some(key(3).to_string()),
@@ -145,7 +163,7 @@ fn two_peoples_pins_on_one_store_are_kept_apart() {
         }]
     );
     assert_eq!(
-        store.find("grace", "intranet.example").unwrap(),
+        store.find("grace", "intranet.example").await.unwrap(),
         Found::Pinned(key(3))
     );
 }
@@ -153,21 +171,23 @@ fn two_peoples_pins_on_one_store_are_kept_apart() {
 /// Only a person replaces a pin (`certs accept`, #629): a second
 /// connection presenting another key never does, and learns the first.
 /// Covers: story:4-35
-#[test]
-fn a_second_pin_of_a_host_keeps_the_first() {
+#[tokio::test]
+async fn a_second_pin_of_a_host_keeps_the_first() {
     let env = TestEnv::new();
     let store = store(&env);
     store
         .pin("os_user", "intranet.example", &key(1), None, now())
+        .await
         .unwrap();
 
     let second = store
         .pin("os_user", "intranet.example", &key(2), None, now())
+        .await
         .unwrap();
 
     assert_eq!(second, Pinned::Already(Found::Pinned(key(1))));
     assert_eq!(
-        store.find("os_user", "intranet.example").unwrap(),
+        store.find("os_user", "intranet.example").await.unwrap(),
         Found::Pinned(key(1))
     );
 }
@@ -180,22 +200,27 @@ fn a_second_pin_of_a_host_keeps_the_first() {
 #[case::find("find")]
 #[case::list("list")]
 #[case::waiting("waiting")]
-fn a_lookup_answers_while_another_connection_holds_the_stores_write_lock(#[case] lookup: &str) {
+#[tokio::test]
+async fn a_lookup_answers_while_another_connection_holds_the_stores_write_lock(
+    #[case] lookup: &str,
+) {
     let env = TestEnv::new();
     let store = store(&env);
     store
         .pin("os_user", "intranet.example", &key(1), None, now())
+        .await
         .unwrap();
     store
         .record_change("os_user", "intranet.example", &key(2), None, later())
+        .await
         .unwrap();
     let writer = Connection::open(store.path()).unwrap();
     writer.execute_batch("BEGIN IMMEDIATE").unwrap();
 
     let answered = match lookup {
-        "find" => store.find("os_user", "intranet.example").map(|_| ()),
-        "list" => store.list("os_user").map(|_| ()),
-        _ => store.waiting("os_user").map(|_| ()),
+        "find" => store.find("os_user", "intranet.example").await.map(|_| ()),
+        "list" => store.list("os_user").await.map(|_| ()),
+        _ => store.waiting("os_user").await.map(|_| ()),
     };
 
     assert_eq!(answered, Ok(()));
@@ -211,14 +236,16 @@ fn an_engine_making_the_store_beside_another_engines_write_pins_its_key() {
     let env = TestEnv::new();
     let store = store(&env);
 
+    let runtime = goodfetch_test_support::runtime();
+
     let pinned = crate::sqlite_wal::tests::opened_beside_a_write(store.path(), || {
-        store.pin(
+        runtime.block_on(store.pin(
             "os_user",
             "expired.certificates.test",
             &key(1),
             Some(&run("first")),
             now(),
-        )
+        ))
     });
 
     assert_eq!(pinned, Ok(Pinned::First));
@@ -234,8 +261,8 @@ fn later() -> Timestamp {
 /// that key, dated when it was accepted and by the Run that met it, and no
 /// change waits any more; the answer names the key it replaced.
 /// Covers: story:4-36, format:known-certificates
-#[test]
-fn an_accepted_change_replaces_the_pin_with_the_key_that_stopped_the_host() {
+#[tokio::test]
+async fn an_accepted_change_replaces_the_pin_with_the_key_that_stopped_the_host() {
     let env = TestEnv::new();
     let store = store(&env);
     store
@@ -246,6 +273,7 @@ fn an_accepted_change_replaces_the_pin_with_the_key_that_stopped_the_host() {
             Some(&run("first")),
             now(),
         )
+        .await
         .unwrap();
     store
         .record_change(
@@ -255,11 +283,13 @@ fn an_accepted_change_replaces_the_pin_with_the_key_that_stopped_the_host() {
             Some(&run("stopped")),
             now(),
         )
+        .await
         .unwrap();
-    let waiting = store.list("os_user").unwrap();
+    let waiting = store.list("os_user").await.unwrap();
 
     let accepted = store
         .accept("os_user", "intranet.example", &key(2), later())
+        .await
         .unwrap();
 
     assert_eq!(waiting[0].changed_spki_sha256, Some(key(2).to_string()));
@@ -279,8 +309,8 @@ fn an_accepted_change_replaces_the_pin_with_the_key_that_stopped_the_host() {
     );
     assert_eq!(
         (
-            store.find("os_user", "intranet.example").unwrap(),
-            store.list("os_user").unwrap(),
+            store.find("os_user", "intranet.example").await.unwrap(),
+            store.list("os_user").await.unwrap(),
         ),
         (Found::Pinned(key(2)), vec![pin])
     );
@@ -292,19 +322,24 @@ fn an_accepted_change_replaces_the_pin_with_the_key_that_stopped_the_host() {
 #[rstest]
 #[case::another_key(Some(3))]
 #[case::no_change_waiting(None)]
-fn a_key_that_did_not_stop_the_host_is_not_accepted(#[case] changed: Option<u8>) {
+#[tokio::test]
+async fn a_key_that_did_not_stop_the_host_is_not_accepted(#[case] changed: Option<u8>) {
     let env = TestEnv::new();
     let store = store(&env);
     store
         .pin("os_user", "intranet.example", &key(1), None, now())
+        .await
         .unwrap();
     if let Some(changed) = changed {
         store
             .record_change("os_user", "intranet.example", &key(changed), None, now())
+            .await
             .unwrap();
     }
 
-    let refused = store.accept("os_user", "intranet.example", &key(2), later());
+    let refused = store
+        .accept("os_user", "intranet.example", &key(2), later())
+        .await;
 
     assert_eq!(
         refused,
@@ -313,7 +348,7 @@ fn a_key_that_did_not_stop_the_host_is_not_accepted(#[case] changed: Option<u8>)
         })
     );
     assert_eq!(
-        store.find("os_user", "intranet.example").unwrap(),
+        store.find("os_user", "intranet.example").await.unwrap(),
         Found::Pinned(key(1))
     );
 }
@@ -321,12 +356,13 @@ fn a_key_that_did_not_stop_the_host_is_not_accepted(#[case] changed: Option<u8>)
 /// Story 4-43: a pin row the engine cannot read stops its host, and the key
 /// that host presented then is what the person accepts in its place.
 /// Covers: story:4-36, story:4-43
-#[test]
-fn an_unreadable_pin_row_is_replaced_by_the_accepted_key() {
+#[tokio::test]
+async fn an_unreadable_pin_row_is_replaced_by_the_accepted_key() {
     let env = TestEnv::new();
     let store = store(&env);
     store
         .pin("os_user", "intranet.example", &key(1), None, now())
+        .await
         .unwrap();
     Connection::open(store.path())
         .unwrap()
@@ -334,16 +370,18 @@ fn an_unreadable_pin_row_is_replaced_by_the_accepted_key() {
         .unwrap();
     store
         .record_change("os_user", "intranet.example", &key(2), None, now())
+        .await
         .unwrap();
 
     let accepted = store
         .accept("os_user", "intranet.example", &key(2), later())
+        .await
         .unwrap();
 
     assert_eq!(
         (
             accepted.previous,
-            store.find("os_user", "intranet.example").unwrap()
+            store.find("os_user", "intranet.example").await.unwrap()
         ),
         (Found::Unreadable, Found::Pinned(key(2)))
     );
@@ -353,29 +391,33 @@ fn an_unreadable_pin_row_is_replaced_by_the_accepted_key() {
 /// waiting for it, and nothing of another person's; a host with no pin is
 /// forgotten as nothing.
 /// Covers: story:4-37, format:known-certificates
-#[test]
-fn forgetting_a_host_removes_its_pin_and_its_waiting_change_only() {
+#[tokio::test]
+async fn forgetting_a_host_removes_its_pin_and_its_waiting_change_only() {
     let env = TestEnv::new();
     let store = store(&env);
     for person in ["os_user", "grace"] {
         store
             .pin(person, "intranet.example", &key(1), None, now())
+            .await
             .unwrap();
         store
             .record_change(person, "intranet.example", &key(2), None, now())
+            .await
             .unwrap();
     }
 
-    let forgotten = store.forget("os_user", "intranet.example").unwrap();
-    let again = store.forget("os_user", "intranet.example").unwrap();
+    let forgotten = store.forget("os_user", "intranet.example").await.unwrap();
+    let again = store.forget("os_user", "intranet.example").await.unwrap();
 
     assert_eq!((forgotten, again), (true, false));
     assert_eq!(
         (
-            store.find("os_user", "intranet.example").unwrap(),
-            store.list("os_user").unwrap(),
-            store.find("grace", "intranet.example").unwrap(),
-            store.list("grace").unwrap()[0].changed_spki_sha256.clone(),
+            store.find("os_user", "intranet.example").await.unwrap(),
+            store.list("os_user").await.unwrap(),
+            store.find("grace", "intranet.example").await.unwrap(),
+            store.list("grace").await.unwrap()[0]
+                .changed_spki_sha256
+                .clone(),
         ),
         (
             Found::Unpinned,
@@ -387,6 +429,7 @@ fn forgetting_a_host_removes_its_pin_and_its_waiting_change_only() {
     assert_eq!(
         store
             .pin("os_user", "intranet.example", &key(3), None, later())
+            .await
             .unwrap(),
         Pinned::First
     );
@@ -402,7 +445,8 @@ fn forgetting_a_host_removes_its_pin_and_its_waiting_change_only() {
 #[case::key_bytes_too_long("UPDATE pins SET spki_sha256 = zeroblob(33)")]
 #[case::date_no_time("UPDATE pins SET pinned_at = 'yesterday'")]
 #[case::run_id_no_run_id("UPDATE pins SET run_id = 'NOT A RUN'")]
-fn a_pin_row_the_engine_cannot_read_reads_as_unreadable(#[case] damage: &str) {
+#[tokio::test]
+async fn a_pin_row_the_engine_cannot_read_reads_as_unreadable(#[case] damage: &str) {
     let env = TestEnv::new();
     let store = store(&env);
     store
@@ -413,6 +457,7 @@ fn a_pin_row_the_engine_cannot_read_reads_as_unreadable(#[case] damage: &str) {
             Some(&run("pinned")),
             now(),
         )
+        .await
         .unwrap();
     Connection::open(store.path())
         .unwrap()
@@ -421,8 +466,8 @@ fn a_pin_row_the_engine_cannot_read_reads_as_unreadable(#[case] damage: &str) {
 
     assert_eq!(
         (
-            store.find("os_user", "intranet.example").unwrap(),
-            store.list("os_user").unwrap(),
+            store.find("os_user", "intranet.example").await.unwrap(),
+            store.list("os_user").await.unwrap(),
         ),
         (
             Found::Unreadable,
@@ -439,15 +484,15 @@ fn a_pin_row_the_engine_cannot_read_reads_as_unreadable(#[case] damage: &str) {
 
 /// A store never written holds no pin, and reading it creates nothing.
 /// Covers: format:known-certificates
-#[test]
-fn a_store_never_written_holds_no_pin_and_is_not_created() {
+#[tokio::test]
+async fn a_store_never_written_holds_no_pin_and_is_not_created() {
     let env = TestEnv::new();
     let store = store(&env);
 
     assert_eq!(
         (
-            store.find("os_user", "intranet.example").unwrap(),
-            store.list("os_user").unwrap(),
+            store.find("os_user", "intranet.example").await.unwrap(),
+            store.list("os_user").await.unwrap(),
         ),
         (Found::Unpinned, Vec::new())
     );
@@ -455,10 +500,11 @@ fn a_store_never_written_holds_no_pin_and_is_not_created() {
 }
 
 /// A store of `version`, written by this engine then relabelled.
-fn store_at_version(env: &TestEnv, version: &str) -> KnownCertificates {
+async fn store_at_version(env: &TestEnv, version: &str) -> KnownCertificates {
     let store = store(env);
     store
         .pin("os_user", "intranet.example", &key(1), None, now())
+        .await
         .unwrap();
     Connection::open(store.path())
         .unwrap()
@@ -470,25 +516,25 @@ fn store_at_version(env: &TestEnv, version: &str) -> KnownCertificates {
 /// Every minor of the format's one major opens: a newer minor's pins are
 /// read and kept.
 /// Covers: story:4-43, format:known-certificates
-#[test]
-fn a_store_of_a_newer_minor_opens_and_keeps_its_pins() {
+#[tokio::test]
+async fn a_store_of_a_newer_minor_opens_and_keeps_its_pins() {
     let env = TestEnv::new();
-    let store = store_at_version(&env, "0.9");
+    let store = store_at_version(&env, "0.9").await;
 
     assert_eq!(
-        store.find("os_user", "intranet.example").unwrap(),
+        store.find("os_user", "intranet.example").await.unwrap(),
         Found::Pinned(key(1))
     );
 }
 
 /// Covers: format:known-certificates
-#[test]
-fn a_store_of_another_major_is_refused() {
+#[tokio::test]
+async fn a_store_of_another_major_is_refused() {
     let env = TestEnv::new();
-    let store = store_at_version(&env, "1.0");
+    let store = store_at_version(&env, "1.0").await;
 
     assert_eq!(
-        store.find("os_user", "intranet.example"),
+        store.find("os_user", "intranet.example").await,
         Err(KnownCertificatesError::Format {
             found: "1.0".to_owned(),
             compatibility: Compatibility::NewerMajor,
@@ -499,8 +545,8 @@ fn a_store_of_another_major_is_refused() {
 /// The `head/` set the corpus writer wrote, read by today's engine (ADR
 /// 0066): its pins are found for their people, and it takes another.
 /// Covers: story:4-43, format:known-certificates
-#[test]
-fn the_head_sets_store_opens_and_takes_another_pin() {
+#[tokio::test]
+async fn the_head_sets_store_opens_and_takes_another_pin() {
     let env = TestEnv::new();
     let head = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../compat/known-certificates/head");
@@ -513,12 +559,14 @@ fn the_head_sets_store_opens_and_takes_another_pin() {
 
     let added = store
         .pin("os_user", "added.example", &key(9), None, now())
+        .await
         .unwrap();
 
     assert_eq!(added, Pinned::First);
     assert_eq!(
         store
             .list("os_user")
+            .await
             .unwrap()
             .into_iter()
             .map(|pin| pin.host)
@@ -532,6 +580,7 @@ fn the_head_sets_store_opens_and_takes_another_pin() {
     assert_eq!(
         store
             .list("grace")
+            .await
             .unwrap()
             .into_iter()
             .map(|pin| pin.host)
@@ -541,16 +590,22 @@ fn the_head_sets_store_opens_and_takes_another_pin() {
     let changed = KeyHash::of_public_key(b"the expired leaf's changed key");
     let accepted = store
         .accept("os_user", "expired.certificates.test", &changed, now())
+        .await
         .unwrap();
     assert_eq!(accepted.pin.spki_sha256, Some(changed.to_string()));
 }
 
 /// The store holds to the synced per-user store's durability: its WAL stays
-/// beside it as a write's connection closes (#2110).
-#[test]
-fn the_wal_stays_beside_the_store_once_a_write_closed_its_connection() {
+/// beside it once its writer's connection closed with its owner (#2110).
+#[tokio::test]
+async fn the_wal_stays_beside_the_store_once_its_writers_connection_closed() {
     let env = TestEnv::in_memory();
-    let store = store(&env);
+    let owner = owner();
+    let store = KnownCertificates::of(
+        &Home::new(env.home().to_path_buf()),
+        None,
+        Arc::clone(&owner),
+    );
 
     store
         .pin(
@@ -560,7 +615,83 @@ fn the_wal_stays_beside_the_store_once_a_write_closed_its_connection() {
             Some(&run("first")),
             now(),
         )
+        .await
         .unwrap();
+    owner.stop().await;
 
     assert!(wal_of(store.path()).exists());
+}
+
+/// An engine's store opens its file once for its writes and once for its
+/// lookups, however many of each it makes (#1886).
+#[tokio::test]
+async fn an_engines_store_opens_its_file_once_for_its_writes_and_once_for_its_lookups() {
+    let env = TestEnv::new();
+    let vfs = goodfetch_test_support::CountingVfs::register();
+    let store = KnownCertificates::of(
+        &Home::new(env.home().to_path_buf()),
+        Some(vfs.name().to_owned()),
+        owner(),
+    );
+
+    store
+        .pin("ada", "intranet.example", &key(1), None, now())
+        .await
+        .unwrap();
+    for _ in 0..3 {
+        store.find("ada", "intranet.example").await.unwrap();
+    }
+    store
+        .record_change("ada", "intranet.example", &key(2), None, later())
+        .await
+        .unwrap();
+    let (listed, waiting) = (
+        store.list("ada").await.unwrap(),
+        store.waiting("ada").await.unwrap(),
+    );
+    store
+        .accept("ada", "intranet.example", &key(2), later())
+        .await
+        .unwrap();
+    let forgotten = store.forget("ada", "intranet.example").await.unwrap();
+
+    assert_eq!(
+        (listed.len(), waiting.len(), forgotten, vfs.opens()),
+        (1, 1, true, 2)
+    );
+}
+
+/// Pins taken are in the store after a power cut once their calls answered,
+/// while the engine still holds the store open for its writes and lookups:
+/// each commit synced them (ADR 0060, #1886).
+#[tokio::test]
+async fn pins_taken_survive_a_power_cut_while_the_engine_holds_the_store() {
+    let env = TestEnv::new();
+    let vfs = goodfetch_test_support::CrashVfs::register(
+        &env.unique_name("known-certificates-power-cut"),
+        env.seed(),
+    )
+    .unwrap();
+    let store = KnownCertificates::of(
+        &Home::new(env.home().to_path_buf()),
+        Some(vfs.name().to_owned()),
+        owner(),
+    );
+    for host in ["intranet.example", "wiki.example"] {
+        store.pin("ada", host, &key(1), None, now()).await.unwrap();
+        store.find("ada", host).await.unwrap();
+    }
+
+    vfs.crash(goodfetch_test_support::CrashKind::PowerCut);
+    let connection =
+        goodfetch_test_support::after_crash(&vfs, &store.path().to_string_lossy()).unwrap();
+
+    let hosts: Vec<String> = connection
+        .prepare("SELECT host FROM pins ORDER BY host")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(hosts, ["intranet.example", "wiki.example"]);
 }

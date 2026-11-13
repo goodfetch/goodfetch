@@ -1,6 +1,7 @@
 //! What one engine's Runs and handlers are given, built once at its start
 //! (ADR 0059): the Goodfetch home, the clock, the engine's settings, the
-//! user's Audit log, known-certificates store and Usage ledger, where their
+//! user's Audit log, known-certificates store, Usage ledger and Run index,
+//! where their
 //! blocking work runs, the engine's "Needs you", its sandbox probe and the
 //! person a single-user install acts for. The engine builds it beside its
 //! Run registry and hands it down: to the registry, to each Connection's
@@ -11,6 +12,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::sync::Arc;
 
+use goodfetch_protocol::connection::ProductVersion;
 use jiff::Timestamp;
 
 use crate::audit::AuditLog;
@@ -20,6 +22,7 @@ use crate::home::Home;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
 use crate::needs_you::NeedsYou;
+use crate::run_index::RunIndex;
 use crate::sandbox_probe::SandboxProbe;
 use crate::settings::Settings;
 use crate::tasks::TaskOwner;
@@ -45,6 +48,53 @@ pub(crate) fn os_user(environment: &BTreeMap<OsString, OsString>) -> String {
         .to_owned()
 }
 
+/// The user's known-certificates store, Usage ledger and Run index as one
+/// engine opens them, and the owner of their blocking work: built once,
+/// before the engine's "Needs you", which reads them too.
+pub(crate) struct Stores {
+    owner: Arc<TaskOwner>,
+    known_certificates: KnownCertificates,
+    ledger: Ledger,
+    run_index: RunIndex,
+}
+
+impl Stores {
+    /// `home`'s stores, as the engine of Product version `version` opens
+    /// them through the SQLite VFS named `vfs` (none in production, ADR
+    /// 0060), their blocking work under `owner` and the actors that keep
+    /// their connections under `connections`, which the engine stops once
+    /// its Runs and Connections have.
+    pub(crate) fn of(
+        home: &Home,
+        version: &ProductVersion,
+        vfs: Option<String>,
+        owner: Arc<TaskOwner>,
+        connections: Arc<TaskOwner>,
+    ) -> Self {
+        Self {
+            known_certificates: KnownCertificates::of(home, vfs.clone(), Arc::clone(&connections)),
+            run_index: RunIndex::of(home.run_index(version), version, vfs.clone(), connections),
+            ledger: Ledger::at(home.usage_ledger(), vfs),
+            owner,
+        }
+    }
+
+    /// The known-certificates store.
+    pub(crate) fn known_certificates(&self) -> &KnownCertificates {
+        &self.known_certificates
+    }
+
+    /// The Usage ledger.
+    pub(crate) fn ledger(&self) -> &Ledger {
+        &self.ledger
+    }
+
+    /// The Run index of the engine's major.
+    pub(crate) fn run_index(&self) -> &RunIndex {
+        &self.run_index
+    }
+}
+
 /// What every Run and call of one engine is given beside its own inputs.
 /// Clones share its stores.
 #[derive(Clone)]
@@ -55,6 +105,7 @@ pub struct EngineContext {
     audit: Arc<AuditLog>,
     known_certificates: KnownCertificates,
     ledger: Ledger,
+    run_index: RunIndex,
     owner: Arc<TaskOwner>,
     needs_you: NeedsYou,
     sandbox_probe: SandboxProbe,
@@ -72,10 +123,8 @@ impl std::fmt::Debug for EngineContext {
 
 impl EngineContext {
     /// The engine at `home` on `clock` under `settings`, recording in
-    /// `audit`, its blocking work under `owner`, with `needs_you` and
-    /// `sandbox_probe`, acting for `person`; its known-certificates store
-    /// and Usage ledger are `home`'s, opened through the SQLite VFS named
-    /// `vfs` (none in production, ADR 0060).
+    /// `audit`, with `stores`, its blocking work under their owner, with
+    /// `needs_you` and `sandbox_probe`, acting for `person`.
     #[expect(
         clippy::too_many_arguments,
         reason = "each is one of the engine's own values, built once at its start and held together here"
@@ -85,20 +134,20 @@ impl EngineContext {
         clock: Clock,
         settings: Settings,
         audit: Arc<AuditLog>,
-        owner: Arc<TaskOwner>,
+        stores: Stores,
         needs_you: NeedsYou,
         sandbox_probe: SandboxProbe,
         person: String,
-        vfs: Option<String>,
     ) -> Self {
         Self {
-            known_certificates: KnownCertificates::of(&home, vfs.clone()),
-            ledger: Ledger::at(home.usage_ledger(), vfs),
+            known_certificates: stores.known_certificates,
+            ledger: stores.ledger,
+            run_index: stores.run_index,
             home,
             clock,
             settings,
             audit,
-            owner,
+            owner: stores.owner,
             needs_you,
             sandbox_probe,
             person: Arc::from(person),
@@ -139,6 +188,11 @@ impl EngineContext {
     /// The user's Usage ledger (ADR 0041).
     pub(crate) fn ledger(&self) -> &Ledger {
         &self.ledger
+    }
+
+    /// The Run index of the engine's major (ADRs 0031 and 0098).
+    pub(crate) fn run_index(&self) -> &RunIndex {
+        &self.run_index
     }
 
     /// Where reads and writes of these stores block, which the Run registry

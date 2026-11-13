@@ -2597,7 +2597,6 @@ fn exceptions_of(run: &Run, settings: &Resolved) -> CertificateExceptions {
         person: run.person().to_owned(),
         run_id: Some(run.id().clone()),
         audit: Arc::new(run.audit_log()),
-        owner: Arc::new(run.owner().child()),
         clock: run.clock(),
     };
     CertificateExceptions::listed(

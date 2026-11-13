@@ -22,13 +22,11 @@ pub mod storage;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
-use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use futures_util::StreamExt as _;
 use futures_util::stream::BoxStream;
-use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::needs_you::{
     NEEDS_YOU_DISMISS, NeedsYouChange, NeedsYouItem, NeedsYouList, NeedsYouListParams,
     NeedsYouRemoval, PAGE,
@@ -41,7 +39,7 @@ use crate::events::Events;
 use crate::governor::StorageSample;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
-use crate::run_index;
+use crate::run_index::RunIndex;
 use crate::run_state::RunStateError;
 use crate::settings::Settings;
 use crate::tasks::TaskOwner;
@@ -142,8 +140,7 @@ impl SourceError {
 pub struct SourceContext {
     pub(crate) clock: Clock,
     pub(crate) storage: watch::Receiver<Arc<StorageSample>>,
-    pub(crate) run_index: PathBuf,
-    pub(crate) version: ProductVersion,
+    pub(crate) run_index: RunIndex,
     pub(crate) ledger: Ledger,
     pub(crate) settings: Settings,
     pub(crate) known_certificates: KnownCertificates,
@@ -423,13 +420,7 @@ impl Driver {
     }
 
     async fn read_dismissed(&self) -> BTreeSet<String> {
-        let path = self.context.run_index.clone();
-        let version = self.context.version.clone();
-        match self
-            .context
-            .blocking(move || run_index::dismissed(&path, &version))
-            .await
-        {
+        match self.context.run_index.dismissed().await {
             Ok(dismissed) => dismissed,
             Err(error) => {
                 tracing::warn!(%error, "the dismissed items of \"Needs you\" cannot be read: they are listed again");
@@ -513,12 +504,10 @@ impl Driver {
         if resolved.is_empty() {
             return;
         }
-        let path = self.context.run_index.clone();
-        let version = self.context.version.clone();
-        let forgotten = resolved.clone();
         match self
             .context
-            .blocking(move || run_index::forget_dismissed(&path, &version, &forgotten))
+            .run_index
+            .forget_dismissed(resolved.clone())
             .await
         {
             Ok(()) => {
@@ -575,13 +564,8 @@ impl Driver {
         if !self.dismissable[listed.source] {
             return Ok(false);
         }
-        let path = self.context.run_index.clone();
-        let version = self.context.version.clone();
         let at = self.context.now();
-        let kept = id.clone();
-        self.context
-            .blocking(move || run_index::dismiss(&path, &version, &kept, &at))
-            .await?;
+        self.context.run_index.dismiss(id.clone(), at).await?;
         self.listed.remove(&id);
         self.dismissed.insert(id.clone());
         self.events

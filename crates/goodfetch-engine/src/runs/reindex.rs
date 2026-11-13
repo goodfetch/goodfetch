@@ -17,8 +17,9 @@ use super::folder::read_recorded;
 use super::writer::{Writer, test_writer};
 use super::{RUN_FILE, location};
 use crate::home::Home;
-use crate::run_index;
+use crate::run_index::{self, IndexFile};
 use crate::run_state::RunStateError;
+use crate::sqlite_store::StoreFile as _;
 
 /// What a rebuild left in the Run index.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,9 +49,11 @@ pub fn reindex(
     version: &ProductVersion,
     locations: &[PathBuf],
 ) -> Result<Reindexed, RunStateError> {
-    let path = home.run_index(version);
+    let index = IndexFile::of(home.run_index(version), version);
+    let connection = index.open()?;
     let per_major = home.per_major(version);
-    let listed: BTreeMap<RunId, RunIndexRow> = run_index::rows(&path, version)?
+    let listed: BTreeMap<RunId, RunIndexRow> = index
+        .rows(&connection)?
         .into_iter()
         .map(|row| (row.run_id.clone(), row))
         .collect();
@@ -72,13 +75,13 @@ pub fn reindex(
         }
     }
     let rows: Vec<RunIndexRow> = rows.into_values().collect();
-    run_index::replace(&path, version, &rows)?;
+    index.replace(&connection, &rows)?;
     let count = |presence: Presence| {
         u64::try_from(rows.iter().filter(|row| row.presence == presence).count())
             .unwrap_or(u64::MAX)
     };
     Ok(Reindexed {
-        run_index: path,
+        run_index: index.path().to_owned(),
         present: count(Presence::Present),
         missing: count(Presence::Missing),
         erased: count(Presence::Erased),

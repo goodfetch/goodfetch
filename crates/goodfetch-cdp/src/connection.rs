@@ -445,9 +445,20 @@ where
         for (_, Pending { answer, .. }) in pending {
             let _ = answer.send(Err(Failure::Disconnected));
         }
-        let mut subscribers = lock(&self.subscribers);
-        subscribers.ended = true;
-        subscribers.list.clear();
+        {
+            let mut subscribers = lock(&self.subscribers);
+            subscribers.ended = true;
+            subscribers.list.clear();
+        }
+        // A send takes its place in the queue, then queues its request: a
+        // request queued after the receiver dropped is never dropped while a
+        // handle lives, so its command would wait for good, and every one
+        // queued behind it (#2525). After `close`, `recv` waits for each
+        // place taken to be filled and then answers `None`.
+        self.requests.close();
+        while let Some(Request { answer, .. }) = self.requests.recv().await {
+            let _ = answer.send(Err(Failure::Disconnected));
+        }
         ended
     }
 }

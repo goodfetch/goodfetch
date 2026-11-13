@@ -1090,10 +1090,12 @@ rss-propose *scenarios:
 # 0140); `--growth` adds the 100,000-page crawls whose resident memory is
 # read at 1,000, 10,000 and 100,000 pages (hours). Once every trial passed
 # the same-work check, it writes each cell's median and spread of every
-# metric to target/compare/report.md and report.json, `local-controlled`
-# and never published (ADR 0076); otherwise it fails naming the trial. A
-# host without strace or Valgrind reports that cell as not run. It gates
-# nothing and is no Live check; run it when the 1-minute load is under 4.
+# metric, with Foxhound's standings against each competitor, to
+# target/compare/report.md and report.json, `local-controlled`, measured on
+# the machine `--machine "<name>"` names, with the command that reruns it;
+# otherwise it fails naming the trial. A host without strace or Valgrind
+# reports that cell as not run. It gates nothing and is no Live check; run
+# it when the 1-minute load is under 4.
 # Spider's crate and the sides' packages are downloaded once, free. Spider's
 # six builds go to target/compare-spider/, or to the folder
 # GOODFETCH_COMPARE_SPIDER_BUILDS names: one outside every checkout keeps
@@ -1101,6 +1103,7 @@ rss-propose *scenarios:
 # whatever sweeps its target/ (Cargo still rebuilds what a changed
 # xtask/compare-spider needs).
 # Runs the comparison matrix on this machine.
+[positional-arguments]
 compare profile="release" *args:
     cargo run --quiet --bin xtask -- test-tools build --cargo-profile {{ profile }} --out "$PWD/target/compare/test-tools.json"
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/spider
@@ -1111,7 +1114,7 @@ compare profile="release" *args:
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features mimalloc --target-dir {{ compare_spider_builds }}/spider-mimalloc
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
     uv sync --frozen --quiet --directory xtask/compare-scrapy
-    cargo run --quiet --bin xtask -- compare run --tools target/compare/test-tools.json --spider-builds {{ compare_spider_builds }} --spider-profile {{ profile }} {{ args }}
+    cargo run --quiet --bin xtask -- compare run --tools target/compare/test-tools.json --spider-builds {{ compare_spider_builds }} --spider-profile {{ profile }} "${@:2}"
 
 # The Kennel (ADR 0141), from the repository. On macOS: its release
 # executable in `Kennel.app`, signed ad hoc under the stable bundle

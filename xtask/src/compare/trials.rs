@@ -73,21 +73,31 @@ pub(crate) struct Declared {
     /// for some.
     #[serde(default = "every_scenario")]
     pub(crate) scenarios: Vec<Scenario>,
+    /// The command that reruns the run: the recipe and the arguments it
+    /// was started with.
+    pub(crate) command: String,
 }
 
 fn every_scenario() -> Vec<Scenario> {
     Scenario::ALL.to_vec()
 }
 
-/// The machine the trials ran on: never a published host (ADR 0076).
+/// The machine the trials ran on, `local-controlled`: its figures compare
+/// with each other, never with another machine's (ADR 0025's notes of
+/// 2026-11-10).
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct Machine {
     /// `local-controlled`.
     pub(crate) class: String,
+    /// The name the run was given for it (`--machine`), such as "Hetzner
+    /// Cloud CCX43, 16 dedicated vCPUs"; none when it was given none.
+    pub(crate) name: Option<String>,
     pub(crate) os: String,
     pub(crate) arch: String,
     pub(crate) cpu: String,
     pub(crate) threads: usize,
+    /// Its memory, where the OS gives it.
+    pub(crate) memory_bytes: Option<u64>,
     /// The 1-minute load average when the first trial started, where the
     /// OS gives one: a quiet machine is under 4.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -322,5 +332,7 @@ pub(crate) struct Comparison {
     pub(crate) instructions: CountedCell,
 }
 
+#[cfg(test)]
+pub(crate) mod fixture;
 #[cfg(test)]
 mod tests;

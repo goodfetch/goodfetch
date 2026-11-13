@@ -83,6 +83,56 @@ fn the_new_scenarios_run_scenario_1s_settings_and_carry_no_bar() {
             (Scenario::Raw, true),
             (Scenario::Raw, true),
             (Scenario::Raw, true),
+            (Scenario::Hostile, true),
+            (Scenario::Raw, true),
+        ]
+    );
+}
+
+/// The hostile pages' two passes (#2439): each lists every tool's main
+/// cell with its mapping, crawls the Proving ground's `traps` family, and
+/// the `limits` family's first and third tasks at defaults only, and
+/// carries no bar until the owner sets one (#2439, Q3). The pass at
+/// defaults runs each tool's own settings, which each side takes as
+/// `hostile`; the other, scenario 1's, 16 in flight and no delay.
+#[test]
+fn the_hostile_pages_passes_map_every_tool_and_carry_no_bar() {
+    let passes = [Scenario::Hostile, Scenario::Hostile16];
+    let mapped = |scenario: Scenario| -> Vec<Tool> {
+        CELLS
+            .iter()
+            .filter(|cell| {
+                cell.scenario == scenario
+                    && cell.row == Row::Main
+                    && matches!(cell.status, Status::Measured(_))
+                    && !cell.mapping.is_empty()
+            })
+            .map(|cell| cell.tool)
+            .collect()
+    };
+    let tasks = |scenario: Scenario| -> Vec<&str> {
+        scenario
+            .hostile_tasks()
+            .iter()
+            .map(|task| task.task)
+            .collect()
+    };
+
+    assert_eq!(
+        passes.map(|scenario| (
+            mapped(scenario),
+            tasks(scenario),
+            scenario.settings(),
+            scenario.carries_no_bar(),
+        )),
+        [
+            (
+                Tool::ALL.to_vec(),
+                vec!["traps/1", "limits/1", "limits/3"],
+                Scenario::Hostile,
+                true
+            ),
+            (Tool::ALL.to_vec(), vec!["traps/1"], Scenario::Raw, true),
         ]
     );
 }
@@ -264,6 +314,8 @@ fn crawlee_rs_runs_the_http_scenarios_and_not_the_browser() {
             (Scenario::Long, measured),
             (Scenario::Raw64, measured),
             (Scenario::Raw256, measured),
+            (Scenario::Hostile, measured),
+            (Scenario::Hostile16, measured),
         ]
         .map(|(scenario, config)| (scenario, "crawlee-rs", Row::Main, config))
     );

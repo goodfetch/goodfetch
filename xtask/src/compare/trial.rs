@@ -42,6 +42,9 @@ pub(crate) enum Mode {
     Syscalls(PathBuf),
     /// Under Callgrind, which writes its output to this file.
     Callgrind(PathBuf),
+    /// Once on each task of a hostile pages' pass, its tool stopped at a
+    /// bound, for the rules it broke (#2439; see [`rules`]).
+    Rules,
 }
 
 /// What a counted trial prints.
@@ -308,7 +311,7 @@ fn link_tree(from: &Path, to: &Path) -> std::io::Result<()> {
 /// of its own.
 fn command(invocation: &Invocation, mode: &Mode, process: u32) -> Command {
     let mut command = match mode {
-        Mode::Timed => Command::new(&invocation.program),
+        Mode::Timed | Mode::Rules => Command::new(&invocation.program),
         Mode::Syscalls(output) => {
             let mut strace = Command::new(STRACE);
             let mut file = output.clone().into_os_string();
@@ -349,7 +352,7 @@ fn tool_pid(child: &Child, mode: &Mode) -> u32 {
             }
             child.id()
         }
-        Mode::Timed | Mode::Callgrind(_) => child.id(),
+        Mode::Timed | Mode::Callgrind(_) | Mode::Rules => child.id(),
     }
 }
 
@@ -497,6 +500,27 @@ impl Plan<'_> {
         mode: &Mode,
         cache: Option<&Path>,
     ) -> Result<Driven> {
+        let host = (!self.kind().by_name())
+            .then(|| format!("{}:{}", self.kind().host_of(1), self.site.port()));
+        self.spawn_at(
+            home,
+            (process, mode),
+            cache,
+            &self.site_url(),
+            host.as_deref(),
+        )
+    }
+
+    /// [`Self::spawn`], a tool other than Foxhound crawling from `url`, with
+    /// `host` sent as each request's `Host` when given.
+    fn spawn_at(
+        &self,
+        home: &Path,
+        (process, mode): (u32, &Mode),
+        cache: Option<&Path>,
+        url: &str,
+        host: Option<&str>,
+    ) -> Result<Driven> {
         let mut command = command(&invocation(self.config, self.executable), mode, process);
         command.stderr(Stdio::inherit());
         // No tool reads Goodfetch's variables a shell may hold, such as a
@@ -519,7 +543,7 @@ impl Plan<'_> {
             // The other tools crawl from their arguments, in their data
             // folder, and print their count last on stdout.
             command
-                .args(["--url", &self.site_url()])
+                .args(["--url", url])
                 .args(["--concurrency", &self.site.concurrency.to_string()])
                 // #2316's scenarios run scenario 1's settings, at their own
                 // site and requests in flight.
@@ -527,11 +551,8 @@ impl Plan<'_> {
                 .current_dir(home)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped());
-            if !self.kind().by_name() {
-                command.args([
-                    "--host",
-                    &format!("{}:{}", self.kind().host_of(1), self.site.port()),
-                ]);
+            if let Some(host) = host {
+                command.args(["--host", host]);
             }
             if let Some(browser) = self.browser()? {
                 let chrome = browser.join(CHROME);
@@ -838,6 +859,7 @@ impl Plan<'_> {
                 (instructions_of(&text)?, 0)
             }
             Mode::Timed => bail!("a timed trial counts nothing"),
+            Mode::Rules => bail!("a hostile pages' run counts nothing"),
         };
         Ok(Counted { count, syncs, work })
     }
@@ -953,6 +975,10 @@ pub(crate) fn cell_of(scenario: Scenario, name: &str) -> Result<(&'static Cell, 
         ),
     }
 }
+
+mod rules;
+
+pub(crate) use rules::Ruled;
 
 #[cfg(test)]
 mod tests;

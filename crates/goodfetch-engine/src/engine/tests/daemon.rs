@@ -1028,36 +1028,39 @@ const STUCK: goodfetch_protocol::catalog::Operation = goodfetch_protocol::catalo
 };
 
 pub(super) fn stuck() -> Contribution {
-    Contribution::new("test-stuck").with_handler(Handler::new(
-        &STUCK,
-        |params: Value, context: CallContext| async move {
-            let started = context
-                .runs()
-                .start(Start {
-                    run_id: Some(RunId::parse(params["run_id"].as_str().unwrap()).unwrap()),
-                    tags: Tags::default(),
-                    kind: RunKind::Collie,
-                    needs: Product::Collie,
-                    inputs: BTreeMap::new(),
-                    ended_by: EndedBy::Driver,
-                    initialize: None,
-                    policy_version: None,
-                    weakened: Vec::new(),
-                    binding: None,
-                    clean_up_digest: None,
-                    checkpoint_interval: None,
-                    timeout: None,
-                    settings: None,
-                })
-                .await
-                .unwrap();
-            let Started::New(run) = started else {
-                panic!("the Run began before");
-            };
-            run.spawn(std::future::pending());
-            Ok::<Value, CallError>(json!({ "run_id": run.id().to_string() }))
-        },
-    ))
+    Contribution::new("test-stuck").with_handler(stuck_handler())
+}
+
+/// The handler of `test.stuck`, for a contribution that carries other
+/// calls too.
+pub(super) fn stuck_handler() -> Handler {
+    Handler::new(&STUCK, |params: Value, context: CallContext| async move {
+        let started = context
+            .runs()
+            .start(Start {
+                run_id: Some(RunId::parse(params["run_id"].as_str().unwrap()).unwrap()),
+                tags: Tags::default(),
+                kind: RunKind::Collie,
+                needs: Product::Collie,
+                inputs: BTreeMap::new(),
+                ended_by: EndedBy::Driver,
+                initialize: None,
+                policy_version: None,
+                weakened: Vec::new(),
+                binding: None,
+                clean_up_digest: None,
+                checkpoint_interval: None,
+                timeout: None,
+                settings: None,
+            })
+            .await
+            .unwrap();
+        let Started::New(run) = started else {
+            panic!("the Run began before");
+        };
+        run.spawn(std::future::pending());
+        Ok::<Value, CallError>(json!({ "run_id": run.id().to_string() }))
+    })
 }
 
 /// The pick, kept alive as `daemon run` is, draining once `asked` is

@@ -329,6 +329,54 @@ fn a_task_that_panics_is_logged_at_error_with_its_owners_kind() {
     );
 }
 
+/// A stop whose tasks still run well after it cancelled them logs so once
+/// at `warn`, with the owner's kind and how many still run, and keeps
+/// waiting for them: an answer that never comes, such as a Run's
+/// `run.finish` (issue 2525), then says which wait it is.
+#[test]
+fn a_stop_whose_tasks_outlive_its_cancellation_logs_how_many_and_keeps_waiting() {
+    let ((ended_early, ended), logged) = goodfetch_test_support::logged(|| {
+        goodfetch_test_support::runtime().block_on(async {
+            let parent = TaskOwner::root(BlockingPolicy::Inline);
+            let run = parent.child_for(OwnerKind::Run);
+            let (release, released) = oneshot::channel::<()>();
+            run.spawn(async move {
+                let _ = released.await;
+            });
+            let token = run.token().clone();
+            run.spawn(async move { token.cancelled().await });
+
+            let stopping = run.stop();
+            tokio::pin!(stopping);
+            let ended_early = tokio::time::timeout(super::STOP_TOLD_AFTER * 2, &mut stopping)
+                .await
+                .is_ok();
+            drop(release);
+            let ended = within(BlockingPolicy::Inline, stopping).await;
+            parent.stop().await;
+            (ended_early, ended)
+        })
+    });
+
+    let logged = String::from_utf8_lossy(&logged);
+    let told_lines: Vec<&str> = logged
+        .lines()
+        .filter(|line| line.contains("goodfetch_engine::tasks"))
+        .collect();
+    assert_eq!(
+        (
+            ended_early,
+            ended,
+            told_lines.len(),
+            told_lines.iter().all(|line| line.contains("WARN")
+                && line.contains(r#"owner="run""#)
+                && line.contains("running=1")),
+        ),
+        (false, true, 1, true),
+        "{logged}"
+    );
+}
+
 /// A child owner's actor whose handler panics is told to its parent, which
 /// then stops the child, on the actor's own thread as when it runs as a
 /// task.

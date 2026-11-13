@@ -1,5 +1,6 @@
 use super::{
-    CRAWLEE_VERSION, PLAYWRIGHT_VERSION, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SPIDER_VERSION,
+    CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, PLAYWRIGHT_VERSION, SCRAPY_PLAYWRIGHT_VERSION,
+    SCRAPY_VERSION, SPIDER_VERSION,
 };
 
 /// The Spider version Spider's side pins in its manifest, `=<version>`.
@@ -20,6 +21,20 @@ fn the_declared_spider_is_the_one_its_side_pins() {
     let manifest = include_str!("../../../compare-spider/Cargo.toml");
 
     assert_eq!(pinned(manifest).as_deref(), Some(SPIDER_VERSION));
+}
+
+/// The trials declare the crawlee-rs commit its side builds: the `rev` of
+/// `xtask/compare-crawlee-rs/Cargo.toml`'s `crawlee` dependency.
+#[test]
+fn the_declared_crawlee_rs_is_the_commit_its_side_pins() {
+    let manifest: toml::Table = include_str!("../../../compare-crawlee-rs/Cargo.toml")
+        .parse()
+        .unwrap();
+
+    assert_eq!(
+        manifest["dependencies"]["crawlee"]["rev"].as_str(),
+        Some(CRAWLEE_RS_COMMIT)
+    );
 }
 
 /// The trials declare the Crawlee its side installs: `@crawlee/cheerio`'s

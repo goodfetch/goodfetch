@@ -1,0 +1,54 @@
+# crawlee-rs's side of `just compare` (#2214, spec #2212): one crawl of a
+# Proving ground site with crawlee-rs, Apify's Rust port of Crawlee
+# (Apache-2.0), its `HtmlCrawler`, run locally. It is fetched and run by the
+# comparison alone, never linked into a Product.
+#
+# The pin: crawlee-rs has no release, so it is pinned to a commit of its
+# repository's default branch, the newest on 2026-11-13; its Cargo.lock
+# beside this file pins every crate under it, crawlee-storage's commit
+# among them. Move both together: change `rev` below and the commit
+# `xtask/src/compare/trials.rs` declares (`CRAWLEE_RS_COMMIT`, which a test
+# holds equal to this `rev`), then `cargo update --manifest-path
+# xtask/compare-crawlee-rs/Cargo.toml`.
+#
+# The build: the repository's pinned toolchain (`rust-toolchain.toml`,
+# found above this folder) and the workspace's release profile below, as
+# Spider's side is built, so neither Rust tool has more optimization than
+# Foxhound. `just compare` runs
+#
+#   cargo build --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml \
+#     --profile release --target-dir target/compare-spider/crawlee-rs
+#
+# and the comparison runs
+# `target/compare-spider/crawlee-rs/release/goodfetch-compare-crawlee-rs`
+# (`GOODFETCH_COMPARE_SPIDER_BUILDS` moves the folder, as for Spider's).
+[package]
+name = "goodfetch-compare-crawlee-rs"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[dependencies]
+crawlee = { git = "https://github.com/apify/crawlee-rs", rev = "2a3ed90b8391c86005ce6ed8dd3e3248d0d34579" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+serde_json = "1"
+anyhow = "1"
+
+[workspace]
+
+# The workspace's release profile, so neither tool is built with more
+# optimization than the other; crawlee-rs's own is `lto = "thin"`.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+panic = "unwind"
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = "debuginfo"
+
+# The workspace's `ci` profile, for `just compare ci`'s quicker try.
+[profile.ci]
+inherits = "release"
+lto = "thin"

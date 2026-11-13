@@ -20,20 +20,24 @@ const MIB: u64 = 1024 * 1024;
 
 /// The measured cells: each tool's main rows by scenario, then Spider's
 /// sensitivity rows.
-const CELLS: [(&str, &str, &str); 22] = [
+const CELLS: [(&str, &str, &str); 26] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
     ("raw", "crawlee", "crawlee"),
     ("raw", "scrapy", "scrapy"),
+    ("raw", "crawlee-rs", "crawlee-rs"),
     ("durable", "foxhound full", "foxhound"),
     ("durable", "foxhound periodic", "foxhound"),
+    ("durable", "crawlee-rs", "crawlee-rs"),
     ("polite", "foxhound", "foxhound"),
     ("polite", "crawlee", "crawlee"),
     ("polite", "scrapy", "scrapy"),
+    ("polite", "crawlee-rs", "crawlee-rs"),
     ("extraction", "foxhound", "foxhound"),
     ("extraction", "spider", "spider"),
     ("extraction", "crawlee", "crawlee"),
     ("extraction", "scrapy", "scrapy"),
+    ("extraction", "crawlee-rs", "crawlee-rs"),
     ("browser", "foxhound", "foxhound"),
     ("browser", "spider", "spider"),
     ("browser", "crawlee", "crawlee"),
@@ -160,6 +164,7 @@ fn trials() -> Value {
             "scrapy": "2.19.0",
             "playwright": "1.64.1",
             "scrapy_playwright": "0.0.48",
+            "crawlee_rs": "2a3ed90b8391c86005ce6ed8dd3e3248d0d34579",
             "browser": "156.0.8078.4",
             "command": "just compare release",
         },
@@ -284,6 +289,7 @@ fn trials_of_the_same_work_report_each_cells_medians_with_their_spread() {
             "spider": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
             "crawlee": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
             "scrapy": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
+            "crawlee-rs": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
         })
     );
 }
@@ -364,7 +370,7 @@ fn spiders_sensitivity_rows_are_labelled_and_no_target_reads_them() {
         "  - not supported: Spider's `crawl_smart()` fetched 1 of the site's 100 pages",
         "| Metric | foxhound, 1000 of the site's 1000 pages | spider, 1000 of the site's 1000 pages \
          | crawlee, 1000 of the site's 1000 pages | scrapy, 1000 of the site's 1000 pages | \
-         spider capacity 4096 (sensitivity), 1000 of the site's 1000 pages | spider default \
+         crawlee-rs, 1000 of the site's 1000 pages | spider capacity 4096 (sensitivity), 1000 of the site's 1000 pages | spider default \
          features (sensitivity), 1000 of the site's 1000 pages | spider bloom (sensitivity), 1000 \
          of the site's 1000 pages | spider jemalloc (sensitivity), 1000 of the site's 1000 pages |",
     ] {
@@ -577,10 +583,11 @@ fn the_report_writes_each_scenarios_mapping() {
     }
 }
 
-/// Crawlee and Scrapy join scenario 1, each cell with every metric and the
-/// settings its tool ran with; their scenario 2 cells say why neither
-/// resumes all the site's pages after a kill, and the report names the
-/// pinned version of each tool.
+/// Crawlee, Scrapy and crawlee-rs join scenario 1, each cell with every
+/// metric and the settings its tool ran with; Crawlee's and Scrapy's
+/// scenario 2 cells say why neither resumes all the site's pages after a
+/// kill, where crawlee-rs's is measured, and the report names the pinned
+/// version or commit of each tool.
 #[test]
 fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
     let workspace = Workspace::from_fixture("empty");
@@ -595,7 +602,12 @@ fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
             .map(|metrics| metrics.keys().cloned().collect::<Vec<_>>())
     };
     let foxhound = names(cell(&report, 0, "foxhound"));
-    for (scenario, name) in [(0, "crawlee"), (0, "scrapy")] {
+    for (scenario, name) in [
+        (0, "crawlee"),
+        (0, "scrapy"),
+        (0, "crawlee-rs"),
+        (1, "crawlee-rs"),
+    ] {
         let cell = cell(&report, scenario, name);
         assert_eq!(
             (&cell["status"], names(cell)),
@@ -613,8 +625,8 @@ fn crawlee_and_scrapy_cells_report_every_metric_with_their_mapping() {
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
         "Crawlee 3.18.2 (`@crawlee/cheerio`, and `@crawlee/playwright` on Playwright 1.64.1) on \
-         Node.js and Scrapy 2.19.0 (and scrapy-playwright 0.0.48 on Playwright 1.64.1) on CPython, \
-         every tool of the headless browser scenario running Chrome for Testing 156.0.8078.4",
+         Node.js, Scrapy 2.19.0 (and scrapy-playwright 0.0.48 on Playwright 1.64.1) on CPython and \
+         crawlee-rs at commit `2a3ed90b8391c86005ce6ed8dd3e3248d0d34579`, every tool of the headless browser scenario running Chrome for Testing 156.0.8078.4",
         "- **crawlee**: `CheerioCrawler` (`@crawlee/cheerio`) with `persistStorage: false` and \
          `maxConcurrency: 16`",
         "- **scrapy**: a default `scrapy.Spider`",
@@ -656,8 +668,11 @@ fn the_polite_extraction_and_browser_scenarios_report_every_metric_of_each_cell(
         [&json!("polite"), &json!("extraction"), &json!("browser")]
     );
     for (index, cells) in [
-        (2, &["foxhound", "crawlee", "scrapy"][..]),
-        (3, &["foxhound", "spider", "crawlee", "scrapy"][..]),
+        (2, &["foxhound", "crawlee", "scrapy", "crawlee-rs"][..]),
+        (
+            3,
+            &["foxhound", "spider", "crawlee", "scrapy", "crawlee-rs"][..],
+        ),
         (4, &["foxhound", "spider", "crawlee", "scrapy"][..]),
     ] {
         for name in cells {
@@ -670,8 +685,11 @@ fn the_polite_extraction_and_browser_scenarios_report_every_metric_of_each_cell(
         }
     }
     assert_eq!(
-        &cell(&report, 2, "spider")["status"],
-        &json!("not_supported")
+        (
+            &cell(&report, 2, "spider")["status"],
+            &cell(&report, 4, "crawlee-rs")["status"]
+        ),
+        (&json!("not_supported"), &json!("not_supported"))
     );
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
@@ -714,7 +732,7 @@ fn the_report_shows_the_load_each_trial_started_at() {
          Peak RSS |",
         "| raw | foxhound | 1 | 6.50 | 1.000 |",
         "| raw | foxhound | 2 | 1.25 | 2.000 |",
-        "1 of the 66 timed trials started above a 1-minute load of 4.",
+        "1 of the 78 timed trials started above a 1-minute load of 4.",
     ] {
         assert!(
             markdown.contains(expected),
@@ -934,7 +952,13 @@ fn a_trial_served_other_bytes_for_the_same_pages_fails_the_same_work_check() {
 fn a_resumed_trial_is_held_to_its_pages_first_answers() {
     let workspace = Workspace::from_fixture("empty");
     let mut trials = trials();
-    trials["trials"][13]["work"]["first_bytes"] = json!(600_001);
+    let resumed = trials["trials"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|trial| trial["cell"] == "foxhound full" && trial["number"] == 2)
+        .unwrap();
+    resumed["work"]["first_bytes"] = json!(600_001);
 
     let outcome = report(&workspace, &trials);
 

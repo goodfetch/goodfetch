@@ -19,6 +19,7 @@ use super::trials::{
     QUIET_LOAD, TRIALS, Trial,
 };
 
+mod published;
 mod standing;
 
 #[cfg(test)]
@@ -791,8 +792,8 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
          Declared before the first trial: {} trials of each measured cell, interleaved in random order \
          (seed {}), each tool started in a fresh process against a fresh Proving ground, {} requests at \
          once, from `{}`; Spider {}, Crawlee {} (`@crawlee/cheerio`, and `@crawlee/playwright` on \
-         Playwright {}) on Node.js and Scrapy {} (and scrapy-playwright {} on Playwright {}) on \
-         CPython, every tool of the headless browser scenario running Chrome for Testing {}; each \
+         Playwright {}) on Node.js, Scrapy {} (and scrapy-playwright {} on Playwright {}) on \
+         CPython and crawlee-rs at commit `{}`, every tool of the headless browser scenario running Chrome for Testing {}; each \
          figure the {}. Every figure is measured from outside the tools: \
          the OS's accounting of the waited-for children (CPU, peak RSS, bytes read and written), `/proc` \
          samples of the process tree every 50 ms, strace's counts, the Proving ground's observations and \
@@ -814,6 +815,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
         declared.scrapy,
         declared.scrapy_playwright,
         declared.playwright,
+        declared.crawlee_rs,
         declared.browser,
         declared.statistic,
     );
@@ -865,12 +867,14 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                     trials,
                     pages,
                     bytes,
+                    metrics,
                     ..
                 } => {
                     let _ = writeln!(
                         text,
                         "  - same work: {trials} trials, each {pages} pages served in {bytes} bytes."
                     );
+                    published::cpu(&mut text, cell.tool, metrics);
                 }
             }
         }

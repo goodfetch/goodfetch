@@ -1,4 +1,4 @@
-use super::{CELLS, Config, Row, Scenario, SpiderBuild, Status};
+use super::{CELLS, Config, Row, Scenario, SpiderBuild, Status, Tool};
 
 /// Spider's measured rows of `scenario`: each row's name, what it is read
 /// for, its build and its page channel's capacity.
@@ -145,4 +145,54 @@ fn just_compare_builds_each_of_spiders_sides_builds_into_its_folder() {
     missing.dedup();
 
     assert_eq!(missing, Vec::<String>::new());
+}
+
+/// crawlee-rs runs on its side in the four HTTP scenarios, each its main
+/// row, and its headless browser cell says why it has none (#2214).
+#[test]
+fn crawlee_rs_runs_the_http_scenarios_and_says_why_it_has_no_browser_cell() {
+    let cells: Vec<(Scenario, &str, Row, Option<Config>)> = CELLS
+        .iter()
+        .filter(|cell| cell.tool == Tool::CrawleeRs)
+        .map(|cell| {
+            let config = match cell.status {
+                Status::Measured(config) => Some(config),
+                Status::NotSupported(reason) => {
+                    assert!(
+                        reason.contains("no browser crawler"),
+                        "{}: {reason}",
+                        cell.name
+                    );
+                    None
+                }
+            };
+            (cell.scenario, cell.name, cell.row, config)
+        })
+        .collect();
+
+    let measured = Some(Config::CrawleeRs);
+    assert_eq!(
+        cells,
+        [
+            (Scenario::Raw, measured),
+            (Scenario::Durable, measured),
+            (Scenario::Polite, measured),
+            (Scenario::Extraction, measured),
+            (Scenario::Browser, None),
+        ]
+        .map(|(scenario, config)| (scenario, "crawlee-rs", Row::Main, config))
+    );
+}
+
+/// `just compare` builds crawlee-rs's side, locked, at the run's profile,
+/// into the folder the run reads its executable from.
+#[test]
+fn just_compare_builds_crawlee_rss_side_into_its_folder() {
+    let recipes = include_str!("../../../../justfile");
+
+    assert!(recipes.contains(&format!(
+        "cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml \
+         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
+        super::CRAWLEE_RS_FOLDER
+    )));
 }

@@ -28,10 +28,20 @@ pub(crate) enum Tool {
     Crawlee,
     /// Scrapy's default HTTP crawl, or `scrapy-playwright`'s, on `CPython`.
     Scrapy,
+    /// crawlee-rs's `HtmlCrawler`, Apify's Rust port of Crawlee (#2214).
+    #[serde(rename = "crawlee-rs")]
+    #[value(name = "crawlee-rs")]
+    CrawleeRs,
 }
 
 impl Tool {
-    pub(crate) const ALL: [Self; 4] = [Self::Foxhound, Self::Spider, Self::Crawlee, Self::Scrapy];
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Foxhound,
+        Self::Spider,
+        Self::Crawlee,
+        Self::Scrapy,
+        Self::CrawleeRs,
+    ];
 
     pub(crate) fn name(self) -> &'static str {
         match self {
@@ -39,6 +49,7 @@ impl Tool {
             Self::Spider => "spider",
             Self::Crawlee => "crawlee",
             Self::Scrapy => "scrapy",
+            Self::CrawleeRs => "crawlee-rs",
         }
     }
 }
@@ -249,6 +260,10 @@ impl SpiderBuild {
     }
 }
 
+/// The folder of crawlee-rs's side's build among the Rust sides' builds,
+/// beside Spider's (`just compare`).
+pub(crate) const CRAWLEE_RS_FOLDER: &str = "crawlee-rs";
+
 /// What a cell's row is read for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -283,6 +298,8 @@ pub(crate) enum Config {
     /// Scrapy's side at the scenario's settings: its default crawl, or
     /// `scrapy-playwright`'s in the headless browser scenario.
     Scrapy,
+    /// crawlee-rs's side at the scenario's settings: its `HtmlCrawler`.
+    CrawleeRs,
 }
 
 impl Config {
@@ -293,6 +310,7 @@ impl Config {
             Self::Spider { .. } => Tool::Spider,
             Self::Crawlee => Tool::Crawlee,
             Self::Scrapy => Tool::Scrapy,
+            Self::CrawleeRs => Tool::CrawleeRs,
         }
     }
 }
@@ -323,7 +341,7 @@ pub(crate) struct Cell {
 }
 
 /// Every cell, in the report's order.
-pub(crate) const CELLS: [Cell; 27] = [
+pub(crate) const CELLS: [Cell; 32] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
@@ -383,6 +401,20 @@ pub(crate) const CELLS: [Cell; 27] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Scrapy),
+    },
+    Cell {
+        scenario: Scenario::Raw,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "`HtmlCrawler`, crawlee-rs's `CheerioCrawler`, on its `reqwest` client, with \
+                  `persist_storage: false` and `max_concurrency(16)`, its autoscaled pool \
+                  starting at its desired concurrency of 10 and growing toward 16 as the system \
+                  allows (its default), robots.txt not obeyed (its default), no delay, \
+                  `enqueue_links` on the same hostname (its default), with no log subscriber \
+                  (a library, it writes no log of its own), on the system's allocator",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::CrawleeRs),
     },
     Cell {
         scenario: Scenario::Raw,
@@ -509,6 +541,19 @@ pub(crate) const CELLS: [Cell; 27] = [
         ),
     },
     Cell {
+        scenario: Scenario::Durable,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "scenario 1's `HtmlCrawler` with its storage on disk (`persist_storage: true`, \
+                  its default) and `purge_on_start: false`, so a process started again on the \
+                  same storage takes up the request queue the killed one left; killed with \
+                  SIGKILL once half the site is served, then the same command in a new process \
+                  on the same folder",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::CrawleeRs),
+    },
+    Cell {
         scenario: Scenario::Polite,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -567,6 +612,21 @@ pub(crate) const CELLS: [Cell; 27] = [
         status: Status::Measured(Config::Scrapy),
     },
     Cell {
+        scenario: Scenario::Polite,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "`HtmlCrawler` with `respect_robots_txt(true)`, `same_domain_delay(1 s)` and \
+                  `max_concurrency(16)`; crawlee-rs has no limit of requests in flight per \
+                  domain, so its same-domain delay, one request start a second on each domain \
+                  (its registrable domain, else its host name), is what holds each domain to \
+                  one in flight while an answer takes under a second; `enqueue_links` with \
+                  `EnqueueStrategy::All`, since the site spans 50 domains and links nothing \
+                  else; `persist_storage: false`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::CrawleeRs),
+    },
+    Cell {
         scenario: Scenario::Extraction,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -618,6 +678,18 @@ pub(crate) const CELLS: [Cell; 27] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Scrapy),
+    },
+    Cell {
+        scenario: Scenario::Extraction,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "scenario 1's `HtmlCrawler`, each page's URL, title (`Document::title`) and main \
+                  text (the text of its `main`, as crawlee-rs reads no main content of its own) \
+                  given to `push_data`, its default Dataset kept on disk (`persist_storage: \
+                  true`, its default, which keeps its request queue on disk too)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::CrawleeRs),
     },
     Cell {
         scenario: Scenario::Extraction,
@@ -688,6 +760,15 @@ pub(crate) const CELLS: [Cell; 27] = [
     },
     Cell {
         scenario: Scenario::Browser,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "none: crawlee-rs crawls over HTTP only",
+        pending: &[],
+        row: Row::Main,
+        status: Status::NotSupported(CRAWLEE_RS_NO_BROWSER),
+    },
+    Cell {
+        scenario: Scenario::Browser,
         tool: Tool::Spider,
         name: "spider smart",
         mapping: "none: Spider's `smart` feature, `crawl_smart()`, which fetches each page over \
@@ -705,6 +786,12 @@ const SPIDER_NOT_SMART: &str = "Spider's `crawl_smart()` fetched 1 of the site's
      threshold, the feed page's did not, and the feed's items are linked by its script alone. \
      On 2026-11-11 (#2213), 2 of 2 such crawls of Spider 2.53.9, built with its `smart` \
      feature beside the spider row's settings, ended so, with no Chrome started";
+
+/// Why crawlee-rs has no headless browser cell.
+const CRAWLEE_RS_NO_BROWSER: &str = "crawlee-rs has no browser crawler at its pinned commit: \
+     its README plans browser crawlers under \"What's not there yet\", and its \
+     `HtmlCrawler` fetches over HTTP only, so it never sees the links the script-rendered site's \
+     script adds";
 
 /// Why Spider has no polite cell: what a crawl of the multi-domain site
 /// with its delay and robots.txt showed.

@@ -144,6 +144,7 @@ fn three_sets_of_trials_read_ahead_behind_and_overlapping() {
                 "Throughput: pages per second",
                 "ahead",
                 "behind",
+                "behind",
                 "behind"
             ]),
             Some(&vec![
@@ -189,7 +190,8 @@ fn standings_are_against_each_competitors_main_row() {
         [
             ("foxhound", "spider"),
             ("foxhound", "crawlee"),
-            ("foxhound", "scrapy")
+            ("foxhound", "scrapy"),
+            ("foxhound", "crawlee-rs")
         ]
     );
 }
@@ -279,7 +281,14 @@ fn extraction_cells_say_content_not_verified_and_get_no_standing() {
         ),
         (
             Some(0),
-            vec!["foxhound", "spider", "crawlee", "scrapy", "spider mimalloc"],
+            vec![
+                "foxhound",
+                "spider",
+                "crawlee",
+                "scrapy",
+                "crawlee-rs",
+                "spider mimalloc"
+            ],
             Vec::<Vec<&str>>::new()
         )
     );
@@ -327,5 +336,39 @@ fn the_pages_fetched_are_beside_each_rate() {
     assert!(
         trials_table.contains("| 1.000 | 1000.0 | 1000 of 1000 |"),
         "{trials_table}"
+    );
+}
+
+/// crawlee-rs's published CPU per page is written beside the median
+/// measured here, on each of its measured cells and no other tool's.
+#[test]
+fn crawlee_rss_published_cpu_per_page_is_beside_its_measured_figure() {
+    let trials = fixture::comparison(PAGES, |_, _| Measured {
+        seconds: 1.0,
+        user_seconds: 0.5,
+        system_seconds: 0.25,
+        work: work(),
+        ..Measured::default()
+    });
+
+    let markdown = markdown(&of(&trials), &trials);
+
+    let line = format!(
+        "  - CPU per page: 0.75 ms measured here, the median of its trials; {}.",
+        super::published::PUBLISHED_CPU[0].1
+    );
+    assert_eq!(
+        (
+            super::published::PUBLISHED_CPU.len(),
+            cells_saying(section(&markdown, "1. "), &line),
+            cells_saying(section(&markdown, "2. "), &line),
+            cells_saying(section(&markdown, "5. "), &line),
+        ),
+        (
+            1,
+            vec!["crawlee-rs"],
+            vec!["crawlee-rs"],
+            Vec::<&str>::new()
+        )
     );
 }

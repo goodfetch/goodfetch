@@ -35,6 +35,10 @@ pub(crate) const SPIDER_VERSION: &str = "2.53.9";
 /// `xtask/compare-scrapy/pyproject.toml` (unit tests hold each equal).
 pub(crate) const CRAWLEE_VERSION: &str = "3.18.2";
 pub(crate) const SCRAPY_VERSION: &str = "2.19.0";
+/// crawlee-rs's pinned commit, which has no release: the `rev` of
+/// `xtask/compare-crawlee-rs/Cargo.toml`'s `crawlee` (a unit test holds
+/// the two equal).
+pub(crate) const CRAWLEE_RS_COMMIT: &str = "2a3ed90b8391c86005ce6ed8dd3e3248d0d34579";
 /// Playwright's pinned version, which both sides' headless browser crawls
 /// drive Chrome with (`playwright` in `xtask/compare-crawlee/package.json`
 /// and `xtask/compare-scrapy/pyproject.toml`), and `scrapy-playwright`'s,
@@ -64,6 +68,8 @@ pub(crate) struct Declared {
     pub(crate) spider: String,
     pub(crate) crawlee: String,
     pub(crate) scrapy: String,
+    /// crawlee-rs's commit.
+    pub(crate) crawlee_rs: String,
     pub(crate) playwright: String,
     pub(crate) scrapy_playwright: String,
     /// The Chrome for Testing build every tool of the headless browser

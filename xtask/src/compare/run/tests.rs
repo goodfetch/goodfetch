@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{order, spider_executable};
+use super::{crawlee_rs_executable, order, spider_executable};
 use crate::compare::matrix::{self, SpiderBuild};
 
 /// Each of Spider's side's builds runs the executable Cargo left in the
@@ -23,6 +23,16 @@ fn each_spider_build_runs_the_executable_built_in_its_own_folder() {
             Path::new("/t/compare-spider/spider-jemalloc/release/goodfetch-compare-spider")
                 .to_owned(),
         )
+    );
+}
+
+/// crawlee-rs's side runs the executable Cargo left in its own folder
+/// among the Rust sides' builds, under the profile's.
+#[test]
+fn crawlee_rs_runs_the_executable_built_in_its_folder() {
+    assert_eq!(
+        crawlee_rs_executable(Path::new("/t/compare-spider"), "release"),
+        Path::new("/t/compare-spider/crawlee-rs/release/goodfetch-compare-crawlee-rs")
     );
 }
 

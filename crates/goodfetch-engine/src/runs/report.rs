@@ -2,7 +2,8 @@
 //! the three axes and their reasons from how it ended, its Usage from what
 //! its run state counted and the Limits that apply to it, its warnings and
 //! `nothingDone` from what its owners recorded while it ran, then each part
-//! an area supplies through its composition value ([`ReportPart`]), all in
+//! an area supplies through its composition value ([`ReportPart`]), and the
+//! Verdict `needs_review` when a part left an Effect uncertain, all in
 //! the transaction that writes its end, so that the report read back later
 //! is the one answered.
 
@@ -13,7 +14,7 @@ use goodfetch_protocol::run::completeness::{FAILED, STOPPED};
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, KindUsage, Lifecycle,
     NothingDone, PointInTime, ProxyKindBytes, RunId, RunReport, RunUsage, RunWarning, StopReason,
-    UsageAmount, Verdict,
+    UNCERTAIN_EFFECTS, UsageAmount, Verdict,
 };
 use goodfetch_protocol::settings::{ExplainedSetting, WeakenedSetting};
 use goodfetch_protocol::usage::{
@@ -82,6 +83,17 @@ pub(super) fn assemble(
         if let Err(error) = part.fill(connection, &mut report) {
             tracing::warn!(%error, run_id = %report.run_id, "a part of the Run's report could not be read; the report goes without it");
         }
+    }
+    let uncertain = report.uncertain_effects.as_ref().map_or(0, Vec::len);
+    if uncertain > 0 {
+        report.needs_review(AxisReason {
+            code: UNCERTAIN_EFFECTS.to_owned(),
+            message: format!(
+                "{uncertain} Effect(s) left uncertain: a person says whether each happened."
+            ),
+            count: Some(u64::try_from(uncertain).expect("invariant: a count fits in u64")),
+            call_id: None,
+        });
     }
     Ok(report)
 }

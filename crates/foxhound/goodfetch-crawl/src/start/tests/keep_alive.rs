@@ -11,12 +11,7 @@ use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
-use super::{Client, Reply, crawl, dependencies, page_of, seeds};
-
-/// Answers each page with one Record naming it.
-fn answer_all(params: &Value) -> Reply {
-    Reply::Records(vec![json!({ "page": page_of(params) })])
-}
+use super::{Client, Reply, answer_all, crawl, dependencies, seeds};
 
 /// Starts the keep-alive crawl `run_id` of one seed with `settings` beside
 /// `crawl.keep_alive`, and waits until its seed's outcome is committed.

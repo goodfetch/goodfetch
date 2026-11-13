@@ -234,7 +234,7 @@ pub(super) fn cli_hello() -> Value {
 
 /// The `hello` of an SDK program's Connection, whose Runs end with it
 /// (ADR 0078).
-fn sdk_hello() -> Value {
+pub(super) fn sdk_hello() -> Value {
     hello_with("collie", "0.1", "sdk_typescript", Some(TOKEN))
 }
 

@@ -454,7 +454,7 @@ pub const DATASET_RECORDS: Setting = Setting {
 /// `fetch.block_classification` (ADRs 0035 and 0138).
 pub const FETCH_BLOCK_CLASSIFICATION: Setting = Setting {
     name: "fetch.block_classification",
-    description: "Whether each document a tier short of the browser serves, its request's own or one a handler's navigation reaches, is read by the Block classification rules (ADR 0035) for a Challenge or a captcha, which moves its request to the browser under `fetch.tier: auto` and ends it `blocked` under a forced tier. On by default. Off, no document is read by them, so nothing a page holds moves its request or ends it `blocked`, and a Challenge page is handled as the page it is; a status the Politeness rule reads, such as 429, still backs its domain off. It is recorded in the Audit log, listed in the run's result, and the Run report's warning `block_classification_off` says so.",
+    description: "Whether each document a tier short of the browser serves, its request's own or one a handler's navigation reaches, is read by the Block classification rules (ADR 0035) for a Challenge or a captcha, which moves its request to the browser under `fetch.tier: auto` and ends it `blocked` under a forced tier. On by default. Off, no document is read by them, so nothing a page holds moves its request or ends it `blocked`, and a Challenge page is handled as the page it is; a status the Politeness rule reads, such as 429, still backs its domain off. It is recorded in the Audit log, listed in the run's result, and the Run report's warning `block_classification_off` says so; the Run's Verdict is then `needs_review`, with a reason naming this key (ADR 0029).",
     kind: ValueKind::Boolean,
     default: yes,
     clearable: false,

@@ -13,7 +13,7 @@ use std::process::Output;
 use rstest::rstest;
 
 use crate::affected::repository;
-use crate::workspace::Workspace;
+use crate::workspace::{Workspace, write_executable};
 
 /// A process ID above every system's limit, so no process has it.
 const NO_PROCESS: &str = "2147483646";
@@ -23,11 +23,6 @@ fn backstop_lock(workspace: &Workspace) -> PathBuf {
     workspace
         .path()
         .join(".claude/worktrees/gate-backstop.lock")
-}
-
-fn write_executable(path: &Path, contents: &str) {
-    std::fs::write(path, contents).unwrap();
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 /// A stand-in `just` that appends its arguments to `calls`, and them with the

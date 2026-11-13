@@ -114,6 +114,58 @@ pub(crate) fn finding(kind: &str, subject: &str) -> Finding {
     }
 }
 
+/// Writes `contents` to `path` as an executable, as a stand-in on `PATH` is.
+#[cfg(unix)]
+pub(crate) fn write_executable(path: &Path, contents: &str) {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::write(path, contents).unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// A process a test started in the background, the leader of a process group
+/// of its own. However the test ends, passed or failed, the group is told to
+/// stop (TERM) and killed if its leader has not ended within 5 seconds, so
+/// nothing it started outlives the test.
+#[cfg(unix)]
+pub(crate) struct Started(std::process::Child);
+
+#[cfg(unix)]
+impl Started {
+    pub(crate) fn spawn(command: &mut Command) -> Self {
+        use std::os::unix::process::CommandExt as _;
+        Self(command.process_group(0).spawn().unwrap())
+    }
+
+    pub(crate) fn id(&self) -> u32 {
+        self.0.id()
+    }
+
+    pub(crate) fn wait(&mut self) -> std::process::ExitStatus {
+        self.0.wait().unwrap()
+    }
+}
+
+#[cfg(unix)]
+impl Drop for Started {
+    fn drop(&mut self) {
+        let group = format!("-{}", self.0.id());
+        let signal = |name: &str| {
+            // A group already gone has nothing left to signal.
+            let _ = Command::new("kill")
+                .args([name, "--", &group])
+                .stderr(std::process::Stdio::null())
+                .status();
+        };
+        signal("-TERM");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while matches!(self.0.try_wait(), Ok(None)) && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        signal("-KILL");
+        let _ = self.0.wait();
+    }
+}
+
 /// What `cargo metadata` needs to run under rustup with the pinned toolchain.
 const TOOLCHAIN_VARIABLES: [&str; 6] = [
     "PATH",

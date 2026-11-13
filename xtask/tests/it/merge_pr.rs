@@ -21,7 +21,7 @@ use rstest::rstest;
 
 use crate::affected::{commit_all, repository};
 use crate::pre_merge::runs;
-use crate::workspace::Workspace;
+use crate::workspace::{Started, Workspace};
 
 const NUMBER: &str = "7";
 
@@ -1423,6 +1423,55 @@ fn a_gate_waits_for_the_run_in_the_backstops_worktree_and_says_so(
     run.kill().unwrap();
     run.wait().unwrap();
     until_the_gate_merged(&workspace, &stand_in);
+    assert!(
+        !before_the_end.iter().any(|call| call.starts_with("just ")),
+        "{before_the_end:?}"
+    );
+    assert!(caller.wait().unwrap().success());
+}
+
+/// The nightly fuzzing gives way to a gate (ci/fuzz-nightly.sh): the gate
+/// tells the job holding its lock to stop and starts no step until it ended,
+/// however long its stop takes.
+#[test]
+fn a_gate_stops_the_nightly_fuzzing_and_waits_for_its_stop() {
+    let (workspace, head) = pull_request();
+    let stand_in = stand_ins(&workspace, &head);
+    let hold = stand_in.join("fuzzing-hold");
+    let stopping = stand_in.join("fuzzing-stopping");
+    std::fs::write(&hold, "").unwrap();
+    let mut fuzzing = Started::spawn(
+        Command::new("bash")
+            .arg("-c")
+        .arg(format!(
+            r#"trap 'echo >"{stopping}"; while [ -f "{hold}" ]; do sleep 0.02; done; exit 143' TERM
+while :; do sleep 0.02; done"#,
+            stopping = stopping.display(),
+            hold = hold.display(),
+        ))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+    );
+    let lock = workspace.path().join(".claude/worktrees/fuzz-nightly.lock");
+    std::fs::create_dir_all(&lock).unwrap();
+    std::fs::write(lock.join("pid"), fuzzing.id().to_string()).unwrap();
+    let (mut caller, output) = merge_writing_to_a_file(&workspace, &stand_in);
+
+    until("the fuzzing's stop", || stopping.exists());
+    until("the gate's word that it stops the fuzzing", || {
+        std::fs::read_to_string(&output).is_ok_and(|text| {
+            text.contains(&format!(
+                "Stopping the nightly fuzzing, process {}",
+                fuzzing.id()
+            ))
+        })
+    });
+    let before_the_end = calls(&stand_in);
+    std::fs::remove_file(&hold).unwrap();
+    let ended = fuzzing.wait();
+
+    until_the_gate_merged(&workspace, &stand_in);
+    assert_eq!(ended.code(), Some(143));
     assert!(
         !before_the_end.iter().any(|call| call.starts_with("just ")),
         "{before_the_end:?}"

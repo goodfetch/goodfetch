@@ -575,5 +575,86 @@ fn detached(gone: &SessionId, pending: &mut BTreeMap<u64, Pending>) {
     }
 }
 
+/// The fuzz target's body (ADR 0067): bytes as the browser writes them to
+/// the pipe, read as the driver reads them. `data`'s first byte, modulo 8,
+/// is how many of the next bytes cut the rest into chunks, and the framing
+/// is checked as [`fuzz_frames`](crate::framing::fuzz_frames) says, under a
+/// limit of 256 bytes. Each message that comes out is handed on as the
+/// driver hands it, with commands 0 to 7 in flight, the odd ones on session
+/// `S`, and a subscription to the browser's session and one to `S`: an
+/// answer reaches its command in flight once, and an event reaches the
+/// subscription of its session while it lasts. It panics only on a bug.
+pub fn fuzz_pipe(data: &[u8]) {
+    let (cuts, stream) = data.split_first().map_or((data, data), |(count, rest)| {
+        rest.split_at(usize::from(count % 8).min(rest.len()))
+    });
+    let messages = crate::framing::fuzz_frames(stream, cuts, 256);
+    let session = SessionId("S".to_owned());
+    let (connection, driver) = Connection::new(
+        tokio::io::empty(),
+        tokio::io::sink(),
+        CountedWork::default(),
+    );
+    let mut subscriptions = [None, Some(&session)].map(|on| (on, connection.subscribe(on)));
+    let mut pending = BTreeMap::new();
+    let mut answers = Vec::new();
+    for id in 0..8 {
+        let (answer, answered) = oneshot::channel();
+        let on = (id % 2 == 1).then(|| session.clone());
+        pending.insert(
+            id,
+            Pending {
+                method: "Browser.getVersion",
+                session: on,
+                answer,
+            },
+        );
+        answers.push(answered);
+    }
+    for bytes in messages {
+        let message = serde_json::from_slice::<Value>(&bytes).ok();
+        let answering = message
+            .as_ref()
+            .and_then(|message| message.get("id")?.as_u64())
+            .filter(|id| pending.contains_key(id));
+        dispatch(&bytes, &mut pending, &driver.subscribers, &driver.work);
+        if let Some(id) = answering {
+            let answered = usize::try_from(id)
+                .ok()
+                .and_then(|id| answers.get_mut(id))
+                .expect("invariant: the commands in flight are 0 to 7")
+                .try_recv();
+            assert!(answered.is_ok(), "an answer reaches its command in flight");
+            continue;
+        }
+        let event = message.as_ref().and_then(|message| {
+            if message.get("id").and_then(Value::as_u64).is_some() {
+                return None;
+            }
+            let method = message.get("method")?.as_str()?;
+            let on = message.get("sessionId").and_then(Value::as_str);
+            Some((method, on))
+        });
+        for (on, subscription) in &mut subscriptions {
+            let received = subscription.events.try_recv();
+            let Some((method, event_on)) = event else {
+                assert!(received.is_err(), "only an event reaches a subscription");
+                continue;
+            };
+            if subscription.ended().is_some() || on.map(|on| on.0.as_str()) != event_on {
+                assert!(
+                    received.is_err(),
+                    "an event reaches only the subscription of its session"
+                );
+                continue;
+            }
+            let Ok(received) = received else {
+                panic!("an event reaches the subscription of its session");
+            };
+            assert_eq!(received.method, method, "an event keeps its method");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;

@@ -781,3 +781,7 @@ fn a_frame_detached_on_its_page_session_ends_only_the_frame_subscriptions() {
         );
     });
 }
+
+mod cdp_pipe {
+    goodfetch_test_support::fuzz_replay!(crate::connection::fuzz_pipe, "fuzz/cdp_pipe");
+}

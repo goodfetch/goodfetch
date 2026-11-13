@@ -1,0 +1,12 @@
+# The nightly fuzzing (TESTING.md, Fuzzing): `just fuzz-nightly`
+# (ci/fuzz-nightly.sh) on `main`'s head, in a worktree of its own, every fuzz
+# target for one hour in all on 4 cores at the lowest priority. It goes into
+# the gate host's crontab (`crontab -e`), with GOODFETCH_CHECKOUT set to the
+# main checkout. Times are UTC, before the backstop's 03:37 start
+# (ci/gate-backstop.crontab). A night that finds a gate, the backstop or a
+# test-health run holding its lock lists itself as skipped in
+# ~/fuzz-nightly/results.txt; a gate that starts during a night stops it. It
+# starts `origin/main`'s script, not the checkout's, which nothing
+# fast-forwards; the script then runs the scripts of the commit it fuzzes.
+GOODFETCH_CHECKOUT=/Users/jb/Dev/goodfetch
+17 1 * * * bash -lc 'cd "$GOODFETCH_CHECKOUT" && git fetch --quiet origin && script=$(git show origin/main:ci/fuzz-nightly.sh) && bash -c "$script" fuzz-nightly origin/main'

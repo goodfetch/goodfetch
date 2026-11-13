@@ -22,6 +22,9 @@ mod framing;
 pub mod generated;
 mod net_error;
 
+/// The fuzz target of the pipe's framing and message decoding (ADR 0067),
+/// whose seeds and past crashers `fuzz_replay!` replays on every OS.
+pub use connection::fuzz_pipe;
 pub use connection::{
     Connection, Driver, Ended, Event as RawEvent, SessionId, Subscription, SubscriptionEnd,
 };

@@ -1,8 +1,10 @@
 # goodfetch-fetch-tier's cargo-fuzz targets (ADR 0067; TESTING.md, Fuzzing),
 # outside the workspace: each target's body is a plain function of the
 # fetch-tier crate, whose seeds and past crashers `fuzz_replay!` replays
-# from `fuzz/<target>/` on every OS. Build and run with the pinned nightly:
-# `cargo fuzz run refresh fuzz/refresh/seeds` (or `prescan`).
+# from `fuzz/<target>/` on every OS. Build and run with the pinned nightly,
+# the git-ignored corpus first so a run never grows the committed seeds:
+# `cargo fuzz run refresh fuzz/corpus/refresh fuzz/refresh/seeds
+# -- -dict=fuzz/refresh/dictionary.dict`, and likewise `prescan`.
 [package]
 name = "goodfetch-fetch-tier-fuzz"
 version = "0.0.0"

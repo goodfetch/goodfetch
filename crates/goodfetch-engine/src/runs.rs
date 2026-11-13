@@ -3860,13 +3860,43 @@ impl Runs {
     /// Stops every live Run as [`Runs::stop_all`] does, because a part
     /// every Run shares panicked on an Attached engine (ADR 0148): each is
     /// `stopped` for the engine's panic, never as aborted by its Client,
-    /// and its report carries the warning `engine_panicked`.
+    /// and its report carries the warning `engine_panicked`. It waits for
+    /// their ends only until `limit` resolves, as the part that panicked
+    /// may be what a Run's end, or the registry, waits on: a Run not ended
+    /// by then stays as it is, resumable from its run file.
     ///
     /// # Cancel safety
     ///
     /// As [`Runs::stop_all`]'s.
-    pub(crate) async fn stop_all_on_panic(&self) {
-        self.stop_all_for(Cause::Panic).await;
+    pub(crate) async fn stop_all_on_panic(&self, limit: impl Future<Output = ()>) -> PanicStop {
+        let mut limit = std::pin::pin!(limit);
+        let (answer, answered) = oneshot::channel();
+        let asked = async {
+            if self
+                .commands
+                .send(Command::StopAll(Cause::Panic, answer))
+                .await
+                .is_err()
+            {
+                return Vec::new();
+            }
+            answered.await.unwrap_or_default()
+        };
+        let reports = tokio::select! {
+            reports = asked => reports,
+            () = &mut limit => return PanicStop::Unanswered,
+        };
+        let ended = async {
+            for report in reports.iter().cloned() {
+                let _ = wait_for(report).await;
+            }
+        };
+        tokio::select! {
+            () = ended => PanicStop::Ended,
+            () = limit => PanicStop::NotEnded(
+                reports.iter().filter(|report| report.borrow().is_none()).count(),
+            ),
+        }
     }
 
     async fn stop_all_for(&self, cause: Cause) {
@@ -3888,6 +3918,18 @@ impl Runs {
     pub(crate) fn registry_panicked(&self) -> bool {
         self.registry.has_panicked()
     }
+}
+
+/// How an Attached engine's stop on a panic left its Runs
+/// ([`Runs::stop_all_on_panic`]).
+#[derive(Debug)]
+pub(crate) enum PanicStop {
+    /// Each Run it stopped ended in time.
+    Ended,
+    /// This many Runs it stopped had not ended when the limit passed.
+    NotEnded(usize),
+    /// The registry had not answered the stop when the limit passed.
+    Unanswered,
 }
 
 /// The Runs a drain stops (ADR 0049).

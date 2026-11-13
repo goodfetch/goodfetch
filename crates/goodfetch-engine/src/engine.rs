@@ -807,11 +807,11 @@ async fn private_endpoint(
 }
 
 /// Stops an Attached engine's live Runs for a panic in a part every Run
-/// shares, waiting for them until `limit`, its drain grace, ends; then logs
+/// shares, waiting for them until `grace`, its drain grace, ends; then logs
 /// how many it left, or that the Runs' registry never answered, each such
 /// Run resumable from its run file (ADR 0148).
-async fn stop_runs_on_panic(runs: &Runs, limit: impl Future<Output = ()>) {
-    match runs.stop_all_on_panic(limit).await {
+async fn stop_runs_on_panic(runs: &Runs, grace: impl Future<Output = ()>) {
+    match runs.stop_all_on_panic(grace).await {
         PanicStop::Ended => {}
         PanicStop::NotEnded(live_runs) => tracing::warn!(
             live_runs,

@@ -3854,52 +3854,33 @@ impl Runs {
     ///
     /// Dropping the future after it was sent still stops them.
     pub(crate) async fn stop_all(&self) {
-        self.stop_all_for(Cause::Asked).await;
+        self.stop_all_for(Cause::Asked).await.ended().await;
     }
 
     /// Stops every live Run as [`Runs::stop_all`] does, because a part
     /// every Run shares panicked on an Attached engine (ADR 0148): each is
     /// `stopped` for the engine's panic, never as aborted by its Client,
     /// and its report carries the warning `engine_panicked`. It waits for
-    /// their ends only until `limit` resolves, as the part that panicked
+    /// their ends only until `grace` resolves, as the part that panicked
     /// may be what a Run's end, or the registry, waits on: a Run not ended
     /// by then stays as it is, resumable from its run file.
     ///
     /// # Cancel safety
     ///
     /// As [`Runs::stop_all`]'s.
-    pub(crate) async fn stop_all_on_panic(&self, limit: impl Future<Output = ()>) -> PanicStop {
-        let mut limit = std::pin::pin!(limit);
-        let (answer, answered) = oneshot::channel();
-        let asked = async {
-            if self
-                .commands
-                .send(Command::StopAll(Cause::Panic, answer))
-                .await
-                .is_err()
-            {
-                return Vec::new();
-            }
-            answered.await.unwrap_or_default()
-        };
-        let reports = tokio::select! {
-            reports = asked => reports,
-            () = &mut limit => return PanicStop::Unanswered,
-        };
-        let ended = async {
-            for report in reports.iter().cloned() {
-                let _ = wait_for(report).await;
-            }
+    pub(crate) async fn stop_all_on_panic(&self, grace: impl Future<Output = ()>) -> PanicStop {
+        let mut grace = std::pin::pin!(grace);
+        let stopping = tokio::select! {
+            stopping = self.stop_all_for(Cause::Panic) => stopping,
+            () = &mut grace => return PanicStop::Unanswered,
         };
         tokio::select! {
-            () = ended => PanicStop::Ended,
-            () = limit => PanicStop::NotEnded(
-                reports.iter().filter(|report| report.borrow().is_none()).count(),
-            ),
+            () = stopping.ended() => PanicStop::Ended,
+            () = grace => PanicStop::NotEnded(stopping.not_ended()),
         }
     }
 
-    async fn stop_all_for(&self, cause: Cause) {
+    async fn stop_all_for(&self, cause: Cause) -> Draining {
         let (answer, answered) = oneshot::channel();
         if self
             .commands
@@ -3907,11 +3888,9 @@ impl Runs {
             .await
             .is_err()
         {
-            return;
+            return Draining(Vec::new());
         }
-        for report in answered.await.unwrap_or_default() {
-            let _ = wait_for(report).await;
-        }
+        Draining(answered.await.unwrap_or_default())
     }
 
     /// Whether the registry's own task panicked (ADR 0148).
@@ -3926,13 +3905,13 @@ impl Runs {
 pub(crate) enum PanicStop {
     /// Each Run it stopped ended in time.
     Ended,
-    /// This many Runs it stopped had not ended when the limit passed.
+    /// This many Runs it stopped had not ended when the grace passed.
     NotEnded(usize),
-    /// The registry had not answered the stop when the limit passed.
+    /// The registry had not answered the stop when the grace passed.
     Unanswered,
 }
 
-/// The Runs a drain stops (ADR 0049).
+/// The Runs a drain (ADR 0049), or a stop of every live Run, stops.
 pub(crate) struct Draining(Vec<watch::Receiver<Option<Ended>>>);
 
 impl Draining {
@@ -3941,13 +3920,21 @@ impl Draining {
         self.0.len()
     }
 
+    /// How many of them have not ended yet.
+    pub(crate) fn not_ended(&self) -> usize {
+        self.0
+            .iter()
+            .filter(|report| report.borrow().is_none())
+            .count()
+    }
+
     /// Answers once every one ended.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future loses only the wait.
-    pub(crate) async fn ended(self) {
-        for report in self.0 {
+    pub(crate) async fn ended(&self) {
+        for report in self.0.iter().cloned() {
             let _ = wait_for(report).await;
         }
     }

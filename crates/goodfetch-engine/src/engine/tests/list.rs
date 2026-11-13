@@ -16,7 +16,8 @@ use serde_json::{Value, json};
 
 use super::run::call;
 use super::{attached_on, engine, hello};
-use crate::run_index;
+use crate::run_index::IndexFile;
+use crate::sqlite_store::StoreFile as _;
 
 fn at(text: &str) -> PointInTime {
     PointInTime::from_rfc3339(text.to_owned())
@@ -146,8 +147,10 @@ fn listed(params: Value) -> Vec<String> {
     let env = TestEnv::new();
     let index = env.home().join("1").join("run-index.sqlite");
     let version = ProductVersion::parse("1.4.0").unwrap();
+    let file = IndexFile::of(index, &version);
+    let connection = file.open().unwrap();
     for row in rows() {
-        run_index::write(&index, &version, &row).unwrap();
+        file.write(&connection, &row).unwrap();
     }
     let reply = attached_on(&engine(Product::Collie), &env, |mut client| async move {
         client.send(&[hello("collie", "0.1")]).await;

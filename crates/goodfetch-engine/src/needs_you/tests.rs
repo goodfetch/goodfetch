@@ -34,6 +34,7 @@ use crate::governor::StorageSample;
 use crate::home::Home;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
+use crate::run_index::RunIndex;
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -130,8 +131,12 @@ async fn started(index: &Path, sources: Vec<NeedsYouSource>) -> Started {
     let context = SourceContext {
         clock: Clock::paused(UNIX_EPOCH + Duration::from_hours(500_000)),
         storage: watch::channel(Arc::new(StorageSample::default())).1,
-        run_index: index.to_owned(),
-        version: ProductVersion::parse("1.0.0").unwrap(),
+        run_index: RunIndex::of(
+            index.to_owned(),
+            &ProductVersion::parse("1.0.0").unwrap(),
+            None,
+            Arc::new(owner.child()),
+        ),
         ledger: Ledger::at(index.with_file_name("usage.sqlite"), None),
         settings: Settings::new(
             SettingsFiles::of(
@@ -144,6 +149,7 @@ async fn started(index: &Path, sources: Vec<NeedsYouSource>) -> Started {
         known_certificates: KnownCertificates::of(
             &Home::new(index.parent().unwrap().to_owned()),
             None,
+            Arc::new(owner.child()),
         ),
         owner: Arc::new(owner.child()),
     };

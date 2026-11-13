@@ -171,11 +171,10 @@ pub(crate) const FORMAT_TABLE: &str = "CREATE TABLE IF NOT EXISTS format (
 /// SQLite's, when the table cannot be read.
 pub(crate) fn read_sqlite(connection: &Connection, name: &str) -> rusqlite::Result<Option<Marker>> {
     connection
-        .query_row(
-            "SELECT version, lowest_minor FROM format WHERE name = ?1",
-            [name],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
-        )
+        .prepare_cached("SELECT version, lowest_minor FROM format WHERE name = ?1")?
+        .query_row([name], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
         .optional()
         .map(|found| {
             found.map(|(version, lowest_minor)| Marker {
@@ -198,11 +197,12 @@ pub(crate) fn write_sqlite(
     name: &str,
     marker: Marker,
 ) -> rusqlite::Result<()> {
-    connection.execute(
-        "INSERT INTO format (name, version, lowest_minor) VALUES (?1, ?2, ?3)
+    connection
+        .prepare_cached(
+            "INSERT INTO format (name, version, lowest_minor) VALUES (?1, ?2, ?3)
          ON CONFLICT (name) DO UPDATE SET version = excluded.version, lowest_minor = excluded.lowest_minor",
-        (name, marker.version.to_string(), i64::from(marker.lowest_minor)),
-    )?;
+        )?
+        .execute((name, marker.version.to_string(), i64::from(marker.lowest_minor)))?;
     Ok(())
 }
 

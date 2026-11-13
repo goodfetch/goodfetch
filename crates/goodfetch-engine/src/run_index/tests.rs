@@ -6,7 +6,7 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::formats::{Compatibility, Format, RUN_INDEX};
@@ -16,9 +16,23 @@ use goodfetch_protocol::run::{
 use goodfetch_test_support::{TestEnv, wal_of};
 use rusqlite::Connection;
 
-use super::{rows_as, write_as};
+use super::{IndexFile, RunIndex};
 use crate::lowest_minor::{self, Marker, Opener};
 use crate::run_state::RunStateError;
+use crate::sqlite_store::StoreFile as _;
+use crate::tasks::{BlockingPolicy, TaskOwner};
+
+/// Writes `row` as the engine `opener` stands for, on a connection of its own.
+fn write_as(path: &Path, opener: &Opener, row: &RunIndexRow) -> Result<(), RunStateError> {
+    let file = IndexFile::new(path.to_owned(), *opener, None);
+    file.write(&file.open()?, row)
+}
+
+/// The rows the engine `opener` stands for reads, on a connection of its own.
+fn rows_as(path: &Path, opener: &Opener) -> Result<Vec<RunIndexRow>, RunStateError> {
+    let file = IndexFile::new(path.to_owned(), *opener, None);
+    file.rows(&file.open()?)
+}
 
 const fn version(major: u16, minor: u16) -> ProtocolVersion {
     ProtocolVersion { major, minor }
@@ -281,4 +295,69 @@ fn the_wal_stays_beside_the_index_once_a_write_closed_its_connection() {
     write_as(&path, &older(), &row("first")).unwrap();
 
     assert!(wal_of(&path).exists());
+}
+
+/// An engine's Run index, through `vfs`, as tasks of the test's runtime.
+fn engines_index(path: &Path, vfs: &str) -> RunIndex {
+    RunIndex::of(
+        path.to_owned(),
+        &goodfetch_protocol::connection::ProductVersion::parse("1.0.0").unwrap(),
+        Some(vfs.to_owned()),
+        std::sync::Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+    )
+}
+
+/// An engine's Run index opens its file once for its writes and once for
+/// its reads, however many of each it makes (#1886).
+#[test]
+fn an_engines_index_opens_its_file_once_for_its_writes_and_once_for_its_reads() {
+    let (_folder, path) = index();
+    let vfs = goodfetch_test_support::CountingVfs::register();
+    let index = engines_index(&path, vfs.name());
+
+    let (listed, erased) = goodfetch_test_support::runtime().block_on(async {
+        for run_id in ["first", "second", "third"] {
+            index.write(row(run_id)).await.unwrap();
+            index.read(RunId::parse(run_id).unwrap()).await.unwrap();
+        }
+        index.check().await.unwrap();
+        let listed = index.rows().await.unwrap();
+        let erased = index.erase(RunId::parse("second").unwrap()).await.unwrap();
+        (listed, erased)
+    });
+
+    assert_eq!((listed.len(), erased, vfs.opens()), (3, true, 2));
+}
+
+/// Rows written are in the index after a power cut once their calls
+/// answered, while the engine still holds the index open for its writes and
+/// reads: each commit synced them (ADR 0060, #1886).
+#[test]
+fn rows_written_survive_a_power_cut_while_the_engine_holds_the_index() {
+    let env = TestEnv::new();
+    let vfs = goodfetch_test_support::CrashVfs::register(
+        &env.unique_name("run-index-power-cut"),
+        env.seed(),
+    )
+    .unwrap();
+    let path = env.home().join("run-index.sqlite");
+    let index = engines_index(&path, vfs.name());
+    goodfetch_test_support::runtime().block_on(async {
+        for run_id in ["first", "second"] {
+            index.write(row(run_id)).await.unwrap();
+            index.read(RunId::parse(run_id).unwrap()).await.unwrap();
+        }
+    });
+
+    vfs.crash(goodfetch_test_support::CrashKind::PowerCut);
+    let connection = goodfetch_test_support::after_crash(&vfs, &path.to_string_lossy()).unwrap();
+
+    let runs: Vec<String> = connection
+        .prepare("SELECT run_id FROM runs ORDER BY run_id")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(runs, ["first", "second"]);
 }

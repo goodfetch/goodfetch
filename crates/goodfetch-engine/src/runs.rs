@@ -134,7 +134,7 @@ use crate::metrics::{FolderStorage, Metrics};
 use crate::politeness::{Holder, Politeness, PolitenessError, PolitenessOptions, PolitenessTables};
 use crate::robots_txt::{Answer, Copies, Fetched, NotRead, OwnCopies, RunCopies};
 use crate::run_files::{self, FileKind, KeepError, Kept, KeptExport};
-use crate::run_index;
+use crate::run_index::{self, RunIndex};
 use crate::run_key::{self, KeyError, RunKey, Sealed, StoredKey};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
@@ -1007,17 +1007,9 @@ struct Followed {
 /// that does (ADR 0102).
 struct Located {
     folder: PathBuf,
-    index: PathBuf,
-    version: ProductVersion,
+    index: RunIndex,
     reached_at: Option<RunOwner>,
     forwarder: Arc<dyn Forwarder>,
-    tasks: Arc<TaskOwner>,
-}
-
-/// Where the Run index is, which a read of it opens off the registry.
-struct IndexAt {
-    index: PathBuf,
-    version: ProductVersion,
     tasks: Arc<TaskOwner>,
 }
 
@@ -1170,7 +1162,7 @@ enum Command {
     Reader(RunId, oneshot::Sender<Result<RunReader, RunError>>),
     Progress(RunId, oneshot::Sender<Result<Followed, RunError>>),
     Locate(RunId, oneshot::Sender<Result<Option<Located>, RunError>>),
-    Index(oneshot::Sender<IndexAt>),
+    Index(oneshot::Sender<RunIndex>),
     Discard(RunId, oneshot::Sender<Result<(), RunError>>),
     Discarded(Box<Erased>, oneshot::Sender<Result<(), RunError>>),
     Drain(Cause, oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
@@ -1236,9 +1228,6 @@ pub struct Runs {
     clean_up: Option<Arc<CleanUpRules>>,
     /// The switchable controls each new Run reports.
     controls: Arc<Controls>,
-    /// The engine's Product version, whose major's Run index its Runs
-    /// write.
-    version: ProductVersion,
     /// The runtime's metrics.
     metrics: Metrics,
     /// The owner of the registry's own task, whose panic stops the engine
@@ -1544,14 +1533,11 @@ impl Run {
     ///
     /// Dropping the future after the write began still records it.
     pub async fn record_consent_wall(&self, domain: String) -> Result<(), RunStateError> {
-        let path = self.runs.engine.home().run_index(&self.runs.version);
-        let version = self.runs.version.clone();
-        let run_id = self.id.clone();
         let at = self.point_in_time();
-        self.owner
-            .blocking(move || {
-                run_index::record_consent_wall(&path, &version, &domain, &run_id, &at)
-            })
+        self.runs
+            .engine
+            .run_index()
+            .record_consent_wall(domain, self.id.clone(), at)
             .await
     }
 
@@ -1574,8 +1560,6 @@ impl Run {
         domain: String,
         cause: String,
     ) -> Result<(), RunStateError> {
-        let path = self.runs.engine.home().run_index(&self.runs.version);
-        let version = self.runs.version.clone();
         let at = self.point_in_time();
         let stop = run_index::RefetchStopped {
             domain,
@@ -1587,8 +1571,10 @@ impl Run {
                 .and_then(|settings| settings.project_setting(WALL_REFETCH_DOMAINS.name))
                 .map(str::to_owned),
         };
-        self.owner
-            .blocking(move || run_index::record_refetch_stop(&path, &version, &stop, &at))
+        self.runs
+            .engine
+            .run_index()
+            .record_refetch_stop(stop, at)
             .await
     }
 
@@ -2719,7 +2705,6 @@ impl Runs {
             secrets: setup.secrets.clone(),
             clean_up: CleanUpRules::of(&setup),
             controls: Arc::new(setup.controls.clone()),
-            version: setup.version.clone(),
             metrics: setup.metrics.clone(),
             registry: Arc::new(owner.part("Run registry")),
         };
@@ -3640,20 +3625,23 @@ impl Runs {
         let Located {
             folder,
             index,
-            version,
             reached_at,
             forwarder,
             tasks,
         } = located;
-        let id = run_id.clone();
-        let owner = tasks
-            .blocking(move || -> Option<RunOwner> {
-                if test_writer(&folder).ok()? != Writer::Live {
-                    return None;
-                }
-                run_index::read(&index, &version, &id).ok()??.owner
-            })
+        let live = tasks
+            .blocking(move || test_writer(&folder).ok() == Some(Writer::Live))
             .await;
+        let owner = if live {
+            index
+                .read(run_id.clone())
+                .await
+                .ok()
+                .flatten()
+                .and_then(|row| row.owner)
+        } else {
+            None
+        };
         let Some(owner) = owner.filter(|owner| Some(owner) != reached_at.as_ref()) else {
             return Ok(None);
         };
@@ -3682,14 +3670,8 @@ impl Runs {
             .send(Command::Index(answer))
             .await
             .map_err(|_| ListError::Stopped)?;
-        let IndexAt {
-            index,
-            version,
-            tasks,
-        } = answered.await.map_err(|_| ListError::Stopped)?;
-        let rows = tasks
-            .blocking(move || run_index::rows(&index, &version))
-            .await?;
+        let index = answered.await.map_err(|_| ListError::Stopped)?;
+        let rows = index.rows().await?;
         Ok(list::select(rows, &params))
     }
 
@@ -4057,9 +4039,8 @@ struct Erasing {
     vfs: Option<String>,
     /// The install database, in the per-install layout.
     install: Option<Arc<InstallDatabase>>,
-    /// The Run index, and the version whose rows it erases.
-    index: PathBuf,
-    version: ProductVersion,
+    /// The Run index, as this engine opened it.
+    index: RunIndex,
 }
 
 /// Why the run file a crash left at `off` of the Run `run_id` was not
@@ -4163,10 +4144,9 @@ impl Erasing {
                 };
             }
         };
-        let (index, version, id) = (self.index, self.version, run_id.clone());
         let listed = self
-            .owner
-            .blocking(move || run_index::erase(&index, &version, &id))
+            .index
+            .erase(run_id.clone())
             .await
             .map_err(|error| RunError::of_state(&run_id, &folder, error));
         let answered = match listed {
@@ -4386,7 +4366,7 @@ impl Registry {
             Command::Reader(run_id, answer) => _ = answer.send(Ok(self.reader(&run_id))),
             Command::Progress(run_id, answer) => _ = answer.send(Ok(self.followed(&run_id))),
             Command::Locate(run_id, answer) => _ = answer.send(Ok(self.locate(&run_id))),
-            Command::Index(answer) => _ = answer.send(self.index_at()),
+            Command::Index(answer) => _ = answer.send(self.setup.engine.run_index().clone()),
             Command::Discard(run_id, answer) => self.discard(run_id, answer),
             Command::Discarded(erased, answer) => self.discarded(*erased, answer),
             Command::Storage(sample) => self.storage(&sample),
@@ -4826,20 +4806,11 @@ impl Registry {
         }
         Some(Located {
             folder: self.folder(run_id),
-            index: self.setup.engine.home().run_index(&self.setup.version),
-            version: self.setup.version.clone(),
+            index: self.setup.engine.run_index().clone(),
             reached_at: self.setup.reached_at.clone(),
             forwarder: Arc::clone(&self.setup.forwarder),
             tasks: Arc::clone(&self.readers),
         })
-    }
-
-    fn index_at(&self) -> IndexAt {
-        IndexAt {
-            index: self.setup.engine.home().run_index(&self.setup.version),
-            version: self.setup.version.clone(),
-            tasks: Arc::clone(&self.readers),
-        }
     }
 
     fn reader(&self, run_id: &RunId) -> RunReader {
@@ -4878,8 +4849,7 @@ impl Registry {
             entropy: self.setup.entropy.fork(),
             vfs: self.setup.run_state.vfs.clone(),
             install: self.setup.install.clone(),
-            index: self.setup.engine.home().run_index(&self.setup.version),
-            version: self.setup.version.clone(),
+            index: self.setup.engine.run_index().clone(),
         };
         let registry = self.runs.clone();
         self.for_one_run.spawn(async move {
@@ -5362,13 +5332,7 @@ impl Registry {
     /// takes no new Run. An index that cannot be opened stops no Run; its
     /// row is restored by `runs reindex`.
     async fn check_index(&self) -> Result<(), StartError> {
-        let path = self.setup.engine.home().run_index(&self.setup.version);
-        let version = self.setup.version.clone();
-        match self
-            .owner
-            .blocking(move || run_index::check(&path, &version))
-            .await
-        {
+        match self.setup.engine.run_index().check().await {
             Err(RunStateError::Format {
                 format,
                 found,
@@ -5389,13 +5353,7 @@ impl Registry {
     }
 
     async fn write_index(&self, row: RunIndexRow) {
-        let path = self.setup.engine.home().run_index(&self.setup.version);
-        let version = self.setup.version.clone();
-        if let Err(error) = self
-            .owner
-            .blocking(move || run_index::write(&path, &version, &row))
-            .await
-        {
+        if let Err(error) = self.setup.engine.run_index().write(row).await {
             tracing::warn!(%error, "the Run index row was not written; `runs reindex` restores it");
         }
     }
@@ -5607,7 +5565,6 @@ impl Registry {
             secrets: self.setup.secrets.clone(),
             clean_up: CleanUpRules::of(&self.setup),
             controls: Arc::new(self.setup.controls.clone()),
-            version: self.setup.version.clone(),
             metrics: self.setup.metrics.clone(),
             registry: Arc::clone(&self.itself),
         }
@@ -5688,8 +5645,7 @@ impl Registry {
             governor: self.setup.governor.clone(),
         };
         let recording = Recording {
-            index: self.setup.engine.home().run_index(&self.setup.version),
-            version: self.setup.version.clone(),
+            index: self.setup.engine.run_index().clone(),
             row,
             events,
             registry: self.runs.clone(),
@@ -5794,8 +5750,7 @@ impl Registry {
             tables: self.setup.tables.clone(),
             clock: self.setup.engine.clock(),
             entropy: self.setup.entropy.fork(),
-            index: self.setup.engine.home().run_index(&self.setup.version),
-            version: self.setup.version.clone(),
+            index: self.setup.engine.run_index().clone(),
             events: self.setup.events.clone(),
             forwarder: Arc::clone(&self.setup.forwarder),
             owner: Arc::new(self.ending_owner.child()),
@@ -6524,8 +6479,7 @@ async fn unrecorded(
 /// Where a Run's end is recorded beside its run file: its Run index row,
 /// its axes on the event stream, and the registry.
 struct Recording {
-    index: PathBuf,
-    version: ProductVersion,
+    index: RunIndex,
     row: RunIndexRow,
     events: Events,
     registry: mpsc::WeakSender<Command>,
@@ -6554,7 +6508,7 @@ impl Recording {
             replayed: report.replayed(),
             ..self.row
         };
-        if let Err(error) = run_index::write(&self.index, &self.version, &row) {
+        if let Err(error) = self.index.write(row).await {
             tracing::warn!(%error, "the Run index row was not written; `runs reindex` restores it");
         }
         self.events

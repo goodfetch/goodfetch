@@ -5,18 +5,22 @@
 # request's exact head it runs one gate and merges only when it passes.
 # Which gate (ADR 0135's amendments of 2026-11-10, the owner's decisions for
 # the refactor: quick per merge, the full gate once per finished spec and on
-# the tenth change a test reads since the last full gate):
+# the tenth change a test reads since the last full gate; its note of
+# 2026-11-13: a spec is finished by the pull request that leaves none of its
+# sub-issues open):
 #   - `just pre-merge docs` when `xtask affected` finds the change is
 #     documents alone (`gate=docs`);
 #   - `just pre-merge quick` when it finds that no test, benchmark, model,
 #     container or Evaluation reads the change (`gate=quick`);
 #   - for a change a test reads (`gate=full`), `just pre-merge all`, which
-#     starts with `just quick all`'s lint and Quick suite, on a spec's pull
-#     request, whose head branch is `spec/<n>` (docs/agents/issue-tracker.md),
-#     and on the tenth such change since the last full gate, the nine before
-#     it having merged on the quick gate, as the messages of the base's
-#     merges say it (#2457); `just pre-merge quick` on every other pull
-#     request;
+#     starts with `just quick all`'s lint and Quick suite, on the pull request
+#     that finishes a spec: its head branch is `spec/<n>`
+#     (docs/agents/issue-tracker.md), and spec issue #<n> has no open
+#     sub-issue once the issues the pull request closes are closed, as one
+#     GitHub query reads them; and on the tenth such change since the last
+#     full gate, the nine before it having merged on the quick gate, as the
+#     messages of the base's merges say it (#2457), an unfinished spec's pull
+#     request included; `just pre-merge quick` on every other pull request;
 #   - `just pre-merge all` on any pull request when `--full` asks for it.
 # The gate's log and the merge's message name the gate that ran and why, and
 # a quick merge of a change a test reads says what it did not run. First the
@@ -264,10 +268,12 @@ case $affected in
 esac
 # Which gate runs, and why, as the log and the merge's message say it. The
 # full gate runs once per finished spec, on the pull request of its
-# integration branch `spec/<n>`, when `--full` asks for it, and on the tenth
-# change a test reads since the last full gate; every other change a test
-# reads merges on the quick gate (the owner's decisions of 2026-11-10 for the
-# refactor and of 2026-11-11 on the tenth, ADR 0135).
+# integration branch `spec/<n>` that leaves none of the spec's sub-issues
+# open, when `--full` asks for it, and on the tenth change a test reads since
+# the last full gate; every other change a test reads merges on the quick
+# gate, a spec's pull request that leaves sub-issues open included (the
+# owner's decisions of 2026-11-10 for the refactor, of 2026-11-11 on the
+# tenth and of 2026-11-13 on the finished spec, ADR 0135).
 #
 # How a merge's message opens, and how it names the full gate and a quick
 # merge of a change a test reads: the count below reads back the words the
@@ -288,12 +294,50 @@ quick_merges_since_the_last_full_gate() {
   git rev-list --count --first-parent --merges --fixed-strings \
     --grep="$merged_on$quick_of_a_change_a_test_reads" "origin/$base" ${last_full:+"^$last_full"}
 }
+# How many of spec #$1's sub-issues stay open once pull request #$number's
+# closing issues are closed: one query of both, read whole, or no number when
+# either holds more than a page.
+sub_issues_left_open() {
+  local query filter
+  read -r -d '' query <<'GRAPHQL' || true
+query($owner: String!, $name: String!, $spec: Int!, $pr: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $spec) { subIssues(first: 100) { pageInfo { hasNextPage } nodes { number state } } }
+    pullRequest(number: $pr) { closingIssuesReferences(first: 100) { pageInfo { hasNextPage } nodes { number } } }
+  }
+}
+GRAPHQL
+  read -r -d '' filter <<'JQ' || true
+.data.repository
+| [.pullRequest.closingIssuesReferences.nodes[].number] as $closed
+| if .issue.subIssues.pageInfo.hasNextPage or .pullRequest.closingIssuesReferences.pageInfo.hasNextPage then "more than a page"
+  else [.issue.subIssues.nodes[] | select(.state == "OPEN") | .number | select(. as $n | $closed | any(. == $n) | not)] | length
+  end
+JQ
+  gh api graphql -F owner='{owner}' -F name='{repo}' -F spec="$1" -F pr="$number" -f query="$query" --jq "$filter"
+}
 why_full=""
+not_finished=""
 if [[ -n $full_asked ]]; then
   why_full="asked for with \`--full\`"
 elif [[ $affected == full && $branch =~ ^spec/[0-9]+$ ]]; then
-  why_full="the pull request of a spec's branch, \`$branch\`"
-elif [[ $affected == full ]]; then
+  # An answer that cannot be read is refused: taken for none left, it would
+  # run a full gate on an unfinished spec; taken for some, it would skip a
+  # finished spec's.
+  spec=${branch#spec/}
+  if ! left_open=$(sub_issues_left_open "$spec") || [[ ! $left_open =~ ^(0|[1-9][0-9]*)$ ]]; then
+    echo "error: the sub-issues of spec #$spec that stay open after pull request #$number could not be read from GitHub (the query read \"${left_open:-}\", which is no whole number), so nothing says whether it finishes the spec; run the command again, or ask for the full gate with \`--full\`" >&2
+    exit 1
+  fi
+  if ((left_open == 0)); then
+    why_full="the pull request that finishes spec #$spec, from \`$branch\`"
+  elif ((left_open == 1)); then
+    not_finished="spec #$spec is not finished: 1 sub-issue stays open after this pull request"
+  else
+    not_finished="spec #$spec is not finished: $left_open sub-issues stay open after this pull request"
+  fi
+fi
+if [[ -z $why_full && $affected == full ]]; then
   # More than nine can be there, merged before this script counted or by a
   # checkout that did not: the next change still takes the full gate, and
   # says which change it is. A count that cannot be read is refused: taken
@@ -327,7 +371,7 @@ elif [[ $affected == quick ]]; then
   ran="\`just pre-merge quick\` (no test, benchmark, model, container or Evaluation reads the change)"
 else
   gate=quick
-  ran="$quick_of_a_change_a_test_reads, and the full gate runs once per finished spec, on the pull request of its \`spec/<n>\` branch, or with \`--full\`; the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)"
+  ran="$quick_of_a_change_a_test_reads, and the full gate runs once per finished spec, on the pull request of its \`spec/<n>\` branch that leaves none of its sub-issues open, on the tenth such change or with \`--full\`;${not_finished:+ $not_finished;} the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)"
 fi
 echo "The gate is ${ran%,}"
 echo "Running the local gate ($gate) on #$number at $head in $worktree"

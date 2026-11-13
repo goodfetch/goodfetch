@@ -154,3 +154,6 @@ pub fn write_export(
     }
     Ok(encoding.finish())
 }
+
+#[cfg(test)]
+mod tests;

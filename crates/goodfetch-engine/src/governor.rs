@@ -3,8 +3,9 @@
 //! discovered-API fetches, open browser pages and model calls, each between
 //! its floor and its ceiling, and shares each fairly between the live Runs.
 //! At every `governor.sample_interval`, read on the `Clock`, it reads the
-//! machine (the `system` module), its settings from the machine's layers,
-//! which may change between samples, the engine's CPU time against its
+//! machine (the `system` module), its settings from the engine's snapshot
+//! of the machine's settings, which the engine's own writes and each Run's
+//! admission refresh between samples (ADR 0140), the engine's CPU time against its
 //! allowance from `available_parallelism`, and the Tokio workers' busy time
 //! (`worker_total_busy_duration`); its controller sizes each kind's target
 //! from them, the `shares` module admits up to it, and what it read and
@@ -16,7 +17,7 @@
 //! Goodfetch home and the engine's temporary folder, and any folder a Run
 //! writes to that its holder adds. Each is at a storage level, `normal`,
 //! `low` or `critical`, set by `storage.low_free` and
-//! `storage.critical_free`, read from the machine's layers at each sample;
+//! `storage.critical_free`, read from that snapshot at each sample;
 //! a level change is logged at warning, or at info on the way back. What
 //! it found is its [`StorageSample`], which the Runs act on.
 //!
@@ -28,7 +29,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_counted_work::CountedWork;
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::governor::{
     CRITICAL, Concurrency, CpuReading, GovernorLevel, HOST_MEMORY, KindConcurrency,
@@ -40,7 +41,7 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 
 use crate::clock::Clock;
-use crate::settings::{Layers, Resolved, Settings, catalog_default, resolve};
+use crate::settings::{Layers, MachineSettings, Resolved, Settings, catalog_default, resolve};
 use crate::tasks::TaskOwner;
 
 mod browsers;
@@ -91,9 +92,10 @@ pub struct LastResort {
 
 impl Governor {
     /// A governor that samples `system` every `governor.sample_interval`
-    /// on `clock`, reading its settings from the machine's layers of
-    /// `settings` at each sample, as a task of `owner`, until `owner`
-    /// stops, counting a sample's work on `work` (ADR 0140's E4). It admits nothing before its first sample, taken at once:
+    /// on `clock`, reading its settings at each sample from the snapshot
+    /// `settings` keeps of the machine's settings, as a task of `owner`,
+    /// until `owner` stops, counting a sample's work on `work` (ADR 0140's
+    /// E4). It admits nothing before its first sample, taken at once:
     /// each target starts at the ceiling the machine's settings give,
     /// which only that sample reads, never at the built-in one (ADR 0040).
     /// A Run that asks first waits for its turn, which the first sample
@@ -114,9 +116,9 @@ impl Governor {
         let folders = Folders::default();
         let disks = system.disks.clone();
         let sampler = Sampler {
-            system: system.counting(work.clone()),
+            system: system.counting(work),
+            defaults: defaults(&settings),
             settings,
-            work,
             clock,
             shares: shares.clone(),
             sender,
@@ -292,8 +294,9 @@ fn defaults(settings: &Settings) -> Resolved {
 struct Sampler {
     system: System,
     settings: Settings,
-    /// Where it counts its work.
-    work: CountedWork,
+    /// The built-in values, which it samples on when the machine's settings
+    /// cannot be read.
+    defaults: Resolved,
     clock: Clock,
     shares: Shares,
     sender: watch::Sender<Option<SystemInfo>>,
@@ -325,10 +328,12 @@ impl Sampler {
         let mut controller = Controller::new();
         let mut previous: Option<Previous> = None;
         let mut levels: Vec<(Vec<PathBuf>, StorageLevel)> = Vec::new();
+        let mut unread = None;
         loop {
-            let settings = self.machine().await;
-            levels = self.sample_storage(&settings, &levels).await;
-            let limits = Limits::of(&settings);
+            let machine = self.settings.snapshot().await;
+            let settings = self.resolved(&machine, &mut unread);
+            levels = self.sample_storage(settings, &levels).await;
+            let limits = Limits::of(settings);
             let inputs = Inputs {
                 memory_allowance: settings.get(&MEMORY_ALLOWANCE),
                 pressure: limits.pressure,
@@ -460,22 +465,26 @@ impl Sampler {
         levels
     }
 
-    /// The governor's settings from the machine's layers now; the built-in
-    /// values when they cannot be read, as the warning logged says.
-    async fn machine(&self) -> Resolved {
-        let product = self.settings.product();
-        let machine = self.settings.machine().await;
-        // Each settings file it read; a read that failed read one at least.
-        let files = machine.as_ref().map_or(1, |machine| machine.files.len());
-        for _ in 0..files {
-            self.work.count(Row::GovernorConfigurationReads);
-        }
-        let read = machine.and_then(|machine| machine.resolve(product));
-        match read {
+    /// The governor's settings from `machine`, the engine's snapshot of
+    /// the machine's settings; the built-in values when they cannot be
+    /// read, as the warning logged once per snapshot says, `unread` being
+    /// the last snapshot it warned of.
+    fn resolved<'a>(
+        &'a self,
+        machine: &'a Arc<MachineSettings>,
+        unread: &mut Option<Arc<MachineSettings>>,
+    ) -> &'a Resolved {
+        match machine.resolved() {
             Ok(settings) => settings,
             Err(error) => {
-                tracing::warn!(%error, "the governor's settings cannot be read: it samples on their built-in values");
-                defaults(&self.settings)
+                if !unread
+                    .as_ref()
+                    .is_some_and(|warned| Arc::ptr_eq(warned, machine))
+                {
+                    tracing::warn!(%error, "the governor's settings cannot be read: it samples on their built-in values");
+                    *unread = Some(Arc::clone(machine));
+                }
+                &self.defaults
             }
         }
     }

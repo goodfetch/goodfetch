@@ -69,6 +69,7 @@ use charge_counts::{Outcome, charges};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::audit::AuditLog;
 use goodfetch_engine::metrics::Metrics;
+use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::CountingVfs;
 use messages::{Logs, Plant, Traffic};
 use serde_json::{Map, Value, json};
@@ -119,11 +120,22 @@ fn plant(name: &str, work: &CountedWork) -> Plant {
 /// per entry, done for real through the code that counts it.
 fn audit_plant(name: &str, work: &CountedWork, vfs: &str) -> audit::Plant {
     match name {
+        // A read of the machine's settings files, as each entry made before
+        // #1885: the read has no counted function, so it is counted here.
+        "E2.configuration_reads" => {
+            let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+            let work = work.clone();
+            Arc::new(move |_: &AuditLog, _: &tokio::runtime::Runtime| {
+                work.count(Row::AuditConfigurationReads);
+                audit::settings_files(home.path())
+                    .load(Product::Collie)
+                    .expect("invariant: a home with no settings file reads as empty");
+            })
+        }
         // One entry more, on a log of its own beside the scenario's, made
-        // anew for each so that its writer opens its store again: a
-        // configuration read, a store open, its transactions and a head-file
-        // write the store syncs.
-        "E2.configuration_reads" | "E2.opens" | "E2.transactions" | SYNCS => {
+        // anew for each so that its writer opens its store again: a store
+        // open, its transactions and a head-file write the store syncs.
+        "E2.opens" | "E2.transactions" | SYNCS => {
             let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
             let (vfs, work) = (vfs.to_owned(), work.clone());
             Arc::new(move |_: &AuditLog, runtime: &tokio::runtime::Runtime| {

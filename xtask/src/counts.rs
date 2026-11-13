@@ -412,7 +412,7 @@ const ROWS: [Row; 97] = [
         name: "E2.configuration_reads",
         family: "B3",
         unit: "audit_entries",
-        happens: true,
+        happens: false,
         valgrind: None,
     },
     Row {

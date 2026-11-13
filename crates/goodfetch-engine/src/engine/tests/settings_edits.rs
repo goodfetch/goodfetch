@@ -522,6 +522,50 @@ fn two_settings_writes_at_once_both_land_and_are_both_recorded() {
     );
 }
 
+/// `config.user_write` of `audit.retention` is seen by the next Audit log
+/// entry, its own: the engine's write refreshes its snapshot of the
+/// machine's settings before it records the write, so that entry prunes
+/// the one recorded two seconds before it (ADR 0140).
+///
+/// Covers: operation:config.user_write, setting:audit.retention
+#[test]
+fn a_retention_written_by_the_engine_is_seen_by_the_next_audit_entry() {
+    let env = TestEnv::new();
+
+    attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            opened(&mut client, "kennel", "collie").await;
+            let user_write = async |client: &mut Client, id: i64, key: &str, value: Value| {
+                let written = call(
+                    client,
+                    id,
+                    "config.user_write",
+                    json!({ "changes": [{ "key": key, "value": value }] }),
+                )
+                .await;
+                assert!(written.get("result").is_some(), "{written}");
+            };
+            user_write(&mut client, 1, "timeout.navigation", json!(45_000)).await;
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            user_write(&mut client, 2, "audit.retention", json!(1_000)).await;
+        },
+    );
+
+    assert_eq!(
+        audit_entries(&env)
+            .iter()
+            .map(|entry| entry["kind"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>(),
+        [
+            "audit_log_anchor",
+            "audit_log_pruned",
+            "user_configuration_written"
+        ]
+    );
+}
+
 /// How long the other writer holds the lock waiting for the answer under
 /// test, at most.
 const HELD: Duration = Duration::from_millis(300);

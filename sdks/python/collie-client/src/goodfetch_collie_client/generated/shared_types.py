@@ -89,7 +89,7 @@ received (ADR 0079).
 - `wall_refetch_stopped`: A domain on which a Run's refetch without the site's stored data stopped, at a Block cause, a 401 or 403 status or a login page (ADR 0052); `details` give the `domain`, the `cause`, and the `layer` of `wall.refetch_domains` that lists it with its `file`, and whether `only_star` covers it there; `run` is the last Run whose refetch stopped there. Its actions offer `needs_you.remove_refetch_domain`, except for a domain project configuration lists, which is changed in its file, and `needs_you.deny_wall_domain`. It leaves the list once no layer lists the domain, once `wall.denied_domains` denies it, or when a person dismisses it.
 """
 
-RunWarningCode: TypeAlias = Literal["baseline_unavailable", "block_resources_visible", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "clean_up_rules_fallback", "clean_up_rules_stale", "cpu_throttled", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "human_input_fallback", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "storage_low"] | str
+RunWarningCode: TypeAlias = Literal["baseline_unavailable", "block_resources_visible", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "clean_up_rules_fallback", "clean_up_rules_stale", "cpu_throttled", "engine_panicked", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "human_input_fallback", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "storage_low"] | str
 """A `run_warning_code`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -104,6 +104,7 @@ received (ADR 0079).
 - `clean_up_rules_fallback`: The Run holds to other Clean-up rules than `clean_up.update` or `clean_up.version` ask for, such as the embedded part when the daily channel cannot be reached; Provenance names both.
 - `clean_up_rules_stale`: The Run's Clean-up rules are older than 14 days.
 - `cpu_throttled`: The host throttled the engine's CPU.
+- `engine_panicked`: The engine stopped the Run as it stopped on a bug in a part every Run shares; a start with its Run ID resumes it.
 - `file_write_failed`: A file the Run writes, such as a periodic Checkpoint, could not be written to its storage.
 - `filter_vendor_flagged`: A filter list flags a vendor the Run used.
 - `fingerprint_basic`: A Session ran the basic fingerprint.

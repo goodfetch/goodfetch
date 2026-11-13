@@ -96,7 +96,7 @@ pub use composition::{
     CallContext, CallInput, CallStream, Composition, CompositionError, Contribution, Driver, Guard,
     GuardAnswer, Handler,
 };
-pub use engine::{Dependencies, Engine};
+pub use engine::{AttachedFailure, Dependencies, Engine};
 pub use engine_context::EngineContext;
 pub use info::contribution;
 pub use product::{Channel, Identity, Requested};

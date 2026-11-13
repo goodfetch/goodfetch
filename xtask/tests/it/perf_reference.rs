@@ -280,7 +280,7 @@ fn an_acceptance_passes_no_other_figure() {
 #[rstest]
 #[case::at_its_accepted_value(115_000, vec![])]
 #[case::past_it(115_001, vec![finding("drift-reference", "size-limit/collie-sdk brotli")])]
-fn a_size_limit_entrys_acceptance_has_no_tolerance(
+fn a_size_limit_entry_is_held_to_its_accepted_value_without_tolerance(
     #[case] head: u64,
     #[case] findings: Vec<Finding>,
 ) {
@@ -307,13 +307,19 @@ fn a_size_limit_entrys_acceptance_has_no_tolerance(
 
 /// An acceptance whose figure is back within 1.10 times its reference is
 /// no longer needed, and fails until it is removed, so none outlives its
-/// cause.
-#[test]
-fn an_acceptance_whose_figure_is_back_within_the_limit_fails() {
+/// cause; its figure is then held to 1.10 alone, even past a value accepted
+/// under it.
+#[rstest]
+#[case::under_its_accepted_value(1_200, 1_100)]
+#[case::past_an_accepted_value_under_the_limit(1_050, 1_080)]
+fn an_acceptance_whose_figure_is_back_within_the_limit_fails(
+    #[case] up_to: u64,
+    #[case] head: u64,
+) {
     let workspace = Workspace::from_fixture("empty");
     let id = format!("{BENCHMARK} instructions");
-    workspace.write(PIN_FILE, accepting(&id, 1_200).as_bytes());
-    write(&workspace, "perf/head.jsonl", &line("Ir", 1_100));
+    workspace.write(PIN_FILE, accepting(&id, up_to).as_bytes());
+    write(&workspace, "perf/head.jsonl", &line("Ir", head));
     write(&workspace, "perf/reference.jsonl", &line("Ir", 1_000));
 
     let outcome = compare_with_reference(&workspace);
@@ -324,6 +330,27 @@ fn an_acceptance_whose_figure_is_back_within_the_limit_fails() {
         "{}",
         outcome.stdout
     );
+}
+
+/// A figure accepted twice is refused: which value held it would depend on
+/// the entries' order.
+#[test]
+fn a_figure_accepted_twice_is_refused() {
+    let workspace = Workspace::from_fixture("empty");
+    let id = format!("{BENCHMARK} instructions");
+    let entry = accepting(&id, 1_200);
+    let second = entry
+        .split_once("[[accepted]]")
+        .map(|(_, entry)| format!("\n[[accepted]]{entry}"))
+        .unwrap();
+    workspace.write(PIN_FILE, format!("{entry}{second}").as_bytes());
+    write(&workspace, "perf/head.jsonl", &line("Ir", 1_150));
+    write(&workspace, "perf/reference.jsonl", &line("Ir", 1_000));
+
+    let outcome = compare_with_reference(&workspace);
+
+    assert_ne!(outcome.code, 0, "{}", outcome.stdout);
+    assert!(outcome.stderr.contains(&id), "{}", outcome.stderr);
 }
 
 /// A gate measures only the bench targets its change selects, so an

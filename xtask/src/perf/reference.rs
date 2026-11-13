@@ -12,7 +12,7 @@
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -89,11 +89,21 @@ pub(crate) fn pinned(root: &Path) -> Result<Option<String>> {
 
 /// The figures `root`'s pin file accepts over the limit. A missing file
 /// accepts none, which can only hold the head tighter; `pinned` fails on it.
+/// A figure accepted twice is an error: which value held it would depend on
+/// the entries' order.
 pub(crate) fn accepted(root: &Path) -> Result<Vec<Accepted>> {
     if !root.join(PIN_FILE).exists() {
         return Ok(Vec::new());
     }
-    Ok(read(root)?.accepted)
+    let accepted = read(root)?.accepted;
+    let mut figures = BTreeSet::new();
+    if let Some(twice) = accepted
+        .iter()
+        .find(|accepted| !figures.insert(accepted.figure.as_str()))
+    {
+        anyhow::bail!("{PIN_FILE} accepts {} twice", twice.figure);
+    }
+    Ok(accepted)
 }
 
 /// One head figure against the reference.
@@ -108,12 +118,16 @@ pub(crate) struct Held<'a> {
 }
 
 impl Held<'_> {
-    /// Over its limit: past its accepted value, or past
-    /// `budget::DRIFT_PERCENT` over its reference when none is accepted.
+    /// Over its limit: past `budget::DRIFT_PERCENT` over its reference and,
+    /// when accepted, past its accepted value too. Within the limit, an
+    /// accepted figure is held to it alone, as its acceptance is no longer
+    /// needed.
     fn over(&self) -> bool {
-        self.reference.is_some_and(|reference| match self.accepted {
-            Some(accepted) => accepted.passed_by(self.figure, self.head),
-            None => budget::drifted(reference, self.head),
+        self.reference.is_some_and(|reference| {
+            budget::drifted(reference, self.head)
+                && self
+                    .accepted
+                    .is_none_or(|accepted| accepted.passed_by(self.figure, self.head))
         })
     }
 

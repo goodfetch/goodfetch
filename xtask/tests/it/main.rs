@@ -38,6 +38,7 @@ mod egress_hosts;
 mod egress_rules;
 mod evict_caches;
 mod exercise_audit;
+mod existing_code;
 mod feature_generators;
 mod features;
 mod features_report;

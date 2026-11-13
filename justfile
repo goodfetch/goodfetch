@@ -1701,13 +1701,34 @@ _gate-record head step status *evidence:
 # passes (ci/gate-backstop.sh). It needs GOODFETCH_LAZYFS on Linux, and its way
 # past a miss nothing can clear is TESTING.md's, never an edit of its results.
 # It waits for a running gate of `just merge` before its full run, as a gate
-# started meanwhile waits for it, and sweeps its worktree's `target/` after
-# its day's line, still holding its lock. It has a switch, the one word of
+# started meanwhile waits for it. After its day's line, still holding its
+# lock, it runs `just existing-code-sweep --apply` (ADR 0144) and sweeps its
+# worktree's `target/`. It has a switch, the one word of
 # ci/gate-backstop.state (`on` or `off`): switched off, a run does nothing.
 # Its log and results go to ~/gate-backstop/ (GOODFETCH_GATE_BACKSTOP_LOG). Run
 # from the main checkout.
 gate-backstop ref="origin/main":
     ci/gate-backstop.sh {{ ref }}
+
+# Checks issue <issue>'s `Existing code` list against `origin/main`, fetched
+# first (ADR 0144): each citation's path, symbol and lines, or a spec that
+# lacks its list. A cited line that only moved passes and prints where it
+# went; one that changed names the merge that changed it. Reads the tracker
+# with GITHUB_TOKEN or the GitHub CLI's token, and changes nothing there.
+existing-code issue:
+    git fetch --quiet origin
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet --bin xtask -- existing-code check {{ issue }}
+
+# The same check over every open `ready-for-agent` issue (ADR 0144), but
+# those of a spec whose run has started (`spec/<n>`). A dry run by default,
+# which only prints what it would do; `--apply` takes `ready-for-agent` from
+# each issue that fails, applies `needs-triage` and comments once with what
+# moved. The backstop runs it with `--apply` (ci/gate-backstop.sh).
+existing-code-sweep *arguments:
+    git fetch --quiet origin
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      cargo run --quiet --bin xtask -- existing-code sweep {{ arguments }}
 
 # The test-health runs the gate host's cron starts while Actions is off
 # (TESTING.md, After merge; ci/test-health.crontab), on `main`'s head in the

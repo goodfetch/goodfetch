@@ -1161,7 +1161,7 @@ impl FetchTiers {
             _ if opened.not_document.is_some() => None,
             (Some(_), _) => None,
             (None, Some(forced)) => {
-                return Err(Stop::Failed(undeclared(
+                return Err(Stop::failed(undeclared(
                     choice.tier,
                     forced,
                     &opened.document.url,
@@ -1230,7 +1230,7 @@ impl FetchTiers {
             .light
             .prepared(run, home, pinned_by)
             .await
-            .map_err(Stop::Failed)?;
+            .map_err(Stop::failed)?;
         let rendered = crate::light_browser::render(
             run,
             &prepared.executable,
@@ -1238,7 +1238,7 @@ impl FetchTiers {
             (tier.address_check(), &tier.bounds.limits),
         )
         .await
-        .map_err(Stop::Failed)?;
+        .map_err(Stop::failed)?;
         let header = rendered
             .headers
             .iter()
@@ -2328,7 +2328,9 @@ impl HttpTier {
             .await
             {
                 Ok(fetched) => fetched,
-                Err(error) => return Answer::Unreachable(error.message().to_owned()),
+                Err(failure) => {
+                    return Answer::Unreachable(failure.error().message().to_owned());
+                }
             };
             let next = (300..400)
                 .contains(&fetched.status)
@@ -2567,7 +2569,7 @@ fn forced(settings: &Resolved) -> Option<(FetchTier, SettingsLayer)> {
 /// `navigation_failed` for a URL that does not parse.
 fn first_hop(request: &CrawlRequest) -> Result<Hop, Stop> {
     let url = Url::parse(&request.url).map_err(|error| {
-        Stop::Failed(CallError::new(
+        Stop::failed(CallError::new(
             &goodfetch_protocol::page::NAVIGATION_FAILED,
             format!(
                 "The crawl request's URL `{}` does not parse: {error}.",

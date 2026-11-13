@@ -17932,6 +17932,10 @@
                   "retry": {
                     "additionalProperties": false,
                     "properties": {
+                      "engine_panicked": {
+                        "description": "Whether a work item whose attempt the engine's panic ended with `engine_panicked`, a bug in Goodfetch, is tried again, up to `crawl.retry.max`: `true`.",
+                        "type": "boolean"
+                      },
                       "handler_failed": {
                         "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
                         "type": "boolean"
@@ -20570,6 +20574,10 @@
                   "retry": {
                     "additionalProperties": false,
                     "properties": {
+                      "engine_panicked": {
+                        "description": "Whether a work item whose attempt the engine's panic ended with `engine_panicked`, a bug in Goodfetch, is tried again, up to `crawl.retry.max`: `true`.",
+                        "type": "boolean"
+                      },
                       "handler_failed": {
                         "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
                         "type": "boolean"
@@ -23224,6 +23232,10 @@
                   "retry": {
                     "additionalProperties": false,
                     "properties": {
+                      "engine_panicked": {
+                        "description": "Whether a work item whose attempt the engine's panic ended with `engine_panicked`, a bug in Goodfetch, is tried again, up to `crawl.retry.max`: `true`.",
+                        "type": "boolean"
+                      },
                       "handler_failed": {
                         "description": "Whether a work item whose handler failed with `handler_failed` is tried again: `false`.",
                         "type": "boolean"

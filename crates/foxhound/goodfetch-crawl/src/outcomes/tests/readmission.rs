@@ -387,6 +387,28 @@ fn a_re_admission_racing_the_crawls_end_is_delivered_or_refused(
     }
 }
 
+/// A crawl's finish does not close its intake over a work item still
+/// leased, whose attempt ended with its outcome unwritten: the finish gives
+/// it back as a failed attempt, retried while it has retries left, and it
+/// is delivered before the crawl may end (issue 2320).
+#[test]
+fn a_work_item_still_leased_holds_the_intake_open_until_it_is_given_back() {
+    let connection = crawl_of(1);
+    let ids = pending(&connection);
+    work_items::lease(&connection, &ids).unwrap();
+    let intake = crate::intake::Intake::default();
+
+    let closed_over_a_lease = intake.close_if_drained(&connection).unwrap();
+    work_items::recover_leases(&connection, &lost(), 2, &ended_at()).unwrap();
+    let given_back = pending(&connection);
+    let closed_over_a_retry = intake.close_if_drained(&connection).unwrap();
+
+    assert_eq!(
+        (closed_over_a_lease, given_back, closed_over_a_retry),
+        (false, ids, false)
+    );
+}
+
 /// A seed added once the crawl's last look closed it to new work is not
 /// admitted, so the call answers it as for an ended crawl, never added and
 /// then left pending.

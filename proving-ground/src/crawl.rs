@@ -33,9 +33,9 @@
 //!   `fetch.tier: auto` climbs: static, answered only to the pinned
 //!   browser's TLS fingerprint, or complete only once its script ran, with
 //!   a manifest of every page's kind and expected Records;
-//! - `comparison`: `just compare`'s multi-domain site and script-rendered
-//!   site, the `scale` family's tree of pages on host names of their own
-//!   under `localhost`.
+//! - `comparison`: `just compare`'s multi-domain, script-rendered and
+//!   realistic-page sites, the `scale` family's tree of pages on host names
+//!   of their own under `localhost`.
 //!
 //! Every page and expected result is a pure function of the seed and the
 //! page's place; what a family keeps between requests is what it saw a

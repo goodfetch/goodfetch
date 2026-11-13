@@ -19,8 +19,12 @@
 //!   its script from the first and last child its list names, so its markup
 //!   holds no link but home's, and a crawl that runs no script finds no
 //!   page past the first.
+//! - The realistic-page site, for #2316's scenario of pages of realistic
+//!   size, on `realistic.localhost`: see [`realistic`].
 //!
-//! No task names them, and neither declares a Feature.
+//! No task names them, and none declares a Feature.
+
+mod realistic;
 
 use super::scale::{Links, site_place, tree_page};
 use super::{Page, Visit, document};
@@ -75,18 +79,21 @@ fn polite_domain(host: &str) -> Option<u64> {
 
 /// Whether `host` is one of the family's.
 pub(super) fn serves(host: &str) -> bool {
-    host == RENDERED_HOST || polite_domain(host).is_some()
+    host == RENDERED_HOST || host == realistic::HOST || polite_domain(host).is_some()
 }
 
 /// Every host name of the family.
 pub(super) fn hosts() -> impl Iterator<Item = String> {
     (1..=DOMAINS)
         .map(polite_host)
-        .chain(std::iter::once(RENDERED_HOST.to_owned()))
+        .chain([RENDERED_HOST.to_owned(), realistic::HOST.to_owned()])
 }
 
 pub(super) fn respond(visit: &Visit<'_>) -> Page {
     let request = visit.request;
+    if request.host == realistic::HOST {
+        return realistic::respond(visit.seed, request.path);
+    }
     let rest = request.path.strip_prefix("/sites/");
     if request.host == RENDERED_HOST {
         return match rest.and_then(site_place) {

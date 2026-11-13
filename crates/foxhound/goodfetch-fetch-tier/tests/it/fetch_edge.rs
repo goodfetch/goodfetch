@@ -9,7 +9,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::response_limits::Limits;
-use goodfetch_fetch_tier::{FetchBounds, Fetched, Hop, Transport, fetch};
+use goodfetch_fetch_tier::{FetchBounds, FetchFailure, Fetched, Hop, Transport, fetch};
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use rstest::rstest;
@@ -39,7 +39,11 @@ fn fetched_in_turn(transport: &dyn Transport, hops: &[Hop]) -> Vec<Result<Fetche
     running_clock_runtime().block_on(async {
         let mut answers = Vec::new();
         for hop in hops {
-            answers.push(fetch(transport, hop, &deadlines(), &Clock::system()).await);
+            answers.push(
+                fetch(transport, hop, &deadlines(), &Clock::system())
+                    .await
+                    .map_err(FetchFailure::into_error),
+            );
         }
         answers
     })

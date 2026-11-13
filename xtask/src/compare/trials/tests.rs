@@ -1,5 +1,6 @@
 use super::{
-    CRAWLEE_VERSION, PLAYWRIGHT_VERSION, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SPIDER_VERSION,
+    CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, PLAYWRIGHT_VERSION, SCRAPY_PLAYWRIGHT_VERSION,
+    SCRAPY_VERSION, SPIDER_VERSION, Work,
 };
 
 /// The Spider version Spider's side pins in its manifest, `=<version>`.
@@ -20,6 +21,20 @@ fn the_declared_spider_is_the_one_its_side_pins() {
     let manifest = include_str!("../../../compare-spider/Cargo.toml");
 
     assert_eq!(pinned(manifest).as_deref(), Some(SPIDER_VERSION));
+}
+
+/// The trials declare the crawlee-rs commit its side builds: the `rev` of
+/// `xtask/compare-crawlee-rs/Cargo.toml`'s `crawlee` dependency.
+#[test]
+fn the_declared_crawlee_rs_is_the_commit_its_side_pins() {
+    let manifest: toml::Table = include_str!("../../../compare-crawlee-rs/Cargo.toml")
+        .parse()
+        .unwrap();
+
+    assert_eq!(
+        manifest["dependencies"]["crawlee"]["rev"].as_str(),
+        Some(CRAWLEE_RS_COMMIT)
+    );
 }
 
 /// The trials declare the Crawlee its side installs: `@crawlee/cheerio`'s
@@ -87,5 +102,40 @@ fn the_declared_playwright_is_the_one_each_side_pins() {
             vec![PLAYWRIGHT_VERSION.to_owned()],
             vec![SCRAPY_PLAYWRIGHT_VERSION.to_owned()],
         )
+    );
+}
+
+/// What a strace run's later runs are skipped on: whether it fetched the
+/// site's own pages, each once or more, and no other.
+#[test]
+fn a_crawl_fetched_the_site_when_it_reached_each_of_its_pages_and_no_other() {
+    let whole = Work {
+        pages: 4,
+        requests: 4,
+        ..Work::default()
+    };
+
+    assert!(whole.is_the_site_of(4));
+    assert!(
+        Work {
+            requests: 5,
+            ..whole.clone()
+        }
+        .is_the_site_of(4)
+    );
+    assert!(
+        !Work {
+            pages: 3,
+            missing: vec!["/sites/4/4".to_owned()],
+            ..whole.clone()
+        }
+        .is_the_site_of(4)
+    );
+    assert!(
+        !Work {
+            extra: vec!["/sites/4/9".to_owned()],
+            ..whole
+        }
+        .is_the_site_of(4)
     );
 }

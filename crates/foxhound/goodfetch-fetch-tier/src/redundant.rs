@@ -27,7 +27,6 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use bytes::Bytes;
-use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Room, SecondCopies};
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
@@ -41,7 +40,9 @@ use serde_json::json;
 use tokio::sync::watch;
 
 use crate::content_types::Accepts;
-use crate::driver::{FetchBounds, Fetched, Hop, Transport, fetch_accepting, fetch_anew};
+use crate::driver::{
+    FetchBounds, FetchFailure, Fetched, Hop, Transport, fetch_accepting, fetch_anew,
+};
 use crate::hedging::{Budget, Latencies, repeatable};
 
 /// Provenance's action for a response a request shared with an identical
@@ -72,7 +73,7 @@ pub struct Requester<'a> {
 }
 
 /// A fetch's outcome, which an identical request in flight may share.
-type Outcome = Result<Fetched, CallError>;
+type Outcome = Result<Fetched, FetchFailure>;
 
 /// What one Run's HTTP tier keeps of its redundant requests.
 pub(crate) struct Redundant {

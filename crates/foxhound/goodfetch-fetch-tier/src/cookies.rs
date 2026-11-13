@@ -193,6 +193,10 @@ impl Transport for WithJar {
         self.transport.tier()
     }
 
+    fn proxy(&self) -> Option<Url> {
+        self.transport.proxy()
+    }
+
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
             let sent = self.transport.send(hop, reuse).await?;

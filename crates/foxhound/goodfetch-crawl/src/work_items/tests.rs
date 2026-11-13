@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 use goodfetch_engine::admission::{Ended, Gate as _};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::entropy::Entropy;
-use goodfetch_engine::run_state::{RunState, RunStateOptions};
+use goodfetch_engine::run_state::{BatchRows as _, BatchWriter, RunState, RunStateOptions};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_frontier::{
     BOUNDS_TABLES, Candidate, Declared, DomainKeys, DomainQueues, SCOPE_TABLES, Scope,
@@ -241,7 +241,7 @@ impl Subject {
             1,
             "the request just added is read not keyed yet"
         );
-        self.write(move |connection| super::set_keys(connection, &keys));
+        self.write(move |connection| super::DomainKeys(keys).write(&BatchWriter::over(connection)));
     }
 
     /// Leases the next pending request of `url`'s domain, as its queue fills

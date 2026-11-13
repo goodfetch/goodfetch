@@ -164,14 +164,15 @@ fn side_of(script: &Path) -> &Path {
     script.parent().unwrap_or_else(|| Path::new("."))
 }
 
-/// How `config`'s tool runs `executable`: Foxhound's and Spider's are
-/// executables, Spider's side given its row's page channel capacity,
+/// How `config`'s tool runs `executable`: Foxhound's, Spider's and
+/// crawlee-rs's are executables, Spider's side given its row's page channel
+/// capacity,
 /// Crawlee's is its side's script run by Node.js from `PATH`, and Scrapy's
 /// its side's script run by the interpreter of the Python environment
 /// beside it.
 pub(crate) fn invocation(config: Config, executable: &Path) -> Invocation {
     match config {
-        Config::Foxhound { .. } => Invocation {
+        Config::Foxhound { .. } | Config::CrawleeRs => Invocation {
             program: executable.to_owned(),
             arguments: Vec::new(),
         },
@@ -203,7 +204,7 @@ fn install_bytes(config: Config, executable: &Path, browser: Option<&Path>) -> u
     };
     let browser_bytes = browser.map_or(0, footprint);
     let packages = match config {
-        Config::Foxhound { .. } | Config::Spider { .. } => {
+        Config::Foxhound { .. } | Config::Spider { .. } | Config::CrawleeRs => {
             return file_bytes(executable) + browser_bytes;
         }
         Config::Crawlee => NODE_MODULES,
@@ -520,7 +521,9 @@ impl Plan<'_> {
             command
                 .args(["--url", &self.site_url()])
                 .args(["--concurrency", &self.site.concurrency.to_string()])
-                .args(["--scenario", self.cell.scenario.name()])
+                // #2316's scenarios run scenario 1's settings, at their own
+                // site and requests in flight.
+                .args(["--scenario", self.cell.scenario.settings().name()])
                 .current_dir(home)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped());
@@ -560,7 +563,7 @@ impl Plan<'_> {
                     }
                 }
             }
-            Config::Spider { .. } | Config::Crawlee | Config::Scrapy => None,
+            Config::Spider { .. } | Config::Crawlee | Config::Scrapy | Config::CrawleeRs => None,
         };
         Ok(Driven { child, engine })
     }
@@ -593,7 +596,9 @@ impl Plan<'_> {
                 durability,
                 commit_interval,
             } => (durability, commit_interval),
-            Config::Spider { .. } | Config::Crawlee | Config::Scrapy => ("", None),
+            Config::Spider { .. } | Config::Crawlee | Config::Scrapy | Config::CrawleeRs => {
+                ("", None)
+            }
         }
     }
 
@@ -636,16 +641,18 @@ impl Plan<'_> {
                     engine.finish()?;
                     return Ok(1);
                 }
-            } else {
-                if resumes {
-                    bail!("{} cannot resume a crawl", self.cell.name);
-                }
+            } else if !resumes {
                 self.read_count(&mut driven.child)?;
                 return Ok(1);
             }
             // Killed once half the site's pages were asked for, then
-            // resumed by a new process on the same home.
+            // resumed by a new process on the same home: Foxhound's engine
+            // by `run.resume`, another tool by the same command, which
+            // takes up the state it left there.
             while request_count(self.site.address)? < self.site.pages / 2 {
+                if let Some(status) = driven.child.try_wait()? {
+                    bail!("the tool exited with {status} before half the site was asked for");
+                }
                 std::thread::sleep(POLL);
             }
             kill(tool_pid(&driven.child, &self.mode))?;
@@ -673,13 +680,12 @@ impl Plan<'_> {
         if let Some(sampler) = sampler {
             sampler.follow(tool_pid(&second.child, &self.mode));
         }
-        let engine = second
-            .engine
-            .as_mut()
-            .context("a resumed tool is Foxhound's engine")?;
-        let finished = engine
-            .resume(&self.site, self.cell.scenario, self.durability())
-            .and_then(|()| engine.finish());
+        let finished = match second.engine.as_mut() {
+            Some(engine) => engine
+                .resume(&self.site, self.cell.scenario, self.durability())
+                .and_then(|()| engine.finish()),
+            None => self.read_count(&mut second.child),
+        };
         if let Err(error) = finished {
             let _ = second.child.kill();
             let _ = second.child.wait();
@@ -770,9 +776,11 @@ impl Plan<'_> {
             Config::Foxhound { .. } if super::foxhound::keeps_records(self.cell.scenario) => {
                 Some(self.records(home.path(), started_wall)?)
             }
-            Config::Foxhound { .. } | Config::Spider { .. } | Config::Crawlee | Config::Scrapy => {
-                None
-            }
+            Config::Foxhound { .. }
+            | Config::Spider { .. }
+            | Config::Crawlee
+            | Config::Scrapy
+            | Config::CrawleeRs => None,
         };
         let observed = self.observe(seconds, records.as_ref())?;
         let milestones: Vec<(u64, f64)> = MILESTONES
@@ -899,6 +907,13 @@ pub(crate) fn strace_missing() -> Option<String> {
     missing(STRACE)
 }
 
+/// The file a counted trial's counting tool writes to, `--output`, named
+/// from the root: the tool is started in another folder than this one.
+pub(crate) fn counting_output(output: Option<&Path>) -> Result<PathBuf> {
+    let output = output.context("a counted trial takes --output")?;
+    std::path::absolute(output).with_context(|| format!("naming {}", output.display()))
+}
+
 /// The instructions a Callgrind output file totals: its `totals:` line, of
 /// the one event it counted.
 pub(crate) fn instructions_of(output: &str) -> Result<u64> {
@@ -939,7 +954,7 @@ pub(crate) fn cell_of(scenario: Scenario, name: &str) -> Result<(&'static Cell, 
         .with_context(|| format!("no cell `{name}` in scenario {}", scenario.name()))?;
     match cell.status {
         super::matrix::Status::Measured(config) => Ok((cell, config)),
-        super::matrix::Status::NotSupported(_) => bail!(
+        super::matrix::Status::NotSupported(_) | super::matrix::Status::Pending(_) => bail!(
             "the cell `{name}` of scenario {} runs no trial",
             scenario.name()
         ),

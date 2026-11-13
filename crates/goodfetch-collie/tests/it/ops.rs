@@ -366,9 +366,12 @@ fn collector() -> (SocketAddr, mpsc::Receiver<(String, Vec<u8>)>) {
 /// the Resource governor sampled the machine and the filesystems of the
 /// Daemon's own folders (ADRs 0050 and 0122): `goodfetch.browser.running`
 /// and `goodfetch.browser.recycled` have none, since no browser ran,
-/// `goodfetch.browser.memory` is 0, and [`INODES`] joins them only where
-/// the filesystem reports its inodes.
-const SAMPLED: [&str; 11] = [
+/// `goodfetch.browser.memory` is 0, `goodfetch.run_state.wal.size` holds
+/// the Run's run file's write-ahead log as of its last commit (ADR 0138),
+/// `goodfetch.run_state.blocked_checkpoints` has none, since no reader
+/// blocked a checkpoint, and [`INODES`] joins them only where the
+/// filesystem reports its inodes.
+const SAMPLED: [&str; 12] = [
     "goodfetch.browser.memory",
     "goodfetch.client.connected",
     "goodfetch.counted_work",
@@ -378,6 +381,7 @@ const SAMPLED: [&str; 11] = [
     "goodfetch.governor.target",
     "goodfetch.run.active",
     "goodfetch.run.ended",
+    "goodfetch.run_state.wal.size",
     "goodfetch.storage.available",
     "goodfetch.storage.level",
 ];

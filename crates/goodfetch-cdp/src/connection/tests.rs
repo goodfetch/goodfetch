@@ -4,8 +4,9 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_test_support::runtime;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream, ReadHalf, WriteHalf};
+use tokio::sync::oneshot;
 
-use super::{Connection, Driver, Ended, SessionId, SubscriptionEnd};
+use super::{Connection, Driver, Ended, Request, SessionId, SubscriptionEnd};
 use crate::Failure;
 use crate::framing::{Framer, frame};
 use crate::generated::browser::GetVersionParams;
@@ -289,6 +290,41 @@ fn a_refusal_and_a_closed_pipe_fail_the_commands_in_flight() {
         assert_eq!(
             (gone.err(), ended),
             (Some(Failure::Disconnected), Ended::Closed)
+        );
+    });
+}
+
+/// A command whose sender took its place in the queue before the browser
+/// closed its end, and queued it only once the driver had stopped taking
+/// commands, still fails. On a runtime of several threads the two steps of
+/// a send are apart, and a driver that ends between them left that command,
+/// and every one queued behind it, waiting for good (#2525).
+#[test]
+fn a_command_queued_as_the_connection_ends_still_fails() {
+    runtime().block_on(async {
+        let (connection, driver, browser) = connected();
+        let (answer, answered) = oneshot::channel();
+        let (ended, answered) = tokio::join!(driver.run(), async {
+            let place = connection
+                .requests
+                .reserve()
+                .await
+                .expect("the driver takes commands");
+            drop(browser);
+            while !connection.requests.is_closed() {
+                tokio::task::yield_now().await;
+            }
+            place.send(Request {
+                method: "Browser.getVersion",
+                session: None,
+                params: json!({}),
+                answer,
+            });
+            tokio::time::timeout(HUNG, answered).await
+        });
+        assert_eq!(
+            (ended, answered),
+            (Ended::Closed, Ok(Ok(Err(Failure::Disconnected))))
         );
     });
 }

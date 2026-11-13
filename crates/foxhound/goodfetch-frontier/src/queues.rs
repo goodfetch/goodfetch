@@ -33,7 +33,7 @@ use goodfetch_engine::admission::{
 };
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::politeness::{Ending, PermitRule, milliseconds};
-use goodfetch_engine::run_state::RunStateTables;
+use goodfetch_engine::run_state::{BatchRows, BatchWriter, RunStateTables, SealedBatch};
 use goodfetch_engine::settings::Resolved;
 use rusqlite::Connection;
 use tokio::time::Instant;
@@ -614,28 +614,34 @@ impl Gate for DomainQueues {
                 (key, row)
             })
             .collect();
-        Some(Box::new(move |connection: &Connection| {
-            for (key, row) in rows {
-                match row {
-                    Some((ready_at, backoffs)) => connection
-                        .prepare_cached(
-                            "INSERT INTO domains (key, ready_at, backoffs) VALUES (?1, ?2, ?3)
-                         ON CONFLICT (key) DO UPDATE SET ready_at = ?2, backoffs = ?3",
-                        )
-                        .and_then(|mut cached| cached.execute((&key, ready_at, backoffs)))?,
-                    None => connection
-                        .prepare_cached("DELETE FROM domains WHERE key = ?1")
-                        .and_then(|mut cached| cached.execute([&key]))?,
-                };
-            }
-            Ok(())
-        }))
+        Some(SealedBatch::of(JournalRows(rows)))
     }
 }
 
 /// A domain's key and its journal row: its wait's end in milliseconds of
 /// wall time and its backoffs in a row, or none once released.
 type JournalRow = (String, Option<(Option<i64>, u32)>);
+
+/// The journal rows of the domains that changed, as memory holds them: a
+/// Run-state batch's rows (ADR 0142).
+struct JournalRows(Vec<JournalRow>);
+
+impl BatchRows for JournalRows {
+    fn write(self, writer: &BatchWriter<'_>) -> rusqlite::Result<()> {
+        let mut held = writer.statement(
+            "INSERT INTO domains (key, ready_at, backoffs) VALUES (?1, ?2, ?3)
+             ON CONFLICT (key) DO UPDATE SET ready_at = ?2, backoffs = ?3",
+        )?;
+        let mut released = writer.statement("DELETE FROM domains WHERE key = ?1")?;
+        for (key, row) in self.0 {
+            match row {
+                Some((ready_at, backoffs)) => held.write((&key, ready_at, backoffs))?,
+                None => released.write([&key])?,
+            }
+        }
+        Ok(())
+    }
+}
 
 /// The gates Foxhound's composition passes in: each crawl's per-domain
 /// queues, keyed under its `crawl.domain_keys`.

@@ -14455,7 +14455,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The site is failing for now: its 5xx or 408 response stayed after the retries ran out, or its `Retry-After` asked for a time further away than `politeness.retry_after.max`, so nothing is sent to its domain before then and nothing waits for it. The details name the response's `status` (`null` for a request held unsent), the time the site asked for as `retry_after` when it asked, and a `fix`. `run.retry_failed` re-admits the request once the site is back.",
+      "description": "The site is failing for now: its 5xx or 408 response stayed after the retries ran out, or its `Retry-After` asked for a time further away than `politeness.retry_after.max`, so nothing is sent to its domain before then and nothing waits for it. A request whose start could not be recorded for its domain's Politeness is held unsent with it too, since its delay could not be kept. The details name the response's `status` (`null` for a request held unsent), the time the site asked for as `retry_after` when it asked, and a `fix`. `run.retry_failed` re-admits the request once the site is back.",
       "exit_code": null,
       "group": "page",
       "json_rpc_class": -32003,
@@ -15455,6 +15455,7 @@
           "name": "work",
           "values": [
             "acknowledgements",
+            "actor_round_trips",
             "answers",
             "block_classifications",
             "builds",
@@ -15669,6 +15670,26 @@
       "product": "collie",
       "stability": "stable",
       "unit": "{run}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The checkpoints of a run file's write-ahead log that could not copy the whole log into the file, or start the log again, because a reader held an old snapshot of it (ADR 0138).",
+      "instrument": "counter",
+      "labels": [],
+      "name": "goodfetch.run_state.blocked_checkpoints",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "{checkpoint}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The bytes the write-ahead logs of the Daemon's open run files hold, summed over them, each as of its writer's last commit. A run file's log stays under twice its checkpoint threshold (32 MiB) unless a reader holds an old snapshot of it (ADR 0138).",
+      "instrument": "up_down_counter",
+      "labels": [],
+      "name": "goodfetch.run_state.wal.size",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "By"
     },
     {
       "arrived_in": "0.1",
@@ -18518,6 +18539,22 @@
       "value": {
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "description": "Whether a work item whose attempt the engine's panic ended with `engine_panicked`, a bug in Goodfetch, is tried again, up to `crawl.retry.max`: `true`.",
+      "name": "crawl.retry.engine_panicked",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
       },
       "weakens": false
     },

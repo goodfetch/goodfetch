@@ -171,6 +171,13 @@ pub(crate) fn drifted(earlier: u64, value: u64) -> bool {
     u128::from(value) * 100 > u128::from(earlier) * u128::from(100 + DRIFT_PERCENT)
 }
 
+/// `limit` with the 0.5 % a figure read under Valgrind may vary by (the
+/// Quality register's ratchet), rounded down: `xtask counts`' rows read
+/// under Valgrind and `drift.reference`'s accepted figures are held to it.
+pub(crate) const fn with_valgrind_tolerance(limit: u128) -> u128 {
+    limit * 1_005 / 1_000
+}
+
 /// ADR 0071: the drift check flags a resident-memory peak within 10% of its
 /// ceiling.
 pub(crate) const CEILING_MARGIN_PERCENT: u64 = 10;

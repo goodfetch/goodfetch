@@ -172,7 +172,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 97] = [
+const ROWS: [Row; 98] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -321,6 +321,7 @@ const ROWS: [Row; 97] = [
     b1("F3.transactions.sitemap", SITEMAPS, false),
     b1("F3.payload_serializations", PAYLOADS, true),
     b1("F3.validations", PAYLOADS, true),
+    b1("F3.actor_round_trips", ATTEMPTS_ENDED, true),
     Row {
         name: "C1.encodes",
         family: "B2",
@@ -920,6 +921,9 @@ const SITEMAPS: &str = "sitemaps";
 /// The URLs it enqueued with a Payload.
 const PAYLOADS: &str = "payloads";
 
+/// The attempts that ended in it: a page's, and each sitemap's read.
+const ATTEMPTS_ENDED: &str = "attempts_ended";
+
 const fn b1(name: &'static str, unit: &'static str, happens: bool) -> Row {
     Row {
         name,
@@ -1432,6 +1436,7 @@ fn one_of(unit: &str) -> &str {
         "audit_entries" => "audit_entry",
         "entries" => "entry",
         "added_pages" => "page added",
+        ATTEMPTS_ENDED => "attempt",
         unit => unit.trim_end_matches('s'),
     }
 }

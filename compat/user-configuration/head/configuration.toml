@@ -266,6 +266,7 @@ keep_url_fragment = true
 [settings.crawl.retry]
 max = 4
 handler_failed = true
+engine_panicked = true
 
 [settings.crawl.handler]
 concurrency = 4

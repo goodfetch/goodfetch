@@ -55,8 +55,11 @@ use crate::content_types::{Accepts, declared, typed};
 use crate::decoding::{self, Bound, DecodingFailed};
 use crate::sniffing::MAX_BYTES_TO_SNIFF;
 
+mod failure;
 #[cfg(test)]
 mod tests;
+
+pub use failure::FetchFailure;
 
 /// One hop of a fetch: one request as it leaves.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -174,6 +177,12 @@ pub trait Transport: Send + Sync {
     fn presents(&self, url: &Url) -> Vec<(String, String)> {
         let _ = url;
         Vec::new()
+    }
+
+    /// The proxy its hops leave through, when it has one: what a failure
+    /// of the proxy's own names it by, never with its password.
+    fn proxy(&self) -> Option<Url> {
+        None
     }
 
     /// The tier its hops are sent on, which Provenance names (ADR 0023):
@@ -539,7 +548,7 @@ pub async fn fetch(
     hop: &Hop,
     bounds: &FetchBounds,
     clock: &Clock,
-) -> Result<Fetched, CallError> {
+) -> Result<Fetched, FetchFailure> {
     fetch_on(transport, hop, Reuse::Allowed, bounds, clock, None, None).await
 }
 
@@ -560,7 +569,7 @@ pub(crate) async fn fetch_start(
     bounds: &FetchBounds,
     clock: &Clock,
     keep: usize,
-) -> Result<Fetched, CallError> {
+) -> Result<Fetched, FetchFailure> {
     fetch_on(
         transport,
         hop,
@@ -592,7 +601,7 @@ pub(crate) async fn fetch_accepting(
     bounds: &FetchBounds,
     clock: &Clock,
     accepts: Option<&Accepts>,
-) -> Result<Fetched, CallError> {
+) -> Result<Fetched, FetchFailure> {
     fetch_on(transport, hop, Reuse::Allowed, bounds, clock, accepts, None).await
 }
 
@@ -612,7 +621,7 @@ pub(crate) async fn fetch_anew(
     bounds: &FetchBounds,
     clock: &Clock,
     accepts: Option<&Accepts>,
-) -> Result<Fetched, CallError> {
+) -> Result<Fetched, FetchFailure> {
     fetch_on(transport, hop, Reuse::Never, bounds, clock, accepts, None).await
 }
 
@@ -673,7 +682,7 @@ async fn fetch_on(
     clock: &Clock,
     accepts: Option<&Accepts>,
     keep: Option<usize>,
-) -> Result<Fetched, CallError> {
+) -> Result<Fetched, FetchFailure> {
     let url = hop.url.as_str();
     let asked = asked(transport, hop);
     let hop = &asked;
@@ -682,7 +691,7 @@ async fn fetch_on(
             .first_byte
             .within(clock, WaitedFor::FIRST_BYTE, answer(transport, hop, reuse))
             .await?
-            .map_err(|failure| failure.error(url))?;
+            .map_err(|failure| FetchFailure::of(failure, url, transport.proxy().as_ref()))?;
         // A type that names none counts as none, so the body is sniffed.
         let declared = declared(
             sent.headers
@@ -738,7 +747,7 @@ async fn fetch_on(
         };
         let body = decoded(body, url, expected, reading)?;
         if decoding::still_compressed(declared.as_deref(), &body) {
-            return Err(TransportFailure::ContentDecodingFailed.error(url));
+            return Err(TransportFailure::ContentDecodingFailed.error(url).into());
         }
         // An untyped body shorter than the sniffer reads is judged whole.
         let unaccepted = match (accepts, &declared) {
@@ -747,7 +756,7 @@ async fn fetch_on(
             }
             _ => None,
         };
-        Ok::<Fetched, CallError>(Fetched {
+        Ok::<Fetched, FetchFailure>(Fetched {
             url: hop.url.clone(),
             status: sent.status,
             headers: sent.headers,
@@ -760,7 +769,9 @@ async fn fetch_on(
             certificate_exception: sent.certificate_exception,
         })
     };
-    Deadline::within(&bounds.navigation, clock, WaitedFor::NAVIGATION, whole).await?
+    Deadline::within(&bounds.navigation, clock, WaitedFor::NAVIGATION, whole)
+        .await
+        .map_err(FetchFailure::from)?
 }
 
 /// What reading an answer's body gave.

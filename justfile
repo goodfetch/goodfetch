@@ -1772,7 +1772,8 @@ gate-backstop ref="origin/main":
 # `mutants`, the advisory mutation run over the last day's Rust changes, and
 # `post-merge`, `just counts` and the Pre-merge suite over what `main` gained
 # since the commit it last checked (ci/test-health/scheduled.sh). Each skips
-# while `just merge`'s gate runs, and a gate started during one waits for it.
+# while `just merge`'s gate runs, and a gate started during one waits for it,
+# but for a post-merge run, which it stops.
 # Logs and results go to ~/test-health/ (GOODFETCH_TEST_HEALTH_LOG). Run from
 # the main checkout.
 test-health run ref="origin/main":

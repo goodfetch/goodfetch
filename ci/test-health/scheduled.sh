@@ -6,7 +6,8 @@
 # backstop's gate worktree (ci/gate-worktree.sh's `gate-backstop`), taking
 # its lock, so they never run beside the backstop or each other and reuse
 # its build; none holds `just merge`'s worktree, none starts while
-# `just merge`'s gate runs, and a gate started during a run waits for it.
+# `just merge`'s gate runs, and a gate started during a run waits for it,
+# but for a post-merge run, which it stops.
 #   constrained  the constrained test-health run (ADR 0064): the Pre-merge
 #                suite on half the host's CPU and memory, with a fresh order
 #                seed and Vitest's `detectAsyncLeaks` (ci/test-health/
@@ -31,8 +32,8 @@
 # before its tests, reads `fail`. A post-merge run's line ends with `since
 # <checked>`, and it then moves `post-merge-checked` to the commit, pass or
 # fail: a red range is reported, not run again. A post-merge run that cannot
-# run now writes no line and moves nothing, so the next cron run covers the
-# range. Its log is `<log>/<day>-<run>.log`, with `<log>`
+# run now, or that a gate stopped, writes no line and moves nothing, so the
+# next cron run covers the range. Its log is `<log>/<day>-<run>.log`, with `<log>`
 # GOODFETCH_TEST_HEALTH_LOG or ~/test-health. It fails when the run fails or,
 # but for a post-merge run, is skipped. A run is the scripts of the commit it
 # tests, whichever script started it: nothing fast-forwards the checkout cron
@@ -155,6 +156,18 @@ locked=yes
 # other way round: of a run and a gate starting together, at least one sees the
 # other. The gate waits for a run it sees (ci/merge-pr.sh); a run that sees a gate
 # skips. A lock whose holder ended holds nothing, and is the next gate's to clear.
+# A gate never waits for a post-merge run: it sends it TERM, on which the run
+# stops its suites and ends as one that cannot run now. Its mark comes first, so
+# a gate that sees the lock as a test-health run's sees it as a post-merge one's.
+child=""
+if [[ $run == post-merge ]]; then
+  : >"$lock/post-merge"
+  trap 'if [[ -n $child ]]; then
+    kill -TERM -- "-$child" 2>/dev/null || kill -TERM "$child" 2>/dev/null || true
+    wait "$child" || true
+  fi
+  skip "a merge gate stopped the run"' TERM
+fi
 : >"$lock/test-health"
 holder=$(gate_worktree_holder "$root/.claude/worktrees/merge-gate.lock")
 if [[ -n $holder ]]; then
@@ -205,7 +218,11 @@ just counts || status=1
 just test-affected pre-merge --base "$1" --head "$2" || status=1
 exit "$status"
 RUN
-    timeout "${minutes}m" bash -c "$both" post-merge "$checked" "$commit" || status=$?
+    # In the background, so the TERM trap runs at once; `timeout` leads its own
+    # process group, which the trap ends whole.
+    timeout "${minutes}m" bash -c "$both" post-merge "$checked" "$commit" &
+    child=$!
+    wait "$child" || status=$?
     ;;
 esac
 if ((status == 124)); then echo "== stopped after $minutes minutes"; fi

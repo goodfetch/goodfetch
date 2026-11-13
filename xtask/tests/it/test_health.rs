@@ -10,12 +10,13 @@
 
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use std::process::Output;
+use std::process::{Command, Output, Stdio};
 
 use rstest::rstest;
 
 use crate::affected::repository;
-use crate::workspace::{Workspace, write_executable};
+use crate::merge_pr::until;
+use crate::workspace::{Started, Workspace, write_executable};
 
 /// A process ID above every system's limit, so no process has it.
 const NO_PROCESS: &str = "2147483646";
@@ -29,8 +30,12 @@ fn backstop_lock(workspace: &Workspace) -> PathBuf {
 
 /// A stand-in `just` that appends its arguments to `calls`, and them with the
 /// OS services' variables it was given to `variables`, writes its whole
-/// environment to `environment-<first argument>`, and fails with status 3
-/// while `failing-<first argument>` exists. Beside it, `sudo` keeps
+/// environment to `environment-<first argument>`, appends its first argument
+/// to `post-merge-marked` while the lock says a post-merge run holds it, and
+/// fails with status 3 while `failing-<first argument>` exists. While
+/// `blocking-<first argument>` exists, it starts a `sleep` it waits for, and
+/// writes its own process and the sleep's to `blocked-<first argument>`.
+/// Beside it, `sudo` keeps
 /// nothing of its caller's environment, as `env_reset` does, and `systemd-run`
 /// runs what follows `--`, so the constrained run's suite sees only what the
 /// script hands it.
@@ -44,11 +49,16 @@ fn stand_in_just(workspace: &Workspace) -> PathBuf {
              echo \"$1|${{XDG_RUNTIME_DIR:-}}|${{GOODFETCH_OS_SERVICES:-}}\" >>\"{variables}\"\n\
              env >\"{folder}/environment-$1\"\n\
              if [ -f \"{mark}\" ]; then cat \"{pid}\" >\"{folder}/marked-by\"; fi\n\
+             if [ -f \"{post_merge_mark}\" ]; then echo \"$1\" >>\"{folder}/post-merge-marked\"; fi\n\
+             if [ -f \"{folder}/blocking-$1\" ]; then\n\
+               sleep 600 & echo \"$$ $!\" >\"{folder}/blocking\"; mv \"{folder}/blocking\" \"{folder}/blocked-$1\"; wait\n\
+             fi\n\
              if [ -f \"{folder}/failing-$1\" ]; then exit 3; fi\n",
             calls = folder.join("calls").display(),
             variables = folder.join("variables").display(),
             folder = folder.display(),
             mark = backstop_lock(workspace).join("test-health").display(),
+            post_merge_mark = backstop_lock(workspace).join("post-merge").display(),
             pid = backstop_lock(workspace).join("pid").display(),
         ),
     );
@@ -151,23 +161,35 @@ fn constrained(workspace: &Workspace, stand_in: &Path, variables: &[(&str, &str)
         .unwrap()
 }
 
-/// Runs the repository's `ci/test-health/scheduled.sh` in the workspace, the
+/// The repository's `ci/test-health/scheduled.sh` in the workspace, the
 /// stand-in first on `PATH`, the logs in the workspace, and any disk enough.
-fn scheduled(workspace: &Workspace, stand_in: &Path, run: &str) -> Run {
-    let logs = workspace.path().join("logs");
+fn scheduled_command(workspace: &Workspace, stand_in: &Path, run: &str) -> Command {
     let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/test-health/scheduled.sh");
-    let output = workspace
-        .command(script)
+    let mut command = workspace.command(script);
+    command
         .arg(run)
         .env("PATH", format!("{}:/usr/bin:/bin", stand_in.display()))
-        .env("GOODFETCH_TEST_HEALTH_LOG", &logs)
+        .env("GOODFETCH_TEST_HEALTH_LOG", workspace.path().join("logs"))
         .env("GOODFETCH_TEST_HEALTH_MIN_FREE_GB", "0")
         .env("RUNNER_TEMP", workspace.path().join("runner-temp"))
         .env("TMPDIR", workspace.path())
         .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null");
+    command
+}
+
+/// Runs the repository's `ci/test-health/scheduled.sh` as
+/// [`scheduled_command`] sets it up.
+fn scheduled(workspace: &Workspace, stand_in: &Path, run: &str) -> Run {
+    let output = scheduled_command(workspace, stand_in, run)
         .output()
         .unwrap();
+    ended(workspace, stand_in, output.status.code())
+}
+
+/// What a run that ended with `code` called and wrote.
+fn ended(workspace: &Workspace, stand_in: &Path, code: Option<i32>) -> Run {
+    let logs = workspace.path().join("logs");
     let read = |path: PathBuf| std::fs::read_to_string(path).unwrap_or_default();
     let log = std::fs::read_dir(&logs)
         .unwrap()
@@ -176,7 +198,7 @@ fn scheduled(workspace: &Workspace, stand_in: &Path, run: &str) -> Run {
         .map(|entry| read(entry.path()))
         .collect();
     Run {
-        code: output.status.code(),
+        code,
         calls: read(stand_in.join("calls"))
             .lines()
             .map(str::to_owned)
@@ -597,4 +619,73 @@ fn a_post_merge_run_runs_the_counts_and_the_pre_merge_suite_over_the_range(#[cas
     );
     assert_eq!(outcome.results.lines().count(), 1, "{}", outcome.results);
     assert_eq!(checked(&workspace), head);
+}
+
+/// A gate stops a post-merge run rather than wait for it (ci/merge-pr.sh), so
+/// the run marks its lock as a post-merge run's; the other runs do not.
+#[rstest]
+#[case::post_merge("post-merge", true)]
+#[case::mutants("mutants", false)]
+fn only_a_post_merge_run_marks_its_lock_as_a_post_merge_runs(
+    #[case] run: &str,
+    #[case] marked: bool,
+) {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+
+    let outcome = scheduled(&workspace, &stand_in, run);
+
+    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
+    let seen = std::fs::read_to_string(stand_in.join("post-merge-marked")).unwrap_or_default();
+    assert_eq!(seen.lines().any(|call| call == "counts"), marked, "{seen}");
+    assert_eq!(seen.is_empty(), !marked, "{seen}");
+}
+
+/// Whether process `pid` still runs, a zombie not counted.
+fn runs(pid: &str) -> bool {
+    Command::new("ps")
+        .args(["-o", "stat=", "-p", pid])
+        .output()
+        .is_ok_and(|output| {
+            let state = String::from_utf8_lossy(&output.stdout);
+            output.status.success() && !state.trim_start().starts_with('Z')
+        })
+}
+
+/// A gate stops a post-merge run with TERM (ci/merge-pr.sh): the run ends its
+/// suites and every process they started, writes no line and leaves the commit
+/// it checked where it was, so the next cron run covers the range.
+#[test]
+fn a_post_merge_run_stopped_by_a_gate_ends_its_suites_and_leaves_its_range() {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("blocking-counts"), "").unwrap();
+    checked_up_to(&workspace, "main^");
+    let mut run = Started::spawn(
+        scheduled_command(&workspace, &stand_in, "post-merge")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null()),
+    );
+    let blocked = stand_in.join("blocked-counts");
+    until("the counts' start", || blocked.is_file());
+    let holder = std::fs::read_to_string(backstop_lock(&workspace).join("pid")).unwrap();
+
+    let sent = Command::new("kill")
+        .args(["-TERM", holder.trim()])
+        .status()
+        .unwrap();
+    let code = run.wait().code();
+
+    assert!(sent.success());
+    let outcome = ended(&workspace, &stand_in, code);
+    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
+    for process in std::fs::read_to_string(&blocked)
+        .unwrap()
+        .split_whitespace()
+    {
+        until("the suites' end", || !runs(process));
+    }
+    assert_eq!(outcome.results, "");
+    assert_eq!(checked(&workspace), commit(&workspace, "main^"));
+    assert!(!backstop_lock(&workspace).exists());
 }

@@ -207,9 +207,18 @@ fi
 # backstop that sees this gate lets it end first and says so in its lock, and
 # the gate then goes on (ci/gate-worktree.sh). Behind a backstop the wait can
 # last hours, so a gate that waited reads its pull request again: it judges
-# the head, the base and the merge cap as they are once it starts.
+# the head, the base and the merge cap as they are once it starts. A
+# post-merge run, every 20 minutes, never holds a gate up: the gate stops it
+# and waits for that stop alone, and the next run covers its range
+# (ci/test-health/scheduled.sh).
 waiting_for=""
 while ahead=$(run_in_the_backstops_worktree "$$") && [[ -n $ahead ]]; do
+  if [[ $ahead == "the post-merge run, process "* ]]; then
+    kill -TERM "${ahead##* }" 2>/dev/null || true
+    while [[ $(run_in_the_backstops_worktree "$$") == "$ahead" ]]; do sleep 1; done
+    echo "Stopped the post-merge run, process ${ahead##* }; the next one covers its range"
+    continue
+  fi
   if [[ $ahead != "$waiting_for" ]]; then
     echo "Waiting for $ahead, to end before the gate starts"
     waiting_for=$ahead

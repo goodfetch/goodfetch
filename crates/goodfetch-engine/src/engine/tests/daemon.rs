@@ -27,7 +27,7 @@ use crate::composition::{CallContext, Contribution, Handler};
 use crate::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, Succession};
 use crate::engine::{Dependencies, Engine};
 use crate::ops::Ops;
-use crate::runs::{EndedBy, Start, Started};
+use crate::runs::{EndedBy, Run, Start, Started};
 use crate::tasks::BlockingPolicy;
 use crate::transport::{self, InMemoryDialer, Network};
 
@@ -146,7 +146,7 @@ where
 
 /// [`daemon`], its blocking work under `blocking`, its end none when it did
 /// not end within `bound` on its `Clock`.
-fn daemon_within<F, Fut, T>(
+pub(super) fn daemon_within<F, Fut, T>(
     engine: &Engine,
     env: &TestEnv,
     blocking: BlockingPolicy,
@@ -1035,32 +1035,39 @@ pub(super) fn stuck() -> Contribution {
 /// calls too.
 pub(super) fn stuck_handler() -> Handler {
     Handler::new(&STUCK, |params: Value, context: CallContext| async move {
-        let started = context
-            .runs()
-            .start(Start {
-                run_id: Some(RunId::parse(params["run_id"].as_str().unwrap()).unwrap()),
-                tags: Tags::default(),
-                kind: RunKind::Collie,
-                needs: Product::Collie,
-                inputs: BTreeMap::new(),
-                ended_by: EndedBy::Driver,
-                initialize: None,
-                policy_version: None,
-                weakened: Vec::new(),
-                binding: None,
-                clean_up_digest: None,
-                checkpoint_interval: None,
-                timeout: None,
-                settings: None,
-            })
-            .await
-            .unwrap();
-        let Started::New(run) = started else {
-            panic!("the Run began before");
-        };
+        let run = driven(&context, &params).await;
         run.spawn(std::future::pending());
         Ok::<Value, CallError>(json!({ "run_id": run.id().to_string() }))
     })
+}
+
+/// The new Run of the Run ID in `params`, which its driver ends, begun
+/// for a call in `context`.
+pub(super) async fn driven(context: &CallContext, params: &Value) -> Run {
+    let started = context
+        .runs()
+        .start(Start {
+            run_id: Some(RunId::parse(params["run_id"].as_str().unwrap()).unwrap()),
+            tags: Tags::default(),
+            kind: RunKind::Collie,
+            needs: Product::Collie,
+            inputs: BTreeMap::new(),
+            ended_by: EndedBy::Driver,
+            initialize: None,
+            policy_version: None,
+            weakened: Vec::new(),
+            binding: None,
+            clean_up_digest: None,
+            checkpoint_interval: None,
+            timeout: None,
+            settings: None,
+        })
+        .await
+        .unwrap();
+    let Started::New(run) = started else {
+        panic!("the Run began before");
+    };
+    run
 }
 
 /// The pick, kept alive as `daemon run` is, draining once `asked` is

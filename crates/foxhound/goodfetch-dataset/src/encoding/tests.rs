@@ -513,9 +513,13 @@ fn a_record_read_past_a_wall_carries_its_marker(
 fn compression_gives_back_the_bytes_written_in_parts(#[case] compression: ExportCompression) {
     let compressed = || {
         let mut compressor = Compressor::new(compression);
-        let mut out = compressor.write(b"one ".to_vec());
-        out.append(&mut compressor.write(Vec::new()));
-        out.append(&mut compressor.write("ünï ".repeat(1000).into_bytes()));
+        compressor.input().extend_from_slice(b"one ");
+        let mut out = compressor.take();
+        out.append(&mut compressor.take());
+        compressor
+            .input()
+            .extend_from_slice("ünï ".repeat(1000).as_bytes());
+        out.append(&mut compressor.take());
         out.append(&mut compressor.finish());
         out
     };

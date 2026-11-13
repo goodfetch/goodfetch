@@ -285,6 +285,10 @@ insta = { version = "1.49.0", default-features = false }
 # address ask it on every OS. `system-config` reads the system's resolver
 # configuration.
 hickory-resolver = { version = "0.26.3", default-features = false }
+# The engine's masking benchmark finds its stream's line ends with it (ADR
+# 0071), as the log writers are handed whole lines; aho-corasick already
+# takes it.
+memchr = { version = "2.8.3", default-features = false, features = ["std"] }
 # The executables' global allocator (ADR 0024), and the Callgrind
 # benchmarks' (ADR 0071).
 mimalloc = { version = "0.1.48", default-features = false }

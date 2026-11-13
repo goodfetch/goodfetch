@@ -1,11 +1,13 @@
 # goodfetch-engine's cargo-fuzz targets (ADR 0067; TESTING.md, Fuzzing),
 # outside the workspace: each target's body is a plain function of the
 # engine, whose seeds and past crashers `fuzz_replay!` replays from
-# `fuzz/<target>/` on every OS. Build and run with the pinned nightly:
-# `cargo fuzz run json_rpc_framing fuzz/json_rpc_framing/seeds
-# -- -dict=fuzz/json_rpc_framing/dictionary.dict`, and likewise
-# `settings_file`, `checkpoint`, `secret_reference`, `address_classification`,
-# `certificate_file`, `robots_txt` and `audit_jsonl`.
+# `fuzz/<target>/` on every OS. Build and run with the pinned nightly, the
+# git-ignored corpus first so a run never grows the committed seeds:
+# `cargo fuzz run json_rpc_framing fuzz/corpus/json_rpc_framing
+# fuzz/json_rpc_framing/seeds -- -dict=fuzz/json_rpc_framing/dictionary.dict`,
+# and likewise `settings_file`, `checkpoint`, `run_state_import`,
+# `secret_reference`, `address_classification`, `certificate_file`,
+# `robots_txt` and `audit_jsonl`.
 [package]
 name = "goodfetch-engine-fuzz"
 version = "0.0.0"

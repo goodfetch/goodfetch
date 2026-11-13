@@ -17,9 +17,11 @@ use goodfetch_counted_work::CountedWork;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::sync::Arc;
+use std::time::Duration;
 
 use goodfetch_protocol::connection::PrivateEndpoint;
 use goodfetch_protocol::connection::{EngineInstance, PanicEnded, ProductVersion};
+use goodfetch_protocol::daemon::DRAIN_GRACE;
 use goodfetch_protocol::governor::{SYSTEM_INFO, SystemInfo};
 use goodfetch_protocol::run::{RunKind, RunOwner};
 use goodfetch_protocol::secret_reference::Provider;
@@ -53,7 +55,7 @@ use crate::run_state::{RunStateOptions, RunStateTables};
 use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Runs, RunsSetup};
 use crate::sandbox_probe::{self, SandboxProbe};
 use crate::secrets::{self, Carried, Keychain, ProviderFactory, Secrets};
-use crate::settings::{HostDefaults, HostSearch, Settings, SettingsFiles};
+use crate::settings::{HostDefaults, HostSearch, Settings, SettingsFiles, get_or_default};
 use crate::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use crate::transition::{
     self,
@@ -79,6 +81,7 @@ pub struct Engine {
     metrics: Metrics,
     system: Option<System>,
     audit_events: Option<AuditEvents>,
+    drain_grace: Duration,
 }
 
 /// What an engine runs on, which `main` builds once (the system versions)
@@ -134,6 +137,7 @@ impl Engine {
             metrics: Metrics::none(),
             system: None,
             audit_events: None,
+            drain_grace: get_or_default(None, &DRAIN_GRACE),
         })
     }
 
@@ -186,6 +190,16 @@ impl Engine {
     #[must_use]
     pub fn with_events(mut self, options: EventsOptions) -> Self {
         self.events = options;
+        self
+    }
+
+    /// The same, an Attached engine that stops on a panic in a part every
+    /// Run shares waiting at most `grace` for its Runs: the value of
+    /// `daemon.drain_grace`, which a Daemon drains within (ADR 0148).
+    /// Without it, that setting's default.
+    #[must_use]
+    pub fn with_drain_grace(mut self, grace: Duration) -> Self {
+        self.drain_grace = grace;
         self
     }
 

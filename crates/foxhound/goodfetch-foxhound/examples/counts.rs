@@ -126,9 +126,12 @@ use serde_json::{Map, Value, json};
 /// charges.
 const LIMIT: u64 = 1_000_000;
 
-/// Each outcome's `F3.prepares`, and the one function that does its admission.
+/// Each outcome's `F3.prepares`, and the one function that does its
+/// admission: a links batch's is its attempt's commit's, which holds all the
+/// admission work a commit does, a batch deferred to it and what a staged
+/// one decided alike (#2245), named as Callgrind names a method.
 const PREPARES: [(&str, &str); 3] = [
-    ("F3.prepares", "goodfetch_crawl::enqueue::links::add"),
+    ("F3.prepares", "<goodfetch_crawl::staging::Staged>::admit"),
     ("F3.prepares.hop", "goodfetch_frontier::identity::admit_hop"),
     (
         "F3.prepares.sitemap",

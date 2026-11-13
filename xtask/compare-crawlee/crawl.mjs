@@ -13,7 +13,11 @@
 //   `pushData`, its default Dataset kept on disk (`persistStorage: true`,
 //   Crawlee's default);
 // - `browser`: `PlaywrightCrawler` in the headless Chrome `--browser` names,
-//   nothing kept on disk.
+//   nothing kept on disk;
+// - `hostile`: the hostile pages' pass at each tool's defaults (#2439):
+//   `CheerioCrawler` with no option but the `Host` it sends, at Crawlee's
+//   defaults (`maxConcurrency` 200, robots.txt not obeyed, its storage on
+//   disk), `--concurrency` unread.
 //
 // Scenario 2's cell says why Crawlee has none. It prints one line,
 // `pages=<n>`, the pages Crawlee says it handled; the comparison's same-work
@@ -27,7 +31,7 @@ import { parseArgs } from "node:util";
 
 import { CheerioCrawler, Configuration } from "@crawlee/cheerio";
 
-const SCENARIOS = ["raw", "polite", "extraction", "browser"];
+const SCENARIOS = ["raw", "polite", "extraction", "browser", "hostile"];
 
 const { values } = parseArgs({
   options: {
@@ -49,7 +53,7 @@ if (
 ) {
   process.stderr.write(
     "usage: node crawl.mjs --url <url> [--host <host:port>] --concurrency <n> " +
-      "--scenario <raw|polite|extraction|browser> [--browser <chrome>]\n",
+      "--scenario <raw|polite|extraction|browser|hostile> [--browser <chrome>]\n",
   );
   process.exit(2);
 }
@@ -58,9 +62,9 @@ const { scenario } = values;
 let pages = 0;
 // At most 16 in flight, as the other tools. Its autoscaled pool starts at
 // the crawler's desired concurrency and grows toward the limit as the system
-// allows: Crawlee's own behaviour, kept.
+// allows: Crawlee's own behaviour, kept. At its defaults, no limit is set.
 const options = {
-  maxConcurrency: concurrency,
+  ...(scenario === "hostile" ? {} : { maxConcurrency: concurrency }),
   preNavigationHooks: values.host
     ? [
         (_context, gotOptions) => {
@@ -110,7 +114,9 @@ if (scenario === "browser") {
         await enqueueLinks(enqueued);
       },
     },
-    new Configuration({ persistStorage: scenario === "extraction" }),
+    scenario === "hostile"
+      ? new Configuration()
+      : new Configuration({ persistStorage: scenario === "extraction" }),
   );
 }
 

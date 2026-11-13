@@ -600,13 +600,11 @@ fn each_outcome_of_the_frontier_counts_on_its_own_row_a_plant_adds_one_a_page_an
         (built_once(&default), built_once(&no_globs)),
         ([0; 7], [0; 7])
     );
-    for row in [
-        Row::BatchTransactions,
-        Row::HopTransactions,
-        Row::SitemapTransactions,
-    ] {
+    for row in [Row::HopTransactions, Row::SitemapTransactions] {
         assert!(default.of(row) > 0, "{row:?} counted nothing");
     }
+    // A code-free page's links ride its outcome's job (#2245).
+    assert_eq!(default.of(Row::BatchTransactions), 0);
     assert_eq!(
         (
             default.of(Row::PayloadSerializations),

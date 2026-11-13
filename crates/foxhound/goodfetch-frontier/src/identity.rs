@@ -12,7 +12,9 @@
 //! host; a request whose learned identity meets a visited one's is a
 //! `duplicate` the rules merged.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Range;
 
 use data_encoding::HEXLOWER;
 use goodfetch_engine::egress::{Judgment, Policy, Request, RequestKind, judge};
@@ -52,9 +54,48 @@ pub const TABLES: RunStateTables = RunStateTables {
 /// has once the parameters learned to have no effect on its host are taken
 /// from its URL, with the rules that took them, when any did.
 #[derive(Clone, Debug)]
-pub(crate) struct Identities {
-    plain: String,
+pub(crate) struct Identities<'a> {
+    plain: Cow<'a, str>,
     learned: Option<(String, Vec<i64>)>,
+}
+
+/// The identity a request's fixed rules make, with what its learned one is
+/// made from (#2244): made once, from the request alone, on its page's
+/// task, so the part of admission that holds the learned rules only puts
+/// the key they leave in place of its own.
+#[derive(Clone, Debug)]
+pub(crate) struct Fixed {
+    plain: String,
+    /// Where its URL's key sits in `plain`, which the learned rules
+    /// replace; none for a declared key, which has no learned identity,
+    /// since a program's own canonicalization always wins.
+    key: Option<Range<usize>>,
+    keeps_fragment: bool,
+}
+
+impl Fixed {
+    /// The fixed identity of a request whose URL's key is `key`, declared
+    /// so.
+    pub(crate) fn of(key: &Key, declared: Declared<'_>) -> Self {
+        let (plain, at) = identity_of_key(&key.text, declared);
+        Self {
+            plain,
+            key: at,
+            keeps_fragment: declared.keeps_fragment,
+        }
+    }
+
+    /// The identity with the key of `merged`, its URL's key as the learned
+    /// rules leave it, in place of its own; none for a declared key.
+    fn learned(&self, merged: &Url) -> Option<String> {
+        let at = self.key.as_ref()?;
+        let key = key_text(merged, self.keeps_fragment);
+        let mut learned = String::with_capacity(self.plain.len() - at.len() + key.len());
+        learned.push_str(&self.plain[..at.start]);
+        learned.push_str(&key);
+        learned.push_str(&self.plain[at.end..]);
+        Some(learned)
+    }
 }
 
 /// Whether the Frontier saw a request's identities before.
@@ -108,20 +149,54 @@ pub(crate) fn identities(
     connection: &Connection,
     key: &Key,
     declared: Declared<'_>,
-) -> rusqlite::Result<Identities> {
-    let plain = identity_of_key(&key.text, declared);
-    if declared.key.is_some() {
-        return Ok(Identities {
-            plain,
-            learned: None,
-        });
-    }
-    let (stripped, rules) = rules::without_learned(connection, &key.url)?;
-    let learned = (!rules.is_empty()).then(|| (identity(&stripped, declared), rules));
-    Ok(Identities { plain, learned })
+) -> rusqlite::Result<Identities<'static>> {
+    let fixed = Fixed::of(key, declared);
+    let learned = learned_of(connection, key, &fixed)?;
+    Ok(Identities {
+        plain: Cow::Owned(fixed.plain),
+        learned,
+    })
 }
 
-impl Identities {
+/// The identities of a request whose URL's key is `key` and whose fixed
+/// identity is `fixed`, under the learned rules as the run file
+/// `connection` holds them now: the rules are the Run's state, which a
+/// rule learned or stopped changes, so a request keyed before either has
+/// the learned identity of the moment it is admitted (#2244).
+///
+/// # Errors
+///
+/// When the run file cannot be read.
+pub(crate) fn under_rules<'a>(
+    connection: &Connection,
+    key: &Key,
+    fixed: &'a Fixed,
+) -> rusqlite::Result<Identities<'a>> {
+    Ok(Identities {
+        plain: Cow::Borrowed(&fixed.plain),
+        learned: learned_of(connection, key, fixed)?,
+    })
+}
+
+/// The learned identity of a request whose URL's key is `key` and whose
+/// fixed identity is `fixed`, with the rules that changed it, when the
+/// learned rules of the run file `connection` holds change it.
+fn learned_of(
+    connection: &Connection,
+    key: &Key,
+    fixed: &Fixed,
+) -> rusqlite::Result<Option<(String, Vec<i64>)>> {
+    if fixed.key.is_none() {
+        return Ok(None);
+    }
+    let (merged, rules) = rules::without_learned(connection, &key.url)?;
+    if rules.is_empty() {
+        return Ok(None);
+    }
+    Ok(fixed.learned(&merged).map(|learned| (learned, rules)))
+}
+
+impl Identities<'_> {
     /// The identity its fixed rules make.
     pub(crate) fn plain(&self) -> &str {
         &self.plain
@@ -145,7 +220,7 @@ impl Identities {
 /// When the run file cannot be read.
 pub(crate) fn seen(
     connection: &Connection,
-    identities: &Identities,
+    identities: &Identities<'_>,
     staged: Option<&Staged>,
 ) -> rusqlite::Result<Seen> {
     let visitor = |identity: &str| -> rusqlite::Result<Option<String>> {
@@ -168,7 +243,7 @@ pub(crate) fn seen(
             }
             (learned.as_str(), Some(rules))
         }
-        None => (identities.plain.as_str(), None),
+        None => (&*identities.plain, None),
     };
     let learned = match connection
         .prepare_cached("SELECT rule, crawl_request FROM learned_identities WHERE identity = ?1")?
@@ -204,7 +279,7 @@ pub(crate) fn seen(
 /// When the run file cannot be written.
 pub(crate) fn visit_all(
     connection: &Connection,
-    identities: &Identities,
+    identities: &Identities<'_>,
     crawl_request: &str,
 ) -> rusqlite::Result<()> {
     visit(connection, &identities.plain, crawl_request)?;
@@ -506,27 +581,25 @@ pub enum Hop {
     DomainPolicy,
 }
 
-/// The identity of a request to `url` declared so: the declared key, kept
-/// apart from every identity the Frontier makes (no method has a `:`), or
-/// its method, its URL's key and, for a body that is not empty, its
-/// SHA-256 in hexadecimal, separated by spaces, which neither a method nor
-/// a serialized URL holds.
-pub(crate) fn identity(url: &Url, declared: Declared<'_>) -> String {
-    identity_of_key(&key_text(url, declared.keeps_fragment), declared)
-}
-
-/// The identity of a request whose URL's key is `key`, declared so, as
-/// [`identity`] makes it.
-fn identity_of_key(key: &str, declared: Declared<'_>) -> String {
+/// The identity of a request whose URL's key is `key`, declared so: the
+/// declared key, kept apart from every identity the Frontier makes (no
+/// method has a `:`), or its method, its URL's key and, for a body that is
+/// not empty, its SHA-256 in hexadecimal, separated by spaces, which
+/// neither a method nor a serialized URL holds; and where `key` sits in
+/// it, nowhere for a declared key.
+fn identity_of_key(key: &str, declared: Declared<'_>) -> (String, Option<Range<usize>>) {
     if let Some(declared_key) = declared.key {
-        return format!("{DECLARED}{declared_key}");
+        return (format!("{DECLARED}{declared_key}"), None);
     }
-    let mut identity = format!("{} {key}", declared.method);
+    let mut identity = format!("{} ", declared.method);
+    let start = identity.len();
+    identity.push_str(key);
+    let at = start..identity.len();
     if let Some(body) = declared.body.filter(|body| !body.is_empty()) {
         identity.push(' ');
         identity.push_str(&HEXLOWER.encode(&Sha256::digest(body)));
     }
-    identity
+    (identity, Some(at))
 }
 
 /// The crawl request `identity` was admitted for, or reached by a

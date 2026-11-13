@@ -45,7 +45,9 @@ use goodfetch_protocol::foxhound::frontier::{FRONTIER_LEARNING, LEARNING_SWITCHE
 use goodfetch_protocol::foxhound::settings::{POLITENESS_WEAKENED, PRESSING_HARDER};
 use rusqlite::Connection;
 
-pub use admit::{Candidate, admit, admit_in};
+pub use admit::{
+    Candidate, Entering, Keyed, Link, admit, admit_in, admit_keyed, key_candidate, key_link,
+};
 pub use bounds::{Bounds, TABLES as BOUNDS_TABLES, completeness_reasons};
 pub use domain_key::DomainKeys;
 pub use identity::{

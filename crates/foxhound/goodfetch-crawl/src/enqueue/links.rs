@@ -19,6 +19,18 @@
 //! `revealable`, which every tier follows (owner decision O26). A link that
 //! is not suspected and reaches a marked request again clears its mark; a
 //! revealable one leaves it marked as revealable.
+//!
+//! A call's work has two parts (#2244; ADR 0142). On the task that serves
+//! it, the page's own for a code-free page, with no run file: each link is
+//! read, judged as a trap, given its Payload, which is checked, and keyed
+//! by the Frontier under the Run's invariants and its domain policy. In
+//! the job that holds the attempt, where the Run's state is: its lease,
+//! the call's `limit`, and the Frontier's part that reads the visited set
+//! and the Bounds, and adds. A program's call is answered so in a write of
+//! its own, counted as `F3.transactions`, and its attempt's commit applies
+//! what that write decided, running neither part again (#2245). A code-free
+//! page's links are answered to nobody: they ride its attempt's outcome,
+//! whose one job runs the second part the first time.
 
 use std::sync::Arc;
 
@@ -29,7 +41,9 @@ use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_fetch_tier::{FetchTiers, LinksUnread, ServedLinks};
 use goodfetch_frontier::payload::Payload;
 use goodfetch_frontier::trap_links::{self, Mark, Sight, Trap, Verdict};
-use goodfetch_frontier::{Candidate, Narrowing, Patterns, Url, document_base, resolve_link};
+use goodfetch_frontier::{
+    Entering, Keyed, Narrowing, Patterns, Url, document_base, key_link, resolve_link,
+};
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::foxhound::frontier::{
@@ -189,6 +203,9 @@ pub(crate) async fn enqueue_links(
         lease_epoch: params.lease_epoch,
     };
     let (run, staging, batch) = prepared(&params, &crawls, &tiers).await?;
+    // The write of its own a program's batch asks the writer for; a
+    // code-free page's batch rides its outcome's (#2245).
+    run.metrics().counted_work().count(Row::BatchTransactions);
     // An enqueue's answers promise nothing (ADR 0138's note of #1926): the
     // attempt's outcome syncs them with it.
     let answered = run
@@ -260,8 +277,8 @@ pub(crate) async fn defer_links(
 
 /// The live crawl of `params`'s Run, its staging, and the batch of links
 /// its locator matches on the served page, owned for a write to admit,
-/// its Payloads fitted and its patterns compiled; one batch's
-/// transaction counted.
+/// its Payloads fitted and checked, its patterns compiled and each link
+/// keyed, on the task that serves the call, with no run file (#2244).
 async fn prepared(
     params: &CrawlRequestEnqueueLinksParams,
     crawls: &Crawls,
@@ -302,35 +319,111 @@ async fn prepared(
         .payload
         .as_ref()
         .map(|payload| Arc::new(Payload::of(payload.clone(), &work)));
+    let reading = Reading {
+        invariants: &invariants,
+        egress: &egress,
+        label: &params.label,
+        keeps_fragment: invariants.keeps_fragment(&params.label),
+        base: &base,
+        encoding: served.encoding,
+        narrowing: Narrowing {
+            include: &include,
+            exclude: &exclude,
+        },
+        work: &work,
+    };
+    let mut refused_payload = None;
     let links: Vec<Link> = served
         .elements
         .into_iter()
         .enumerate()
-        .map(|(at, element)| Link {
-            trap: Judged::of(element.sight),
-            href: element.href,
-            payload: match &params.payloads {
+        .map(|(at, element)| {
+            let payload = match &params.payloads {
                 Some(payloads) => match &payloads[at] {
                     Value::Null => Chosen::Skipped,
                     payload => Chosen::Payload(Some(Arc::new(Payload::of(payload.clone(), &work)))),
                 },
                 None => Chosen::Payload(every.clone()),
-            },
+            };
+            reading.link(element.href, element.sight, payload, &mut refused_payload)
         })
         .collect();
-    work.count(Row::BatchTransactions);
     let batch = OwnedBatch {
         request: Request::of(params),
-        egress,
         invariants,
         links,
-        base,
-        encoding: served.encoding,
-        include,
-        exclude,
-        work,
+        refused_payload,
     };
     Ok((run, staging, batch))
+}
+
+/// What the task that serves a links call reads each of its links with:
+/// the Run's invariants and its domain policy, the call's Label and
+/// patterns, and the document's base URL and encoding.
+struct Reading<'a> {
+    invariants: &'a Invariants,
+    egress: &'a Policy,
+    label: &'a str,
+    /// Whether a request of the call's Label keeps its URL's fragment.
+    keeps_fragment: bool,
+    base: &'a Url,
+    encoding: &'static goodfetch_frontier::Encoding,
+    narrowing: Narrowing<'a>,
+    work: &'a CountedWork,
+}
+
+impl Reading<'_> {
+    /// Reads one matched element, its `href`, how a person sees it and the
+    /// Payload `chosen` for it: the part of its admission that takes no run
+    /// file (#2244). The refusal of the first Payload that does not fit the
+    /// Label's schema or the cap is kept in `refused`, each link that has
+    /// one being checked.
+    fn link(
+        &self,
+        href: Option<String>,
+        sight: Sight,
+        chosen: Chosen,
+        refused: &mut Option<CallError>,
+    ) -> Link {
+        let Some(href) = href else {
+            return Link::NoHref;
+        };
+        if let Chosen::Payload(payload) = &chosen
+            && refused.is_none()
+        {
+            *refused = self
+                .invariants
+                .payloads()
+                .check(self.label, payload.as_deref(), self.work)
+                .err();
+        }
+        let trap = match Judged::of(sight) {
+            Some(Judged::Trap(trap)) => return Link::Trap { href, trap },
+            Some(Judged::Suspected(trap)) => Some(Suspected::Hidden(trap)),
+            Some(Judged::Revealable) => Some(Suspected::Revealable),
+            None => None,
+        };
+        let Chosen::Payload(payload) = chosen else {
+            return Link::Skipped { href };
+        };
+        let keyed = key_link(
+            self.invariants.frontier(),
+            self.egress,
+            goodfetch_frontier::Link {
+                href: &href,
+                base: self.base,
+                encoding: self.encoding,
+                keeps_fragment: self.keeps_fragment,
+                narrowing: self.narrowing,
+            },
+        );
+        Link::Keyed {
+            href,
+            keyed,
+            payload,
+            trap,
+        }
+    }
 }
 
 /// What a links call's admission reads of its params.
@@ -354,40 +447,22 @@ impl Request {
     }
 }
 
-/// A batch of links and all it admits against, owned by the write that
-/// admits it, which may run it again at the commit.
+/// A batch of links as the task that serves its call read them, each keyed,
+/// and all it admits against, owned by the write that admits it: its
+/// call's own, or its attempt's outcome's for a code-free page.
 struct OwnedBatch {
     request: Request,
-    egress: Arc<Policy>,
     invariants: Invariants,
     links: Vec<Link>,
-    base: Url,
-    encoding: &'static goodfetch_frontier::Encoding,
-    include: Patterns,
-    exclude: Patterns,
-    work: CountedWork,
+    /// The refusal of the first of its Payloads that does not fit the
+    /// Label's schema or the cap.
+    refused_payload: Option<CallError>,
 }
 
 impl OwnedBatch {
     /// Admits it at `positions`, as [`add`] does.
     fn add(&self, connection: &Connection, positions: &mut Positions) -> Answered<Admitted> {
-        add(
-            connection,
-            positions,
-            &self.egress,
-            &self.request,
-            &Batch {
-                invariants: &self.invariants,
-                links: &self.links,
-                base: &self.base,
-                encoding: self.encoding,
-                narrowing: Narrowing {
-                    include: &self.include,
-                    exclude: &self.exclude,
-                },
-                work: &self.work,
-            },
-        )
+        add(connection, positions, self)
     }
 }
 
@@ -415,13 +490,27 @@ enum Chosen {
     Skipped,
 }
 
-/// One matched element: its `href`, if any, and what its link takes.
-struct Link {
-    href: Option<String>,
-    /// Why it is a trap a person cannot see, or is suspected to be one
-    /// (ADR 0035); none for one a person sees.
-    trap: Option<Judged>,
-    payload: Chosen,
+/// One matched element, as the task that serves its call read it.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "nearly every link of a page is keyed, so the large variant is the common one, and a Box would add an allocation a link"
+)]
+enum Link {
+    /// It has no `href`.
+    NoHref,
+    /// Its browser page's layout hides it (ADR 0035): it is not added.
+    Trap { href: String, trap: Trap },
+    /// Its Payload function skipped it.
+    Skipped { href: String },
+    /// One the Frontier judges, keyed.
+    Keyed {
+        href: String,
+        keyed: Keyed,
+        /// Its Payload, if any.
+        payload: Option<Arc<Payload>>,
+        /// Why it is suspected a trap; none for one a person sees.
+        trap: Option<Suspected>,
+    },
 }
 
 /// What `trap_links` made of a link a person may not see.
@@ -451,37 +540,33 @@ impl Judged {
             Verdict::Trap(trap) => Some(hidden(trap)),
         }
     }
+}
 
-    /// The mark of the request a link so judged added; `None` for a trap,
-    /// which adds none.
-    fn mark(self) -> Option<Mark> {
+/// Why a link that is added is suspected a trap.
+#[derive(Clone, Copy, Debug)]
+enum Suspected {
+    /// Its served document's markup hides it, which no layout confirms: its
+    /// request is marked as one a browser tier never follows.
+    Hidden(Trap),
+    /// A menu, a tab or a disclosure a person opens hides it, on either
+    /// tier: its request is marked as one every tier follows.
+    Revealable,
+}
+
+impl Suspected {
+    /// The mark of the request a link so suspected adds.
+    const fn mark(self) -> Mark {
         match self {
-            Self::Trap(_) => None,
-            Self::Suspected(_) => Some(Mark::Hidden),
-            Self::Revealable => Some(Mark::Revealable),
+            Self::Hidden(_) => Mark::Hidden,
+            Self::Revealable => Mark::Revealable,
         }
     }
 
     /// Why a person may not see the link, for traces.
     fn name(self) -> &'static str {
         match self {
-            Self::Trap(trap) | Self::Suspected(trap) => trap.name(),
+            Self::Hidden(trap) => trap.name(),
             Self::Revealable => "revealable",
-        }
-    }
-}
-
-impl Link {
-    /// How the link, answered `duplicate`, reaches the request it names
-    /// again: as one a person sees (`Some(false)`), which clears its mark,
-    /// as one a person reveals (`Some(true)`), which leaves it followed on
-    /// every tier, or as a suspected trap (`None`), which leaves its mark
-    /// as it is.
-    fn reaching_again(&self) -> Option<bool> {
-        match self.trap {
-            None => Some(false),
-            Some(Judged::Revealable) => Some(true),
-            Some(Judged::Trap(_) | Judged::Suspected(_)) => None,
         }
     }
 }
@@ -528,67 +613,22 @@ struct Admitted {
     suspected: Vec<(String, String)>,
 }
 
-/// The links of one call and what they resolve against, within the Run's
-/// `invariants`.
-struct Batch<'a> {
-    invariants: &'a Invariants,
-    links: &'a [Link],
-    base: &'a Url,
-    encoding: &'static goodfetch_frontier::Encoding,
-    narrowing: Narrowing<'a>,
-    work: &'a CountedWork,
-}
-
-impl Batch<'_> {
-    /// The refusal of the first of its Payloads that does not fit `label`'s
-    /// schema or the cap, each link that has one checked before any is admitted.
-    fn refused_payload(&self, label: &str) -> Option<CallError> {
-        let rules = self.invariants.payloads();
-        self.links
-            .iter()
-            .find_map(|link| match (&link.href, &link.payload) {
-                (Some(_), Chosen::Payload(payload)) => {
-                    rules.check(label, payload.as_deref(), self.work).err()
-                }
-                _ => None,
-            })
-    }
-
-    /// Clears the mark of the request that the link `href`, one that is not
-    /// suspected, reaches again as a `duplicate`: a request stays marked
-    /// only while every link that reached it was suspected; a link a person
-    /// reveals (`revealable`) leaves it marked as one every tier follows
-    /// (ADR 0035).
-    fn seen_again(
-        &self,
-        connection: &Connection,
-        href: &str,
-        keeps_fragment: bool,
-        revealable: bool,
-    ) -> rusqlite::Result<()> {
-        trap_links::seen_again(
-            connection,
-            href,
-            self.base,
-            self.encoding,
-            keeps_fragment,
-            revealable,
-        )
-    }
-}
-
-/// Admits each of `batch`'s links through the Frontier, each added at its
-/// position from `positions`, within the Run's invariants and under its
-/// domain policy `egress`, while `params`'s attempt holds its lease, once
-/// every Payload fits its Label, else `payload_invalid` and none admitted;
-/// `None` once the attempt ended.
+/// Admits each of `batch`'s links through the Frontier, each as its call's
+/// task keyed it and added at its position from `positions`, while the
+/// call's attempt holds its lease, once every Payload fits its Label, else
+/// `payload_invalid` and none admitted; `None` once the attempt ended. The
+/// part of the call's admission that needs the Run's state (#2244): the
+/// lease, the count against the call's `limit`, and the Frontier's, which
+/// marks a request a link suspected a trap adds and tells one a link
+/// reaches again how it was seen (ADR 0035). It runs once for a batch:
+/// when its call stages it, or at its attempt's commit for a code-free
+/// page's (#2245).
 fn add(
     connection: &Connection,
     positions: &mut Positions,
-    egress: &Policy,
-    params: &Request,
-    batch: &Batch<'_>,
+    batch: &OwnedBatch,
 ) -> Answered<Admitted> {
+    let params = &batch.request;
     let Some((url, depth)) =
         work_items::attempt(connection, &params.crawl_request_id, params.lease_epoch)?
     else {
@@ -597,18 +637,17 @@ fn add(
     let Some(from) = document_base(&url, None) else {
         return Ok(None);
     };
-    if let Some(refused) = batch.refused_payload(&params.label) {
-        return Ok(Some(Err(refused)));
+    if let Some(refused) = &batch.refused_payload {
+        return Ok(Some(Err(refused.clone())));
     }
-    let keeps_fragment = batch.invariants.keeps_fragment(&params.label);
     let method = HttpMethod::get();
     let mut answers = Vec::with_capacity(batch.links.len());
     let mut added: u64 = 0;
     let mut suspected = Vec::new();
-    for link in batch.links {
-        let answer = match (&link.href, &link.payload) {
-            (None, _) => EnqueuedLink::NoLink,
-            (Some(href), _) if let Some(Judged::Trap(trap)) = link.trap => {
+    for link in &batch.links {
+        let answer = match link {
+            Link::NoHref => EnqueuedLink::NoLink,
+            Link::Trap { href, trap } => {
                 tracing::debug!(
                     url = %href,
                     trap = trap.name(),
@@ -619,62 +658,49 @@ fn add(
                     url: href.clone(),
                 }
             }
-            (Some(href), Chosen::Skipped) => EnqueuedLink::SkippedByPayload { url: href.clone() },
-            (Some(href), Chosen::Payload(_))
-                if params.limit.is_some_and(|limit| added >= limit) =>
-            {
+            Link::Skipped { href } => EnqueuedLink::SkippedByPayload { url: href.clone() },
+            Link::Keyed { href, .. } if params.limit.is_some_and(|limit| added >= limit) => {
                 EnqueuedLink::NotAdded {
                     reason: NotAddedReason::LinkLimit,
                     url: href.clone(),
                 }
             }
-            (Some(href), Chosen::Payload(payload)) => {
-                let candidate = Candidate::Href {
-                    href,
-                    base: batch.base,
-                    encoding: batch.encoding,
-                    keeps_fragment,
-                    from: &from,
-                    narrowing: batch.narrowing,
-                    depth: depth + 1,
-                };
+            Link::Keyed {
+                href,
+                keyed,
+                payload,
+                trap,
+            } => {
                 let adding = Adding {
                     method: &method,
                     body: None,
                     label: &params.label,
-                    payload: payload.as_deref(),
+                    payload: payload.as_ref(),
                     priority: params.priority,
                     forefront: false,
                     depth: depth + 1,
                 };
-                let enqueued = work_items::admit(
+                let enqueued = work_items::admit_keyed(
                     connection,
                     positions,
-                    batch.invariants.frontier(),
-                    egress,
-                    candidate,
-                    adding,
+                    &batch.invariants,
+                    (href, keyed),
+                    Entering {
+                        from: Some(&from),
+                        depth: depth + 1,
+                    },
+                    (adding, trap.map(Suspected::mark)),
                 )?;
                 match enqueued {
                     Enqueued::Added { id, url } => {
                         added += 1;
-                        if let Some((judged, mark)) =
-                            link.trap.and_then(|judged| Some((judged, judged.mark()?)))
-                        {
-                            tracing::debug!(%url, trap = judged.name(), "a link a person may not see was added, marked as a suspected trap");
-                            trap_links::suspect(connection, &id, mark)?;
+                        if let Some(trap) = trap {
+                            tracing::debug!(%url, trap = trap.name(), "a link a person may not see was added, marked as a suspected trap");
                             suspected.push((id.clone(), url.clone()));
                         }
                         EnqueuedLink::Added { id, url }
                     }
-                    Enqueued::NotAdded { reason, url } => {
-                        if reason == NotAddedReason::Duplicate
-                            && let Some(revealable) = link.reaching_again()
-                        {
-                            batch.seen_again(connection, href, keeps_fragment, revealable)?;
-                        }
-                        EnqueuedLink::NotAdded { reason, url }
-                    }
+                    Enqueued::NotAdded { reason, url } => EnqueuedLink::NotAdded { reason, url },
                 }
             }
         };

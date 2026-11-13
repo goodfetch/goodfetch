@@ -29,15 +29,24 @@ pub use self::stream::send_events;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
+use std::fmt;
+
 use goodfetch_protocol::jsonrpc::{
-    ErrorResponse, META, Notification, ProtocolFailure, RequestId, Response, TraceContext, Version,
+    ErrorResponse, META, ProtocolFailure, RequestId, TraceContext, Version,
 };
 use goodfetch_protocol::log::{CONNECTION_SET_LOG_LEVEL, LogLevelSet, SetLogLevelParams};
-use serde_json::Value;
+use serde::de::{IgnoredAny, MapAccess, Visitor};
+use serde::{Deserialize, Deserializer};
+use serde_json::value::RawValue;
 
 use crate::call_error::CallError;
+use crate::composition::params::without_position;
 use crate::composition::{CallContext, Handler};
 use crate::product::{Identity, Requested};
+use crate::trace::{self, ID_FIELDS};
+use crate::wire::{Key, KeySeed, line};
+
+pub(crate) use crate::wire::{Line, notification_line, success_line};
 
 pub(crate) use connection::{Access, Dispatch, serve};
 pub use handshake::version_refusal;
@@ -84,23 +93,6 @@ fn record_event(event: &str) {
     tracing::trace!(target: DISPATCH_TARGET, event, "event sent");
 }
 
-/// The line of the notification `method` with `params`.
-pub(crate) fn notification_line(method: &str, params: &impl serde::Serialize) -> Vec<u8> {
-    notification_value_line(
-        method,
-        serde_json::to_value(params).expect("invariant: a notification's params encode"),
-    )
-}
-
-/// The line of the notification `method` with `params`, already a value.
-pub(crate) fn notification_value_line(method: &str, params: Value) -> Vec<u8> {
-    line(&Notification {
-        jsonrpc: Version,
-        method: method.to_owned(),
-        params: Some(params),
-    })
-}
-
 /// `not_in_product` for `requested`, which `needs` carries.
 fn not_in_product(
     identity: &Identity,
@@ -112,15 +104,6 @@ fn not_in_product(
     CallError::new(&NOT_IN_PRODUCT, message, &details)
 }
 
-/// The line of a success.
-fn success_line(id: RequestId, result: Value) -> Vec<u8> {
-    line(&Response {
-        jsonrpc: Version,
-        id,
-        result,
-    })
-}
-
 /// The line of a failure, the one conversion of an error for the wire.
 fn failure_line(id: Option<RequestId>, error: &CallError) -> Vec<u8> {
     line(&ErrorResponse {
@@ -130,28 +113,74 @@ fn failure_line(id: Option<RequestId>, error: &CallError) -> Vec<u8> {
     })
 }
 
-fn line(message: &impl serde::Serialize) -> Vec<u8> {
-    let mut line =
-        serde_json::to_vec(message).expect("invariant: a message of JSON values always encodes");
-    line.push(b'\n');
-    line
+/// What dispatch reads of a request's params before its handler, which
+/// reads them without their `_meta`: the Trace context it holds and the
+/// Run ID and Session ID the request's span records (ADRs 0077 and 0132).
+#[derive(Debug, Default)]
+pub(crate) struct Preamble<'a> {
+    /// The Trace context of their `_meta`.
+    pub(crate) meta: Option<TraceContext>,
+    /// Their Run ID and Session ID.
+    pub(crate) ids: trace::Ids<'a>,
 }
 
-/// Takes the Trace context out of a request's `params`, which then go to
-/// its handler without it: none when they hold no `_meta`, and
-/// `invalid_params` when their `_meta` holds a key other than
-/// `traceparent` and `tracestate` or a value that is no string (ADRs 0077
-/// and 0132).
-fn trace_context(
-    params: Option<Value>,
-) -> Result<(Option<Value>, Option<TraceContext>), CallError> {
-    let mut members = match params {
-        Some(Value::Object(members)) => members,
-        params => return Ok((params, None)),
-    };
-    let Some(meta) = members.remove(META) else {
-        return Ok((Some(Value::Object(members)), None));
-    };
+impl<'a> Preamble<'a> {
+    /// Reads it from a request's `params` where they are, each member the
+    /// last of its name: no Trace context when they hold no `_meta`, and
+    /// `invalid_params` when their `_meta` holds a key other than
+    /// `traceparent` and `tracestate` or a value that is no string. Params
+    /// that are no object hold none, and their handler refuses them.
+    pub(crate) fn read(params: Option<&'a str>) -> Result<Self, CallError> {
+        let Some(Members { meta, ids }) =
+            params.and_then(|params| serde_json::from_str::<Members<'a>>(params).ok())
+        else {
+            return Ok(Self::default());
+        };
+        let meta = meta.map(trace_context).transpose()?;
+        Ok(Self { meta, ids })
+    }
+}
+
+/// The members of a request's params dispatch reads, where they are.
+#[derive(Default)]
+struct Members<'a> {
+    meta: Option<&'a RawValue>,
+    ids: trace::Ids<'a>,
+}
+
+impl<'de> Deserialize<'de> for Members<'de> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(MembersVisitor)
+    }
+}
+
+struct MembersVisitor;
+
+impl<'de> Visitor<'de> for MembersVisitor {
+    type Value = Members<'de>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("an object")
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut members: A) -> Result<Self::Value, A::Error> {
+        let mut found = Members::default();
+        while let Some(Key(key)) = members.next_key_seed(KeySeed)? {
+            if key == META {
+                found.meta = Some(members.next_value()?);
+            } else if let Some(at) = ID_FIELDS.iter().position(|field| *field == key) {
+                let value: &RawValue = members.next_value()?;
+                found.ids[at] = framing::text(value);
+            } else {
+                members.next_value::<IgnoredAny>()?;
+            }
+        }
+        Ok(found)
+    }
+}
+
+/// The Trace context a request's `_meta` holds.
+fn trace_context(meta: &RawValue) -> Result<TraceContext, CallError> {
     let refused = |error: String| {
         CallError::protocol(
             ProtocolFailure::InvalidParams,
@@ -161,10 +190,8 @@ fn trace_context(
         )
     };
     // serde would read a struct from an array too, which the schema refuses.
-    if !meta.is_object() {
+    if !meta.get().starts_with('{') {
         return Err(refused("it is no object".to_owned()));
     }
-    let meta =
-        serde_json::from_value::<TraceContext>(meta).map_err(|error| refused(error.to_string()))?;
-    Ok((Some(Value::Object(members)), Some(meta)))
+    serde_json::from_str(meta.get()).map_err(|error| refused(without_position(&error)))
 }

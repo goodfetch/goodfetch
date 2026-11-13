@@ -37,7 +37,8 @@ fn run(audit: Audit, planted: Option<Row>) -> ([u64; 5], u64) {
     (ROWS.map(|row| work.read(row)), vfs.syncs())
 }
 
-/// Each entry reads the settings files, commits its append and writes the
+/// Each entry reads no settings file, its retention coming from the
+/// engine's snapshot of them (#1885), commits its append and writes the
 /// head file, which the store syncs; the store opens and commits its schema
 /// set-up once, for every entry (#1886); a retention adds a prune pass per
 /// entry, on the same connection; a plant adds one per entry.
@@ -45,7 +46,7 @@ fn run(audit: Audit, planted: Option<Row>) -> ([u64; 5], u64) {
 fn an_audit_entry_counts_its_reads_opens_transactions_and_head_writes_and_a_plant_adds_one_an_entry()
  {
     let ([reads, opens, prunes, transactions, head_writes], syncs) = run(Audit::Chained, None);
-    assert_eq!(reads, ENTRIES);
+    assert_eq!(reads, 0);
     assert_eq!(opens, 1);
     assert_eq!(prunes, 0);
     assert!(

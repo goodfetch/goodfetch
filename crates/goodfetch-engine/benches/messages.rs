@@ -26,7 +26,7 @@ use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, InMemoryDialer, Network};
 use goodfetch_engine::{
     CallContext, CallError, Channel, Composition, Contribution, Dependencies, Engine, Guard,
-    Handler, Identity,
+    Handler, Identity, Params,
 };
 use goodfetch_protocol::catalog::{
     HandlerRequest, Operation, OperationClass, OperationKind, PROTOCOL_VERSION, Product, Reach,
@@ -108,7 +108,7 @@ pub(crate) enum Logs {
 }
 
 /// One extra unit of work a call does, given its params.
-pub(crate) type Plant = Arc<dyn Fn(&Value) + Send + Sync>;
+pub(crate) type Plant = Arc<dyn Fn(Params<'_>) + Send + Sync>;
 
 /// What a Valgrind target's run of the scenario reads, made outside what it
 /// measures.
@@ -138,8 +138,9 @@ pub(crate) struct Input {
 pub(crate) fn input(traffic: Traffic, logs: Logs) -> Input {
     let plant = std::env::var_os(PLANT_VARIABLE).map(|_| {
         let document = json!({ "text": "x".repeat(PLANT_BYTES) });
-        Arc::new(move |params: &Value| {
-            let copied = params.clone();
+        Arc::new(move |params: Params<'_>| {
+            let copied: Value =
+                serde_json::from_str(params.json()).expect("invariant: a call's params are JSON");
             drop(serde_json::to_vec(&copied));
             drop(serde_json::to_vec(&document));
         }) as Plant
@@ -180,6 +181,24 @@ pub(crate) fn done((outgoing, input): (usize, Input)) -> usize {
     outgoing
 }
 
+impl Sent {
+    /// The answers and events among them, each its own encode: every
+    /// message but the `$/events` batches, which copy the events they
+    /// carry, encoded as they were published (ADR 0140's E1).
+    pub(crate) fn answers_and_events(&self) -> usize {
+        self.outgoing - self.event_batches + self.events
+    }
+}
+
+/// How many events the `$/events` batch `line` carries.
+fn carried(line: &str) -> usize {
+    let batch: Value = serde_json::from_str(line).expect("invariant: the engine sends JSON lines");
+    batch["params"]["events"]
+        .as_array()
+        .expect("invariant: a `$/events` batch carries its events")
+        .len()
+}
+
 /// What a run of the scenario saw leave the engine.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Sent {
@@ -187,6 +206,8 @@ pub(crate) struct Sent {
     pub(crate) outgoing: usize,
     /// The `$/events` batches among them.
     pub(crate) event_batches: usize,
+    /// The events those batches carry.
+    pub(crate) events: usize,
     /// The `$/log` lines among them.
     pub(crate) log_lines: usize,
     /// The handler requests among them.
@@ -384,6 +405,7 @@ async fn client(dialer: InMemoryDialer, lines: &[u8], answers: usize) -> Sent {
         let mut sent = Sent {
             outgoing: 0,
             event_batches: 0,
+            events: 0,
             log_lines: 0,
             handler_requests: 0,
         };
@@ -393,6 +415,7 @@ async fn client(dialer: InMemoryDialer, lines: &[u8], answers: usize) -> Sent {
             let start = line.get(..line.len().min(64)).unwrap_or(&line);
             if start.contains(r#""method":"$/events""#) {
                 sent.event_batches += 1;
+                sent.events += carried(&line);
             } else if start.contains(r#""method":"$/log""#) {
                 sent.log_lines += 1;
             } else if start.contains(r#""method":"plugin_record.handle""#) {

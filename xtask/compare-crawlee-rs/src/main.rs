@@ -16,7 +16,11 @@
 //!   multi-domain site spans many hosts and links nothing else;
 //! - `extraction`: `raw` with each page's URL, title and main text (the
 //!   text of its `main`) given to `push_data`, its default Dataset kept on
-//!   disk under `./storage`.
+//!   disk under `./storage`;
+//! - `hostile`: the hostile pages' pass at each tool's defaults (#2439):
+//!   `Configuration::default()` and the crawler's builder with no option but
+//!   the `Host` it sends, so `max_concurrency` 200 (its default), robots.txt
+//!   not obeyed and links on the same hostname; `--concurrency` is unread.
 //!
 //! The working folder is the trial's home. It prints one line, `pages=<n>`,
 //! the requests crawlee-rs's statistics count as handled (after a resume,
@@ -52,10 +56,11 @@ enum Scenario {
     Durable,
     Polite,
     Extraction,
+    Hostile,
 }
 
 fn arguments() -> Result<Arguments, String> {
-    let usage = "usage: goodfetch-compare-crawlee-rs --url <url> [--host <host:port>] --concurrency <n> --scenario <raw|durable|polite|extraction>";
+    let usage = "usage: goodfetch-compare-crawlee-rs --url <url> [--host <host:port>] --concurrency <n> --scenario <raw|durable|polite|extraction|hostile>";
     let mut url = None;
     let mut host = None;
     let mut concurrency = None;
@@ -81,6 +86,7 @@ fn arguments() -> Result<Arguments, String> {
                     "durable" => Scenario::Durable,
                     "polite" => Scenario::Polite,
                     "extraction" => Scenario::Extraction,
+                    "hostile" => Scenario::Hostile,
                     other => return Err(format!("crawlee-rs runs no `{other}` scenario")),
                 });
             }
@@ -97,12 +103,16 @@ fn arguments() -> Result<Arguments, String> {
 
 async fn crawl(arguments: Arguments) -> Result<u64, String> {
     let scenario = arguments.scenario;
-    let configuration = Configuration {
-        persist_storage: matches!(scenario, Scenario::Durable | Scenario::Extraction),
-        // The resumed process keeps what the killed one left; the first
-        // starts in an empty home.
-        purge_on_start: scenario != Scenario::Durable,
-        ..Configuration::default()
+    let configuration = if scenario == Scenario::Hostile {
+        Configuration::default()
+    } else {
+        Configuration {
+            persist_storage: matches!(scenario, Scenario::Durable | Scenario::Extraction),
+            // The resumed process keeps what the killed one left; the first
+            // starts in an empty home.
+            purge_on_start: scenario != Scenario::Durable,
+            ..Configuration::default()
+        }
     };
     let mut options = HttpCrawlerOptions::default();
     if let Some(host) = arguments.host {
@@ -127,8 +137,10 @@ async fn crawl(arguments: Arguments) -> Result<u64, String> {
     // limit as the system allows: crawlee-rs's own behaviour, kept, as
     // Crawlee's side keeps Crawlee's.
     let mut builder = HtmlCrawler::builder_with_options(options)
-        .services(Services::from_configuration(configuration))
-        .max_concurrency(arguments.concurrency);
+        .services(Services::from_configuration(configuration));
+    if scenario != Scenario::Hostile {
+        builder = builder.max_concurrency(arguments.concurrency);
+    }
     if scenario == Scenario::Polite {
         builder = builder
             .respect_robots_txt(true)

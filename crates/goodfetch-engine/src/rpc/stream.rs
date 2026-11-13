@@ -6,16 +6,19 @@
 //! sends them with [`send_events`].
 
 use goodfetch_protocol::events::{
-    EVENTS, EVENTS_SUBSCRIBE, EventBatch, EventEnvelope, EventsSubscribeParams, SubscriptionEnded,
+    EVENTS, EVENTS_SUBSCRIBE, EventsSubscribeParams, SubscriptionEnded,
 };
+use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::page::{
     BODY_NOT_FOUND, BodyNotFoundDetails, PAGE_BODY, PageBodyParams, PageBodyRead,
 };
+use serde::Serialize;
 
 use super::record_event;
 use crate::body;
 use crate::call_error::CallError;
 use crate::composition::{CallContext, CallStream, Handler};
+use crate::events::Envelope;
 
 /// The most events one `$/events` batch carries.
 const MAX_BATCH: usize = 256;
@@ -59,15 +62,23 @@ async fn subscribe(
 /// # Cancel safety
 ///
 /// As [`CallStream::notify`]'s.
-pub async fn send_events(stream: &CallStream, events: Vec<EventEnvelope>) -> bool {
+pub async fn send_events(stream: &CallStream, events: Vec<Envelope>) -> bool {
     for event in &events {
-        record_event(&event.event);
+        record_event(event.event);
     }
-    let batch = EventBatch {
-        id: stream.id().clone(),
-        events,
+    let batch = Batch {
+        id: stream.id(),
+        events: &events,
     };
-    stream.notify(EVENTS, &batch).await
+    stream.notify_events(EVENTS, &batch).await
+}
+
+/// What `$/events` carries, an `EventBatch` on the wire, each event's
+/// payload as it was encoded once.
+#[derive(Serialize)]
+struct Batch<'a> {
+    id: &'a RequestId,
+    events: &'a [Envelope],
 }
 
 #[expect(

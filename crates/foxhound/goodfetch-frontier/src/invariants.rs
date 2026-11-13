@@ -108,12 +108,22 @@ impl Invariants {
     /// The first path budget whose pattern the path and query of `url`
     /// match: the one that counts it.
     pub(crate) fn budget_of(&self, url: &Url) -> Option<&PathBudget> {
+        self.budget_at(url).and_then(|at| self.budget(at))
+    }
+
+    /// Where, among the Run's path budgets, the one that counts `url` is:
+    /// the first whose pattern its path and query match. Read from the URL
+    /// alone, on its page's task (#2244).
+    pub(crate) fn budget_at(&self, url: &Url) -> Option<usize> {
         let path_and_query = &url[Position::BeforePath..Position::AfterQuery];
         self.budgets
             .iter()
-            .zip(&self.bounds.path_budgets)
-            .find(|(pattern, _)| pattern.matches(path_and_query))
-            .map(|(_, budget)| budget)
+            .position(|pattern| pattern.matches(path_and_query))
+    }
+
+    /// The path budget at `at` among the Run's ([`Self::budget_at`]).
+    pub(crate) fn budget(&self, at: usize) -> Option<&PathBudget> {
+        self.bounds.path_budgets.get(at)
     }
 
     /// Keeps `rules`, a sitemap seed's, compiled unless they are kept, for

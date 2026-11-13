@@ -8,8 +8,9 @@
 //! one, a reordered pair, a truncated middle, a truncated tail that the head
 //! file still names) is reported at the first sequence it touched, as
 //! property tests (ADR 0067). The engine's own connection cannot rewrite an
-//! entry, two engines append to one chain, and the format's versions open
-//! or are refused under the Usage ledger family's rule.
+//! entry, two engines append to one chain, one writer opens the store once
+//! and chains after another engine's entries, and the format's versions
+//! open or are refused under the Usage ledger family's rule.
 #![expect(
     clippy::disallowed_methods,
     reason = "the tests edit the Audit log's files as someone tampering with them would"
@@ -29,8 +30,13 @@ use proptest::prelude::*;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use super::{AuditError, AuditLog, NewEntry, Origin};
+use std::sync::Arc;
+
+use goodfetch_counted_work::{CountedWork, Row};
+
+use super::{AuditError, AuditEvents, AuditLog, NewEntry, Origin};
 use crate::home::Home;
+use crate::tasks::{BlockingPolicy, TaskOwner};
 
 mod export;
 mod retention;
@@ -41,8 +47,13 @@ pub(super) fn now() -> Timestamp {
     "2026-01-05T09:00:00Z".parse().unwrap()
 }
 
+/// The owner of a test log's writer, which runs it as a task.
+pub(super) fn owner() -> Arc<TaskOwner> {
+    Arc::new(TaskOwner::root(BlockingPolicy::Inline))
+}
+
 pub(super) fn log(env: &TestEnv) -> AuditLog {
-    AuditLog::of(&Home::new(env.home().to_path_buf()), None)
+    AuditLog::of(&Home::new(env.home().to_path_buf()), None, owner())
 }
 
 pub(super) fn origin() -> Origin {
@@ -58,7 +69,7 @@ pub(super) fn origin() -> Origin {
 
 /// A log of `count` entries written through `record`, each with its own
 /// details.
-pub(super) fn written(env: &TestEnv, count: u64) -> AuditLog {
+pub(super) async fn written(env: &TestEnv, count: u64) -> AuditLog {
     let log = log(env);
     for index in 1..=count {
         log.record(
@@ -67,6 +78,7 @@ pub(super) fn written(env: &TestEnv, count: u64) -> AuditLog {
             json!({ "reference": format!("env:SECRET_{index}"), "domain": "example.com" }),
             now(),
         )
+        .await
         .unwrap();
     }
     log
@@ -96,10 +108,10 @@ pub(super) fn broken(entries: u64, sequence: u64) -> AuditVerified {
 }
 
 /// Covers: story:4-69, story:4-70
-#[test]
-fn a_log_written_through_record_verifies_intact() {
+#[tokio::test]
+async fn a_log_written_through_record_verifies_intact() {
     let env = TestEnv::in_memory();
-    let log = written(&env, 3);
+    let log = written(&env, 3).await;
 
     let verified = log.verify();
 
@@ -133,10 +145,10 @@ fn a_log_never_written_verifies_intact_and_empty() {
 }
 
 /// Covers: story:4-69
-#[test]
-fn an_entry_holds_its_sequence_time_kind_actor_layer_run_and_details() {
+#[tokio::test]
+async fn an_entry_holds_its_sequence_time_kind_actor_layer_run_and_details() {
     let env = TestEnv::in_memory();
-    let log = written(&env, 1);
+    let log = written(&env, 1).await;
 
     let second = log
         .record(
@@ -150,6 +162,7 @@ fn an_entry_holds_its_sequence_time_kind_actor_layer_run_and_details() {
             json!({ "setting": "security.browser_sandbox" }),
             now(),
         )
+        .await
         .unwrap();
 
     assert_eq!(
@@ -168,8 +181,8 @@ fn an_entry_holds_its_sequence_time_kind_actor_layer_run_and_details() {
 /// The first entry's hash, `SHA-256` of 32 zero bytes followed by the
 /// entry's RFC 8785 form, worked out apart with Python's `hashlib`: the stored
 /// hash is that one, so another implementation can verify the chain.
-#[test]
-fn the_first_entry_hashes_zero_bytes_then_its_canonical_json() {
+#[tokio::test]
+async fn the_first_entry_hashes_zero_bytes_then_its_canonical_json() {
     let env = TestEnv::in_memory();
     let log = log(&env);
     log.record(
@@ -183,6 +196,7 @@ fn the_first_entry_hashes_zero_bytes_then_its_canonical_json() {
         json!({ "host": "example.com" }),
         now(),
     )
+    .await
     .unwrap();
 
     let stored: (String, String) = Connection::open(log.path())
@@ -205,10 +219,11 @@ fn the_first_entry_hashes_zero_bytes_then_its_canonical_json() {
 #[rstest::rstest]
 #[case::an_update("UPDATE entries SET entry = '{}' WHERE sequence = 1")]
 #[case::a_delete("DELETE FROM entries WHERE sequence = 1")]
-fn the_engines_own_connection_cannot_rewrite_an_entry(#[case] statement: &str) {
+#[tokio::test]
+async fn the_engines_own_connection_cannot_rewrite_an_entry(#[case] statement: &str) {
     let env = TestEnv::in_memory();
-    let log = written(&env, 2);
-    let connection = log.open().unwrap();
+    let log = written(&env, 2).await;
+    let connection = log.store.open().unwrap();
 
     let tried = connection.execute(statement, []).is_err();
 
@@ -226,8 +241,8 @@ fn the_engines_own_connection_cannot_rewrite_an_entry(#[case] statement: &str) {
 }
 
 /// Covers: story:4-69
-#[test]
-fn two_engines_append_to_one_chain() {
+#[tokio::test]
+async fn two_engines_append_to_one_chain() {
     let env = TestEnv::in_memory();
     let (first, second) = (log(&env), log(&env));
 
@@ -239,6 +254,7 @@ fn two_engines_append_to_one_chain() {
                 json!({ "by": "first" }),
                 now(),
             )
+            .await
             .unwrap();
         second
             .record(
@@ -247,6 +263,7 @@ fn two_engines_append_to_one_chain() {
                 json!({ "by": "second" }),
                 now(),
             )
+            .await
             .unwrap();
     }
 
@@ -260,9 +277,13 @@ fn two_engines_append_to_one_chain() {
     );
 }
 
-/// A log through `vfs`, in `env`'s home.
-fn log_through(env: &TestEnv, vfs: &str) -> AuditLog {
-    AuditLog::of(&Home::new(env.home().to_path_buf()), Some(vfs.to_owned()))
+/// A log through `vfs`, in `env`'s home, its writer of `owner`.
+fn log_through(env: &TestEnv, vfs: &str, owner: Arc<TaskOwner>) -> AuditLog {
+    AuditLog::of(
+        &Home::new(env.home().to_path_buf()),
+        Some(vfs.to_owned()),
+        owner,
+    )
 }
 
 /// Three entries of `origin()`'s Run, each with its own details.
@@ -280,22 +301,23 @@ fn three_new() -> Vec<NewEntry> {
 /// Entries recorded together, as a Run's switched-off controls are as it
 /// starts, append in one synced commit, chained in their order after the
 /// entries before them; an entry recorded alone in a log that exists syncs
-/// once, its connection's close leaving the synced write-ahead log as it is
-/// (#2110).
-#[test]
-fn entries_recorded_together_commit_with_one_sync_chained_in_their_order() {
+/// once, on the connection its writer keeps open (#2110, #1886).
+#[tokio::test]
+async fn entries_recorded_together_commit_with_one_sync_chained_in_their_order() {
     let env = TestEnv::new();
     let vfs = goodfetch_test_support::CountingVfs::register();
-    let log = log_through(&env, vfs.name());
+    let log = log_through(&env, vfs.name(), owner());
     log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
+        .await
         .unwrap();
 
     let before = vfs.syncs();
     log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
+        .await
         .unwrap();
     let alone = vfs.syncs() - before;
     let before = vfs.syncs();
-    let recorded = log.record_together(three_new(), now()).unwrap();
+    let recorded = log.record_together(three_new(), now()).await.unwrap();
     let together = vfs.syncs() - before;
 
     let sequences: Vec<u64> = recorded.iter().map(|entry| entry.sequence).collect();
@@ -334,31 +356,32 @@ fn entries_recorded_together_commit_with_one_sync_chained_in_their_order() {
 /// A new log's first entries sync its file's switch to WAL, its rollback
 /// journal once and the file once, and their own commit, which covers the
 /// tables its opening committed unsynced and the WAL's header (#2117).
-#[test]
-fn a_new_logs_first_entries_sync_its_switch_to_wal_and_their_commit() {
+#[tokio::test]
+async fn a_new_logs_first_entries_sync_its_switch_to_wal_and_their_commit() {
     let env = TestEnv::new();
     let vfs = goodfetch_test_support::CountingVfs::register();
-    let log = log_through(&env, vfs.name());
+    let log = log_through(&env, vfs.name(), owner());
 
-    log.record_together(three_new(), now()).unwrap();
+    log.record_together(three_new(), now()).await.unwrap();
 
     assert_eq!(vfs.syncs(), 3);
 }
 
 /// Entries recorded, alone or together, are in the log after a power cut
-/// once the call answered, though their connection's close no longer copies
-/// the write-ahead log into the file: each commit synced it (ADR 0016,
-/// #2110).
-#[test]
-fn recorded_entries_survive_a_power_cut_after_their_connection_closed() {
+/// once the call answered, while the writer still holds the store open and
+/// has copied nothing of the write-ahead log into the file: each commit
+/// synced it (ADR 0016, #2110, #1886).
+#[tokio::test]
+async fn recorded_entries_survive_a_power_cut_while_their_writer_holds_the_store() {
     let env = TestEnv::new();
     let vfs =
         goodfetch_test_support::CrashVfs::register(&env.unique_name("audit-power-cut"), env.seed())
             .unwrap();
-    let log = log_through(&env, vfs.name());
+    let log = log_through(&env, vfs.name(), owner());
     log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
+        .await
         .unwrap();
-    log.record_together(three_new(), now()).unwrap();
+    log.record_together(three_new(), now()).await.unwrap();
 
     vfs.crash(goodfetch_test_support::CrashKind::PowerCut);
     let connection =
@@ -384,34 +407,35 @@ fn recorded_entries_survive_a_power_cut_after_their_connection_closed() {
 fn an_engine_making_the_log_beside_another_engines_write_records_its_entry() {
     let env = TestEnv::new();
     let log = log(&env);
+    let runtime = goodfetch_test_support::runtime();
 
     let recorded = crate::sqlite_wal::tests::opened_beside_a_write(log.path(), || {
-        log.record(
+        runtime.block_on(log.record(
             &origin(),
             &SECRET_REFERENCE_USED,
             json!({ "by": "second" }),
             now(),
-        )
+        ))
     });
 
     assert_eq!(recorded.map(drop), Ok(()));
 }
 
 /// Covers: story:4-70
-#[test]
-fn a_removed_head_file_breaks_the_log_past_its_last_entry() {
+#[tokio::test]
+async fn a_removed_head_file_breaks_the_log_past_its_last_entry() {
     let env = TestEnv::in_memory();
-    let log = written(&env, 2);
+    let log = written(&env, 2).await;
     std::fs::remove_file(env.home().join("audit-log-head.json")).unwrap();
 
     assert_eq!(log.verify(), Ok(broken(2, 3)));
 }
 
 /// Covers: story:4-70
-#[test]
-fn a_head_file_naming_another_hash_breaks_the_log_at_its_sequence() {
+#[tokio::test]
+async fn a_head_file_naming_another_hash_breaks_the_log_at_its_sequence() {
     let env = TestEnv::in_memory();
-    let log = written(&env, 3);
+    let log = written(&env, 3).await;
     std::fs::write(
         env.home().join("audit-log-head.json"),
         r#"{"sequence":2,"hash":"0000000000000000000000000000000000000000000000000000000000000000"}"#,
@@ -421,21 +445,22 @@ fn a_head_file_naming_another_hash_breaks_the_log_at_its_sequence() {
     assert_eq!(log.verify(), Ok(broken(3, 2)));
 }
 
-/// Writes a log whose format row says `version`.
-fn log_at_version(env: &TestEnv, version: &str) -> AuditLog {
-    let log = written(env, 1);
-    Connection::open(log.path())
+/// Writes a log whose format row says `version`, and answers the log of an
+/// engine that opens it afterwards.
+async fn log_at_version(env: &TestEnv, version: &str) -> AuditLog {
+    let written = written(env, 1).await;
+    Connection::open(written.path())
         .unwrap()
         .execute("UPDATE format SET version = ?1", [version])
         .unwrap();
-    log
+    log(env)
 }
 
 /// Covers: format:audit-log
-#[test]
-fn a_log_of_a_newer_minor_opens_and_verifies() {
+#[tokio::test]
+async fn a_log_of_a_newer_minor_opens_and_verifies() {
     let env = TestEnv::in_memory();
-    let log = log_at_version(&env, "0.9");
+    let log = log_at_version(&env, "0.9").await;
 
     assert_eq!(
         log.verify(),
@@ -448,13 +473,14 @@ fn a_log_of_a_newer_minor_opens_and_verifies() {
 }
 
 /// Covers: format:audit-log
-#[test]
-fn a_log_of_another_major_is_refused() {
+#[tokio::test]
+async fn a_log_of_another_major_is_refused() {
     let env = TestEnv::in_memory();
-    let log = log_at_version(&env, "1.0");
+    let log = log_at_version(&env, "1.0").await;
 
     assert_eq!(
-        log.record(&origin(), &SECRET_REFERENCE_USED, Value::Null, now()),
+        log.record(&origin(), &SECRET_REFERENCE_USED, Value::Null, now())
+            .await,
         Err(AuditError::Format {
             found: "1.0".to_owned(),
             compatibility: Compatibility::NewerMajor,
@@ -466,8 +492,8 @@ fn a_log_of_another_major_is_refused() {
 /// 0066): it verifies intact, and an entry appended to it chains on, past
 /// the unchained entry it ends with.
 /// Covers: format:audit-log
-#[test]
-fn the_head_sets_log_verifies_and_takes_another_entry() {
+#[tokio::test]
+async fn the_head_sets_log_verifies_and_takes_another_entry() {
     let env = TestEnv::in_memory();
     let head = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../compat/audit-log/head");
     let log = log(&env);
@@ -482,6 +508,7 @@ fn the_head_sets_log_verifies_and_takes_another_entry() {
         json!({ "after": "head" }),
         now(),
     )
+    .await
     .unwrap();
 
     assert_eq!(
@@ -506,7 +533,8 @@ proptest! {
     #[test]
     fn an_edited_entry_is_reported_at_its_sequence((count, sequence) in log_and_sequence()) {
         let env = TestEnv::in_memory();
-        let log = written(&env, count);
+        let runtime = goodfetch_test_support::runtime();
+        let log = runtime.block_on(written(&env, count));
         tamper(&log)
             .execute(
                 "UPDATE entries SET entry = replace(entry, 'example.com', 'example.org') WHERE sequence = ?1",
@@ -521,7 +549,8 @@ proptest! {
     #[test]
     fn a_deleted_entry_is_reported_at_its_sequence((count, sequence) in log_and_sequence()) {
         let env = TestEnv::in_memory();
-        let log = written(&env, count);
+        let runtime = goodfetch_test_support::runtime();
+        let log = runtime.block_on(written(&env, count));
         tamper(&log)
             .execute("DELETE FROM entries WHERE sequence = ?1", [at(sequence)])
             .unwrap();
@@ -534,7 +563,8 @@ proptest! {
     fn a_reordered_pair_is_reported_at_its_first_sequence((count, sequence) in log_and_sequence()) {
         prop_assume!(sequence < count);
         let env = TestEnv::in_memory();
-        let log = written(&env, count);
+        let runtime = goodfetch_test_support::runtime();
+        let log = runtime.block_on(written(&env, count));
         tamper(&log)
             .execute_batch(&format!(
                 "UPDATE entries SET sequence = -1 WHERE sequence = {sequence};
@@ -551,7 +581,8 @@ proptest! {
     fn a_truncated_middle_is_reported_at_its_first_sequence((count, sequence) in log_and_sequence()) {
         prop_assume!(sequence + 1 < count);
         let env = TestEnv::in_memory();
-        let log = written(&env, count);
+        let runtime = goodfetch_test_support::runtime();
+        let log = runtime.block_on(written(&env, count));
         tamper(&log)
             .execute(
                 "DELETE FROM entries WHERE sequence BETWEEN ?1 AND ?1 + 1",
@@ -567,7 +598,8 @@ proptest! {
     #[test]
     fn a_truncated_tail_is_reported_at_its_first_sequence((count, sequence) in log_and_sequence()) {
         let env = TestEnv::in_memory();
-        let log = written(&env, count);
+        let runtime = goodfetch_test_support::runtime();
+        let log = runtime.block_on(written(&env, count));
         tamper(&log)
             .execute("DELETE FROM entries WHERE sequence >= ?1", [at(sequence)])
             .unwrap();
@@ -580,7 +612,8 @@ proptest! {
     #[test]
     fn an_untouched_log_verifies_intact((count, _sequence) in log_and_sequence()) {
         let env = TestEnv::in_memory();
-        let log = written(&env, count);
+        let runtime = goodfetch_test_support::runtime();
+        let log = runtime.block_on(written(&env, count));
 
         prop_assert_eq!(
             log.verify(),
@@ -594,12 +627,123 @@ proptest! {
 }
 
 /// The Audit log holds to the synced per-user store's durability: its WAL
-/// stays beside it as a write's connection closes (#2110).
-#[test]
-fn the_wal_stays_beside_the_log_once_a_write_closed_its_connection() {
+/// stays beside it once its writer ends and closes its connection (#2110).
+#[tokio::test]
+async fn the_wal_stays_beside_the_log_once_its_writer_closed_its_connection() {
     let env = TestEnv::in_memory();
+    let owner = owner();
+    let log = AuditLog::of(
+        &Home::new(env.home().to_path_buf()),
+        None,
+        Arc::clone(&owner),
+    );
+    log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
+        .await
+        .unwrap();
+    let path = log.path().to_owned();
 
-    let log = written(&env, 1);
+    drop(log);
+    owner.wait().await;
 
-    assert!(wal_of(log.path()).exists());
+    assert!(wal_of(&path).exists());
+}
+
+/// A log's writer opens its store once for all its entries, and its clones
+/// share it (#1886).
+#[tokio::test]
+async fn a_logs_writer_opens_its_store_once_for_every_entry_of_its_clones() {
+    let env = TestEnv::in_memory();
+    let work = CountedWork::default();
+    let log = log(&env).counting_on(work.clone());
+
+    for clone in [log.clone(), log.clone(), log] {
+        clone
+            .record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
+            .await
+            .unwrap();
+    }
+
+    assert_eq!(work.read(Row::AuditOpens), 1);
+}
+
+/// Each entry's event carries the line of an export that holds it: the
+/// same fields, its hash among them (#1886's E2-4).
+#[tokio::test]
+async fn an_entry_sends_its_event_with_its_line_of_an_export() {
+    let env = TestEnv::in_memory();
+    let lines = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sent = Arc::clone(&lines);
+    let log = log(&env).sending_to(Some(AuditEvents::new(move |_, line: &str| {
+        sent.lock().unwrap().push(line.to_owned());
+    })));
+    log.record(
+        &origin(),
+        &SECRET_REFERENCE_USED,
+        json!({ "reference": "env:SECRET", "domain": "example.com", "ratio": 1.5 }),
+        now(),
+    )
+    .await
+    .unwrap();
+    log.record_together(three_new(), now()).await.unwrap();
+
+    let sent: Vec<Value> = lines
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let exported: Vec<Value> = export::jsonl(&log.export().unwrap())
+        .iter()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!((sent.len(), sent), (4, exported));
+}
+
+/// A log whose writer's owner stopped, as an engine's stop ends its
+/// writer, answers that its writer is not running, and writes nothing more.
+#[tokio::test]
+async fn a_log_whose_owner_stopped_answers_its_writer_is_not_running() {
+    let env = TestEnv::in_memory();
+    let owner = owner();
+    let log = AuditLog::of(
+        &Home::new(env.home().to_path_buf()),
+        None,
+        Arc::clone(&owner),
+    );
+    log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
+        .await
+        .unwrap();
+    owner.stop().await;
+
+    let recorded = log
+        .record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
+        .await;
+
+    assert!(
+        matches!(recorded, Err(AuditError::Writer { .. })),
+        "{recorded:?}"
+    );
+    assert_eq!(log.export().unwrap().len(), 1);
+}
+
+/// A log written from a runtime of its own after the one its writer ran on
+/// ended, as a harness that builds a runtime per step writes it, starts its
+/// writer again and records, its owner still running.
+#[test]
+fn a_log_whose_writers_runtime_ended_records_from_the_next() {
+    let env = TestEnv::in_memory();
+    let log = log(&env);
+    let record = || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        runtime
+            .block_on(log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now()))
+            .map(|entry| entry.sequence)
+    };
+
+    let recorded = (record(), record());
+
+    assert_eq!(recorded, (Ok(1), Ok(2)));
+    assert_eq!(log.export().unwrap().len(), 2);
 }

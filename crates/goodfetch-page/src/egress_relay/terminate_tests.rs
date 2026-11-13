@@ -227,13 +227,20 @@ pub(super) struct Stores {
 pub(super) fn stores() -> Stores {
     let env = TestEnv::new();
     let home = Home::new(env.home().to_path_buf());
-    let store = KnownCertificates::of(&home, None);
+    let store = KnownCertificates::of(
+        &home,
+        None,
+        Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+    );
     let book = PinBook {
         store: store.clone(),
         person: PERSON.to_owned(),
         run_id: None,
-        audit: Arc::new(AuditLog::of(&home, None)),
-        owner: Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+        audit: Arc::new(AuditLog::of(
+            &home,
+            None,
+            Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+        )),
         clock: Clock::system(),
     };
     Stores {
@@ -522,15 +529,14 @@ fn a_pinned_host_that_presents_another_key_is_stopped_and_receives_nothing() {
     let stores = stores();
     let trusted = authority("Site authority");
     let other = KeyHash::of_public_key(b"another key");
-    stores
-        .store
-        .pin(
+    goodfetch_test_support::runtime()
+        .block_on(stores.store.pin(
             PERSON,
             "expired.listed.test",
             &other,
             None,
             jiff::Timestamp::UNIX_EPOCH,
-        )
+        ))
         .unwrap();
 
     let (through, shown, received, _) =
@@ -560,15 +566,14 @@ fn a_pinned_host_that_presents_another_key_is_stopped_and_receives_nothing() {
 fn a_damaged_pin_row_stops_the_host_as_a_changed_key() {
     let stores = stores();
     let trusted = authority("Site authority");
-    stores
-        .store
-        .pin(
+    goodfetch_test_support::runtime()
+        .block_on(stores.store.pin(
             PERSON,
             "expired.listed.test",
             &KeyHash::of_public_key(b"the pinned key"),
             None,
             jiff::Timestamp::UNIX_EPOCH,
-        )
+        ))
         .unwrap();
     rusqlite::Connection::open(stores.store.path())
         .unwrap()

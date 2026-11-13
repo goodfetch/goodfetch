@@ -461,6 +461,67 @@ fn a_write_the_audit_log_cannot_record_is_made_and_says_so() {
     );
 }
 
+/// Two user-level writes sent together, so the engine works them at once,
+/// both land and are both recorded: the first does not hold the lock beside
+/// the Operator policy while its entry waits for the Audit log's writer, so
+/// the second, under the Simulation's inline blocking policy on its one
+/// thread, does not wait on that lock for ever.
+///
+/// Covers: operation:config.user_write
+#[test]
+fn two_settings_writes_at_once_both_land_and_are_both_recorded() {
+    let env = TestEnv::new();
+
+    let replies = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            opened(&mut client, "kennel", "collie").await;
+            let user_write = |id: i64, key: &str, value: Value| {
+                json!({
+                    "jsonrpc": "2.0", "id": id, "method": "config.user_write",
+                    "params": { "changes": [{ "key": key, "value": value }] },
+                })
+            };
+            client
+                .send(&[
+                    user_write(1, "timeout.navigation", json!(45_000)),
+                    user_write(2, "timeout.run", json!(60_000)),
+                ])
+                .await;
+            let mut replies = Vec::new();
+            while replies.len() < 2 {
+                let message = client.next().await.unwrap();
+                if message.get("id").is_some() {
+                    replies.push(message);
+                }
+            }
+            replies
+        },
+    );
+
+    let written = std::fs::read_to_string(file(&env, USER_CONFIGURATION_FILE)).unwrap();
+    assert_eq!(
+        (
+            replies
+                .iter()
+                .map(|reply| reply["error"].clone())
+                .collect::<Vec<_>>(),
+            values_at(
+                &written,
+                &["settings.timeout.navigation", "settings.timeout.run"]
+            ),
+            recorded(&env, "user_configuration_written").len(),
+        ),
+        (
+            vec![Value::Null, Value::Null],
+            vec![json!(45_000), json!(60_000)],
+            2,
+        ),
+        "{replies:?}"
+    );
+}
+
 /// How long the other writer holds the lock waiting for the answer under
 /// test, at most.
 const HELD: Duration = Duration::from_millis(300);

@@ -6,6 +6,7 @@
 
 use std::collections::BTreeMap;
 
+use goodfetch_counted_work::{CountedWork, Row as CountedRow};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::Compatibility;
 use goodfetch_protocol::run::LimitSetter;
@@ -15,7 +16,9 @@ use goodfetch_test_support::{TestEnv, damage_table, wal_of};
 use jiff::Timestamp;
 use rstest::rstest;
 
-use super::{Charging, Holder, Ledger, LedgerError, Placement, Probed, Refusal, SliceSizing};
+use super::{
+    Charging, Holder, Ledger, LedgerError, Placement, Probed, Refusal, SliceId, SliceSizing,
+};
 
 mod allowance;
 mod managed;
@@ -200,6 +203,83 @@ fn a_runs_charges_read_its_limits_on_one_connection_and_still_meet_a_limit_set_m
         (true, true),
         "a hundred charges ran {hundred_charges} file operations, one open {one_open}"
     );
+}
+
+/// A run opens the ledger once for all its charges, the Slices they take,
+/// the Limits it reads back and its give-back (#1886, E3-4: each Slice
+/// taken opened the file and prepared its statements afresh).
+#[test]
+fn a_run_opens_the_ledger_once_for_its_charges_slices_reads_and_give_back() {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let ledger = ledger(&env);
+    ledger
+        .add_limit(&limit(install(), "requests", 1_000), now())
+        .unwrap();
+    let mut run = Charging::new(
+        ledger.clone().counting(work.clone()),
+        holder(&env, "crawl"),
+        placement(Product::Collie),
+        SliceSizing::default(),
+    );
+
+    let slices: std::collections::BTreeSet<SliceId> = (0..40)
+        .filter_map(|_| {
+            run.charge("requests", 1, now())
+                .unwrap()
+                .used
+                .first()
+                .map(|(slice, _)| *slice)
+        })
+        .collect();
+    run.allowed_by("requests", "USD").unwrap();
+    run.applied(now()).unwrap();
+    run.give_back().unwrap();
+    let applied = run.applied(now()).unwrap();
+
+    assert_eq!(
+        (
+            slices.len(),
+            applied.len(),
+            work.read(CountedRow::ChargeOpens),
+            counted(&ledger)
+        ),
+        (4, 1, 1, (40, 0, 960))
+    );
+}
+
+/// A run's charge that fails lets the run's connection go, and the next
+/// opens the file afresh rather than reading on a connection a failure may
+/// have left mid-transaction.
+#[test]
+fn a_runs_failed_charge_lets_its_connection_go() {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let ledger = ledger(&env);
+    ledger
+        .add_limit(&limit(install(), "requests", 1_000), now())
+        .unwrap();
+    let mut run = Charging::new(
+        ledger.clone().counting(work.clone()),
+        holder(&env, "crawl"),
+        placement(Product::Collie),
+        SliceSizing::default(),
+    );
+    run.charge("requests", 1, now()).unwrap();
+    damage_table(ledger.path(), "limits").unwrap();
+
+    let failed = [
+        run.charge("requests", 1, now()),
+        run.charge("requests", 1, now()),
+    ];
+
+    assert!(
+        failed
+            .iter()
+            .all(|charged| matches!(charged, Err(Refusal::Ledger(LedgerError::Storage { .. })))),
+        "{failed:?}"
+    );
+    assert_eq!(work.read(CountedRow::ChargeOpens), 2);
 }
 
 /// Covers: story:3-68, story:3-71

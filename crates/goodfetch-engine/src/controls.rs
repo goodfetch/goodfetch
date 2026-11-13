@@ -145,14 +145,18 @@ impl SwitchedOff {
 
     /// Reports each one for the new Run `run_id`, once: a chained entry in
     /// `audit`, recorded at `now`, and, for a switched-off control, a
-    /// warning through the host's logging. Blocks on the Audit log, which
-    /// appends the entries together, in one commit with one sync (#2110).
+    /// warning through the host's logging. The Audit log appends the
+    /// entries together, in one commit with one sync (#2110).
     ///
     /// # Errors
     ///
     /// When `audit` cannot be written; none of the switches is recorded
     /// then.
-    pub fn report(
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the switches recorded.
+    pub async fn report(
         &self,
         audit: &AuditLog,
         run_id: &RunId,
@@ -216,6 +220,6 @@ impl SwitchedOff {
             };
             entries.push(entry);
         }
-        audit.record_together(entries, now).map(drop)
+        audit.record_together(entries, now).await.map(drop)
     }
 }

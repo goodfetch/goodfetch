@@ -1,8 +1,7 @@
 use super::{check, strace_runs_of_other_work_set_aside};
 use crate::compare::matrix::{self, Row, Scenario};
 use crate::compare::trials::{
-    Comparison, CountedCell, CountedRun, Declared, GrowthCell, INSTRUCTION_TOOLS, Machine,
-    Measured, Tool, Trial, Work,
+    Comparison, CountedCell, CountedRun, INSTRUCTION_TOOLS, Measured, Tool, Work, fixture,
 };
 
 /// The work of a trial that fetched every page of the 4-page site once,
@@ -21,61 +20,11 @@ fn work(again: u64) -> Work {
 /// Three trials of each measured cell over the 4-page site, each with the
 /// work `work` gives its scenario and number.
 fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
-    let trials = matrix::measured()
-        .flat_map(|(cell, config)| {
-            let work = &work;
-            (1..=3).map(move |number| Trial {
-                scenario: cell.scenario,
-                cell: cell.name.to_owned(),
-                tool: config.tool(),
-                number,
-                site_pages: 4,
-                load: None,
-                retried: None,
-                measured: Measured {
-                    seconds: 1.0,
-                    work: work(cell.scenario, number),
-                    ..Measured::default()
-                },
-            })
-        })
-        .collect();
-    Comparison {
-        declared: Declared {
-            trials: 3,
-            statistic: "median".to_owned(),
-            concurrency: 16,
-            site: "/sites/4/1".to_owned(),
-            spider: "2.53.9".to_owned(),
-            crawlee: "3.18.2".to_owned(),
-            scrapy: "2.19.0".to_owned(),
-            playwright: "1.64.1".to_owned(),
-            scrapy_playwright: "0.0.48".to_owned(),
-            browser: "156.0.8078.4".to_owned(),
-            scenarios: Scenario::ALL.to_vec(),
-        },
-        machine: Machine {
-            class: "local-controlled".to_owned(),
-            os: "linux".to_owned(),
-            arch: "x86_64".to_owned(),
-            cpu: "a CPU".to_owned(),
-            threads: 16,
-            load: None,
-        },
-        commit: "0".repeat(40),
-        order_seed: 7,
-        trials,
-        stopped: Vec::new(),
-        syscalls: CountedCell::NotRun {
-            reason: "a test".to_owned(),
-        },
-        growth: GrowthCell::NotRun {
-            reason: "a test".to_owned(),
-        },
-        instructions: CountedCell::NotRun {
-            reason: "a test".to_owned(),
-        },
-    }
+    fixture::comparison(4, |cell, number| Measured {
+        seconds: 1.0,
+        work: work(cell.scenario, number),
+        ..Measured::default()
+    })
 }
 
 /// Each finding's kind and subject.

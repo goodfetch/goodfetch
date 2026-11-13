@@ -4,11 +4,17 @@
 //! panic's own text; its place in flight is given back, its Connection
 //! goes on, and the ops endpoint counts the panic. A Connection whose own
 //! task panics ends alone, as when its Client goes away, and an Attached
-//! engine ends with it. The panic comes from an extra operation the test
-//! hands the engine, or a task it starts on a Connection's owner, never
-//! from a switch in a Product.
+//! engine ends with it. A panic in a part every Run shares stops the
+//! engine and nothing is restarted: a Daemon drains its Runs and ends; an
+//! Attached engine stops its Runs for the panic, waiting for them at most
+//! its drain grace, and fails. Each such Run resumes by its Run ID. The
+//! panic comes from an extra operation the test hands the engine, or a task
+//! it starts on a Connection's or the engine's owner, never from a switch
+//! in a Product.
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,18 +26,25 @@ use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 use tokio::sync::oneshot;
+use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
 
-use super::daemon::{daemon, opened as daemon_opened, sdk_hello, the_pick};
+use super::daemon::{
+    TOKEN, cli_hello, daemon, daemon_within, draining, driven, opened as daemon_opened, sdk_hello,
+    stuck_handler, the_pick,
+};
 use super::ops::{metering, series};
-use super::run::{call, index_row};
+use super::run::{call, index_row, run_folder, run_row};
 use super::{
     Client, IN_FLIGHT_CAP, OWED, attached_on, attached_with, dependencies, engine_with, opened,
-    owed, request,
+    owed, records_of, request,
 };
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::crash_report::record_panics;
+use crate::engine::{Engine, serve_private_endpoint};
 use crate::mask::Masks;
+use crate::run_state::MAILBOX;
 use crate::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use crate::transport::{self, Connection, Network};
 
@@ -448,4 +461,415 @@ fn an_attached_engine_whose_serving_task_panics_ends() {
     });
 
     assert_eq!((cancelled(&sent, 1), closed), (true, true), "{sent:?}");
+}
+
+/// A call that starts a panicking task on the engine's own owner, as a
+/// part every Run shares would panic: the event stream, the governor's
+/// sampler, Politeness's store, the Needs-you list or a listener.
+const PANIC_IN_A_SHARED_PART: Operation = Operation {
+    name: "test.panic_in_a_shared_part",
+    description: "Panics in a part every Run shares.",
+    ..PANIC
+};
+
+fn panicking_parts() -> Contribution {
+    Contribution::new("test_panicking_parts").with_handler(Handler::new(
+        &PANIC_IN_A_SHARED_PART,
+        |_: Value, context: CallContext| async move {
+            context
+                .engine()
+                .owner()
+                .spawn(async { panic!("{PANIC_TEXT}") });
+            Ok::<Value, CallError>(json!({}))
+        },
+    ))
+}
+
+/// How the Daemon `engine` ended in `env` once a Client that started the
+/// Run `run_id` made a part every Run shares panic, and whether that
+/// Client's Connection closed; a Daemon still serving is asked to drain
+/// after the wait, so a Daemon that goes on ends too.
+fn daemon_panicked(engine: &Engine, env: &TestEnv, run_id: &str) -> (String, bool) {
+    let asked = CancellationToken::new();
+    let (end, closed) = daemon(engine, env, draining(&asked), |dialer| async move {
+        let mut client = daemon_opened(&dialer, cli_hello()).await;
+        call(&mut client, 1, "run.start", json!({ "run_id": run_id })).await;
+        client
+            .send(&[request(2, "test.panic_in_a_shared_part")])
+            .await;
+        let (_, closed) = until_closed(&mut client).await;
+        asked.cancel();
+        closed
+    });
+    (format!("{end:?}"), closed)
+}
+
+/// The report of the Run `run_id` in `env`, read by a new Attached engine,
+/// then the answer to `run.resume` with its Run ID.
+fn reported_then_resumed(env: &TestEnv, run_id: &str) -> (Value, Value) {
+    attached_on(
+        &engine_with(Product::Collie, None),
+        env,
+        |mut client: Client| async move {
+            opened(&mut client).await;
+            let report = call(&mut client, 1, "run.report", json!({ "run_id": run_id })).await;
+            let resumed = call(&mut client, 2, "run.resume", json!({ "run_id": run_id })).await;
+            client.close().await;
+            (report, resumed)
+        },
+    )
+}
+
+/// The codes of the warnings a Run's `report` answer carries.
+fn warnings(report: &Value) -> Vec<Value> {
+    report["result"]["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|warning| warning["code"].clone())
+        .collect()
+}
+
+/// A part every Run shares that panics stops a Daemon (ADR 0148): while
+/// its Runs' registry runs, it drains as on a requested drain, each live
+/// Run `stopped` for the drain and carrying the warning `engine_panicked`
+/// in its report, resumable by its Run ID, and ends as panicked, which its
+/// executable exits 1 on; the ops endpoint counts one panic that ended the
+/// engine.
+#[test]
+fn a_daemon_whose_shared_part_panics_drains_its_runs_and_ends() {
+    let env = TestEnv::new();
+    let (metrics, registry, _provider) = metering();
+    let engine = engine_with(Product::Collie, Some(panicking_parts())).with_metrics(metrics);
+
+    let (end, closed) = daemon_panicked(&engine, &env, "drained");
+
+    let stopped = run_row(&run_folder(&env, "drained"));
+    let (report, resumed) = reported_then_resumed(&env, "drained");
+    assert_eq!(
+        (
+            end,
+            closed,
+            stopped["lifecycle"].clone(),
+            stopped["stop_reason"].clone(),
+            warnings(&report),
+            resumed["result"]["started_as"].clone(),
+            series(&registry).contains(r#"goodfetch_engine_panics_total{ended="engine"} 1"#),
+        ),
+        (
+            "Panicked".to_owned(),
+            true,
+            json!("stopped"),
+            json!({ "kind": "drain" }),
+            vec![json!("engine_panicked")],
+            json!("resumed"),
+            true,
+        ),
+        "{report}"
+    );
+}
+
+/// A part every Run shares that panics stops an Attached engine, which
+/// has no drain (ADR 0148): it stops its Runs through the registry, as
+/// when its program goes away, each `stopped` for the engine's panic,
+/// never as aborted by its Client, with the warning `engine_panicked` in
+/// its report and resumable by its Run ID; its Connection closes and the
+/// engine returns its failure, which its executable exits 1 on, so its
+/// program reads `engine_exited` with that code.
+#[test]
+fn an_attached_engine_whose_shared_part_panics_stops_its_runs_and_fails() {
+    let env = TestEnv::new();
+    let (metrics, registry, _provider) = metering();
+    let engine = engine_with(Product::Collie, Some(panicking_parts())).with_metrics(metrics);
+
+    let (served, closed) = goodfetch_test_support::runtime().block_on(async {
+        let (network, dialer) = transport::in_memory();
+        let talk = async {
+            let (reader, writer) = dialer.connect().await.unwrap().split();
+            let mut client = Client {
+                lines: BufReader::new(reader).lines(),
+                writer,
+            };
+            opened(&mut client).await;
+            call(&mut client, 1, "run.start", json!({ "run_id": "stopped" })).await;
+            client
+                .send(&[request(2, "test.panic_in_a_shared_part")])
+                .await;
+            let (_, closed) = until_closed(&mut client).await;
+            if !closed {
+                client.close().await;
+            }
+            closed
+        };
+        let (served, closed) = tokio::join!(
+            engine.run_attached(Network::InMemory(network), dependencies(&env)),
+            talk
+        );
+        (format!("{served:?}"), closed)
+    });
+
+    let stopped = run_row(&run_folder(&env, "stopped"));
+    let (report, resumed) = reported_then_resumed(&env, "stopped");
+    assert_eq!(
+        (
+            served,
+            closed,
+            stopped["lifecycle"].clone(),
+            stopped["stop_reason"].clone(),
+            warnings(&report),
+            resumed["result"]["started_as"].clone(),
+            series(&registry).contains(r#"goodfetch_engine_panics_total{ended="engine"} 1"#),
+        ),
+        (
+            "Err(Panicked)".to_owned(),
+            true,
+            json!("stopped"),
+            json!({ "kind": "engine_panicked" }),
+            vec![json!("engine_panicked")],
+            json!("resumed"),
+            true,
+        ),
+        "{report}"
+    );
+}
+
+/// Where the engine's own records are logged.
+const ENGINE_TARGET: &str = "goodfetch_engine::engine";
+
+/// An Attached engine stopping on a panic in a part every Run shares waits
+/// for its Runs at most its drain grace (`daemon.drain_grace`, ADR 0148):
+/// a Run that has not stopped by then stays `running`, resumable from its
+/// run file; the engine logs how many it left so, and fails at the grace.
+#[test]
+fn an_attached_engine_that_panicked_fails_at_its_drain_grace_leaving_a_stuck_run_resumable() {
+    let env = TestEnv::new();
+    let grace = Duration::from_secs(30);
+    // Past the grace, a test whose engine still waits fails, never hangs.
+    let bound = grace + Duration::from_secs(60);
+    let engine = engine_with(
+        Product::Collie,
+        Some(panicking_parts().with_handler(stuck_handler())),
+    )
+    .with_drain_grace(grace);
+
+    let mut ended = None;
+    let records = records_of(ENGINE_TARGET, || {
+        ended = Some(goodfetch_test_support::runtime().block_on(async {
+            let (network, dialer) = transport::in_memory();
+            let dependencies = dependencies(&env);
+            let clock = dependencies.clock;
+            // When the Client asked for the panic, which the engine's wait
+            // is measured from.
+            let panic_asked = Cell::new(None);
+            let served = async {
+                tokio::select! {
+                    served = engine.run_attached(Network::InMemory(network), dependencies) => {
+                        let waited = panic_asked.get().map(|asked: Instant| asked.elapsed());
+                        Some((format!("{served:?}"), waited))
+                    }
+                    () = clock.sleep(bound) => None,
+                }
+            };
+            let talk = async {
+                let (reader, writer) = dialer.connect().await.unwrap().split();
+                let mut client = Client {
+                    lines: BufReader::new(reader).lines(),
+                    writer,
+                };
+                opened(&mut client).await;
+                call(&mut client, 1, "test.stuck", json!({ "run_id": "stuck" })).await;
+                panic_asked.set(Some(Instant::now()));
+                client
+                    .send(&[request(2, "test.panic_in_a_shared_part")])
+                    .await;
+                let _ =
+                    tokio::time::timeout(bound, async { while client.next().await.is_some() {} })
+                        .await;
+            };
+            tokio::join!(served, talk).0
+        }));
+    });
+
+    let served = ended.unwrap();
+    // Read before the Run resumes, which rewrites its row.
+    let lifecycle = run_row(&run_folder(&env, "stuck"))["lifecycle"].clone();
+    let (_, resumed) = reported_then_resumed(&env, "stuck");
+    assert_eq!(
+        (
+            served,
+            lifecycle,
+            resumed["result"]["started_as"].clone(),
+            records.iter().any(|record| record.contains("live_runs=1")),
+        ),
+        (
+            Some(("Err(Panicked)".to_owned(), Some(grace))),
+            json!("running"),
+            json!("resumed"),
+            true,
+        ),
+        "{records:#?}"
+    );
+}
+
+/// A call that cannot be cancelled and never answers.
+const NEVER_ANSWERS: Operation = Operation {
+    name: "test.never_answers",
+    description: "Never answers, whatever its cancellation.",
+    cancellable: false,
+    ..PANIC
+};
+
+/// An Attached engine's private endpoint stops at once, even while a call
+/// on one of its Connections cannot be cancelled and never answers: its
+/// stop waits for its accept loop alone, never for its Connections' calls,
+/// so the stop on a panic in a part every Run shares goes on to its Runs'
+/// stop, which the drain grace bounds (ADR 0148). The in-memory network
+/// serves an Attached engine no private endpoint, so the test serves one on
+/// an in-memory listener, as `run_attached` does on the OS.
+#[test]
+fn a_private_endpoints_stop_waits_for_no_call_of_its_connections() {
+    let env = TestEnv::new();
+    // Told once the call reached its handler.
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let reaching = Arc::clone(&reached);
+    let engine = engine_with(
+        Product::Collie,
+        Some(
+            Contribution::new("test_never_answers").with_handler(Handler::new(
+                &NEVER_ANSWERS,
+                move |_: Value, _: CallContext| {
+                    let reaching = Arc::clone(&reaching);
+                    async move {
+                        reaching.notify_one();
+                        std::future::pending::<Result<Value, CallError>>().await
+                    }
+                },
+            )),
+        ),
+    );
+
+    let waited = goodfetch_test_support::runtime().block_on(async {
+        let dependencies = dependencies(&env);
+        let clock = dependencies.clock;
+        let owner = TaskOwner::root(dependencies.blocking);
+        let (runs, events, context) = engine.start_runs(dependencies, &owner, None, None);
+        let (network, dialer) = transport::in_memory();
+        let (listener, _) = Network::InMemory(network)
+            .listen(Path::new("private"))
+            .await
+            .unwrap();
+        let accepting = owner.part("private endpoint");
+        serve_private_endpoint(
+            &accepting,
+            Arc::clone(&engine.dispatch),
+            listener,
+            Arc::from(TOKEN),
+            runs,
+            events,
+            context,
+        );
+        let mut client = daemon_opened(&dialer, cli_hello()).await;
+        client.send(&[request(1, "test.never_answers")]).await;
+        reached.notified().await;
+        let stopping = clock.now();
+        let waited = tokio::select! {
+            () = accepting.stop() => Some(clock.now() - stopping),
+            () = clock.sleep(Duration::from_secs(60)) => None,
+        };
+        owner.cancel();
+        waited
+    });
+
+    assert_eq!(waited, Some(Duration::ZERO));
+}
+
+/// Starts a Run whose run state takes no more writes, as one whose writer
+/// is wedged: the Run's task holds every place in its writer's queue, so
+/// the Runs' registry never finishes a command that writes to that Run.
+const WEDGED: Operation = Operation {
+    name: "test.wedged",
+    description: "Starts a Run whose run state takes no more writes.",
+    class: OperationClass::Effect,
+    ..PANIC
+};
+
+fn wedged_handler() -> Handler {
+    Handler::new(&WEDGED, |params: Value, context: CallContext| async move {
+        let run = driven(&context, &params).await;
+        let mut held = Vec::with_capacity(MAILBOX);
+        for _ in 0..MAILBOX {
+            held.push(run.state().reserve().await.unwrap());
+        }
+        run.spawn(async move {
+            let _held = held;
+            std::future::pending::<()>().await;
+        });
+        Ok::<Value, CallError>(json!({ "run_id": run.id().to_string() }))
+    })
+}
+
+/// Where the Daemon's own records are logged.
+const DAEMON_TARGET: &str = "goodfetch_engine::daemon";
+
+/// A Daemon stopping on a panic in a part every Run shares ends within its
+/// drain grace even when its Runs' registry never finishes the drain (ADR
+/// 0148): it asks the registry nothing more once the grace passed, logs
+/// that the registry did not answer, and its Run stays `running`,
+/// resumable from its run file.
+#[test]
+fn a_daemon_whose_registry_never_finishes_the_drain_ends_at_its_drain_grace() {
+    let env = TestEnv::new();
+    let engine = engine_with(
+        Product::Collie,
+        Some(panicking_parts().with_handler(wedged_handler())),
+    );
+    let asked = CancellationToken::new();
+    let options = draining(&asked);
+    let grace = options.drain.grace;
+    // The Client's calls before the panic take no time on the paused
+    // Clock, so a Daemon still serving a second past the grace overran it.
+    let bound = grace + Duration::from_secs(1);
+
+    let mut ended = None;
+    let records = records_of(DAEMON_TARGET, || {
+        ended = Some(daemon_within(
+            &engine,
+            &env,
+            BlockingPolicy::Inline,
+            options,
+            bound,
+            |dialer| async move {
+                let mut client = daemon_opened(&dialer, cli_hello()).await;
+                call(&mut client, 1, "test.wedged", json!({ "run_id": "wedged" })).await;
+                client
+                    .send(&[request(2, "test.panic_in_a_shared_part")])
+                    .await;
+                let _ =
+                    tokio::time::timeout(bound, async { while client.next().await.is_some() {} })
+                        .await;
+            },
+        ));
+    });
+
+    let (end, ()) = ended.unwrap();
+    // Read before the Run resumes, which rewrites its row.
+    let lifecycle = run_row(&run_folder(&env, "wedged"))["lifecycle"].clone();
+    let (_, resumed) = reported_then_resumed(&env, "wedged");
+    assert_eq!(
+        (
+            end.map(|end| format!("{end:?}")),
+            lifecycle,
+            resumed["result"]["started_as"].clone(),
+            records
+                .iter()
+                .any(|record| record.contains("registry did not answer")),
+        ),
+        (
+            Some("Panicked".to_owned()),
+            json!("running"),
+            json!("resumed"),
+            true,
+        ),
+        "{records:#?}"
+    );
 }

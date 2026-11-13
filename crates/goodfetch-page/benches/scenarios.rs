@@ -573,12 +573,21 @@ pub(crate) fn terminated() -> Terminated {
         .der()
         .to_vec();
     let book = goodfetch_engine::tls::PinBook {
-        store: goodfetch_engine::known_certificates::KnownCertificates::of(&home, None),
+        store: goodfetch_engine::known_certificates::KnownCertificates::of(
+            &home,
+            None,
+            Arc::new(goodfetch_engine::tasks::TaskOwner::root(
+                goodfetch_engine::tasks::BlockingPolicy::Inline,
+            )),
+        ),
         person: "os_user".to_owned(),
         run_id: None,
-        audit: Arc::new(goodfetch_engine::audit::AuditLog::of(&home, None)),
-        owner: Arc::new(goodfetch_engine::tasks::TaskOwner::root(
-            goodfetch_engine::tasks::BlockingPolicy::Inline,
+        audit: Arc::new(goodfetch_engine::audit::AuditLog::of(
+            &home,
+            None,
+            Arc::new(goodfetch_engine::tasks::TaskOwner::root(
+                goodfetch_engine::tasks::BlockingPolicy::Inline,
+            )),
         )),
         clock: goodfetch_engine::clock::Clock::system(),
     };

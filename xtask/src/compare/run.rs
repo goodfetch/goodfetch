@@ -42,6 +42,10 @@ pub(crate) struct Executables<'a> {
 
 /// What a run was asked for.
 pub(crate) struct Options {
+    /// The name the machine is given, which the report names it by.
+    pub(crate) machine: Option<String>,
+    /// The command that reruns the run, which the report gives.
+    pub(crate) command: String,
     /// Trials of each measured cell.
     pub(crate) trials: u32,
     /// Whether the growth cell runs.
@@ -98,12 +102,13 @@ fn order(
     order
 }
 
-/// The machine: OS and version, CPU, threads, and its load now.
+/// The machine: the name given it, OS and version, CPU, threads, memory,
+/// and its load now.
 #[expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: it asks the OS's own commands and files with blocking calls (STYLE.md)"
 )]
-fn machine() -> Machine {
+fn machine(name: Option<String>) -> Machine {
     let read = |program: &str, arguments: &[&str]| {
         Command::new(program)
             .args(arguments)
@@ -113,10 +118,11 @@ fn machine() -> Machine {
             .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
             .unwrap_or_default()
     };
-    let (os, cpu) = if cfg!(target_os = "macos") {
+    let (os, cpu, memory_bytes) = if cfg!(target_os = "macos") {
         (
             format!("macOS {}", read("sw_vers", &["-productVersion"])),
             read("sysctl", &["-n", "machdep.cpu.brand_string"]),
+            read("sysctl", &["-n", "hw.memsize"]).parse().ok(),
         )
     } else {
         let cpu = std::fs::read_to_string("/proc/cpuinfo")
@@ -127,18 +133,33 @@ fn machine() -> Machine {
                     .map(|rest| rest.trim_start_matches([' ', '\t', ':']).to_owned())
             })
             .unwrap_or_default();
+        // `MemTotal:       65843412 kB`, in KiB.
+        let memory_bytes = std::fs::read_to_string("/proc/meminfo")
+            .ok()
+            .and_then(|text| {
+                text.lines()
+                    .find_map(|line| line.strip_prefix("MemTotal:"))?
+                    .split_whitespace()
+                    .next()?
+                    .parse::<u64>()
+                    .ok()
+            })
+            .map(|kib| kib * 1024);
         (
             format!("{} {}", std::env::consts::OS, read("uname", &["-r"])),
             cpu,
+            memory_bytes,
         )
     };
     let load = load();
     Machine {
         class: "local-controlled".to_owned(),
+        name,
         os,
         arch: std::env::consts::ARCH.to_owned(),
         cpu,
         threads: std::thread::available_parallelism().map_or(0, std::num::NonZero::get),
+        memory_bytes,
         load,
     }
 }
@@ -655,6 +676,7 @@ fn declared(options: &Options) -> Declared {
         scrapy_playwright: SCRAPY_PLAYWRIGHT_VERSION.to_owned(),
         browser: crate::test_facts::CHROME_FOR_TESTING_BUILD.to_owned(),
         scenarios: options.scenarios.clone(),
+        command: options.command.clone(),
     }
 }
 
@@ -674,7 +696,7 @@ pub(crate) fn run(
     options: &Options,
     keep: &mut impl FnMut(&Comparison) -> Result<()>,
 ) -> Result<Comparison> {
-    let machine = machine();
+    let machine = machine(options.machine.clone());
     let order_seed = drawn_seed();
     let mut state = order_seed;
     let (trials, stopped) = timed(executables, options, SITE_PAGES, &mut state, "")?;

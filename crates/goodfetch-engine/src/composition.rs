@@ -67,9 +67,17 @@ pub struct CallContext {
 /// What only a streaming handler's or an input-taking handler's calls
 /// carry, behind one handle, so every other call's context stays the size
 /// it was with neither.
-struct CallChannels {
+pub(crate) struct CallChannels {
     stream: Option<CallStream>,
     input: Option<CallInput>,
+}
+
+impl CallChannels {
+    /// A call's `stream` when its handler streams, and `input` when it
+    /// takes input.
+    pub(crate) fn new(stream: Option<CallStream>, input: Option<CallInput>) -> Self {
+        Self { stream, input }
+    }
 }
 
 /// What every call of one Connection is given: the engine's identity, the
@@ -135,24 +143,20 @@ pub(crate) trait DaemonSide: Send + Sync {
 
 impl CallContext {
     /// The call `id` of `operation` on `connection`, cancelled through
-    /// `token`, with `stream` when its handler streams, and `input` when it
-    /// takes input.
+    /// `token`, with `channels` when its handler streams or takes input.
     pub(crate) fn new(
         connection: Arc<ConnectionContext>,
         operation: &'static Operation,
         id: RequestId,
         token: CancellationToken,
-        stream: Option<CallStream>,
-        input: Option<CallInput>,
+        channels: Option<CallChannels>,
     ) -> Self {
-        let channels =
-            (stream.is_some() || input.is_some()).then(|| Arc::new(CallChannels { stream, input }));
         Self {
             connection,
             operation,
             id,
             token,
-            channels,
+            channels: channels.map(Arc::new),
         }
     }
 

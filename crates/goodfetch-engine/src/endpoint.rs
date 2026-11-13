@@ -20,7 +20,6 @@
 
 use std::fmt::Write as _;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
 
 use goodfetch_protocol::audit::{
     Actor, ENDPOINT_AUTHENTICATION_FAILED, EndpointRefusal, Listener, RefusalReason,
@@ -29,7 +28,6 @@ use subtle::ConstantTimeEq as _;
 
 use crate::audit::{AuditLog, Origin};
 use crate::clock::Clock;
-use crate::tasks::TaskOwner;
 
 /// The `tracing` target of a listener's refusals.
 pub const REFUSAL_TARGET: &str = "goodfetch::rpc::refusal";
@@ -182,25 +180,18 @@ fn names_an_address(host: Option<&str>) -> bool {
 }
 
 /// Where a listener records its refusals: the user's Audit log, each entry
-/// written on the blocking policy of the engine's owner at the clock's wall
-/// time. A listener outside `transport`, such as a Session's proxy relay,
+/// at the clock's wall time. A listener outside `transport`, such as a Session's proxy relay,
 /// takes its Run's ([`crate::runs::Run::refusals`]).
 #[derive(Clone)]
 pub struct Refusals {
     audit: AuditLog,
-    owner: Arc<TaskOwner>,
     clock: Clock,
 }
 
 impl Refusals {
-    /// Refusals recorded in `audit`, written on `owner`'s blocking policy
-    /// at `clock`'s wall time.
-    pub fn new(audit: AuditLog, owner: Arc<TaskOwner>, clock: Clock) -> Self {
-        Self {
-            audit,
-            owner,
-            clock,
-        }
+    /// Refusals recorded in `audit` at `clock`'s wall time.
+    pub fn new(audit: AuditLog, clock: Clock) -> Self {
+        Self { audit, clock }
     }
 
     /// Logs and records that `listener` refused an attempt for `reason`,
@@ -216,27 +207,22 @@ impl Refusals {
             reason = reason.as_str(),
             "a listener refused an attempt"
         );
-        let audit = self.audit.clone();
+        let origin = Origin {
+            actor: Actor::Engine,
+            surface: None,
+            layer: None,
+            run_id: None,
+        };
+        let details = serde_json::to_value(EndpointRefusal { listener, reason })
+            .expect("invariant: a refusal's details serialize");
         let now = self.clock.timestamp();
-        self.owner
-            .blocking(move || {
-                let origin = Origin {
-                    actor: Actor::Engine,
-                    surface: None,
-                    layer: None,
-                    run_id: None,
-                };
-                if let Err(error) = audit.record(
-                    &origin,
-                    &ENDPOINT_AUTHENTICATION_FAILED,
-                    serde_json::to_value(EndpointRefusal { listener, reason })
-                        .expect("invariant: a refusal's details serialize"),
-                    now,
-                ) {
-                    tracing::error!(%error, "the Audit log did not record a listener's refusal");
-                }
-            })
-            .await;
+        if let Err(error) = self
+            .audit
+            .record(&origin, &ENDPOINT_AUTHENTICATION_FAILED, details, now)
+            .await
+        {
+            tracing::error!(%error, "the Audit log did not record a listener's refusal");
+        }
     }
 }
 

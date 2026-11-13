@@ -40,7 +40,6 @@ use crate::clock::Clock;
 use crate::host_name::{self, ListedDomains};
 use crate::known_certificates::{ExceptionKind, Found, KeyHash, KnownCertificates, Pinned};
 use crate::secrets::ExceptionHosts;
-use crate::tasks::TaskOwner;
 
 /// Where one person's pins are kept, and where a first pin is recorded.
 #[derive(Clone, Debug)]
@@ -54,8 +53,6 @@ pub struct PinBook {
     pub run_id: Option<RunId>,
     /// The user's Audit log, where each first pin is recorded.
     pub audit: Arc<AuditLog>,
-    /// Where the store's and the log's blocking calls run.
-    pub owner: Arc<TaskOwner>,
     /// What a first pin is dated by.
     pub clock: Clock,
 }
@@ -376,12 +373,7 @@ impl PinBook {
     /// What the store holds for `host`; a store it cannot read reads as an
     /// unreadable row, which stops the host.
     async fn find(&self, host: &str) -> Found {
-        let (store, person, host) = (self.store.clone(), self.person.clone(), host.to_owned());
-        match self
-            .owner
-            .blocking(move || store.find(&person, &host))
-            .await
-        {
+        match self.store.find(&self.person, host).await {
             Ok(found) => found,
             Err(error) => {
                 tracing::warn!(%error, "the known-certificates store cannot be read, so the host stops");
@@ -395,16 +387,9 @@ impl PinBook {
     /// written.
     async fn pin(&self, host: &str, key: &KeyHash, failure: &CertificateFailure) -> Option<Pinned> {
         let now = self.now();
-        let (store, person, written, run_id) = (
-            self.store.clone(),
-            self.person.clone(),
-            host.to_owned(),
-            self.run_id.clone(),
-        );
-        let key = *key;
         let pinned = match self
-            .owner
-            .blocking(move || store.pin(&person, &written, &key, run_id.as_ref(), now))
+            .store
+            .pin(&self.person, host, key, self.run_id.as_ref(), now)
             .await
         {
             Ok(pinned) => pinned,
@@ -428,16 +413,9 @@ impl PinBook {
     /// person; the host stays stopped when the store cannot be written.
     async fn record_change(&self, host: &str, key: &KeyHash) {
         let now = self.now();
-        let (store, person, host, run_id) = (
-            self.store.clone(),
-            self.person.clone(),
-            host.to_owned(),
-            self.run_id.clone(),
-        );
-        let key = *key;
         if let Err(error) = self
-            .owner
-            .blocking(move || store.record_change(&person, &host, &key, run_id.as_ref(), now))
+            .store
+            .record_change(&self.person, host, key, self.run_id.as_ref(), now)
             .await
         {
             tracing::warn!(%error, "the known-certificates store cannot keep a changed key");
@@ -447,19 +425,13 @@ impl PinBook {
     /// Records an entry of `kind` with `details` in the Audit log, by the
     /// engine for the Run.
     async fn record(&self, kind: &'static SharedTypeValue, details: Value) {
-        let now = self.now();
-        let audit = Arc::clone(&self.audit);
         let origin = Origin {
             actor: Actor::Engine,
             surface: None,
             layer: None,
             run_id: self.run_id.clone(),
         };
-        if let Err(error) = self
-            .owner
-            .blocking(move || audit.record(&origin, kind, details, now))
-            .await
-        {
+        if let Err(error) = self.audit.record(&origin, kind, details, self.now()).await {
             tracing::warn!(%error, kind = kind.name, "the Audit log cannot record a certificate exception");
         }
     }

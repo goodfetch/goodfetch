@@ -14,7 +14,8 @@ fn counted(limited: bool, planted: Option<&str>) -> Counted {
 }
 
 /// Covered charges and Slices taken are told apart: a covered charge opens
-/// nothing and commits nothing, and a Slice's transaction syncs.
+/// nothing and commits nothing, a Slice's transaction syncs, and the run's
+/// ledger opens once for all of them (#1886).
 #[test]
 fn a_covered_charge_and_a_slice_taken_each_count_their_own_work() {
     let default = counted(true, None);
@@ -23,7 +24,7 @@ fn a_covered_charge_and_a_slice_taken_each_count_their_own_work() {
     assert_eq!(default.statements, default.covered, "{default:?}");
     assert!(default.transactions >= default.slices, "{default:?}");
     assert!(default.syncs >= default.slices, "{default:?}");
-    assert!(default.opens >= default.slices, "{default:?}");
+    assert_eq!(default.opens, 1, "{default:?}");
 }
 
 /// Each row's plant adds one unit per its outcome, and nothing to the others'.

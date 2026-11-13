@@ -85,6 +85,8 @@ fn each_cells_trials_run_once_each_interleaved_with_the_others() {
 fn only_a_run_of_the_full_trials_waits_for_a_quiet_machine() {
     let waits = |trials| {
         super::waits_for_quiet(&super::Options {
+            machine: None,
+            command: "just compare release".to_owned(),
             trials,
             growth: false,
             spider_pages: None,

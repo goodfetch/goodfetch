@@ -825,6 +825,9 @@ export type StopReason =
       kind: "engine_lost";
     }
   | {
+      kind: "engine_panicked";
+    }
+  | {
       /**
        * For storage, the folder whose filesystem filled.
        */
@@ -6564,6 +6567,9 @@ export interface RunStopping {
     | NotUnderstoodLimit1
     | {
         kind: "engine_lost";
+      }
+    | {
+        kind: "engine_panicked";
       }
     | {
         /**

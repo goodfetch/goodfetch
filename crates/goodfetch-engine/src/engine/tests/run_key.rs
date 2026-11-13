@@ -783,7 +783,13 @@ fn a_run_resumed_with_the_audit_chain_off_writes_its_entries_unchained() {
         ..dependencies(&env)
     };
     let used = || {
-        let log = AuditLog::of(&Home::new(env.home().to_owned()), None);
+        let log = AuditLog::of(
+            &Home::new(env.home().to_owned()),
+            None,
+            Arc::new(crate::tasks::TaskOwner::root(
+                crate::tasks::BlockingPolicy::Inline,
+            )),
+        );
         assert!(log.verify().unwrap().intact, "the Audit log verifies");
         log.export()
             .unwrap()

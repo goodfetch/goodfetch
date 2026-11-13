@@ -119,9 +119,17 @@ async fn blocking<T: Send + 'static>(
     context: &CallContext,
     work: impl FnOnce() -> Result<T, Refused> + Send + 'static,
 ) -> Result<T, CallError> {
+    let owner = Arc::clone(context.engine().owner());
+    owner
+        .blocking(work)
+        .await
+        .map_err(|refused| call_error(refused, context))
+}
+
+/// The call's error for `refused`.
+fn call_error(refused: Refused, context: &CallContext) -> CallError {
     let engine = context.engine();
-    let owner = Arc::clone(engine.owner());
-    owner.blocking(work).await.map_err(|refused| match refused {
+    match refused {
         Refused::Settings(error) => {
             settings_error(&engine.settings().files().named_in(error), context)
         }
@@ -144,7 +152,7 @@ async fn blocking<T: Send + 'static>(
             ProtocolFailure::InternalError,
             format!("the settings file was written, but the Audit log cannot record it: {error}"),
         ),
-    })
+    }
 }
 
 async fn policy_read(
@@ -176,8 +184,8 @@ async fn policy_write(
     context: CallContext,
 ) -> Result<PolicyWritten, CallError> {
     let editor = SettingsEditor::of(&context);
-    blocking(&context, move || {
-        editor.edit(|draft| {
+    editor
+        .edit(move |draft| {
             let layer = SettingsLayer::OperatorPolicy;
             let current = policy_version(draft.found(layer)?.unwrap_or_default());
             let stale = current != params.digest;
@@ -230,8 +238,8 @@ async fn policy_write(
                 kind: &OPERATOR_POLICY_WRITTEN,
             })
         })
-    })
-    .await
+        .await
+        .map_err(|refused| call_error(refused, &context))
 }
 
 async fn user_write(
@@ -239,8 +247,8 @@ async fn user_write(
     context: CallContext,
 ) -> Result<UserConfigurationWritten, CallError> {
     let editor = SettingsEditor::resolving(&context).await;
-    blocking(&context, move || {
-        editor.edit(|draft| {
+    editor
+        .edit(move |draft| {
             let layer = SettingsLayer::UserConfiguration;
             draft.machine()?;
             let before = draft.user_configuration()?;
@@ -260,8 +268,8 @@ async fn user_write(
                 kind: &USER_CONFIGURATION_WRITTEN,
             })
         })
-    })
-    .await
+        .await
+        .map_err(|refused| call_error(refused, &context))
 }
 
 /// Each changed key once, in the order first changed, with its values

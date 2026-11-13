@@ -64,13 +64,16 @@ use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::log::LogEvents;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::settings::{Resolved, SettingsError, SettingsFiles, deployment_variable};
+use goodfetch_engine::settings::{
+    Resolved, SettingsError, SettingsFiles, deployment_variable, get_or_default,
+};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Composition, Dependencies, Engine, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::cli::ATTACHED_ENGINE;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::daemon::DRAIN_GRACE;
 use goodfetch_protocol::governor::HUGE_PAGES;
 use goodfetch_protocol::settings::{BROWSERS_PATH_VARIABLE, HOME_VARIABLE};
 use identity::{Refused, identity, refuse};
@@ -421,7 +424,10 @@ pub fn main(start: &Start) -> ExitCode {
         }
     };
     let engine = match Engine::new(identity, &(start.composition)()) {
-        Ok(engine) => instrumented(engine, log_events, logs.audit_events()).with_masks(masks),
+        // Settings that cannot be read keep the drain grace's default.
+        Ok(engine) => instrumented(engine, log_events, logs.audit_events())
+            .with_masks(masks)
+            .with_drain_grace(get_or_default(read, &DRAIN_GRACE)),
         Err(error) => {
             tracing::error!(%error, "the composition cannot start an engine");
             return ExitCode::FAILURE;
@@ -911,7 +917,7 @@ fn run_attached(
     match served {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            tracing::error!(%error, "the Attached engine got no Connection");
+            tracing::error!(%error, "the Attached engine failed");
             ExitCode::FAILURE
         }
     }

@@ -14,6 +14,7 @@
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::Path;
+use std::sync::Arc;
 
 use goodfetch_protocol::audit::Actor;
 use goodfetch_protocol::catalog::{ProtocolVersion, SharedTypeValue};
@@ -29,6 +30,7 @@ use crate::settings::{
     HostDefaults, Layers, MachineLayers, Policy, Settings, SettingsError, Values, arrived_in,
     operator_policy, resolve, set, user_configuration,
 };
+use crate::tasks::TaskOwner;
 
 /// The lock file beside the Operator policy, which each edit of the
 /// machine's settings files holds from its first read to its rename.
@@ -63,10 +65,20 @@ pub(crate) enum Change<T> {
     },
 }
 
+/// The change an edit made, which the Audit log records: from `layer`,
+/// `kind` with `details`.
+struct Made {
+    layer: SettingsLayer,
+    kind: &'static SharedTypeValue,
+    details: Value,
+}
+
 /// One call's editor of the machine's settings files: the engine's files,
-/// the Product version it writes them as, and the person, surface and time
-/// the Audit log records.
+/// the Product version it writes them as, the owner whose blocking policy
+/// its reads and writes run on, and the person, surface and time the Audit
+/// log records.
 pub(crate) struct SettingsEditor {
+    owner: Arc<TaskOwner>,
     settings: Settings,
     version: ProductVersion,
     /// The host's defaults the machine's layers resolve under, when the
@@ -86,6 +98,7 @@ impl SettingsEditor {
     pub(crate) fn of(context: &CallContext) -> Self {
         let engine = context.engine();
         Self {
+            owner: Arc::clone(engine.owner()),
             settings: engine.settings().clone(),
             version: context.identity().product_version.clone(),
             resolving: None,
@@ -115,18 +128,50 @@ impl SettingsEditor {
     /// Edits the machine's settings files under their lock: `change` reads
     /// them and drafts its keys on the [`Draft`] it is given; when it
     /// answers [`Change::Made`], each drafted file is read back, resolved
-    /// when the editor resolves, replaced and recorded. Blocking: run it on
-    /// the engine's blocking policy.
+    /// when the editor resolves and replaced; the lock released, the change
+    /// is recorded, so the lock is never held while the Audit log's writer
+    /// is awaited (two edits at once may then record in another order than
+    /// they wrote). The reads and writes run on the engine's blocking
+    /// policy.
     ///
     /// # Errors
     ///
     /// `change`'s own, and a [`Refused`] for a file that cannot be read,
     /// does not read back, does not resolve or cannot be written, nothing
     /// written then, or for a change made that the Audit log cannot record.
-    pub(crate) fn edit<T, E: From<Refused>>(
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave the change made, and recorded or not.
+    pub(crate) async fn edit<T, E>(
+        self,
+        change: impl FnOnce(&mut Draft<'_>) -> Result<Change<T>, E> + Send + 'static,
+    ) -> Result<T, E>
+    where
+        T: Send + 'static,
+        E: From<Refused> + Send + 'static,
+    {
+        let owner = Arc::clone(&self.owner);
+        let (editor, written) = owner
+            .blocking(move || {
+                let written = self.written(change);
+                (self, written)
+            })
+            .await;
+        let (answer, made) = written?;
+        if let Some(made) = made {
+            editor.record(made).await?;
+        }
+        Ok(answer)
+    }
+
+    /// Takes the lock, drafts `change`, writes what it made and releases
+    /// the lock, answering the answer and what the Audit log records.
+    /// Blocking.
+    fn written<T, E: From<Refused>>(
         &self,
         change: impl FnOnce(&mut Draft<'_>) -> Result<Change<T>, E>,
-    ) -> Result<T, E> {
+    ) -> Result<(T, Option<Made>), E> {
         let _lock = self.lock().map_err(Refused::File)?;
         let mut draft = Draft {
             editor: self,
@@ -135,7 +180,7 @@ impl SettingsEditor {
             user_configuration: None,
         };
         match change(&mut draft)? {
-            Change::Kept(answer) => Ok(answer),
+            Change::Kept(answer) => Ok((answer, None)),
             Change::Made {
                 answer,
                 layer,
@@ -144,8 +189,14 @@ impl SettingsEditor {
             } => {
                 draft.drafted(layer)?.changed = true;
                 draft.write()?;
-                self.record(layer, kind, details)?;
-                Ok(answer)
+                Ok((
+                    answer,
+                    Some(Made {
+                        layer,
+                        kind,
+                        details,
+                    }),
+                ))
             }
         }
     }
@@ -167,24 +218,20 @@ impl SettingsEditor {
         Ok(file)
     }
 
-    /// Records `kind` with `details`, from `layer`; its failure comes after
-    /// the change it records, which is made.
-    fn record(
-        &self,
-        layer: SettingsLayer,
-        kind: &SharedTypeValue,
-        details: Value,
-    ) -> Result<(), Refused> {
+    /// Records the change `made`; its failure comes after the change it
+    /// records, which is made.
+    async fn record(&self, made: Made) -> Result<(), Refused> {
         let origin = Origin {
             actor: Actor::Person {
                 name: self.person.clone(),
             },
             surface: Some(self.surface),
-            layer: Some(layer),
+            layer: Some(made.layer),
             run_id: None,
         };
         self.audit
-            .record(&origin, kind, details, self.now)
+            .record(&origin, made.kind, made.details, self.now)
+            .await
             .map(drop)
             .map_err(Refused::Unrecorded)
     }

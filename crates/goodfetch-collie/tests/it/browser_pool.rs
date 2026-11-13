@@ -226,6 +226,9 @@ fn storage_requests(proving_ground: &ProvingGround, prefix: &str) -> Vec<(String
         .collect()
 }
 
+/// `run.new_session` answers once the Session's browser context is made, in
+/// a browser launched for it when none of its Run had room, so the browsers
+/// are counted as each Run's last answer leaves them, with no wait (#2115).
 /// Covers: story:3-61, setting:governor.browser.contexts_per_process, operation:run.new_session
 #[cfg(unix)]
 #[test]
@@ -245,10 +248,10 @@ fn sessions_of_one_run_share_a_browser_process_up_to_its_contexts_and_never_anot
     for id in 2..5 {
         let _ = new_session(&mut engine, id, "shared");
     }
-    let one_run = browsers_once(&env, 2);
+    let one_run = browsers(&env);
     let other = engine.ask(5, "run.start", &json!({ "run_id": "other" }));
     let _ = new_session(&mut engine, 6, "other");
-    let two_runs = browsers_once(&env, 3);
+    let two_runs = browsers(&env);
     let _ = engine.ask(7, "run.finish", &json!({ "run_id": "other" }));
     let _ = engine.ask(8, "run.finish", &json!({ "run_id": "shared" }));
     let _ = engine.finish();

@@ -11,9 +11,11 @@
 )]
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use goodfetch_engine::home::Home;
 use goodfetch_engine::known_certificates::{KeyHash, KnownCertificates};
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::run::RunId;
 
 /// ADR 0059's test `Clock` start.
@@ -26,36 +28,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("invariant: xtask compat passes the output folder"),
     );
     let scratch = tempfile::tempdir()?;
-    let store = KnownCertificates::of(&Home::new(scratch.path().to_owned()), None);
+    let store = KnownCertificates::of(
+        &Home::new(scratch.path().to_owned()),
+        None,
+        Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+    );
     let start: jiff::Timestamp = START.parse()?;
-    store.pin(
-        "os_user",
-        "expired.certificates.test",
-        &KeyHash::of_public_key(b"the expired leaf's public key"),
-        Some(&RunId::parse("pinned-on-first-use")?),
-        start,
-    )?;
-    store.pin(
-        "os_user",
-        "intranet.example",
-        &KeyHash::of_public_key(b"the intranet's public key"),
-        None,
-        start,
-    )?;
-    store.pin(
-        "grace",
-        "intranet.example",
-        &KeyHash::of_public_key(b"the intranet's key as grace met it"),
-        None,
-        start,
-    )?;
-    store.record_change(
-        "os_user",
-        "expired.certificates.test",
-        &KeyHash::of_public_key(b"the expired leaf's changed key"),
-        Some(&RunId::parse("stopped-by-a-change")?),
-        start,
-    )?;
+    goodfetch_test_support::runtime().block_on(async {
+        store
+            .pin(
+                "os_user",
+                "expired.certificates.test",
+                &KeyHash::of_public_key(b"the expired leaf's public key"),
+                Some(&RunId::parse("pinned-on-first-use")?),
+                start,
+            )
+            .await?;
+        store
+            .pin(
+                "os_user",
+                "intranet.example",
+                &KeyHash::of_public_key(b"the intranet's public key"),
+                None,
+                start,
+            )
+            .await?;
+        store
+            .pin(
+                "grace",
+                "intranet.example",
+                &KeyHash::of_public_key(b"the intranet's key as grace met it"),
+                None,
+                start,
+            )
+            .await?;
+        store
+            .record_change(
+                "os_user",
+                "expired.certificates.test",
+                &KeyHash::of_public_key(b"the expired leaf's changed key"),
+                Some(&RunId::parse("stopped-by-a-change")?),
+                start,
+            )
+            .await?;
+        Ok::<_, Box<dyn std::error::Error>>(())
+    })?;
     let connection = rusqlite::Connection::open(store.path())?;
     std::fs::create_dir_all(&output)?;
     std::fs::write(

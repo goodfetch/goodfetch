@@ -53,6 +53,9 @@ pub const BASELINE_UNAVAILABLE: &str = "baseline_unavailable";
 pub const PLUGIN_QUANTITY_ABOVE_MAXIMUM: &str = "plugin_quantity_above_maximum";
 /// Usage figures come from a Plugin (ADR 0033).
 pub const PLUGIN_FIGURES: &str = "plugin_figures";
+/// The engine stopped the Run while it stopped on a panic in a part every
+/// Run shares (ADR 0148).
+pub const ENGINE_PANICKED: &str = "engine_panicked";
 
 const fn warning(name: &'static str, description: &'static str) -> SharedTypeValue {
     SharedTypeValue {
@@ -65,7 +68,7 @@ const fn warning(name: &'static str, description: &'static str) -> SharedTypeVal
 
 /// The warning codes both Products hand over to a Run's report (ADR
 /// 0102); Foxhound adds its own.
-pub const WARNING_CODES: [SharedTypeValue; 22] = [
+pub const WARNING_CODES: [SharedTypeValue; 23] = [
     warning(FINGERPRINT_NONE, "A Session ran with no fingerprint."),
     warning(
         FINGERPRINT_JS_INJECTION,
@@ -139,4 +142,8 @@ pub const WARNING_CODES: [SharedTypeValue; 22] = [
         "A Plugin reported a quantity above its declared maximum, recorded in full.",
     ),
     warning(PLUGIN_FIGURES, "Usage figures come from a Plugin."),
+    warning(
+        ENGINE_PANICKED,
+        "The engine stopped the Run as it stopped on a bug in a part every Run shares; a start with its Run ID resumes it.",
+    ),
 ];

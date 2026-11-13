@@ -7995,6 +7995,19 @@
           "type": "object"
         },
         {
+          "description": "Its Attached engine stopped on a panic in a part every Run shares,\nand stopped it first, resumable by its Run ID (ADR 0148); a Daemon\ndrains instead.",
+          "properties": {
+            "kind": {
+              "const": "engine_panicked",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
           "description": "The resource governor ran out of a resource for it, and it stopped\nat its next safe point, resumable (ADRs 0040 and 0122).",
           "properties": {
             "folder": {
@@ -13041,7 +13054,7 @@
       "authority": "machine",
       "clearable": false,
       "default": 110000,
-      "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
+      "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. An Attached engine that stops on a panic in a part every run shares waits as long for its runs to stop, leaving each one not stopped resumable from its run file, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
       "name": "daemon.drain_grace",
       "product": "collie",
       "products": [
@@ -15937,6 +15950,13 @@
       "name": "endpoint_authentication_failed",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The engine stopped the Run as it stopped on a bug in a part every Run shares; a start with its Run ID resumes it.",
+      "name": "engine_panicked",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",

@@ -117,7 +117,6 @@ fn crawl_settings(
                 "backoff": { "initial": BACKOFF_INITIAL_MS },
             },
             "site_preferences": { "respect_robots_txt": false },
-            "timeout": { "first_byte": 3_000, "navigation": 4_000 },
         }),
     );
     for (host, address) in extra {
@@ -315,7 +314,16 @@ fn a_failing_site_backs_its_domain_off_and_a_500_does_not(
     // which passes the site's HTTP/2 frames on. An invalid-certificate
     // exception would not: its host is reached over HTTP/1.1 alone, where
     // no `ENHANCE_YOUR_CALM` is sent.
-    let more = json!({});
+    //
+    // Only the timed-out case shortens the timeouts, to end soon. On a
+    // Session's first hop through browser-fetch, `timeout.first_byte` also
+    // bounds the launch of its browser (ADR 0020), so a short one on any
+    // other case could time that hop out on a loaded host: a timeout backs
+    // the domain off too, and the page would be met by no request.
+    let more = match page {
+        Page::TimedOut => json!({ "timeout": { "first_byte": 3_000, "navigation": 4_000 } }),
+        _ => json!({}),
+    };
     let mut engine = engine(&env);
 
     let finished = crawled(

@@ -58,7 +58,7 @@ use crate::clock::Clock;
 use crate::metrics::Metrics;
 use crate::sqlite_store::{
     self, Access, Counting, File, Folder, FormatRefusal, FullFsync, OpenError, Opening, Schema,
-    Synchronous, Wait, WalOnClose,
+    Synchronous, Wait, WalOnClose, run_cached,
 };
 use crate::tasks::TaskOwner;
 use wal_checkpointer::{WalCheckpointer, note_wal_pages, open_wal_checkpointer};
@@ -73,7 +73,7 @@ pub use batch::{BatchRows, BatchStatement, BatchWriter, SealRequest, SealedBatch
 pub(crate) use readers::RunStateReaders;
 
 /// How many writes wait for the writer before their callers wait.
-const MAILBOX: usize = 1024;
+pub(crate) const MAILBOX: usize = 1024;
 
 /// How long the writer's switch of a new file to WAL waits while another
 /// connection holds the file.
@@ -1541,14 +1541,6 @@ fn commit_writes(
             Err((completions, commit_error(path, &error)))
         }
     }
-}
-
-/// Runs `statement`, which binds nothing, through `connection`'s statement
-/// cache: the writer's transactions and savepoints prepare once per
-/// connection, not once per group or job, as rusqlite's own transactions
-/// do (ADR 0138).
-pub(crate) fn run_cached(connection: &Connection, statement: &str) -> rusqlite::Result<()> {
-    connection.prepare_cached(statement)?.execute([]).map(drop)
 }
 
 #[cfg(test)]

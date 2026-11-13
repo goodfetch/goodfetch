@@ -3,8 +3,8 @@
 //! highest trial of. `ahead` when every trial of the Product's is better
 //! than every trial of the competitor's, `behind` when every one is worse,
 //! otherwise `overlapping`: two ranges that cross are no ranking. A cell
-//! whose content no check read, or declared as not doing the Product's
-//! work, gets none.
+//! declared as not doing the Product's work gets none, and neither does a
+//! scenario whose content no check read.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -12,7 +12,7 @@ use std::fmt::Write as _;
 use serde::Serialize;
 
 use super::{CellReport, CellStatus, Figure, ROWS, ScenarioReport, cell_text};
-use crate::compare::matrix::{Row, Tool};
+use crate::compare::matrix::{Row, Scenario, Tool};
 
 /// One metric's verdict on the Product against a competitor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -31,8 +31,9 @@ pub(crate) struct Verdicts {
     pub(crate) metrics: BTreeMap<&'static str, Verdict>,
 }
 
-/// The metrics where more is better: every other metric is a cost, where
-/// less is.
+/// The metrics where more is better: every other metric of `ROWS` is a
+/// cost, where less is, so a metric added there where more is better is
+/// named here too.
 const MORE_IS_BETTER: &[&str] = &["pages_per_second", "pages"];
 
 /// The verdict on `metric` from the Product's figure and the competitor's,
@@ -72,7 +73,7 @@ fn judge(metric: &str, product: &Figure, competitor: &Figure) -> Option<Verdict>
 fn judged(cell: &CellReport) -> Option<&BTreeMap<&'static str, Figure>> {
     match &cell.status {
         CellStatus::Measured { metrics, .. }
-            if cell.row == Row::Main && !cell.content_unverified && cell.unlike_work.is_none() =>
+            if cell.row == Row::Main && cell.unlike_work.is_none() =>
         {
             Some(metrics)
         }
@@ -82,10 +83,14 @@ fn judged(cell: &CellReport) -> Option<&BTreeMap<&'static str, Figure>> {
     }
 }
 
-/// The verdicts of one scenario's cells.
-pub(super) fn of(cells: &[CellReport]) -> Vec<Verdicts> {
+/// The verdicts of `scenario`'s cells: none when no check read the content
+/// they wrote.
+pub(super) fn of(scenario: Scenario, cells: &[CellReport]) -> Vec<Verdicts> {
     let product = Tool::Foxhound.name();
     let mut verdicts = Vec::new();
+    if scenario.content_unverified() {
+        return verdicts;
+    }
     for (product_cell, product_metrics) in cells
         .iter()
         .filter(|cell| cell.tool == product)
@@ -122,9 +127,9 @@ fn pages(cell: Option<&CellReport>) -> String {
     }
 }
 
-/// A metric's figure in the cell `name` of `scenario`.
-fn figure<'a>(scenario: &'a ScenarioReport, name: &str, metric: &str) -> Option<&'a Figure> {
-    match &scenario.cells.iter().find(|cell| cell.cell == name)?.status {
+/// A metric's figure in `cell`.
+fn figure<'a>(cell: Option<&'a CellReport>, metric: &str) -> Option<&'a Figure> {
+    match &cell?.status {
         CellStatus::Measured { metrics, .. } => metrics.get(metric),
         CellStatus::NotSupported { .. } | CellStatus::NotMeasured { .. } => None,
     }
@@ -173,9 +178,9 @@ pub(super) fn markdown(text: &mut String, scenario: &ScenarioReport) {
                 Some(Verdict::Ahead) => "ahead".to_owned(),
                 Some(Verdict::Behind) => "behind".to_owned(),
                 Some(Verdict::Overlapping) => {
-                    let side = |cell: &str| {
-                        figure(scenario, cell, name).map_or_else(String::new, |figure| {
-                            format!("{cell} {}", cell_text(figure))
+                    let side = |side: &str| {
+                        figure(cell(side), name).map_or_else(String::new, |figure| {
+                            format!("{side} {}", cell_text(figure))
                         })
                     };
                     format!(

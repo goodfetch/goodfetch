@@ -1,6 +1,7 @@
 use clap::Parser;
 
-use super::{RunArguments, rerun};
+use super::of;
+use crate::compare::RunArguments;
 
 /// `xtask compare run`'s arguments, as the recipe and its caller give them.
 #[derive(Parser)]
@@ -23,7 +24,7 @@ fn rerun_of(arguments: &[&str]) -> String {
     ];
     let run = Run::try_parse_from(recipe.iter().chain(arguments))
         .expect("invariant: the test's arguments parse");
-    rerun(&run.arguments)
+    of(&run.arguments)
 }
 
 /// A run given only the recipe's arguments reruns with the recipe alone.

@@ -333,4 +333,6 @@ pub(crate) struct Comparison {
 }
 
 #[cfg(test)]
+pub(crate) mod fixture;
+#[cfg(test)]
 mod tests;

@@ -33,6 +33,7 @@ mod foxhound;
 mod matrix;
 mod observed;
 mod report;
+mod rerun;
 mod run;
 mod same_work;
 mod sampler;
@@ -53,11 +54,12 @@ use crate::test_tools::{Tool, ToolManifest};
 use matrix::Scenario;
 use trials::Comparison;
 
-/// Crawlee's side's script, Scrapy's and the trials file, as the recipe
-/// runs them.
+/// Crawlee's side's script, as the recipe runs it.
 const CRAWLEE: &str = "xtask/compare-crawlee/crawl.mjs";
+/// Scrapy's side's script, as the recipe runs it.
 const SCRAPY: &str = "xtask/compare-scrapy/crawl.py";
-const OUT: &str = "target/compare/trials.json";
+/// The trials file the recipe writes.
+const TRIALS_FILE: &str = "target/compare/trials.json";
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
@@ -104,7 +106,7 @@ pub(crate) struct RunArguments {
     #[arg(long, default_value = SCRAPY)]
     scrapy: PathBuf,
     /// The trials file written; the report goes beside it.
-    #[arg(long, default_value = OUT)]
+    #[arg(long, default_value = TRIALS_FILE)]
     out: PathBuf,
     /// Also runs the growth cell: each measured cell crawls the
     /// 100,000-page site, hours at `run_state.durability: full`.
@@ -127,69 +129,6 @@ pub(crate) struct RunArguments {
     /// product or model, not by its CPU's.
     #[arg(long)]
     machine: Option<String>,
-}
-
-/// `word` as one word of a POSIX shell's command: as it is when no
-/// character of it is special, otherwise in single quotes.
-fn quoted(word: &str) -> String {
-    let plain = !word.is_empty()
-        && word
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || "-_./=:,@%+".contains(character));
-    if plain {
-        word.to_owned()
-    } else {
-        format!("'{}'", word.replace('\'', r"'\''"))
-    }
-}
-
-/// The command that reruns a run started with `arguments`: `just compare`
-/// with the profile, then each argument given beyond the recipe's own
-/// (`--tools` and `--spider-builds`) whose value is not the default.
-fn rerun(arguments: &RunArguments) -> String {
-    let mut words = vec![
-        "just".to_owned(),
-        "compare".to_owned(),
-        arguments.spider_profile.clone(),
-    ];
-    let mut give = |flag: &str, value: Option<String>| {
-        words.push(flag.to_owned());
-        words.extend(value);
-    };
-    for scenario in &arguments.scenarios {
-        if let Some(value) = scenario.to_possible_value() {
-            give("--scenario", Some(value.get_name().to_owned()));
-        }
-    }
-    if arguments.trials != trials::TRIALS {
-        give("--trials", Some(arguments.trials.to_string()));
-    }
-    if arguments.growth {
-        give("--growth", None);
-    }
-    if let Some(pages) = arguments.spider_pages {
-        give("--spider-pages", Some(pages.to_string()));
-    }
-    if let Some(machine) = &arguments.machine {
-        give("--machine", Some(machine.clone()));
-    }
-    if let Some(browser) = &arguments.browser {
-        give("--browser", Some(browser.display().to_string()));
-    }
-    for (flag, path, default) in [
-        ("--crawlee", &arguments.crawlee, CRAWLEE),
-        ("--scrapy", &arguments.scrapy, SCRAPY),
-        ("--out", &arguments.out, OUT),
-    ] {
-        if path != Path::new(default) {
-            give(flag, Some(path.display().to_string()));
-        }
-    }
-    words
-        .iter()
-        .map(|word| quoted(word))
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 #[derive(Args)]
@@ -265,7 +204,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 String::from_utf8_lossy(&commit.stdout).trim().to_owned(),
                 &run::Options {
                     machine: arguments.machine.clone(),
-                    command: rerun(&arguments),
+                    command: rerun::of(&arguments),
                     trials: arguments.trials,
                     growth: arguments.growth,
                     spider_pages: arguments.spider_pages,
@@ -359,6 +298,3 @@ fn report(trials: &Comparison, trials_path: &Path) -> Result<ExitCode> {
     ));
     Ok(ExitCode::SUCCESS)
 }
-
-#[cfg(test)]
-mod tests;

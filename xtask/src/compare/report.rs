@@ -65,10 +65,8 @@ pub(crate) struct CellReport {
     pub(crate) row: Row,
     pub(crate) mapping: &'static str,
     pub(crate) pending: &'static [&'static str],
-    /// Whether no check read the content it wrote: it gets no verdict.
-    pub(crate) content_unverified: bool,
     /// Why it does not do the Product's work, when the matrix declares so:
-    /// it gets no verdict and no ratio.
+    /// it gets no verdict.
     pub(crate) unlike_work: Option<&'static str>,
     #[serde(flatten)]
     pub(crate) status: CellStatus,
@@ -102,6 +100,9 @@ pub(crate) enum CellStatus {
 pub(crate) struct ScenarioReport {
     pub(crate) scenario: Scenario,
     pub(crate) title: &'static str,
+    /// Whether no check read the content its cells wrote: none of them
+    /// gets a verdict.
+    pub(crate) content_unverified: bool,
     pub(crate) cells: Vec<CellReport>,
     pub(crate) verdicts: Vec<verdict::Verdicts>,
 }
@@ -637,7 +638,6 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
                 row: cell.row,
                 mapping: cell.mapping,
                 pending: cell.pending,
-                content_unverified: scenario.content_unverified(),
                 unlike_work: cell.unlike_work(),
                 status,
             });
@@ -645,7 +645,8 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
         scenarios.push(ScenarioReport {
             scenario,
             title: scenario.title(),
-            verdicts: verdict::of(&cells),
+            content_unverified: scenario.content_unverified(),
+            verdicts: verdict::of(scenario, &cells),
             cells,
         });
     }
@@ -706,7 +707,9 @@ fn column(cell: &CellReport) -> String {
     }
 }
 
-/// The metrics in the report's order, each with its group and label.
+/// The metrics in the report's order, each with its group and label. A
+/// metric where more is better is also named in `verdict`'s
+/// `MORE_IS_BETTER`; the verdicts read every other as a cost.
 const ROWS: &[(&str, &str)] = &[
     ("pages_per_second", "Throughput: pages per second"),
     ("first_page_seconds", "Throughput: time to the first page"),
@@ -838,7 +841,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                 let _ = writeln!(text, "  - pending: {pending}.");
             }
             if !matches!(cell.status, CellStatus::NotSupported { .. }) {
-                if cell.content_unverified {
+                if scenario.content_unverified {
                     text.push_str(
                         "  - content not verified: no check reads what it wrote, until #2136's \
                          output check lands; no verdict.\n",

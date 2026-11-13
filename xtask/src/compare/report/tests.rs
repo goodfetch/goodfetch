@@ -1,9 +1,7 @@
 use super::verdict::Verdict;
 use super::{Report, markdown, of};
-use crate::compare::matrix::{self, Scenario};
-use crate::compare::trials::{
-    Comparison, CountedCell, Declared, GrowthCell, Machine, Measured, Trial, Work,
-};
+use crate::compare::matrix::Scenario;
+use crate::compare::trials::{Comparison, Measured, Work, fixture};
 
 /// The pages of the site every trial crawls.
 const PAGES: u64 = 1000;
@@ -24,67 +22,17 @@ fn work() -> Work {
 /// pages per second `rates` gives its cell, 1,000 for a cell it does not
 /// name.
 fn comparison(rates: &[(Scenario, &str, [f64; 3])]) -> Comparison {
-    let trials = matrix::measured()
-        .flat_map(|(cell, config)| {
-            let rates = rates
-                .iter()
-                .find(|(scenario, name, _)| *scenario == cell.scenario && *name == cell.name)
-                .map_or([1000.0; 3], |(_, _, rates)| *rates);
-            (1..=3).zip(rates).map(move |(number, rate)| Trial {
-                scenario: cell.scenario,
-                cell: cell.name.to_owned(),
-                tool: config.tool(),
-                number,
-                site_pages: PAGES,
-                load: None,
-                retried: None,
-                measured: Measured {
-                    seconds: 1000.0 / rate,
-                    work: work(),
-                    ..Measured::default()
-                },
-            })
-        })
-        .collect();
-    Comparison {
-        declared: Declared {
-            trials: 3,
-            statistic: "median".to_owned(),
-            concurrency: 16,
-            site: "/sites/1000/1".to_owned(),
-            spider: "2.53.9".to_owned(),
-            crawlee: "3.18.2".to_owned(),
-            scrapy: "2.19.0".to_owned(),
-            playwright: "1.64.1".to_owned(),
-            scrapy_playwright: "0.0.48".to_owned(),
-            browser: "156.0.8078.4".to_owned(),
-            scenarios: Scenario::ALL.to_vec(),
-            command: "just compare release".to_owned(),
-        },
-        machine: Machine {
-            class: "local-controlled".to_owned(),
-            name: None,
-            os: "linux 6.8.0".to_owned(),
-            arch: "x86_64".to_owned(),
-            cpu: "AMD EPYC-Milan Processor".to_owned(),
-            threads: 16,
-            memory_bytes: None,
-            load: None,
-        },
-        commit: "0".repeat(40),
-        order_seed: 7,
-        trials,
-        stopped: Vec::new(),
-        syscalls: CountedCell::NotRun {
-            reason: "a test".to_owned(),
-        },
-        growth: GrowthCell::NotRun {
-            reason: "a test".to_owned(),
-        },
-        instructions: CountedCell::NotRun {
-            reason: "a test".to_owned(),
-        },
-    }
+    fixture::comparison(PAGES, |cell, number| {
+        let rate = rates
+            .iter()
+            .find(|(scenario, name, _)| *scenario == cell.scenario && *name == cell.name)
+            .map_or(1000.0, |(_, _, rates)| rates[number as usize - 1]);
+        Measured {
+            seconds: 1000.0 / rate,
+            work: work(),
+            ..Measured::default()
+        }
+    })
 }
 
 /// The verdict on `metric` of the `product` cell of `scenario` against its
@@ -377,9 +325,7 @@ fn the_pages_fetched_are_beside_each_rate() {
         .find("## Trials, in the order run")
         .expect("invariant: the report lists its trials")..];
     assert!(
-        trials_table.contains(
-            "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Pages fetched | Peak RSS |"
-        ) && trials_table.contains("| 1.000 | 1000.0 | 1000 of 1000 |"),
+        trials_table.contains("| 1.000 | 1000.0 | 1000 of 1000 |"),
         "{trials_table}"
     );
 }

@@ -19,8 +19,8 @@ const MARKDOWN: &str = "target/compare/report.md";
 const MIB: u64 = 1024 * 1024;
 
 /// The measured cells: each tool's main rows by scenario, then Spider's
-/// sensitivity rows.
-const CELLS: [(&str, &str, &str); 26] = [
+/// sensitivity rows and Foxhound's `auto` row.
+const CELLS: [(&str, &str, &str); 27] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
     ("raw", "crawlee", "crawlee"),
@@ -47,18 +47,26 @@ const CELLS: [(&str, &str, &str); 26] = [
     ("raw", "spider bloom", "spider"),
     ("raw", "spider jemalloc", "spider"),
     ("extraction", "spider mimalloc", "spider"),
+    ("polite", "foxhound auto", "foxhound"),
 ];
 
-/// The work of a trial that fetched each page of the 1,000-page site once,
+/// The pages of `scenario`'s site: the polite scenario's multi-domain site
+/// holds 10 pages on each of its 1,000 domains (#2283), every other the
+/// declared 1,000.
+fn site_pages(scenario: &str) -> u64 {
+    if scenario == "polite" { 10_000 } else { 1000 }
+}
+
+/// The work of a trial that fetched each page of a site of `pages` once,
 /// 600 bytes each, and `again` pages a second time.
-fn work(again: u64) -> Value {
+fn work_on(pages: u64, again: u64) -> Value {
     json!({
-        "pages": 1000,
+        "pages": pages,
         "missing": [],
         "extra": [],
-        "requests": 1000 + again,
-        "bytes": 600 * (1000 + again),
-        "first_bytes": 600_000,
+        "requests": pages + again,
+        "bytes": 600 * (pages + again),
+        "first_bytes": 600 * pages,
     })
 }
 
@@ -81,7 +89,7 @@ fn trial(
         "cell": cell,
         "tool": tool,
         "number": number,
-        "site_pages": 1000,
+        "site_pages": site_pages(scenario),
         "concurrency": 16,
         "seconds": seconds,
         "processes": if scenario == "durable" { 2 } else { 1 },
@@ -120,26 +128,37 @@ fn trial(
     })
 }
 
+/// Trial `number` of `cell`, in `seconds` at `peak_bytes`, over its
+/// scenario's site: a durable trial fetched `number` pages again after its
+/// kill, and Foxhound's `auto` row 3,000 pages twice, its samples.
+fn cell_trial(
+    scenario: &str,
+    cell: &str,
+    tool: &str,
+    number: u32,
+    seconds: f64,
+    peak_bytes: u64,
+) -> Value {
+    let again = match (scenario, cell) {
+        ("durable", _) => u64::from(number),
+        (_, "foxhound auto") => 3000,
+        _ => 0,
+    };
+    let work = work_on(site_pages(scenario), again);
+    let mut trial = trial(scenario, cell, tool, number, seconds, peak_bytes, &work);
+    if cell == "foxhound auto" {
+        trial["sample_pages"] = json!(3000);
+    }
+    trial
+}
+
 /// A cell's three trials: in 1, 2 and 4 seconds at 20, 30 and 10 MiB.
 fn cell_trials(scenario: &str, cell: &str, tool: &str) -> Vec<Value> {
     [(1.0, 20), (2.0, 30), (4.0, 10)]
         .into_iter()
         .zip(1..)
         .map(|((seconds, mib), number)| {
-            let again = if scenario == "durable" {
-                u64::from(number)
-            } else {
-                0
-            };
-            trial(
-                scenario,
-                cell,
-                tool,
-                number,
-                seconds,
-                mib * MIB,
-                &work(again),
-            )
+            cell_trial(scenario, cell, tool, number, seconds, mib * MIB)
         })
         .collect()
 }
@@ -200,7 +219,7 @@ fn run(scenario: &str, cell: &str, tool: &str, number: u32, count: u64, syncs: u
         "number": number,
         "count": count,
         "syncs": syncs,
-        "work": work(0),
+        "work": work_on(site_pages(scenario), 0),
     })
 }
 
@@ -552,6 +571,7 @@ fn each_measured_cell_reports_every_metric_of_the_owners_list() {
         "duplicates",
         "errors",
         "skipped",
+        "sample_share",
     ] {
         assert!(names.contains(&name), "{name} missing from {names:?}");
     }
@@ -794,7 +814,16 @@ fn the_polite_extraction_and_browser_scenarios_report_every_metric_of_each_cell(
         [&json!("polite"), &json!("extraction"), &json!("browser")]
     );
     for (index, cells) in [
-        (2, &["foxhound", "crawlee", "scrapy", "crawlee-rs"][..]),
+        (
+            2,
+            &[
+                "foxhound",
+                "crawlee",
+                "scrapy",
+                "crawlee-rs",
+                "foxhound auto",
+            ][..],
+        ),
         (
             3,
             &["foxhound", "spider", "crawlee", "scrapy", "crawlee-rs"][..],
@@ -819,7 +848,7 @@ fn the_polite_extraction_and_browser_scenarios_report_every_metric_of_each_cell(
     );
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
-        "## 3. Polite: robots.txt obeyed, 1 in flight per domain, 1 s delay, on the multi-domain site (50 domains)",
+        "## 3. Polite: robots.txt obeyed, 1 in flight per domain, 1 s delay, on the multi-domain site (10,000 pages on 1,000 domains)",
         "## 4. Extraction to a dataset",
         "## 5. Headless browser",
         "- **crawlee**: `CheerioCrawler` with `sameDomainDelaySecs: 1`, `respectRobotsTxtFile: true`",
@@ -831,6 +860,45 @@ fn the_polite_extraction_and_browser_scenarios_report_every_metric_of_each_cell(
             "{expected} missing:\n{markdown}"
         );
     }
+}
+
+/// The polite scenario's `auto` row (#2283) reports the share of its pages
+/// that were samples, and is held to its pages' first answers, its samples
+/// fetched twice; every other cell says why it has no share.
+#[test]
+fn the_polite_auto_row_reports_the_share_of_its_pages_that_were_samples() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    trials["syscalls"] = strace();
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let report = written(&workspace);
+    assert_eq!(
+        (
+            &cell(&report, 2, "foxhound auto")["row"],
+            &cell(&report, 2, "foxhound auto")["metrics"]["sample_share"],
+            &cell(&report, 2, "foxhound")["metrics"]["sample_share"]["status"],
+        ),
+        (
+            &json!("sensitivity"),
+            &json!({ "status": "measured", "median": 0.3, "low": 0.3, "high": 0.3, "unit": "share" }),
+            &json!("not_measured"),
+        )
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    let expected = "| Tiers: share of the pages that were samples | not measured: it fetches no \
+                    sample: only Foxhound's `auto` row does | 30.0 % (30.0 %–30.0 %) |";
+    assert!(
+        markdown.contains(expected),
+        "{expected} missing:\n{markdown}"
+    );
 }
 
 /// Each trial records the 1-minute load it started at, which the trials
@@ -858,7 +926,7 @@ fn the_report_shows_the_load_each_trial_started_at() {
          Peak RSS |",
         "| raw | foxhound | 1 | 6.50 | 1.000 |",
         "| raw | foxhound | 2 | 1.25 | 2.000 |",
-        "1 of the 78 timed trials started above a 1-minute load of 4.",
+        "1 of the 81 timed trials started above a 1-minute load of 4.",
     ] {
         assert!(
             markdown.contains(expected),
@@ -1126,10 +1194,7 @@ fn a_report_of_fewer_than_10_trials_says_it_falls_short() {
     ten["trials"] = CELLS
         .iter()
         .flat_map(|(scenario, cell, tool)| {
-            (1..=10).map(move |number| {
-                let again = u64::from(*scenario == "durable");
-                trial(scenario, cell, tool, number, 2.0, 20 * MIB, &work(again))
-            })
+            (1..=10).map(move |number| cell_trial(scenario, cell, tool, number, 2.0, 20 * MIB))
         })
         .collect();
 

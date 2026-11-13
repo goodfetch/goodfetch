@@ -286,6 +286,10 @@ pub(crate) struct Measured {
     /// links it (the start, for the first page), to its end.
     pub(crate) latency: Percentiles,
     pub(crate) latency_end: Option<LatencyEnd>,
+    /// The pages whose Record came from a sample's browser run, for a row
+    /// that leaves Foxhound's `fetch.tier` at `auto`; none for another.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) sample_pages: Option<u64>,
 }
 
 /// One run of a counted cell: one cell's tool in a fresh process under a

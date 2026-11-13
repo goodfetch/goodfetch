@@ -44,6 +44,8 @@ struct Pass<'a> {
     /// nothing, as a finding names the cell.
     suffix: String,
     declared: u32,
+    /// The pages of the comparison's site, from which each scenario's
+    /// ([`Scenario::site_pages`]).
     site_pages: u64,
     /// The scenarios whose measured cells the pass runs, those cells'
     /// tools, and whether it runs their sensitivity rows beside their main
@@ -98,6 +100,15 @@ fn of_runs(runs: &[CountedRun]) -> Vec<Done<'_>> {
 fn is_main(done: &Done<'_>) -> bool {
     matrix::measured().any(|(cell, _)| {
         cell.scenario == done.scenario && cell.name == done.cell && cell.row == Row::Main
+    })
+}
+
+/// Whether a trial's row fetches some of its pages twice, on `http` and
+/// then in a browser: Foxhound's with `fetch.tier` left at `auto`, whose
+/// samples do (#2283).
+fn samples(done: &Done<'_>) -> bool {
+    matrix::measured().any(|(cell, config)| {
+        cell.scenario == done.scenario && cell.name == done.cell && config.samples()
     })
 }
 
@@ -297,7 +308,10 @@ fn short_or_past(pass: &Pass<'_>) -> Vec<Finding> {
 
 /// Every trial of a pass that did other work, with its finding: each whose
 /// pages are not the site's, and every other whose work is not the one
-/// most of its scenario's trials share.
+/// most of its scenario's trials share. A trial of a scenario that resumes,
+/// or of a row whose samples fetch pages twice, is held to the pages first
+/// served and their bytes; every other to the requests served and their
+/// bytes.
 fn other_work<'a, 'b>(pass: &'a Pass<'b>) -> Vec<(&'a Done<'b>, Finding)> {
     let mut findings = Vec::new();
     for scenario in pass.scenarios {
@@ -341,39 +355,46 @@ fn other_work<'a, 'b>(pass: &'a Pass<'b>) -> Vec<(&'a Done<'b>, Finding)> {
                 ),
             ));
         }
-        let key = |work: &Work| {
-            if scenario.resumes() {
+        let first_served = |done: &Done<'_>| scenario.resumes() || samples(done);
+        let key = |work: &Work, first_served: bool| {
+            if first_served {
                 (work.pages, work.first_bytes)
             } else {
                 (work.requests, work.bytes)
             }
         };
-        let what = if scenario.resumes() {
-            "pages first served"
-        } else {
-            "requests served"
-        };
         // The work most of the main rows' trials that fetched the site
-        // share; none when two values are shared by as many trials. A
-        // sensitivity row is held to it without a vote: Spider's would
-        // outnumber the other tools' rows together.
-        let mut shared: BTreeMap<(u64, u64), usize> = BTreeMap::new();
-        for done in whole.iter().filter(|done| is_main(done)) {
-            *shared.entry(key(done.work)).or_default() += 1;
-        }
-        let most = shared.values().copied().max().unwrap_or(0);
-        let mut held = shared.iter().filter(|(_, count)| **count == most);
-        let reference = match (held.next(), held.next()) {
-            (Some((work, count)), None) => Some((*work, *count)),
-            _ => None,
+        // share, by either key; none when two values are shared by as many
+        // trials. A sensitivity row is held to it without a vote: Spider's
+        // would outnumber the other tools' rows together.
+        let held = |first_served: bool| {
+            let mut shared: BTreeMap<(u64, u64), usize> = BTreeMap::new();
+            for done in whole.iter().filter(|done| is_main(done)) {
+                *shared.entry(key(done.work, first_served)).or_default() += 1;
+            }
+            let most = shared.values().copied().max().unwrap_or(0);
+            let mut held = shared.iter().filter(|(_, count)| **count == most);
+            let reference = match (held.next(), held.next()) {
+                (Some((work, count)), None) => Some((*work, *count)),
+                _ => None,
+            };
+            (reference, shared.values().sum::<usize>())
         };
+        let by_requests = held(false);
+        let by_pages = held(true);
         for done in whole {
-            let (count, bytes) = key(done.work);
+            let first_served = first_served(done);
+            let (reference, voters) = if first_served { by_pages } else { by_requests };
+            let what = if first_served {
+                "pages first served"
+            } else {
+                "requests served"
+            };
+            let (count, bytes) = key(done.work, first_served);
             let message = match reference {
                 Some((work, _)) if work == (count, bytes) => continue,
                 Some(((held_count, held_bytes), trials)) => format!(
-                    "{count} {what} {bytes} bytes, where {trials} of the main rows' {} trials that fetched the site had {held_count} {what} {held_bytes}",
-                    shared.values().sum::<usize>()
+                    "{count} {what} {bytes} bytes, where {trials} of the main rows' {voters} trials that fetched the site had {held_count} {what} {held_bytes}"
                 ),
                 None => format!(
                     "{count} {what} {bytes} bytes, and no count and bytes is shared by more trials than another"
@@ -435,8 +456,11 @@ pub(crate) fn strace_runs_of_other_work_set_aside(trials: &mut Comparison) {
                 .tool,
             number: done.number,
             reason: format!(
-                "under `strace -f`, run {} did other work, reaching {} of the site's {pages} pages: {}",
-                done.number, done.work.pages, finding.message
+                "under `strace -f`, run {} did other work, reaching {} of the site's {} pages: {}",
+                done.number,
+                done.work.pages,
+                done.scenario.site_pages(pages),
+                finding.message
             ),
         });
     }

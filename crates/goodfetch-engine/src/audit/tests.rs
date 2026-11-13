@@ -725,3 +725,25 @@ async fn a_log_whose_owner_stopped_answers_its_writer_is_not_running() {
     );
     assert_eq!(log.export().unwrap().len(), 1);
 }
+
+/// A log written from a runtime of its own after the one its writer ran on
+/// ended, as a harness that builds a runtime per step writes it, starts its
+/// writer again and records, its owner still running.
+#[test]
+fn a_log_whose_writers_runtime_ended_records_from_the_next() {
+    let env = TestEnv::in_memory();
+    let log = log(&env);
+    let record = || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        runtime
+            .block_on(log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now()))
+            .map(|entry| entry.sequence)
+    };
+
+    let recorded = (record(), record());
+
+    assert_eq!(recorded, (Ok(1), Ok(2)));
+    assert_eq!(log.export().unwrap().len(), 2);
+}

@@ -612,15 +612,15 @@ impl Engine {
         };
         let mut private_files = None;
         if let Some((listener, _, files)) = private {
-            accepting.spawn(serve_private_endpoint(
+            serve_private_endpoint(
+                &accepting,
                 Arc::clone(&self.dispatch),
                 listener,
                 Arc::from(files.token()),
-                accepting.child(),
                 runs.clone(),
                 events,
                 context,
-            ));
+            );
             private_files = Some(files);
         }
         let panicked = owner.panicked();
@@ -839,10 +839,37 @@ async fn stop_runs_on_panic(runs: &Runs, grace: impl Future<Output = ()>) {
     }
 }
 
-/// Serves every Connection of an Attached engine's private endpoint, each
-/// opening with a `hello` that carries `token`, its tasks children of
-/// `owner`, until the listener fails or `owner` stops.
-async fn serve_private_endpoint(
+/// Serves every Connection of an Attached engine's private endpoint on
+/// `listener`, each opening with a `hello` that carries `token`, until the
+/// listener fails or `accepting` stops. `accepting` runs the accept loop
+/// alone: each Connection and its calls belong to an owner under it, so
+/// `accepting`'s stop waits for no call, even one that cannot be cancelled,
+/// and an engine stopping on a panic goes on to its Runs' stop at once (ADR
+/// 0148).
+fn serve_private_endpoint(
+    accepting: &TaskOwner,
+    dispatch: Arc<Dispatch>,
+    listener: DaemonListener,
+    token: Arc<str>,
+    runs: Runs,
+    events: Events,
+    context: EngineContext,
+) {
+    accepting.spawn(accept_private_connections(
+        dispatch,
+        listener,
+        token,
+        accepting.child(),
+        runs,
+        events,
+        context,
+    ));
+}
+
+/// The private endpoint's accept loop: serves every Connection on
+/// `listener`, its tasks children of `owner`, until the listener fails or
+/// `owner` is cancelled, never waiting for those tasks.
+async fn accept_private_connections(
     dispatch: Arc<Dispatch>,
     listener: DaemonListener,
     token: Arc<str>,

@@ -504,7 +504,7 @@ mod linux {
     use goodfetch_engine::clock::Clock;
     use goodfetch_engine::dns::{HostMapping, ResolverConfiguration};
     use goodfetch_engine::tls::{CertificateExceptions, Trust};
-    use goodfetch_fetch_tier::{Hop, Reuse, TransportConfig, TransportFailure};
+    use goodfetch_fetch_tier::{Hop, Reuse, Sent, Transport, TransportConfig, TransportFailure};
     use goodfetch_test_support::{DnsNamespace, ProvingGround, TestEnv};
     use rstest::rstest;
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -616,16 +616,7 @@ mod linux {
         let refused = running_clock_runtime().block_on(async {
             let server = tokio::net::TcpListener::from_std(server).unwrap();
             for _ in 0..2 {
-                let serving = async {
-                    loop {
-                        answer_once(&server).await;
-                    }
-                };
-                let sent = tokio::select! {
-                    sent = transport.send(&hop, Reuse::Never) => sent.map(|_| ()),
-                    () = serving => unreachable!("the server serves until the send ends"),
-                };
-                if let Err(failure) = sent {
+                if let Err(failure) = served_send(&server, &*transport, &hop).await {
                     return Some(failure);
                 }
             }
@@ -655,6 +646,24 @@ mod linux {
             .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
             .await
             .unwrap();
+    }
+
+    /// What `transport` answers for `hop` while `listener` answers every
+    /// request it gets, so the send ends whichever address its lookup gives.
+    async fn served_send(
+        listener: &tokio::net::TcpListener,
+        transport: &dyn Transport,
+        hop: &Hop,
+    ) -> Result<Sent, TransportFailure> {
+        let serving = async {
+            loop {
+                answer_once(listener).await;
+            }
+        };
+        tokio::select! {
+            sent = transport.send(hop, Reuse::Never) => sent,
+            () = serving => unreachable!("the server serves until the send ends"),
+        }
     }
 
     /// The child, which runs only inside the namespace, on each transport
@@ -693,17 +702,12 @@ mod linux {
         let (first, second) = running_clock_runtime().block_on(async {
             server.set_nonblocking(true).unwrap();
             let server = tokio::net::TcpListener::from_std(server).unwrap();
-            let sent = transport.send(&hop, Reuse::Never);
-            let answered = answer_once(&server);
-            tokio::pin!(sent, answered);
-            // A first send that never connects to the server ends the case
-            // with its failure, rather than leaving it waiting on `accept`.
-            let first = tokio::select! {
-                sent = &mut sent => sent,
-                () = &mut answered => sent.await,
-            }
-            .map(|sent| sent.status);
-            let second = transport.send(&hop, Reuse::Never).await.map(|_| ());
+            // A turn of the name out of step fails the case on its
+            // assertions instead of a wait: the server answers every send.
+            let first = served_send(&server, &*transport, &hop)
+                .await
+                .map(|sent| sent.status);
+            let second = served_send(&server, &*transport, &hop).await.map(|_| ());
             (first, second)
         });
 

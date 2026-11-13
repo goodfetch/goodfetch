@@ -15,12 +15,13 @@ use crate::rss::crawl::serve;
 
 use super::matrix::{self, Cell, Config, Row, Scenario, SpiderBuild};
 use super::sampler;
-use super::trial::{self, Counted, callgrind_missing, strace_missing};
+use super::trial::{self, Counted, Ruled, callgrind_missing, strace_missing};
 use super::trials::{
     CONCURRENCY, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, Comparison, CountedCell, CountedRun, Declared,
     GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_TOOLS, Machine, Measured,
-    PLAYWRIGHT_VERSION, QUIET_LOAD, QUIET_WAIT_SECONDS, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION,
-    SITE_PAGES, SPIDER_VERSION, STATISTIC, StoppedRun, Trial,
+    PLAYWRIGHT_VERSION, QUIET_LOAD, QUIET_WAIT_SECONDS, RULE_RUNS, RuledRun,
+    SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SPIDER_VERSION, STATISTIC, StoppedRun,
+    Trial,
 };
 
 /// The executables a run takes.
@@ -72,6 +73,13 @@ pub(crate) fn waits_for_quiet(options: &Options) -> bool {
 /// The measured cells of the scenarios a run asked for.
 fn measured(options: &Options) -> Vec<(&'static Cell, Config)> {
     matrix::measured()
+        .filter(|(cell, _)| options.scenarios.contains(&cell.scenario))
+        .collect()
+}
+
+/// The hostile pages' cells of the scenarios a run asked for (#2439).
+fn ruled(options: &Options) -> Vec<(&'static Cell, Config)> {
+    matrix::ruled()
         .filter(|(cell, _)| options.scenarios.contains(&cell.scenario))
         .collect()
 }
@@ -742,6 +750,61 @@ fn not_reached(cell: &str) -> String {
     format!("the run ended before its {cell} cell")
 }
 
+/// Runs each hostile pages' cell of `cells` [`RULE_RUNS`] times, or the
+/// run's trials when fewer, in one random order: the rules its tool broke
+/// on each task of its pass. Each run bounds its own tasks' crawls
+/// (`trial::rules`), so it is not watched.
+fn rules(
+    executables: &Executables<'_>,
+    options: &Options,
+    cells: &[(&'static Cell, Config)],
+    state: &mut u64,
+) -> Result<Vec<RuledRun>> {
+    let mut runs = Vec::new();
+    for (cell, config, number) in order(cells, RULE_RUNS.min(options.trials), state) {
+        let ruled: Ruled = match trial(
+            executables,
+            cell,
+            config,
+            SITE_PAGES,
+            ("rules", None),
+            Watch::None,
+        )? {
+            Outcome::Done(ruled) => ruled,
+            Outcome::Stopped(reason) => bail!("an unwatched run was stopped: {reason}"),
+        };
+        for task in &ruled.tasks {
+            output::line(&format!(
+                "{} {} run {number}, {}: {} requests, {} retry_after_ignored, {} over_in_flight_cap, {} honeypot, flagged {}, {} refused, {} duplicate, {} trap, {} of {} wanted pages{}",
+                cell.scenario.name(),
+                cell.name,
+                task.task,
+                task.requests,
+                task.retry_after_ignored,
+                task.over_in_flight_cap,
+                task.honeypot,
+                task.flagged,
+                task.refused,
+                task.duplicate,
+                task.trap,
+                task.wanted_fetched,
+                task.wanted,
+                task.stopped
+                    .as_ref()
+                    .map_or_else(String::new, |reason| format!(", {reason}")),
+            ));
+        }
+        runs.push(RuledRun {
+            scenario: cell.scenario,
+            cell: cell.name.to_owned(),
+            tool: config.tool(),
+            number,
+            tasks: ruled.tasks,
+        });
+    }
+    Ok(runs)
+}
+
 /// Runs every declared trial and returns the trials file's contents. `keep`
 /// is handed them as they stand once the timed trials are in, again once
 /// the system-call cell is and again once the growth cell is, so a failure
@@ -779,6 +842,7 @@ pub(crate) fn run(
         instructions: CountedCell::NotRun {
             reason: not_reached("Callgrind"),
         },
+        rules: Vec::new(),
     };
     keep(&comparison)?;
     let counted_cells: Vec<_> = measured.iter().copied().filter(runs_counted).collect();
@@ -844,6 +908,7 @@ pub(crate) fn run(
             cell
         }
     };
+    comparison.rules = rules(executables, options, &ruled(options), &mut state)?;
     Ok(comparison)
 }
 

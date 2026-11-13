@@ -513,11 +513,12 @@ fn a_record_read_past_a_wall_carries_its_marker(
 fn compression_gives_back_the_bytes_written_in_parts(#[case] compression: ExportCompression) {
     let compressed = || {
         let mut compressor = Compressor::new(compression);
-        compressor.write(b"one ");
+        compressor.input().extend_from_slice(b"one ");
         let mut out = compressor.take();
-        compressor.write(b"");
         out.append(&mut compressor.take());
-        compressor.write("ünï ".repeat(1000).as_bytes());
+        compressor
+            .input()
+            .extend_from_slice("ünï ".repeat(1000).as_bytes());
         out.append(&mut compressor.take());
         out.append(&mut compressor.finish());
         out

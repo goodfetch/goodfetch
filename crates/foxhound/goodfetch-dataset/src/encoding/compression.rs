@@ -14,10 +14,35 @@ use goodfetch_protocol::foxhound::export::ExportCompression;
 pub(crate) struct Compressor(Inner);
 
 enum Inner {
-    /// No compression: the file's bytes are the bytes written.
+    /// No compression: the file's bytes are the bytes written, straight
+    /// into them.
     None(Vec<u8>),
-    Gzip(GzEncoder<Vec<u8>>),
-    Zstd(zstd::stream::write::Encoder<'static, Vec<u8>>),
+    Gzip(Staged<GzEncoder<Vec<u8>>>),
+    Zstd(Staged<zstd::stream::write::Encoder<'static, Vec<u8>>>),
+}
+
+/// A compression's encoder, which makes the file's bytes, and the bytes
+/// written since it last compressed, whose capacity is kept from one part
+/// to the next.
+struct Staged<E> {
+    encoder: E,
+    written: Vec<u8>,
+}
+
+impl<E: Write> Staged<E> {
+    fn new(encoder: E) -> Self {
+        Self {
+            encoder,
+            written: Vec::new(),
+        }
+    }
+
+    fn compress(&mut self) {
+        self.encoder
+            .write_all(&self.written)
+            .expect("invariant: compressing into memory never fails");
+        self.written.clear();
+    }
 }
 
 impl std::fmt::Debug for Compressor {
@@ -36,61 +61,64 @@ impl Compressor {
     pub(crate) fn new(compression: ExportCompression) -> Self {
         Self(match compression {
             ExportCompression::None => Inner::None(Vec::new()),
-            ExportCompression::Gzip => {
-                Inner::Gzip(GzEncoder::new(Vec::new(), Compression::default()))
-            }
-            ExportCompression::Zstd => Inner::Zstd(
+            ExportCompression::Gzip => Inner::Gzip(Staged::new(GzEncoder::new(
+                Vec::new(),
+                Compression::default(),
+            ))),
+            ExportCompression::Zstd => Inner::Zstd(Staged::new(
                 zstd::stream::write::Encoder::new(Vec::new(), 0)
                     .expect("invariant: a zstd encoder starts in memory"),
-            ),
+            )),
         })
     }
 
-    /// The file's bytes not yet taken, when it compresses nothing: an
-    /// encoder writes the file's next bytes straight into them.
-    pub(crate) fn plain(&mut self) -> Option<&mut Vec<u8>> {
+    /// Where the file's next bytes are written: the file's own bytes when
+    /// it compresses nothing, else bytes [`Compressor::compress`] compresses.
+    pub(crate) fn input(&mut self) -> &mut Vec<u8> {
         match &mut self.0 {
-            Inner::None(file) => Some(file),
-            Inner::Gzip(_) | Inner::Zstd(_) => None,
+            Inner::None(file) => file,
+            Inner::Gzip(staged) => &mut staged.written,
+            Inner::Zstd(staged) => &mut staged.written,
         }
     }
 
-    /// Compresses `bytes`, the file's next.
-    pub(crate) fn write(&mut self, bytes: &[u8]) {
+    /// Compresses the bytes written since it last did, in one write.
+    pub(crate) fn compress(&mut self) {
         match &mut self.0 {
-            Inner::None(file) => file.extend_from_slice(bytes),
-            Inner::Gzip(encoder) => encoder
-                .write_all(bytes)
-                .expect("invariant: compressing into memory never fails"),
-            Inner::Zstd(encoder) => encoder
-                .write_all(bytes)
-                .expect("invariant: compressing into memory never fails"),
+            Inner::None(_) => {}
+            Inner::Gzip(staged) => staged.compress(),
+            Inner::Zstd(staged) => staged.compress(),
         }
     }
 
-    /// The file's bytes it made since they were last taken, which it can
-    /// hand on so far; the next start in a buffer of the same capacity.
+    /// Hands over the file's bytes made since they were last taken, the
+    /// bytes written being compressed first. The bytes made next go into a
+    /// new buffer with the capacity these reached.
     #[must_use]
     pub(crate) fn take(&mut self) -> Vec<u8> {
+        self.compress();
         let file = match &mut self.0 {
             Inner::None(file) => file,
-            Inner::Gzip(encoder) => encoder.get_mut(),
-            Inner::Zstd(encoder) => encoder.get_mut(),
+            Inner::Gzip(staged) => staged.encoder.get_mut(),
+            Inner::Zstd(staged) => staged.encoder.get_mut(),
         };
         let capacity = file.capacity();
         std::mem::replace(file, Vec::with_capacity(capacity))
     }
 
-    /// The compressed file's last bytes, once every byte was written: those
-    /// not yet taken and the compression's end.
+    /// The file's last bytes, once every byte was written: those not yet
+    /// taken, and the compression's end.
     #[must_use]
-    pub(crate) fn finish(self) -> Vec<u8> {
+    pub(crate) fn finish(mut self) -> Vec<u8> {
+        self.compress();
         match self.0 {
             Inner::None(file) => file,
-            Inner::Gzip(encoder) => encoder
+            Inner::Gzip(staged) => staged
+                .encoder
                 .finish()
                 .expect("invariant: compressing into memory never fails"),
-            Inner::Zstd(encoder) => encoder
+            Inner::Zstd(staged) => staged
+                .encoder
                 .finish()
                 .expect("invariant: compressing into memory never fails"),
         }

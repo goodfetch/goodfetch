@@ -56,12 +56,10 @@ impl Pipeline {
     pub(crate) fn encoding(self) -> Encoding {
         let mut encoder = ExportEncoder::new(self.format, &self.options, self.columns);
         let mut compressor = Compressor::new(self.compression);
-        let mut bytes = Vec::new();
-        encoder.begin(encoded_into(&mut compressor, &mut bytes));
+        encoder.begin(compressor.input());
         Encoding {
             encoder,
             compressor,
-            bytes,
         }
     }
 }
@@ -71,22 +69,12 @@ impl Pipeline {
 pub(crate) struct Encoding {
     encoder: ExportEncoder,
     compressor: Compressor,
-    /// What it encoded since it last compressed, when it compresses; its
-    /// capacity kept from one page to the next.
-    bytes: Vec<u8>,
-}
-
-/// Where an encoder writes: straight into the file's bytes when
-/// `compressor` compresses nothing, into `bytes` until they are compressed
-/// otherwise.
-fn encoded_into<'a>(compressor: &'a mut Compressor, bytes: &'a mut Vec<u8>) -> &'a mut Vec<u8> {
-    compressor.plain().unwrap_or(bytes)
 }
 
 impl Encoding {
     /// Encodes `page`'s Records, after those before.
     pub(crate) fn write(&mut self, page: &[CommittedText]) {
-        let out = encoded_into(&mut self.compressor, &mut self.bytes);
+        let out = self.compressor.input();
         for record in page {
             self.encoder.value(&exported(record), out);
         }
@@ -95,13 +83,11 @@ impl Encoding {
     /// Compresses what it encoded since it last did, after the file's
     /// bytes so far.
     pub(crate) fn compress(&mut self) {
-        self.compressor.write(&self.bytes);
-        self.bytes.clear();
+        self.compressor.compress();
     }
 
     /// The compressed bytes of what it encoded since it last answered them.
     pub(crate) fn take(&mut self) -> Vec<u8> {
-        self.compress();
         self.compressor.take()
     }
 
@@ -113,9 +99,7 @@ impl Encoding {
     /// Writes the Export's end, and answers the file's last bytes: what it
     /// encoded since it last answered, the end, and the compression's end.
     pub(crate) fn finish(mut self) -> Vec<u8> {
-        self.encoder
-            .end(encoded_into(&mut self.compressor, &mut self.bytes));
-        self.compress();
+        self.encoder.end(self.compressor.input());
         self.compressor.finish()
     }
 }

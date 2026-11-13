@@ -13,7 +13,6 @@
 //! `wall.refetch_domains` and `wall.denied_domains`, are in [`refetch`].
 
 use std::io;
-use std::sync::Arc;
 
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::needs_you::{
@@ -147,10 +146,7 @@ async fn allow_consent_domain(
     let editor = SettingsEditor::resolving(&context).await;
     let (answered, shown) = (domain.clone(), warning.clone());
     let engine = context.engine();
-    let added = match Arc::clone(engine.owner())
-        .blocking(move || allow(&editor, &answered, &shown))
-        .await
-    {
+    let added = match allow(editor, answered, shown).await {
         Ok(added) => added,
         Err(Refused::Settings(error)) => {
             return Err(settings_error(
@@ -180,38 +176,40 @@ async fn allow_consent_domain(
 /// Adds `domain` to user configuration's `consent.domains`, unless it lists
 /// it already, once the resolver accepts the file so changed under the
 /// Operator policy, and records it in the Audit log with `warning`; answers
-/// whether it was added. Blocking.
-fn allow(editor: &SettingsEditor, domain: &str, warning: &str) -> Result<bool, Refused> {
-    editor.edit(|draft| {
-        let layer = SettingsLayer::UserConfiguration;
-        draft.machine()?;
-        let mut domains: Vec<Value> = draft
-            .user_configuration()?
-            .get(CONSENT_DOMAINS.name)
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        if domains
-            .iter()
-            .filter_map(Value::as_str)
-            .any(|listed| host_name::lookup_key(listed) == domain)
-        {
-            return Ok(Change::Kept(false));
-        }
-        domains.push(json!(domain));
-        draft.set(
-            layer,
-            "settings",
-            CONSENT_DOMAINS.name,
-            &Value::Array(domains),
-        )?;
-        Ok(Change::Made {
-            answer: true,
-            layer,
-            kind: &CONSENT_DOMAIN_ALLOWED,
-            details: json!({ "domain": domain, "warning": warning }),
+/// whether it was added.
+async fn allow(editor: SettingsEditor, domain: String, warning: String) -> Result<bool, Refused> {
+    editor
+        .edit(move |draft| {
+            let layer = SettingsLayer::UserConfiguration;
+            draft.machine()?;
+            let mut domains: Vec<Value> = draft
+                .user_configuration()?
+                .get(CONSENT_DOMAINS.name)
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            if domains
+                .iter()
+                .filter_map(Value::as_str)
+                .any(|listed| host_name::lookup_key(listed) == domain)
+            {
+                return Ok(Change::Kept(false));
+            }
+            domains.push(json!(domain));
+            draft.set(
+                layer,
+                "settings",
+                CONSENT_DOMAINS.name,
+                &Value::Array(domains),
+            )?;
+            Ok(Change::Made {
+                answer: true,
+                layer,
+                kind: &CONSENT_DOMAIN_ALLOWED,
+                details: json!({ "domain": domain, "warning": warning }),
+            })
         })
-    })
+        .await
 }
 
 /// What a person takes on by adding `domain`, or `*`, to `consent.domains`

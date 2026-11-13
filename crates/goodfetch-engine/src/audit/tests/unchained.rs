@@ -37,29 +37,30 @@ fn chained_origin() -> Origin {
 }
 
 /// Records one secret use from `origin`, numbered `index`.
-fn use_secret(log: &AuditLog, origin: &Origin, index: u64) {
+async fn use_secret(log: &AuditLog, origin: &Origin, index: u64) {
     log.record(
         origin,
         &SECRET_REFERENCE_USED,
         json!({ "reference": format!("env:SECRET_{index}"), "domain": "example.com" }),
         now(),
     )
+    .await
     .unwrap();
 }
 
 /// A log of `before` chained entries, then `unchained` of the unchained
 /// Run, then `after` chained entries.
-fn around(env: &TestEnv, before: u64, unchained: u64, after: u64) -> AuditLog {
+async fn around(env: &TestEnv, before: u64, unchained: u64, after: u64) -> AuditLog {
     let log = log(env);
     for index in 1..=before {
-        use_secret(&log, &chained_origin(), index);
+        use_secret(&log, &chained_origin(), index).await;
     }
     log.unchain(unchained_run());
     for index in 1..=unchained {
-        use_secret(&log, &origin(), before + index);
+        use_secret(&log, &origin(), before + index).await;
     }
     for index in 1..=after {
-        use_secret(&log, &chained_origin(), before + unchained + index);
+        use_secret(&log, &chained_origin(), before + unchained + index).await;
     }
     log
 }
@@ -82,10 +83,10 @@ fn before_unchained_after() -> impl Strategy<Value = (u64, u64, u64)> {
 /// followed by its RFC 8785 form, worked out apart with Python's
 /// `hashlib`: an unchained entry is hashed alone.
 /// Covers: story:4-74
-#[test]
-fn an_unchained_runs_entry_is_marked_unchained_and_hashed_alone() {
+#[tokio::test]
+async fn an_unchained_runs_entry_is_marked_unchained_and_hashed_alone() {
     let env = TestEnv::in_memory();
-    let log = around(&env, 1, 1, 0);
+    let log = around(&env, 1, 1, 0).await;
 
     let stored: (String, String) = rusqlite::Connection::open(log.path())
         .unwrap()
@@ -107,10 +108,10 @@ fn an_unchained_runs_entry_is_marked_unchained_and_hashed_alone() {
 
 /// The switch itself is recorded chained, though its Run is unchained.
 /// Covers: story:4-74
-#[test]
-fn the_switch_of_an_unchained_run_is_recorded_chained() {
+#[tokio::test]
+async fn the_switch_of_an_unchained_run_is_recorded_chained() {
     let env = TestEnv::in_memory();
-    let log = around(&env, 0, 1, 0);
+    let log = around(&env, 0, 1, 0).await;
 
     log.record_together(
         vec![NewEntry {
@@ -121,6 +122,7 @@ fn the_switch_of_an_unchained_run_is_recorded_chained() {
         }],
         now(),
     )
+    .await
     .unwrap();
 
     let chained: Vec<Value> = log
@@ -142,13 +144,13 @@ fn the_switch_of_an_unchained_run_is_recorded_chained() {
 }
 
 /// A Run chained again records chained entries.
-#[test]
-fn a_run_chained_again_records_chained_entries() {
+#[tokio::test]
+async fn a_run_chained_again_records_chained_entries() {
     let env = TestEnv::in_memory();
-    let log = around(&env, 0, 1, 0);
+    let log = around(&env, 0, 1, 0).await;
 
     let was_unchained = log.rechain(&unchained_run());
-    use_secret(&log, &origin(), 2);
+    use_secret(&log, &origin(), 2).await;
 
     let chained: Vec<bool> = log
         .export()
@@ -161,10 +163,10 @@ fn a_run_chained_again_records_chained_entries() {
 
 /// An entry of the chain that someone marked unchained and hashed alone
 /// breaks the chain at the next chained entry, which was chained to it.
-#[test]
-fn a_chained_entry_turned_unchained_breaks_the_chain_at_the_next() {
+#[tokio::test]
+async fn a_chained_entry_turned_unchained_breaks_the_chain_at_the_next() {
     let env = TestEnv::in_memory();
-    let log = around(&env, 3, 0, 0);
+    let log = around(&env, 3, 0, 0).await;
     let entry: String = rusqlite::Connection::open(log.path())
         .unwrap()
         .query_row("SELECT entry FROM entries WHERE sequence = 2", [], |row| {
@@ -191,8 +193,8 @@ fn a_chained_entry_turned_unchained_breaks_the_chain_at_the_next() {
 /// Pruning through unchained entries leaves an anchor carrying the chain's
 /// last hash, from which the rest verifies intact.
 /// Covers: story:4-72
-#[test]
-fn pruning_through_unchained_entries_leaves_an_anchor_the_rest_chains_from() {
+#[tokio::test]
+async fn pruning_through_unchained_entries_leaves_an_anchor_the_rest_chains_from() {
     let env = TestEnv::in_memory();
     let log = log(&env);
     let long_ago = now() - SignedDuration::from_hours(240);
@@ -202,6 +204,7 @@ fn pruning_through_unchained_entries_leaves_an_anchor_the_rest_chains_from() {
         json!({ "index": 1 }),
         long_ago,
     )
+    .await
     .unwrap();
     log.unchain(unchained_run());
     log.record(
@@ -210,10 +213,14 @@ fn pruning_through_unchained_entries_leaves_an_anchor_the_rest_chains_from() {
         json!({ "index": 2 }),
         long_ago,
     )
+    .await
     .unwrap();
-    use_secret(&log, &chained_origin(), 3);
+    use_secret(&log, &chained_origin(), 3).await;
 
-    let pruned = log.prune(Duration::from_hours(24), None, now()).unwrap();
+    let pruned = log
+        .prune(Duration::from_hours(24), None, now())
+        .await
+        .unwrap();
 
     assert_eq!(
         (
@@ -233,7 +240,8 @@ proptest! {
         (before, unchained, after) in before_unchained_after()
     ) {
         let env = TestEnv::in_memory();
-        let log = around(&env, before, unchained, after);
+        let runtime = goodfetch_test_support::runtime();
+        let log = runtime.block_on(around(&env, before, unchained, after));
         let marked: Vec<bool> = log
             .export()
             .unwrap()
@@ -257,7 +265,8 @@ proptest! {
         (before, unchained, after) in (0..=3_u64, 1..=3_u64, 1..=3_u64)
     ) {
         let env = TestEnv::in_memory();
-        let log = around(&env, before, unchained, after);
+        let runtime = goodfetch_test_support::runtime();
+        let log = runtime.block_on(around(&env, before, unchained, after));
         let edited = before + unchained + 1;
         tamper(&log)
             .execute(
@@ -275,7 +284,8 @@ proptest! {
         (before, unchained, after) in before_unchained_after()
     ) {
         let env = TestEnv::in_memory();
-        let log = around(&env, before, unchained, after.max(1));
+        let runtime = goodfetch_test_support::runtime();
+        let log = runtime.block_on(around(&env, before, unchained, after.max(1)));
         let deleted = before + 1;
         tamper(&log)
             .execute("DELETE FROM entries WHERE sequence = ?1", [at(deleted)])

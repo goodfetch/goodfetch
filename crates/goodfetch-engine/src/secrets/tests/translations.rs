@@ -217,7 +217,11 @@ fn over(env: &TestEnv, keychain: Keychain) -> crate::secrets::RunSecrets {
                 home: home.clone(),
                 entropy: crate::entropy::Entropy::seeded(0),
             },
-            Arc::new(AuditLog::of(&home, None)),
+            Arc::new(AuditLog::of(
+                &home,
+                None,
+                Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+            )),
             Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
             Clock::paused(env.start_time()),
         )

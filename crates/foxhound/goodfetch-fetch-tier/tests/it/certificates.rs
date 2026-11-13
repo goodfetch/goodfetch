@@ -103,7 +103,11 @@ fn fixture() -> Fixture {
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let home = Home::new(env.home().to_path_buf());
     Fixture {
-        audit: Arc::new(AuditLog::of(&home, None)),
+        audit: Arc::new(AuditLog::of(
+            &home,
+            None,
+            Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+        )),
         store: KnownCertificates::of(&home, None),
         owner: Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
         proving_ground,

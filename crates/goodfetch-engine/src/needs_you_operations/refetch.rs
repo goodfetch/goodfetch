@@ -13,8 +13,6 @@
 //! need the operator role, and denial step-up (the accounts and step-up
 //! tickets); until then the caller is the operator.
 
-use std::sync::Arc;
-
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::needs_you::{
@@ -110,9 +108,8 @@ pub(super) async fn remove_refetch_domain(
         })
         .transpose()?;
     let editor = SettingsEditor::resolving(&context).await;
-    let owner = Arc::clone(context.engine().owner());
-    owner
-        .blocking(move || editor.edit(|draft| remove(draft, &domain, instead)))
+    editor
+        .edit(move |draft| remove(draft, &domain, instead))
         .await
         .map_err(|error| refused(error, &context))
 }
@@ -201,9 +198,8 @@ pub(super) async fn deny_wall_domain(
         ));
     }
     let editor = SettingsEditor::resolving(&context).await;
-    let owner = Arc::clone(context.engine().owner());
-    owner
-        .blocking(move || editor.edit(|draft| deny(draft, domain, reason)))
+    editor
+        .edit(move |draft| deny(draft, domain, reason))
         .await
         .map_err(|error| refused(error, &context))
 }

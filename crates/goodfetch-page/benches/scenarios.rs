@@ -576,7 +576,13 @@ pub(crate) fn terminated() -> Terminated {
         store: goodfetch_engine::known_certificates::KnownCertificates::of(&home, None),
         person: "os_user".to_owned(),
         run_id: None,
-        audit: Arc::new(goodfetch_engine::audit::AuditLog::of(&home, None)),
+        audit: Arc::new(goodfetch_engine::audit::AuditLog::of(
+            &home,
+            None,
+            Arc::new(goodfetch_engine::tasks::TaskOwner::root(
+                goodfetch_engine::tasks::BlockingPolicy::Inline,
+            )),
+        )),
         owner: Arc::new(goodfetch_engine::tasks::TaskOwner::root(
             goodfetch_engine::tasks::BlockingPolicy::Inline,
         )),

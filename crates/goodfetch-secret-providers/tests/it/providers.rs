@@ -253,7 +253,11 @@ impl Fixture {
                     home: home.clone(),
                     entropy,
                 },
-                Arc::new(AuditLog::of(&home, None)),
+                Arc::new(AuditLog::of(
+                    &home,
+                    None,
+                    Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+                )),
                 Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
                 Clock::system(),
             )

@@ -445,11 +445,26 @@ impl Engine {
         (needs_you, sandbox_probe): (NeedsYou, SandboxProbe),
         owner: &TaskOwner,
     ) -> (EngineContext, Secrets) {
+        // The Audit log's writer is an actor of a part of its own, which
+        // `owner`'s stop would not end: a task of `owner` ends it once that
+        // stop began, which the engine starts after its Runs and
+        // Connections, which record, have stopped, and `owner`'s stop waits
+        // for that task (ADR 0060).
+        let writer = Arc::new(owner.part("Audit log"));
+        let (stopping, stopped) = (owner.token().clone(), Arc::clone(&writer));
+        owner.spawn(async move {
+            stopping.cancelled().await;
+            stopped.stop().await;
+        });
         let audit = Arc::new(
-            AuditLog::of(&dependencies.home, dependencies.run_state.vfs.clone())
-                .counting_on(dependencies.run_state.work.clone())
-                .retained_under(settings.files().clone(), settings.product())
-                .sending_to(self.audit_events.clone()),
+            AuditLog::of(
+                &dependencies.home,
+                dependencies.run_state.vfs.clone(),
+                writer,
+            )
+            .counting_on(dependencies.run_state.work.clone())
+            .retained_under(settings.files().clone(), settings.product())
+            .sending_to(self.audit_events.clone()),
         );
         let context = EngineContext::new(
             dependencies.home.clone(),

@@ -2897,11 +2897,7 @@ impl Runs {
                 }
                 let run_id = run.id().clone();
                 let now = self.limits.clock.timestamp();
-                let reported = self
-                    .limits
-                    .owner
-                    .blocking(move || switched.report(&audit, &run_id, now))
-                    .await;
+                let reported = switched.report(&audit, &run_id, now).await;
                 if let Err(error) = reported {
                     tracing::error!(
                         run_id = %run.id(),
@@ -3224,12 +3220,7 @@ impl Runs {
             Ok(Resumed::New { listed, .. }) => {
                 let switched = switched.beyond(listed);
                 let now = self.limits.clock.timestamp();
-                let reported_for = run_id.clone();
-                let reported = self
-                    .limits
-                    .owner
-                    .blocking(move || switched.report(&audit, &reported_for, now))
-                    .await;
+                let reported = switched.report(&audit, &run_id, now).await;
                 if let Err(error) = reported {
                     tracing::error!(
                         run_id = %run_id,
@@ -6431,7 +6422,7 @@ async fn given_back(run: &Run, writer: &TaskOwner) -> Vec<AppliedLimit> {
 /// it ends, by host and kind with the key each presented (ADR 0042):
 /// nothing when it reached no host through one. A failure to record is
 /// logged, and the Run ends all the same.
-async fn exceptions_used(run: &Run, writer: &TaskOwner, clock: Clock) {
+async fn exceptions_used(run: &Run, clock: Clock) {
     let used = run.secrets().exception_hosts().used().await;
     if used.is_empty() {
         return;
@@ -6448,17 +6439,16 @@ async fn exceptions_used(run: &Run, writer: &TaskOwner, clock: Clock) {
         layer: None,
         run_id: Some(run.id.clone()),
     };
-    let audit = run.runs.engine.audit().clone();
-    let now = clock.timestamp();
-    let recorded = writer
-        .blocking(move || {
-            audit.record(
-                &origin,
-                &CERTIFICATE_EXCEPTIONS_USED,
-                json!({ "hosts": hosts }),
-                now,
-            )
-        })
+    let recorded = run
+        .runs
+        .engine
+        .audit()
+        .record(
+            &origin,
+            &CERTIFICATE_EXCEPTIONS_USED,
+            json!({ "hosts": hosts }),
+            clock.timestamp(),
+        )
         .await;
     if let Err(error) = recorded {
         tracing::warn!(run_id = %run.id, %error, "the Audit log cannot record the certificate exceptions the Run used");
@@ -6641,7 +6631,7 @@ impl Closing {
             End::Stopped(reason) => (Some(reason), None, Vec::new()),
         };
         let limits = given_back(&run, &writer).await;
-        exceptions_used(&run, &writer, clock).await;
+        exceptions_used(&run, clock).await;
         let facts = EndFacts {
             run_id: run.id.clone(),
             lifecycle,

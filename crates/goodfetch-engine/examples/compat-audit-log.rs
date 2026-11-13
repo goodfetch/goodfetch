@@ -13,9 +13,11 @@
 )]
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use goodfetch_engine::audit::{AuditLog, NewEntry, Origin};
 use goodfetch_engine::home::Home;
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::audit::{
     Actor, CERTIFICATE_CHANGE_ACCEPTED, SECRET_REFERENCE_USED, SECURITY_SWITCH_TURNED_OFF,
 };
@@ -34,7 +36,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("invariant: xtask compat passes the output folder"),
     );
     let scratch = tempfile::tempdir()?;
-    let log = AuditLog::of(&Home::new(scratch.path().to_owned()), None);
+    let log = AuditLog::of(
+        &Home::new(scratch.path().to_owned()),
+        None,
+        Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+    );
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(record(&log))?;
+    let connection = rusqlite::Connection::open(log.path())?;
+    std::fs::create_dir_all(&output)?;
+    std::fs::write(
+        output.join("audit-log.sql"),
+        goodfetch_test_support::sql_dump(&connection)?,
+    )?;
+    std::fs::copy(log.head_path(), output.join("audit-log-head.json"))?;
+    Ok(())
+}
+
+/// Records the corpus's entries in `log`.
+async fn record(log: &AuditLog) -> Result<(), Box<dyn std::error::Error>> {
     let start: jiff::Timestamp = START.parse()?;
     log.record(
         &Origin {
@@ -46,7 +68,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &SECURITY_SWITCH_TURNED_OFF,
         json!({ "setting": "security.browser_sandbox" }),
         start,
-    )?;
+    )
+    .await?;
     log.record(
         &Origin {
             actor: Actor::ClientSurface {
@@ -63,7 +86,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "domain": "example.com",
         }),
         start,
-    )?;
+    )
+    .await?;
     log.record(
         &Origin {
             actor: Actor::Person {
@@ -80,7 +104,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "accepted": "sha256/3f2a6c8a3e1b7f9d5c4e2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d",
         }),
         start,
-    )?;
+    )
+    .await?;
     let unchained = RunId::parse("unchained")?;
     let switched = Origin {
         actor: Actor::Engine,
@@ -97,19 +122,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             always_chained: true,
         }],
         start,
-    )?;
+    )
+    .await?;
     log.record(
         &switched,
         &SECRET_REFERENCE_USED,
         json!({ "placeholder": "run_state.key_reference", "reference": "env:RUN_KEY", "domain": null }),
         start,
-    )?;
-    let connection = rusqlite::Connection::open(log.path())?;
-    std::fs::create_dir_all(&output)?;
-    std::fs::write(
-        output.join("audit-log.sql"),
-        goodfetch_test_support::sql_dump(&connection)?,
-    )?;
-    std::fs::copy(log.head_path(), output.join("audit-log-head.json"))?;
+    )
+    .await?;
     Ok(())
 }

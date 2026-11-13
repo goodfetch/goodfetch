@@ -127,7 +127,9 @@ use crate::governor::{
 };
 use crate::home::RunStateLocation;
 use crate::known_certificates::KnownCertificates;
-use crate::ledger::{Charged, Charging, Counted, LedgerError, Refusal, Reservation, SliceId};
+use crate::ledger::{
+    Change, Charged, Charging, Counted, LedgerError, Refusal, Reservation, SliceId, Unmade,
+};
 use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
@@ -138,8 +140,8 @@ use crate::run_index::{self, RunIndex};
 use crate::run_key::{self, KeyError, RunKey, Sealed, StoredKey};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
-    self, Durability, RUN_FILE, RunState, RunStateError, RunStateOptions, RunStateTables,
-    SecretColumn, Syncing,
+    self, Durability, RUN_FILE, ReservedWrite, RunState, RunStateError, RunStateOptions,
+    RunStateTables, SecretColumn, Syncing,
 };
 use crate::run_trace;
 use crate::sandbox_probe::SandboxProbe;
@@ -1337,8 +1339,10 @@ impl Shared {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    /// Its charging, when no ledger call holds it: for a step in memory,
-    /// outside the blocking calls, which never waits for one of them.
+    /// Its charging, when nothing else holds it: for a step in memory,
+    /// outside the blocking calls, which never waits for the lock. A
+    /// ledger call holds it, a claim's journal as it is queued, and
+    /// another task's step in memory on a runtime of several threads.
     fn charging_if_free(&self) -> Option<std::sync::MutexGuard<'_, Option<Charging>>> {
         match self.charging.try_lock() {
             Ok(held) => Some(held),
@@ -2193,7 +2197,8 @@ impl Run {
     /// point for that Limit, and must not use what it was refused. A charge
     /// its Slices cover is a step in memory, made on the task that asks
     /// with no blocking call (ADR 0140's E3); one that needs the ledger
-    /// runs under the Run's blocking policy.
+    /// runs under the Run's blocking policy, as does one that finds the
+    /// Run's charging held.
     ///
     /// # Errors
     ///
@@ -2207,16 +2212,9 @@ impl Run {
     /// never more charged than the Run used.
     pub async fn charge(&self, usage_kind: &str, amount: u64) -> Result<(), ChargeError> {
         let kind = usage_kind.to_owned();
-        self.charged(
-            |charging, now| charging.covers(usage_kind, None, amount, now),
-            move |charging, now| {
-                charging
-                    .charge(&kind, amount, now)
-                    .map(|charged| ((), charged))
-            },
-        )
-        .await
-        .map(drop)
+        self.charged(move |change| change.charge(&kind, amount).map(|charged| ((), charged)))
+            .await
+            .map(drop)
     }
 
     /// Charges `amount` of `usage_kind` as [`Run::charge`] does, and counts
@@ -2241,28 +2239,20 @@ impl Run {
         price: Option<(&str, u64)>,
     ) -> Result<(), ChargeError> {
         let (kind, part) = (usage_kind.to_owned(), part.to_owned());
-        let covered = move |charging: &mut Charging, now| {
-            charging.covers(usage_kind, None, amount, now)
-                && price.is_none_or(|(currency, cost)| {
-                    charging.covers(usage_kind, Some(currency), cost, now)
-                })
-        };
         let price = price.map(|(currency, cost)| (currency.to_owned(), cost));
-        self.charged(covered, move |charging, now| {
+        self.charged(move |change| {
             let priced = match &price {
-                Some((currency, cost)) => {
-                    Some(charging.reserve(&kind, Some(currency), *cost, now)?)
-                }
+                Some((currency, cost)) => Some(change.reserve(&kind, Some(currency), *cost)?),
                 None => None,
             };
-            let mut charged = match charging.charge(&kind, amount, now) {
+            let mut charged = match change.charge(&kind, amount) {
                 Ok(charged) => charged,
-                Err(refusal) => {
+                Err(unmade) => {
                     if let Some((reservation, _)) = priced {
                         // The price is given back: nothing was used.
-                        let _ = charging.settle(reservation, 0);
+                        let _ = change.settle(reservation, 0);
                     }
-                    return Err(refusal);
+                    return Err(unmade);
                 }
             };
             for counted in &mut charged.counted {
@@ -2303,27 +2293,22 @@ impl Run {
         amount: u64,
     ) -> Result<(), ChargeError> {
         let now = self.runs.limits.now();
+        let kind = usage_kind.to_owned();
         // A charge the Run's Slices cover is a step in memory, made here
         // with no blocking task (ADR 0140's E3; E3-3 of the audit #1882).
-        let covered = self.shared.charging_if_free().and_then(|mut held| {
-            held.as_mut()
-                .and_then(|charging| charging.charge_held(usage_kind, amount, now))
-        });
-        if let Some(journaled) = covered {
-            charges.add(journaled);
-            return Ok(());
-        }
-        let kind = usage_kind.to_owned();
-        let shared = Arc::clone(&self.shared);
-        let changed = self
-            .owner
-            .blocking(move || {
-                let mut held = shared.charging();
-                let charging = held.as_mut()?;
-                Some(charging.charge(&kind, amount, now))
-            })
+        let charged = self
+            .on_charging(
+                (),
+                move |charging, ()| {
+                    charging
+                        .charge_held(usage_kind, amount, now)
+                        .map(Ok)
+                        .ok_or(())
+                },
+                move |charging, ()| charging.charge(&kind, amount, now),
+            )
             .await;
-        match changed {
+        match charged {
             None => Ok(()),
             Some(Ok(journaled)) => {
                 charges.add(journaled);
@@ -2429,33 +2414,25 @@ impl Run {
         least: u64,
     ) -> Result<Option<Allowance>, ChargeError> {
         let (kind, part) = (usage_kind.to_owned(), part.to_owned());
-        // What it wants, at its price's worst: a smaller allowance is
-        // found from the Limits' refusals, which the ledger gives.
-        let worst = cost(wanted);
-        let covered = move |charging: &mut Charging, now| {
-            charging.covers(usage_kind, None, wanted, now)
-                && currency
-                    .is_none_or(|currency| charging.covers(usage_kind, Some(currency), worst, now))
-        };
         let currency = currency.map(str::to_owned);
-        self.charged(covered, move |charging, now| {
-            let reserve = |charging: &mut Charging, amount: u64| {
+        self.charged(move |change| {
+            let reserve = |change: &mut Change<'_>, amount: u64| {
                 let cost = cost(amount);
-                let (reserved, mut charged) = charging.reserve(&kind, None, amount, now)?;
+                let (reserved, mut charged) = change.reserve(&kind, None, amount)?;
                 for counted in &mut charged.counted {
                     counted.part = Some(part.clone());
                 }
                 let price = match &currency {
-                    Some(currency) => match charging.reserve(&kind, Some(currency), cost, now) {
+                    Some(currency) => match change.reserve(&kind, Some(currency), cost) {
                         Ok((price, priced)) => {
                             charged.used.extend(priced.used);
                             charged.counted.extend(priced.counted);
                             Some(price)
                         }
-                        Err(refusal) => {
+                        Err(unmade) => {
                             // Nothing was used: the amount is given back.
-                            let _ = charging.settle(reserved, 0);
-                            return Err(refusal);
+                            let _ = change.settle(reserved, 0);
+                            return Err(unmade);
                         }
                     },
                     None => None,
@@ -2471,8 +2448,10 @@ impl Run {
             let least = least.min(wanted);
             let mut amount = wanted;
             loop {
-                match reserve(charging, amount) {
-                    Err(Refusal::Reached(_)) if amount > least => {
+                match reserve(change, amount) {
+                    // Only the ledger says a Limit refuses the amount: a
+                    // smaller allowance is no step in memory.
+                    Err(Unmade::Refused(Refusal::Reached(_))) if amount > least => {
                         amount = (amount / 2).max(least);
                     }
                     reserved => break reserved,
@@ -2500,7 +2479,7 @@ impl Run {
         used: u64,
         cost: u64,
     ) -> Result<(), ChargeError> {
-        self.charged(in_memory, move |charging, _| {
+        self.settled(move |charging| {
             let Allowance {
                 amount,
                 price,
@@ -2516,10 +2495,9 @@ impl Run {
                 settled.used.extend(priced.used);
                 settled.counted.extend(priced.counted);
             }
-            Ok(((), settled))
+            settled
         })
         .await
-        .map(drop)
     }
 
     /// Reserves `worst`, the worst case of a cost the Run is about to pay
@@ -2545,14 +2523,10 @@ impl Run {
         worst: u64,
     ) -> Result<Reservation, ChargeError> {
         let kind = usage_kind.to_owned();
-        let covered =
-            move |charging: &mut Charging, now| charging.covers(usage_kind, currency, worst, now);
         let currency = currency.map(str::to_owned);
-        self.charged(covered, move |charging, now| {
-            charging.reserve(&kind, currency.as_deref(), worst, now)
-        })
-        .await
-        .map(Option::unwrap_or_default)
+        self.charged(move |change| change.reserve(&kind, currency.as_deref(), worst))
+            .await
+            .map(Option::unwrap_or_default)
     }
 
     /// Who allows the Run to pay for `usage_kind` in `currency`, as
@@ -2569,8 +2543,8 @@ impl Run {
         currency: &str,
     ) -> Result<Option<goodfetch_protocol::run::LimitSetter>, ChargeError> {
         let (kind, currency) = (usage_kind.to_owned(), currency.to_owned());
-        self.charged(needs_the_ledger, move |charging, _| {
-            charging
+        self.charged(move |change| {
+            change
                 .allowed_by(&kind, &currency)
                 .map(|setter| (setter, Charged::default()))
         })
@@ -2590,85 +2564,117 @@ impl Run {
     ///
     /// As [`Run::charge`]'s.
     pub async fn settle(&self, reservation: Reservation, cost: u64) -> Result<(), ChargeError> {
-        self.charged(in_memory, move |charging, _| {
-            Ok(((), charging.settle(reservation, cost)))
-        })
-        .await
-        .map(drop)
+        self.settled(move |charging| charging.settle(reservation, cost))
+            .await
     }
 
-    /// Runs `change` on the Run's charging, journals what it charged, and
+    /// Makes `change` on the Run's charging, journals what it charged, and
     /// asks the Run to stop at its next safe point when a Limit refused it;
-    /// answers none once the Run ended. A change that `in_memory` says is a
-    /// step in memory is made here, with no blocking call, when no ledger
-    /// call holds the charging (ADR 0140's E3); any other runs under the
-    /// ledger's blocking calls. Either way the change and the queueing of
-    /// its journal happen under the charging's lock, so journals reach the
-    /// run state in the order of the changes, and no lock is held across
-    /// an await.
-    async fn charged<T, F>(
-        &self,
-        in_memory: impl FnOnce(&mut Charging, jiff::Timestamp) -> bool,
-        change: F,
-    ) -> Result<Option<T>, ChargeError>
+    /// answers none once the Run ended. A change that is a step in memory
+    /// ([`Charging::change_held`]) is made where the Run asks for it, with
+    /// no blocking call (ADR 0140's E3); one that needs the ledger is made
+    /// again, whole, in a blocking call ([`Charging::change`]), so
+    /// `change` may run twice. Either way the journal is queued under the
+    /// charging's lock ([`Run::on_charging`]), so journals reach the run
+    /// state in the order of the changes.
+    async fn charged<T, F>(&self, change: F) -> Result<Option<T>, ChargeError>
     where
         T: Send + 'static,
-        F: FnOnce(&mut Charging, jiff::Timestamp) -> Result<(T, Charged), Refusal> + Send + 'static,
+        F: Fn(&mut Change<'_>) -> Result<(T, Charged), Unmade> + Send + 'static,
     {
         let place = self.state.reserve().await?;
         let now = self.runs.limits.now();
         let epoch = self.state.epoch();
-        let change = move |charging: &mut Charging| {
-            let changed = change(charging, now);
-            let uncapped = charging.uncapped();
-            changed.map(|(value, journaled)| {
-                let journaling = (!journaled.used.is_empty()
-                    || !journaled.counted.is_empty()
-                    || uncapped)
-                    .then(|| {
-                        place.write(move |connection| {
-                            journal(connection, epoch, &journaled, uncapped)
-                        })
-                    });
-                (value, journaling)
-            })
-        };
-        let made = match self.shared.charging_if_free() {
-            Some(mut held) => match held.as_mut() {
-                None => return Ok(None),
-                Some(charging) => {
-                    if in_memory(charging, now) {
-                        Ok(change(charging))
-                    } else {
-                        Err(change)
+        let changed = self
+            .on_charging(
+                (change, place),
+                move |charging, (change, place)| match charging.change_held(now, &change) {
+                    Some((value, charged)) => {
+                        Ok(Ok((value, journaled(charging, place, epoch, charged))))
                     }
-                }
-            },
-            None => Err(change),
-        };
-        let changed = match made {
-            Ok(changed) => changed,
-            Err(change) => {
-                let shared = Arc::clone(&self.shared);
-                let changed = self
-                    .owner
-                    .blocking(move || shared.charging().as_mut().map(change))
-                    .await;
-                let Some(changed) = changed else {
-                    return Ok(None);
-                };
-                changed
-            }
-        };
+                    None => Err((change, place)),
+                },
+                move |charging, (change, place)| {
+                    charging
+                        .change(now, &change)
+                        .map(|(value, charged)| (value, journaled(charging, place, epoch, charged)))
+                },
+            )
+            .await;
         match changed {
-            Ok((value, journaling)) => {
+            None => Ok(None),
+            Some(Ok((value, journaling))) => {
                 if let Some(journaling) = journaling {
                     journaling.await?;
                 }
                 Ok(Some(value))
             }
-            Err(refusal) => Err(self.refused(refusal).await),
+            Some(Err(refusal)) => Err(self.refused(refusal).await),
         }
+    }
+
+    /// Makes `settle`, a settlement, on the Run's charging and journals
+    /// what it gave back: always a step in memory, made where the Run asks
+    /// for it unless its charging is held ([`Run::on_charging`]). A Run
+    /// that ended settles nothing.
+    async fn settled<F>(&self, settle: F) -> Result<(), ChargeError>
+    where
+        F: FnOnce(&mut Charging) -> Charged + Send + 'static,
+    {
+        let place = self.state.reserve().await?;
+        let epoch = self.state.epoch();
+        let settled = move |charging: &mut Charging, (settle, place): (F, ReservedWrite)| {
+            let charged = settle(charging);
+            journaled(charging, place, epoch, charged)
+        };
+        let journaling = self
+            .on_charging(
+                (settle, place),
+                move |charging, settlement| Ok(settled(charging, settlement)),
+                settled,
+            )
+            .await;
+        if let Some(journaling) = journaling.flatten() {
+            journaling.await?;
+        }
+        Ok(())
+    }
+
+    /// Makes one change of the Run's charging, under the charging's lock:
+    /// `held` where the Run asks for it, with no blocking call, when
+    /// nothing else holds the charging; `ledger` in a blocking call, under
+    /// the Run's blocking policy, when `held` hands `change` back because
+    /// it is no step in memory, and when the charging is held: by a ledger
+    /// call, by a claim's journal, or by another task's step in memory.
+    /// The lock is tried and never waited for where the Run asks, and
+    /// never held across an await. None once the Run ended.
+    async fn on_charging<C, T>(
+        &self,
+        change: C,
+        held: impl FnOnce(&mut Charging, C) -> Result<T, C> + Send,
+        ledger: impl FnOnce(&mut Charging, C) -> T + Send + 'static,
+    ) -> Option<T>
+    where
+        C: Send + 'static,
+        T: Send + 'static,
+    {
+        let change = match self.shared.charging_if_free() {
+            Some(mut free) => match free.as_mut().map(|charging| held(charging, change)) {
+                None => return None,
+                Some(Ok(made)) => return Some(made),
+                Some(Err(change)) => change,
+            },
+            None => change,
+        };
+        let shared = Arc::clone(&self.shared);
+        self.owner
+            .blocking(move || {
+                shared
+                    .charging()
+                    .as_mut()
+                    .map(|charging| ledger(charging, change))
+            })
+            .await
     }
 
     /// What `refusal`, a Limit's or the ledger's, does to the Run: a Limit
@@ -6459,15 +6465,20 @@ impl Taking {
     }
 }
 
-/// A change of a Run's charging that is always a step in memory: a
-/// settlement, which gives back to the Slices the run holds.
-fn in_memory(_: &mut Charging, _: jiff::Timestamp) -> bool {
-    true
-}
-
-/// A change of a Run's charging that always reads the ledger.
-fn needs_the_ledger(_: &mut Charging, _: jiff::Timestamp) -> bool {
-    false
+/// Queues in `place`, a place in a Run's run state's queue, the journal
+/// under `epoch` of what a change of its `charging` charged, when there is
+/// something to journal; answers the future of its commit. Called under
+/// the charging's lock, so journals are queued in the order of the
+/// changes.
+fn journaled(
+    charging: &Charging,
+    place: ReservedWrite,
+    epoch: u64,
+    charged: Charged,
+) -> Option<impl Future<Output = Result<(), RunStateError>> + Send + 'static + use<>> {
+    let uncapped = charging.uncapped();
+    (!charged.used.is_empty() || !charged.counted.is_empty() || uncapped)
+        .then(|| place.write(move |connection| journal(connection, epoch, &charged, uncapped)))
 }
 
 /// Journals in a Run's run state, under `epoch`, what a charge took from

@@ -12,7 +12,7 @@ use jiff::{SignedDuration, Timestamp};
 use rstest::rstest;
 
 use super::{charging, holder, install, limit, now, placement};
-use crate::ledger::{Charging, Ledger, Refusal, SliceSizing};
+use crate::ledger::{Change, Charging, Ledger, Refusal, SliceSizing};
 
 /// Which engine of the process sets a Limit while a run charges.
 #[derive(Clone, Copy, Debug)]
@@ -366,70 +366,106 @@ fn a_charge_is_made_without_the_ledger_only_while_the_held_slices_cover_it() {
     );
 }
 
-/// What a Run asks before it changes its charging with no blocking call
-/// (issue 2603): a charge or a reservation is a step in memory while the
-/// Slices the run holds cover its amount and its Limits are current. What
-/// the charging says they cover then reaches neither SQL nor the file; a
-/// settlement never does.
+/// A change of a run's charging that is a step in memory (issue 2603):
+/// charges and reservations the Slices the run holds cover, while its
+/// Limits are current, and their settling, reach neither SQL nor the
+/// file. One that needs the ledger is not made in memory, and leaves
+/// nothing changed once it gave back what it took on the way.
 ///
 /// Covers: story:3-67
 #[test]
-fn a_change_the_charging_says_its_slices_cover_reaches_no_sql_and_no_file() {
+fn a_change_the_held_slices_cover_is_made_in_memory_and_one_they_do_not_changes_nothing() {
     let env = TestEnv::new();
-    let vfs = CrashVfs::register(&env.unique_name("ledger-covers"), env.seed()).unwrap();
+    let vfs = CrashVfs::register(&env.unique_name("ledger-change"), env.seed()).unwrap();
     let work = CountedWork::default();
     let ledger = ledger_on(&env, &vfs);
     ledger
         .add_limit(&limit(install(), "requests", 1_000), now())
         .unwrap();
     let mut run = run_on(&env, &ledger.clone().counting(work.clone()));
-    let unread = run.covers("requests", None, 1, now());
+    let unread = run
+        .change_held(now(), |change| change.charge("requests", 1))
+        .is_some();
     run.charge("requests", 1, now()).unwrap();
     let before = (work.read(CountedRow::ChargeStatements), vfs.operations());
 
-    let covered = run.covers("requests", None, 9, now());
-    let (reservation, _) = run.reserve("requests", None, 5, now()).unwrap();
-    run.settle(reservation, 2);
-    run.charge("requests", 4, now()).unwrap();
-    let short = run.covers("requests", None, 4, now());
-    let uncapped = run.covers("paid_solves", Some("USD"), 1_000, now());
-    let (unlimited, _) = run
-        .reserve("paid_solves", Some("USD"), 1_000, now())
+    // Of the Slice of 10: 1 charged above, then 4, then 2 of 5 reserved.
+    let covered = run
+        .change_held(now(), |change| {
+            let charged = change.charge("requests", 4)?;
+            let (reservation, _) = change.reserve("requests", None, 5)?;
+            let _ = change.settle(reservation, 2);
+            Ok(charged.used)
+        })
         .unwrap();
-    run.settle(unlimited, 0);
+    // 3 are left: 2 reserved, then 2 more than the Slice has.
+    let short = run
+        .change_held(now(), |change| {
+            let (reservation, _) = change.reserve("requests", None, 2)?;
+            match change.charge("requests", 2) {
+                Ok(charged) => Ok(charged),
+                Err(unmade) => {
+                    let _ = change.settle(reservation, 0);
+                    Err(unmade)
+                }
+            }
+        })
+        .is_some();
+    let left = run
+        .change_held(now(), |change| change.charge("requests", 3))
+        .map(|charged| charged.used);
+    let uncapped = run
+        .change_held(now(), |change| {
+            let (reservation, _) = change.reserve("paid_solves", Some("USD"), 1_000)?;
+            Ok(change.settle(reservation, 0))
+        })
+        .is_some();
+    let asked = run
+        .change_held(now(), |change| change.allowed_by("paid_solves", "USD"))
+        .is_some();
 
     assert_eq!(
         (
-            (unread, covered, short, uncapped),
+            (unread, covered, short, left, uncapped, asked),
             work.read(CountedRow::ChargeStatements) - before.0,
             vfs.operations() - before.1
         ),
-        ((false, true, false, true), 0, 0)
+        (
+            (false, vec![(1, 5)], false, Some(vec![(1, 10)]), true, false),
+            0,
+            0
+        )
     );
 }
 
 /// A change stops being a step in memory once the run's Limits may no
-/// longer be the ledger's: an engine of its process changed them.
+/// longer be the ledger's: an engine of its process changed them. The
+/// same change is then made through the ledger.
 ///
 /// Covers: story:3-67
 #[test]
 fn a_change_is_no_step_in_memory_once_the_limits_changed() {
     let env = TestEnv::new();
-    let vfs = CrashVfs::register(&env.unique_name("ledger-covers-changed"), env.seed()).unwrap();
+    let vfs = CrashVfs::register(&env.unique_name("ledger-change-changed"), env.seed()).unwrap();
     let ledger = ledger_on(&env, &vfs);
     ledger
         .add_limit(&limit(install(), "requests", 1_000), now())
         .unwrap();
     let mut run = run_on(&env, &ledger);
     run.charge("requests", 1, now()).unwrap();
-    let before = run.covers("requests", None, 1, now());
+    let one = |change: &mut Change<'_>| change.charge("requests", 1).map(|charged| charged.used);
+    let before = run.change_held(now(), one);
 
     ledger
         .add_limit(&limit(install(), "paid_solves", 5), now())
         .unwrap();
 
     assert_eq!(
-        (before, run.covers("requests", None, 1, now())),
-        (true, false)
+        (
+            before,
+            run.change_held(now(), one),
+            run.change(now(), one).ok()
+        ),
+        (Some(vec![(1, 2)]), None, Some(vec![(1, 3)]))
     );
 }

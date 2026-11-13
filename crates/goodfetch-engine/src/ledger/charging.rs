@@ -96,6 +96,118 @@ pub struct Reservation {
     currency: Option<String>,
 }
 
+/// Why a [`Change`] of a run's charging was not made.
+#[derive(Debug)]
+pub enum Unmade {
+    /// It is no step in memory: it needs the ledger, for a Slice, the
+    /// run's Limits or a refusal. Only a change tried in memory
+    /// ([`Charging::change_held`]) answers it.
+    NeedsLedger,
+    /// A Limit refused it, or the ledger could not be read or written.
+    Refused(Refusal),
+}
+
+impl Unmade {
+    /// The refusal, of a change the ledger refused.
+    fn refusal(self) -> Option<Refusal> {
+        match self {
+            Self::NeedsLedger => None,
+            Self::Refused(refusal) => Some(refusal),
+        }
+    }
+}
+
+impl From<Refusal> for Unmade {
+    fn from(refusal: Refusal) -> Self {
+        Self::Refused(refusal)
+    }
+}
+
+/// What a [`Change`] may reach.
+#[derive(Clone, Copy, Debug)]
+enum Reach {
+    /// What the run holds in memory, and nothing else.
+    Held,
+    /// The ledger too.
+    Ledger,
+}
+
+/// One change of a run's charging at one instant, made of charges,
+/// reservations and settlements: as a step in memory, which never reaches
+/// the ledger ([`Charging::change_held`]), or reaching it
+/// ([`Charging::change`]). One description of a change serves both, so
+/// whether it is a step in memory is asked of the charging as each part of
+/// it is made, never stated beside it.
+#[derive(Debug)]
+pub struct Change<'a> {
+    charging: &'a mut Charging,
+    now: Timestamp,
+    reach: Reach,
+}
+
+impl Change<'_> {
+    /// Charges as [`Charging::charge`] does.
+    ///
+    /// # Errors
+    ///
+    /// `NeedsLedger` when the change is tried in memory and this charge is
+    /// no step in memory; `Refused` as [`Charging::charge`]'s.
+    pub fn charge(&mut self, usage_kind: &str, amount: u64) -> Result<Charged, Unmade> {
+        match self.reach {
+            Reach::Held => self
+                .charging
+                .charge_held(usage_kind, amount, self.now)
+                .ok_or(Unmade::NeedsLedger),
+            Reach::Ledger => Ok(self.charging.charge(usage_kind, amount, self.now)?),
+        }
+    }
+
+    /// Reserves as [`Charging::reserve`] does.
+    ///
+    /// # Errors
+    ///
+    /// As [`Change::charge`]'s.
+    pub fn reserve(
+        &mut self,
+        usage_kind: &str,
+        currency: Option<&str>,
+        worst: u64,
+    ) -> Result<(Reservation, Charged), Unmade> {
+        match self.reach {
+            Reach::Held => self
+                .charging
+                .reserve_held(usage_kind, currency, worst, self.now)
+                .ok_or(Unmade::NeedsLedger),
+            Reach::Ledger => Ok(self
+                .charging
+                .reserve(usage_kind, currency, worst, self.now)?),
+        }
+    }
+
+    /// Settles as [`Charging::settle`] does: always a step in memory.
+    pub fn settle(&mut self, reservation: Reservation, cost: u64) -> Charged {
+        self.charging.settle(reservation, cost)
+    }
+
+    /// Who allows the run to pay, as [`Charging::allowed_by`] answers,
+    /// which reads the ledger.
+    ///
+    /// # Errors
+    ///
+    /// `NeedsLedger` when the change is tried in memory; `Refused` as
+    /// [`Charging::allowed_by`]'s.
+    pub fn allowed_by(
+        &mut self,
+        usage_kind: &str,
+        currency: &str,
+    ) -> Result<Option<LimitSetter>, Unmade> {
+        match self.reach {
+            Reach::Held => Err(Unmade::NeedsLedger),
+            Reach::Ledger => Ok(self.charging.allowed_by(usage_kind, currency)?),
+        }
+    }
+}
+
 /// A Slice the run holds, and what it used of it.
 #[derive(Clone, Debug)]
 struct Held {
@@ -378,12 +490,9 @@ impl Charging {
     /// Whether a charge or a reservation of `amount` of `usage_kind` in
     /// `currency` is a step in memory at `now`: the Slices the run holds
     /// cover it, and the Limits it holds are still the ledger's as far as
-    /// its process can tell. [`Charging::charge`] and
-    /// [`Charging::reserve`] then call nothing that blocks, so a Run makes
-    /// them without a blocking call (E3-3 of the audit #1882, issue 2603);
-    /// [`Charging::settle`] never does. False when the change needs the
-    /// ledger, for a Slice, its Limits or a refusal.
-    pub fn covers(
+    /// its process can tell. False when it needs the ledger, for a Slice,
+    /// its Limits or a refusal.
+    fn covers(
         &mut self,
         usage_kind: &str,
         currency: Option<&str>,
@@ -397,8 +506,10 @@ impl Charging {
     }
 
     /// Charges `amount` of `usage_kind` as [`Charging::charge`] does, when
-    /// that is a step in memory ([`Charging::covers`]). None, and nothing
-    /// charged, when the charge needs the ledger: [`Charging::charge`]
+    /// that is a step in memory: the Slices the run holds cover it, and
+    /// the Limits it holds are still the ledger's as far as its process
+    /// can tell. None, and nothing charged, when the charge needs the
+    /// ledger, for a Slice, its Limits or a refusal: [`Charging::charge`]
     /// then makes it.
     pub fn charge_held(
         &mut self,
@@ -441,13 +552,46 @@ impl Charging {
         worst: u64,
         now: Timestamp,
     ) -> Result<(Reservation, Charged), Refusal> {
-        let (taken, mut charged) = self.take(usage_kind, currency, worst, now)?;
+        let (taken, charged) = self.take(usage_kind, currency, worst, now)?;
+        Ok(self.reserved(usage_kind, currency, worst, taken, charged))
+    }
+
+    /// Reserves `worst` as [`Charging::reserve`] does, when that is a step
+    /// in memory ([`Charging::charge_held`]'s condition). None, and
+    /// nothing reserved, when the reservation needs the ledger:
+    /// [`Charging::reserve`] then makes it.
+    pub fn reserve_held(
+        &mut self,
+        usage_kind: &str,
+        currency: Option<&str>,
+        worst: u64,
+        now: Timestamp,
+    ) -> Option<(Reservation, Charged)> {
+        if !self.covers(usage_kind, currency, worst, now) {
+            return None;
+        }
+        let (taken, charged) = self.draw(usage_kind, currency, worst).ok()?;
+        Some(self.reserved(usage_kind, currency, worst, taken, charged))
+    }
+
+    /// What a reservation of `worst` of `usage_kind` in `currency` that
+    /// took `taken` from the run's Slices answers: the reservation, and
+    /// the change of the run's Usage. A currency no Limit caps marks the
+    /// run *uncapped*.
+    fn reserved(
+        &mut self,
+        usage_kind: &str,
+        currency: Option<&str>,
+        worst: u64,
+        taken: Vec<(SliceId, u64)>,
+        mut charged: Charged,
+    ) -> (Reservation, Charged) {
         if taken.is_empty() && currency.is_some() {
             self.uncapped = true;
         }
         charged.counted = vec![Counted::of(usage_kind, currency, signed(worst))];
         tracing::trace!(target: TARGET, transition = "reserve", usage_kind, worst, run_id = %self.holder.run_id, epoch = self.holder.epoch, "a run reserved a worst case against its Slices");
-        Ok((
+        (
             Reservation {
                 worst,
                 taken,
@@ -455,7 +599,7 @@ impl Charging {
                 currency: currency.map(str::to_owned),
             },
             charged,
-        ))
+        )
     }
 
     /// Settles `reservation` at `cost`, what was paid, which its worst case
@@ -579,6 +723,51 @@ impl Charging {
             .filter(|held| slices.contains(&held.id))
             .map(|held| (held.id, held.used))
             .collect()
+    }
+
+    /// Makes `change` at `now` as a step in memory, when it is one: every
+    /// charge and reservation in it is one the held Slices cover while
+    /// the Limits held are current, and it reaches neither SQL nor a
+    /// file, so a Run makes it where it asks for it, with no blocking
+    /// call (E3-3 of the audit #1882, issue 2603). None when it needs the
+    /// ledger, with nothing changed once `change` gave back what it had
+    /// taken on the way: [`Charging::change`] then makes it.
+    pub fn change_held<T>(
+        &mut self,
+        now: Timestamp,
+        change: impl FnOnce(&mut Change<'_>) -> Result<T, Unmade>,
+    ) -> Option<T> {
+        change(&mut Change {
+            charging: self,
+            now,
+            reach: Reach::Held,
+        })
+        .ok()
+    }
+
+    /// Makes `change` at `now`, reaching the ledger for what it needs: a
+    /// Slice, the Limits, a refusal. It blocks then: run it under a
+    /// blocking policy.
+    ///
+    /// # Errors
+    ///
+    /// As [`Charging::charge`]'s, with nothing changed once `change` gave
+    /// back what it had taken on the way.
+    pub fn change<T>(
+        &mut self,
+        now: Timestamp,
+        change: impl FnOnce(&mut Change<'_>) -> Result<T, Unmade>,
+    ) -> Result<T, Refusal> {
+        change(&mut Change {
+            charging: self,
+            now,
+            reach: Reach::Ledger,
+        })
+        .map_err(|unmade| {
+            unmade
+                .refusal()
+                .expect("invariant: a change that reaches the ledger is made or refused")
+        })
     }
 
     /// Takes `amount` from the run's Slices of every Limit on `usage_kind`

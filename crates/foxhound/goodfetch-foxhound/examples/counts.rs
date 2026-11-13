@@ -38,6 +38,15 @@
 //! (ADR 0138). Without Valgrind `F2.prepares` goes unprinted, which `xtask
 //! counts` fails as a row not counted.
 //!
+//! `F3.counted_work_constructions` is read from the same two runs, as a
+//! `CountedWork` being built has no instance to count on: Callgrind's call
+//! count of its constructor on the whole site, less on [`SHORTER`] of its
+//! pages, over the pages the whole site adds. The engine's own and each
+//! owner's placeholder are built once and count for no page; one an
+//! admission builds counts for its page. The whole run must see the engine
+//! build its own, or the constructor's name has changed. It goes unprinted
+//! without Valgrind too.
+//!
 //! The cells of the run file's own switches (`concurrency_1`,
 //! `concurrency_16`, `durability_fast`) and the handler's cell crawl without
 //! the Frontier's outcomes beyond a links batch: a hop's, a sitemap's and a
@@ -152,6 +161,11 @@ fn plant(name: &str, work: &CountedWork, vfs: &str) -> Plant {
     if name.starts_with("E6.") {
         return politeness_plant(name, work);
     }
+    if name == CONSTRUCTIONS {
+        return Arc::new(|_: &str| {
+            std::hint::black_box(CountedWork::default());
+        });
+    }
     let work = work.clone();
     if name == "F1.parses" {
         return Arc::new(move |head: &str| {
@@ -203,6 +217,14 @@ fn number_field() -> Map<String, Value> {
 
 /// The run-state row Callgrind reads over a whole cell.
 const RUN_STATE_PREPARES: &str = "F2.prepares";
+
+/// The row Callgrind reads over a whole cell as the calls of
+/// [`CONSTRUCTION`] each page adds.
+const CONSTRUCTIONS: &str = "F3.counted_work_constructions";
+
+/// `CountedWork`'s constructor, as Callgrind names it.
+const CONSTRUCTION: &str =
+    "<goodfetch_counted_work::CountedWork as core::default::Default>::default";
 
 /// The row Callgrind adds the Politeness file's preparations to: those
 /// beneath its functions, but its opening's.
@@ -573,6 +595,9 @@ struct Prepared {
     /// Beneath the `run_state` writer's, on the whole site less on
     /// [`SHORTER`] of its pages: `F2.prepares`, over [`added_pages`].
     per_added_pages: u64,
+    /// The `CountedWork` values built on the whole site less on [`SHORTER`]
+    /// of its pages: `F3.counted_work_constructions`, over [`added_pages`].
+    constructions: u64,
 }
 
 /// What one cell counted.
@@ -841,7 +866,9 @@ fn prepare_calls<T>(
     std::thread::scope(|scope| {
         let calls = scope.spawn(|| {
             if !counted
-                || planted.is_some_and(|row| row != RUN_STATE_PREPARES && row != POLITENESS_OPENS)
+                || planted.is_some_and(|row| {
+                    ![RUN_STATE_PREPARES, POLITENESS_OPENS, CONSTRUCTIONS].contains(&row)
+                })
             {
                 return None;
             }
@@ -855,7 +882,14 @@ fn prepare_calls<T>(
                 if let Some(row) = planted {
                     arguments.extend(["--plant", row]);
                 }
-                callgrind::calls_beneath_each(PREPARE, CALLERS, &owners, &executable, &arguments)
+                callgrind::calls_beneath_each(
+                    PREPARE,
+                    CALLERS,
+                    &owners,
+                    &[CONSTRUCTION],
+                    &executable,
+                    &arguments,
+                )
             };
             let (whole, shorter) = std::thread::scope(|scope| {
                 let shorter = scope.spawn(|| run(true));
@@ -868,13 +902,26 @@ fn prepare_calls<T>(
                 )
             });
             match whole.and_then(|whole| shorter.map(|shorter| (whole, shorter))) {
-                Ok((whole, shorter)) => Some(Prepared {
-                    politeness: whole[0].beneath,
-                    per_added_pages: whole[1]
-                        .beneath
-                        .checked_sub(shorter[1].beneath)
-                        .expect("invariant: the whole site prepares at least what half of it does"),
-                }),
+                Ok((whole, shorter)) => {
+                    // A constructor renamed or inlined would otherwise
+                    // count no construction, and pass.
+                    assert!(
+                        whole.others[0] > 0,
+                        "Callgrind saw no `CountedWork` built, not even the engine's: {CONSTRUCTION} no longer names its constructor"
+                    );
+                    Some(Prepared {
+                        politeness: whole.beneath[0].beneath,
+                        per_added_pages: whole.beneath[1]
+                            .beneath
+                            .checked_sub(shorter.beneath[1].beneath)
+                            .expect(
+                                "invariant: the whole site prepares at least what half of it does",
+                            ),
+                        constructions: whole.others[0].checked_sub(shorter.others[0]).expect(
+                            "invariant: the whole site builds at least what half of it does",
+                        ),
+                    })
+                }
                 Err(error) => {
                     eprintln!("{RUN_STATE_PREPARES} is not read: {error}");
                     None
@@ -1119,6 +1166,7 @@ fn main() {
         match cell.prepare_calls {
             Some(calls) => {
                 counts.insert(RUN_STATE_PREPARES.to_owned(), json!(calls.per_added_pages));
+                counts.insert(CONSTRUCTIONS.to_owned(), json!(calls.constructions));
                 let opens = cell.count(Row::PolitenessOpens) + calls.politeness;
                 counts.insert(POLITENESS_OPENS.to_owned(), json!(opens));
             }

@@ -352,7 +352,9 @@ rows! {
 /// may count while another reads: a read sees some count that was true. It
 /// holds the engine's bounded cache of compilations too ([`Self::selector`]),
 /// which every owner it is given to compiles through, so a text compiles once
-/// for the engine and its compilation counts once.
+/// for the engine and its compilation counts once. A default one builds no
+/// part of that cache before a text of its kind is asked for, so the one an
+/// owner holds until it is given the engine's costs it no cache.
 #[derive(Clone, Debug, Default)]
 pub struct CountedWork(Arc<Shared>);
 
@@ -503,6 +505,13 @@ impl CountedWork {
     #[cfg(test)]
     fn kept(&self) -> u64 {
         self.0.compiled.selectors()
+    }
+
+    /// Whether the engine's cache built its selectors', its regular
+    /// expressions' and its globs' part, in that order.
+    #[cfg(test)]
+    fn caches_built(&self) -> [bool; 3] {
+        self.0.compiled.built()
     }
 
     /// `pattern` compiled, counted on `row`: the one function a regular

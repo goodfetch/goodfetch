@@ -153,9 +153,64 @@ fn text_the_justfile_lacks_fails_after_an_elision() {
 }
 
 #[test]
+fn an_exception_is_announced_21_days_before_it_expires_and_fails_nothing() {
+    let outcome = check(&clean(), "2027-01-09");
+
+    assert_eq!(
+        outcome.notes(),
+        vec![finding("exception-expires-soon", "X1")]
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("X1: expires on 2027-01-30, in 21 days; removed by #1577"),
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(outcome.findings(), vec![]);
+    assert_eq!(outcome.code, 0);
+}
+
+#[test]
+fn an_exception_more_than_21_days_from_its_expiry_is_not_announced() {
+    let outcome = check(&clean(), "2027-01-08");
+
+    assert_eq!(outcome.notes(), vec![]);
+    assert_eq!(outcome.code, 0);
+}
+
+#[test]
+fn the_day_before_its_expiry_an_exception_expires_in_1_day() {
+    let outcome = check(&clean(), "2027-01-29");
+
+    assert_eq!(
+        outcome.notes(),
+        vec![finding("exception-expires-soon", "X1")]
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("X1: expires on 2027-01-30, in 1 day;"),
+        "{}",
+        outcome.stdout
+    );
+}
+
+#[test]
 fn an_exception_passes_on_its_expiry_day() {
     let outcome = check(&clean(), "2027-01-30");
 
+    assert_eq!(
+        outcome.notes(),
+        vec![finding("exception-expires-soon", "X1")]
+    );
+    assert!(
+        outcome
+            .stdout
+            .contains("X1: expires on 2027-01-30, in 0 days;"),
+        "{}",
+        outcome.stdout
+    );
     assert_eq!(outcome.findings(), vec![]);
     assert_eq!(outcome.code, 0);
 }
@@ -165,6 +220,7 @@ fn an_exception_fails_once_its_date_has_passed_with_no_other_change() {
     let outcome = check(&clean(), "2027-01-31");
 
     assert_eq!(outcome.findings(), vec![finding("exception-expired", "X1")]);
+    assert_eq!(outcome.notes(), vec![]);
     assert_eq!(outcome.code, 1);
 }
 

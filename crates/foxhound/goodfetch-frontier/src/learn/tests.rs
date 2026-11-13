@@ -23,6 +23,7 @@ use crate::admit::{Candidate, admit};
 use crate::bounds::{self, Bounds};
 use crate::identity;
 use crate::identity::{Declared, SLICE};
+use crate::invariants::Invariants;
 use crate::rules::{self, learned_rules};
 use crate::scope::{self, Narrowing, Patterns, Scope, Strategy};
 
@@ -122,9 +123,13 @@ impl Crawl {
     fn admit(&mut self, candidate: Candidate<'_>) -> Enqueued {
         let next = (self.ids.len() + 1).to_string();
         let every_host = Policy::new(&["*"], &[] as &[&str]).unwrap();
+        // As the Run's start or resume builds them, after it records the
+        // Bounds.
+        let invariants =
+            Invariants::new(self.scope.clone(), Bounds::read(&self.connection).unwrap()).unwrap();
         let answer = admit(
             &self.connection,
-            &self.scope,
+            &invariants,
             &every_host,
             candidate,
             |_| Ok(next.clone()),

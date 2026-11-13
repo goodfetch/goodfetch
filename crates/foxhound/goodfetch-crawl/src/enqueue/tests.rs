@@ -12,11 +12,14 @@ use rusqlite::Connection;
 use serde_json::json;
 
 use super::add;
+use crate::invariants::{Invariants, fixture};
+use crate::labels::Fragments;
 use crate::work_items;
 
 /// The scope a Run recorded as it began decides every enqueue of the Run,
-/// since an enqueue reads it from the run file and from no setting, so a
-/// resume under other `crawl.scope.*` values never moves it (ADR 0102):
+/// since the invariants an enqueue is measured against read it from the run
+/// file as the Run resumes, and from no setting, so a resume under other
+/// `crawl.scope.*` values never moves it (ADR 0102):
 /// a `same_domain` crawl's subdomain is added, a sister domain is not.
 ///
 /// Covers: story:6-224, setting:crawl.scope.strategy
@@ -47,12 +50,13 @@ fn an_enqueue_is_measured_against_the_scope_the_run_recorded() {
     let seed: Seed =
         serde_json::from_value(json!({ "url": "http://shop.test/", "label": "page" })).unwrap();
     let every_host = Policy::new(&["*"], &[] as &[&str]).unwrap();
+    let invariants = Invariants::read(&connection, Fragments::read(&connection).unwrap()).unwrap();
     work_items::admit_seeds(
         &connection,
         &mut work_items::Positions::of(&connection).unwrap(),
-        &scope,
+        &invariants,
         &every_host,
-        &[seed],
+        &fixture::checked(&invariants, [seed]),
     )
     .unwrap();
     let leased = work_items::lease(&connection, &["1".to_owned()]).unwrap();
@@ -68,8 +72,8 @@ fn an_enqueue_is_measured_against_the_scope_the_run_recorded() {
         add(
             &connection,
             &mut work_items::Positions::of(&connection).unwrap(),
-            &every_host,
-            &params,
+            (&every_host, &invariants),
+            (&params, None),
             None,
             &goodfetch_counted_work::CountedWork::default(),
         )

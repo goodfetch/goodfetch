@@ -15,7 +15,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use data_encoding::HEXLOWER;
-use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::egress::{Judgment, Policy, Request, RequestKind, judge};
 use goodfetch_engine::run_state::RunStateTables;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
@@ -24,6 +23,7 @@ use rusqlite::{Connection, OptionalExtension as _};
 use sha2::{Digest as _, Sha256};
 use url::{Position, Url};
 
+use crate::invariants::Invariants;
 use crate::rules;
 use crate::scope::{Narrowing, Scope};
 use crate::staged::Staged;
@@ -554,30 +554,32 @@ pub(crate) fn visit(
     Ok(())
 }
 
-/// The Frontier's answer on one hop, as [`redirect_hop`] answers, on the
-/// Scope the run file `connection` holds, its read counted on the hop's own
-/// row. A function of its own, never inlined, so that `xtask counts`' Callgrind
+/// The Frontier's answer on one hop, as [`redirect_hop`] answers, within
+/// the Run's `invariants`, which the hop reads nothing of again (#1896). A
+/// function of its own, never inlined, so that `xtask counts`' Callgrind
 /// run can name the hop's work (ADR 0140).
 ///
 /// # Errors
 ///
-/// As [`redirect_hop`] and [`Scope::read`].
+/// As [`redirect_hop`].
 #[inline(never)]
 pub fn admit_hop(
     connection: &Connection,
-    work: &CountedWork,
+    invariants: &Invariants,
     policy: &Policy,
     crawl_request: &str,
     hop: (&Url, &HttpMethod, Option<&[u8]>),
 ) -> rusqlite::Result<Hop> {
     let (url, method, body) = hop;
-    let scope = Scope::read_counted(
+    redirect_hop(
         connection,
-        work,
-        Row::HopInvariantReads,
-        Row::HopCompilations,
-    )?;
-    redirect_hop(connection, &scope, policy, crawl_request, url, method, body)
+        invariants.scope(),
+        policy,
+        crawl_request,
+        url,
+        method,
+        body,
+    )
 }
 
 /// Where a redirect hop of the crawl request `crawl_request` to `url`,

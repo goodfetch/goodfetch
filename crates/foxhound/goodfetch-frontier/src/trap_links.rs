@@ -262,6 +262,15 @@ pub fn suspect(connection: &Connection, id: &str, mark: Mark) -> rusqlite::Resul
     Ok(())
 }
 
+/// The statements [`seen_again`] runs, which [`crate::prepare_admission`]
+/// prepares as the Run starts: whether any request is marked, then a
+/// mark's update to revealable or its removal.
+pub(crate) const SEEN_AGAIN: [&str; 3] = [
+    "SELECT 1 FROM trap_link_suspected LIMIT 1",
+    "UPDATE trap_link_suspected SET revealable = 1 WHERE work_item = ?1",
+    "DELETE FROM trap_link_suspected WHERE work_item = ?1",
+];
+
 /// Clears the mark of the work item that the link `href`, resolved
 /// against `base` with its query in `encoding`, reaches again, once the
 /// Frontier answered it `duplicate`, when the link is one a person sees or
@@ -287,7 +296,7 @@ pub fn seen_again(
     revealable: bool,
 ) -> rusqlite::Result<()> {
     let any_marked = connection
-        .prepare_cached("SELECT 1 FROM trap_link_suspected LIMIT 1")
+        .prepare_cached(SEEN_AGAIN[0])
         .and_then(|mut cached| cached.query_row([], |_| Ok(())))
         .optional()?
         .is_some();
@@ -313,11 +322,11 @@ pub fn seen_again(
     };
     if revealable {
         connection
-            .prepare_cached("UPDATE trap_link_suspected SET revealable = 1 WHERE work_item = ?1")
+            .prepare_cached(SEEN_AGAIN[1])
             .and_then(|mut cached| cached.execute([reached]))?;
     } else {
         connection
-            .prepare_cached("DELETE FROM trap_link_suspected WHERE work_item = ?1")
+            .prepare_cached(SEEN_AGAIN[2])
             .and_then(|mut cached| cached.execute([reached]))?;
     }
     Ok(())

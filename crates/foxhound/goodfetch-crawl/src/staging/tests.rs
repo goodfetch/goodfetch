@@ -20,6 +20,7 @@ use rusqlite::Connection;
 use serde_json::json;
 
 use super::{Answered, AttemptKey, Staging};
+use crate::invariants::fixture;
 use crate::work_items::{self, Adding, Positions};
 
 /// A run file in memory holding one seed, `https://shop.test/`, leased to
@@ -47,14 +48,15 @@ fn leased() -> Connection {
         Patterns::default(),
     );
     scope.record(&connection).unwrap();
+    let invariants = fixture::within(&connection, scope).unwrap();
     let seed: Seed =
         serde_json::from_value(json!({ "url": "https://shop.test/", "label": "page" })).unwrap();
     work_items::admit_seeds(
         &connection,
         &mut Positions::of(&connection).unwrap(),
-        &scope,
+        &invariants,
         &every_host(),
-        &[seed],
+        &fixture::checked(&invariants, [seed]),
     )
     .unwrap();
     let leased = work_items::lease(&connection, &["1".to_owned()]).unwrap();
@@ -86,7 +88,7 @@ fn enqueue(
             narrowing: Narrowing::none(),
             depth: 1,
         };
-        let scope = Scope::read(connection)?;
+        let invariants = goodfetch_frontier::Invariants::read(connection)?;
         let adding = Adding {
             method: &method,
             body: None,
@@ -99,7 +101,7 @@ fn enqueue(
         work_items::admit(
             connection,
             positions,
-            &scope,
+            &invariants,
             &every_host(),
             candidate,
             adding,
@@ -414,12 +416,13 @@ fn a_commit_names_each_staged_request_another_commit_added_first() {
     let connection = leased();
     let seed: Seed =
         serde_json::from_value(json!({ "url": "https://shop.test/a", "label": "page" })).unwrap();
+    let invariants = fixture::within(&connection, Scope::read(&connection).unwrap()).unwrap();
     work_items::admit_seeds(
         &connection,
         &mut Positions::of(&connection).unwrap(),
-        &Scope::read(&connection).unwrap(),
+        &invariants,
         &every_host(),
-        &[seed],
+        &fixture::checked(&invariants, [seed]),
     )
     .unwrap();
     let epoch = work_items::lease(&connection, &["2".to_owned()]).unwrap()[0].lease_epoch;
@@ -515,12 +518,13 @@ fn dependent_steps() -> Vec<Step> {
         let seed: Seed =
             serde_json::from_value(json!({ "url": "https://other.test/", "label": "page" }))
                 .unwrap();
+        let invariants = fixture::within(connection, Scope::read(connection)?)?;
         let mut answers = work_items::admit_seeds(
             connection,
             positions,
-            &Scope::read(connection)?,
+            &invariants,
             &every_host(),
-            &[seed],
+            &fixture::checked(&invariants, [seed]),
         )?;
         Ok(Some(Ok(answers.pop().unwrap())))
     };

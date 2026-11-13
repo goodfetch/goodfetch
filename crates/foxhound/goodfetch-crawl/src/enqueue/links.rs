@@ -20,14 +20,16 @@
 //! is not suspected and reaches a marked request again clears its mark; a
 //! revealable one leaves it marked as revealable.
 
+use std::sync::Arc;
+
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_fetch_tier::{FetchTiers, LinksUnread, ServedLinks};
-use goodfetch_frontier::payload::PayloadRules;
+use goodfetch_frontier::payload::Payload;
 use goodfetch_frontier::trap_links::{self, Mark, Sight, Trap, Verdict};
-use goodfetch_frontier::{Candidate, Narrowing, Patterns, Scope, Url, document_base, resolve_link};
+use goodfetch_frontier::{Candidate, Narrowing, Patterns, Url, document_base, resolve_link};
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::foxhound::frontier::{
@@ -41,7 +43,7 @@ use goodfetch_protocol::run::{RUN_STATE_UNAVAILABLE, RunDetails, RunId};
 use rusqlite::Connection;
 use serde_json::Value;
 
-use crate::labels::Fragments;
+use crate::invariants::Invariants;
 use crate::serving::{Crawls, LiveCrawl};
 use crate::staging::{Answered, Marked, Staging};
 use crate::work_items::{self, Adding, Positions};
@@ -276,11 +278,10 @@ async fn prepared(
             "An `enqueueLinks` call takes `payload`, one Payload for every link, or `payloads`, one per link, never both.".to_owned(),
         ));
     }
-    let include = Patterns::globs(&params.include).map_err(CallError::from)?;
-    let exclude = Patterns::globs(&params.exclude).map_err(CallError::from)?;
     let Some(LiveCrawl {
         run,
         egress,
+        invariants,
         staging,
         ..
     }) = crawls.live(&params.run_id).await
@@ -288,11 +289,19 @@ async fn prepared(
         return Err(attempt.ended());
     };
     let work = run.metrics().counted_work().clone();
-    for _ in params.include.iter().chain(&params.exclude) {
-        work.count(Row::BatchCompilations);
-    }
+    // Each glob compiles once for the engine, from its cache (#1896).
+    let include = Patterns::cached(&work, Row::BatchCompilations, &params.include)
+        .map_err(CallError::from)?;
+    let exclude = Patterns::cached(&work, Row::BatchCompilations, &params.exclude)
+        .map_err(CallError::from)?;
     let (served, base) = served(tiers, &params.locator, &work).await?;
     payloads_fit(params, served.elements.len())?;
+    // Each Payload is serialized once, the call's one for every link
+    // shared by them all (#1896).
+    let every = params
+        .payload
+        .as_ref()
+        .map(|payload| Arc::new(Payload::of(payload.clone(), &work)));
     let links: Vec<Link> = served
         .elements
         .into_iter()
@@ -303,16 +312,17 @@ async fn prepared(
             payload: match &params.payloads {
                 Some(payloads) => match &payloads[at] {
                     Value::Null => Chosen::Skipped,
-                    payload => Chosen::Payload(Some(payload.clone())),
+                    payload => Chosen::Payload(Some(Arc::new(Payload::of(payload.clone(), &work)))),
                 },
-                None => Chosen::Payload(params.payload.clone()),
+                None => Chosen::Payload(every.clone()),
             },
         })
         .collect();
     work.count(Row::BatchTransactions);
     let batch = OwnedBatch {
-        request: params.clone(),
+        request: Request::of(params),
         egress,
+        invariants,
         links,
         base,
         encoding: served.encoding,
@@ -323,11 +333,33 @@ async fn prepared(
     Ok((run, staging, batch))
 }
 
+/// What a links call's admission reads of its params.
+struct Request {
+    crawl_request_id: String,
+    lease_epoch: u64,
+    label: String,
+    limit: Option<u64>,
+    priority: i64,
+}
+
+impl Request {
+    fn of(params: &CrawlRequestEnqueueLinksParams) -> Self {
+        Self {
+            crawl_request_id: params.crawl_request_id.clone(),
+            lease_epoch: params.lease_epoch,
+            label: params.label.clone(),
+            limit: params.limit,
+            priority: params.priority,
+        }
+    }
+}
+
 /// A batch of links and all it admits against, owned by the write that
 /// admits it, which may run it again at the commit.
 struct OwnedBatch {
-    request: CrawlRequestEnqueueLinksParams,
-    egress: std::sync::Arc<Policy>,
+    request: Request,
+    egress: Arc<Policy>,
+    invariants: Invariants,
     links: Vec<Link>,
     base: Url,
     encoding: &'static goodfetch_frontier::Encoding,
@@ -345,6 +377,7 @@ impl OwnedBatch {
             &self.egress,
             &self.request,
             &Batch {
+                invariants: &self.invariants,
                 links: &self.links,
                 base: &self.base,
                 encoding: self.encoding,
@@ -376,8 +409,8 @@ fn payloads_fit(params: &CrawlRequestEnqueueLinksParams, elements: usize) -> Res
 
 /// What the program chose for one matched element's link.
 enum Chosen {
-    /// Its Payload, if any.
-    Payload(Option<Value>),
+    /// Its Payload, if any, serialized once.
+    Payload(Option<Arc<Payload>>),
     /// Its Payload function skipped it.
     Skipped,
 }
@@ -495,8 +528,10 @@ struct Admitted {
     suspected: Vec<(String, String)>,
 }
 
-/// The links of one call and what they resolve against.
+/// The links of one call and what they resolve against, within the Run's
+/// `invariants`.
 struct Batch<'a> {
+    invariants: &'a Invariants,
     links: &'a [Link],
     base: &'a Url,
     encoding: &'static goodfetch_frontier::Encoding,
@@ -507,22 +542,16 @@ struct Batch<'a> {
 impl Batch<'_> {
     /// The refusal of the first of its Payloads that does not fit `label`'s
     /// schema or the cap, each link that has one checked before any is admitted.
-    fn refused_payload(
-        &self,
-        connection: &Connection,
-        label: &str,
-    ) -> rusqlite::Result<Option<CallError>> {
-        self.work.count(Row::BatchInvariantReads);
-        let rules = PayloadRules::read(connection)?;
-        Ok(self
-            .links
+    fn refused_payload(&self, label: &str) -> Option<CallError> {
+        let rules = self.invariants.payloads();
+        self.links
             .iter()
             .find_map(|link| match (&link.href, &link.payload) {
                 (Some(_), Chosen::Payload(payload)) => {
-                    rules.check(label, payload.as_ref(), self.work).err()
+                    rules.check(label, payload.as_deref(), self.work).err()
                 }
                 _ => None,
-            }))
+            })
     }
 
     /// Clears the mark of the request that the link `href`, one that is not
@@ -549,7 +578,7 @@ impl Batch<'_> {
 }
 
 /// Admits each of `batch`'s links through the Frontier, each added at its
-/// position from `positions`, under the Run's
+/// position from `positions`, within the Run's invariants and under its
 /// domain policy `egress`, while `params`'s attempt holds its lease, once
 /// every Payload fits its Label, else `payload_invalid` and none admitted;
 /// `None` once the attempt ended.
@@ -557,7 +586,7 @@ fn add(
     connection: &Connection,
     positions: &mut Positions,
     egress: &Policy,
-    params: &CrawlRequestEnqueueLinksParams,
+    params: &Request,
     batch: &Batch<'_>,
 ) -> Answered<Admitted> {
     let Some((url, depth)) =
@@ -568,18 +597,10 @@ fn add(
     let Some(from) = document_base(&url, None) else {
         return Ok(None);
     };
-    positions.counting(batch.work);
-    if let Some(refused) = batch.refused_payload(connection, &params.label)? {
+    if let Some(refused) = batch.refused_payload(&params.label) {
         return Ok(Some(Err(refused)));
     }
-    let scope = Scope::read_counted(
-        connection,
-        batch.work,
-        Row::BatchInvariantReads,
-        Row::BatchCompilations,
-    )?;
-    batch.work.count(Row::BatchInvariantReads);
-    let keeps_fragment = Fragments::read(connection)?.keeps(&params.label);
+    let keeps_fragment = batch.invariants.keeps_fragment(&params.label);
     let method = HttpMethod::get();
     let mut answers = Vec::with_capacity(batch.links.len());
     let mut added: u64 = 0;
@@ -621,13 +642,19 @@ fn add(
                     method: &method,
                     body: None,
                     label: &params.label,
-                    payload: payload.as_ref(),
+                    payload: payload.as_deref(),
                     priority: params.priority,
                     forefront: false,
                     depth: depth + 1,
                 };
-                let enqueued =
-                    work_items::admit(connection, positions, &scope, egress, candidate, adding)?;
+                let enqueued = work_items::admit(
+                    connection,
+                    positions,
+                    batch.invariants.frontier(),
+                    egress,
+                    candidate,
+                    adding,
+                )?;
                 match enqueued {
                     Enqueued::Added { id, url } => {
                         added += 1;

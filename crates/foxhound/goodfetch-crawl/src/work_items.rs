@@ -31,9 +31,10 @@ use goodfetch_engine::admission::{Keys, Waiting};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run_state::{BatchRows, BatchWriter, RunStateTables, run_row};
-use goodfetch_frontier::{Candidate, Declared, Scope, Url, payload, sitemap, trap_links};
+use goodfetch_frontier::payload::{self, Payload};
+use goodfetch_frontier::{Candidate, Declared, Url, sitemap, trap_links};
 use goodfetch_protocol::block::BlockCause;
-use goodfetch_protocol::foxhound::crawl::{CrawlRequest, Seed};
+use goodfetch_protocol::foxhound::crawl::{CrawlRequest, Seed, SitemapSeed};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpBody, HttpMethod};
 use goodfetch_protocol::foxhound::outcomes::{
     AttemptError, CrawlRequestOutcome, DatasetRecords, Ending, NotAddedAtCommit, NothingCommitted,
@@ -47,7 +48,7 @@ use goodfetch_protocol::run::PointInTime;
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::{Map, Value};
 
-use crate::labels::Fragments;
+use crate::invariants::Invariants;
 
 /// The tables of a crawl's work items, Records and outcomes.
 pub(crate) const TABLES: RunStateTables = RunStateTables {
@@ -213,7 +214,7 @@ pub(crate) struct Adding<'a> {
     /// Its Label.
     pub(crate) label: &'a str,
     /// Its Payload.
-    pub(crate) payload: Option<&'a Value>,
+    pub(crate) payload: Option<&'a Payload>,
     /// Its priority within its domain.
     pub(crate) priority: i64,
     /// Whether it goes ahead of every request its domain holds pending.
@@ -243,48 +244,92 @@ fn from_sitemap(adding: sitemap::Adding<'_>) -> Adding<'_> {
     }
 }
 
-/// Checks each of `seeds` as [`check_seed`] does, failing at the first
-/// that does not hold.
-pub(crate) fn check_seeds<'a>(
-    payloads: &payload::PayloadRules,
-    seeds: impl IntoIterator<Item = &'a Seed>,
-    work: &CountedWork,
-) -> Result<(), CallError> {
-    seeds
-        .into_iter()
-        .try_for_each(|seed| check_seed(payloads, seed, work))
+/// A seed checked as [`check_seed`] does, its Payload serialized once,
+/// for its check and for the run file (#1896).
+#[derive(Clone, Debug)]
+pub(crate) struct CheckedSeed {
+    /// The seed, its Payload taken out into `payload`.
+    seed: Seed,
+    payload: Option<Payload>,
 }
 
-/// Checks `seed` before it is admitted: a request's Payload against its
-/// Label's schema and the cap `payloads` hold, and a sitemap seed's rules,
-/// each pattern one the engine matches (`pattern_unsupported`) and each
-/// Label one that takes no Payload, since an entry carries none.
+impl CheckedSeed {
+    /// A sitemap seed the engine adds beside the Client's, which carries
+    /// no Payload and whose rules the engine wrote.
+    pub(crate) const fn sitemap(seed: SitemapSeed) -> Self {
+        Self {
+            seed: Seed::Sitemap(seed),
+            payload: None,
+        }
+    }
+
+    /// The seed, its Payload taken out.
+    pub(crate) const fn seed(&self) -> &Seed {
+        &self.seed
+    }
+}
+
+/// Checks each of `seeds` as [`check_seed`] does, failing at the first
+/// that does not hold.
+pub(crate) fn check_seeds(
+    invariants: &Invariants,
+    seeds: impl IntoIterator<Item = Seed>,
+    work: &CountedWork,
+) -> Result<Vec<CheckedSeed>, CallError> {
+    seeds
+        .into_iter()
+        .map(|seed| check_seed(invariants, seed, work))
+        .collect()
+}
+
+/// Checks `seed` before it is admitted: a request's Payload, serialized
+/// once, against its Label's schema and the cap the Run's `invariants`
+/// hold, and a sitemap seed's rules, each pattern one the engine matches
+/// (`pattern_unsupported`), kept compiled for its sitemaps' reads, and
+/// each Label one that takes no Payload, since an entry carries none.
 ///
 /// # Errors
 ///
 /// `payload_invalid` or `pattern_unsupported`.
 pub(crate) fn check_seed(
-    payloads: &payload::PayloadRules,
-    seed: &Seed,
+    invariants: &Invariants,
+    mut seed: Seed,
     work: &CountedWork,
-) -> Result<(), CallError> {
-    match seed {
-        Seed::Request(seed) => payloads.check(&seed.label, seed.payload.as_ref(), work),
-        Seed::Sitemap(seed) => {
-            sitemap::Rules::of(&seed.rules).map_err(CallError::from)?;
-            seed.rules
+) -> Result<CheckedSeed, CallError> {
+    let payloads = invariants.payloads();
+    match &mut seed {
+        Seed::Request(request) => {
+            let payload = request
+                .payload
+                .take()
+                .map(|payload| Payload::of(payload, work));
+            payloads.check(&request.label, payload.as_ref(), work)?;
+            Ok(CheckedSeed { seed, payload })
+        }
+        Seed::Sitemap(sitemap) => {
+            invariants
+                .frontier()
+                .know_sitemap_rules(&sitemap.rules)
+                .map_err(CallError::from)?;
+            sitemap
+                .rules
                 .iter()
-                .try_for_each(|rule| payloads.check(&rule.label, None, work))
+                .try_for_each(|rule| payloads.check(&rule.label, None, work))?;
+            Ok(CheckedSeed {
+                seed,
+                payload: None,
+            })
         }
     }
 }
 
 /// Reads `document`, what the sitemap fetch `id` holding its lease under
 /// `lease_epoch` gave, admitting its entries and nested sitemaps within the
-/// scope the run file holds and under the Run's domain policy `policy`,
+/// Scope of the Run's `invariants` and under its domain policy `policy`,
 /// and ends the fetch, with no outcome; answers whether its lease held.
 pub(crate) fn read_sitemap(
     connection: &Connection,
+    invariants: &goodfetch_frontier::Invariants,
     policy: &Policy,
     (id, lease_epoch): (&str, u64),
     document: &sitemap::Document,
@@ -293,16 +338,10 @@ pub(crate) fn read_sitemap(
     if !still_leased(connection, id, lease_epoch)? {
         return Ok(false);
     }
-    let scope = Scope::read_counted(
-        connection,
-        work,
-        Row::SitemapInvariantReads,
-        Row::SitemapCompilations,
-    )?;
     let mut positions = Positions::of(connection)?;
     sitemap::read(
         connection,
-        &scope,
+        invariants,
         policy,
         id,
         document,
@@ -315,34 +354,40 @@ pub(crate) fn read_sitemap(
     Ok(true)
 }
 
-/// Admits each seed through the Frontier under the Run's domain policy
-/// `policy`, as a pending work item at depth 0 when added, at its position
-/// from `positions`, and answers each seed's answer, in order, its key
-/// keeping its URL's fragment when its Label does, as the run file records.
+/// Admits each seed through the Frontier within the Run's `invariants` and
+/// under its domain policy `policy`, as a pending work item at depth 0 when
+/// added, carrying the Payload its check serialized, at its position from
+/// `positions`, and answers each seed's answer, in order, its key keeping
+/// its URL's fragment when its Label does.
 pub(crate) fn admit_seeds(
     connection: &Connection,
     positions: &mut Positions,
-    scope: &Scope,
+    invariants: &Invariants,
     policy: &Policy,
-    seeds: &[Seed],
+    seeds: &[CheckedSeed],
 ) -> rusqlite::Result<Vec<Enqueued>> {
-    let fragments = Fragments::read(connection)?;
     seeds
         .iter()
-        .map(|seed| {
-            let seed = match seed {
+        .map(|checked| {
+            let seed = match &checked.seed {
                 Seed::Request(seed) => seed,
                 Seed::Sitemap(seed) => {
                     let mut admitting = std::mem::take(&mut positions.admitting);
-                    let answer =
-                        sitemap::admit_seed_in(connection, policy, seed, &mut admitting, |url| {
+                    let answer = sitemap::admit_seed_in(
+                        connection,
+                        invariants.frontier(),
+                        policy,
+                        seed,
+                        &mut admitting,
+                        |url| {
                             add(
                                 connection,
                                 positions,
                                 url,
                                 from_sitemap(sitemap::Adding::Sitemap),
                             )
-                        });
+                        },
+                    );
                     positions.admitting = admitting;
                     return answer;
                 }
@@ -351,7 +396,7 @@ pub(crate) fn admit_seeds(
                 method: &seed.method,
                 body: seed.body.as_ref().map(HttpBody::bytes),
                 key: seed.key.as_deref(),
-                keeps_fragment: fragments.keeps(&seed.label),
+                keeps_fragment: invariants.keeps_fragment(&seed.label),
             };
             let candidate = Candidate::Seed {
                 url: &seed.url,
@@ -361,25 +406,33 @@ pub(crate) fn admit_seeds(
                 method: &seed.method,
                 body: seed.body.as_ref(),
                 label: &seed.label,
-                payload: seed.payload.as_ref(),
+                payload: checked.payload.as_ref(),
                 priority: seed.priority,
                 forefront: seed.forefront,
                 depth: 0,
             };
-            admit(connection, positions, scope, policy, candidate, adding)
+            admit(
+                connection,
+                positions,
+                invariants.frontier(),
+                policy,
+                candidate,
+                adding,
+            )
         })
         .collect()
 }
 
-/// Admits `candidate` through the Frontier within `scope` and under the
-/// Run's domain policy `policy`, as a pending work item carrying `adding`
-/// when added, at its position from `positions`, against what `positions`
-/// holds beside the run file: an attempt's earlier staged admissions while
-/// it stages, what its commit does not add at the commit (ADR 0093).
+/// Admits `candidate` through the Frontier within the Run's `invariants`
+/// and under its domain policy `policy`, as a pending work item carrying
+/// `adding` when added, at its position from `positions`, against what
+/// `positions` holds beside the run file: an attempt's earlier staged
+/// admissions while it stages, what its commit does not add at the commit
+/// (ADR 0093).
 pub(crate) fn admit(
     connection: &Connection,
     positions: &mut Positions,
-    scope: &Scope,
+    invariants: &goodfetch_frontier::Invariants,
     policy: &Policy,
     candidate: Candidate<'_>,
     adding: Adding<'_>,
@@ -387,7 +440,7 @@ pub(crate) fn admit(
     let mut admitting = std::mem::take(&mut positions.admitting);
     let answer = goodfetch_frontier::admit_in(
         connection,
-        scope,
+        invariants,
         policy,
         candidate,
         &mut admitting,
@@ -415,8 +468,6 @@ pub(crate) struct Positions {
     /// The positions given since the last [`Positions::taken`], by URL.
     taken: BTreeMap<String, u64>,
     admitting: goodfetch_frontier::Admitting,
-    /// Where a stored Payload's serialization is counted.
-    work: CountedWork,
     /// How each work item it adds is keyed as it is added, and those it
     /// keyed, in order: an attempt's commit keys its links so (ADR 0138);
     /// `None` leaves them for the delivery to key.
@@ -441,7 +492,6 @@ impl Positions {
             next: u64::try_from(next).unwrap_or(1),
             taken: BTreeMap::new(),
             admitting: goodfetch_frontier::Admitting::RunFile,
-            work: CountedWork::default(),
             keyed: None,
         })
     }
@@ -484,18 +534,6 @@ impl Positions {
             .as_mut()
             .map(|(_, keyed)| std::mem::take(keyed))
             .unwrap_or_default()
-    }
-
-    /// [`Positions::of`], counting each Payload it stores on `work`.
-    pub(crate) fn counted(connection: &Connection, work: &CountedWork) -> rusqlite::Result<Self> {
-        let mut positions = Self::of(connection)?;
-        positions.counting(work);
-        Ok(positions)
-    }
-
-    /// Has each Payload it stores counted on `work`.
-    pub(crate) fn counting(&mut self, work: &CountedWork) {
-        self.work = work.clone();
     }
 
     /// Gives each URL in `kept` the position it holds there from now on,
@@ -599,7 +637,7 @@ pub(crate) fn add(
             adding.forefront,
             key.as_deref(),
         ), |row| row.get(0)))?;
-    payload::store(connection, &id, adding.payload, &positions.work)?;
+    payload::store(connection, &id, adding.payload)?;
     if let (Some(key), Some((_, keyed))) = (key, positions.keyed.as_mut()) {
         keyed.push(Waiting {
             id: id.clone(),

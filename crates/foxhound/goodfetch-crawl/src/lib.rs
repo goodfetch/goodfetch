@@ -27,6 +27,7 @@ mod dataset_list;
 mod delivery;
 mod enqueue;
 mod intake;
+mod invariants;
 mod labels;
 mod lease;
 mod outcomes;

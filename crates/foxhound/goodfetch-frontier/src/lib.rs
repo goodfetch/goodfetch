@@ -24,6 +24,7 @@ mod bounds;
 mod domain_key;
 mod forms;
 mod identity;
+mod invariants;
 mod learn;
 pub mod payload;
 mod politeness;
@@ -42,6 +43,7 @@ use std::sync::Arc;
 use goodfetch_engine::Contribution;
 use goodfetch_protocol::foxhound::frontier::{FRONTIER_LEARNING, LEARNING_SWITCHED_OFF};
 use goodfetch_protocol::foxhound::settings::{POLITENESS_WEAKENED, PRESSING_HARDER};
+use rusqlite::Connection;
 
 pub use admit::{Candidate, admit, admit_in};
 pub use bounds::{Bounds, TABLES as BOUNDS_TABLES, completeness_reasons};
@@ -50,6 +52,7 @@ pub use identity::{
     Declared, Hop, TABLES as VISITED_TABLES, admit_hop, fuzz_url_key, redirect_hop,
     redirect_reached, rewrite, url_key,
 };
+pub use invariants::Invariants;
 pub use learn::{
     EndMerged, Ended, PageSeen, Redirect, completeness_reasons as learned_completeness_reasons,
     learn, learn_redirect,
@@ -106,4 +109,34 @@ pub fn contribution() -> Contribution {
         .fold(contribution, |contribution, key| {
             contribution.with_recorded_weakening(key.setting, &POLITENESS_WEAKENED, key.built_in)
         })
+}
+
+/// Prepares, on the run file's writer `connection`, the statements an
+/// admission under `invariants` runs that the Run's start runs none of, so
+/// no page's admission prepares one (ADR 0140, `F3.prepares`): the
+/// Scope's lookup of a URL's measures, the learned rules' end of a streak,
+/// their read of a parameter's offset and of a path's paged offsets, a
+/// link seen again and a sitemap's read. A Run calls it once as it starts
+/// or resumes.
+///
+/// # Errors
+///
+/// When a statement cannot be prepared.
+pub fn prepare_admission(connection: &Connection, invariants: &Invariants) -> rusqlite::Result<()> {
+    let statements = invariants
+        .scope()
+        .strategy()
+        .query()
+        .into_iter()
+        .chain([
+            rules::STREAK_ENDED,
+            rules::OFFSET_SEEN,
+            rules::PAGED_OFFSETS,
+        ])
+        .chain(trap_links::SEEN_AGAIN)
+        .chain(sitemap::READ);
+    for statement in statements {
+        connection.prepare_cached(statement)?;
+    }
+    Ok(())
 }

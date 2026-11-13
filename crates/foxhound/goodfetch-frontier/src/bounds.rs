@@ -247,15 +247,6 @@ impl Bounds {
         Ok(bounds)
     }
 
-    /// The first path budget whose pattern the path and query of `url`
-    /// match: the one that counts it.
-    pub(crate) fn budget_of(&self, url: &Url) -> Option<&PathBudget> {
-        let path_and_query = &url[Position::BeforePath..Position::AfterQuery];
-        self.path_budgets.iter().find(|budget| {
-            UrlPattern::glob(&budget.pattern).is_ok_and(|pattern| pattern.matches(path_and_query))
-        })
-    }
-
     /// Why a request to `url` at `depth`, counted by the path budget
     /// `budget`, is not added, if it is not: a bound it is past, then a cap
     /// on its shape. The requests `staged`, what an attempt's earlier staged

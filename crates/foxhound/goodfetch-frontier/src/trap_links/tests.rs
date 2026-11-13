@@ -11,7 +11,7 @@ use serde_json::json;
 use url::Url;
 
 use super::{Mark, Markup, Seen, TABLES, Trap, Verdict, judge, seen_again, suspect, suspected};
-use crate::{Candidate, Declared, Patterns, Scope, ScopeStrategy, admit};
+use crate::{Bounds, Candidate, Declared, Invariants, Patterns, Scope, ScopeStrategy, admit};
 
 const SEEN: Seen = Seen {
     no_box: false,
@@ -236,11 +236,12 @@ fn marked_run_file() -> Connection {
         Patterns::default(),
         Patterns::default(),
     );
+    let invariants = Invariants::new(scope, Bounds::default()).unwrap();
     let policy = Policy::new(&["*"], &[] as &[&str]).unwrap();
     let get = HttpMethod::get();
     let added = admit(
         &connection,
-        &scope,
+        &invariants,
         &policy,
         Candidate::Seed {
             url: "https://shop.test/p/1",

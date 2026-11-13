@@ -485,7 +485,9 @@ fn cells() -> Vec<Cell> {
             name: "scope_globs_off",
             settings: json!({}),
             frontier: FRONTIER,
-            removes: &[Row::BatchCompilations, Row::HopCompilations],
+            // The Scope's globs compile once, as the crawl starts (#1896):
+            // a page compiles none whichever the Scope.
+            removes: &[],
             removes_syncs: false,
             handler: false,
             limit: false,
@@ -494,7 +496,8 @@ fn cells() -> Vec<Cell> {
             name: "payload_schema_off",
             settings: scoped(json!({})),
             frontier: UNTYPED,
-            removes: &[Row::PayloadCompilations, Row::PayloadValidations],
+            // The schema compiles once, as the crawl starts (#1896).
+            removes: &[Row::PayloadValidations],
             removes_syncs: false,
             handler: false,
             limit: false,

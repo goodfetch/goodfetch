@@ -13,6 +13,7 @@ use url::Url;
 use super::{Candidate, admit};
 use crate::bounds::{self, Bounds, completeness_reasons};
 use crate::identity::{Declared, TABLES};
+use crate::invariants::Invariants;
 use crate::scope::{self, Narrowing, Patterns, Scope, Strategy};
 
 /// A run file holding the Frontier's visited set, in memory, whose crawl
@@ -64,9 +65,13 @@ impl Frontier {
 
     fn admit(&mut self, candidate: Candidate<'_>) -> Enqueued {
         let added = &mut self.added;
+        // As the Run's start or resume builds them, after it records the
+        // Bounds.
+        let invariants =
+            Invariants::new(self.scope.clone(), Bounds::read(&self.connection).unwrap()).unwrap();
         admit(
             &self.connection,
-            &self.scope,
+            &invariants,
             &self.policy,
             candidate,
             |_| {

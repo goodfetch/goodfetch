@@ -1,8 +1,8 @@
 //! A handler's enqueue (ADRs 0093 and 0120): `crawl_request.enqueue` adds
 //! one request to a live crawl from inside an attempt, while its lease
 //! holds, through the Frontier, which resolves a relative URL against the
-//! document's base URL, measures it against the crawl's scope the run file
-//! holds, then the Run's domain policy, and answers added or not added
+//! document's base URL, measures it against the crawl's scope, which the
+//! Run's invariants hold, then the Run's domain policy, and answers added or not added
 //! with its reason; a Payload that does not fit its Label's JSON Schema or
 //! `crawl.payload.max_size` fails the call with `payload_invalid` first
 //! (ADR 0082). The
@@ -14,8 +14,8 @@
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::{CallContext, CallError, Handler};
-use goodfetch_frontier::payload::PayloadRules;
-use goodfetch_frontier::{Candidate, Declared, Narrowing, Scope, document_base};
+use goodfetch_frontier::payload::Payload;
+use goodfetch_frontier::{Candidate, Declared, Narrowing, document_base};
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::foxhound::frontier::{
     CRAWL_REQUEST_ENQUEUE, CrawlRequestEnqueueParams, Enqueued, HttpBody,
@@ -24,7 +24,7 @@ use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::{RUN_STATE_UNAVAILABLE, RunDetails};
 use rusqlite::Connection;
 
-use crate::labels::Fragments;
+use crate::invariants::Invariants;
 use crate::serving::{Crawls, LiveCrawl};
 use crate::staging::Answered;
 use crate::work_items::{self, Adding, Positions};
@@ -54,6 +54,7 @@ async fn enqueue(
     let Some(LiveCrawl {
         run,
         egress,
+        invariants,
         staging,
         ..
     }) = crawls.live(&params.run_id).await
@@ -72,8 +73,14 @@ async fn enqueue(
             })
         })
         .transpose()?;
-    let request = params.clone();
+    let mut request = params.clone();
     let work = run.metrics().counted_work().clone();
+    // Serialized once, for its check and the run file, however often its
+    // admission runs again (#1896).
+    let payload = request
+        .payload
+        .take()
+        .map(|payload| Payload::of(payload, &work));
     let answered = run
         .state()
         .write(move |connection| {
@@ -84,12 +91,11 @@ async fn enqueue(
                 &crawl_request_id,
                 lease_epoch,
                 move |connection, positions| {
-                    positions.counting(&work);
                     add(
                         connection,
                         positions,
-                        &egress,
-                        &request,
+                        (&egress, &invariants),
+                        (&request, payload.as_ref()),
                         document.as_ref(),
                         &work,
                     )
@@ -114,17 +120,17 @@ async fn enqueue(
     }
 }
 
-/// Adds `params`'s request through the Frontier, at its position from
-/// `positions`, under the Run's domain policy `egress`, while its attempt
-/// holds its lease, against
+/// Adds `params`'s request, carrying `payload`, through the Frontier, at
+/// its position from `positions`, within the Run's `invariants` and under
+/// its domain policy `egress`, while its attempt holds its lease, against
 /// `document`'s base URL, else the attempt's own URL, once its Payload fits
 /// its Label's schema and the cap, else `payload_invalid`; `None` once the
 /// attempt ended.
 fn add(
     connection: &Connection,
     positions: &mut Positions,
-    egress: &Policy,
-    params: &CrawlRequestEnqueueParams,
+    (egress, invariants): (&Policy, &Invariants),
+    (params, payload): (&CrawlRequestEnqueueParams, Option<&Payload>),
     document: Option<&goodfetch_frontier::Url>,
     work: &CountedWork,
 ) -> Answered<Enqueued> {
@@ -136,9 +142,7 @@ fn add(
     let Some(from) = document_base(&url, None) else {
         return Ok(None);
     };
-    if let Err(refused) =
-        PayloadRules::read(connection)?.check(&params.label, params.payload.as_ref(), work)
-    {
+    if let Err(refused) = invariants.payloads().check(&params.label, payload, work) {
         return Ok(Some(Err(refused)));
     }
     let base = document.cloned().unwrap_or_else(|| from.clone());
@@ -150,7 +154,7 @@ fn add(
             method: &params.method,
             body: params.body.as_ref().map(HttpBody::bytes),
             key: params.key.as_deref(),
-            keeps_fragment: Fragments::read(connection)?.keeps(&params.label),
+            keeps_fragment: invariants.keeps_fragment(&params.label),
         },
         narrowing: Narrowing::none(),
         depth: depth + 1,
@@ -159,7 +163,7 @@ fn add(
         method: &params.method,
         body: params.body.as_ref(),
         label: &params.label,
-        payload: params.payload.as_ref(),
+        payload,
         priority: params.priority,
         forefront: params.forefront,
         depth: depth + 1,
@@ -167,7 +171,7 @@ fn add(
     work_items::admit(
         connection,
         positions,
-        &Scope::read(connection)?,
+        invariants.frontier(),
         egress,
         candidate,
         adding,

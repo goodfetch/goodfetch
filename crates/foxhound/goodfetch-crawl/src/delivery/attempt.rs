@@ -255,12 +255,13 @@ const BROWSER: TierChoice = TierChoice {
 /// the navigation gate and the site's preferences read them, the
 /// Politeness it shares, robots.txt and the AI-use signal files fetched on
 /// `http`, the Run's HTTP tier, whose address check judges each redirect
-/// hop, and `egress`, its domain policy.
+/// hop, `egress`, its domain policy, and `invariants`, its admission's,
+/// which each hop is admitted within.
 pub(super) async fn run_hand_over(
     run: &Run,
     settings: &Resolved,
     http: Option<&HttpTier>,
-    egress: &Arc<Policy>,
+    (egress, invariants): (&Arc<Policy>, Arc<goodfetch_frontier::Invariants>),
 ) -> Arc<RunHandOver> {
     let site_preferences = SitePreferences::of(settings);
     // The Run reads robots.txt from the copy its user's runs share in the
@@ -288,6 +289,7 @@ pub(super) async fn run_hand_over(
         pace: goodfetch_frontier::Pace::of(settings),
         site_preferences,
         egress: Arc::clone(egress),
+        invariants,
         addresses: http.map(HttpTier::address_check),
     })
 }

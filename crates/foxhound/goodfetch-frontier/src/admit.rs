@@ -36,8 +36,9 @@ use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReaso
 use rusqlite::Connection;
 use url::Url;
 
-use crate::bounds::{Bounds, count_admitted, count_refused};
+use crate::bounds::{count_admitted, count_refused};
 use crate::identity::{Declared, Key, Seen, identities, keyed, seen, visit_all};
+use crate::invariants::Invariants;
 use crate::rules;
 use crate::scope::{Narrowing, Scope};
 use crate::staged::Admitting;
@@ -105,8 +106,9 @@ pub enum Candidate<'a> {
 /// A link's method: `GET`, with no body and no declared key.
 static LINK: LazyLock<HttpMethod> = LazyLock::new(HttpMethod::get);
 
-/// Admits `candidate` into the run file `connection` holds, within
-/// `scope`, which an added seed widens, and under the Run's domain policy
+/// Admits `candidate` into the run file `connection` holds, within the
+/// Run's `invariants`, its Scope, which an added seed widens, and its
+/// Bounds, and under the Run's domain policy
 /// `policy`, through `add`, which adds it as a
 /// crawl request at its URL as parsed, the URL it is fetched at, and
 /// answers its ID.
@@ -116,14 +118,14 @@ static LINK: LazyLock<HttpMethod> = LazyLock::new(HttpMethod::get);
 /// When the run file cannot be read or written, or what `add` fails with.
 pub fn admit(
     connection: &Connection,
-    scope: &Scope,
+    invariants: &Invariants,
     policy: &Policy,
     candidate: Candidate<'_>,
     add: impl FnOnce(&Url) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<Enqueued> {
     admit_in(
         connection,
-        scope,
+        invariants,
         policy,
         candidate,
         &mut Admitting::RunFile,
@@ -142,7 +144,7 @@ pub fn admit(
 /// When the run file cannot be read or written, or what `add` fails with.
 pub fn admit_in(
     connection: &Connection,
-    scope: &Scope,
+    invariants: &Invariants,
     policy: &Policy,
     candidate: Candidate<'_>,
     admitting: &mut Admitting,
@@ -174,7 +176,9 @@ pub fn admit_in(
             }
         };
     if let Some(narrowing) = narrowing
-        && !scope.admits_in(connection, &url, narrowing, admitting.earlier())?
+        && !invariants
+            .scope()
+            .admits_in(connection, &url, narrowing, admitting.earlier())?
     {
         return Ok(not_added(admitting, NotAddedReason::OutOfScope, None));
     }
@@ -210,12 +214,12 @@ pub fn admit_in(
             ));
         }
     }
-    let bounds = Bounds::read(connection)?;
+    let bounds = invariants.bounds();
     if let Some((reason, rule)) = rules::refuses(connection, key.url(), bounds.learning)? {
         rules::merged(connection, rule, url.as_str(), None)?;
         return Ok(not_added(admitting, reason, None));
     }
-    let budget = bounds.budget_of(&url);
+    let budget = invariants.budget_of(&url);
     if let Some(reason) =
         bounds.refuses(connection, &url, depth.into(), budget, admitting.earlier())?
     {

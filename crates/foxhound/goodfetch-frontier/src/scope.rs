@@ -89,6 +89,22 @@ impl Strategy {
         }
     }
 
+    /// The query that answers whether a seed of the run file reaches a URL
+    /// under this strategy, by the URL's measures; none for `all`, which
+    /// reaches every URL. [`crate::prepare`] prepares it as the Run starts.
+    pub(crate) fn query(self) -> Option<&'static str> {
+        match self {
+            Self::SameHostname => Some("SELECT EXISTS (SELECT 1 FROM scope_seeds WHERE host = ?1)"),
+            Self::SameDomain => Some("SELECT EXISTS (SELECT 1 FROM scope_seeds WHERE domain = ?1)"),
+            Self::SameOrigin => Some(
+                "SELECT EXISTS (SELECT 1 FROM scope_seeds
+                    WHERE host = ?1 AND port = ?2
+                      AND (scheme = ?3 OR (scheme = 'http' AND ?3 = 'https')))",
+            ),
+            Self::All => None,
+        }
+    }
+
     /// Whether `url` is within this strategy's reach of the seed `seed`.
     pub fn reaches(self, seed: &Url, url: &Url) -> bool {
         match (self, Measures::of(seed), Measures::of(url)) {
@@ -167,6 +183,28 @@ impl Patterns {
         let compiled = globs
             .iter()
             .map(|glob| UrlPattern::glob(glob))
+            .collect::<Result<_, _>>()?;
+        Ok(Self {
+            globs: globs.to_vec(),
+            compiled,
+        })
+    }
+
+    /// The patterns `globs`, each compiled from the engine's cache `work`
+    /// keeps for the Run, and counted on `row` only when it does not keep it
+    /// (ADR 0140): a second call with the same globs compiles nothing.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::globs`].
+    pub fn cached(
+        work: &CountedWork,
+        row: Row,
+        globs: &[String],
+    ) -> Result<Self, UnsupportedPattern> {
+        let compiled = globs
+            .iter()
+            .map(|glob| UrlPattern::cached_glob(work, row, glob))
             .collect::<Result<_, _>>()?;
         Ok(Self {
             globs: globs.to_vec(),
@@ -307,29 +345,18 @@ impl Scope {
         let Some(measures) = Measures::of(url) else {
             return Ok(self.strategy == Strategy::All);
         };
-        let port = i64::from(measures.port);
-        let reached = |query: &str, params: &[&dyn rusqlite::ToSql]| {
-            connection
-                .prepare_cached(query)
-                .and_then(|mut cached| cached.query_row(params, |row| row.get::<_, bool>(0)))
+        let Some(query) = self.strategy.query() else {
+            return Ok(true);
         };
-        match self.strategy {
-            Strategy::All => Ok(true),
-            Strategy::SameHostname => reached(
-                "SELECT EXISTS (SELECT 1 FROM scope_seeds WHERE host = ?1)",
-                &[&measures.host],
-            ),
-            Strategy::SameDomain => reached(
-                "SELECT EXISTS (SELECT 1 FROM scope_seeds WHERE domain = ?1)",
-                &[&measures.domain],
-            ),
-            Strategy::SameOrigin => reached(
-                "SELECT EXISTS (SELECT 1 FROM scope_seeds
-                    WHERE host = ?1 AND port = ?2
-                      AND (scheme = ?3 OR (scheme = 'http' AND ?3 = 'https')))",
-                &[&measures.host, &port, &measures.scheme],
-            ),
-        }
+        let port = i64::from(measures.port);
+        let params: &[&dyn rusqlite::ToSql] = match self.strategy {
+            Strategy::SameDomain => &[&measures.domain],
+            Strategy::SameOrigin => &[&measures.host, &port, &measures.scheme],
+            Strategy::SameHostname | Strategy::All => &[&measures.host],
+        };
+        connection
+            .prepare_cached(query)
+            .and_then(|mut cached| cached.query_row(params, |row| row.get::<_, bool>(0)))
     }
 
     /// Widens the scope of the run file `connection` holds by the seed
@@ -379,27 +406,6 @@ impl Scope {
                 ))
             })?;
         Ok(())
-    }
-
-    /// [`Scope::read`], for an outcome that admits on the Frontier's path:
-    /// the read counted on `reads`, and each glob it compiles on
-    /// `compilations` (ADR 0140, `F3`).
-    ///
-    /// # Errors
-    ///
-    /// As [`Scope::read`].
-    pub fn read_counted(
-        connection: &Connection,
-        work: &CountedWork,
-        reads: Row,
-        compilations: Row,
-    ) -> rusqlite::Result<Self> {
-        work.count(reads);
-        let scope = Self::read(connection)?;
-        for _ in scope.include.globs.iter().chain(&scope.exclude.globs) {
-            work.count(compilations);
-        }
-        Ok(scope)
     }
 
     /// The scope the run file `connection` holds; the default one in a run

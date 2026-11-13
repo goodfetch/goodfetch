@@ -16,9 +16,9 @@
 //! outside the process: `E3.prepares` is Callgrind's call count of
 //! `sqlite3_prepare_v3` inside the charges that took a Slice, run again under
 //! Valgrind by this same executable (`--window`), so this needs Valgrind; the
-//! covered charges' count must be 0, as their one statement, the Limit read
-//! the ledger counts, stays prepared, so an uncached statement added beside
-//! it fails here.
+//! covered charges' count must be 0, as a covered charge runs no statement
+//! (#1888), so a statement added to one fails here unless it stays prepared,
+//! which `E3.statements` counts.
 //! `E3.slice_transactions` is the larger of the commit hook's transactions
 //! and the crash VFS's syncs, which the row holds to one limit.
 //!
@@ -176,13 +176,15 @@ const CELLS: [Cell; 5] = [
         audit: Audit::Chained,
         removes: &[Row::MessageEncodes],
     },
-    // With no Limit, the Slice's work goes with the Limit.
+    // With no Limit, the Slice's work goes with the Limit. No charge opens
+    // the ledger in any cell, which a run opens as it starts (#1888), so no
+    // open is left for this cell to take away.
     Cell {
         name: "no_limit",
         logs: Logs::On,
         limited: false,
         audit: Audit::Chained,
-        removes: &[Row::ChargeOpens, Row::ChargeTransactions],
+        removes: &[Row::ChargeTransactions],
     },
     // `security.audit_chain` off: its entries are hashed alone, which takes
     // no row's work away.
@@ -292,19 +294,17 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
     );
     let folder = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let charged = charges(folder.path(), cell.limited, charge_plant, None);
-    // A covered charge's one statement, the Limit read the ledger counts,
-    // runs kept prepared on the connection a Slice opened (#1907), so a
-    // covered charge prepares nothing: an uncached statement added beside
-    // the read prepares in the window and fails here. With no Limit, the
-    // first charge is a covered one and opens the ledger, its set-up prepared
-    // with it, so only a cell whose first charge takes a Slice checks.
+    // A covered charge runs no statement (#1888), so it prepares nothing:
+    // an uncached statement added to one prepares in the window and fails
+    // here. A cell with no Limit has no ledger to prepare one on, so only
+    // the cells a Limit holds check.
     let slice_prepares = if cell.limited {
         if charge_plant.is_none() {
             assert_eq!(
                 callgrind(cell.name, "covered", None),
                 0,
-                "the cell {}'s covered charges prepared a statement beside the Limit read \
-                 the ledger keeps prepared",
+                "the cell {}'s covered charges prepared a statement, and a covered charge \
+                 runs none",
                 cell.name
             );
         }

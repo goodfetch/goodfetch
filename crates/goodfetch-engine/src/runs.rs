@@ -1283,11 +1283,13 @@ struct Shared {
     stop: watch::Sender<Option<StopReason>>,
     /// Whether `run.finish` let it finish.
     finish: watch::Sender<bool>,
-    /// Its Slices of the Limits that hold it, until it ends: taken only
-    /// in the ledger's blocking calls, never across an await.
+    /// Its Slices of the Limits that hold it, until it ends: taken in the
+    /// ledger's blocking calls and as the Run is made, and tried, never
+    /// waited for, by a charge its Slices cover, which calls nothing that
+    /// blocks; never held across an await.
     #[expect(
         clippy::disallowed_types,
-        reason = "the ledger's calls block: one Mutex guards a Run's charging, taken only inside them with nothing else under it, so there is no lock order for loom to test (ADR 0060)"
+        reason = "the ledger's calls block: one Mutex guards a Run's charging, taken inside them, or tried without waiting, with nothing else under it, so there is no lock order for loom to test (ADR 0060)"
     )]
     charging: std::sync::Mutex<Option<Charging>>,
     /// The runtime's metrics.
@@ -1326,11 +1328,22 @@ struct Shared {
 }
 
 impl Shared {
-    /// Its charging, locked: called only inside the ledger's blocking calls.
+    /// Its charging, locked: called inside the ledger's blocking calls,
+    /// and as the Run is made, before anything else can hold it.
     fn charging(&self) -> std::sync::MutexGuard<'_, Option<Charging>> {
         self.charging
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Its charging, when no ledger call holds it: for a step in memory,
+    /// outside the blocking calls, which never waits for one of them.
+    fn charging_if_free(&self) -> Option<std::sync::MutexGuard<'_, Option<Charging>>> {
+        match self.charging.try_lock() {
+            Ok(held) => Some(held),
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        }
     }
 }
 
@@ -2276,9 +2289,19 @@ impl Run {
         usage_kind: &str,
         amount: u64,
     ) -> Result<(), ChargeError> {
+        let now = self.runs.limits.now();
+        // A charge the Run's Slices cover is a step in memory, made here
+        // with no blocking task (ADR 0140's E3; E3-3 of the audit #1882).
+        let covered = self.shared.charging_if_free().and_then(|mut held| {
+            held.as_mut()
+                .and_then(|charging| charging.charge_held(usage_kind, amount, now))
+        });
+        if let Some(journaled) = covered {
+            charges.add(journaled);
+            return Ok(());
+        }
         let kind = usage_kind.to_owned();
         let shared = Arc::clone(&self.shared);
-        let now = self.runs.limits.now();
         let changed = self
             .owner
             .blocking(move || {
@@ -5163,23 +5186,28 @@ impl Registry {
         }
     }
 
-    /// Whether a new Run placed at `placement` may start: every Limit that
-    /// holds it has something left, and none it cannot be placed outside of
-    /// is one this engine cannot evaluate (ADR 0041). A ledger that cannot
-    /// be read refuses it.
+    /// The charging of the new Run `run_id`, started on `connection`, its
+    /// state in `folder`, once it may start: every Limit that holds it has
+    /// something left, and none it cannot be placed outside of is one this
+    /// engine cannot evaluate (ADR 0041). A ledger that cannot be read
+    /// refuses it. The Run then holds the Limits this read, on the
+    /// connection it opened, so its charges open nothing (ADR 0140's E3).
     async fn may_start(
         &self,
         run_id: &RunId,
+        folder: &Path,
         connection: Option<ConnectionId>,
-    ) -> Result<(), StartError> {
-        let (ledger, now) = (self.limits.ledger.clone(), self.limits.now());
-        let checked = self.limits.placement(connection);
+    ) -> Result<Charging, StartError> {
+        let now = self.limits.now();
+        let mut charging =
+            self.limits
+                .charging(run_id, folder, 1, self.limits.placement(connection));
         let may_start = self
             .owner
-            .blocking(move || Charging::may_start(&ledger, &checked, now))
+            .blocking(move || charging.may_start(now).map(|()| charging))
             .await;
         match may_start {
-            Ok(()) => Ok(()),
+            Ok(charging) => Ok(charging),
             Err(Refusal::Reached(reached)) => Err(StartError::LimitReached(reached)),
             Err(Refusal::NotUnderstood(limit)) => Err(StartError::LimitNotUnderstood(limit)),
             Err(Refusal::Ledger(error)) => Err(StartError::Unavailable {
@@ -5205,7 +5233,7 @@ impl Registry {
             error,
         };
         self.check_index().await?;
-        self.may_start(&run_id, connection).await?;
+        let charging = self.may_start(&run_id, &folder, connection).await?;
         let lock = self.lock(&run_id, &folder).await?;
         let writer = Arc::new(self.owner.child_for(OwnerKind::Run));
         let state = RunState::open(
@@ -5251,6 +5279,7 @@ impl Registry {
             .await
             .map_err(|error| unavailable(error.to_string()))?;
         let run = self.new_run(&run_id, start.kind, state, connection, start.settings, keys);
+        *run.shared.charging() = Some(charging);
         let live = Live {
             id: run_id.clone(),
             progress: run.shared.progress.clone(),
@@ -5476,9 +5505,29 @@ impl Registry {
         }
     }
 
+    /// Reads the Limits that hold `run` as it resumes, on the connection
+    /// its charging keeps, as a new Run's start does (ADR 0140's E3). A
+    /// read that fails is left to its first charge, which reads again and
+    /// refuses as a charge does.
+    async fn read_limits(&self, run: &Run) {
+        let shared = Arc::clone(&run.shared);
+        let now = self.limits.now();
+        self.owner
+            .blocking(move || {
+                if let Some(charging) = shared.charging().as_mut()
+                    && let Err(refusal) = charging.resume(now)
+                {
+                    tracing::debug!(%refusal, "the resumed Run's Limits could not be read; its first charge reads them again");
+                }
+            })
+            .await;
+    }
+
     /// The live Run `run_id`, of `kind`, as its driver holds it, writing
     /// `state` in its folder, under its resolved `settings`, resolving its
-    /// Secret references through `keys`.
+    /// Secret references through `keys`. Its charging has read nothing
+    /// yet: a new Run takes the one its start read its Limits with, and a
+    /// resumed one reads them next.
     fn new_run(
         &mut self,
         run_id: &RunId,
@@ -5941,6 +5990,7 @@ impl Registry {
             .await
             .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
         let run = self.new_run(&run_id, recorded.kind, state, connection, settings, keys);
+        self.read_limits(&run).await;
         if held.lifecycle == Lifecycle::Running {
             warn_over_charged(&run).await;
         }

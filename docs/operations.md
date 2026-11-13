@@ -1,6 +1,6 @@
 ---
 title: Operations
-description: Find the Daemon's logs, bound them on each deployment target, and turn off the age notice.
+description: Find the Daemon's logs, bound them on each deployment target, see when a new Limit holds a Run already going, and turn off the age notice.
 products: [collie]
 ---
 
@@ -45,6 +45,10 @@ What `daemon run` writes to stdout, and what a Lambda function's or a Cloud Run 
 | Kubernetes | The node's container log files | The kubelet rotates each container's log at 10 MiB and keeps 5 files by default (`containerLogMaxSize`, `containerLogMaxFiles`). This release ships no Helm chart: run `daemon run` in a pod of your own, whose stdout the kubelet rotates; the chart, which will rely on that rotation, comes in a later release. Read the logs with `kubectl logs`. |
 | Cloud Run | Cloud Logging | Cloud Logging keeps a log bucket's entries for its retention period, 30 days for the `_Default` bucket. Change the bucket's retention to keep less or more. |
 | Lambda | Amazon CloudWatch Logs | A function's log group keeps its entries forever unless you set its retention. Set a retention period on the log group. |
+
+## When a Limit holds a Run already going
+
+A Limit set or raised while a Run is going (`usage set`, `usage raise`) holds the Run's next charge when the process that changed it is the one working the Run: the Daemon you asked, or a program's own engine. A Run another process works, such as an engine a program started itself while you ask the Daemon, reads the Limits again before it takes its next Slice, and one second after its last read at the latest. Until then it charges only what its Slices already hold, and a Run no Limit held goes on for at most that second.
 
 ## The age notice
 

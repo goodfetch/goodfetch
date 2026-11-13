@@ -5,17 +5,30 @@
 //! worst case first, settled at what it cost; when it ends, what is left of
 //! them goes back. A run that cannot take a Slice it needs is refused the charge
 //! and stops at its next safe point.
+//!
+//! A run holds the Limits that hold it in memory (ADR 0140's E3, #1888):
+//! it reads them from the ledger as it starts, and again only once the
+//! ledger changed them, before it takes a Slice, or after
+//! [`UNSEEN_CHANGES`] of its engine's clock. A charge its Slices cover is
+//! then a step in memory: no SQL, no file, no Limit evaluated again.
 
 use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{AppliedLimit, ReachedLimit};
 use goodfetch_protocol::usage::Limit;
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp};
 use rusqlite::Connection;
 
 use super::{
-    Holder, Ledger, LedgerError, LimitId, Placement, SliceId, SliceSizing, StoredLimit, TARGET,
-    point_in_time,
+    Holder, Ledger, LedgerError, LimitId, PeriodBounds, Placement, SliceId, SliceSizing,
+    StoredLimit, TARGET, point_in_time,
 };
+
+/// How long a run charges on the Limits it holds in memory before it reads
+/// them again though no engine of its process changed them (ADR 0041): an
+/// engine of another process may have, which this process's ledgers cannot
+/// see. One read a second for each run, whatever it charges meanwhile, in
+/// place of one at each charge.
+const UNSEEN_CHANGES: SignedDuration = SignedDuration::from_secs(1);
 
 /// Why a run may not start, or may not charge more.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -93,6 +106,131 @@ struct Held {
     used: u64,
 }
 
+/// A Limit that holds the run, as the run read it last: what its engine
+/// makes of it is settled by then, and the period its Slices are of is
+/// worked out again only once a charge falls outside it (E3-1 of the audit
+/// #1882).
+#[derive(Debug)]
+struct Holding {
+    stored: StoredLimit,
+    /// The key of the period that holds the charges placed in it.
+    period: String,
+    /// That period's bounds; none for a Limit without a period.
+    bounds: Option<PeriodBounds>,
+}
+
+impl Holding {
+    /// `stored`, in the period that holds `now`.
+    fn at(stored: StoredLimit, now: Timestamp) -> Self {
+        let (period, bounds) = stored.period_key(now);
+        Self {
+            stored,
+            period,
+            bounds,
+        }
+    }
+
+    /// Whether it is a Limit on `usage_kind` in `currency`.
+    fn caps(&self, usage_kind: &str, currency: Option<&str>) -> bool {
+        self.stored.usage_kind == usage_kind && self.stored.currency.as_deref() == currency
+    }
+
+    /// It, moved to the period that holds `now` once `now` left its own.
+    fn place(&mut self, now: Timestamp) -> &mut Self {
+        if self
+            .bounds
+            .is_some_and(|bounds| now < bounds.start || now >= bounds.end)
+        {
+            (self.period, self.bounds) = self.stored.period_key(now);
+        }
+        self
+    }
+
+    /// Whether `held` is a Slice of it and of its period.
+    fn holds(&self, held: &Held) -> bool {
+        held.limit == self.stored.id && held.period == self.period
+    }
+
+    /// What is left of the Slices of `held` that are of it and its period.
+    fn room(&self, held: &[Held]) -> u64 {
+        held.iter()
+            .filter(|held| self.holds(held))
+            .map(|held| held.size - held.used)
+            .sum()
+    }
+}
+
+/// The Limits a run holds in memory, from one read of the ledger to the
+/// next.
+#[derive(Debug)]
+struct Limits {
+    /// The read they come from: none before the run's first read and
+    /// after a read that failed, so the next charge reads.
+    read: Option<Read>,
+    /// The Limits that hold the run, or the one flagged *must understand*
+    /// that its engine cannot evaluate and cannot place it outside of.
+    holding: Result<Vec<Holding>, Box<Limit>>,
+}
+
+/// One read of the Limits from the ledger.
+#[derive(Clone, Copy, Debug)]
+struct Read {
+    /// The ledger's count of changes as the read began.
+    changes: u64,
+    /// The time of the charge, or of the start, that read them.
+    at: Timestamp,
+}
+
+/// Why a run reads its Limits from the ledger.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Reading {
+    /// It starts or resumes.
+    Start,
+    /// A charge needs them: its statement is the charge's counted work
+    /// (ADR 0140).
+    Charge,
+}
+
+impl Limits {
+    /// No Limit read yet.
+    fn unread() -> Self {
+        Self {
+            read: None,
+            holding: Ok(Vec::new()),
+        }
+    }
+
+    /// The Limits that hold the run.
+    ///
+    /// # Errors
+    ///
+    /// `NotUnderstood` naming the Limit it cannot be placed outside of.
+    fn holding(&mut self) -> Result<&mut Vec<Holding>, Refusal> {
+        self.holding
+            .as_mut()
+            .map_err(|limit| Refusal::NotUnderstood(limit.clone()))
+    }
+
+    /// Those of them on `usage_kind` in `currency`, each placed in its
+    /// period at `now`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Limits::holding`]'s.
+    fn capping<'a>(
+        &'a mut self,
+        usage_kind: &'a str,
+        currency: Option<&'a str>,
+        now: Timestamp,
+    ) -> Result<impl Iterator<Item = &'a mut Holding>, Refusal> {
+        Ok(self
+            .holding()?
+            .iter_mut()
+            .filter(move |holding| holding.caps(usage_kind, currency))
+            .map(move |holding| holding.place(now)))
+    }
+}
+
 /// One run's Slices and the Limits it charges.
 #[derive(Debug)]
 pub struct Charging {
@@ -102,16 +240,19 @@ pub struct Charging {
     sizing: SliceSizing,
     held: Vec<Held>,
     uncapped: bool,
-    /// The connection its charges, the Slices they take, the Limits it
-    /// reads back and its give-back run on, opened at the first and kept, each statement prepared once
-    /// on it, so a run opens the ledger once (#1886); let go when a call
-    /// fails, so the next one opens afresh. The Limits are still read on
-    /// each charge, so one set meanwhile holds the next.
+    /// The Limits that hold it, as it read them last.
+    limits: Limits,
+    /// The connection its reads of the Limits, the Slices it takes and its
+    /// give-back run on, opened at the first and kept, each statement
+    /// prepared once on it, so a run opens the ledger once (#1886), as it
+    /// starts; let go when a call fails, so the next one opens afresh.
     connection: Option<Connection>,
 }
 
 impl Charging {
-    /// The charging of the run `holder` names, placed at `placement`.
+    /// The charging of the run `holder` names, placed at `placement`. It
+    /// reads nothing yet: [`Charging::may_start`] reads its Limits as the
+    /// run starts, and its first charge does when nothing has.
     pub fn new(ledger: Ledger, holder: Holder, placement: Placement, sizing: SliceSizing) -> Self {
         Self {
             ledger,
@@ -120,33 +261,98 @@ impl Charging {
             sizing,
             held: Vec::new(),
             uncapped: false,
+            limits: Limits::unread(),
             connection: None,
         }
     }
 
-    /// Whether a run placed at `placement` may start at `now`: every Limit
-    /// holding it has something left in its period.
+    /// Whether the run may start at `now`: every Limit holding it has
+    /// something left in its period. The Limits it reads for this are the
+    /// ones it then holds in memory, on the connection it keeps, so its
+    /// charges open nothing and read none.
     ///
     /// # Errors
     ///
     /// `Reached` naming the first Limit with nothing left, `NotUnderstood`
     /// naming a Limit it cannot be placed outside of, `Ledger` when the
     /// ledger cannot be read.
-    pub fn may_start(
-        ledger: &Ledger,
-        placement: &Placement,
-        now: Timestamp,
-    ) -> Result<(), Refusal> {
-        let limits = ledger.limits()?;
-        let holding = placement
-            .holding(&limits)
-            .map_err(|stored| Refusal::NotUnderstood(Box::new(stored.limit())))?;
-        for stored in holding {
-            if ledger.left(stored, now)? == 0 {
-                return Err(reached(stored, now));
+    pub fn may_start(&mut self, now: Timestamp) -> Result<(), Refusal> {
+        self.read(now, Reading::Start)?;
+        let Self {
+            ledger,
+            connection,
+            limits,
+            ..
+        } = self;
+        for holding in limits.holding()?.iter() {
+            if ledger.left_on(connection, &holding.stored, now)? == 0 {
+                return Err(reached(&holding.stored, now));
             }
         }
         Ok(())
+    }
+
+    /// Reads the Limits that hold the run as it resumes, as
+    /// [`Charging::may_start`] reads them for a new one, whatever is left
+    /// of them: a Limit with nothing left refuses its next charge.
+    ///
+    /// # Errors
+    ///
+    /// `NotUnderstood` and `Ledger` as [`Charging::may_start`]'s; its next
+    /// charge then reads them again.
+    pub fn resume(&mut self, now: Timestamp) -> Result<(), Refusal> {
+        self.read(now, Reading::Start)?;
+        self.limits.holding().map(drop)
+    }
+
+    /// Reads the Limits that hold the run from the ledger, on the
+    /// connection it keeps, and holds them in memory: what its engine
+    /// makes of each and the period each is in at `now`, settled here and
+    /// not at each charge. A run that a Limit holds prepares the
+    /// statements of a Slice's transaction with them, so no Slice it takes
+    /// prepares one. A ledger no engine created holds no Limit and stays
+    /// uncreated.
+    ///
+    /// # Errors
+    ///
+    /// `Ledger` when the ledger cannot be read: it then holds none, and
+    /// its next charge reads again.
+    fn read(&mut self, now: Timestamp, reading: Reading) -> Result<(), Refusal> {
+        self.limits = Limits::unread();
+        // Counted before the read: a change that lands while it reads
+        // moves the count past this one, and the next charge reads again.
+        let changes = self.ledger.changes();
+        let stored = match reading {
+            Reading::Start => self.ledger.limits_on(&mut self.connection)?,
+            Reading::Charge => self.ledger.charge_limits(&mut self.connection)?,
+        };
+        let holding = match self.placement.holding(&stored) {
+            Ok(holding) => Ok(holding
+                .into_iter()
+                .map(|stored| Holding::at(stored.clone(), now))
+                .collect::<Vec<_>>()),
+            Err(stored) => Err(Box::new(stored.limit())),
+        };
+        if holding.as_ref().is_ok_and(|holding| !holding.is_empty()) {
+            self.ledger.prepare_slices(&mut self.connection)?;
+        }
+        self.limits = Limits {
+            read: Some(Read { changes, at: now }),
+            holding,
+        };
+        Ok(())
+    }
+
+    /// Whether the Limits it holds in memory are still the ledger's, as
+    /// far as its process can tell at `now`: no engine of the process
+    /// changed them since it read them, and it read them less than
+    /// [`UNSEEN_CHANGES`] ago.
+    fn current(&self, now: Timestamp) -> bool {
+        self.limits.read.is_some_and(|read| {
+            read.changes == self.ledger.changes()
+                && now >= read.at
+                && now.duration_since(read.at) < UNSEEN_CHANGES
+        })
     }
 
     /// Charges `amount` of `usage_kind` against every Limit on it that
@@ -165,12 +371,38 @@ impl Charging {
         amount: u64,
         now: Timestamp,
     ) -> Result<Charged, Refusal> {
-        let (_, mut charged) = self.take(usage_kind, None, amount, now)?;
+        let (_, charged) = self.take(usage_kind, None, amount, now)?;
+        Ok(self.charged(usage_kind, amount, charged))
+    }
+
+    /// Charges `amount` of `usage_kind` as [`Charging::charge`] does, when
+    /// that is a step in memory: the Slices the run holds cover it, and
+    /// the Limits it holds are still the ledger's as far as its process
+    /// can tell. It calls nothing that blocks, so a Run makes it without a
+    /// blocking task (E3-3 of the audit #1882). None, and nothing charged,
+    /// when the charge needs the ledger, for a Slice, its Limits or a
+    /// refusal: [`Charging::charge`] then makes it.
+    pub fn charge_held(
+        &mut self,
+        usage_kind: &str,
+        amount: u64,
+        now: Timestamp,
+    ) -> Option<Charged> {
+        if !self.current(now) || self.short(usage_kind, None, amount, now).unwrap_or(true) {
+            return None;
+        }
+        let (_, charged) = self.draw(usage_kind, None, amount).ok()?;
+        Some(self.charged(usage_kind, amount, charged))
+    }
+
+    /// What a charge of `amount` of `usage_kind` that took `charged` from
+    /// the run's Slices answers: with the change of the run's Usage.
+    fn charged(&self, usage_kind: &str, amount: u64, mut charged: Charged) -> Charged {
         charged.counted = vec![Counted::of(usage_kind, None, signed(amount))];
         if !charged.used.is_empty() {
             tracing::trace!(target: TARGET, transition = "charge", usage_kind, amount, run_id = %self.holder.run_id, epoch = self.holder.epoch, "a run charged Usage against its Slices");
         }
-        Ok(charged)
+        charged
     }
 
     /// Reserves `worst`, the worst case of a cost about to be paid, such as
@@ -334,7 +566,10 @@ impl Charging {
     /// Takes `amount` from the run's Slices of every Limit on `usage_kind`
     /// in `currency` that holds it, taking a Slice of each Limit that runs
     /// short; answers what it took of each Slice, and the run's Usage of
-    /// each Slice touched.
+    /// each Slice touched. It reads the Limits from the ledger only when
+    /// those it holds may no longer be the ledger's, and before it takes a
+    /// Slice, which is taken of the Limit as the ledger holds it then (ADR
+    /// 0041): a charge its Slices cover reads nothing.
     fn take(
         &mut self,
         usage_kind: &str,
@@ -342,57 +577,120 @@ impl Charging {
         amount: u64,
         now: Timestamp,
     ) -> Result<(Vec<(SliceId, u64)>, Charged), Refusal> {
-        let limits = self.ledger.charge_limits(&mut self.connection)?;
-        let holding: Vec<StoredLimit> = self
-            .placement
-            .holding(&limits)
-            .map_err(|stored| Refusal::NotUnderstood(Box::new(stored.limit())))?
-            .into_iter()
-            .filter(|stored| {
-                stored.usage_kind == usage_kind && stored.currency.as_deref() == currency
-            })
-            .cloned()
-            .collect();
-        let mut periods = Vec::new();
-        for stored in &holding {
-            let (period, _) = stored.period_key(now);
-            let room: u64 = self
-                .held
-                .iter()
-                .filter(|held| held.limit == stored.id && held.period == period)
-                .map(|held| held.size - held.used)
-                .sum();
-            if room < amount {
-                let Some(slice) = self.ledger.take_slice(
-                    &mut self.connection,
-                    stored,
-                    &self.holder,
-                    now,
-                    self.sizing,
-                    amount - room,
-                )?
-                else {
-                    return Err(reached(stored, now));
-                };
-                self.held.push(Held {
-                    limit: stored.id,
-                    period: period.clone(),
-                    id: slice.id,
-                    size: slice.size,
-                    used: 0,
-                });
-            }
-            periods.push((stored.id, period));
+        let read = !self.current(now);
+        if read {
+            self.read(now, Reading::Charge)?;
         }
+        if self.short(usage_kind, currency, amount, now)? {
+            if !read {
+                self.read(now, Reading::Charge)?;
+            }
+            self.take_slices(usage_kind, currency, amount, now)?;
+        }
+        self.draw(usage_kind, currency, amount)
+    }
+
+    /// Whether the Slices the run holds lack room for `amount` of a Limit
+    /// on `usage_kind` in `currency` that holds it, each such Limit placed
+    /// in its period at `now`.
+    ///
+    /// # Errors
+    ///
+    /// `NotUnderstood` when a Limit the run cannot be placed outside of
+    /// appeared.
+    fn short(
+        &mut self,
+        usage_kind: &str,
+        currency: Option<&str>,
+        amount: u64,
+        now: Timestamp,
+    ) -> Result<bool, Refusal> {
+        let Self { limits, held, .. } = self;
+        // Every one of them is placed, the first short one's followers
+        // too: the charge draws on each in the period it is placed in.
+        Ok(limits
+            .capping(usage_kind, currency, now)?
+            .fold(false, |short, holding| {
+                short | (holding.room(held) < amount)
+            }))
+    }
+
+    /// Takes a Slice, large enough, of each Limit on `usage_kind` in
+    /// `currency` that holds the run and whose Slices lack room for
+    /// `amount` at `now`.
+    ///
+    /// # Errors
+    ///
+    /// `Reached` naming the first Limit with too little left, though the
+    /// Slices taken before it stay the run's; `NotUnderstood` and `Ledger`
+    /// as [`Charging::charge`]'s.
+    fn take_slices(
+        &mut self,
+        usage_kind: &str,
+        currency: Option<&str>,
+        amount: u64,
+        now: Timestamp,
+    ) -> Result<(), Refusal> {
+        let Self {
+            ledger,
+            holder,
+            sizing,
+            held,
+            limits,
+            connection,
+            ..
+        } = self;
+        for holding in limits.capping(usage_kind, currency, now)? {
+            let room = holding.room(held);
+            if room >= amount {
+                continue;
+            }
+            let Some(slice) = ledger.take_slice(
+                connection,
+                &holding.stored,
+                holder,
+                now,
+                *sizing,
+                amount - room,
+            )?
+            else {
+                return Err(reached(&holding.stored, now));
+            };
+            held.push(Held {
+                limit: holding.stored.id,
+                period: holding.period.clone(),
+                id: slice.id,
+                size: slice.size,
+                used: 0,
+            });
+        }
+        Ok(())
+    }
+
+    /// Takes `amount` from the run's Slices of each Limit on `usage_kind`
+    /// in `currency` that holds it, which have room for it; answers what
+    /// it took of each Slice, and the run's Usage of each Slice touched.
+    ///
+    /// # Errors
+    ///
+    /// `NotUnderstood` when a Limit the run cannot be placed outside of
+    /// appeared: nothing is taken then.
+    fn draw(
+        &mut self,
+        usage_kind: &str,
+        currency: Option<&str>,
+        amount: u64,
+    ) -> Result<(Vec<(SliceId, u64)>, Charged), Refusal> {
+        let Self { limits, held, .. } = self;
         let mut taken = Vec::new();
         let mut charged = Charged::default();
-        for (limit, period) in periods {
+        for holding in limits
+            .holding()?
+            .iter()
+            .filter(|holding| holding.caps(usage_kind, currency))
+        {
             let mut owed = amount;
-            for held in self
-                .held
-                .iter_mut()
-                .filter(|held| held.limit == limit && held.period == period)
-            {
+            for held in held.iter_mut().filter(|held| holding.holds(held)) {
                 let took = owed.min(held.size - held.used);
                 if took == 0 {
                     continue;

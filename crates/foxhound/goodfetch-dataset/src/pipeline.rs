@@ -55,11 +55,12 @@ impl Pipeline {
     /// Its encoding, with the Export's first bytes written.
     pub(crate) fn encoding(self) -> Encoding {
         let mut encoder = ExportEncoder::new(self.format, &self.options, self.columns);
+        let mut compressor = Compressor::new(self.compression);
         let mut bytes = Vec::new();
-        encoder.begin(&mut bytes);
+        encoder.begin(encoded_into(&mut compressor, &mut bytes));
         Encoding {
             encoder,
-            compressor: Compressor::new(self.compression),
+            compressor,
             bytes,
         }
     }
@@ -70,20 +71,38 @@ impl Pipeline {
 pub(crate) struct Encoding {
     encoder: ExportEncoder,
     compressor: Compressor,
+    /// What it encoded since it last compressed, when it compresses; its
+    /// capacity kept from one page to the next.
     bytes: Vec<u8>,
+}
+
+/// Where an encoder writes: straight into the file's bytes when
+/// `compressor` compresses nothing, into `bytes` until they are compressed
+/// otherwise.
+fn encoded_into<'a>(compressor: &'a mut Compressor, bytes: &'a mut Vec<u8>) -> &'a mut Vec<u8> {
+    compressor.plain().unwrap_or(bytes)
 }
 
 impl Encoding {
     /// Encodes `page`'s Records, after those before.
     pub(crate) fn write(&mut self, page: &[CommittedText]) {
+        let out = encoded_into(&mut self.compressor, &mut self.bytes);
         for record in page {
-            self.encoder.value(&exported(record), &mut self.bytes);
+            self.encoder.value(&exported(record), out);
         }
+    }
+
+    /// Compresses what it encoded since it last did, after the file's
+    /// bytes so far.
+    pub(crate) fn compress(&mut self) {
+        self.compressor.write(&self.bytes);
+        self.bytes.clear();
     }
 
     /// The compressed bytes of what it encoded since it last answered them.
     pub(crate) fn take(&mut self) -> Vec<u8> {
-        self.compressor.write(std::mem::take(&mut self.bytes))
+        self.compress();
+        self.compressor.take()
     }
 
     /// How many Records it encoded.
@@ -94,10 +113,10 @@ impl Encoding {
     /// Writes the Export's end, and answers the file's last bytes: what it
     /// encoded since it last answered, the end, and the compression's end.
     pub(crate) fn finish(mut self) -> Vec<u8> {
-        self.encoder.end(&mut self.bytes);
-        let mut compressed = self.compressor.write(self.bytes);
-        compressed.append(&mut self.compressor.finish());
-        compressed
+        self.encoder
+            .end(encoded_into(&mut self.compressor, &mut self.bytes));
+        self.compress();
+        self.compressor.finish()
     }
 }
 
@@ -141,15 +160,13 @@ pub fn write_export(
     }
     let mut encoding = pipeline.encoding();
     let mut pages = Pages::new(dataset, 0, through, None);
-    let mut file = Vec::new();
     loop {
         let (page, full) = pages.values(connection)?;
         encoding.write(&page);
         if !full {
             break;
         }
-        file.append(&mut encoding.take());
+        encoding.compress();
     }
-    file.append(&mut encoding.finish());
-    Ok(file)
+    Ok(encoding.finish())
 }

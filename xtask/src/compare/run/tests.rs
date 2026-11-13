@@ -241,14 +241,13 @@ fn a_cell_whose_strace_run_missed_pages_runs_no_later_run() {
     assert!(!set_aside(&done, cell("scrapy"), 1000));
 }
 
-/// A run of hours keeps what it has measured: the trials file's contents
-/// are handed over once the timed trials are in, again once the
-/// system-call cell is and again once the growth cell is, so a failure in
-/// a later cell loses none of them (the base run of #2281 lost 220 trials
-/// to its first Callgrind run). Before its cell has run, the file says the
-/// run did not reach it.
-#[test]
-fn a_run_hands_over_its_trials_after_each_part_before_callgrind() {
+/// A run of `scenarios` whose executables no file holds, so a part over no
+/// cell starts nothing and a part that starts a tool fails: how the run
+/// ended, and what each hand-over of its trials file said of its
+/// system-call, growth and Callgrind cells, `measured` or why not run.
+fn handed_over(
+    scenarios: Vec<matrix::Scenario>,
+) -> (anyhow::Result<Comparison>, Vec<(String, String, String)>) {
     let nowhere = Path::new("/nowhere");
     let executables = Executables {
         proving_ground: nowhere,
@@ -259,27 +258,17 @@ fn a_run_hands_over_its_trials_after_each_part_before_callgrind() {
         scrapy: nowhere,
         browser: nowhere,
     };
-    // No scenario, so no cell: every part runs, over nothing.
     let options = Options {
         machine: None,
         command: "just compare release".to_owned(),
         trials: 1,
         growth: false,
         spider_pages: None,
-        scenarios: Vec::new(),
+        scenarios,
         callgrind_outputs: nowhere.to_owned(),
     };
-    let reached = |cell: &CountedCell| match cell {
-        CountedCell::NotRun { reason } => reason.clone(),
-        CountedCell::Measured { .. } => "measured".to_owned(),
-    };
-    let grown = |cell: &GrowthCell| match cell {
-        GrowthCell::NotRun { reason } => reason.clone(),
-        GrowthCell::Measured { .. } => "measured".to_owned(),
-    };
     let mut kept = Vec::new();
-
-    let whole = run(
+    let ended = run(
         &executables,
         "0".repeat(40),
         &options,
@@ -291,10 +280,43 @@ fn a_run_hands_over_its_trials_after_each_part_before_callgrind() {
             ));
             Ok(())
         },
-    )
-    .unwrap();
+    );
+    (ended, kept)
+}
 
-    let not_reached = |cell: &str| format!("the run ended before its {cell} cell");
+/// A counted cell as a hand-over shows it.
+fn reached(cell: &CountedCell) -> String {
+    match cell {
+        CountedCell::NotRun { reason } => reason.clone(),
+        CountedCell::Measured { .. } => "measured".to_owned(),
+    }
+}
+
+/// The growth cell as a hand-over shows it.
+fn grown(cell: &GrowthCell) -> String {
+    match cell {
+        GrowthCell::NotRun { reason } => reason.clone(),
+        GrowthCell::Measured { .. } => "measured".to_owned(),
+    }
+}
+
+/// Why a cell the run has not reached yet is not run.
+fn not_reached(cell: &str) -> String {
+    format!("the run ended before its {cell} cell")
+}
+
+/// A run of hours keeps what it has measured: the trials file's contents
+/// are handed over once the timed trials are in, again once the
+/// system-call cell is, again once the growth cell is and again once the
+/// Callgrind cell is, so a failure in a later part loses none of them (the
+/// base run of #2281 lost 220 trials to its first Callgrind run). Before
+/// its cell has run, the file says the run did not reach it.
+#[test]
+fn a_run_hands_over_its_trials_after_each_part_before_the_next() {
+    // No scenario, so no cell: every part runs, over nothing.
+    let (ended, kept) = handed_over(Vec::new());
+
+    let whole = ended.unwrap();
     let strace = if crate::compare::trial::strace_missing().is_some() {
         reached(&whole.syscalls)
     } else {
@@ -313,7 +335,31 @@ fn a_run_hands_over_its_trials_after_each_part_before_callgrind() {
                 not_reached("growth"),
                 not_reached("Callgrind")
             ),
-            (strace, grown(&whole.growth), not_reached("Callgrind")),
+            (
+                strace.clone(),
+                grown(&whole.growth),
+                not_reached("Callgrind")
+            ),
+            (strace, grown(&whole.growth), reached(&whole.instructions)),
         ]
+    );
+}
+
+/// The hostile pages' pass runs last and fails when a run of it does (#2439):
+/// the trials file handed over before it holds the Callgrind cell as it
+/// ended, so the pass's failure loses no part before it (#2607).
+#[test]
+fn a_failed_hostile_pass_leaves_the_callgrind_cell_in_the_trials_handed_over() {
+    // The pass's first run cannot start its Proving ground; every part
+    // before it runs over no cell.
+    let (ended, kept) = handed_over(vec![matrix::Scenario::Hostile]);
+
+    let callgrind = kept.last().map(|(_, _, callgrind)| callgrind.clone());
+    assert_eq!(
+        (ended.is_err(), callgrind),
+        (
+            true,
+            Some("the run asked for no scenario 1 cell".to_owned())
+        )
     );
 }

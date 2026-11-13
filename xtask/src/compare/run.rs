@@ -807,8 +807,9 @@ fn rules(
 
 /// Runs every declared trial and returns the trials file's contents. `keep`
 /// is handed them as they stand once the timed trials are in, again once
-/// the system-call cell is and again once the growth cell is, so a failure
-/// in a later cell loses none of them.
+/// the system-call cell is, again once the growth cell is and again once
+/// the Callgrind cell is, so a failure in a later part, the hostile pages'
+/// pass included, loses none of them.
 pub(crate) fn run(
     executables: &Executables<'_>,
     commit: String,
@@ -908,6 +909,7 @@ pub(crate) fn run(
             cell
         }
     };
+    keep(&comparison)?;
     comparison.rules = rules(executables, options, &ruled(options), &mut state)?;
     Ok(comparison)
 }

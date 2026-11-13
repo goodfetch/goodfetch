@@ -37,7 +37,7 @@ fn item_id(number: u64) -> String {
     format!("S-{number:07}")
 }
 
-fn item_name(seed: u64, number: u64) -> String {
+pub(super) fn item_name(seed: u64, number: u64) -> String {
     name(seed, &[FAMILY_PLACE, number])
 }
 

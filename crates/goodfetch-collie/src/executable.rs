@@ -911,7 +911,7 @@ fn run_attached(
     match served {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            tracing::error!(%error, "the Attached engine got no Connection");
+            tracing::error!(%error, "the Attached engine failed");
             ExitCode::FAILURE
         }
     }

@@ -8976,6 +8976,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The engine stopped the Run as it stopped on a bug in a part every Run shares; a start with its Run ID resumes it.",
+      "name": "engine_panicked",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "An Exposed Daemon's setup completed through its setup link (ADR 0049).",
       "name": "exposed_daemon_set_up",
       "product": "collie",

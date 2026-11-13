@@ -88,7 +88,7 @@ pub(crate) use self::lifecycle::PageEvent;
 use self::lifecycle::{
     Attributes, Owner, PageEffect, SessionEffect, SessionEvent, SessionState, Source,
 };
-use crate::borrowed::{CdpUrl, Lookups, resolve_of};
+use crate::borrowed::{CdpUrl, resolve_of};
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
 use crate::document_request::{DocumentRequest, Unread};
@@ -96,7 +96,7 @@ use crate::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::egress_relay::{self, EgressRelay};
 use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::{Hiding, PageHiding};
-use crate::interception::{Interception, SESSION_KEYS};
+use crate::interception::{HeldBrowser, Interception, Lookups, SESSION_KEYS};
 use crate::launch::Launcher;
 use crate::page_events;
 use crate::page_functions::{FrameScripts, Injections};
@@ -483,7 +483,7 @@ impl Sessions {
                 injections: Injections::default(),
             });
             state.sessions.insert(session.clone(), Arc::clone(&open));
-            self.open_in_interception(&session, &run, borrowed.as_ref());
+            self.open_in_interception(&session, &open, borrowed.as_ref());
             (session, life, open)
         };
         if let Err(error) = open.seat.open().await {
@@ -588,25 +588,23 @@ impl Sessions {
         // The Run may have stopped while its record was written: a Session
         // goes into the table only while its Run is there, under the lock
         // its clean-up takes it out under (#1763).
+        let held = Arc::new(Session {
+            run: run.clone(),
+            position,
+            seat,
+            settings: Values::default(),
+            life: SessionLife::new(session.clone(), attributes, SessionState::Open),
+            proxy,
+            egress_marked: OnceCell::new(),
+            relay,
+            reopen_failed: None,
+            held_frames: borrowed.map(|_| session_pages::HeldFrames::default()),
+            injections: Injections::default(),
+        });
         let mut state = self.state.lock().await;
         reached(&mut state, run)?;
-        state.sessions.insert(
-            session.clone(),
-            Arc::new(Session {
-                run: run.clone(),
-                position,
-                seat,
-                settings: Values::default(),
-                life: SessionLife::new(session.clone(), attributes, SessionState::Open),
-                proxy,
-                egress_marked: OnceCell::new(),
-                relay,
-                reopen_failed: None,
-                held_frames: borrowed.map(|_| session_pages::HeldFrames::default()),
-                injections: Injections::default(),
-            }),
-        );
-        self.open_in_interception(&session, run, borrowed);
+        state.sessions.insert(session.clone(), Arc::clone(&held));
+        self.open_in_interception(&session, &held, borrowed);
         Ok(position)
     }
 
@@ -1115,7 +1113,7 @@ impl Sessions {
         }
         for (open, borrowed) in reopened {
             let session = session_id(run.id(), open.position);
-            self.open_in_interception(&session, run, borrowed.as_ref());
+            self.open_in_interception(&session, &open, borrowed.as_ref());
             state.sessions.insert(session, Arc::new(open));
         }
         state.runs.insert(run.id().clone(), runs);
@@ -1180,18 +1178,21 @@ impl Sessions {
         });
     }
 
-    /// Puts the Session `session` of `run` under the interception; one on
-    /// a Borrowed browser at `borrowed` by interception alone, its
-    /// requests' hosts resolved through the Run's `network.resolve`, and a
-    /// name the engine cannot resolve judged by where that browser is.
-    fn open_in_interception(&self, session: &SessionId, run: &Run, borrowed: Option<&CdpUrl>) {
+    /// Puts the Session `session`, `held`, under the interception; one no
+    /// egress relay is under, on a Borrowed browser at `borrowed` or
+    /// launched with none, by interception alone, its requests' hosts
+    /// resolved through the Run's `network.resolve`, and a name the engine
+    /// cannot resolve judged by where it would be resolved (ADR 0056;
+    /// #2435).
+    fn open_in_interception(&self, session: &SessionId, held: &Session, borrowed: Option<&CdpUrl>) {
         self.interception.open_session(session);
-        if let Some(cdp_url) = borrowed {
+        let held_by = held_browser(borrowed, held.relay.is_some(), held.proxy.is_some());
+        if let Some(browser) = held_by {
             self.interception.hold_by_interception_only(
                 session,
                 Lookups::new(
-                    resolve_of(run.settings().map(RunSettings::resolved)),
-                    cdp_url.clone(),
+                    resolve_of(held.run.settings().map(RunSettings::resolved)),
+                    browser,
                 ),
             );
         }
@@ -1663,6 +1664,19 @@ async fn reopened_egress(
     {
         Ok(relay) => (proxy, relay, None),
         Err(error) => (proxy, None, Some(error)),
+    }
+}
+
+/// The browser interception alone holds for a Session: a Borrowed one at
+/// `borrowed`, or one launched with no egress relay, `relayed` false,
+/// behind a proxy when `proxied`; none when a relay holds the Session,
+/// which checks each connection's address itself (ADRs 0017 and 0056;
+/// #2435).
+fn held_browser(borrowed: Option<&CdpUrl>, relayed: bool, proxied: bool) -> Option<HeldBrowser> {
+    match borrowed {
+        Some(cdp_url) => Some(HeldBrowser::Borrowed(cdp_url.clone())),
+        None if relayed => None,
+        None => Some(HeldBrowser::Launched { proxied }),
     }
 }
 

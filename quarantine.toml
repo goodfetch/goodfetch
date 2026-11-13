@@ -16,3 +16,9 @@
 #   vitest      its full name, suites and title joined by ` > `;
 #   playwright  its file, suites and title joined by ` › `;
 #   pytest      its node ID, `tests/test_page.py::test_title`.
+
+[[test]]
+runner = "nextest"
+id = "goodfetch-collie::it borrowed_browser::a_borrowed_browser_is_refused_a_private_address_at_interception_and_provenance_names_the_gap"
+issue = 2525
+date = 2026-11-13

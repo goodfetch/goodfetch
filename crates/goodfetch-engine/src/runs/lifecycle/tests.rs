@@ -29,6 +29,7 @@ const TO_FAILED: Result<Next, Refusal> = Ok(Next::To(Failed));
 #[case::running_limit_not_understood(Running, RunEvent::LimitNotUnderstood, TO_STOPPED)]
 #[case::running_resources_exhausted(Running, RunEvent::ResourcesExhausted, TO_STOPPED)]
 #[case::running_engine_lost(Running, RunEvent::EngineLost, TO_STOPPED)]
+#[case::running_engine_panicked(Running, RunEvent::EnginePanicked, TO_STOPPED)]
 #[case::running_drain(Running, RunEvent::Drain, TO_STOPPED)]
 #[case::running_finish(Running, RunEvent::Finish, TO_FINISHED)]
 #[case::running_fail(Running, RunEvent::Fail, TO_FAILED)]
@@ -45,6 +46,7 @@ const TO_FAILED: Result<Next, Refusal> = Ok(Next::To(Failed));
 #[case::stopped_limit_not_understood(Stopped, RunEvent::LimitNotUnderstood, UNCHANGED)]
 #[case::stopped_resources_exhausted(Stopped, RunEvent::ResourcesExhausted, UNCHANGED)]
 #[case::stopped_engine_lost(Stopped, RunEvent::EngineLost, UNCHANGED)]
+#[case::stopped_engine_panicked(Stopped, RunEvent::EnginePanicked, UNCHANGED)]
 #[case::stopped_drain(Stopped, RunEvent::Drain, UNCHANGED)]
 #[case::stopped_finish(Stopped, RunEvent::Finish, UNCHANGED)]
 #[case::stopped_fail(Stopped, RunEvent::Fail, UNCHANGED)]
@@ -61,6 +63,7 @@ const TO_FAILED: Result<Next, Refusal> = Ok(Next::To(Failed));
 #[case::finished_limit_not_understood(Finished, RunEvent::LimitNotUnderstood, UNCHANGED)]
 #[case::finished_resources_exhausted(Finished, RunEvent::ResourcesExhausted, UNCHANGED)]
 #[case::finished_engine_lost(Finished, RunEvent::EngineLost, UNCHANGED)]
+#[case::finished_engine_panicked(Finished, RunEvent::EnginePanicked, UNCHANGED)]
 #[case::finished_drain(Finished, RunEvent::Drain, UNCHANGED)]
 #[case::finished_finish(Finished, RunEvent::Finish, UNCHANGED)]
 #[case::finished_fail(Finished, RunEvent::Fail, UNCHANGED)]
@@ -77,6 +80,7 @@ const TO_FAILED: Result<Next, Refusal> = Ok(Next::To(Failed));
 #[case::failed_limit_not_understood(Failed, RunEvent::LimitNotUnderstood, UNCHANGED)]
 #[case::failed_resources_exhausted(Failed, RunEvent::ResourcesExhausted, UNCHANGED)]
 #[case::failed_engine_lost(Failed, RunEvent::EngineLost, UNCHANGED)]
+#[case::failed_engine_panicked(Failed, RunEvent::EnginePanicked, UNCHANGED)]
 #[case::failed_drain(Failed, RunEvent::Drain, UNCHANGED)]
 #[case::failed_finish(Failed, RunEvent::Finish, UNCHANGED)]
 #[case::failed_fail(Failed, RunEvent::Fail, UNCHANGED)]
@@ -125,6 +129,7 @@ fn event() -> impl Strategy<Value = RunEvent> {
         RunEvent::LimitNotUnderstood,
         RunEvent::ResourcesExhausted,
         RunEvent::EngineLost,
+        RunEvent::EnginePanicked,
         RunEvent::Drain,
         RunEvent::Finish,
         RunEvent::Fail,

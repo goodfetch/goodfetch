@@ -19,7 +19,7 @@ use std::ffi::OsString;
 use std::sync::Arc;
 
 use goodfetch_protocol::connection::PrivateEndpoint;
-use goodfetch_protocol::connection::{EngineInstance, ProductVersion};
+use goodfetch_protocol::connection::{EngineInstance, PanicEnded, ProductVersion};
 use goodfetch_protocol::governor::{SYSTEM_INFO, SystemInfo};
 use goodfetch_protocol::run::{RunKind, RunOwner};
 use goodfetch_protocol::secret_reference::Provider;
@@ -255,10 +255,15 @@ impl Engine {
             &owner,
         )
         .await;
-        if matches!(ended, DaemonEnd::Drained | DaemonEnd::ListenerFailed) {
+        if matches!(
+            ended,
+            DaemonEnd::Drained | DaemonEnd::ListenerFailed | DaemonEnd::Panicked
+        ) {
             // Its process exits now, within its drain grace: a Run whose
             // tasks did not stop in time stays as it is, resumable from its
-            // run file, and nothing waits for them.
+            // run file, and nothing waits for them. One that panicked waits
+            // for no task either, as one of them may hold what the panic
+            // left half done (ADR 0148).
             drop(runs);
             owner.cancel();
         } else {
@@ -266,7 +271,30 @@ impl Engine {
             drop(runs);
             owner.stop().await;
         }
-        ended
+        self.late_panic(&owner, ended)
+    }
+
+    /// `ended`, unless a part every Run shares panicked after the Daemon's
+    /// loop stopped waiting for a panic, as it stopped: then
+    /// [`DaemonEnd::Panicked`], which exits 1 like any other such panic
+    /// (ADR 0148). A handover keeps its end, the next Daemon serving on.
+    fn late_panic(&self, owner: &TaskOwner, ended: DaemonEnd) -> DaemonEnd {
+        match ended {
+            DaemonEnd::Idle
+            | DaemonEnd::Stopped
+            | DaemonEnd::Drained
+            | DaemonEnd::ListenerFailed
+                if owner.has_panicked() =>
+            {
+                tracing::error!(
+                    part = owner.panicked_part(),
+                    "a part every Run shares panicked as the Daemon stopped"
+                );
+                self.metrics.panicked(PanicEnded::Engine);
+                DaemonEnd::Panicked
+            }
+            ended => ended,
+        }
     }
 
     /// The engine's Resource governor, a task of `owner` that reads
@@ -347,7 +375,7 @@ impl Engine {
                     &dependencies.home,
                     dependencies.run_state.vfs.clone(),
                 ),
-                owner: Arc::new(owner.child()),
+                owner: Arc::new(owner.part("Needs-you list")),
             },
             events.clone(),
             owner,
@@ -429,7 +457,7 @@ impl Engine {
             dependencies.clock,
             settings,
             Arc::clone(&audit),
-            Arc::new(owner.child()),
+            Arc::new(owner.part("engine's stores")),
             needs_you,
             sandbox_probe,
             os_user(&dependencies.environment),
@@ -494,7 +522,16 @@ impl Engine {
     /// whose every Connection must say `hello` with its token (ADRs 0024
     /// and 0031); stops its live Runs once that one Connection ends or, on
     /// the OS, once its parent is gone, then stops every task it started
-    /// and removes its private endpoint.
+    /// and removes its private endpoint. A panic in a part every Run shares
+    /// stops it too, with no drain: it stops its live Runs for the panic,
+    /// unless the Run registry is what panicked, cancels every task it
+    /// started and fails with [`AttachedFailure::Panicked`] (ADR 0148).
+    ///
+    /// # Errors
+    ///
+    /// [`AttachedFailure::NoConnection`] when `network` gave it no
+    /// Connection; [`AttachedFailure::Panicked`] when it stopped on such a
+    /// panic.
     ///
     /// # Cancel safety
     ///
@@ -503,7 +540,7 @@ impl Engine {
         &self,
         mut network: Network,
         dependencies: Dependencies,
-    ) -> Result<(), TransportError> {
+    ) -> Result<(), AttachedFailure> {
         let on_the_os = matches!(network, Network::Os);
         let parent = on_the_os.then(ParentWatch::start);
         let connection = network.attached_connection().await?;
@@ -525,7 +562,7 @@ impl Engine {
         let reported = private.as_ref().map(|(_, endpoint, _)| endpoint.clone());
         // The private endpoint's Connections, which the stdio Connection
         // does not wait for.
-        let accepting = owner.child();
+        let accepting = owner.part("private endpoint");
         let stdio = rpc::serve(
             Arc::clone(&self.dispatch),
             connection,
@@ -554,25 +591,75 @@ impl Engine {
             ));
             private_files = Some(files);
         }
+        let panicked = owner.panicked();
         let ended = tokio::select! {
             () = stdio => EngineEvent::StdioEnded,
             () = gone => {
                 tracing::warn!("the Attached engine's parent is gone: its Runs stop");
                 EngineEvent::ParentGone
             }
+            () = panicked => EngineEvent::panicked(runs.registry_panicked()),
         };
-        // Either end stops it, as the engine's table says (ADR 0128).
+        // Each end stops it, as the engine's table says (ADR 0128).
         if let Err(refused) = transition::engine::engine(EngineState::Attached, ended) {
             let _ = refused.logged();
         }
         accepting.stop().await;
-        runs.stop_all().await;
-        drop(runs);
-        connection_owner.stop().await;
-        owner.stop().await;
-        drop(private_files);
-        Ok(())
+        match ended {
+            EngineEvent::PartPanicked | EngineEvent::RegistryPanicked => {
+                // A panic in a part every Run shares stops the engine with
+                // no drain, and its process exits 1 (ADR 0148). Its Runs
+                // stop for the panic first, unless the registry that stops
+                // them is what panicked: then each stays as it is, read as
+                // interrupted.
+                let registry = matches!(ended, EngineEvent::RegistryPanicked);
+                tracing::error!(
+                    part = owner.panicked_part(),
+                    registry,
+                    "a part every Run shares panicked: the Attached engine stops"
+                );
+                self.metrics.panicked(PanicEnded::Engine);
+                if !registry {
+                    runs.stop_all_on_panic().await;
+                }
+                drop(runs);
+                connection_owner.cancel();
+                owner.cancel();
+                drop(private_files);
+                Err(AttachedFailure::Panicked)
+            }
+            _ => {
+                runs.stop_all().await;
+                drop(runs);
+                connection_owner.stop().await;
+                owner.stop().await;
+                drop(private_files);
+                if owner.has_panicked() {
+                    // One panicked after the wait above stopped waiting, as
+                    // the engine stopped: it fails all the same (ADR 0148).
+                    tracing::error!(
+                        part = owner.panicked_part(),
+                        "a part every Run shares panicked as the Attached engine stopped"
+                    );
+                    self.metrics.panicked(PanicEnded::Engine);
+                    return Err(AttachedFailure::Panicked);
+                }
+                Ok(())
+            }
+        }
     }
+}
+
+/// Why an Attached engine failed ([`Engine::run_attached`]).
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum AttachedFailure {
+    /// It got no Connection.
+    #[error("it got no Connection: {0}")]
+    NoConnection(#[from] TransportError),
+    /// A part every Run shares panicked, so it stopped (ADR 0148).
+    #[error("it stopped on a panic in a part every Run shares")]
+    Panicked,
 }
 
 /// Writes the install Limits the managed Operator policy of the engine's
@@ -621,7 +708,7 @@ fn host_settings(
     (keychain, probe): (Keychain, SandboxProbe),
     work: CountedWork,
 ) -> Settings {
-    let probing = Arc::new(owner.child());
+    let probing = Arc::new(owner.part("sandbox probe"));
     {
         let (probing, probe) = (Arc::clone(&probing), probe.clone());
         owner.spawn(async move {
@@ -647,7 +734,7 @@ fn host_settings(
         },
         move || secrets::known_host_defaults(&keychain),
     );
-    Settings::with_host(files, product, owner.child(), work, search)
+    Settings::with_host(files, product, owner.part("settings"), work, search)
 }
 
 /// Sends each of the Resource governor's samples as `engine.system_info`

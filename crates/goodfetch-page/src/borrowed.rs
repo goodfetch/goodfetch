@@ -21,7 +21,7 @@ use goodfetch_cdp::{Connection, Framer, MAX_FRAME};
 use goodfetch_engine::CallError;
 use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::egress::{
-    BrowserLocation, CdpUrlOrigin, EndpointPolicy, Policy, cdp_url_address, judge_cdp_url,
+    CdpUrlOrigin, EndpointPolicy, Policy, cdp_url_address, judge_cdp_url,
 };
 use goodfetch_engine::http_client;
 use goodfetch_engine::runs::Run;
@@ -33,7 +33,6 @@ use goodfetch_protocol::settings::{
 };
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, DuplexStream};
 use tokio::net::TcpStream;
-use tokio::sync::OnceCell;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Bytes, Error as WsError, Message, Utf8Bytes};
@@ -64,7 +63,7 @@ impl CdpUrl {
 
     /// The host and port the engine reaches it at, a `ws://` address's
     /// alone.
-    fn host_and_port(&self) -> Option<(String, u16)> {
+    pub(crate) fn host_and_port(&self) -> Option<(String, u16)> {
         let parsed = Url::parse(&self.url)
             .ok()
             .filter(|parsed| parsed.scheme() == WEBSOCKET)?;
@@ -73,54 +72,6 @@ impl CdpUrl {
             host => host.to_string(),
         };
         Some((host, parsed.port_or_known_default().unwrap_or(80)))
-    }
-}
-
-/// How the engine resolves the hosts of a Borrowed browser's requests
-/// (ADR 0056): through the Run's `network.resolve` mapping, and, for a
-/// name it cannot resolve, by where the browser is, which the addresses of
-/// its `cdp_url` tell, looked up once, when such a name first comes.
-pub(crate) struct Lookups {
-    resolve: HostMapping,
-    cdp_url: CdpUrl,
-    location: OnceCell<BrowserLocation>,
-}
-
-impl Lookups {
-    /// The lookups of the browser at `cdp_url`, under the mapping `resolve`.
-    pub(crate) fn new(resolve: HostMapping, cdp_url: CdpUrl) -> Self {
-        Self {
-            resolve,
-            cdp_url,
-            location: OnceCell::new(),
-        }
-    }
-
-    /// The Run's `network.resolve` mapping.
-    pub(crate) fn resolve(&self) -> &HostMapping {
-        &self.resolve
-    }
-
-    /// Where the browser is: on the engine's machine when its `cdp_url`
-    /// resolves, as the engine connected to it, to loopback alone; else,
-    /// or when it no longer resolves, elsewhere.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future abandons the lookup; the next call makes it.
-    pub(crate) async fn location(&self) -> BrowserLocation {
-        *self
-            .location
-            .get_or_init(|| async {
-                let Some((host, port)) = self.cdp_url.host_and_port() else {
-                    return BrowserLocation::Elsewhere;
-                };
-                match http_client::lookup(&host, port, &self.resolve).await {
-                    Ok(addresses) => BrowserLocation::of(&addresses),
-                    Err(_) => BrowserLocation::Elsewhere,
-                }
-            })
-            .await
     }
 }
 

@@ -1089,10 +1089,21 @@ impl End {
                 StopReason::LimitNotUnderstood(_) => RunEvent::LimitNotUnderstood,
                 StopReason::Drain => RunEvent::Drain,
                 StopReason::EngineLost => RunEvent::EngineLost,
+                StopReason::EnginePanicked => RunEvent::EnginePanicked,
                 StopReason::Resources { .. } => RunEvent::ResourcesExhausted,
             },
         }
     }
+}
+
+/// Why the engine stops every live Run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Cause {
+    /// A drain was asked for, or an Attached engine's program went away.
+    Asked,
+    /// A part every Run shares panicked (ADR 0148): each Run's report
+    /// carries the warning `engine_panicked`.
+    Panic,
 }
 
 /// What the registry is asked. The channel's blocks hold 32 commands
@@ -1123,7 +1134,7 @@ enum Command {
     End(RunId, End),
     Uses(RunId, Product),
     Ended(RunId, Box<Ended>),
-    StopAll(oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
+    StopAll(Cause, oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
     StopConnection(ConnectionId, oneshot::Sender<ConnectionEnded>),
     Outlive(ConnectionId),
     LiveCount(oneshot::Sender<usize>),
@@ -1162,7 +1173,7 @@ enum Command {
     Index(oneshot::Sender<IndexAt>),
     Discard(RunId, oneshot::Sender<Result<(), RunError>>),
     Discarded(Box<Erased>, oneshot::Sender<Result<(), RunError>>),
-    Drain(oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
+    Drain(Cause, oneshot::Sender<Vec<watch::Receiver<Option<Ended>>>>),
     Storage(Arc<StorageSample>),
     StorageFailed(PathBuf),
     LastResort(LastResort),
@@ -1230,6 +1241,9 @@ pub struct Runs {
     version: ProductVersion,
     /// The runtime's metrics.
     metrics: Metrics,
+    /// The owner of the registry's own task, whose panic stops the engine
+    /// at once (ADR 0148).
+    registry: Arc<TaskOwner>,
 }
 
 /// The composition's Clean-up rules, and the engine's Product version, the
@@ -2676,9 +2690,10 @@ fn redaction(settings: Option<&RunSettings>) -> Redaction {
 }
 
 impl Runs {
-    /// Starts the registry as a task of `owner`, each Run's tasks under a
-    /// child of it, once `startup`, what the engine writes as it starts,
-    /// ends: it answers no command before.
+    /// Starts the registry as the task of an owner of its own under
+    /// `owner`, which `owner`'s stop waits for, each Run's tasks under a
+    /// child of `owner`, once `startup`, what the engine writes as it
+    /// starts, ends: it answers no command before.
     pub(crate) fn start_registry(
         mut setup: RunsSetup,
         startup: Pin<Box<dyn Future<Output = ()> + Send>>,
@@ -2706,6 +2721,7 @@ impl Runs {
             controls: Arc::new(setup.controls.clone()),
             version: setup.version.clone(),
             metrics: setup.metrics.clone(),
+            registry: Arc::new(owner.part("Run registry")),
         };
         let politeness = SharedPoliteness {
             file: Arc::new(tokio::sync::OnceCell::new()),
@@ -2713,7 +2729,7 @@ impl Runs {
             options: setup.politeness.clone(),
             tables: setup.politeness_tables.clone(),
             engine: format!("{:016x}", setup.entropy.next_u64()),
-            owner: Arc::new(owner.child()),
+            owner: Arc::new(owner.part("Politeness store")),
         };
         let admitting = Arc::new(Admitting {
             gates: setup.gates.clone(),
@@ -2722,8 +2738,10 @@ impl Runs {
         let registry = Registry {
             setup,
             admitting,
-            owner: owner.child(),
-            ending_owner: owner.child(),
+            owner: owner.part("Run registry's shared work"),
+            for_one_run: owner.child_for(OwnerKind::Run),
+            ending_owner: owner.child_for(OwnerKind::Run),
+            itself: Arc::clone(&runs.registry),
             readers,
             live: BTreeMap::new(),
             ended: EndedRuns::new(),
@@ -2738,7 +2756,11 @@ impl Runs {
             unrecorded: BTreeMap::new(),
             memory_stop: MemoryStop::Idle,
         };
-        owner.spawn(registry.run(mailbox, startup));
+        runs.registry.spawn(registry.run(mailbox, startup));
+        // `owner`'s stop waits for the registry, as for one of its tasks,
+        // while the registry's panic is told on an owner of its own.
+        let registry = Arc::clone(&runs.registry);
+        owner.spawn(async move { registry.wait().await });
         runs
     }
 
@@ -3798,8 +3820,28 @@ impl Runs {
     /// Dropping the future after it was sent still drains: the Runs stop,
     /// and only the answer is lost.
     pub(crate) async fn drain(&self) -> Draining {
+        self.drain_for(Cause::Asked).await
+    }
+
+    /// Drains the engine as [`Runs::drain`] does, because a part every Run
+    /// shares panicked (ADR 0148): each Run's report carries the warning
+    /// `engine_panicked`.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Runs::drain`]'s.
+    pub(crate) async fn drain_on_panic(&self) -> Draining {
+        self.drain_for(Cause::Panic).await
+    }
+
+    async fn drain_for(&self, cause: Cause) -> Draining {
         let (answer, answered) = oneshot::channel();
-        if self.commands.send(Command::Drain(answer)).await.is_err() {
+        if self
+            .commands
+            .send(Command::Drain(cause, answer))
+            .await
+            .is_err()
+        {
             return Draining(Vec::new());
         }
         Draining(answered.await.unwrap_or_default())
@@ -3812,13 +3854,39 @@ impl Runs {
     ///
     /// Dropping the future after it was sent still stops them.
     pub(crate) async fn stop_all(&self) {
+        self.stop_all_for(Cause::Asked).await;
+    }
+
+    /// Stops every live Run as [`Runs::stop_all`] does, because a part
+    /// every Run shares panicked on an Attached engine (ADR 0148): each is
+    /// `stopped` for the engine's panic, never as aborted by its Client,
+    /// and its report carries the warning `engine_panicked`.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Runs::stop_all`]'s.
+    pub(crate) async fn stop_all_on_panic(&self) {
+        self.stop_all_for(Cause::Panic).await;
+    }
+
+    async fn stop_all_for(&self, cause: Cause) {
         let (answer, answered) = oneshot::channel();
-        if self.commands.send(Command::StopAll(answer)).await.is_err() {
+        if self
+            .commands
+            .send(Command::StopAll(cause, answer))
+            .await
+            .is_err()
+        {
             return;
         }
         for report in answered.await.unwrap_or_default() {
             let _ = wait_for(report).await;
         }
+    }
+
+    /// Whether the registry's own task panicked (ADR 0148).
+    pub(crate) fn registry_panicked(&self) -> bool {
+        self.registry.has_panicked()
     }
 }
 
@@ -4100,8 +4168,18 @@ struct Registry {
     setup: RunsSetup,
     /// The gate in admission and the Politeness the engine's Runs share.
     admitting: Arc<Admitting>,
+    /// The owner of the work it does for every Run, such as following the
+    /// governor's samples, whose panic stops the engine (ADR 0148).
     owner: TaskOwner,
+    /// The owner of the work it does for one Run, such as publishing its
+    /// progress or erasing its state, whose panic ends no other Run and
+    /// not the engine (ADR 0148).
+    for_one_run: TaskOwner,
+    /// The owner of each Run's end: recording it, its takeover and its
+    /// last Checkpoint, of one Run too.
     ending_owner: TaskOwner,
+    /// The owner of its own task, which each handle carries.
+    itself: Arc<TaskOwner>,
     /// Where readers of run state run their blocking reads.
     readers: Arc<TaskOwner>,
     live: BTreeMap<RunId, Live>,
@@ -4194,6 +4272,7 @@ impl Registry {
         }
         self.readers.wait().await;
         self.ending_owner.wait().await;
+        self.for_one_run.wait().await;
         self.owner.wait().await;
     }
 
@@ -4210,8 +4289,8 @@ impl Registry {
                 let (resume, _, _, _) = *resume;
                 let _ = answer.send(Err(RunError::Draining(resume.run_id)));
             }
-            Command::Drain(answer) => {
-                let _ = answer.send(self.drain().await);
+            Command::Drain(cause, answer) => {
+                let _ = answer.send(self.drain(cause).await);
             }
             Command::Start(start, connection, answer) => {
                 let (start, secrets, link) = *start;
@@ -4232,9 +4311,13 @@ impl Registry {
             }
             Command::Uses(run_id, product) => self.uses(&run_id, product).await,
             Command::Ended(run_id, ended) => self.ended(run_id, *ended),
-            Command::StopAll(answer) => {
+            Command::StopAll(cause, answer) => {
                 let ids: Vec<RunId> = self.live.keys().cloned().collect();
-                let _ = answer.send(self.stop_by_client(ids).await);
+                let stopped = match cause {
+                    Cause::Asked => self.stop_by_client(ids).await,
+                    Cause::Panic => self.stop_on_panic(ids).await,
+                };
+                let _ = answer.send(stopped);
             }
             Command::StopConnection(connection, answer) => {
                 let ended = self.connection_ended(connection).await;
@@ -4531,12 +4614,16 @@ impl Registry {
     }
 
     /// Takes no Run from now on, stops each live Run for the drain with a
-    /// Checkpoint, and answers the waits for their reports.
-    async fn drain(&mut self) -> Vec<watch::Receiver<Option<Ended>>> {
+    /// Checkpoint, warned first when `cause` is a panic, and answers the
+    /// waits for their reports.
+    async fn drain(&mut self, cause: Cause) -> Vec<watch::Receiver<Option<Ended>>> {
         self.draining = true;
         let ids: Vec<RunId> = self.live.keys().cloned().collect();
         let mut reports = Vec::new();
         for run_id in ids {
+            if cause == Cause::Panic {
+                self.warn_engine_panicked(&run_id).await;
+            }
             if let Ok(report) = self.stop(&run_id, StopReason::Drain, None).await {
                 reports.push(report);
             }
@@ -4557,6 +4644,40 @@ impl Registry {
             }
         }
         reports
+    }
+
+    /// Takes no Run from now on, stops each of `ids` for its Attached
+    /// engine's panic (ADR 0148), its report warned first, and answers the
+    /// waits for their reports.
+    async fn stop_on_panic(&mut self, ids: Vec<RunId>) -> Vec<watch::Receiver<Option<Ended>>> {
+        self.draining = true;
+        let mut reports = Vec::new();
+        for run_id in ids {
+            self.warn_engine_panicked(&run_id).await;
+            let end = End::Stopped(StopReason::EnginePanicked);
+            if let Ok(report) = self.end_or_report(&run_id, end).await {
+                reports.push(report);
+            }
+        }
+        reports
+    }
+
+    /// Hands the warning `engine_panicked` over to the report of the live
+    /// Run `run_id`, which the engine stops as it stops on a panic in a
+    /// part every Run shares (ADR 0148).
+    async fn warn_engine_panicked(&self, run_id: &RunId) {
+        let Some(run) = self.live.get(run_id).and_then(|live| live.run.as_ref()) else {
+            return;
+        };
+        let warning = RunWarning {
+            code: goodfetch_protocol::run::warning::ENGINE_PANICKED.to_owned(),
+            message: "The engine stopped the Run as it stopped on a bug in a part every Run shares; a start with its Run ID resumes it.".to_owned(),
+            sessions: Vec::new(),
+            folder: None,
+        };
+        if let Err(error) = run.warn_once(warning).await {
+            tracing::warn!(%error, %run_id, "the Run's `engine_panicked` warning was not kept");
+        }
     }
 
     /// Reclaims the Slices of every run whose engine is gone, as each engine
@@ -4732,7 +4853,7 @@ impl Registry {
             return;
         }
         let erasing = Erasing {
-            owner: self.owner.child(),
+            owner: self.for_one_run.child(),
             clock: self.setup.engine.clock(),
             entropy: self.setup.entropy.fork(),
             vfs: self.setup.run_state.vfs.clone(),
@@ -4741,7 +4862,7 @@ impl Registry {
             version: self.setup.version.clone(),
         };
         let registry = self.runs.clone();
-        self.owner.spawn(async move {
+        self.for_one_run.spawn(async move {
             let erased = erasing.erase(run_id, folder).await;
             if let Some(registry) = registry.upgrade() {
                 let _ = registry
@@ -5445,7 +5566,7 @@ impl Registry {
     /// change goes out as `run.progress` (ADR 0102).
     fn progress(&self, run_id: &RunId, start: Progressing) -> Progress {
         let progress = Progress::new(start);
-        self.owner.spawn(progress::publish(
+        self.for_one_run.spawn(progress::publish(
             run_id.clone(),
             progress.subscribe(),
             self.setup.events.clone(),
@@ -5468,6 +5589,7 @@ impl Registry {
             controls: Arc::new(self.setup.controls.clone()),
             version: self.setup.version.clone(),
             metrics: self.setup.metrics.clone(),
+            registry: Arc::clone(&self.itself),
         }
     }
 

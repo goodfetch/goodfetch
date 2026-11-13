@@ -328,12 +328,19 @@ pub(crate) fn judge_all_with_addresses(
         .count()
 }
 
+/// A stream of logged lines, and where each line ends, found outside the
+/// measured run: a log writer is handed each line whole.
+pub(crate) struct Lines {
+    stream: Vec<u8>,
+    ends: Vec<usize>,
+}
+
 /// What masking a stream measures: the engine's masks holding `values`
 /// resolved values of one Run, each of 10 to 25 characters, the Run's
 /// mask that keeps them, and a stream of `bytes` bytes of alternating
 /// event and log lines, one line in four holding a value raw, in base64 or
 /// in hex (spec #564's `Mask` budget).
-pub(crate) fn mask_input(values: usize, bytes: usize) -> (Masks, Mask, Vec<u8>) {
+pub(crate) fn mask_input(values: usize, bytes: usize) -> (Masks, Mask, Lines) {
     let masks = Masks::new();
     let mask = masks.for_run(Redaction::On);
     let value = |number: usize| format!("value-{number:03}-{}", "x".repeat(number % 16));
@@ -345,6 +352,7 @@ pub(crate) fn mask_input(values: usize, bytes: usize) -> (Masks, Mask, Vec<u8>) 
         );
     }
     let mut stream = Vec::with_capacity(bytes + 256);
+    let mut ends = Vec::new();
     let mut line = 0_usize;
     while stream.len() < bytes {
         let text = match line % 8 {
@@ -360,19 +368,24 @@ pub(crate) fn mask_input(values: usize, bytes: usize) -> (Masks, Mask, Vec<u8>) 
         };
         stream.extend_from_slice(written.as_bytes());
         stream.push(b'\n');
+        ends.push(stream.len());
         line += 1;
     }
     stream.truncate(bytes);
-    (masks, mask, stream)
+    ends.retain(|end| *end < bytes);
+    ends.push(bytes);
+    (masks, mask, Lines { stream, ends })
 }
 
-/// Masks `stream` as the log writers do, each whole line through
-/// [`Masks::apply_bytes`] in the kept outputs' scope, and returns how many
-/// bytes the masked lines hold.
-pub(crate) fn mask_stream(masks: &Masks, stream: &[u8]) -> usize {
-    let mut written = Vec::with_capacity(stream.len());
-    for line in stream.split_inclusive(|byte| *byte == b'\n') {
-        written.extend_from_slice(&masks.apply_bytes(line, Scope::KeptOutput));
+/// Masks `lines` as the log writers do, each whole line through
+/// [`Masks::apply_bytes_into`] in the kept outputs' scope, into one buffer,
+/// and returns how many bytes the masked lines hold.
+pub(crate) fn mask_stream(masks: &Masks, lines: &Lines) -> usize {
+    let mut written = Vec::with_capacity(lines.stream.len());
+    let mut start = 0;
+    for &end in &lines.ends {
+        masks.apply_bytes_into(&lines.stream[start..end], Scope::KeptOutput, &mut written);
+        start = end;
     }
     written.len()
 }

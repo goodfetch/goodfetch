@@ -189,6 +189,17 @@ impl Automaton {
         }
     }
 
+    /// Appends `haystack` to `out` with every match replaced.
+    fn replace_into(&self, haystack: &[u8], out: &mut Vec<u8>) {
+        let mut cursor = 0;
+        for found in self.searcher.find_iter(haystack) {
+            out.extend_from_slice(&haystack[cursor..found.start()]);
+            out.extend_from_slice(self.replacement(found.pattern()));
+            cursor = found.end();
+        }
+        out.extend_from_slice(&haystack[cursor..]);
+    }
+
     fn replacement(&self, pattern: aho_corasick::PatternID) -> &[u8] {
         self.replacements[pattern.as_usize()].as_bytes()
     }
@@ -334,6 +345,18 @@ impl Masks {
         {
             None | Some(Cow::Borrowed(_)) => Cow::Borrowed(bytes),
             Some(Cow::Owned(masked)) => Cow::Owned(masked),
+        }
+    }
+
+    /// Appends `bytes` to `out` with every value `scope` masks replaced by
+    /// its `%name%`, as [`Masks::apply_bytes`] masks them: a writer that
+    /// masks line after line reuses `out` rather than taking a new buffer
+    /// for each line it masks.
+    pub fn apply_bytes_into(&self, bytes: &[u8], scope: Scope, out: &mut Vec<u8>) {
+        let state = self.read();
+        match state.automaton(scope) {
+            Some(automaton) => automaton.replace_into(bytes, out),
+            None => out.extend_from_slice(bytes),
         }
     }
 

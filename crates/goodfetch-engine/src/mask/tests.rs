@@ -407,6 +407,41 @@ proptest! {
         let read: serde_json::Value = serde_json::from_slice(&masked).expect("the line stays one JSON message");
         prop_assert_eq!(leaks(&value, read.to_string().as_bytes()), Vec::<String>::new());
     }
+
+    #[test]
+    fn lines_masked_into_one_buffer_follow_what_it_held_each_as_apply_bytes_masks_it(
+        value in value(),
+        joins in any::<bool>(),
+        held in "[ -~]{0,8}",
+        lines in prop::collection::vec((any::<bool>(), form(), around()), 1..6),
+    ) {
+        let masks = Masks::new();
+        let mask = masks.for_run(Redaction::On);
+        if joins {
+            mask.join(SHORT_NAME, &SecretString::from(value.as_str()), Reach::Value);
+        }
+        let lines: Vec<String> = lines
+            .iter()
+            .map(|(holds, form, around)| {
+                if *holds {
+                    format!("{around}{}{around}\n", encoded(&value, *form))
+                } else {
+                    format!("{around}\n")
+                }
+            })
+            .collect();
+        let mut buffer = held.clone().into_bytes();
+
+        for line in &lines {
+            masks.apply_bytes_into(line.as_bytes(), Scope::KeptOutput, &mut buffer);
+        }
+
+        let mut expected = held.into_bytes();
+        for line in &lines {
+            expected.extend_from_slice(&masks.apply_bytes(line.as_bytes(), Scope::KeptOutput));
+        }
+        prop_assert_eq!(buffer, expected);
+    }
 }
 
 /// A value hard to redact (TESTING.md, Secrets): quotes, backslashes,
@@ -425,7 +460,7 @@ fn hard_value() -> impl Strategy<Value = String> {
 
 /// Every formatter and serializer the Mask writes through, each with the
 /// output it makes of `text`: `apply` in each scope, `apply_bytes`,
-/// `apply_value` over a JSON value holding the text, `apply_json_line` over
+/// `apply_bytes_into`, `apply_value` over a JSON value holding the text, `apply_json_line` over
 /// a message holding it, and `apply_typed` for a read of a field the
 /// values were typed in.
 fn through_every_formatter(masks: &Masks, text: &str, typed: &[&str]) -> Vec<(String, Vec<u8>)> {
@@ -442,6 +477,9 @@ fn through_every_formatter(masks: &Masks, text: &str, typed: &[&str]) -> Vec<(St
         "apply_bytes".to_owned(),
         masks.apply_bytes(text.as_bytes(), Scope::Kept).into_owned(),
     ));
+    let mut into = Vec::new();
+    masks.apply_bytes_into(text.as_bytes(), Scope::Kept, &mut into);
+    outputs.push(("apply_bytes_into".to_owned(), into));
     let mut value = json!({ text: [text, { "text": text }] });
     masks.apply_value(&mut value, Scope::Returned);
     outputs.push(("apply_value".to_owned(), value.to_string().into_bytes()));

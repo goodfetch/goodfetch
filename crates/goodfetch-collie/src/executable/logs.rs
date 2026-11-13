@@ -18,6 +18,7 @@
 //! `daemon run`'s alone: anywhere else stdout is the protocol or the CLI's
 //! output, and it fails with `setting_not_applicable`.
 
+use std::cell::Cell;
 use std::io::Write;
 
 use goodfetch_engine::audit::AuditEvents;
@@ -220,9 +221,35 @@ impl<'a, M: MakeWriter<'a>> MakeWriter<'a> for Masked<M> {
         MaskedLine {
             masks: self.masks.clone(),
             inner: self.inner.make_writer(),
-            line: Vec::new(),
+            buffers: LINE_BUFFERS.try_with(Cell::take).unwrap_or_default(),
         }
     }
+}
+
+/// The largest buffer a thread keeps from one line to the next: a log line
+/// is mostly under a kilobyte, and a thread that once logged a huge one
+/// does not hold its memory for good.
+const KEPT_CAPACITY: usize = 64 * 1024;
+
+/// An event's line as written and as masked, in buffers a thread reuses
+/// from line to line.
+#[derive(Default)]
+struct LineBuffers {
+    held: Vec<u8>,
+    masked: Vec<u8>,
+}
+
+thread_local! {
+    /// This thread's [`LineBuffers`], which each [`MaskedLine`] it makes
+    /// borrows and gives back, so logging line after line takes no new
+    /// buffer for each; a writer made while another on the thread holds
+    /// them starts with empty ones.
+    static LINE_BUFFERS: Cell<LineBuffers> = const {
+        Cell::new(LineBuffers {
+            held: Vec::new(),
+            masked: Vec::new(),
+        })
+    };
 }
 
 /// One `tracing` event's line on its way to its writer: held until the
@@ -233,24 +260,26 @@ impl<'a, M: MakeWriter<'a>> MakeWriter<'a> for Masked<M> {
 pub(super) struct MaskedLine<W: Write> {
     masks: Masks,
     inner: W,
-    line: Vec<u8>,
+    buffers: LineBuffers,
 }
 
 impl<W: Write> MaskedLine<W> {
     /// Hands the line held so far, masked, to `inner` in one write.
     fn hand_over(&mut self) -> std::io::Result<()> {
-        if self.line.is_empty() {
+        let LineBuffers { held, masked } = &mut self.buffers;
+        if held.is_empty() {
             return Ok(());
         }
-        let line = std::mem::take(&mut self.line);
-        self.inner
-            .write_all(&self.masks.apply_bytes(&line, Scope::KeptOutput))
+        masked.clear();
+        self.masks.apply_bytes_into(held, Scope::KeptOutput, masked);
+        held.clear();
+        self.inner.write_all(masked)
     }
 }
 
 impl<W: Write> Write for MaskedLine<W> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.line.extend_from_slice(bytes);
+        self.buffers.held.extend_from_slice(bytes);
         Ok(bytes.len())
     }
 
@@ -263,6 +292,11 @@ impl<W: Write> Write for MaskedLine<W> {
 impl<W: Write> Drop for MaskedLine<W> {
     fn drop(&mut self) {
         let _ = self.hand_over();
+        let mut buffers = std::mem::take(&mut self.buffers);
+        if buffers.held.capacity() <= KEPT_CAPACITY && buffers.masked.capacity() <= KEPT_CAPACITY {
+            buffers.masked.clear();
+            let _ = LINE_BUFFERS.try_with(|kept| kept.set(buffers));
+        }
     }
 }
 

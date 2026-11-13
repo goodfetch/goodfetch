@@ -5,16 +5,24 @@
   "description": "Foxhound's TypeScript SDK, built on the Collie client package (ADR 0095).",
   "type": "module",
   "exports": {
-    "./generated": "./src/generated/index.ts"
+    ".": "./src/index.ts",
+    "./generated": "./src/generated/index.ts",
+    "./testing": "./src/testing.ts"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@goodfetch/collie-client": "workspace:*"
   },
   "devDependencies": {
+    "@goodfetch/collie": "workspace:*",
+    "@goodfetch/test-support": "workspace:*",
     "@types/node": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

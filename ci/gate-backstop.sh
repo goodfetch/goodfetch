@@ -46,7 +46,9 @@
 # its worktree waits for the backstop. It tests the head it read when it
 # started: what the gate it waited for merged is the next day's. A backstop
 # that finds its own worktree held lists its day as skipped. After its line is
-# written, the run sweeps its worktree's `target/`, still holding the lock. A
+# written, the run sweeps the tracker's `ready-for-agent` issues whose
+# `Existing code` list no longer holds (ADR 0144), then its worktree's
+# `target/`, still holding the lock. A
 # stop ends its steps before the lock goes, with no line for the day. A run
 # that ends on its setup, the fetch, the worktree's checkout or the OS
 # services, before its full run's result, lists its day as
@@ -305,6 +307,15 @@ for base in $bases; do
 done
 
 result "$gate misses=$misses suspects=$suspects unchecked=$unchecked earned=$earned${told_since:+ since=$told_since}"
+
+# Once the day's line is written, green or red, ADR 0144's sweep of the
+# tracker: every open `ready-for-agent` issue whose `Existing code` list no
+# longer holds on `main` loses the label, gains `needs-triage` and a comment
+# (`just existing-code-sweep`). It reads the tracker, not this run's tree, so
+# a red run sweeps too. A sweep that fails, on the tracker or its token,
+# changes no verdict; the next day's retries.
+stoppable just existing-code-sweep --apply ||
+  echo "warning: the backstop did not sweep the tracker's \`ready-for-agent\` issues (just existing-code-sweep --apply)" >&2
 
 # Once the day's line is written, and still holding the worktree's lock, so
 # no test-health run builds here meanwhile, the worktree's `target/` loses the

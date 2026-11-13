@@ -20,7 +20,6 @@
 
 use std::time::Duration;
 
-use goodfetch_engine::GuardAnswer;
 use goodfetch_engine::response_limits::{JsonFailure, Limits, parse_json};
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_protocol::page::PageId;
@@ -47,7 +46,7 @@ pub(super) fn arm(
     page: &ServedPage,
     operation: &'static str,
     (url, timeout): (Option<&UrlMatcher>, Option<Option<u64>>),
-) -> GuardAnswer {
+) -> super::Served {
     let pattern = match url {
         None => UrlPattern::glob(""),
         Some(UrlMatcher::Glob { pattern }) => UrlPattern::glob(pattern),
@@ -99,15 +98,10 @@ pub(super) fn arm(
     })
 }
 
-/// Replays the calls of the plan of the served page `page_id`, `page`,
-/// for the document it reached at `document`, while a wait is armed; the
-/// waits none answers are told so, and escalate.
-pub(super) async fn replay(
-    tiers: &FetchTiers,
-    page_id: &PageId,
-    page: &ServedPage,
-    document: &Url,
-) {
+/// Replays the calls of the plan of the served page `page_id` for the
+/// document it reached at `document`, while a wait is armed; the waits none
+/// answers are told so, and escalate.
+pub(super) async fn replay(tiers: &FetchTiers, page_id: &PageId, document: &Url) {
     let Some(mut replay) = lock(&tiers.served.pages)
         .replays
         .get(page_id)
@@ -121,7 +115,12 @@ pub(super) async fn replay(
     else {
         return;
     };
-    let run = page.document.run.clone();
+    let Some(run) = tiers
+        .served_page(page_id)
+        .map(|page| page.document.run.clone())
+    else {
+        return;
+    };
     let limits = Limits::of_run(run.settings());
     while armed(tiers, page_id) {
         let Some(call) = replay.next_call() else {
@@ -135,9 +134,15 @@ pub(super) async fn replay(
             post_data: None,
             max_redirects: Some(0),
         };
-        let Ok(fetched) = sent(page, &params).await else {
+        // The page is taken for each call and let go before its answer
+        // changes it, which would copy it while this replay held it.
+        let Some(page) = tiers.served_page(page_id) else {
             break;
         };
+        let Ok(fetched) = sent(&page, &params).await else {
+            break;
+        };
+        drop(page);
         let json = if (200..300).contains(&fetched.status) {
             match parse_json(call.as_str(), &fetched.body, &limits) {
                 Ok(json) => Some(json),

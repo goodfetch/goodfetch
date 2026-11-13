@@ -8,7 +8,10 @@
 //! home, each applying its own keys and listing the other's.
 //!
 //! Its interface: [`Settings`] reads the machine's layers and resolves a
-//! Run's [`RunSettings`]; [`resolve`] is the pure resolver over [`Layers`];
+//! Run's [`RunSettings`], and keeps the engine's snapshot of the machine's
+//! settings, [`MachineSettings`], for the work that reads them outside any
+//! Run, such as the Resource governor and the Audit log; [`resolve`] is the
+//! pure resolver over [`Layers`];
 //! [`SettingsError`] is every refusal, with its Error code; the files'
 //! reading and rewriting and the environment map's check are its other
 //! entries.
@@ -67,6 +70,65 @@ struct Inner {
     owner: TaskOwner,
     work: CountedWork,
     host: Host,
+    snapshot: Snapshot,
+}
+
+/// The engine's snapshot of the machine's settings (ADR 0140): read when
+/// first asked for, as the engine starts, and again at each read of the
+/// machine's layers, a Run's admission included, and after each of the
+/// engine's own writes of its files.
+struct Snapshot {
+    /// The first read, for an engine that kept none before it was asked.
+    first: tokio::sync::OnceCell<()>,
+    /// The reads begun and the one kept.
+    kept: tokio::sync::watch::Sender<Kept>,
+}
+
+/// What [`Snapshot`] holds: a read begun earlier than the one kept never
+/// replaces it, so a slow read cannot bring back a value a later one
+/// changed.
+#[derive(Default)]
+struct Kept {
+    /// The reads begun, each numbered in turn.
+    begun: u64,
+    /// The number of the read kept, 0 for none.
+    read: u64,
+    /// What it read.
+    machine: Option<Arc<MachineSettings>>,
+}
+
+/// The machine's settings as one read of them found: its Operator policy
+/// and user configuration, and what they resolve to on the engine's
+/// Product before any Run, on the catalog's defaults.
+#[derive(Debug)]
+pub struct MachineSettings {
+    layers: Result<MachineLayers, SettingsError>,
+    resolved: Result<Resolved, SettingsError>,
+}
+
+impl MachineSettings {
+    fn of(layers: Result<MachineLayers, SettingsError>, engine: Product) -> Self {
+        let resolved = layers.clone().and_then(|machine| machine.resolve(engine));
+        Self { layers, resolved }
+    }
+
+    /// The layers read.
+    ///
+    /// # Errors
+    ///
+    /// As [`SettingsFiles::load`].
+    pub fn layers(&self) -> Result<&MachineLayers, &SettingsError> {
+        self.layers.as_ref()
+    }
+
+    /// What they resolve to.
+    ///
+    /// # Errors
+    ///
+    /// As [`SettingsFiles::load`] and [`MachineLayers::resolve`].
+    pub fn resolved(&self) -> Result<&Resolved, &SettingsError> {
+        self.resolved.as_ref()
+    }
 }
 
 /// How the engine finds its host's defaults, and what it found of those
@@ -173,6 +235,10 @@ impl Settings {
                 search,
                 found: tokio::sync::OnceCell::new(),
             },
+            snapshot: Snapshot {
+                first: tokio::sync::OnceCell::new(),
+                kept: tokio::sync::watch::Sender::new(Kept::default()),
+            },
         }))
     }
 
@@ -186,7 +252,8 @@ impl Settings {
         self.0.product
     }
 
-    /// Reads the machine's layers now.
+    /// Reads the machine's layers now, and keeps them as the engine's
+    /// snapshot.
     ///
     /// # Errors
     ///
@@ -203,16 +270,92 @@ impl Settings {
             .await
     }
 
-    /// Reads the machine's layers now, on the calling thread: for work on
-    /// the blocking policy already, such as an edit of the settings files
-    /// under their lock. Blocking.
+    /// Reads the machine's layers now, on the calling thread, and keeps
+    /// them as the engine's snapshot: for work on the blocking policy
+    /// already, such as an edit of the settings files under their lock.
+    /// Blocking.
     ///
     /// # Errors
     ///
     /// As [`SettingsFiles::load`].
     pub(crate) fn machine_blocking(&self) -> Result<MachineLayers, SettingsError> {
+        self.read_blocking().layers.clone()
+    }
+
+    /// The engine's snapshot of the machine's settings: read on the first
+    /// call, as the engine starts, unless a read of the machine's layers
+    /// kept one before; the one kept after. It reads no file once kept
+    /// (ADR 0140): a hand edit of either file is seen at the engine's next
+    /// read of them, a Run's admission or its own write of them at the
+    /// latest.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves a read begun to finish on its own.
+    pub async fn snapshot(&self) -> Arc<MachineSettings> {
+        let snapshot = &self.0.snapshot;
+        snapshot
+            .first
+            .get_or_init(|| async {
+                if snapshot.kept.borrow().machine.is_none() {
+                    self.refresh().await;
+                }
+            })
+            .await;
+        snapshot
+            .kept
+            .borrow()
+            .machine
+            .clone()
+            .expect("invariant: the first call keeps a read before it answers")
+    }
+
+    /// Reads the machine's layers again into the snapshot: what the engine
+    /// does after it wrote its own settings files.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves the read to finish on its own.
+    pub async fn refresh(&self) {
+        let settings = self.clone();
+        self.0
+            .owner
+            .blocking(move || {
+                settings.read_blocking();
+            })
+            .await;
+    }
+
+    /// [`Settings::refresh`], on the calling thread, for work on the
+    /// blocking policy already. Blocking.
+    pub(crate) fn refresh_blocking(&self) {
+        self.read_blocking();
+    }
+
+    /// Reads the machine's layers and keeps them unless a read begun after
+    /// this one was kept first, each read counted on
+    /// `F2.configuration_reads` whoever asked (ADR 0140). Blocking.
+    fn read_blocking(&self) -> Arc<MachineSettings> {
         self.0.work.count(Row::ConfigurationReads);
-        self.0.files.load(self.0.product)
+        let kept = &self.0.snapshot.kept;
+        let mut ticket = 0;
+        kept.send_modify(|kept| {
+            kept.begun += 1;
+            ticket = kept.begun;
+        });
+        let machine = Arc::new(MachineSettings::of(
+            self.0.files.load(self.0.product),
+            self.0.product,
+        ));
+        kept.send_if_modified(|kept| {
+            let later = ticket > kept.read;
+            if later {
+                kept.read = ticket;
+                kept.machine = Some(Arc::clone(&machine));
+            }
+            later
+        });
+        machine
     }
 
     /// The defaults this host gives in place of the catalog's, those only

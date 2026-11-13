@@ -23,7 +23,8 @@ fn run(planted: Option<Row>) -> (Sampled, [u64; 5]) {
     (sampled, ROWS.map(|row| work.read(row)))
 }
 
-/// Each sample reads both settings files, opens `meminfo` three times and
+/// Each sample reads no settings file, its settings coming from the
+/// engine's snapshot of them (#1885), opens `meminfo` three times and
 /// `self/cgroup` and `self/mountinfo` once each, opens no `cpu.stat`, and
 /// reads the browser's memory twice beside the engine's once: the gaps X17
 /// waives.
@@ -36,7 +37,7 @@ fn each_sample_counts_its_settings_reads_its_opens_and_its_memory_reads() {
         (
             SAMPLES,
             SAMPLES * PROCESSES,
-            [2 * SAMPLES, 3 * SAMPLES, 2 * SAMPLES, 0, 3 * SAMPLES]
+            [0, 3 * SAMPLES, 2 * SAMPLES, 0, 3 * SAMPLES]
         )
     );
 }
@@ -44,7 +45,7 @@ fn each_sample_counts_its_settings_reads_its_opens_and_its_memory_reads() {
 /// A plant adds one unit of its row per unit: per sample, and per process
 /// for the memory reads.
 #[rstest]
-#[case::configuration_reads(Row::GovernorConfigurationReads, 0, 2 * SAMPLES + SAMPLES)]
+#[case::configuration_reads(Row::GovernorConfigurationReads, 0, SAMPLES)]
 #[case::meminfo_opens(Row::GovernorMeminfoOpens, 1, 3 * SAMPLES + SAMPLES)]
 #[case::static_opens(Row::GovernorStaticOpens, 2, 2 * SAMPLES + SAMPLES)]
 #[case::process_reads(Row::GovernorProcessReads, 4, 3 * SAMPLES + SAMPLES * PROCESSES)]

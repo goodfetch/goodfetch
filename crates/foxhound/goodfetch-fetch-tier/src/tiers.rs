@@ -47,7 +47,7 @@ use goodfetch_engine::settings::{Effective, Resolved, RunSettings, get_or_defaul
 use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, Trust,
 };
-use goodfetch_engine::{CallContext, CallError, GuardAnswer};
+use goodfetch_engine::{Answered, CallContext, CallError, GuardAnswer, Params};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_page::blocks::Block;
 use goodfetch_page::document_request::{DocumentRequest, Unread};
@@ -184,7 +184,9 @@ tokio::task_local! {
 struct Pages {
     /// The number of the next page served.
     next: u64,
-    open: BTreeMap<PageId, ServedPage>,
+    /// Each open page's state, shared with the calls that read it: a
+    /// change after a call took it copies it, never a call (E1-5).
+    open: BTreeMap<PageId, Arc<ServedPage>>,
     /// The `Link` header fields of each open page that had any, where
     /// its `rel=canonical` may be.
     links: BTreeMap<PageId, Vec<(String, String)>>,
@@ -1175,7 +1177,7 @@ impl FetchTiers {
         response.encoding = opened.read.map(|read| read.encoding.name().to_owned());
         pages.open.insert(
             page_id.clone(),
-            ServedPage {
+            Arc::new(ServedPage {
                 history: vec![opened.document.url.clone()],
                 at: 0,
                 document: Arc::clone(&opened.document),
@@ -1191,7 +1193,7 @@ impl FetchTiers {
                 own: Some((response, body)),
                 certificate_exception,
                 hand_over: Arc::clone(hand_over),
-            },
+            }),
         );
         pages.opened(&page_id, opened);
         Ok(page_id)
@@ -1322,7 +1324,7 @@ impl FetchTiers {
         if page.not_document.is_some() {
             return None;
         }
-        let served = page.document;
+        let served = Arc::clone(&page.document);
         let links = lock(&self.served.pages)
             .links
             .get(page_id)
@@ -1599,11 +1601,14 @@ impl FetchTiers {
             own,
             untouched,
             ..
-        } = page;
+        } = &*page;
+        let document = Arc::clone(document);
+        let status = *status;
         let run = document.run.clone();
         let url = document.url.clone();
         let headers = own
-            .map(|(response, _)| response.headers)
+            .as_ref()
+            .map(|(response, _)| response.headers.clone())
             .unwrap_or_default();
         // The readers of its untouched page judged it as they read it.
         let (verdict, noindex) = if let Some((verdict, robots)) = untouched.judged(check) {
@@ -1626,7 +1631,7 @@ impl FetchTiers {
                 Judged::Escalated
             }
             Verdict::NotExpected => Judged::Failed(expected_page::failed(&url, status, noindex)),
-            Verdict::Unjudged => match unserved(&choice, PAGE_CHECK_CALL, false) {
+            Verdict::Unjudged => match unserved(choice, PAGE_CHECK_CALL, false) {
                 Unserved::Escalated(_) => Judged::Escalated,
                 Unserved::Refused(error) => Judged::Failed(error),
             },
@@ -1649,9 +1654,10 @@ impl FetchTiers {
         if page.not_document.is_some() {
             return None;
         }
-        let response = page.own.map(|(response, _)| response)?;
+        let response = page.own.as_ref().map(|(response, _)| response.clone())?;
         let run = page.document.run.clone();
-        self.classified(&run, response, page.document).await
+        self.classified(&run, response, Arc::clone(&page.document))
+            .await
     }
 
     /// The Block cause of `document`, which `response` answered for
@@ -1716,7 +1722,7 @@ impl FetchTiers {
         pages.encodings.remove(page_id);
         pages.replays.remove(page_id);
         let use_signals = pages.use_signals.remove(page_id).unwrap_or_default();
-        let page = pages.open.remove(page_id)?;
+        let page = Arc::unwrap_or_clone(pages.open.remove(page_id)?);
         Some(PageFacts {
             encoding: page.encoding(),
             response: page.own.map(|(response, _)| response),
@@ -1883,8 +1889,8 @@ impl FetchTiers {
     }
 
     /// The served page `page_id`, while it is open.
-    fn served_page(&self, page_id: &PageId) -> Option<ServedPage> {
-        lock(&self.served.pages).open.get(page_id).cloned()
+    fn served_page(&self, page_id: &PageId) -> Option<Arc<ServedPage>> {
+        lock(&self.served.pages).open.get(page_id).map(Arc::clone)
     }
 
     /// The hand-over whose value, reader and observer a page of `run`
@@ -1909,6 +1915,7 @@ impl FetchTiers {
     fn next_request(&self, page_id: &PageId) -> String {
         let mut pages = lock(&self.served.pages);
         let number = pages.open.get_mut(page_id).map_or(0, |page| {
+            let page = Arc::make_mut(page);
             page.requests += 1;
             page.requests
         });
@@ -1919,7 +1926,9 @@ impl FetchTiers {
     /// request `request_id`, for `response.body`.
     fn keep_body(&self, page_id: &PageId, request_id: &str, body: BodyHandle) {
         if let Some(page) = lock(&self.served.pages).open.get_mut(page_id) {
-            page.bodies.insert(request_id.to_owned(), body);
+            Arc::make_mut(page)
+                .bodies
+                .insert(request_id.to_owned(), body);
         }
     }
 
@@ -1931,6 +1940,7 @@ impl FetchTiers {
         let Some(page) = pages.open.get_mut(page_id) else {
             return;
         };
+        let page = Arc::make_mut(page);
         match at {
             History::Pushed => {
                 page.history.truncate(page.at + 1);
@@ -1967,7 +1977,9 @@ impl FetchTiers {
         let first = page.escalated.unwrap_or(call);
         match unserved(&page.choice, first, waits) {
             Unserved::Escalated(error) => {
-                page.escalated = Some(first);
+                if page.escalated.is_none() {
+                    Arc::make_mut(page).escalated = Some(first);
+                }
                 error
             }
             Unserved::Refused(error) => error,
@@ -2034,11 +2046,15 @@ impl HandlerPages for FetchTiers {
         &self,
         page_id: &PageId,
         operation: &'static str,
-        params: &serde_json::Value,
-        _context: &CallContext,
+        params: Params<'_>,
+        context: &CallContext,
     ) -> Option<GuardAnswer> {
-        calls::on_browser(self, page_id, operation, params)
-            .or_else(|| calls::answer(self, page_id, operation, params))
+        let served = calls::on_browser(self, page_id, operation, params)
+            .or_else(|| calls::answer(self, page_id, operation, params))?;
+        let context = context.clone();
+        Some(Box::pin(async move {
+            Answered::encode(&context, &served.await?)
+        }))
     }
 
     fn opened(&self, pages: Arc<dyn BrowserPages>) {

@@ -11,7 +11,10 @@ use serde_json::json;
 use url::Url;
 
 use super::{Mark, Markup, Seen, TABLES, Trap, Verdict, judge, seen_again, suspect, suspected};
-use crate::{Candidate, Declared, Patterns, Scope, ScopeStrategy, admit};
+use crate::{
+    Bounds, Candidate, Declared, Invariants, Keyed, Link, Narrowing, Patterns, Scope,
+    ScopeStrategy, admit, key_link,
+};
 
 const SEEN: Seen = Seen {
     no_box: false,
@@ -236,11 +239,12 @@ fn marked_run_file() -> Connection {
         Patterns::default(),
         Patterns::default(),
     );
+    let invariants = Invariants::new(scope, Bounds::default()).unwrap();
     let policy = Policy::new(&["*"], &[] as &[&str]).unwrap();
     let get = HttpMethod::get();
     let added = admit(
         &connection,
-        &scope,
+        &invariants,
         &policy,
         Candidate::Seed {
             url: "https://shop.test/p/1",
@@ -257,6 +261,27 @@ fn marked_run_file() -> Connection {
     assert!(matches!(added, Enqueued::Added { .. }), "{added:?}");
     suspect(&connection, "1", Mark::Hidden).unwrap();
     connection
+}
+
+/// The link `href` of a UTF-8 page whose base URL is `base`, keyed as its
+/// page's task keys it, within the invariants of [`marked_run_file`]'s Run.
+fn keyed(href: &str, base: &Url) -> Keyed {
+    let scope = Scope::new(
+        ScopeStrategy::SameHostname,
+        Patterns::default(),
+        Patterns::default(),
+    );
+    key_link(
+        &Invariants::new(scope, Bounds::default()).unwrap(),
+        &Policy::new(&["*"], &[] as &[&str]).unwrap(),
+        Link {
+            href,
+            base,
+            encoding: encoding_rs::UTF_8,
+            keeps_fragment: false,
+            narrowing: Narrowing::none(),
+        },
+    )
 }
 
 /// A link a person sees that reaches a marked request again, which the
@@ -276,7 +301,7 @@ fn a_link_a_person_sees_to_a_marked_request_clears_its_mark(
     let connection = marked_run_file();
     let base = Url::parse("https://shop.test/list").unwrap();
 
-    seen_again(&connection, href, &base, encoding_rs::UTF_8, false, false).unwrap();
+    seen_again(&connection, &keyed(href, &base), false).unwrap();
 
     assert_eq!(
         suspected(&connection, "1").unwrap(),
@@ -294,7 +319,7 @@ fn a_link_a_person_reveals_to_a_marked_request_lets_the_browser_follow_it() {
     let connection = marked_run_file();
     let base = Url::parse("https://shop.test/list").unwrap();
 
-    seen_again(&connection, "/p/1", &base, encoding_rs::UTF_8, false, true).unwrap();
+    seen_again(&connection, &keyed("/p/1", &base), true).unwrap();
 
     assert_eq!(suspected(&connection, "1").unwrap(), Some(Mark::Revealable));
 }

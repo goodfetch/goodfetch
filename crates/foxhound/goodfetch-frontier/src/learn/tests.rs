@@ -19,12 +19,14 @@ use sha2::{Digest as _, Sha256};
 use url::Url;
 
 use super::{EndMerged, Ended, PageSeen, Redirect, completeness_reasons, learn, learn_redirect};
-use crate::admit::{Candidate, admit};
+use crate::admit::{Candidate, Entering, Keyed, Link, admit, admit_keyed, key_link};
 use crate::bounds::{self, Bounds};
 use crate::identity;
 use crate::identity::{Declared, SLICE};
+use crate::invariants::Invariants;
 use crate::rules::{self, learned_rules};
 use crate::scope::{self, Narrowing, Patterns, Scope, Strategy};
+use crate::staged::Admitting;
 
 /// A crawl as the Frontier sees it, in a run file in memory: what it
 /// admitted, each URL with its crawl request's ID.
@@ -122,9 +124,13 @@ impl Crawl {
     fn admit(&mut self, candidate: Candidate<'_>) -> Enqueued {
         let next = (self.ids.len() + 1).to_string();
         let every_host = Policy::new(&["*"], &[] as &[&str]).unwrap();
+        // As the Run's start or resume builds them, after it records the
+        // Bounds.
+        let invariants =
+            Invariants::new(self.scope.clone(), Bounds::read(&self.connection).unwrap()).unwrap();
         let answer = admit(
             &self.connection,
-            &self.scope,
+            &invariants,
             &every_host,
             candidate,
             |_| Ok(next.clone()),
@@ -155,6 +161,50 @@ impl Crawl {
             narrowing: Narrowing::none(),
             depth: 1,
         }))
+    }
+
+    /// The Run's invariants, as its start builds them.
+    fn invariants(&self) -> Invariants {
+        Invariants::new(self.scope.clone(), Bounds::read(&self.connection).unwrap()).unwrap()
+    }
+
+    /// Keys the link `href` of the page at `from`: the part of its
+    /// admission its page's task runs, which is given no run file.
+    fn key(&self, from: &str, href: &str) -> Keyed {
+        key_link(
+            &self.invariants(),
+            &Policy::new(&["*"], &[] as &[&str]).unwrap(),
+            Link {
+                href,
+                base: &Url::parse(from).unwrap(),
+                encoding: encoding_rs::UTF_8,
+                keeps_fragment: false,
+                narrowing: Narrowing::none(),
+            },
+        )
+    }
+
+    /// Admits the link `href` of the page at `from`, keyed as `keyed`: the
+    /// part of its admission that reads the run file.
+    fn admit_keyed(&mut self, from: &str, href: &str, keyed: &Keyed) -> String {
+        let next = (self.ids.len() + 1).to_string();
+        let enqueued = admit_keyed(
+            &self.connection,
+            &self.invariants(),
+            (href, keyed),
+            Entering {
+                from: Some(&Url::parse(from).unwrap()),
+                depth: 1,
+            },
+            &mut Admitting::RunFile,
+            |_| Ok(next.clone()),
+        )
+        .unwrap();
+        if let Enqueued::Added { id, url } = &enqueued {
+            self.ids.insert(url.clone(), id.clone());
+            self.requests.urls.insert(id.clone(), url.clone());
+        }
+        answer(&enqueued)
     }
 
     /// The page at `url`, which the crawl admitted, fetched with the main
@@ -1062,6 +1112,52 @@ fn a_contradicting_pair_stops_a_learned_parameter() {
                  pages of differing signatures."
             )),
             strings(&[&format!("{ITEM}?n=1&ref=z")]),
+        )
+    );
+}
+
+/// A page's link is keyed on its page's task and admitted where the Run's
+/// state is held (issue 2244). The learned rules are that state: a link
+/// keyed after `ref` is learned to have no effect has its learned
+/// identity, so one that differs from an admitted request only by `ref` is
+/// a `duplicate`; a link keyed after a contradicting pair stopped the rule
+/// has none, and is added. A link keyed before the rule was learned and
+/// admitted after it is a `duplicate` too: its key holds its fixed
+/// identity, and its learned one is made as it is admitted.
+///
+/// Covers: story:6-216
+#[test]
+fn a_rule_learned_or_stopped_changes_the_learned_identity_of_the_links_keyed_after_it() {
+    let mut crawl = Crawl::new();
+    crawl.seed(&format!("{ITEM}?n=0"));
+    crawl.enqueue(ITEM, &format!("{ITEM}?n=7"));
+    crawl.enqueue(ITEM, &format!("{ITEM}?n=7&ref=x"));
+    crawl.fetched(&format!("{ITEM}?n=7"), "Item 7");
+    let in_flight = crawl.ids[&format!("{ITEM}?n=7&ref=x")].clone();
+    crawl.requests.fetched.insert(in_flight);
+    let link = |crawl: &mut Crawl, href: &str| {
+        let keyed = crawl.key(ITEM, href);
+        crawl.admit_keyed(ITEM, href, &keyed)
+    };
+    let early = crawl.key(ITEM, &format!("{ITEM}?n=2&ref=early"));
+    let unlearned = link(&mut crawl, &format!("{ITEM}?n=9&ref=q"));
+
+    for (number, reference) in [(1, "a"), (2, "b"), (3, "c")] {
+        pair(&mut crawl, number, reference, None);
+    }
+    let learned = link(&mut crawl, &format!("{ITEM}?n=1&ref=z"));
+    let early = crawl.admit_keyed(ITEM, &format!("{ITEM}?n=2&ref=early"), &early);
+
+    crawl.fetched(&format!("{ITEM}?n=7&ref=x"), "Item 7, as x sees it");
+    let stopped = link(&mut crawl, &format!("{ITEM}?n=3&ref=z"));
+
+    assert_eq!(
+        (unlearned, learned, early, stopped),
+        (
+            "added".to_owned(),
+            "duplicate".to_owned(),
+            "duplicate".to_owned(),
+            "added".to_owned(),
         )
     );
 }

@@ -247,15 +247,6 @@ impl Bounds {
         Ok(bounds)
     }
 
-    /// The first path budget whose pattern the path and query of `url`
-    /// match: the one that counts it.
-    pub(crate) fn budget_of(&self, url: &Url) -> Option<&PathBudget> {
-        let path_and_query = &url[Position::BeforePath..Position::AfterQuery];
-        self.path_budgets.iter().find(|budget| {
-            UrlPattern::glob(&budget.pattern).is_ok_and(|pattern| pattern.matches(path_and_query))
-        })
-    }
-
     /// Why a request to `url` at `depth`, counted by the path budget
     /// `budget`, is not added, if it is not: a bound it is past, then a cap
     /// on its shape. The requests `staged`, what an attempt's earlier staged
@@ -264,6 +255,24 @@ impl Bounds {
         &self,
         connection: &Connection,
         url: &Url,
+        depth: u64,
+        budget: Option<&PathBudget>,
+        staged: Option<&Staged>,
+    ) -> rusqlite::Result<Option<NotAddedReason>> {
+        Ok(self
+            .past(connection, depth, budget, staged)?
+            .or_else(|| self.shape_refuses(url)))
+    }
+
+    /// The bound a request at `depth`, counted by the path budget `budget`,
+    /// is past, if any: its depth, then the Run's count of requests, then
+    /// its path budget's, each count read where the Run's state is held
+    /// (#2244), with what `staged` counted. The caps on its URL's shape,
+    /// which come after them, are read from the URL alone
+    /// ([`Bounds::shape_refuses`]).
+    pub(crate) fn past(
+        &self,
+        connection: &Connection,
         depth: u64,
         budget: Option<&PathBudget>,
         staged: Option<&Staged>,
@@ -283,7 +292,7 @@ impl Bounds {
         {
             return Ok(Some(NotAddedReason::PathBudget));
         }
-        Ok(self.shape_refuses(url))
+        Ok(None)
     }
 
     /// Which cap on its shape `url` is past, if any.

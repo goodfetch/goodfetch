@@ -27,8 +27,9 @@ use rusqlite::Connection;
 use tokio::runtime::Runtime;
 use url::Url;
 
-use crate::bounds;
+use crate::bounds::{self, Bounds};
 use crate::identity::{self, Declared, Hop};
+use crate::invariants::Invariants;
 use crate::scope::{self, Scope};
 use crate::{Candidate, admit};
 
@@ -315,7 +316,7 @@ fn admit_seed(connection: &Connection, asked: Asked) -> rusqlite::Result<Enqueue
     };
     admit(
         connection,
-        &Scope::read(connection)?,
+        &Invariants::new(Scope::read(connection)?, Bounds::read(connection)?).unwrap(),
         &every_host(),
         candidate,
         |url| {

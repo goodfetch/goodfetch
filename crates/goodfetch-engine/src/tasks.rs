@@ -31,6 +31,7 @@ use std::num::NonZeroUsize;
 use std::ops::ControlFlow;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures_util::FutureExt as _;
 use tokio::sync::{Semaphore, mpsc, oneshot};
@@ -38,6 +39,10 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::crash_report;
+
+/// How long a stop waits for its cancelled tasks before it logs that some
+/// still run (issue 2525).
+const STOP_TOLD_AFTER: Duration = Duration::from_secs(10);
 
 /// Where an owner runs blocking work.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -371,7 +376,9 @@ impl TaskOwner {
 
     /// Cancels its tasks, waits for them, then ends its actors once each
     /// handled what its mailbox holds, never waiting for a sender held
-    /// anywhere else to go (#1763).
+    /// anywhere else to go (#1763). Tasks still running
+    /// [`STOP_TOLD_AFTER`] after the cancellation are logged once at
+    /// `warn`, with how many, and still waited for.
     ///
     /// # Cancel safety
     ///
@@ -379,7 +386,17 @@ impl TaskOwner {
     pub async fn stop(&self) {
         self.cancel();
         self.tracker.close();
-        self.tracker.wait().await;
+        if tokio::time::timeout(STOP_TOLD_AFTER, self.tracker.wait())
+            .await
+            .is_err()
+        {
+            tracing::warn!(
+                owner = self.panics.kind().as_str(),
+                running = self.tracker.len(),
+                "a stop's tasks still run after their cancellation, and it waits for them"
+            );
+            self.tracker.wait().await;
+        }
         self.closing.cancel();
         self.actors.close();
         self.actors.wait().await;

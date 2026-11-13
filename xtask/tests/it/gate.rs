@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 
 use crate::affected::{commit_all, repository, value};
 use crate::github::GitHub;
-use crate::workspace::{Outcome, Workspace};
+use rstest::rstest;
+
+use crate::workspace::{Outcome, Workspace, write_executable};
 
 /// Now, in seconds since the Unix epoch, for every run.
 const NOW: &str = "1800000000";
@@ -51,25 +53,33 @@ pub(crate) fn plan_text(workspace: &Workspace, records: &Path) -> String {
 
 /// Runs `xtask gate plan` as [`plan_with`] does: its outcome, which passed.
 fn planned(workspace: &Workspace, records: &Path, environment: &str, extra: &[&str]) -> Outcome {
-    planned_reading(workspace, records, environment, extra, &[])
+    planned_at(workspace, records, NOW, environment, extra, &[])
+}
+
+/// Plans as [`plan`] does, at `now`.
+fn plan_at(workspace: &Workspace, records: &Path, now: &str) -> Plan {
+    parse(&planned_at(workspace, records, now, "CI=", &[], &[]))
 }
 
 /// Plans as [`plan`] does, reading the quarantined tests' issues from
 /// `github` with a token.
 fn plan_reading_issues(workspace: &Workspace, records: &Path, github: &GitHub) -> Plan {
-    parse(&planned_reading(
+    parse(&planned_at(
         workspace,
         records,
+        NOW,
         "CI=",
         &["--api-url", github.url()],
         &[("GITHUB_TOKEN", "a-read-token".as_ref())],
     ))
 }
 
-/// Runs `xtask gate plan` as [`planned`] does, with these variables added.
-fn planned_reading(
+/// Runs `xtask gate plan` as [`planned`] does, at `now`, with these
+/// variables added.
+fn planned_at(
     workspace: &Workspace,
     records: &Path,
+    now: &str,
     environment: &str,
     extra: &[&str],
     variables: &[(&str, &std::ffi::OsStr)],
@@ -83,7 +93,7 @@ fn planned_reading(
         "--records",
         &records,
         "--now",
-        NOW,
+        now,
         "--target-dir",
         &target,
         "--environment",
@@ -609,17 +619,89 @@ fn a_result_for_another_head_or_a_changed_tree_is_refused() {
     }
 }
 
-const ISSUE: &str = "/repos/goodfetch/goodfetch/issues/1601";
-
-/// The checks whose result follows from the tree and the host alone.
+/// The checks a run on the tree of their green result reuses.
 const TREE_ONLY: [&str; 4] = ["lint", "feature-combinations", "fuzz-check", "proofs"];
 
-/// A run on the tree of a green run reuses the checks that read only the
-/// tree and the host. Lint's quarantine check also reads each quarantined
-/// test's issue (ADR 0064), so lint reruns once that issue is closed.
+/// The fixture as a repository whose head holds what lint reads again: a
+/// Quality register with one Exception, which expires on `expires`, and a
+/// quarantine list with no test. A first run on it at [`NOW`] (2027-01-15,
+/// 08:00 UTC) recorded each of [`TREE_ONLY`] green.
+fn gated_with_a_green_lint(expires: &str) -> (Workspace, tempfile::TempDir, PathBuf, Plan) {
+    let (workspace, folder, records) = gated_repository(&[]);
+    workspace.write(
+        "TESTING.md",
+        crate::register::CLEAN_TESTING
+            .replace("2027-01-30", expires)
+            .as_bytes(),
+    );
+    workspace.write("quarantine.toml", b"# No test is quarantined.\n");
+    commit_all(
+        &workspace,
+        "Add the Quality register and the quarantine list",
+    );
+    let first = plan(&workspace, &records);
+    for step in TREE_ONLY {
+        record(&workspace, &records, &first.head, step, "pass");
+    }
+    (workspace, folder, records, first)
+}
+
+/// A run on the tree of a green run reuses the checks whose result follows
+/// from the tree and the host (#2090's F7).
 #[test]
-fn a_run_on_the_same_tree_reuses_the_checks_that_read_only_the_tree() {
+fn a_run_on_the_same_tree_reuses_the_checks_that_follow_from_the_tree_and_the_host() {
+    let (workspace, _folder, records, first) = gated_with_a_green_lint("2027-01-30");
+
+    let again = plan(&workspace, &records);
+
+    assert_eq!(again.previous, first.head);
+    for step in TREE_ONLY {
+        assert_eq!(action(&again, step).0, "reuse", "{step}");
+    }
+}
+
+/// Lint's register check reads the day: an Exception past its expiry fails
+/// it (ADR 0140). A green lint from the Exception's last day is reused until
+/// midnight UTC, and lint runs again from the day after.
+#[test]
+fn lint_reruns_on_the_same_tree_once_an_exception_of_the_register_has_expired() {
+    let (workspace, _folder, records, _first) = gated_with_a_green_lint("2027-01-15");
+
+    let at_the_days_last_second = plan_at(&workspace, &records, "1800057599");
+    let at_midnight = plan_at(&workspace, &records, "1800057600");
+
+    assert_eq!(action(&at_the_days_last_second, "lint").0, "reuse");
+    assert_eq!(action(&at_midnight, "lint").0, "run");
+    assert_eq!(
+        at_midnight.why["lint"],
+        "lint's register check: X1: it expired on 2027-01-15: remove the gap, or ask the owner to extend it"
+    );
+}
+
+/// With a GitHub token in the run's environment, lint's zizmor also runs
+/// its online audits, which read GitHub: the gate's plan is told so
+/// (`--zizmor-online`), and a green lint is not reused.
+#[test]
+fn lint_reruns_on_the_same_tree_when_its_zizmor_audits_online() {
+    let (workspace, _folder, records, _first) = gated_with_a_green_lint("2027-01-30");
+
+    let online = plan_with(&workspace, &records, "CI=", &["--zizmor-online"]);
+
+    assert_eq!(action(&online, "lint").0, "run");
+    assert_eq!(
+        online.why["lint"],
+        "lint's zizmor audits online with the run's GitHub token, so lint reads more than the tree"
+    );
+}
+
+const ISSUE: &str = "/repos/goodfetch/goodfetch/issues/1601";
+
+/// Lint's quarantine check reads each quarantined test's issue from GitHub
+/// (ADR 0064): a green lint is not reused once that issue is closed.
+#[test]
+fn lint_reruns_on_the_same_tree_once_a_quarantined_tests_issue_is_closed() {
     let (workspace, _folder, records) = gated_repository(&[]);
+    workspace.write("TESTING.md", crate::register::CLEAN_TESTING.as_bytes());
     workspace.write(
         "quarantine.toml",
         b"[[test]]\nrunner = \"nextest\"\nid = \"goodfetch-engine tests::flaky\"\nissue = 1601\ndate = 2026-11-13\n",
@@ -634,26 +716,44 @@ fn a_run_on_the_same_tree_reuses_the_checks_that_read_only_the_tree() {
         r#"{ "number": 1601, "state": "closed", "labels": [ { "name": "flaky-test" } ] }"#,
     )]);
     let first = plan_reading_issues(&workspace, &records, &open);
-    for step in TREE_ONLY {
-        record(&workspace, &records, &first.head, step, "pass");
-    }
+    record(&workspace, &records, &first.head, "lint", "pass");
 
-    let again = plan_reading_issues(&workspace, &records, &open);
+    let while_open = plan_reading_issues(&workspace, &records, &open);
     let after_the_close = plan_reading_issues(&workspace, &records, &closed);
 
-    assert_eq!(again.previous, first.head);
-    for step in TREE_ONLY {
-        assert_eq!(action(&again, step).0, "reuse", "{step}");
-    }
+    assert_eq!(action(&while_open, "lint").0, "reuse");
     assert_eq!(action(&after_the_close, "lint").0, "run");
-    assert!(
-        after_the_close.why["lint"].contains("is closed"),
-        "{}",
-        after_the_close.why["lint"]
+    assert_eq!(
+        after_the_close.why["lint"],
+        "lint's quarantine check: goodfetch-engine tests::flaky: issue #1601 is closed; a quarantined test needs its open `flaky-test` issue (ADR 0064)"
     );
-    for step in ["feature-combinations", "fuzz-check", "proofs"] {
-        assert_eq!(action(&after_the_close, step).0, "reuse", "{step}");
-    }
+}
+
+/// The plan reads the quarantined tests' issues only for a green lint it
+/// would otherwise reuse: a run on another tree, which reruns lint whatever
+/// they read, asks GitHub nothing.
+#[test]
+fn a_run_that_reruns_lint_reads_no_quarantined_tests_issue() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    workspace.write("TESTING.md", crate::register::CLEAN_TESTING.as_bytes());
+    workspace.write(
+        "quarantine.toml",
+        b"[[test]]\nrunner = \"nextest\"\nid = \"goodfetch-engine tests::flaky\"\nissue = 1601\ndate = 2026-11-13\n",
+    );
+    commit_all(&workspace, "Quarantine a test");
+    let github = GitHub::serving(&[(
+        ISSUE,
+        r#"{ "number": 1601, "state": "open", "labels": [ { "name": "flaky-test" } ] }"#,
+    )]);
+    let first = plan_reading_issues(&workspace, &records, &github);
+    record(&workspace, &records, &first.head, "lint", "pass");
+    workspace.write("docs/index.md", b"# Changed\n");
+    commit_all(&workspace, "Change the docs");
+
+    let second = plan_reading_issues(&workspace, &records, &github);
+
+    assert_eq!(action(&second, "lint").0, "run");
+    assert_eq!(github.requests().len(), 0, "{:?}", github.requests());
 }
 
 /// A run whose environment differs (another test profile, selection or
@@ -669,6 +769,69 @@ fn a_run_in_another_environment_reuses_nothing() {
         second.steps.values().all(|(action, _)| action == "run"),
         "{:?}",
         second.steps
+    );
+}
+
+/// The host fingerprint covers the tools the gate's steps run that no
+/// package of the system holds: a result recorded with one of them at one
+/// version is not reused with it at another, whichever step ran it. A
+/// stand-in first on `PATH` (and before Cargo's own folder, where Cargo
+/// looks for its subcommands) gives the other version.
+#[rstest]
+#[case::just("just")]
+#[case::rustups_toolchains("rustup")]
+#[case::typos("typos")]
+#[case::zizmor("zizmor")]
+#[case::actionlint("actionlint")]
+#[case::gitleaks("gitleaks")]
+#[case::osv_scanner("osv-scanner")]
+#[case::cargo_deny("cargo-deny")]
+#[case::cargo_shear("cargo-shear")]
+#[case::cargo_hakari("cargo-hakari")]
+#[case::cargo_hack("cargo-hack")]
+#[case::cargo_fuzz("cargo-fuzz")]
+#[case::cargo_audit("cargo-audit")]
+#[case::cargo_insta("cargo-insta")]
+fn a_run_with_a_tool_at_another_version_reuses_nothing(#[case] tool: &str) {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    let first = first_run(&workspace, &records);
+    let stand_in = tempfile::tempdir().unwrap();
+    write_executable(
+        &stand_in.path().join(tool),
+        "#!/bin/sh\necho 'another version'\n",
+    );
+    let cargo_home = std::env::var_os("CARGO_HOME").map_or_else(
+        || Path::new(&std::env::var_os("HOME").unwrap()).join(".cargo"),
+        PathBuf::from,
+    );
+    let path = std::env::join_paths(
+        [stand_in.path().to_owned(), cargo_home.join("bin")]
+            .into_iter()
+            .chain(std::env::split_paths(&std::env::var_os("PATH").unwrap())),
+    )
+    .unwrap();
+
+    let second = parse(&planned_at(
+        &workspace,
+        &records,
+        NOW,
+        "CI=",
+        &[],
+        &[("PATH", &path)],
+    ));
+
+    assert_eq!(second.previous, first);
+    assert!(
+        second.steps.values().all(|(action, _)| action == "run"),
+        "{:?}",
+        second.steps
+    );
+    assert_eq!(
+        second.why["perf"],
+        format!(
+            "the host or its tools changed since the run on {}",
+            &first[..10]
+        )
     );
 }
 

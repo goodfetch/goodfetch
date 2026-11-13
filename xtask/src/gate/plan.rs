@@ -46,8 +46,9 @@ enum Reach {
     /// A check that judges the whole change and takes seconds or minutes:
     /// every run reruns it.
     Always,
-    /// A check whose result follows from the tree and the host alone: it
-    /// reruns on another tree, whatever the change reaches.
+    /// A check whose result follows from the tree and the host: it reruns on
+    /// another tree, whatever the change reaches. Lint's also follows from
+    /// the day and GitHub ([`Step::reads_beyond_the_tree`]).
     Tree,
     /// The step runs when the selection runs this job of the pull-request
     /// tier.
@@ -180,10 +181,10 @@ impl Step {
         matches!(self, Self::Stress)
     }
 
-    /// Whether the step reads GitHub besides the tree: lint's quarantine
-    /// check reads whether each quarantined test's issue is an open
-    /// `flaky-test` issue (ADR 0064).
-    const fn reads_github(self) -> bool {
+    /// Whether the step reads more than the tree and the host, which the
+    /// plan reads again before it reuses its result ([`Head::lint_holds`]):
+    /// lint's register check reads the day, and its quarantine check GitHub.
+    const fn reads_beyond_the_tree(self) -> bool {
         matches!(self, Self::Lint)
     }
 
@@ -228,8 +229,8 @@ pub(crate) const XTASK: &str = "xtask";
 
 /// A file or folder of the gate's inputs that reaches only what reads it
 /// (#2090's F4; ADR 0135). `steps` are those that run or read it, of the
-/// steps a run may reuse: one only a check every run reruns reads needs none,
-/// and neither does one no gate step runs. The evidence of what each member
+/// steps a run on another tree may reuse: one only a check every such run
+/// reruns reads needs none, and neither does one no gate step runs. The evidence of what each member
 /// read still applies to it, so a test naming a `ci/` file reruns that test's
 /// member.
 pub(crate) struct Narrowed {
@@ -264,7 +265,7 @@ const NARROWED: [Narrowed; 43] = [
         steps: &[Step::Linux],
         member: Some(XTASK),
     },
-    // What one step of those a run may reuse runs or reads.
+    // What one step of those a run on another tree may reuse runs or reads.
     read_by("ci/perf.sh", &[Step::Perf]),
     read_by("ci/perf-reference.toml", &[Step::Perf]),
     read_by("ci/linux.sh", &[Step::Linux]),
@@ -278,7 +279,7 @@ const NARROWED: [Narrowed; 43] = [
     read_by("ci/container.sh", &[Step::Perf, Step::Linux, Step::Visual]),
     read_by("ci/msrv.sh", &[Step::Msrv]),
     read_by("ci/miri.toml", &[Step::Miri]),
-    // What only the checks every run reruns read.
+    // What only the checks every run on another tree reruns read.
     read_by("ci/gitleaks.toml", &[]),
     read_by("ci/commit-leaks.sh", &[]),
     read_by("ci/commit-messages.toml", &[]),
@@ -472,10 +473,10 @@ pub(crate) struct Head<'a> {
     pub(crate) host: &'a str,
     /// Now, in seconds since the Unix epoch.
     pub(crate) now: u64,
-    /// What lint's quarantine check reads from GitHub, read now: `Ok` when
-    /// each quarantined test's issue is an open `flaky-test` issue, as a
-    /// green lint found it, or why not.
-    pub(crate) quarantined_issues: Result<(), String>,
+    /// Reads again, now, what lint reads besides the tree and the host: `Ok`
+    /// when a lint run now would read what a green one did, or why not. Asked
+    /// only for a green lint this run would otherwise reuse.
+    pub(crate) lint_holds: &'a dyn Fn() -> Result<(), String>,
 }
 
 /// What the run does with a step.
@@ -621,9 +622,6 @@ fn judge(
     if matches!(step.reach(), Reach::Tree) && outcome.tree != head.tree {
         return Err(format!("the tree changed since {origin}"));
     }
-    if step.reads_github() {
-        head.quarantined_issues.clone()?;
-    }
     still_holds(
         step,
         member,
@@ -631,6 +629,9 @@ fn judge(
         outcome.at,
         (head, previous, touched),
     )?;
+    if step.reads_beyond_the_tree() {
+        (head.lint_holds)()?;
+    }
     Ok(outcome.clone())
 }
 

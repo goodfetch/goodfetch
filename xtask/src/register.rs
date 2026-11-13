@@ -120,6 +120,23 @@ fn checked(root: &Path, today: Date, xtask: &clap::Command) -> Result<Checked> {
     Ok(Checked { findings, notes })
 }
 
+/// What the check reads from the clock, read for `today`, for `xtask gate
+/// plan` before it reuses a green lint on the same tree (ADR 0135): `Ok`
+/// while no Exception is past its expiry, the check's one verdict that moves
+/// with the day, or why not. A register that cannot be read does not hold.
+pub(crate) fn exceptions_hold(root: &Path, today: Date) -> Result<(), String> {
+    let text = read(&root.join(document::FILE)).map_err(|error| format!("{error:#}"))?;
+    let register = Register::read(&text)
+        .ok_or_else(|| format!("{}'s Quality register cannot be read", document::FILE))?;
+    match exceptions(&register, today).findings.first() {
+        None => Ok(()),
+        Some(finding) => Err(format!(
+            "lint's register check: {}: {}",
+            finding.subject, finding.message
+        )),
+    }
+}
+
 fn read(path: &Path) -> Result<String> {
     std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))
 }

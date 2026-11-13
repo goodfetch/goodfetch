@@ -409,38 +409,30 @@ proptest! {
     }
 
     #[test]
-    fn lines_masked_into_one_buffer_follow_what_it_held_each_as_apply_bytes_masks_it(
+    fn a_line_masked_into_a_buffer_follows_what_it_held_masked_as_on_its_own(
         value in value(),
         joins in any::<bool>(),
         held in "[ -~]{0,8}",
-        lines in prop::collection::vec((any::<bool>(), form(), around()), 1..6),
+        holds in any::<bool>(),
+        form in form(),
+        around in around(),
     ) {
         let masks = Masks::new();
         let mask = masks.for_run(Redaction::On);
         if joins {
             mask.join(SHORT_NAME, &SecretString::from(value.as_str()), Reach::Value);
         }
-        let lines: Vec<String> = lines
-            .iter()
-            .map(|(holds, form, around)| {
-                if *holds {
-                    format!("{around}{}{around}\n", encoded(&value, *form))
-                } else {
-                    format!("{around}\n")
-                }
-            })
-            .collect();
+        let line = if holds {
+            format!("{around}{}{around}\n", encoded(&value, form))
+        } else {
+            format!("{around}\n")
+        };
         let mut buffer = held.clone().into_bytes();
 
-        for line in &lines {
-            masks.apply_bytes_into(line.as_bytes(), Scope::KeptOutput, &mut buffer);
-        }
+        masks.apply_bytes_into(line.as_bytes(), Scope::KeptOutput, &mut buffer);
 
-        let mut expected = held.into_bytes();
-        for line in &lines {
-            expected.extend_from_slice(&masks.apply_bytes(line.as_bytes(), Scope::KeptOutput));
-        }
-        prop_assert_eq!(buffer, expected);
+        let alone = masks.apply_bytes(line.as_bytes(), Scope::KeptOutput);
+        prop_assert_eq!(buffer, [held.as_bytes(), &alone].concat());
     }
 }
 

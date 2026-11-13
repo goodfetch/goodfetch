@@ -38,6 +38,7 @@ use goodfetch_protocol::settings::{SETTING_INVALID, SETTING_NOT_APPLICABLE};
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::{WithExportConfig as _, WithHttpConfig as _};
 use opentelemetry_sdk::trace::SdkTracerProvider;
+use secrecy::zeroize::Zeroize as _;
 use tracing_subscriber::Layer as _;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -232,7 +233,8 @@ impl<'a, M: MakeWriter<'a>> MakeWriter<'a> for Masked<M> {
 const KEPT_CAPACITY: usize = 64 * 1024;
 
 /// An event's line as written and as masked, in buffers a thread reuses
-/// from line to line.
+/// from line to line. The line as written is zeroed once masked, so the
+/// buffer a thread keeps holds no value the Mask replaced.
 #[derive(Default)]
 struct LineBuffers {
     held: Vec<u8>,
@@ -272,6 +274,7 @@ impl<W: Write> MaskedLine<W> {
         }
         masked.clear();
         self.masks.apply_bytes_into(held, Scope::KeptOutput, masked);
+        held.as_mut_slice().zeroize();
         held.clear();
         self.inner.write_all(masked)
     }

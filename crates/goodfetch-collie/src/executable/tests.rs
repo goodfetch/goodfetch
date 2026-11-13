@@ -307,6 +307,18 @@ impl std::io::Write for Writes {
     }
 }
 
+impl Writes {
+    /// The writes the writer was handed, in order, each as text.
+    fn handed(&self) -> Vec<String> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|write| String::from_utf8(write.clone()).unwrap())
+            .collect()
+    }
+}
+
 /// The log formats' redaction with values hard to redact (TESTING.md,
 /// Secrets): a value and a longer one holding it, each logged in the
 /// message and as a field, Display and Debug, through the text and the
@@ -393,15 +405,8 @@ fn a_log_line_the_mask_rewrites_reaches_its_writer_in_one_write() {
         tracing::info!(proxy = "pa ss\"w/rd>?9~", "the proxy answered");
     });
 
-    let handed: Vec<String> = given
-        .0
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|write| String::from_utf8(write.clone()).unwrap())
-        .collect();
     assert_eq!(
-        handed,
+        given.handed(),
         vec![
             "{\"fields\":{\"message\":\"the proxy answered\",\"proxy\":\"%proxy.password%\"}}\n"
                 .to_owned()
@@ -440,15 +445,8 @@ fn lines_logged_one_after_another_each_reach_their_writer_as_that_line_alone() {
         tracing::info!("{} again", "pa ss\"w/rd>?9~");
     });
 
-    let handed: Vec<String> = given
-        .0
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|write| String::from_utf8(write.clone()).unwrap())
-        .collect();
     assert_eq!(
-        handed,
+        given.handed(),
         vec![
             "the proxy answered for %proxy.password% at last\n".to_owned(),
             "short\n".to_owned(),

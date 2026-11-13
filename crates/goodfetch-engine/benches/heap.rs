@@ -110,11 +110,14 @@ fn mask_stream(
     input: (
         goodfetch_engine::mask::Masks,
         goodfetch_engine::mask::Mask,
-        scenarios::Lines,
+        Vec<u8>,
     ),
 ) -> (usize, goodfetch_engine::mask::Mask) {
-    let (masks, mask, lines) = input;
-    let written = black_box(scenarios::mask_stream(black_box(&masks), black_box(&lines)));
+    let (masks, mask, stream) = input;
+    let written = black_box(scenarios::mask_stream(
+        black_box(&masks),
+        black_box(&stream),
+    ));
     (written, mask)
 }
 

@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rstest::rstest;
 
-use super::host::step_variables;
+use super::host::{REMOVED_BY_THE_GATE, step_variables};
 use super::plan::{
     Action, EarnedPasses, GateRun, Head, LintReads, MAX_AGE, Outcome, Planned, Step, Touched,
     UNOWNED, gate_input, narrowed, plan, unit,
@@ -184,6 +184,36 @@ fn a_variable_whose_name_only_starts_as_the_launchers_stays() {
     let launched = "GOODFETCH_GATE_MIN_FREE_GB_PER_STEP=2\nNEXTEST_DOUBLE_SPAWN=0";
 
     assert_eq!(step_variables(launched), launched);
+}
+
+#[test]
+fn a_variable_the_gate_removes_before_its_steps_is_not_one_of_the_steps() {
+    let launched = "CARGO_BUILD_JOBS=4\nCARGO_INCREMENTAL=0\nNEXTEST_TEST_THREADS=4";
+
+    assert_eq!(step_variables(launched), "CARGO_INCREMENTAL=0");
+}
+
+/// The fingerprint may leave a variable out as removed only while
+/// `ci/pre-merge.sh` does remove it before its steps: one the script kept
+/// would reach them, and a result under another value of it would be reused.
+/// Read from the repository's own script, whose loop names those it removes.
+#[test]
+fn every_variable_the_fingerprint_leaves_out_as_removed_is_one_the_gate_removes() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask sits in the repository");
+    let script = std::fs::read_to_string(root.join("ci/pre-merge.sh")).expect("the repository's");
+    let removed: Vec<&str> = script
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("for variable in "))
+        .filter_map(|rest| rest.strip_suffix("; do"))
+        .filter(|names| !names.contains("GOODFETCH_"))
+        .flat_map(str::split_whitespace)
+        .collect();
+
+    for variable in REMOVED_BY_THE_GATE {
+        assert!(removed.contains(&variable), "{variable}: {removed:?}");
+    }
 }
 
 #[test]

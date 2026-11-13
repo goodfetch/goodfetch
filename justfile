@@ -1760,7 +1760,8 @@ _gate-plan:
     echo '{}' >target/gate-runs/listing-tools.json
     # The variables that change what the steps run or how join the host
     # fingerprint, so a result counts only for a run in the same environment;
-    # `xtask gate plan` leaves out the launcher's own (GOODFETCH_GATE_MIN_FREE_GB).
+    # `xtask gate plan` leaves out the launcher's own (GOODFETCH_GATE_MIN_FREE_GB)
+    # and the thread and job caps the gate removes before its steps.
     variables=$(env | grep -E '^(CI|GOODFETCH_[A-Z0-9_]+|NEXTEST_[A-Z0-9_]+|CARGO_[A-Z0-9_]+|RUST[A-Z0-9_]*|UV_[A-Z0-9_]+|NODE_[A-Z0-9_]+)=' | LC_ALL=C sort || true)
     # With a GitHub token in the run's environment, lint's zizmor also runs
     # its online audits, which read GitHub: such a lint is never reused.

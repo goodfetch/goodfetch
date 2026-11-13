@@ -88,7 +88,7 @@ use goodfetch_engine::admission::{Room, SecondCopies, SecondCopy};
 use goodfetch_engine::egress::{Policy, Refused};
 use goodfetch_engine::governor::Permit as HttpAdmission;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
-use goodfetch_engine::politeness::Politeness;
+use goodfetch_engine::politeness::{Politeness, PolitenessError};
 use goodfetch_engine::robots_txt::{self, Fetch};
 use goodfetch_engine::runs::Run;
 use goodfetch_frontier::DomainKeys;
@@ -96,9 +96,11 @@ use goodfetch_page::page_value::{
     Admission, DocumentJudgment, DocumentResponse, Navigation, NavigationGate, Permit, Refusal,
     Sending,
 };
+use goodfetch_protocol::foxhound::crawl::RESPONSE_UNAVAILABLE;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::settings::page_check::PageCheck;
+use serde_json::json;
 use url::Url;
 
 use crate::chain::{Gating, HopGate, Skip, Stop};
@@ -274,8 +276,15 @@ impl HandOver {
     /// `lead` send, its crawl request's own, first waits for its delay
     /// after the key's last send and, in a rated run, for a token of the
     /// key's sends, renewing the lease meanwhile.
-    pub(crate) async fn sending(&self, hop: &Hop, lead: bool) {
-        self.sent(hop.url.as_str(), lead).await;
+    ///
+    /// # Errors
+    ///
+    /// [`Stop::Failed`] with `response_unavailable` when the send could not
+    /// be recorded: the hop is then not sent (ADR 0086).
+    pub(crate) async fn sending(&self, hop: &Hop, lead: bool) -> Result<(), Stop> {
+        self.sent(hop.url.as_str(), lead)
+            .await
+            .map_err(Stop::failed)
     }
 
     /// Records the send of a request to `url` as the last start of its
@@ -284,10 +293,17 @@ impl HandOver {
     /// later of it and the start already recorded is kept. A `lead` send
     /// first waits for its delay after the key's last send and, in a rated
     /// run, for a token of the key's sends, renewing the lease meanwhile.
-    async fn sent(&self, url: &str, lead: bool) {
+    ///
+    /// # Errors
+    ///
+    /// `response_unavailable`, with no `status`, when the Politeness file's
+    /// transaction failed, whatever its error: the request's caller then
+    /// sends nothing, so no request reaches a site with its start unrecorded
+    /// and its delay unchecked (#2321).
+    async fn sent(&self, url: &str, lead: bool) -> Result<(), CallError> {
         let of_run = &self.of_run;
         let Some(politeness) = &of_run.politeness else {
-            return;
+            return Ok(());
         };
         let run = &of_run.run;
         let key = of_run.keys.key(url);
@@ -300,15 +316,30 @@ impl HandOver {
                         run.clock().sleep(wait).await;
                     }
                 }
-                Ok(None) => return,
+                Ok(None) => return Ok(()),
                 Err(error) => {
-                    tracing::warn!(%error, run_id = %run.id(), "a request's start at its send was not recorded");
-                    return;
+                    tracing::warn!(%error, run_id = %run.id(), "a request's start at its send was not recorded: it is not sent");
+                    return Err(unrecorded(url, &error));
                 }
             }
         }
     }
 }
+
+/// `response_unavailable` for the request to `url`, held unsent because its
+/// start could not be recorded for its domain's Politeness: `error`.
+fn unrecorded(url: &str, error: &PolitenessError) -> CallError {
+    CallError::new(
+        &RESPONSE_UNAVAILABLE,
+        format!(
+            "The request to {url} was not sent: its start could not be recorded for its domain's Politeness ({error}), so its delay could not be kept."
+        ),
+        &json!({ "url": url, "status": null, "fix": UNRECORDED_FIX }),
+    )
+}
+
+/// What `response_unavailable` advises for a request held unsent.
+const UNRECORDED_FIX: &str = "Free space on the storage the Politeness file is on, or repair it; `run.retry_failed` then admits the request again.";
 
 impl RunHandOver {
     /// Judges `url` by the Run's egress policy as its HTTP tier's
@@ -440,10 +471,15 @@ impl NavigationGate for Gate {
     /// request through its egress relay only after the relay's `407`, so
     /// the next request would otherwise reach the site that much closer
     /// than the delay (ADR 0086).
+    ///
+    /// The browser sent the request before the page heard of it, so a send
+    /// that cannot be recorded is only warned of here: nothing is left to
+    /// hold back.
     fn sending<'a>(&'a self, url: &'a str) -> Sending<'a> {
         Box::pin(async move {
             if Url::parse(url).is_ok_and(|url| matches!(url.scheme(), "http" | "https")) {
-                self.0.sent(url, false).await;
+                // Warned of where it failed.
+                let _ = self.0.sent(url, false).await;
             }
         })
     }
@@ -742,7 +778,7 @@ impl HopGate for ChainGate {
             {
                 Ok(permit) => Ok(permit),
                 Err(site_preferences::NotAllowed::PastALimit(limit)) => {
-                    Err(Stop::Failed(limit.error()))
+                    Err(Stop::failed(limit.error()))
                 }
                 // A crawl request retries a hop's unreachable robots.txt as
                 // it retries its own (ADR 0086).
@@ -780,7 +816,7 @@ impl HopGate for ChainGate {
     /// admission took from the domain's rate to the send, when later; the
     /// lead hop of a rated run first waits for a token of its domain's
     /// sends.
-    fn sending<'a>(&'a self, hop: &'a Hop, lead: bool) -> Gating<'a, ()> {
+    fn sending<'a>(&'a self, hop: &'a Hop, lead: bool) -> Gating<'a, Result<(), Stop>> {
         Box::pin(self.hand_over.sending(hop, lead))
     }
 

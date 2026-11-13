@@ -30,7 +30,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::admission::{Keys, Waiting};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::mask::Masks;
-use goodfetch_engine::run_state::{RunStateTables, run_row};
+use goodfetch_engine::run_state::{BatchRows, BatchWriter, RunStateTables, run_row};
 use goodfetch_frontier::{Candidate, Declared, Scope, Url, payload, sitemap, trap_links};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{CrawlRequest, Seed};
@@ -677,14 +677,18 @@ pub(crate) fn unkeyed(
         .collect()
 }
 
-/// Records each work item's domain key.
-pub(crate) fn set_keys(connection: &Connection, keys: &[(String, String)]) -> rusqlite::Result<()> {
-    let mut update =
-        connection.prepare_cached("UPDATE work_items SET domain_key = ?2 WHERE id = ?1")?;
-    for (id, key) in keys {
-        update.execute((id, key))?;
+/// Work items' domain keys, each with its item's ID, as the delivery loop
+/// keyed them: a Run-state batch's rows (ADR 0142).
+pub(crate) struct DomainKeys(pub(crate) Vec<(String, String)>);
+
+impl BatchRows for DomainKeys {
+    fn write(self, writer: &BatchWriter<'_>) -> rusqlite::Result<()> {
+        let mut update = writer.statement("UPDATE work_items SET domain_key = ?2 WHERE id = ?1")?;
+        for (id, key) in &self.0 {
+            update.write((id, key))?;
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 /// The pending work items of `key`, or of every key when `None`, at most
@@ -1442,6 +1446,16 @@ pub(crate) fn recover_leases(
         end(connection, &id, lease_epoch, unsuccessful, ended_at)?;
     }
     Ok(())
+}
+
+/// Whether any work item is still pending or leased: what a crawl's
+/// finish waits for.
+pub(crate) fn any_unsettled(connection: &Connection) -> rusqlite::Result<bool> {
+    Ok(connection
+        .prepare_cached("SELECT 1 FROM work_items WHERE status IN (?1, ?2) LIMIT 1")
+        .and_then(|mut cached| cached.query_row([PENDING, LEASED], |_| Ok(())))
+        .optional()?
+        .is_some())
 }
 
 /// Whether any work item is still pending.

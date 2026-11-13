@@ -310,6 +310,7 @@ impl Engine {
         install: Option<InstallDatabase>,
     ) -> (Runs, Events, EngineContext) {
         dependencies.run_state.work = self.metrics.counted_work().clone();
+        dependencies.run_state.metrics = Some(self.metrics.clone());
         dependencies.politeness.work = self.metrics.counted_work().clone();
         let instance = EngineInstance::new(format!("{:016x}", dependencies.entropy.next_u64()));
         let events = Events::start(

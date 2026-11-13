@@ -27,14 +27,15 @@ pub(crate) struct Intake(Arc<AtomicBool>);
 
 impl Intake {
     /// Closes the intake when the run file `connection` holds no work item
-    /// pending, and answers whether it closed: a crawl that finds work
-    /// goes on delivering it, its intake still open.
+    /// pending or leased, and answers whether it closed: a crawl that
+    /// finds work goes on delivering it, its intake still open, and one
+    /// with a work item still leased has not settled it.
     ///
     /// # Errors
     ///
     /// The run file's error when its work items could not be read.
     pub(crate) fn close_if_drained(&self, connection: &Connection) -> rusqlite::Result<bool> {
-        if work_items::any_pending(connection)? {
+        if work_items::any_unsettled(connection)? {
             return Ok(false);
         }
         self.0.store(true, Ordering::SeqCst);

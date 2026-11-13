@@ -7,8 +7,9 @@ use std::fmt::Write as _;
 
 use serde::Serialize;
 
+use super::super::matrix::{SPIDER_CAPACITY, SPIDER_CAPACITY_AT_64};
 use super::super::trials::{
-    CONCURRENCY, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, Tool, Trial,
+    CONCURRENCY, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, Tool, Trial, size_not_run,
 };
 use super::{Unit, float, median_bytes, peak, shown};
 
@@ -28,7 +29,8 @@ pub(crate) enum SizeFigures {
         /// every trial read them.
         executable_bytes: Option<u64>,
     },
-    /// Its trial at this point was stopped twice.
+    /// The sizes cell runs no trial of the tool at this point
+    /// ([`size_not_run`]), or its trial here was stopped twice.
     NotMeasured { reason: String },
 }
 
@@ -109,12 +111,15 @@ pub(super) fn sizes(cell: &SizesCell) -> Sizes<'_> {
                 let stop = stopped.iter().find(|point| {
                     point.run.tool == tool && at(point.site_pages, point.concurrency)
                 });
-                let figures = match stop {
-                    Some(point) => SizeFigures::NotMeasured {
+                let figures = match (size_not_run(tool, concurrency), stop) {
+                    (Some(reason), _) => SizeFigures::NotMeasured {
+                        reason: reason.to_owned(),
+                    },
+                    (None, Some(point)) => SizeFigures::NotMeasured {
                         reason: point.run.reason.clone(),
                     },
-                    None if ran.is_empty() => continue,
-                    None => size_figures(&ran),
+                    (None, None) if ran.is_empty() => continue,
+                    (None, None) => size_figures(&ran),
                 };
                 tools.insert(tool.name(), figures);
             }
@@ -162,7 +167,10 @@ pub(super) fn sizes_markdown(text: &mut String, sizes: &Sizes<'_>) {
          was dropped from the page cache, so it pages them in as a first start does (spec #2165). The \
          bar, at {CONCURRENCY} in flight alone: Foxhound's peak RSS at most Spider's. Private memory is \
          the tree's resident memory no file backs; the executable's pages, the resident pages of the \
-         tool's own executable file. Each figure is the median of the tool's trials.\n"
+         tool's own executable file. Each figure is the median of the tool's trials. Spider reads \
+         its pages from a channel of {SPIDER_CAPACITY} at {CONCURRENCY} in flight, its main row's, \
+         and of {SPIDER_CAPACITY_AT_64} at 64, where {SPIDER_CAPACITY} loses pages; it runs no \
+         trial at 1, where its crawl stops short of the site.\n"
     );
     text.push_str(
         "| Pages | In flight | Tool | Trials | Peak RSS | Private | Executable's pages | Bar |\n\

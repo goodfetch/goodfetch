@@ -34,6 +34,17 @@ pub(crate) const SIZES: [u64; 3] = [100, 1_000, 10_000];
 pub(crate) const SIZE_CONCURRENCIES: [u32; 3] = [CONCURRENCY, 1, 64];
 /// The tools the sizes cell crawls with, each on its scenario 1 main row.
 pub(crate) const SIZE_TOOLS: [Tool; 2] = [Tool::Foxhound, Tool::Spider];
+
+/// Why the sizes cell runs no trial of `tool` at `concurrency` in flight,
+/// where it does not: Spider at 1, whose crawl stops short of the site.
+pub(crate) fn size_not_run(tool: Tool, concurrency: u32) -> Option<&'static str> {
+    (tool == Tool::Spider && concurrency == 1).then_some(
+        "Spider 2.53.9 crawls part of the site with one request in flight: its raw crawl \
+         ends once a fetch leaves none in flight and adds no link, though links it has \
+         read wait in its batch (12 of 100, 112 of 1,000 and 1,112 of 10,000 pages on \
+         2026-11-13)",
+    )
+}
 /// Spider's pinned version, which `xtask/compare-spider/Cargo.toml` pins
 /// (a unit test holds the two equal).
 pub(crate) const SPIDER_VERSION: &str = "2.53.9";

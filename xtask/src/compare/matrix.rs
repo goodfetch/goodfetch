@@ -190,6 +190,13 @@ impl Scenario {
 /// at 64 lost pages, and a crawl that loses one fails its trial.
 pub(crate) const SPIDER_CAPACITY: usize = 64;
 
+/// The capacity Spider's main row reads its pages at with 64 requests in
+/// flight, the sizes cell's most (spec #2165): [`SPIDER_CAPACITY`] holds at
+/// 16. Of 40 crawls of scenario 1's 10,000-page site at 64 in flight at
+/// each capacity, on the gate host on 2026-11-13 at a 1-minute load of 6 to
+/// 12, 15 lost pages at 64 and none at 128, 256 or 512.
+pub(crate) const SPIDER_CAPACITY_AT_64: usize = 128;
+
 /// The same for the extraction scenario, whose reader also writes each
 /// page: of 40 crawls at each capacity, 3 lost pages at 32, 2 at 64, 1 at
 /// 128 and none at 256, 512 or 1,024.

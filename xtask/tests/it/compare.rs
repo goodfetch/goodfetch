@@ -291,13 +291,10 @@ fn trials_of_the_same_work_report_each_cells_medians_with_their_spread() {
     );
 }
 
-/// The sizes cell (spec #2165): Foxhound's and Spider's scenario 1 main
-/// rows at each size and concurrency, each tool's median peak, private
-/// memory and executable's pages, and at 16 in flight alone whether
-/// Foxhound's peak is at most Spider's.
-#[test]
-fn the_sizes_cell_reports_each_tools_peak_with_the_bar_at_16_in_flight() {
-    let workspace = Workspace::from_fixture("empty");
+/// The trials file with a sizes cell: three trials of Foxhound and Spider
+/// at each size and concurrency, Spider's at 1 in flight aside, Foxhound's
+/// peak 22 MiB, Spider's 18 MiB at 100 pages and 30 MiB above.
+fn sized_trials() -> Value {
     let mut trials = trials();
     let mut sized = Vec::new();
     for pages in [100_u64, 1000, 10_000] {
@@ -306,6 +303,9 @@ fn the_sizes_cell_reports_each_tools_peak_with_the_bar_at_16_in_flight() {
                 ("foxhound", 22),
                 ("spider", if pages == 100 { 18 } else { 30 }),
             ] {
+                if (tool, concurrency) == ("spider", 1) {
+                    continue;
+                }
                 for number in 1..=3 {
                     let mut trial = trial(
                         "raw",
@@ -338,8 +338,19 @@ fn the_sizes_cell_reports_each_tools_peak_with_the_bar_at_16_in_flight() {
         "trials_run": sized,
         "stopped": [],
     });
+    trials
+}
 
-    let outcome = report(&workspace, &trials);
+/// The sizes cell (spec #2165): Foxhound's and Spider's scenario 1 main
+/// rows at each size and concurrency, each tool's median peak, private
+/// memory and executable's pages, and at 16 in flight alone whether
+/// Foxhound's peak is at most Spider's. Spider runs no trial at 1 in
+/// flight, and its row there says why.
+#[test]
+fn the_sizes_cell_reports_each_tools_peak_with_the_bar_at_16_in_flight() {
+    let workspace = Workspace::from_fixture("empty");
+
+    let outcome = report(&workspace, &sized_trials());
 
     assert_eq!(
         (outcome.findings(), outcome.code),
@@ -381,9 +392,21 @@ fn the_sizes_cell_reports_each_tools_peak_with_the_bar_at_16_in_flight() {
             "executable_bytes": 9 * MIB,
         })
     );
+    let spider_at_1 = &points[3]["tools"]["spider"];
+    assert_eq!(
+        (
+            &points[3]["concurrency"],
+            &spider_at_1["status"],
+            spider_at_1["reason"]
+                .as_str()
+                .is_some_and(|reason| !reason.is_empty()),
+        ),
+        (&json!(1), &json!("not_measured"), true)
+    );
     let markdown = workspace.read_text(MARKDOWN);
     assert!(
-        markdown.contains("| 100 | 16 | foxhound | 3 | 22.0 MiB | 20.0 MiB | 9.0 MiB | missed |"),
+        markdown.contains("| 100 | 16 | foxhound | 3 | 22.0 MiB | 20.0 MiB | 9.0 MiB | missed |")
+            && markdown.contains("| 100 | 1 | spider | not measured: "),
         "{markdown}"
     );
 }

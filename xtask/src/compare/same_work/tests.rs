@@ -478,8 +478,9 @@ fn a_run_fetched_the_site_when_it_reached_each_of_its_pages_and_no_other() {
 }
 
 /// Three trials of each scenario 1 main cell of Foxhound and Spider at
-/// each size and concurrency, each fetching its site's pages once, the
-/// first at 100 pages and 64 in flight short of a page.
+/// each size and concurrency, Spider's at 1 in flight aside, which the
+/// sizes cell does not run; each fetching its site's pages once, the first
+/// at 100 pages and 64 in flight short of a page.
 fn sizes() -> SizesCell {
     let trials_run = matrix::measured()
         .filter(|(cell, config)| {
@@ -489,38 +490,43 @@ fn sizes() -> SizesCell {
         })
         .flat_map(|(cell, config)| {
             SIZES.into_iter().flat_map(move |pages| {
-                SIZE_CONCURRENCIES.into_iter().flat_map(move |concurrency| {
-                    (1..=3).map(move |number| {
-                        let short = (pages, concurrency, number) == (100, 64, 1);
-                        let fetched = if short { pages - 1 } else { pages };
-                        Trial {
-                            scenario: cell.scenario,
-                            cell: cell.name.to_owned(),
-                            tool: config.tool(),
-                            number,
-                            site_pages: pages,
-                            concurrency,
-                            load: None,
-                            retried: None,
-                            measured: Measured {
-                                seconds: 1.0,
-                                work: Work {
-                                    pages: fetched,
-                                    missing: if short {
-                                        vec!["/sites/100/100".to_owned()]
-                                    } else {
-                                        Vec::new()
-                                    },
-                                    extra: Vec::new(),
-                                    requests: fetched,
-                                    bytes: 600 * fetched,
-                                    first_bytes: 600 * fetched,
-                                },
-                                ..Measured::default()
-                            },
-                        }
+                SIZE_CONCURRENCIES
+                    .into_iter()
+                    .filter(move |&concurrency| {
+                        !(config.tool() == Tool::Spider && concurrency == 1)
                     })
-                })
+                    .flat_map(move |concurrency| {
+                        (1..=3).map(move |number| {
+                            let short = (pages, concurrency, number) == (100, 64, 1);
+                            let fetched = if short { pages - 1 } else { pages };
+                            Trial {
+                                scenario: cell.scenario,
+                                cell: cell.name.to_owned(),
+                                tool: config.tool(),
+                                number,
+                                site_pages: pages,
+                                concurrency,
+                                load: None,
+                                retried: None,
+                                measured: Measured {
+                                    seconds: 1.0,
+                                    work: Work {
+                                        pages: fetched,
+                                        missing: if short {
+                                            vec!["/sites/100/100".to_owned()]
+                                        } else {
+                                            Vec::new()
+                                        },
+                                        extra: Vec::new(),
+                                        requests: fetched,
+                                        bytes: 600 * fetched,
+                                        first_bytes: 600 * fetched,
+                                    },
+                                    ..Measured::default()
+                                },
+                            }
+                        })
+                    })
             })
         })
         .collect();
@@ -533,7 +539,8 @@ fn sizes() -> SizesCell {
 
 /// The sizes cell's trials are held to their own size's site, each size
 /// and concurrency apart: the trial short of a page at 100 pages and 64 in
-/// flight is named there, and no point is short of its trials.
+/// flight is named there, and no point is short of its trials, Spider at 1
+/// in flight, which runs none, included.
 #[test]
 fn a_sizes_trial_is_held_to_its_own_sizes_site() {
     let mut trials = comparison(|_, _| work(0));

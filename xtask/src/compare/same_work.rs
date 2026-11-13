@@ -24,7 +24,7 @@ use crate::check::Finding;
 use super::matrix::{self, Row, Scenario};
 use super::trials::{
     Comparison, CountedCell, CountedRun, GrowthCell, INSTRUCTION_TOOLS, SIZE_CONCURRENCIES,
-    SIZE_TOOLS, SIZES, SizesCell, StoppedRun, Tool, Trial, Work,
+    SIZE_TOOLS, SIZES, SizesCell, StoppedRun, Tool, Trial, Work, size_not_run,
 };
 
 /// What one trial of a pass did, whichever pass.
@@ -212,7 +212,8 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
 }
 
 /// Each finding of the sizes cell, one pass per size and concurrency, of
-/// the scenario 1 main cells of [`SIZE_TOOLS`] when `raw` holds scenario 1.
+/// the scenario 1 main cells of [`SIZE_TOOLS`] it runs there
+/// ([`size_not_run`]) when `raw` holds scenario 1.
 fn check_sizes(sizes: &SizesCell, raw: &[Scenario]) -> Vec<Finding> {
     let SizesCell::Measured {
         trials: declared,
@@ -226,12 +227,16 @@ fn check_sizes(sizes: &SizesCell, raw: &[Scenario]) -> Vec<Finding> {
     for site_pages in SIZES {
         for concurrency in SIZE_CONCURRENCIES {
             let at = |pages, at_concurrency| pages == site_pages && at_concurrency == concurrency;
+            let tools: Vec<Tool> = SIZE_TOOLS
+                .into_iter()
+                .filter(|&tool| size_not_run(tool, concurrency).is_none())
+                .collect();
             findings.extend(check_pass(&Pass {
                 suffix: format!(" sizes {site_pages} pages at {concurrency}"),
                 declared: *declared,
                 site_pages,
                 scenarios: raw,
-                tools: &SIZE_TOOLS,
+                tools: &tools,
                 rows: &[Row::Main],
                 done: of_trials(
                     trials_run

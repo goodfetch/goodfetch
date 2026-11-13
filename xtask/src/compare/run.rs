@@ -23,7 +23,7 @@ use super::trials::{
     GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_TOOLS, Machine, Measured, PLAYWRIGHT_VERSION,
     QUIET_LOAD, QUIET_WAIT_SECONDS, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES,
     SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint,
-    StoppedRun, Trial,
+    StoppedRun, Trial, size_not_run,
 };
 
 /// The executables a run takes.
@@ -282,6 +282,9 @@ fn trial<T: serde::de::DeserializeOwned>(
         .args(["--mode", mode.0])
         .arg("--browser")
         .arg(executables.browser);
+    if let Config::Spider { capacity, .. } = config {
+        command.args(["--capacity", &capacity.to_string()]);
+    }
     if let Some(output) = mode.1 {
         command.arg("--output").arg(output);
     }
@@ -489,7 +492,9 @@ fn main_points(options: &Options, pages: u64) -> Vec<Point> {
 
 /// The sizes cell's points: each scenario 1 main cell of [`SIZE_TOOLS`]
 /// the run measures, at each site of [`SIZES`] and each concurrency of
-/// [`SIZE_CONCURRENCIES`], its samples reading the executable's own pages.
+/// [`SIZE_CONCURRENCIES`] it runs at ([`size_not_run`]), its samples
+/// reading the executable's own pages; Spider's at 64 in flight on a page
+/// channel of [`matrix::SPIDER_CAPACITY_AT_64`].
 fn size_points(options: &Options) -> Vec<Point> {
     let cells: Vec<_> = measured(options)
         .into_iter()
@@ -511,9 +516,26 @@ fn size_points(options: &Options) -> Vec<Point> {
         .flat_map(|crawl| {
             cells
                 .iter()
-                .map(move |&(cell, config)| (cell, config, crawl))
+                .filter(move |(_, config)| size_not_run(config.tool(), crawl.concurrency).is_none())
+                .map(move |&(cell, config)| {
+                    (cell, at_concurrency(config, crawl.concurrency), crawl)
+                })
         })
         .collect()
+}
+
+/// `config` at `concurrency` in flight: Spider's page channel at 64 is
+/// [`matrix::SPIDER_CAPACITY_AT_64`], every other configuration its row's.
+fn at_concurrency(config: Config, concurrency: u32) -> Config {
+    match config {
+        Config::Spider { build, .. } if concurrency == 64 => Config::Spider {
+            build,
+            capacity: matrix::SPIDER_CAPACITY_AT_64,
+        },
+        Config::Foxhound { .. } | Config::Spider { .. } | Config::Crawlee | Config::Scrapy => {
+            config
+        }
+    }
 }
 
 /// Runs `options.trials` timed trials of each of `points`, in one random

@@ -1,7 +1,9 @@
 use std::path::Path;
 
-use super::{Executables, Options, counted_output, order, run, set_aside, spider_executable};
-use crate::compare::matrix::{self, SpiderBuild};
+use super::{
+    Executables, Options, counted_output, order, run, set_aside, size_points, spider_executable,
+};
+use crate::compare::matrix::{self, Config, Scenario, SpiderBuild};
 use crate::compare::trials::{Comparison, CountedCell, CountedRun, SizesCell, Tool, Work};
 
 /// Each of Spider's side's builds runs the executable Cargo left in the
@@ -298,6 +300,45 @@ fn a_run_hands_over_its_trials_after_the_timed_part_the_sizes_part_and_the_strac
                 not_reached("Callgrind")
             ),
             (no_sizes, strace, not_reached("Callgrind")),
+        ]
+    );
+}
+
+/// The sizes cell runs Spider where its crawl holds: not at 1 request in
+/// flight, where Spider 2.53.9 stops short of the site, and at 64 in flight
+/// on a page channel of 128, where the 64 its main row reads at loses pages;
+/// Foxhound runs at every concurrency.
+#[test]
+fn the_sizes_cell_runs_spider_at_16_and_at_64_on_a_wider_channel() {
+    let options = Options {
+        trials: 1,
+        growth: false,
+        spider_pages: None,
+        scenarios: vec![Scenario::Raw],
+        callgrind_outputs: Path::new("/nowhere").to_owned(),
+    };
+
+    let mut points: Vec<(Tool, u32, Option<usize>)> = size_points(&options)
+        .into_iter()
+        .filter(|(_, _, crawl)| crawl.pages == 100)
+        .map(|(_, config, crawl)| {
+            let capacity = match config {
+                Config::Spider { capacity, .. } => Some(capacity),
+                Config::Foxhound { .. } | Config::Crawlee | Config::Scrapy => None,
+            };
+            (config.tool(), crawl.concurrency, capacity)
+        })
+        .collect();
+    points.sort_unstable_by_key(|&(tool, concurrency, _)| (tool.name(), concurrency));
+
+    assert_eq!(
+        points,
+        vec![
+            (Tool::Foxhound, 1, None),
+            (Tool::Foxhound, 16, None),
+            (Tool::Foxhound, 64, None),
+            (Tool::Spider, 16, Some(64)),
+            (Tool::Spider, 64, Some(128)),
         ]
     );
 }

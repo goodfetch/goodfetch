@@ -15,7 +15,8 @@
 //! owner's list from outside the tools, each executable dropped from the
 //! page cache before its trial; then crawls scenario 1's main cells of
 //! Foxhound and Spider again at 100, 1,000 and 10,000 pages, each at 1, 16
-//! and 64 in flight, for their peak memory (spec #2165); then
+//! and 64 in flight (Spider not at 1, where its crawl stops short), for
+//! their peak memory (spec #2165); then
 //! counts each cell's system calls under strace, stopping a run whose crawl
 //! stalls and leaving its cell not measured, crawls the 100,000-page
 //! site for the growth of resident memory when asked, and counts scenario
@@ -169,6 +170,10 @@ pub(crate) struct TrialArguments {
     /// Reads the tool's executable's own pages in a timed trial's samples.
     #[arg(long)]
     executable_pages: bool,
+    /// A Spider cell's page channel capacity, which `run` gives the trial:
+    /// its row's, or the sizes cell's at 64 in flight.
+    #[arg(long)]
+    capacity: Option<usize>,
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
@@ -226,7 +231,12 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             report(&mut trials, &path)
         }
         Command::Trial(arguments) => {
-            let (cell, config) = trial::cell_of(arguments.scenario, &arguments.cell)?;
+            let (cell, mut config) = trial::cell_of(arguments.scenario, &arguments.cell)?;
+            if let (matrix::Config::Spider { capacity, .. }, Some(given)) =
+                (&mut config, arguments.capacity)
+            {
+                *capacity = given;
+            }
             let output_file = || trial::counting_output(arguments.output.as_deref());
             let mode = match arguments.mode {
                 Mode::Timed => trial::Mode::Timed,

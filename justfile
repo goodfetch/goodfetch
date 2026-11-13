@@ -1530,6 +1530,40 @@ commit-messages base="" head="HEAD":
 compiler-cache:
     ci/compiler-cache.sh
 
+# What the full gate most often went red on, run on this worktree's HEAD
+# before `just merge` of a pull request that will take it (the 2026-11-13
+# retro: six of nine full gates failed on defects the branch could show
+# without the gate's lock): the floor guard and the Pre-merge suite against
+# the merge base with `origin/main`, the stress run against the head of the
+# last full gate that passed, as the full gate's own (`base` gives another),
+# and `just counts`. Every step runs even after one failed, and the end
+# names each red step (ci/keep-going.sh). Run it in the pull request's own
+# worktree.
+# Runs the full gate's likeliest failures ahead of it: `just preflight [base]`.
+preflight base="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source ci/keep-going.sh
+    base="{{ base }}"
+    if [[ -z $base ]]; then
+      git fetch --quiet origin
+      full=$(git rev-list -1 --first-parent --merges --fixed-strings \
+        --grep="Merged on the local gate: \`just pre-merge all\`" origin/main)
+      if [[ -z $full ]]; then
+        echo "error: no merge on origin/main passed the full gate; give the stress run's base: just preflight <base>" >&2
+        exit 2
+      fi
+      base=$(git rev-parse "$full^2")
+    fi
+    echo "The stress run's base: $base."
+    quoted_base=$(printf '%q' "$base")
+    steps_begin preflight
+    step floor-guard '{{ just_executable() }} floor-guard origin/main'
+    step pre-merge '{{ just_executable() }} test-affected pre-merge'
+    step stress "{{ just_executable() }} stress $quoted_base"
+    step counts '{{ just_executable() }} counts'
+    steps_end
+
 # The floor guard (ADR 0140; TESTING.md, Quality register): what the change
 # since the merge base with `base` does to the bar. A flagged change passes only
 # when a `Quality-change: <file or row>: <reason>` trailer of the change names it.

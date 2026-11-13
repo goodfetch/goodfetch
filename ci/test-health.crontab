@@ -6,7 +6,8 @@
 # GOODFETCH_CHECKOUT set to the main checkout. Times are UTC, after the
 # backstop's 03:37 start, which #2094 adds as ci/gate-backstop.crontab; a run that finds the
 # worktree busy or the disk short lists itself as skipped in
-# ~/test-health/results.txt and fails. Each starts `origin/main`'s script, not
+# ~/test-health/results.txt and fails, but for the post-merge run, which
+# leaves its range for the next one. Each starts `origin/main`'s script, not
 # the checkout's, which nothing fast-forwards; the script then runs the scripts
 # of the commit it tests.
 GOODFETCH_CHECKOUT=/Users/jb/Dev/goodfetch
@@ -16,3 +17,7 @@ GOODFETCH_CHECKOUT=/Users/jb/Dev/goodfetch
 # The constrained test-health run (ADR 0064): the Pre-merge suite on half the
 # CPU and memory, a fresh order seed, weekly on Sundays, within 120 minutes.
 17 9 * * 0 bash -lc 'cd "$GOODFETCH_CHECKOUT" && git fetch --quiet origin && script=$(git show origin/main:ci/test-health/scheduled.sh) && nice -n 10 bash -c "$script" scheduled constrained origin/main'
+# What quick merges skip: `just counts` and the Pre-merge suite over what
+# `main` gained since the post-merge run last checked it, every 20 minutes
+# while `main` moves, within 90 minutes, at the lowest priority.
+*/20 * * * * bash -lc 'cd "$GOODFETCH_CHECKOUT" && git fetch --quiet origin && script=$(git show origin/main:ci/test-health/scheduled.sh) && nice -n 19 bash -c "$script" scheduled post-merge origin/main'

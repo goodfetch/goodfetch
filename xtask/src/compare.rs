@@ -22,7 +22,10 @@
 //! site for the growth of resident memory when asked, and counts scenario
 //! 1's instructions per page under Callgrind, which gives
 //! `foxhound.spider_instruction_ratio` (ADR 0140) on each tool's main row.
-//! `report` holds every
+//! The hostile pages' passes (#2439) instead crawl the Proving ground's
+//! `traps` and `limits` tasks a few times and count the rules each tool
+//! broke there, from the Proving ground's findings, with no bar and no
+//! standing. `report` holds every
 //! trial to the same-work check, then writes each cell's median and spread
 //! of every metric and Foxhound's verdicts against each competitor,
 //! labelled `local-controlled`, measured on the machine it names, with the
@@ -34,6 +37,7 @@
 )]
 
 mod foxhound;
+mod hostile;
 mod matrix;
 mod observed;
 mod report;
@@ -153,6 +157,8 @@ enum Mode {
     Timed,
     Syscalls,
     Callgrind,
+    /// A hostile pages' cell's run (#2439): the rules its tool broke.
+    Rules,
 }
 
 #[derive(Args)]
@@ -246,6 +252,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 Mode::Timed => trial::Mode::Timed,
                 Mode::Syscalls => trial::Mode::Syscalls(output_file()?),
                 Mode::Callgrind => trial::Mode::Callgrind(output_file()?),
+                Mode::Rules => trial::Mode::Rules,
             };
             // Absolute, since a tool other than Foxhound runs in its data
             // folder.
@@ -266,6 +273,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             };
             let line = match plan.mode {
                 trial::Mode::Timed => serde_json::to_string(&plan.timed()?)?,
+                trial::Mode::Rules => serde_json::to_string(&plan.ruled()?)?,
                 trial::Mode::Syscalls(_) | trial::Mode::Callgrind(_) => {
                     serde_json::to_string(&plan.counted()?)?
                 }

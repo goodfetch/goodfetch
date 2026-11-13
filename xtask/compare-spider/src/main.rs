@@ -6,7 +6,9 @@
 //! title and HTML as one JSON line to `pages.jsonl` in the working folder,
 //! and `browser` renders each page in Chrome (`CHROME_BIN`), which only the
 //! executable built with the `chrome` feature does; every other scenario
-//! crawls in Spider's HTTP mode.
+//! crawls in Spider's HTTP mode. `hostile`, the hostile pages' pass at each
+//! tool's defaults (#2439), sets neither the requests in flight nor
+//! robots.txt, leaving Spider's defaults.
 //!
 //! `--capacity` is the capacity of the broadcast channel Spider sends each
 //! page on. Spider's `Website` keeps a receiver of its own that never
@@ -134,14 +136,19 @@ fn arguments() -> Result<Arguments, String> {
 
 async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
     let browser = match arguments.scenario.as_str() {
-        "raw" | "extraction" => false,
+        "raw" | "extraction" | "hostile" => false,
         "browser" if cfg!(feature = "chrome") => true,
         "browser" => return Err("the browser scenario takes the `chrome` feature's executable".to_owned()),
         other => return Err(format!("Spider runs no `{other}` scenario")),
     };
     let mut site = Website::new(&arguments.url);
-    site.with_concurrency_limit(Some(arguments.concurrency))
-        .with_respect_robots_txt(false);
+    // The hostile pages' pass at defaults (#2439) sets nothing: Spider's
+    // own defaults, its own limit of requests in flight and robots.txt not
+    // read.
+    if arguments.scenario != "hostile" {
+        site.with_concurrency_limit(Some(arguments.concurrency))
+            .with_respect_robots_txt(false);
+    }
     if let Some(host) = &arguments.host {
         let mut headers = HeaderMap::new();
         headers.insert(

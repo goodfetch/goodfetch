@@ -10,15 +10,11 @@ use crate::delivery::attempt::Answer;
 
 /// The `blocked` details of `answer`, a non-retryable failure.
 fn blocked(answer: Answer) -> BlockedDetails {
-    let Answer::Failed {
-        code,
-        retryable,
-        details,
-        ..
-    } = answer
-    else {
+    let Answer::Failed(failure) = answer else {
         panic!("a decoy is a failure");
     };
+    let failure = *failure;
+    let (code, retryable, details) = (failure.code, failure.retryable, failure.details);
     assert_eq!((code.as_str(), retryable), ("blocked", false));
     serde_json::from_value(serde_json::Value::Object(details))
         .expect("a decoy's details are `blocked` details")

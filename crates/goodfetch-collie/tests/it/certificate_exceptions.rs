@@ -326,10 +326,11 @@ fn a_web_socket_handshake_carries_no_session_cookie_to_a_host_reached_through_an
 
     let opened = reached(&program.goto(&page, &secure(&proving_ground, host, "/")));
     let before = open(&mut program);
+    let setter_host = "name-mismatch.certificates.test";
     let cookie_set = reached(&program.goto(
         &setter,
         &format!(
-            "http://name-mismatch.certificates.test:{}/set-cookie",
+            "http://{setter_host}:{}/set-cookie",
             proving_ground.address().port()
         ),
     ));
@@ -341,14 +342,47 @@ fn a_web_socket_handshake_carries_no_session_cookie_to_a_host_reached_through_an
         (json!(200), json!(200)),
         "{before} {after}"
     );
-    let handshakes: Vec<Value> = proving_ground
-        .received_requests()
-        .unwrap()
+    // The handshakes that reached the host, placed against the request that
+    // set the cookie: `page.evaluate` runs its function once more when the
+    // document is replaced under it, so the open before may reach the host
+    // twice, both times before the cookie exists.
+    let received = proving_ground.received_requests().unwrap();
+    let every_request = received
+        .every()
+        .map(|request| {
+            format!(
+                "#{} {} {}{} cookies={:?}",
+                request.sequence, request.kind, request.host, request.target, request.cookies
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let cookie_set_at = received
+        .every()
+        .find(|request| request.host == setter_host && request.target == "/set-cookie")
+        .map(|request| request.sequence)
+        .expect("the setter's request reached the Proving ground");
+    let handshakes: Vec<_> = received
         .every()
         .filter(|request| request.kind == "websocket" && request.host.starts_with(host))
-        .map(|request| json!(request.cookies))
         .collect();
-    assert_eq!(handshakes, vec![json!([])], "{before} {after}");
+    let context = format!("before: {before}, after: {after}\n{every_request}");
+    assert!(
+        handshakes.iter().all(|request| request.cookies.is_empty()),
+        "no handshake carries a cookie: {context}"
+    );
+    assert!(
+        handshakes
+            .iter()
+            .any(|request| request.sequence < cookie_set_at),
+        "a handshake reaches the host before the cookie is set: {context}"
+    );
+    assert!(
+        handshakes
+            .iter()
+            .all(|request| request.sequence < cookie_set_at),
+        "no handshake reaches the host once the cookie is set: {context}"
+    );
 }
 
 /// The exception host's own host-only cookie is a Session cookie too: the

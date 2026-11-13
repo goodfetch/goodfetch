@@ -1,10 +1,13 @@
 use std::path::Path;
 
 use super::{
-    Executables, Options, counted_output, order, run, set_aside, size_points, spider_executable,
+    Executables, Options, counted_output, crawlee_rs_executable, order, run, set_aside,
+    size_points, spider_executable,
 };
 use crate::compare::matrix::{self, Config, Scenario, SpiderBuild};
-use crate::compare::trials::{Comparison, CountedCell, CountedRun, SizesCell, Tool, Work};
+use crate::compare::trials::{
+    Comparison, CountedCell, CountedRun, GrowthCell, SizesCell, Tool, Work,
+};
 
 /// Each of Spider's side's builds runs the executable Cargo left in the
 /// build's own target folder, under the profile's: the main row's from
@@ -54,6 +57,16 @@ fn each_callgrind_run_keeps_its_output_under_its_scenario_cell_and_number() {
     );
 }
 
+/// crawlee-rs's side runs the executable Cargo left in its own folder
+/// among the Rust sides' builds, under the profile's.
+#[test]
+fn crawlee_rs_runs_the_executable_built_in_its_folder() {
+    assert_eq!(
+        crawlee_rs_executable(Path::new("/t/compare-spider"), "release"),
+        Path::new("/t/compare-spider/crawlee-rs/release/goodfetch-compare-crawlee-rs")
+    );
+}
+
 /// Every measured cell's 10 trials run once each, in one order that mixes
 /// the cells: no cell's trials all run before another's start.
 #[test]
@@ -87,6 +100,8 @@ fn each_cells_trials_run_once_each_interleaved_with_the_others() {
 fn only_a_run_of_the_full_trials_waits_for_a_quiet_machine() {
     let waits = |trials| {
         super::waits_for_quiet(&super::Options {
+            machine: None,
+            command: "just compare release".to_owned(),
             trials,
             growth: false,
             spider_pages: None,
@@ -228,14 +243,11 @@ fn a_cell_whose_strace_run_missed_pages_runs_no_later_run() {
     assert!(!set_aside(&done, cell("scrapy"), 1000));
 }
 
-/// A run of hours keeps what it has measured: the trials file's contents
-/// are handed over once the timed trials are in, again once the sizes cell
-/// is and again once the system-call cell is, so a failure in a later cell
-/// loses none (the
-/// base run of #2281 lost 220 trials to its first Callgrind run). Before
-/// its cell has run, the file says the run did not reach it.
-#[test]
-fn a_run_hands_over_its_trials_after_the_timed_part_the_sizes_part_and_the_strace_part() {
+/// A run of `scenarios` whose executables no file holds, so a part over no
+/// cell starts nothing and a part that starts a tool fails: how the run
+/// ended, and what each hand-over of its trials file said of its sizes,
+/// system-call, growth and Callgrind cells, `measured` or why not run.
+fn handed_over(scenarios: Vec<Scenario>) -> (anyhow::Result<Comparison>, Vec<[String; 4]>) {
     let nowhere = Path::new("/nowhere");
     let executables = Executables {
         proving_ground: nowhere,
@@ -246,61 +258,130 @@ fn a_run_hands_over_its_trials_after_the_timed_part_the_sizes_part_and_the_strac
         scrapy: nowhere,
         browser: nowhere,
     };
-    // No scenario, so no cell: every part runs, over nothing.
     let options = Options {
+        machine: None,
+        command: "just compare release".to_owned(),
         trials: 1,
         growth: false,
         spider_pages: None,
-        scenarios: Vec::new(),
+        scenarios,
         callgrind_outputs: nowhere.to_owned(),
     };
-    let reached = |cell: &CountedCell| match cell {
-        CountedCell::NotRun { reason } => reason.clone(),
-        CountedCell::Measured { .. } => "measured".to_owned(),
-    };
-    let sized = |cell: &SizesCell| match cell {
-        SizesCell::NotRun { reason } => reason.clone(),
-        SizesCell::Measured { .. } => "measured".to_owned(),
-    };
     let mut kept = Vec::new();
-
-    let whole = run(
+    let ended = run(
         &executables,
         "0".repeat(40),
         &options,
         &mut |so_far: &Comparison| {
-            kept.push((
+            kept.push([
                 sized(&so_far.sizes),
                 reached(&so_far.syscalls),
+                grown(&so_far.growth),
                 reached(&so_far.instructions),
-            ));
+            ]);
             Ok(())
         },
-    )
-    .unwrap();
+    );
+    (ended, kept)
+}
 
-    let not_reached = |cell: &str| format!("the run ended before its {cell} cell");
+/// A counted cell as a hand-over shows it.
+fn reached(cell: &CountedCell) -> String {
+    match cell {
+        CountedCell::NotRun { reason } => reason.clone(),
+        CountedCell::Measured { .. } => "measured".to_owned(),
+    }
+}
+
+/// The sizes cell as a hand-over shows it.
+fn sized(cell: &SizesCell) -> String {
+    match cell {
+        SizesCell::NotRun { reason } => reason.clone(),
+        SizesCell::Measured { .. } => "measured".to_owned(),
+    }
+}
+
+/// The growth cell as a hand-over shows it.
+fn grown(cell: &GrowthCell) -> String {
+    match cell {
+        GrowthCell::NotRun { reason } => reason.clone(),
+        GrowthCell::Measured { .. } => "measured".to_owned(),
+    }
+}
+
+/// Why a cell the run has not reached yet is not run.
+fn not_reached(cell: &str) -> String {
+    format!("the run ended before its {cell} cell")
+}
+
+/// A run of hours keeps what it has measured: the trials file's contents
+/// are handed over once the timed trials are in, again once the sizes cell
+/// is, again once the system-call cell is, again once the growth cell is
+/// and again once the Callgrind cell is, so a failure in a later part loses
+/// none of them (the base run of #2281 lost 220 trials to its first
+/// Callgrind run). Before its cell has run, the file says the run did not
+/// reach it.
+#[test]
+fn a_run_hands_over_its_trials_after_each_part_before_the_next() {
+    // No scenario, so no cell: every part runs, over nothing.
+    let (ended, kept) = handed_over(Vec::new());
+
+    let whole = ended.unwrap();
     let strace = if crate::compare::trial::strace_missing().is_some() {
         reached(&whole.syscalls)
     } else {
         "measured".to_owned()
     };
     let no_sizes = "the run asked for no scenario 1 main cell of Foxhound or Spider".to_owned();
+    let no_callgrind = "the run asked for no scenario 1 cell".to_owned();
     assert_eq!(
         kept,
         vec![
-            (
+            [
                 not_reached("sizes"),
                 not_reached("system-call"),
+                not_reached("growth"),
                 not_reached("Callgrind")
-            ),
-            (
+            ],
+            [
                 no_sizes.clone(),
                 not_reached("system-call"),
+                not_reached("growth"),
                 not_reached("Callgrind")
-            ),
-            (no_sizes, strace, not_reached("Callgrind")),
+            ],
+            [
+                no_sizes.clone(),
+                strace.clone(),
+                not_reached("growth"),
+                not_reached("Callgrind")
+            ],
+            [
+                no_sizes.clone(),
+                strace.clone(),
+                grown(&whole.growth),
+                not_reached("Callgrind")
+            ],
+            [no_sizes, strace, grown(&whole.growth), no_callgrind],
         ]
+    );
+}
+
+/// The hostile pages' passes run last and fail when a run of theirs does
+/// (#2439): the trials file handed over before them holds the Callgrind
+/// cell as it ended, so their failure loses no part before them (#2607).
+#[test]
+fn a_failed_hostile_pass_leaves_the_callgrind_cell_in_the_trials_handed_over() {
+    // The passes' first run cannot start its Proving ground; every part
+    // before them runs over no cell.
+    let (ended, kept) = handed_over(vec![Scenario::Hostile]);
+
+    let callgrind = kept.last().map(|[_, _, _, callgrind]| callgrind.clone());
+    assert_eq!(
+        (ended.is_err(), callgrind),
+        (
+            true,
+            Some("the run asked for no scenario 1 cell".to_owned())
+        )
     );
 }
 
@@ -311,6 +392,8 @@ fn a_run_hands_over_its_trials_after_the_timed_part_the_sizes_part_and_the_strac
 #[test]
 fn the_sizes_cell_runs_spider_at_16_and_at_64_on_a_wider_channel() {
     let options = Options {
+        machine: None,
+        command: "just compare release".to_owned(),
         trials: 1,
         growth: false,
         spider_pages: None,
@@ -324,7 +407,9 @@ fn the_sizes_cell_runs_spider_at_16_and_at_64_on_a_wider_channel() {
         .map(|(_, config, crawl)| {
             let capacity = match config {
                 Config::Spider { capacity, .. } => Some(capacity),
-                Config::Foxhound { .. } | Config::Crawlee | Config::Scrapy => None,
+                Config::Foxhound { .. } | Config::Crawlee | Config::Scrapy | Config::CrawleeRs => {
+                    None
+                }
             };
             (config.tool(), crawl.concurrency, capacity)
         })

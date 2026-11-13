@@ -14,6 +14,7 @@
 
 mod ids;
 
+use std::borrow::Cow;
 use std::str::FromStr as _;
 
 use goodfetch_protocol::jsonrpc::{RequestId, TraceContext};
@@ -22,7 +23,6 @@ use opentelemetry::Context;
 use opentelemetry::trace::{
     SpanContext, SpanId, TraceContextExt as _, TraceFlags, TraceId, TraceState,
 };
-use serde_json::Value;
 use tracing::Span;
 use tracing::field::Empty;
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
@@ -34,7 +34,10 @@ pub use ids::EntropyIds;
 pub const TRACE_TARGET: &str = "goodfetch::rpc::trace";
 
 /// The params members whose glossary IDs a request span records.
-const ID_FIELDS: [&str; 2] = ["run_id", "session_id"];
+pub(crate) const ID_FIELDS: [&str; 2] = ["run_id", "session_id"];
+
+/// What a request's params hold of each of [`ID_FIELDS`], in its order.
+pub(crate) type Ids<'a> = [Option<Cow<'a, str>>; 2];
 
 /// The longest Error code a `CLIENT` span records of a reply.
 const MAX_ERROR_CODE: usize = 64;
@@ -172,12 +175,12 @@ fn traceparent_of(traceparent: &str) -> Option<(TraceId, SpanId, TraceFlags)> {
 /// The `SERVER` span of the request `id` the process received, of the
 /// operation `method`: a new root, or the child of the caller's span its
 /// Trace context `meta` names while the process exports its spans, with
-/// the Run ID and Session ID `params` hold. Only the RPC layer's dispatcher
+/// the Run ID and Session ID `ids` its params hold. Only the RPC layer's dispatcher
 /// opens one.
 pub(crate) fn server_span(
     method: &'static str,
     id: &RequestId,
-    params: Option<&Value>,
+    ids: &Ids<'_>,
     meta: Option<&TraceContext>,
 ) -> Span {
     let span = tracing::debug_span!(
@@ -195,13 +198,11 @@ pub(crate) fn server_span(
         rpc.response.status_code = Empty,
     );
     record_id(&span, id);
-    if let Some(Value::Object(params)) = params {
-        for field in ID_FIELDS {
-            if let Some(value) = params.get(field).and_then(Value::as_str)
-                && RunId::parse(value).is_ok()
-            {
-                span.record(field, value);
-            }
+    for (field, value) in ID_FIELDS.into_iter().zip(ids) {
+        if let Some(value) = value
+            && RunId::parse(value).is_ok()
+        {
+            span.record(field, value.as_ref());
         }
     }
     // A span no OpenTelemetry layer takes has no parent to set: the

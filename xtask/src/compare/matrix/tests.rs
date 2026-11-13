@@ -1,4 +1,142 @@
-use super::{CELLS, Config, Row, Scenario, SpiderBuild, Status};
+use super::{CELLS, Config, Row, Scenario, Site, SpiderBuild, Status, Tool};
+
+/// #2316's scenarios: the realistic-page site, the long site and scenario
+/// 1 at 64 and 256 in flight. Each gives every tool a main cell with its
+/// mapping, and the cell at the catalog's defaults (#2175) stands at each
+/// of the sweep's three points, 16, 64 and 256 in flight, pending until
+/// #2175 brings it.
+#[test]
+fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
+    let added = [
+        Scenario::Realistic,
+        Scenario::Long,
+        Scenario::Raw64,
+        Scenario::Raw256,
+    ];
+    let mapped = |scenario: Scenario| -> Vec<Tool> {
+        let mut tools: Vec<Tool> = CELLS
+            .iter()
+            .filter(|cell| {
+                cell.scenario == scenario
+                    && cell.row == Row::Main
+                    && matches!(cell.status, Status::Measured(_))
+                    && !cell.mapping.is_empty()
+            })
+            .map(|cell| cell.tool)
+            .collect();
+        tools.dedup();
+        tools
+    };
+    let defaults: Vec<(Scenario, u32, bool)> = CELLS
+        .iter()
+        .filter(|cell| cell.name == "foxhound defaults")
+        .map(|cell| {
+            (
+                cell.scenario,
+                cell.scenario.concurrency(),
+                matches!(cell.status, Status::Pending(reason) if reason.contains("#2175")),
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        (
+            added.map(mapped),
+            added.map(Scenario::site),
+            added.map(|scenario| (scenario.concurrency(), scenario.site_pages(1000))),
+            defaults,
+        ),
+        (
+            [
+                Tool::ALL.to_vec(),
+                Tool::ALL.to_vec(),
+                Tool::ALL.to_vec(),
+                Tool::ALL.to_vec()
+            ],
+            [Site::Realistic, Site::Scale, Site::Scale, Site::Scale],
+            [(16, 1000), (16, 100_000), (64, 1000), (256, 1000)],
+            vec![
+                (Scenario::Raw, 16, true),
+                (Scenario::Raw64, 64, true),
+                (Scenario::Raw256, 256, true),
+            ],
+        )
+    );
+}
+
+/// Each scenario added to the matrix's own five runs scenario 1's settings,
+/// so the sides take it as `raw`, but the hostile pages' pass at defaults,
+/// which runs each tool's own; each carries no bar until the owner sets one
+/// (#2252 Q11, #2439 Q3); the matrix's own five are unchanged.
+#[test]
+fn the_added_scenarios_run_scenario_1s_settings_but_the_pass_at_defaults() {
+    let read = |scenario: Scenario| (scenario.settings(), scenario.carries_no_bar());
+
+    assert_eq!(
+        Scenario::ALL.map(read),
+        [
+            (Scenario::Raw, false),
+            (Scenario::Durable, false),
+            (Scenario::Polite, false),
+            (Scenario::Extraction, false),
+            (Scenario::Browser, false),
+            (Scenario::Raw, true),
+            (Scenario::Raw, true),
+            (Scenario::Raw, true),
+            (Scenario::Raw, true),
+            (Scenario::Hostile, true),
+            (Scenario::Raw, true),
+        ]
+    );
+}
+
+/// The hostile pages' two passes (#2439): each lists every tool's main
+/// cell with its mapping, crawls the Proving ground's `traps` family, and
+/// the `limits` family's first and third tasks at defaults only, and
+/// carries no bar until the owner sets one (#2439, Q3). The pass at
+/// defaults runs each tool's own settings, which each side takes as
+/// `hostile`; the other, scenario 1's, 16 in flight and no delay.
+#[test]
+fn the_hostile_pages_passes_map_every_tool_and_carry_no_bar() {
+    let passes = [Scenario::Hostile, Scenario::Hostile16];
+    let mapped = |scenario: Scenario| -> Vec<Tool> {
+        CELLS
+            .iter()
+            .filter(|cell| {
+                cell.scenario == scenario
+                    && cell.row == Row::Main
+                    && matches!(cell.status, Status::Measured(_))
+                    && !cell.mapping.is_empty()
+            })
+            .map(|cell| cell.tool)
+            .collect()
+    };
+    let tasks = |scenario: Scenario| -> Vec<&str> {
+        scenario
+            .hostile_tasks()
+            .iter()
+            .map(|task| task.name)
+            .collect()
+    };
+
+    assert_eq!(
+        passes.map(|scenario| (
+            mapped(scenario),
+            tasks(scenario),
+            scenario.settings(),
+            scenario.carries_no_bar(),
+        )),
+        [
+            (
+                Tool::ALL.to_vec(),
+                vec!["traps/1", "limits/1", "limits/3"],
+                Scenario::Hostile,
+                true
+            ),
+            (Tool::ALL.to_vec(), vec!["traps/1"], Scenario::Raw, true),
+        ]
+    );
+}
 
 /// Spider's measured rows of `scenario`: each row's name, what it is read
 /// for, its build and its page channel's capacity.
@@ -10,7 +148,7 @@ fn spider_rows(scenario: Scenario) -> Vec<(&'static str, Row, SpiderBuild, usize
             Status::Measured(Config::Spider { build, capacity }) => {
                 Some((cell.name, cell.row, build, capacity))
             }
-            Status::Measured(_) | Status::NotSupported(_) => None,
+            Status::Measured(_) | Status::NotSupported(_) | Status::Pending(_) => None,
         })
         .collect()
 }
@@ -83,7 +221,7 @@ fn each_spider_rows_mapping_names_its_capacity() {
             {
                 Some(cell.name)
             }
-            Status::Measured(_) | Status::NotSupported(_) => None,
+            Status::Measured(_) | Status::NotSupported(_) | Status::Pending(_) => None,
         })
         .collect();
 
@@ -122,7 +260,7 @@ fn just_compare_builds_each_of_spiders_sides_builds_into_its_folder() {
         .unwrap();
     let builds = CELLS.iter().filter_map(|cell| match cell.status {
         Status::Measured(Config::Spider { build, .. }) => Some(build),
-        Status::Measured(_) | Status::NotSupported(_) => None,
+        Status::Measured(_) | Status::NotSupported(_) | Status::Pending(_) => None,
     });
     let mut missing: Vec<String> = builds
         .filter(|build| {
@@ -145,4 +283,54 @@ fn just_compare_builds_each_of_spiders_sides_builds_into_its_folder() {
     missing.dedup();
 
     assert_eq!(missing, Vec::<String>::new());
+}
+
+/// crawlee-rs runs on its side in the four HTTP scenarios and in #2316's
+/// four, each its main row, and its headless browser cell is not supported
+/// (#2214).
+#[test]
+fn crawlee_rs_runs_the_http_scenarios_and_not_the_browser() {
+    let cells: Vec<(Scenario, &str, Row, Option<Config>)> = CELLS
+        .iter()
+        .filter(|cell| cell.tool == Tool::CrawleeRs)
+        .map(|cell| {
+            let config = match cell.status {
+                Status::Measured(config) => Some(config),
+                Status::NotSupported(_) | Status::Pending(_) => None,
+            };
+            (cell.scenario, cell.name, cell.row, config)
+        })
+        .collect();
+
+    let measured = Some(Config::CrawleeRs);
+    assert_eq!(
+        cells,
+        [
+            (Scenario::Raw, measured),
+            (Scenario::Durable, measured),
+            (Scenario::Polite, measured),
+            (Scenario::Extraction, measured),
+            (Scenario::Browser, None),
+            (Scenario::Realistic, measured),
+            (Scenario::Long, measured),
+            (Scenario::Raw64, measured),
+            (Scenario::Raw256, measured),
+            (Scenario::Hostile, measured),
+            (Scenario::Hostile16, measured),
+        ]
+        .map(|(scenario, config)| (scenario, "crawlee-rs", Row::Main, config))
+    );
+}
+
+/// `just compare` builds crawlee-rs's side, locked, at the run's profile,
+/// into the folder the run reads its executable from.
+#[test]
+fn just_compare_builds_crawlee_rss_side_into_its_folder() {
+    let recipes = include_str!("../../../../justfile");
+
+    assert!(recipes.contains(&format!(
+        "cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml \
+         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
+        super::CRAWLEE_RS_FOLDER
+    )));
 }

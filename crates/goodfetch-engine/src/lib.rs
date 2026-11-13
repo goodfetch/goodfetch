@@ -90,13 +90,14 @@ pub mod transition;
 pub mod transport;
 pub mod upgrade;
 mod usage;
+mod wire;
 
 pub use call_error::CallError;
 pub use composition::{
-    CallContext, CallInput, CallStream, Composition, CompositionError, Contribution, Driver, Guard,
-    GuardAnswer, Handler,
+    Answered, CallContext, CallInput, CallStream, Composition, CompositionError, Contribution,
+    Driver, Guard, GuardAnswer, Handler, Params,
 };
-pub use engine::{Dependencies, Engine};
+pub use engine::{AttachedFailure, Dependencies, Engine};
 pub use engine_context::EngineContext;
 pub use info::contribution;
 pub use product::{Channel, Identity, Requested};

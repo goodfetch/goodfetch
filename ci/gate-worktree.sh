@@ -62,11 +62,18 @@ merge_gate_holder() {
   gate_worktree_holder "$root/.claude/worktrees/merge-gate.lock"
 }
 
+# Prints the process of the nightly fuzzing (ci/fuzz-nightly.sh), when one
+# runs: a gate stops it before it starts (ci/merge-pr.sh).
+fuzz_nightly_holder() {
+  gate_worktree_holder "$root/.claude/worktrees/fuzz-nightly.lock"
+}
+
 # Prints the run that holds the backstop's worktree and that `just merge`'s
-# gate, process `$1`, lets end before it starts, as `the test-health run,
-# process <n>` or `the backstop, process <n>`; nothing when the gate may
-# start. ci/test-health/scheduled.sh marks the lock it takes with a
-# `test-health` file. The backstop's own run that found a gate running names
+# gate, process `$1`, ends or lets end before it starts, as `the post-merge
+# run, process <n>`, `the test-health run, process <n>` or `the backstop,
+# process <n>`; nothing when the gate may start. ci/test-health/scheduled.sh
+# marks the lock it takes with a `test-health` file, and a post-merge run's
+# with a `post-merge` file too, which the gate stops. The backstop's own run that found a gate running names
 # it in `waits-for` and lets it end first (ci/gate-backstop.sh): that gate
 # does not wait for the backstop in turn, and any later gate does, since the
 # backstop was there before it. A run that died holds nothing.
@@ -75,6 +82,8 @@ run_in_the_backstops_worktree() {
   holder=$(gate_worktree_holder "$backstop_lock")
   if [[ -z $holder ]]; then
     return 0
+  elif [[ -f $backstop_lock/post-merge ]]; then
+    echo "the post-merge run, process $holder"
   elif [[ -f $backstop_lock/test-health ]]; then
     echo "the test-health run, process $holder"
   elif [[ $(cat "$backstop_lock/waits-for" 2>/dev/null || true) != "$gate" ]]; then

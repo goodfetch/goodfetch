@@ -177,6 +177,22 @@ runners = [
 not_run.rebinding = "The browser resolves names itself, so a rebinding answer reaches it: the gap a Borrowed Session's Provenance records (ADR 0056)."
 not_run.upstream_proxy = "A Borrowed browser is someone's running browser, whose proxy the engine does not set."
 
+[layers.launched_without_relay]
+summary = "A browser Session the engine launches with no egress relay under it (ADR 0017; #2435), through Collie's executable against the Proving ground: one with `security.raw_cdp_egress_proxy` off, and one behind an `https://` proxy, which the relay does not chain, at the Proving ground's open proxy, which speaks no TLS. Interception alone holds it, resolving each host in the engine and judging every answer; each case as the program's navigation, at the Proving ground's port, a case's lookups as the Run's `network.resolve` mapping, which the browser resolves too, and an upstream proxy case, with the switch off, through the Proving ground's open proxy. The oracle is the Proving ground's request record and its open proxy's connections; behind the `https://` proxy, a connection counts only for a navigation the interception let through, since the browser may preconnect to its proxy as a navigation starts. The redirect cases run with the switch off, on the Proving ground's redirect pages, each hop a paused request judged as the first."
+runners = [
+    { test = "crates/goodfetch-collie/tests/it/navigation_egress.rs::every_address_case_of_the_ssrf_table_is_refused_at_interception_on_a_launched_session_with_no_relay", families = [
+        "encoding",
+        "ipv6_form",
+        "special_purpose_block",
+        "mixed_answers",
+        "upstream_proxy",
+    ] },
+    { test = "crates/goodfetch-collie/tests/it/navigation_egress.rs::every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_a_launched_session_with_no_relay", families = [
+        "redirect",
+    ] },
+]
+not_run.rebinding = "The browser resolves names itself, so a rebinding answer reaches it: the gap the Session's Provenance records, as a Borrowed browser's does (ADR 0056)."
+
 [layers.lent_page]
 summary = "A Lent page's client (ADR 0089): a browser context with its own proxy, or an extension, refused by the endpoint with `cdp_command_refused`, and raw CDP through the relay."
 pending = { joins = "#661 (A04-50)", families = ["lent_page_client"] }

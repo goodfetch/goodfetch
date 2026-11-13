@@ -8,8 +8,6 @@
 //! `person_required`. A store of another major is refused with
 //! `format_version_unsupported` (ADR 0066).
 
-use std::sync::Arc;
-
 use goodfetch_protocol::audit::{Actor, CERTIFICATE_CHANGE_ACCEPTED, CERTIFICATE_PIN_FORGOTTEN};
 use goodfetch_protocol::formats::KNOWN_CERTIFICATES;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -37,11 +35,10 @@ pub(crate) fn handlers() -> [Handler; 3] {
 }
 
 async fn list(_: CertsListParams, context: CallContext) -> Result<CertsListed, CallError> {
-    let engine = context.engine();
-    let store = engine.known_certificates().clone();
-    let owner = Arc::clone(engine.owner());
-    let pins = owner
-        .blocking(move || store.list(CALLER))
+    let pins = context
+        .engine()
+        .known_certificates()
+        .list(CALLER)
         .await
         .map_err(|error| refusal(error, "read"))?;
     Ok(CertsListed { pins })
@@ -70,30 +67,28 @@ async fn accept(
         layer: None,
         run_id: None,
     };
-    let owner = Arc::clone(engine.owner());
-    owner
-        .blocking(move || {
-            let now = engine.now();
-            let accepted = engine
-                .known_certificates()
-                .accept(CALLER, &host, &key, now)?;
-            let pinned = match accepted.previous {
-                Found::Pinned(pinned) => json!(pinned.to_string()),
-                Found::Unpinned | Found::Unreadable => json!(null),
-            };
-            let details = json!({
-                "host": host,
-                "pinned_spki_sha256": pinned,
-                "accepted_spki_sha256": key.to_string(),
-            });
-            engine
-                .audit()
-                .record(&origin, &CERTIFICATE_CHANGE_ACCEPTED, details, now)
-                .map_err(Failed::Unrecorded)?;
-            Ok(accepted.pin)
-        })
+    let now = engine.now();
+    let accepted = engine
+        .known_certificates()
+        .accept(CALLER, &host, &key, now)
         .await
-        .map_err(|failed: Failed| failed.call_error("written"))
+        .map_err(|error| refusal(error, "written"))?;
+    let pinned = match accepted.previous {
+        Found::Pinned(pinned) => json!(pinned.to_string()),
+        Found::Unpinned | Found::Unreadable => json!(null),
+    };
+    let details = json!({
+        "host": host,
+        "pinned_spki_sha256": pinned,
+        "accepted_spki_sha256": key.to_string(),
+    });
+    let pin = accepted.pin;
+    engine
+        .audit()
+        .record(&origin, &CERTIFICATE_CHANGE_ACCEPTED, details, now)
+        .await
+        .map_err(|error| unrecorded(&error))?;
+    Ok(pin)
 }
 
 async fn forget(
@@ -110,22 +105,19 @@ async fn forget(
         layer: None,
         run_id: None,
     };
-    let owner = Arc::clone(engine.owner());
-    let removed = host.clone();
-    let forgotten = owner
-        .blocking(move || {
-            let forgotten = engine.known_certificates().forget(CALLER, &removed)?;
-            if forgotten {
-                let details = json!({ "host": removed });
-                engine
-                    .audit()
-                    .record(&origin, &CERTIFICATE_PIN_FORGOTTEN, details, engine.now())
-                    .map_err(Failed::Unrecorded)?;
-            }
-            Ok(forgotten)
-        })
+    let forgotten = engine
+        .known_certificates()
+        .forget(CALLER, &host)
         .await
-        .map_err(|failed: Failed| failed.call_error("written"))?;
+        .map_err(|error| refusal(error, "written"))?;
+    if forgotten {
+        let details = json!({ "host": host });
+        engine
+            .audit()
+            .record(&origin, &CERTIFICATE_PIN_FORGOTTEN, details, engine.now())
+            .await
+            .map_err(|error| unrecorded(&error))?;
+    }
     Ok(CertsForgotten { host, forgotten })
 }
 
@@ -139,28 +131,13 @@ fn host_of(host: &str) -> Result<String, CallError> {
     })
 }
 
-/// Why a person's answer failed.
-#[derive(Debug, thiserror::Error)]
-enum Failed {
-    /// The store refused it, or could not be read or written.
-    #[error(transparent)]
-    Store(#[from] KnownCertificatesError),
-    /// It was made, but the Audit log could not record it.
-    #[error("the answer was made, but the Audit log cannot record it: {0}")]
-    Unrecorded(#[source] AuditError),
-}
-
-impl Failed {
-    /// The failure a call answers when the store could not be `done`, or
-    /// its answer was not recorded.
-    fn call_error(self, done: &str) -> CallError {
-        match self {
-            Self::Store(error) => refusal(error, done),
-            unrecorded @ Self::Unrecorded(_) => {
-                CallError::protocol(ProtocolFailure::InternalError, unrecorded.to_string())
-            }
-        }
-    }
+/// The failure a call answers when a person's answer was made but the
+/// Audit log could not record it.
+fn unrecorded(error: &AuditError) -> CallError {
+    CallError::protocol(
+        ProtocolFailure::InternalError,
+        format!("the answer was made, but the Audit log cannot record it: {error}"),
+    )
 }
 
 /// The failure a call answers when the store could not be `done`.

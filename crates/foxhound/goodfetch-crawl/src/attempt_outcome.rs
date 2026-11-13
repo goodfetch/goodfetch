@@ -287,7 +287,7 @@ impl Outcome {
 
 /// Ends the attempt of `work_item` under `lease_epoch` `unsuccessful` at
 /// `ended_at`, as [`work_items::end`] does.
-fn end(
+pub(crate) fn end(
     connection: &Connection,
     (work_item, lease_epoch): (&str, u64),
     unsuccessful: Unsuccessful,

@@ -36,6 +36,7 @@ mod gate;
 mod hedging;
 mod http_profile;
 mod light_browser;
+mod proxied;
 mod redirects;
 mod redundant;
 mod refresh;
@@ -66,7 +67,8 @@ pub fn compile_served_call_selectors(work: &goodfetch_counted_work::CountedWork)
 
 pub use document::{FieldElement, Matched, SelectorInvalid, check_selector, check_xpath};
 pub use driver::{
-    Body, FetchBounds, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch, met,
+    Body, FetchBounds, FetchFailure, Fetched, Hop, Reuse, Sending, Sent, Transport,
+    TransportFailure, fetch, met,
 };
 pub use gate::{FetchAdmission, HandOver, RobotsTxtFetch, RunHandOver, room_taken};
 pub use goodfetch_extractor::BuiltIn;

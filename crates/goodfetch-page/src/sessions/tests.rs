@@ -7,7 +7,8 @@
 //! run state: a Session left in the table past its Run's clean-up would
 //! hold the Run, its browsers and its egress relay forever. The other ends
 //! a page past its memory cap as its watch does: a page found in neither
-//! the open pages nor the ended ones would answer `closed`.
+//! the open pages nor the ended ones would answer `closed`. A last one
+//! reads which Sessions interception alone holds (#2435).
 #![expect(
     clippy::disallowed_methods,
     reason = "tests run on the test Clock and Entropy (ADR 0059)"
@@ -18,6 +19,7 @@ use std::sync::Arc;
 use std::task::Poll;
 
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::egress::CdpUrlOrigin;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::run_state::RunStateOptions;
@@ -42,9 +44,10 @@ use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::sync::watch;
 
 use super::life::{Ending, PageLife};
-use super::{Opener, Sessions};
+use super::{Opener, Sessions, held_browser};
+use crate::borrowed::CdpUrl;
 use crate::dialogs::Dialogs;
-use crate::interception::Interception;
+use crate::interception::{HeldBrowser, Interception};
 use crate::launch::Launcher;
 use crate::page_events;
 use crate::page_value::ProgramPages;
@@ -311,4 +314,44 @@ fn a_page_ended_past_its_memory_cap_answers_page_memory_exceeded_once_its_close_
     );
 
     assert_eq!(reply["result"], json!({ "raised": "page_memory_exceeded" }));
+}
+
+/// Interception alone holds a Session no egress relay is under, Borrowed
+/// or launched, a launched one's unresolved names judged by whether a
+/// proxy resolves them; a relayed Session gains no lookup of its own, its
+/// relay checking each connection's address (#2435).
+#[test]
+fn interception_alone_holds_every_session_no_relay_is_under_and_never_a_relayed_one() {
+    let cdp_url = CdpUrl {
+        url: "ws://127.0.0.1:9222/devtools/browser/test".to_owned(),
+        origin: CdpUrlOrigin {
+            layer: SettingsLayer::Run,
+            acting_for_model: false,
+        },
+    };
+    let held = |borrowed, relayed, proxied| match held_browser(borrowed, relayed, proxied) {
+        None => "relayed",
+        Some(HeldBrowser::Borrowed(_)) => "borrowed",
+        Some(HeldBrowser::Launched { proxied: false }) => "launched",
+        Some(HeldBrowser::Launched { proxied: true }) => "launched behind a proxy",
+    };
+
+    let held_by = [
+        held(None, true, false),
+        held(None, true, true),
+        held(None, false, false),
+        held(None, false, true),
+        held(Some(&cdp_url), false, false),
+    ];
+
+    assert_eq!(
+        held_by,
+        [
+            "relayed",
+            "relayed",
+            "launched",
+            "launched behind a proxy",
+            "borrowed",
+        ]
+    );
 }

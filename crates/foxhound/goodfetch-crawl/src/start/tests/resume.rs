@@ -11,8 +11,8 @@ use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
 
 use super::{
-    Client, POLICY, Reply, configure, crawl, default_dependencies, page_of, records, run_file,
-    seeds, work_items,
+    Client, POLICY, Reply, answer_all, configure, crawl, default_dependencies, page_of, records,
+    run_file, seeds, work_items,
 };
 use crate::policy::CrawlPolicy;
 
@@ -21,11 +21,6 @@ const ONE_AT_A_TIME: CrawlPolicy = CrawlPolicy {
     handler_concurrency: 1,
     ..POLICY
 };
-
-/// Answers each page with one Record naming it.
-fn answer_all(params: &Value) -> Reply {
-    Reply::Records(vec![json!({ "page": page_of(params) })])
-}
 
 /// Each delivered work item's page and attempt, in order.
 fn delivered(client: &Client) -> Vec<(String, u64)> {

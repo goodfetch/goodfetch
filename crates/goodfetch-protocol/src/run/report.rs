@@ -110,6 +110,16 @@ pub struct RunReport {
 }
 
 impl RunReport {
+    /// Gives it the Verdict `needs_review` for `reason`, which it lists
+    /// (ADR 0029). A `rejected` Verdict stays: a failed Success check
+    /// outranks every other reason, and a reason never raises a Verdict.
+    pub fn needs_review(&mut self, reason: AxisReason) {
+        if self.verdict == Verdict::Verified {
+            self.verdict = Verdict::NeedsReview;
+        }
+        self.verdict_reasons.push(reason);
+    }
+
     /// Whether it replayed a Response recording (ADR 0105), which marks it
     /// in its Run index row.
     pub fn replayed(&self) -> bool {

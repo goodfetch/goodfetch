@@ -1466,6 +1466,7 @@ dependencies = [
  "jiff",
  "keyring-core",
  "libc",
+ "memchr",
  "netdev",
  "opentelemetry",
  "opentelemetry_sdk",

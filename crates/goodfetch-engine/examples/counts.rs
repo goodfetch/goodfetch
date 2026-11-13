@@ -67,8 +67,10 @@ use std::sync::Arc;
 use audit::{Audit, PLANTED_RETENTION};
 use charge_counts::{Outcome, charges};
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_engine::Params;
 use goodfetch_engine::audit::AuditLog;
 use goodfetch_engine::metrics::Metrics;
+use goodfetch_protocol::catalog::Product;
 use goodfetch_test_support::CountingVfs;
 use messages::{Logs, Plant, Traffic};
 use serde_json::{Map, Value, json};
@@ -103,13 +105,13 @@ fn governor_plant(name: &str) -> Option<governor::Plant> {
 fn plant(name: &str, work: &CountedWork) -> Plant {
     let work = work.clone();
     match name {
-        "E1.deep_copies" => Arc::new(move |params: &Value| {
+        "E1.deep_copies" => Arc::new(move |params: Params<'_>| {
             work.count(Row::MessageDeepCopies);
-            drop(params.clone());
+            drop(params.json().to_owned());
         }),
-        "E1.encodes" => Arc::new(move |params: &Value| {
+        "E1.encodes" => Arc::new(move |params: Params<'_>| {
             work.count(Row::MessageEncodes);
-            drop(serde_json::to_vec(params));
+            drop(serde_json::to_vec(&params.read::<Value>().ok()));
         }),
         other => panic!("no plant for the row {other}"),
     }
@@ -119,26 +121,38 @@ fn plant(name: &str, work: &CountedWork) -> Plant {
 /// per entry, done for real through the code that counts it.
 fn audit_plant(name: &str, work: &CountedWork, vfs: &str) -> audit::Plant {
     match name {
-        // One entry more, on a log of its own beside the scenario's: a
-        // configuration read, a store open, its transactions and a head-file
-        // write the store syncs.
-        "E2.configuration_reads" | "E2.opens" | "E2.transactions" | SYNCS => {
+        // A read of the machine's settings files, as each entry made before
+        // #1885: the read has no counted function, so it is counted here.
+        "E2.configuration_reads" => {
             let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
-            let log = audit::log(home.path(), Some(vfs), work);
-            let home = Arc::new(home);
-            Arc::new(move |_: &AuditLog| {
-                let _kept = &home;
-                audit::run_one(&log, 0);
+            let work = work.clone();
+            Arc::new(move |_: &AuditLog, _: &tokio::runtime::Runtime| {
+                work.count(Row::AuditConfigurationReads);
+                audit::settings_files(home.path())
+                    .load(Product::Collie)
+                    .expect("invariant: a home with no settings file reads as empty");
+            })
+        }
+        // One entry more, on a log of its own beside the scenario's, made
+        // anew for each so that its writer opens its store again: a store
+        // open, its transactions and a head-file write the store syncs.
+        "E2.opens" | "E2.transactions" | SYNCS => {
+            let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+            let (vfs, work) = (vfs.to_owned(), work.clone());
+            Arc::new(move |_: &AuditLog, runtime: &tokio::runtime::Runtime| {
+                let log = audit::log(home.path(), Some(&vfs), &work);
+                audit::run_one(&log, runtime, 0);
             })
         }
         // A prune pass with nothing old enough to prune.
-        "E2.prunes" => Arc::new(|log: &AuditLog| {
-            log.prune(PLANTED_RETENTION, None, jiff::Timestamp::UNIX_EPOCH)
+        "E2.prunes" => Arc::new(|log: &AuditLog, runtime: &tokio::runtime::Runtime| {
+            runtime
+                .block_on(log.prune(PLANTED_RETENTION, None, jiff::Timestamp::UNIX_EPOCH))
                 .expect("invariant: an Audit log with nothing to prune");
         }),
         // Callgrind counts the process's calls of SQLite's own function, on
         // any connection.
-        PREPARES => Arc::new(|_: &AuditLog| {
+        PREPARES => Arc::new(|_: &AuditLog, _: &tokio::runtime::Runtime| {
             let connection = rusqlite::Connection::open_in_memory()
                 .expect("invariant: SQLite opens an in-memory database");
             let _ = connection
@@ -324,7 +338,7 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
     );
     let units = BTreeMap::from([
         ("incoming_messages", count(TRAFFIC.incoming())),
-        ("outgoing_messages", count(sent.outgoing)),
+        ("answers_and_events", count(sent.answers_and_events())),
         ("covered_charges", charged.covered),
         ("slices", charged.slices),
         ("charges", charged.covered + charged.slices),

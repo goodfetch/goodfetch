@@ -2,10 +2,15 @@
 //! the owner's list, each the median of the cell's trials with its spread
 //! (the lowest and the highest trial), or why the cell or the metric gives
 //! no figure; `foxhound.spider_instruction_ratio` from the Callgrind
-//! cell; and the sizes cell's peak memory of Foxhound and Spider at each
-//! size and concurrency, with the bar at 16 in flight (spec #2165).
-//! Labelled `local-controlled` with the machine and never published
-//! (ADR 0076), and written only once the same-work check passed.
+//! cell; the sizes cell's peak memory of Foxhound and Spider at each size
+//! and concurrency, with the bar at 16 in flight (spec #2165); and the
+//! standings of Foxhound against each competitor ([`standing`]).
+//! Labelled `local-controlled`, measured on the machine it names, with the
+//! command that reruns it, and written only once the same-work check
+//! passed.
+//!
+//! Size: one concern, the report: the figures of each cell and standing,
+//! and the Markdown that writes them, which reads each of those figures.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -19,7 +24,13 @@ use super::trials::{
     QUIET_LOAD, TRIALS, Trial,
 };
 
+mod published;
+mod rules;
 mod sizes;
+mod standing;
+
+#[cfg(test)]
+mod tests;
 
 use sizes::{Sizes, sizes, sizes_markdown};
 
@@ -38,6 +49,7 @@ pub(crate) enum Unit {
     Bytes,
     Cores,
     Count,
+    Percent,
 }
 
 /// A figure over a cell's trials.
@@ -64,6 +76,9 @@ pub(crate) struct CellReport {
     pub(crate) row: Row,
     pub(crate) mapping: &'static str,
     pub(crate) pending: &'static [&'static str],
+    /// Why it does not do the Product's work, when the matrix declares so:
+    /// it gets no standing.
+    pub(crate) unlike_work: Option<&'static str>,
     #[serde(flatten)]
     pub(crate) status: CellStatus,
 }
@@ -73,8 +88,10 @@ pub(crate) struct CellReport {
 pub(crate) enum CellStatus {
     Measured {
         trials: usize,
-        /// What the same-work check found every trial did.
+        /// What the same-work check found every trial did: the pages the
+        /// Proving ground saw it fetch, of the site's, and their bytes.
         pages: u64,
+        site_pages: u64,
         bytes: u64,
         metrics: BTreeMap<&'static str, Figure>,
         /// Pages per second in each tenth of the crawl.
@@ -83,9 +100,16 @@ pub(crate) enum CellStatus {
     NotSupported {
         reason: &'static str,
     },
-    /// Its timed trial was stopped twice (see `run::stopped`).
+    /// Its timed trial was stopped twice (see `run::stopped`), or the
+    /// ticket that brings it has not landed.
     NotMeasured {
         reason: String,
+    },
+    /// A hostile pages' cell (#2439): the rules its tool broke on each task
+    /// of its pass, over its runs.
+    Ruled {
+        runs: usize,
+        tasks: Vec<rules::RuledTask>,
     },
 }
 
@@ -94,7 +118,11 @@ pub(crate) enum CellStatus {
 pub(crate) struct ScenarioReport {
     pub(crate) scenario: Scenario,
     pub(crate) title: &'static str,
+    /// Whether no check read the content its cells wrote: none of them
+    /// gets a standing.
+    pub(crate) content_unverified: bool,
     pub(crate) cells: Vec<CellReport>,
+    pub(crate) standings: Vec<standing::Standings>,
 }
 
 /// Scenario 1's figures of a tool, its main row's, which `just targets`
@@ -488,9 +516,17 @@ fn metrics(
     metrics
 }
 
+/// Why a cell of the long scenario has no strace or growth figures.
+const TIMED_ONLY: &str = "the long scenario runs only its timed trials: strace over its 100,000 \
+     pages would take hours, and its site is already the growth cell's length";
+
 /// The runs of `cell` in a counted cell, or why there are none: the cell
-/// did not run, or a run of `cell` was stopped.
+/// did not run, a run of `cell` was stopped, or its scenario runs only its
+/// timed trials.
 fn runs_of<'a>(counted: &'a CountedCell, cell: &Cell) -> Result<Vec<&'a CountedRun>, &'a str> {
+    if cell.scenario.timed_only() {
+        return Err(TIMED_ONLY);
+    }
     let of_cell = |scenario: Scenario, name: &str| scenario == cell.scenario && name == cell.name;
     match counted {
         CountedCell::NotRun { reason } => Err(reason),
@@ -506,7 +542,18 @@ fn runs_of<'a>(counted: &'a CountedCell, cell: &Cell) -> Result<Vec<&'a CountedR
     }
 }
 
+/// The trials of `cell` among `trials`.
+fn trials_of<'a>(trials: &'a [Trial], cell: &Cell) -> Vec<&'a Trial> {
+    trials
+        .iter()
+        .filter(|trial| trial.scenario == cell.scenario && trial.cell == cell.name)
+        .collect()
+}
+
 fn growth_of<'a>(growth: &'a GrowthCell, cell: &Cell) -> Result<Vec<&'a Trial>, &'a str> {
+    if cell.scenario.timed_only() {
+        return Err(TIMED_ONLY);
+    }
     match growth {
         GrowthCell::NotRun { reason } => Err(reason),
         GrowthCell::Measured {
@@ -518,10 +565,7 @@ fn growth_of<'a>(growth: &'a GrowthCell, cell: &Cell) -> Result<Vec<&'a Trial>, 
             .find(|run| run.scenario == cell.scenario && run.cell == cell.name)
         {
             Some(run) => Err(&run.reason),
-            None => Ok(trials_run
-                .iter()
-                .filter(|trial| trial.scenario == cell.scenario && trial.cell == cell.name)
-                .collect()),
+            None => Ok(trials_of(trials_run, cell)),
         },
     }
 }
@@ -571,15 +615,15 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
         for cell in CELLS.iter().filter(|cell| cell.scenario == scenario) {
             let status = match cell.status {
                 Status::NotSupported(reason) => CellStatus::NotSupported { reason },
+                Status::Pending(ticket) => CellStatus::NotMeasured {
+                    reason: format!("pending {ticket}"),
+                },
+                Status::Measured(_) if scenario.hostile() => rules::status(trials, cell),
                 Status::Measured(_) if let Some(reason) = stopped_reason(trials, cell) => {
                     CellStatus::NotMeasured { reason }
                 }
                 Status::Measured(_) => {
-                    let ran: Vec<&Trial> = trials
-                        .trials
-                        .iter()
-                        .filter(|trial| trial.scenario == scenario && trial.cell == cell.name)
-                        .collect();
+                    let ran = trials_of(&trials.trials, cell);
                     let metrics = metrics(
                         cell,
                         &ran,
@@ -612,6 +656,7 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
                     CellStatus::Measured {
                         trials: ran.len(),
                         pages: ran.first().map_or(0, |trial| trial.measured.work.pages),
+                        site_pages: ran.first().map_or(0, |trial| trial.site_pages),
                         bytes: ran.first().map_or(0, |trial| {
                             if scenario.resumes() {
                                 trial.measured.work.first_bytes
@@ -630,12 +675,15 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
                 row: cell.row,
                 mapping: cell.mapping,
                 pending: cell.pending,
+                unlike_work: cell.unlike_work(),
                 status,
             });
         }
         scenarios.push(ScenarioReport {
             scenario,
             title: scenario.title(),
+            content_unverified: scenario.content_unverified(),
+            standings: standing::of(scenario, &cells),
             cells,
         });
     }
@@ -655,6 +703,7 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
 }
 
 const MIB: f64 = 1024.0 * 1024.0;
+const GIB: f64 = 1024.0 * MIB;
 
 /// A value in its unit.
 fn shown(value: f64, unit: Unit) -> String {
@@ -667,6 +716,7 @@ fn shown(value: f64, unit: Unit) -> String {
         Unit::Bytes if value >= 1024.0 => format!("{:.1} KiB", value / 1024.0),
         Unit::Bytes => format!("{value:.0} B"),
         Unit::Cores => format!("{value:.2}"),
+        Unit::Percent => format!("{value:.1} %"),
     }
 }
 
@@ -696,7 +746,9 @@ fn column(cell: &CellReport) -> String {
     }
 }
 
-/// The metrics in the report's order, each with its group and label.
+/// The metrics in the report's order, each with its group and label. A
+/// metric where more is better is also named in `standing`'s
+/// `MORE_IS_BETTER`; the standings read every other as a cost.
 const ROWS: &[(&str, &str)] = &[
     ("pages_per_second", "Throughput: pages per second"),
     ("first_page_seconds", "Throughput: time to the first page"),
@@ -762,23 +814,37 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
     let load = machine.load.map_or_else(String::new, |load| {
         format!(", 1-minute load {load:.2} at the start")
     });
+    let name = machine
+        .name
+        .as_deref()
+        .unwrap_or("a machine not named (`--machine`)");
+    let memory = machine.memory_bytes.map_or_else(
+        || "memory not read".to_owned(),
+        |bytes| format!("{:.1} GiB of memory", float(bytes) / GIB),
+    );
     let mut text = format!(
         "# Comparison matrix\n\n\
-         `local-controlled`, never published (ADR 0076): {} {} on {}, {} threads{load}, at commit `{}`.\n\n\
+         `local-controlled`, measured on {name}: {} {}, {}, {} threads, {memory}{load}, at commit `{}`. \
+         Compare its figures within this report, never with a report measured on another machine.\n\n\
+         Rerun it with `{}` at that commit.\n\n\
          Declared before the first trial: {} trials of each measured cell, interleaved in random order \
          (seed {}), each tool started in a fresh process against a fresh Proving ground, {} requests at \
-         once, from `{}`; Spider {}, Crawlee {} (`@crawlee/cheerio`, and `@crawlee/playwright` on \
-         Playwright {}) on Node.js and Scrapy {} (and scrapy-playwright {} on Playwright {}) on \
-         CPython, every tool of the headless browser scenario running Chrome for Testing {}; each \
+         once, from `{}`, unless a scenario's title names other requests in flight or another \
+         site; Spider {}, Crawlee {} (`@crawlee/cheerio`, and `@crawlee/playwright` on Playwright \
+         {}) on Node.js, Scrapy {} (and scrapy-playwright {} on Playwright {}) on CPython and \
+         crawlee-rs at commit `{}`, every tool of the headless browser scenario running Chrome \
+         for Testing {}; each \
          figure the {}. Every figure is measured from outside the tools: \
          the OS's accounting of the waited-for children (CPU, peak RSS, bytes read and written), `/proc` \
          samples of the process tree every 50 ms, strace's counts, the Proving ground's observations and \
-         the data folder left. Every cell passed the same-work check.\n",
+         the data folder left. Every cell passed the same-work check. It gives no false-success \
+         count: it reads no tool's own report, only what the Proving ground saw each tool fetch.\n",
         machine.os,
         machine.arch,
         machine.cpu,
         machine.threads,
         report.commit,
+        declared.command,
         declared.trials,
         report.order_seed,
         declared.concurrency,
@@ -789,6 +855,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
         declared.scrapy,
         declared.scrapy_playwright,
         declared.playwright,
+        declared.crawlee_rs,
         declared.browser,
         declared.statistic,
     );
@@ -815,6 +882,31 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             for pending in cell.pending {
                 let _ = writeln!(text, "  - pending: {pending}.");
             }
+            if scenario.scenario.carries_no_bar() {
+                let _ = writeln!(
+                    text,
+                    "  - no bar: none is set on this cell until the owner sets one ({}).",
+                    if scenario.scenario.hostile() {
+                        "#2439, Q3"
+                    } else {
+                        "#2316"
+                    }
+                );
+            }
+            if !matches!(cell.status, CellStatus::NotSupported { .. }) {
+                if scenario.content_unverified {
+                    text.push_str(
+                        "  - content not verified: no check reads what it wrote, until #2136's \
+                         output check lands; no standing.\n",
+                    );
+                }
+                if let Some(reason) = cell.unlike_work {
+                    let _ = writeln!(
+                        text,
+                        "  - not the same work: {reason}; no standing and no ratio."
+                    );
+                }
+            }
             match &cell.status {
                 CellStatus::NotSupported { reason } => {
                     let _ = writeln!(text, "  - not supported: {reason}.");
@@ -826,21 +918,36 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                     trials,
                     pages,
                     bytes,
+                    metrics,
                     ..
                 } => {
                     let _ = writeln!(
                         text,
                         "  - same work: {trials} trials, each {pages} pages served in {bytes} bytes."
                     );
+                    published::cpu(&mut text, cell.tool, metrics);
                 }
+                CellStatus::Ruled { runs, tasks } => rules::markdown(&mut text, *runs, tasks),
             }
         }
         let measured: Vec<_> = scenario
             .cells
             .iter()
             .filter_map(|cell| match &cell.status {
-                CellStatus::Measured { metrics, curve, .. } => Some((column(cell), metrics, curve)),
-                CellStatus::NotSupported { .. } | CellStatus::NotMeasured { .. } => None,
+                CellStatus::Measured {
+                    pages,
+                    site_pages,
+                    metrics,
+                    curve,
+                    ..
+                } => Some((
+                    format!("{}, {pages} of the site's {site_pages} pages", column(cell)),
+                    metrics,
+                    curve,
+                )),
+                CellStatus::NotSupported { .. }
+                | CellStatus::NotMeasured { .. }
+                | CellStatus::Ruled { .. } => None,
             })
             .collect();
         if measured.is_empty() {
@@ -883,6 +990,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             }
             text.push('\n');
         }
+        standing::markdown(&mut text, scenario);
     }
     match &report.instructions {
         Instructions::NotRun { reason } => {
@@ -916,12 +1024,12 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
         );
     }
     text.push_str(
-        "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Peak RSS |\n|---|---|---:|---:|---:|---:|---:|\n",
+        "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Pages fetched | Peak RSS |\n|---|---|---:|---:|---:|---:|---:|---:|\n",
     );
     for trial in &trials.trials {
         let _ = writeln!(
             text,
-            "| {} | {} | {} | {} | {:.3} | {:.1} | {:.1} MiB |",
+            "| {} | {} | {} | {} | {:.3} | {:.1} | {} of {} | {:.1} MiB |",
             trial.scenario.name(),
             trial.cell,
             trial.retried.as_ref().map_or_else(
@@ -933,6 +1041,8 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                 .map_or_else(|| "not measured".to_owned(), |load| format!("{load:.2}")),
             trial.measured.seconds,
             rate(trial),
+            trial.measured.work.pages,
+            trial.site_pages,
             float(peak(trial)) / MIB
         );
     }

@@ -22,7 +22,7 @@ use serde_json::{Map, Value, json};
 
 use super::{Answering, Changes, NeedsYouSource, Primitives, SourceContext, SourceError};
 use crate::host_name::lookup_key;
-use crate::run_index::{self, RefetchStopped};
+use crate::run_index::RefetchStopped;
 use crate::settings::{MachineLayers, Opening, nested, project_settings};
 
 /// Each domain on which a Run's refetch stopped that a layer still lists.
@@ -103,11 +103,10 @@ impl Primitives for Stops {
         &'a self,
         context: &'a SourceContext,
     ) -> Answering<'a, Result<Vec<NeedsYouItem>, SourceError>> {
-        let path = context.run_index.clone();
-        let version = context.version.clone();
         Box::pin(async move {
             let stops = context
-                .blocking(move || run_index::refetch_stops(&path, &version))
+                .run_index
+                .refetch_stops()
                 .await
                 .map_err(SourceError::new)?;
             if stops.is_empty() {

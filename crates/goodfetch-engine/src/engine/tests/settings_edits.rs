@@ -461,6 +461,111 @@ fn a_write_the_audit_log_cannot_record_is_made_and_says_so() {
     );
 }
 
+/// Two user-level writes sent together, so the engine works them at once,
+/// both land and are both recorded: the first does not hold the lock beside
+/// the Operator policy while its entry waits for the Audit log's writer, so
+/// the second, under the Simulation's inline blocking policy on its one
+/// thread, does not wait on that lock for ever.
+///
+/// Covers: operation:config.user_write
+#[test]
+fn two_settings_writes_at_once_both_land_and_are_both_recorded() {
+    let env = TestEnv::new();
+
+    let replies = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            opened(&mut client, "kennel", "collie").await;
+            let user_write = |id: i64, key: &str, value: Value| {
+                json!({
+                    "jsonrpc": "2.0", "id": id, "method": "config.user_write",
+                    "params": { "changes": [{ "key": key, "value": value }] },
+                })
+            };
+            client
+                .send(&[
+                    user_write(1, "timeout.navigation", json!(45_000)),
+                    user_write(2, "timeout.run", json!(60_000)),
+                ])
+                .await;
+            let mut replies = Vec::new();
+            while replies.len() < 2 {
+                let message = client.next().await.unwrap();
+                if message.get("id").is_some() {
+                    replies.push(message);
+                }
+            }
+            replies
+        },
+    );
+
+    let written = std::fs::read_to_string(file(&env, USER_CONFIGURATION_FILE)).unwrap();
+    assert_eq!(
+        (
+            replies
+                .iter()
+                .map(|reply| reply["error"].clone())
+                .collect::<Vec<_>>(),
+            values_at(
+                &written,
+                &["settings.timeout.navigation", "settings.timeout.run"]
+            ),
+            recorded(&env, "user_configuration_written").len(),
+        ),
+        (
+            vec![Value::Null, Value::Null],
+            vec![json!(45_000), json!(60_000)],
+            2,
+        ),
+        "{replies:?}"
+    );
+}
+
+/// `config.user_write` of `audit.retention` is seen by the next Audit log
+/// entry, its own: the engine's write refreshes its snapshot of the
+/// machine's settings before it records the write, so that entry prunes
+/// the one recorded two seconds before it (ADR 0140).
+///
+/// Covers: operation:config.user_write, setting:audit.retention
+#[test]
+fn a_retention_written_by_the_engine_is_seen_by_the_next_audit_entry() {
+    let env = TestEnv::new();
+
+    attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            opened(&mut client, "kennel", "collie").await;
+            let user_write = async |client: &mut Client, id: i64, key: &str, value: Value| {
+                let written = call(
+                    client,
+                    id,
+                    "config.user_write",
+                    json!({ "changes": [{ "key": key, "value": value }] }),
+                )
+                .await;
+                assert!(written.get("result").is_some(), "{written}");
+            };
+            user_write(&mut client, 1, "timeout.navigation", json!(45_000)).await;
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            user_write(&mut client, 2, "audit.retention", json!(1_000)).await;
+        },
+    );
+
+    assert_eq!(
+        audit_entries(&env)
+            .iter()
+            .map(|entry| entry["kind"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>(),
+        [
+            "audit_log_anchor",
+            "audit_log_pruned",
+            "user_configuration_written"
+        ]
+    );
+}
+
 /// How long the other writer holds the lock waiting for the answer under
 /// test, at most.
 const HELD: Duration = Duration::from_millis(300);

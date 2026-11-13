@@ -206,7 +206,7 @@ pub const MODEL_CALL_CEILING: Setting = Setting {
 /// `governor.memory_allowance` (ADR 0040; ADR 0083 names it).
 pub const MEMORY_ALLOWANCE: Setting = Setting {
     name: "governor.memory_allowance",
-    description: "The most memory, in bytes, the engine and its children may use, as its Memory allowance when it is tighter than the process's own cgroup limit, its Windows Job object's limit or half of physical memory; unset by default. Read again at every sample.",
+    description: "The most memory, in bytes, the engine and its children may use, as its Memory allowance when it is tighter than the process's own cgroup limit, its Windows Job object's limit or half of physical memory; unset by default. Each sample reads it from the engine's settings: the engine's own write (`config.user_write`, `config.policy_write`) is seen at the next sample, a hand edit at the engine's next read of the file, by the next Run's start at the latest.",
     kind: ValueKind::Count,
     default: unset,
     clearable: true,

@@ -42,6 +42,9 @@ pub(crate) enum Mode {
     Syscalls(PathBuf),
     /// Under Callgrind, which writes its output to this file.
     Callgrind(PathBuf),
+    /// Once on each task of a hostile pages' pass, its tool stopped at a
+    /// bound, for the rules it broke (#2439; see [`rules`]).
+    Rules,
 }
 
 /// What a counted trial prints.
@@ -164,14 +167,15 @@ fn side_of(script: &Path) -> &Path {
     script.parent().unwrap_or_else(|| Path::new("."))
 }
 
-/// How `config`'s tool runs `executable`: Foxhound's and Spider's are
-/// executables, Spider's side given its row's page channel capacity,
+/// How `config`'s tool runs `executable`: Foxhound's, Spider's and
+/// crawlee-rs's are executables, Spider's side given its row's page channel
+/// capacity,
 /// Crawlee's is its side's script run by Node.js from `PATH`, and Scrapy's
 /// its side's script run by the interpreter of the Python environment
 /// beside it.
 pub(crate) fn invocation(config: Config, executable: &Path) -> Invocation {
     match config {
-        Config::Foxhound { .. } => Invocation {
+        Config::Foxhound { .. } | Config::CrawleeRs => Invocation {
             program: executable.to_owned(),
             arguments: Vec::new(),
         },
@@ -203,7 +207,7 @@ fn install_bytes(config: Config, executable: &Path, browser: Option<&Path>) -> u
     };
     let browser_bytes = browser.map_or(0, footprint);
     let packages = match config {
-        Config::Foxhound { .. } | Config::Spider { .. } => {
+        Config::Foxhound { .. } | Config::Spider { .. } | Config::CrawleeRs => {
             return file_bytes(executable) + browser_bytes;
         }
         Config::Crawlee => NODE_MODULES,
@@ -307,7 +311,7 @@ fn link_tree(from: &Path, to: &Path) -> std::io::Result<()> {
 /// of its own.
 fn command(invocation: &Invocation, mode: &Mode, process: u32) -> Command {
     let mut command = match mode {
-        Mode::Timed => Command::new(&invocation.program),
+        Mode::Timed | Mode::Rules => Command::new(&invocation.program),
         Mode::Syscalls(output) => {
             let mut strace = Command::new(STRACE);
             let mut file = output.clone().into_os_string();
@@ -348,7 +352,7 @@ fn tool_pid(child: &Child, mode: &Mode) -> u32 {
             }
             child.id()
         }
-        Mode::Timed | Mode::Callgrind(_) => child.id(),
+        Mode::Timed | Mode::Callgrind(_) | Mode::Rules => child.id(),
     }
 }
 
@@ -499,6 +503,27 @@ impl Plan<'_> {
         mode: &Mode,
         cache: Option<&Path>,
     ) -> Result<Driven> {
+        let host = (!self.kind().by_name())
+            .then(|| format!("{}:{}", self.kind().host_of(1), self.site.port()));
+        self.spawn_at(
+            home,
+            (process, mode),
+            cache,
+            &self.site_url(),
+            host.as_deref(),
+        )
+    }
+
+    /// [`Self::spawn`], a tool other than Foxhound crawling from `url`, with
+    /// `host` sent as each request's `Host` when given.
+    fn spawn_at(
+        &self,
+        home: &Path,
+        (process, mode): (u32, &Mode),
+        cache: Option<&Path>,
+        url: &str,
+        host: Option<&str>,
+    ) -> Result<Driven> {
         let mut command = command(&invocation(self.config, self.executable), mode, process);
         command.stderr(Stdio::inherit());
         // No tool reads Goodfetch's variables a shell may hold, such as a
@@ -521,17 +546,16 @@ impl Plan<'_> {
             // The other tools crawl from their arguments, in their data
             // folder, and print their count last on stdout.
             command
-                .args(["--url", &self.site_url()])
+                .args(["--url", url])
                 .args(["--concurrency", &self.site.concurrency.to_string()])
-                .args(["--scenario", self.cell.scenario.name()])
+                // #2316's scenarios run scenario 1's settings, at their own
+                // site and requests in flight.
+                .args(["--scenario", self.cell.scenario.settings().name()])
                 .current_dir(home)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped());
-            if !self.kind().by_name() {
-                command.args([
-                    "--host",
-                    &format!("{}:{}", self.kind().host_of(1), self.site.port()),
-                ]);
+            if let Some(host) = host {
+                command.args(["--host", host]);
             }
             if let Some(browser) = self.browser()? {
                 let chrome = browser.join(CHROME);
@@ -563,7 +587,7 @@ impl Plan<'_> {
                     }
                 }
             }
-            Config::Spider { .. } | Config::Crawlee | Config::Scrapy => None,
+            Config::Spider { .. } | Config::Crawlee | Config::Scrapy | Config::CrawleeRs => None,
         };
         Ok(Driven { child, engine })
     }
@@ -596,7 +620,9 @@ impl Plan<'_> {
                 durability,
                 commit_interval,
             } => (durability, commit_interval),
-            Config::Spider { .. } | Config::Crawlee | Config::Scrapy => ("", None),
+            Config::Spider { .. } | Config::Crawlee | Config::Scrapy | Config::CrawleeRs => {
+                ("", None)
+            }
         }
     }
 
@@ -639,16 +665,18 @@ impl Plan<'_> {
                     engine.finish()?;
                     return Ok(1);
                 }
-            } else {
-                if resumes {
-                    bail!("{} cannot resume a crawl", self.cell.name);
-                }
+            } else if !resumes {
                 self.read_count(&mut driven.child)?;
                 return Ok(1);
             }
             // Killed once half the site's pages were asked for, then
-            // resumed by a new process on the same home.
+            // resumed by a new process on the same home: Foxhound's engine
+            // by `run.resume`, another tool by the same command, which
+            // takes up the state it left there.
             while request_count(self.site.address)? < self.site.pages / 2 {
+                if let Some(status) = driven.child.try_wait()? {
+                    bail!("the tool exited with {status} before half the site was asked for");
+                }
                 std::thread::sleep(POLL);
             }
             kill(tool_pid(&driven.child, &self.mode))?;
@@ -676,13 +704,12 @@ impl Plan<'_> {
         if let Some(sampler) = sampler {
             sampler.follow(tool_pid(&second.child, &self.mode));
         }
-        let engine = second
-            .engine
-            .as_mut()
-            .context("a resumed tool is Foxhound's engine")?;
-        let finished = engine
-            .resume(&self.site, self.cell.scenario, self.durability())
-            .and_then(|()| engine.finish());
+        let finished = match second.engine.as_mut() {
+            Some(engine) => engine
+                .resume(&self.site, self.cell.scenario, self.durability())
+                .and_then(|()| engine.finish()),
+            None => self.read_count(&mut second.child),
+        };
         if let Err(error) = finished {
             let _ = second.child.kill();
             let _ = second.child.wait();
@@ -773,9 +800,11 @@ impl Plan<'_> {
             Config::Foxhound { .. } if super::foxhound::keeps_records(self.cell.scenario) => {
                 Some(self.records(home.path(), started_wall)?)
             }
-            Config::Foxhound { .. } | Config::Spider { .. } | Config::Crawlee | Config::Scrapy => {
-                None
-            }
+            Config::Foxhound { .. }
+            | Config::Spider { .. }
+            | Config::Crawlee
+            | Config::Scrapy
+            | Config::CrawleeRs => None,
         };
         let observed = self.observe(seconds, records.as_ref())?;
         let milestones: Vec<(u64, f64)> = MILESTONES
@@ -833,6 +862,7 @@ impl Plan<'_> {
                 (instructions_of(&text)?, 0)
             }
             Mode::Timed => bail!("a timed trial counts nothing"),
+            Mode::Rules => bail!("a hostile pages' run counts nothing"),
         };
         Ok(Counted { count, syncs, work })
     }
@@ -949,12 +979,16 @@ pub(crate) fn cell_of(scenario: Scenario, name: &str) -> Result<(&'static Cell, 
         .with_context(|| format!("no cell `{name}` in scenario {}", scenario.name()))?;
     match cell.status {
         super::matrix::Status::Measured(config) => Ok((cell, config)),
-        super::matrix::Status::NotSupported(_) => bail!(
+        super::matrix::Status::NotSupported(_) | super::matrix::Status::Pending(_) => bail!(
             "the cell `{name}` of scenario {} runs no trial",
             scenario.name()
         ),
     }
 }
+
+mod rules;
+
+pub(crate) use rules::Ruled;
 
 #[cfg(test)]
 mod tests;

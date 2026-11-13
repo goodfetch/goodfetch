@@ -307,6 +307,18 @@ impl std::io::Write for Writes {
     }
 }
 
+impl Writes {
+    /// The writes the writer was handed, in order, each as text.
+    fn handed(&self) -> Vec<String> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|write| String::from_utf8(write.clone()).unwrap())
+            .collect()
+    }
+}
+
 /// The log formats' redaction with values hard to redact (TESTING.md,
 /// Secrets): a value and a longer one holding it, each logged in the
 /// message and as a field, Display and Debug, through the text and the
@@ -393,18 +405,52 @@ fn a_log_line_the_mask_rewrites_reaches_its_writer_in_one_write() {
         tracing::info!(proxy = "pa ss\"w/rd>?9~", "the proxy answered");
     });
 
-    let handed: Vec<String> = given
-        .0
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|write| String::from_utf8(write.clone()).unwrap())
-        .collect();
     assert_eq!(
-        handed,
+        given.handed(),
         vec![
             "{\"fields\":{\"message\":\"the proxy answered\",\"proxy\":\"%proxy.password%\"}}\n"
                 .to_owned()
+        ]
+    );
+}
+
+/// Lines a thread logs one after another, masked or not, longer or
+/// shorter than the one before, each reach the writer below as that line
+/// alone: nothing of an earlier line is left in a later one.
+///
+/// Covers: story:4-56, row:RT-17
+#[test]
+fn lines_logged_one_after_another_each_reach_their_writer_as_that_line_alone() {
+    let masks = Masks::new();
+    let mask = masks.for_run(Redaction::On);
+    mask.join(
+        "proxy.password",
+        &SecretString::from("pa ss\"w/rd>?9~"),
+        Reach::Value,
+    );
+    let given = Writes::default();
+    let writer = given.clone();
+    let subscriber = tracing_subscriber::registry().with(
+        tracing_subscriber::fmt::layer()
+            .without_time()
+            .with_ansi(false)
+            .with_target(false)
+            .with_level(false)
+            .with_writer(Masked::new(masks, move || writer.clone())),
+    );
+
+    tracing::subscriber::with_default(subscriber, || {
+        tracing::info!("the proxy answered for {} at last", "pa ss\"w/rd>?9~");
+        tracing::info!("short");
+        tracing::info!("{} again", "pa ss\"w/rd>?9~");
+    });
+
+    assert_eq!(
+        given.handed(),
+        vec![
+            "the proxy answered for %proxy.password% at last\n".to_owned(),
+            "short\n".to_owned(),
+            "%proxy.password% again\n".to_owned(),
         ]
     );
 }

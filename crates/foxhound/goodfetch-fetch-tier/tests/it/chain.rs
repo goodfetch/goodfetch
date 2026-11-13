@@ -31,6 +31,7 @@ use goodfetch_fetch_tier::{
 };
 use goodfetch_page::page_value::Permit;
 use goodfetch_protocol::egress::EgressRule;
+use goodfetch_protocol::foxhound::crawl::RESPONSE_UNAVAILABLE;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::page::NAVIGATION_FAILED;
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
@@ -73,6 +74,9 @@ struct Recording {
     /// Whether the hop a chain ends on is a duplicate: another request's
     /// chain reached its key first.
     duplicate: bool,
+    /// The path of a hop whose send the gate cannot record, which it then
+    /// refuses.
+    unrecorded: Option<&'static str>,
     admitted: Mutex<Vec<String>>,
     released: Arc<Mutex<usize>>,
     waits: Mutex<Vec<(String, Duration)>>,
@@ -128,13 +132,21 @@ impl HopGate for Recording {
         })
     }
 
-    fn sending<'a>(&'a self, hop: &'a Hop, lead: bool) -> Gating<'a, ()> {
+    fn sending<'a>(&'a self, hop: &'a Hop, lead: bool) -> Gating<'a, Result<(), Stop>> {
         Box::pin(async move {
+            if self.unrecorded == Some(hop.url.path()) {
+                return Err(Stop::failed(CallError::new(
+                    &RESPONSE_UNAVAILABLE,
+                    "its start could not be recorded",
+                    &serde_json::json!({ "status": null }),
+                )));
+            }
             let admitted = self.admitted.lock().unwrap().len();
             self.sent
                 .lock()
                 .unwrap()
                 .push((hop.url.path().to_owned(), admitted, lead));
+            Ok(())
         })
     }
 
@@ -183,7 +195,7 @@ fn header<'a>(request: &'a Value, name: &str) -> Option<&'a str> {
 
 fn failed(stop: Result<Fetched, Stop>) -> goodfetch_engine::CallError {
     match stop {
-        Err(Stop::Failed(error)) => error,
+        Err(Stop::Failed(failure)) => failure.into_error(),
         other => panic!("not failed: {:?}", other.map(|fetched| fetched.url)),
     }
 }
@@ -639,6 +651,39 @@ fn a_hop_the_gate_skips_is_never_sent() {
     );
 }
 
+/// A hop whose send the gate could not record is not sent (issue 2321): the
+/// chain ends failed with the gate's error, its permit given back, and the
+/// site never sees the request.
+///
+/// Covers: story:5-124
+#[test]
+fn a_hop_whose_send_the_gate_cannot_record_is_never_sent() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let transport = reqwest(&proving_ground, None);
+    let gate = Recording {
+        unrecorded: Some("/private/target"),
+        ..Recording::default()
+    };
+
+    let error = failed(followed(
+        &transport,
+        hop(&proving_ground, "/redirect/robots"),
+        &defaults(),
+        &gate,
+    ));
+
+    assert_eq!(
+        (
+            error.code(),
+            requests_for(&proving_ground, HOST, "/redirect/robots").len(),
+            requests_for(&proving_ground, HOST, "/private/target").len(),
+            *gate.released.lock().unwrap(),
+        ),
+        ("response_unavailable", 1, 0, 1)
+    );
+}
+
 /// A chain whose document another request's chain reached first, its key
 /// recorded meanwhile, ends `skipped` with `duplicate` once that document
 /// arrived, never answered as its own (ADR 0120); a chain with no redirect
@@ -738,7 +783,7 @@ fn a_first_hop_refused_at_its_connection_ends_skipped_with_domain_policy() {
         skipped.map(|fetched| fetched.url)
     );
     assert!(
-        matches!(&failed, Err(Stop::Failed(error)) if error.code() == NAVIGATION_FAILED.name),
+        matches!(&failed, Err(Stop::Failed(failure)) if failure.error().code() == NAVIGATION_FAILED.name),
         "{:?}",
         failed.map(|fetched| fetched.url)
     );

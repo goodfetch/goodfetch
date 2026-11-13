@@ -1,5 +1,5 @@
 //! `xtask compare` (ADRs 0134 and 0138): the comparison matrix, Foxhound
-//! against the crawlers nearest it (Spider, Crawlee and Scrapy), on one machine with nothing else
+//! against the crawlers nearest it (Spider, Crawlee, Scrapy and crawlee-rs), on one machine with nothing else
 //! running. Each scenario sets every tool to the closest equivalent
 //! configuration and the report writes that mapping; a tool that cannot do
 //! a scenario has a cell saying so, and a Foxhound value that does not
@@ -8,24 +8,32 @@
 //! capacity that loses none, and labelled sensitivity rows beside them run
 //! it one setting apart (#2213). `run` crawls each scenario's 1,000-page Proving ground site
 //! (`scale.test`'s, the multi-domain site for the polite scenario, the
-//! script-rendered site for the headless browser) with each measured cell's
-//! tool in the declared number of trials, interleaved in random order, each
-//! tool in a fresh process at the same concurrency and, in a run of the
-//! full trials, once the machine is quiet, measuring every metric of the
-//! owner's list from outside the tools, each executable dropped from the
-//! page cache before its trial; then crawls scenario 1's main cells of
-//! Foxhound and Spider again at 100, 1,000 and 10,000 pages, each at 1, 16
-//! and 64 in flight (Spider not at 1, where its crawl stops short), for
-//! their peak memory (spec #2165); then
+//! script-rendered site for the headless browser, the realistic-page site
+//! for its scenario, and a 100,000-page site for the long one, which runs
+//! only its timed trials) with each measured cell's tool in the declared
+//! number of trials, interleaved in random order, each tool in a fresh
+//! process at the same concurrency (64 and 256 in the concurrency sweep's
+//! scenarios, which with the realistic-page and long scenarios run scenario
+//! 1's settings and carry no bar, #2316) and, in a run of the full trials,
+//! once the machine is quiet, measuring every metric of the owner's list
+//! from outside the tools, each executable dropped from the page cache
+//! before its trial; then crawls scenario 1's main cells of Foxhound and
+//! Spider again at 100, 1,000 and 10,000 pages, each at 1, 16 and 64 in
+//! flight (Spider not at 1, where its crawl stops short), for their peak
+//! memory (spec #2165); then
 //! counts each cell's system calls under strace, stopping a run whose crawl
 //! stalls and leaving its cell not measured, crawls the 100,000-page
 //! site for the growth of resident memory when asked, and counts scenario
 //! 1's instructions per page under Callgrind, which gives
 //! `foxhound.spider_instruction_ratio` (ADR 0140) on each tool's main row.
-//! `report` holds every
+//! The hostile pages' passes (#2439) instead crawl the Proving ground's
+//! `traps` and `limits` tasks a few times and count the rules each tool
+//! broke there, from the Proving ground's findings, with no bar and no
+//! standing. `report` holds every
 //! trial to the same-work check, then writes each cell's median and spread
-//! of every metric, labelled `local-controlled` with the machine and never
-//! published (ADR 0076); otherwise it fails naming each trial that did
+//! of every metric and Foxhound's verdicts against each competitor,
+//! labelled `local-controlled`, measured on the machine it names, with the
+//! command that reruns it; otherwise it fails naming each trial that did
 //! other work. It is no Live check, gates nothing and declares no Feature.
 #![expect(
     clippy::disallowed_methods,
@@ -33,9 +41,11 @@
 )]
 
 mod foxhound;
+mod hostile;
 mod matrix;
 mod observed;
 mod report;
+mod rerun;
 mod run;
 mod same_work;
 mod sampler;
@@ -56,6 +66,12 @@ use crate::test_tools::{Tool, ToolManifest};
 use matrix::Scenario;
 use trials::Comparison;
 
+/// Crawlee's side's script, as the recipe runs it.
+const CRAWLEE: &str = "xtask/compare-crawlee/crawl.mjs";
+/// Scrapy's side's script, as the recipe runs it.
+const SCRAPY: &str = "xtask/compare-scrapy/crawl.py";
+/// The trials file the recipe writes.
+const TRIALS_FILE: &str = "target/compare/trials.json";
 /// The folder beside the trials file where a run keeps the Callgrind cell's
 /// outputs.
 const CALLGRIND_OUTPUTS: &str = "callgrind";
@@ -81,10 +97,11 @@ pub(crate) struct RunArguments {
     /// executables.
     #[arg(long)]
     tools: PathBuf,
-    /// The folder of Spider's side's builds: `xtask/compare-spider` built
+    /// The folder of the Rust sides' builds: `xtask/compare-spider` built
     /// once for each build the matrix's Spider rows run, each into the
     /// target folder of its name under this one (`spider`, `spider-chrome`,
-    /// `spider-bloom` and so on).
+    /// `spider-bloom` and so on), and `xtask/compare-crawlee-rs` built into
+    /// `crawlee-rs`.
     #[arg(long)]
     spider_builds: PathBuf,
     /// The folder Cargo names after the profile those builds were made
@@ -98,15 +115,15 @@ pub(crate) struct RunArguments {
     browser: Option<PathBuf>,
     /// Crawlee's side, `xtask/compare-crawlee`'s script, run by Node.js
     /// once its packages are installed beside it.
-    #[arg(long, default_value = "xtask/compare-crawlee/crawl.mjs")]
+    #[arg(long, default_value = CRAWLEE)]
     crawlee: PathBuf,
     /// Scrapy's side, `xtask/compare-scrapy`'s script, run by the Python
     /// environment `uv sync` makes beside it.
-    #[arg(long, default_value = "xtask/compare-scrapy/crawl.py")]
+    #[arg(long, default_value = SCRAPY)]
     scrapy: PathBuf,
     /// The trials file written; the report goes beside it, and the
     /// Callgrind cell's outputs into `callgrind/` beside it.
-    #[arg(long, default_value = "target/compare/trials.json")]
+    #[arg(long, default_value = TRIALS_FILE)]
     out: PathBuf,
     /// Also runs the growth cell: each measured cell crawls the
     /// 100,000-page site, hours at `run_state.durability: full`.
@@ -124,6 +141,11 @@ pub(crate) struct RunArguments {
     /// default.
     #[arg(long = "scenario", value_enum)]
     scenarios: Vec<Scenario>,
+    /// The machine's name, which the report names it by, such as "Hetzner
+    /// Cloud CCX43, 16 dedicated vCPUs": a reader knows a machine by its
+    /// product or model, not by its CPU's.
+    #[arg(long)]
+    machine: Option<String>,
 }
 
 #[derive(Args)]
@@ -139,6 +161,8 @@ enum Mode {
     Timed,
     Syscalls,
     Callgrind,
+    /// A hostile pages' cell's run (#2439): the rules its tool broke.
+    Rules,
 }
 
 #[derive(Args)]
@@ -207,6 +231,8 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 },
                 String::from_utf8_lossy(&commit.stdout).trim().to_owned(),
                 &run::Options {
+                    machine: arguments.machine.clone(),
+                    command: rerun::of(&arguments),
                     trials: arguments.trials,
                     growth: arguments.growth,
                     spider_pages: arguments.spider_pages,
@@ -242,6 +268,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 Mode::Timed => trial::Mode::Timed,
                 Mode::Syscalls => trial::Mode::Syscalls(output_file()?),
                 Mode::Callgrind => trial::Mode::Callgrind(output_file()?),
+                Mode::Rules => trial::Mode::Rules,
             };
             // Absolute, since a tool other than Foxhound runs in its data
             // folder.
@@ -263,6 +290,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             };
             let line = match plan.mode {
                 trial::Mode::Timed => serde_json::to_string(&plan.timed()?)?,
+                trial::Mode::Rules => serde_json::to_string(&plan.ruled()?)?,
                 trial::Mode::Syscalls(_) | trial::Mode::Callgrind(_) => {
                     serde_json::to_string(&plan.counted()?)?
                 }

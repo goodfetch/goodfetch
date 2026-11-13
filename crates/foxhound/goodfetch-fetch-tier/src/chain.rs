@@ -56,7 +56,7 @@ use goodfetch_protocol::page::{RedirectLimit, TOO_MANY_REDIRECTS, TooManyRedirec
 use serde_json::json;
 use url::Url;
 
-use crate::driver::{Fetched, Hop};
+use crate::driver::{FetchFailure, Fetched, Hop};
 use crate::redirects::{self, Next};
 use crate::refresh::{self, Refresh};
 
@@ -110,8 +110,8 @@ pub struct Skip {
 /// How a chain ends without a document.
 #[derive(Debug)]
 pub enum Stop {
-    /// The attempt fails with this error.
-    Failed(CallError),
+    /// The attempt fails with this failure's error.
+    Failed(FetchFailure),
     /// The request ends `skipped`.
     Skipped(Skip),
     /// A hop's robots.txt could not be read, with no earlier copy, while
@@ -126,6 +126,13 @@ pub enum Stop {
         /// file it then is, as opposed to a healthy domain's redirect.
         on_own_domain: bool,
     },
+}
+
+impl Stop {
+    /// The attempt fails with `failure`'s error.
+    pub fn failed(failure: impl Into<FetchFailure>) -> Self {
+        Self::Failed(failure.into())
+    }
 }
 
 /// A boxed future a [`HopGate`] answers.
@@ -147,7 +154,12 @@ pub trait HopGate: Send + Sync {
     /// first hop, its request's own send, which a rated run sends only
     /// once its domain's sends left it a token: the answer comes once it
     /// may go.
-    fn sending<'a>(&'a self, hop: &'a Hop, lead: bool) -> Gating<'a, ()>;
+    ///
+    /// # Errors
+    ///
+    /// [`Stop::Failed`] when the send could not be recorded: the hop is
+    /// then not sent, since its domain's delay could not be kept.
+    fn sending<'a>(&'a self, hop: &'a Hop, lead: bool) -> Gating<'a, Result<(), Stop>>;
 
     /// Records that `hop`'s answer arrived `latency` after it was sent,
     /// for its domain's adaptive delay.
@@ -180,7 +192,7 @@ pub trait HopGate: Send + Sync {
 /// # Cancel safety
 ///
 /// Dropping the future drops the hop in flight and its permit.
-pub async fn follow<F, Fut>(
+pub async fn follow<F, Fut, E>(
     first: Hop,
     following: &Following,
     gate: &dyn HopGate,
@@ -189,7 +201,8 @@ pub async fn follow<F, Fut>(
 ) -> Result<Fetched, Stop>
 where
     F: FnMut(Hop) -> Fut,
-    Fut: Future<Output = Result<Fetched, CallError>>,
+    Fut: Future<Output = Result<Fetched, E>>,
+    E: Into<FetchFailure>,
 {
     let reading = Arc::new(MarkupRefresh(work.clone()));
     follow_reading(first, following, gate, (clock, owner, &reading), fetch)
@@ -246,7 +259,7 @@ impl Reading for MarkupRefresh {
 /// # Cancel safety
 ///
 /// Those of [`follow`].
-pub(crate) async fn follow_reading<F, Fut, R>(
+pub(crate) async fn follow_reading<F, Fut, E, R>(
     first: Hop,
     following: &Following,
     gate: &dyn HopGate,
@@ -255,7 +268,8 @@ pub(crate) async fn follow_reading<F, Fut, R>(
 ) -> Result<(Fetched, Option<R::Read>), Stop>
 where
     F: FnMut(Hop) -> Fut,
-    Fut: Future<Output = Result<Fetched, CallError>>,
+    Fut: Future<Output = Result<Fetched, E>>,
+    E: Into<FetchFailure>,
     R: Reading,
 {
     let first_url = first.url.to_string();
@@ -263,12 +277,14 @@ where
     let mut hop = first;
     let mut permit: Option<Permit> = None;
     loop {
-        gate.sending(&hop, hops.is_empty()).await;
+        gate.sending(&hop, hops.is_empty()).await?;
         let sent = clock.now();
-        let fetched = fetch(hop.clone()).await.map_err(|error| {
-            if error.code() != EGRESS_REFUSED.name {
-                return Stop::Failed(error);
+        let fetched = fetch(hop.clone()).await.map_err(|failure| {
+            let failure: FetchFailure = failure.into();
+            if failure.error().code() != EGRESS_REFUSED.name {
+                return Stop::Failed(failure);
             }
+            let error = failure.error();
             let what = if hops.is_empty() {
                 "The request to"
             } else {
@@ -296,7 +312,7 @@ where
             }
         };
         if hops.len() >= usize::try_from(following.max).unwrap_or(usize::MAX) {
-            return Err(Stop::Failed(too_many_redirects(
+            return Err(Stop::failed(too_many_redirects(
                 &first_url,
                 hops,
                 following.max,
@@ -337,7 +353,7 @@ async fn next_hop<R: Reading>(
     let location = header(&fetched.headers, "location");
     match redirects::next(hop, fetched.status, location) {
         Next::Follow(next) => return Ok(Step::Next(next)),
-        Next::NotOk(reason) => return Err(Stop::Failed(not_ok(fetched, &reason))),
+        Next::NotOk(reason) => return Err(Stop::failed(not_ok(fetched, &reason))),
         Next::Answer => {}
     }
     if !following.refresh {
@@ -423,7 +439,7 @@ fn retry_after(
         return Ok(None);
     };
     if until.duration_since(now).is_ok_and(|wait| wait > bound) {
-        return Err(Stop::Failed(unavailable(fetched, until)));
+        return Err(Stop::failed(unavailable(fetched, until)));
     }
     Ok(Some(until))
 }

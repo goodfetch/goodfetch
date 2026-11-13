@@ -1,85 +1,46 @@
 use super::{check, strace_runs_of_other_work_set_aside};
 use crate::compare::matrix::{self, Row, Scenario};
 use crate::compare::trials::{
-    Comparison, CountedCell, CountedRun, Declared, GrowthCell, INSTRUCTION_TOOLS, Machine,
-    Measured, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES, SizesCell, Tool, Trial, Work,
+    Comparison, CountedCell, CountedRun, INSTRUCTION_TOOLS, Measured, SIZE_CONCURRENCIES,
+    SIZE_TOOLS, SIZES, SizesCell, Tool, Trial, Work, fixture,
 };
+
+/// The work of a trial that fetched every page of the site of `pages`
+/// pages once, 600 bytes each.
+fn whole(pages: u64) -> Work {
+    Work {
+        pages,
+        missing: Vec::new(),
+        extra: Vec::new(),
+        requests: pages,
+        bytes: 600 * pages,
+        first_bytes: 600 * pages,
+    }
+}
 
 /// The work of a trial that fetched every page of the 4-page site once,
 /// 600 bytes each, plus `again` pages fetched a second time.
 fn work(again: u64) -> Work {
     Work {
-        pages: 4,
-        missing: Vec::new(),
-        extra: Vec::new(),
         requests: 4 + again,
         bytes: 600 * (4 + again),
-        first_bytes: 2400,
+        ..whole(4)
     }
 }
 
 /// Three trials of each measured cell over the 4-page site, each with the
-/// work `work` gives its scenario and number.
+/// work `work` gives its scenario and number; the long scenario's trials
+/// crawl its own site, and each did all of its work.
 fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
-    let trials = matrix::measured()
-        .flat_map(|(cell, config)| {
-            let work = &work;
-            (1..=3).map(move |number| Trial {
-                scenario: cell.scenario,
-                cell: cell.name.to_owned(),
-                tool: config.tool(),
-                number,
-                site_pages: 4,
-                concurrency: 16,
-                load: None,
-                retried: None,
-                measured: Measured {
-                    seconds: 1.0,
-                    work: work(cell.scenario, number),
-                    ..Measured::default()
-                },
-            })
-        })
-        .collect();
-    Comparison {
-        declared: Declared {
-            trials: 3,
-            statistic: "median".to_owned(),
-            concurrency: 16,
-            site: "/sites/4/1".to_owned(),
-            spider: "2.53.9".to_owned(),
-            crawlee: "3.18.2".to_owned(),
-            scrapy: "2.19.0".to_owned(),
-            playwright: "1.64.1".to_owned(),
-            scrapy_playwright: "0.0.48".to_owned(),
-            browser: "156.0.8078.4".to_owned(),
-            scenarios: Scenario::ALL.to_vec(),
+    fixture::comparison(4, |cell, number| Measured {
+        seconds: 1.0,
+        work: if cell.scenario == Scenario::Long {
+            whole(matrix::LONG_PAGES)
+        } else {
+            work(cell.scenario, number)
         },
-        machine: Machine {
-            class: "local-controlled".to_owned(),
-            os: "linux".to_owned(),
-            arch: "x86_64".to_owned(),
-            cpu: "a CPU".to_owned(),
-            threads: 16,
-            load: None,
-        },
-        commit: "0".repeat(40),
-        order_seed: 7,
-        trials,
-        stopped: Vec::new(),
-        syscalls: CountedCell::NotRun {
-            reason: "a test".to_owned(),
-        },
-        growth: GrowthCell::NotRun {
-            reason: "a test".to_owned(),
-        },
-        sizes: SizesCell::NotRun {
-            reason: "a test".to_owned(),
-        },
-        instructions: CountedCell::NotRun {
-            reason: "a test".to_owned(),
-        },
-    }
+        ..Measured::default()
+    })
 }
 
 /// Each finding's kind and subject.
@@ -180,6 +141,7 @@ fn a_raw_trial_that_fetched_a_page_twice_did_other_work() {
             "spider",
             "crawlee",
             "scrapy",
+            "crawlee-rs",
             "spider capacity 4096",
             "spider default features",
             "spider bloom",
@@ -243,6 +205,7 @@ fn a_resumed_trial_whose_pages_were_first_served_other_bytes_did_other_work() {
                 "different_bytes",
                 "durable foxhound periodic trial 3".to_owned()
             ),
+            ("different_bytes", "durable crawlee-rs trial 3".to_owned()),
         ]
     );
 }
@@ -291,13 +254,16 @@ fn a_browser_trial_that_never_rendered_the_links_misses_the_script_rendered_page
 }
 
 /// Three runs of each cell `counts` keeps, each of the work `work` gives
-/// its scenario, cell and number: a counted cell over the 4-page site.
+/// its scenario, cell and number: a counted cell over the 4-page site,
+/// which a scenario that runs only its timed trials has no run in.
 fn counted(
     counts: impl Fn(Scenario, Row, Tool) -> bool,
     work: impl Fn(Scenario, &str, u32) -> Work,
 ) -> CountedCell {
     let runs = matrix::measured()
-        .filter(|(cell, config)| counts(cell.scenario, cell.row, config.tool()))
+        .filter(|(cell, config)| {
+            !cell.scenario.timed_only() && counts(cell.scenario, cell.row, config.tool())
+        })
         .flat_map(|(cell, config)| {
             let work = &work;
             (1..=3).map(move |number| CountedRun {
@@ -454,27 +420,12 @@ fn a_timed_trial_and_a_callgrind_run_of_other_work_still_fail_the_check() {
             ("different_pages", "polite foxhound trial 1".to_owned()),
             ("different_pages", "polite crawlee trial 1".to_owned()),
             ("different_pages", "polite scrapy trial 1".to_owned()),
+            ("different_pages", "polite crawlee-rs trial 1".to_owned()),
             ("different_pages", "raw spider callgrind trial 3".to_owned()),
         ]
     );
     let (_, stopped) = cells_of(&trials.syscalls);
     assert_eq!(stopped, vec![]);
-}
-
-/// What a run's later runs are skipped on: whether it fetched the site's
-/// own pages, each once or more, and no other.
-#[test]
-fn a_run_fetched_the_site_when_it_reached_each_of_its_pages_and_no_other() {
-    assert!(work(0).is_the_site_of(4));
-    assert!(work(1).is_the_site_of(4));
-    assert!(!short().is_the_site_of(4));
-    assert!(
-        !Work {
-            extra: vec!["/sites/4/9".to_owned()],
-            ..work(0)
-        }
-        .is_the_site_of(4)
-    );
 }
 
 /// Three trials of each scenario 1 main cell of Foxhound and Spider at

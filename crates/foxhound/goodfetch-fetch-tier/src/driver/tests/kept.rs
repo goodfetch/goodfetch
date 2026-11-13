@@ -79,7 +79,7 @@ async fn kept(transport: &Endless) -> Result<usize, &'static str> {
     fetch_start(transport, &hop, &bounds, &clock, KEEP)
         .await
         .map(|fetched| fetched.body.len())
-        .map_err(|error| error.code())
+        .map_err(|failure| failure.error().code())
 }
 
 /// A gzip robots.txt of about 100 KB that decodes to 100 MiB gives its

@@ -30,6 +30,7 @@ mod dependency_direction;
 mod egress;
 mod environment;
 mod evict_caches;
+mod existing_code;
 mod features;
 mod fixture_size;
 mod floor_guard;
@@ -197,6 +198,13 @@ enum Command {
     /// used ones that are not the pull-request tier's Linux caches until they
     /// fit (ADR 0061).
     EvictCaches(evict_caches::Arguments),
+    /// An issue's `Existing code` list checked against `main`, and the sweep
+    /// that sets aside a `ready-for-agent` issue whose evidence moved (ADR
+    /// 0144).
+    ExistingCode {
+        #[command(subcommand)]
+        command: existing_code::Command,
+    },
     /// The incremental local gate (ADR 0135): which steps of `just
     /// pre-merge all` a run on a descendant of a gated head reruns, and
     /// each step's recorded result.
@@ -527,6 +535,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         }
         Command::Egress { command } => egress::run(command, environment),
         Command::EvictCaches(arguments) => evict_caches::run(&arguments, environment),
+        Command::ExistingCode { command } => existing_code::run(command, environment),
         Command::Features { command } => features::run(command, environment),
         Command::Gate { command } => gate::run(command, environment),
         Command::FixtureSize => Ok(check::report(&fixture_size::check(root)?)),

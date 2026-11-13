@@ -146,6 +146,13 @@ impl Engine {
         Ok(())
     }
 
+    /// Waits for the Run to end, however it ended: a hostile pages' crawl
+    /// (#2439) is read from what the Proving ground saw, not from its end.
+    pub(crate) fn ended(&mut self) -> Result<()> {
+        self.call("finish", "run.finish", &json!({ "run_id": RUN }))?;
+        Ok(())
+    }
+
     /// Waits for the Run to finish complete, having fetched each page.
     pub(crate) fn finish(&mut self) -> Result<()> {
         let report = self.call("finish", "run.finish", &json!({ "run_id": RUN }))?;
@@ -210,9 +217,16 @@ fn extraction(scenario: Scenario) -> Value {
             "follow": "scope",
             "fields": { "title": { "locator": { "kind": "css", "selector": "title" } } },
         }),
-        Scenario::Raw | Scenario::Durable | Scenario::Polite | Scenario::Browser => {
-            json!({ "formats": {}, "follow": "scope" })
-        }
+        Scenario::Raw
+        | Scenario::Durable
+        | Scenario::Polite
+        | Scenario::Browser
+        | Scenario::Realistic
+        | Scenario::Long
+        | Scenario::Raw64
+        | Scenario::Raw256
+        | Scenario::Hostile
+        | Scenario::Hostile16 => json!({ "formats": {}, "follow": "scope" }),
     }
 }
 
@@ -220,13 +234,19 @@ fn extraction(scenario: Scenario) -> Value {
 /// scenario, whose resume is judged by them, and the extraction scenario,
 /// which writes each page's; scenario 1's maximum-throughput combination
 /// and the headless browser scenario, which asks for its settings, keep
-/// none, as the other tools keep nothing there.
+/// none, as the other tools keep nothing there, nor do #2316's scenarios,
+/// which run scenario 1's settings.
 pub(crate) fn keeps_records(scenario: Scenario) -> bool {
-    matches!(scenario, Scenario::Durable | Scenario::Extraction)
+    matches!(
+        scenario.settings(),
+        Scenario::Durable | Scenario::Extraction
+    )
 }
 
 /// A cell's Run settings, its site's hosts resolved to the Proving ground:
-/// in the polite scenario, Foxhound's defaults with ADR 0086's delay and
+/// in the hostile pages' pass at defaults (#2439), nothing else, every
+/// other setting the catalog's default, `run_state.durability` too; in the
+/// polite scenario, Foxhound's defaults with ADR 0086's delay and
 /// concurrency per domain, the `http` tier and a scope of every host;
 /// otherwise its own Politeness at the crawl's concurrency, no delay,
 /// robots.txt not obeyed and the maximum-throughput combination's switches
@@ -245,13 +265,10 @@ fn settings(
     let mut settings = json!({
         "network": { "resolve": resolve },
         "egress": { "private_ranges": hosts },
-        "run_state": { "durability": durability },
     });
-    if let Some(interval) = commit_interval {
-        settings["run_state"]["commit_interval"] = json!(interval);
-    }
     let concurrency = site.concurrency;
     let added = match scenario {
+        Scenario::Hostile => return settings,
         // ADR 0086's 1 s and 1 in flight per domain, which the catalog
         // holds no default for until the fetch tiers take them (ADR 0086's
         // #684 note).
@@ -264,7 +281,15 @@ fn settings(
         // `docs/throughput.md`): every per-page feature the crawl does not
         // need switched off, its Records kept only where the scenario
         // reads them.
-        Scenario::Raw | Scenario::Durable | Scenario::Extraction | Scenario::Browser => json!({
+        Scenario::Raw
+        | Scenario::Durable
+        | Scenario::Extraction
+        | Scenario::Browser
+        | Scenario::Realistic
+        | Scenario::Long
+        | Scenario::Raw64
+        | Scenario::Raw256
+        | Scenario::Hostile16 => json!({
             "fetch": {
                 "tier": if scenario == Scenario::Browser { "browser" } else { "http" },
                 "block_classification": false,
@@ -284,6 +309,10 @@ fn settings(
     };
     if let (Value::Object(settings), Value::Object(added)) = (&mut settings, added) {
         settings.extend(added);
+    }
+    settings["run_state"] = json!({ "durability": durability });
+    if let Some(interval) = commit_interval {
+        settings["run_state"]["commit_interval"] = json!(interval);
     }
     settings
 }

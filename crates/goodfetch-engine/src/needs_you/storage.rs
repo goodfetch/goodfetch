@@ -13,7 +13,6 @@ use goodfetch_protocol::storage::StorageLevel;
 use serde_json::{Map, Value, json};
 
 use super::{Answering, Changes, NeedsYouSource, Primitives, SourceContext, SourceError};
-use crate::run_index;
 
 /// Each filesystem at `low` or `critical`, with its folder.
 pub fn levels() -> NeedsYouSource {
@@ -90,11 +89,10 @@ impl Primitives for RunsStopped {
         &'a self,
         context: &'a SourceContext,
     ) -> Answering<'a, Result<Vec<NeedsYouItem>, SourceError>> {
-        let path = context.run_index.clone();
-        let version = context.version.clone();
         Box::pin(async move {
             let rows = context
-                .blocking(move || run_index::stopped_by_storage(&path, &version))
+                .run_index
+                .stopped_by_storage()
                 .await
                 .map_err(SourceError::new)?;
             Ok(rows.iter().map(stopped).collect())

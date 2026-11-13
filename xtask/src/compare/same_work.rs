@@ -11,10 +11,12 @@
 //! pages is named for the script-rendered pages it never reached. Each
 //! counted cell and the growth cell are held to it among themselves, as
 //! other cells of the comparison (ADR 0140), and the sizes cell's trials at
-//! each size and concurrency among themselves (spec #2165). A strace run that did other
-//! work fails nothing: strace's slowdown alone can keep a headless browser
-//! crawl from its last pages, so that cell's system calls are not
-//! measured, with the pages the run reached, and the timed figures count
+//! each size and concurrency among themselves (spec #2165). The long
+//! scenario's site is of its own length, and its cells run only their timed
+//! trials. A strace run that did other work fails nothing: strace's
+//! slowdown alone can keep a headless browser crawl from its last pages, so
+//! that cell's system calls are not measured, with the pages the run
+//! reached, and the timed figures count
 //! ([`strace_runs_of_other_work_set_aside`]).
 
 use std::collections::BTreeMap;
@@ -131,6 +133,11 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
     };
     let declared = trials.declared.trials;
     let ran = &trials.declared.scenarios[..];
+    let counted: Vec<Scenario> = ran
+        .iter()
+        .copied()
+        .filter(|scenario| !scenario.timed_only())
+        .collect();
     let raw: &[Scenario] = if ran.contains(&Scenario::Raw) {
         &[Scenario::Raw]
     } else {
@@ -150,7 +157,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         (
             " strace",
             &trials.syscalls,
-            ran,
+            &counted[..],
             &Tool::ALL[..],
             EVERY_ROW,
             "strace counted no system call, so the run measured nothing",
@@ -200,7 +207,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             suffix: " growth".to_owned(),
             declared: *declared,
             site_pages: *site_pages,
-            scenarios: ran,
+            scenarios: &counted,
             tools: &Tool::ALL,
             rows: EVERY_ROW,
             done: of_trials(trials_run),
@@ -294,10 +301,11 @@ fn short_or_past(pass: &Pass<'_>) -> Vec<Finding> {
 fn other_work<'a, 'b>(pass: &'a Pass<'b>) -> Vec<(&'a Done<'b>, Finding)> {
     let mut findings = Vec::new();
     for scenario in pass.scenarios {
+        let site_pages = scenario.site_pages(pass.site_pages);
         let mut whole = Vec::new();
         for done in pass.done.iter().filter(|done| done.scenario == *scenario) {
             let work = done.work;
-            if work.is_the_site_of(pass.site_pages) {
+            if work.is_the_site_of(site_pages) {
                 whole.push(done);
                 continue;
             }
@@ -313,7 +321,7 @@ fn other_work<'a, 'b>(pass: &'a Pass<'b>) -> Vec<(&'a Done<'b>, Finding)> {
                         format!(
                             "{} of the site's {} pages its script links not reached",
                             work.missing.len(),
-                            pass.site_pages.saturating_sub(1)
+                            site_pages.saturating_sub(1)
                         ),
                     ),
                 ));
@@ -327,7 +335,7 @@ fn other_work<'a, 'b>(pass: &'a Pass<'b>) -> Vec<(&'a Done<'b>, Finding)> {
                     format!(
                         "{} of the site's {} pages missing and {} other pages fetched",
                         work.missing.len(),
-                        pass.site_pages,
+                        site_pages,
                         work.extra.len()
                     ),
                 ),
@@ -385,7 +393,8 @@ fn other_work<'a, 'b>(pass: &'a Pass<'b>) -> Vec<(&'a Done<'b>, Finding)> {
 /// stopped runs with what it did and the pages it reached, so the report
 /// reads the cell's system calls as not measured and [`check`] holds
 /// nothing against it. The timed trials, the growth cell and the Callgrind
-/// cell keep the check as it is.
+/// cell keep the check as it is, so a tool that does other work without
+/// strace still fails the report there.
 pub(crate) fn strace_runs_of_other_work_set_aside(trials: &mut Comparison) {
     let Some(pages) = site_pages(&trials.declared.site) else {
         return;
@@ -422,7 +431,8 @@ pub(crate) fn strace_runs_of_other_work_set_aside(trials: &mut Comparison) {
             tool: runs
                 .iter()
                 .find(|run| run.scenario == done.scenario && run.cell == done.cell)
-                .map_or(Tool::Foxhound, |run| run.tool),
+                .expect("invariant: a finding names a run of `runs`")
+                .tool,
             number: done.number,
             reason: format!(
                 "under `strace -f`, run {} did other work, reaching {} of the site's {pages} pages: {}",

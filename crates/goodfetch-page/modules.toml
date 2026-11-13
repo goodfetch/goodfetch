@@ -54,8 +54,9 @@ answers = ["steps"]
 authentication = []
 clean_up = ["steps"]
 hops = []
+lookups = []
 navigations = []
-pipeline = ["answers", "authentication", "hops", "routes", "steps"]
+pipeline = ["answers", "authentication", "hops", "lookups", "routes", "steps"]
 routes = []
 steps = []
 
@@ -91,6 +92,7 @@ bypass = []
 limits = []
 party = []
 relay = ["party"]
+transport = ["limits", "party", "relay"]
 
 # Which of `proxy_provider`'s own modules may import which.
 [submodules.proxy_provider]

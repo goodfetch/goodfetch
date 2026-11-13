@@ -18,7 +18,8 @@
 //! reads run beside the writer, on a bounded group of read-only
 //! connections it keeps ([`readers`], ADR 0138). The writer stops once every handle on it is gone, or once its last write
 //! commits, as a Run's end writes its record: whatever any handle queues
-//! after that is refused (#1763).
+//! after that is refused (#1763). Beside those writes it takes Run-state
+//! batches, rows memory already decided ([`batch`], ADR 0142).
 //!
 //! The file holds its format's `major.minor` (ADR 0066), the Run's own row
 //! and tags, and the tables each contribution of the composition adds, such
@@ -54,22 +55,25 @@ use rusqlite::Connection;
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::clock::Clock;
+use crate::metrics::Metrics;
 use crate::sqlite_store::{
     self, Access, Counting, File, Folder, FormatRefusal, FullFsync, OpenError, Opening, Schema,
-    Synchronous, Wait, WalOnClose,
+    Synchronous, Wait, WalOnClose, run_cached,
 };
 use crate::tasks::TaskOwner;
 use wal_checkpointer::{WalCheckpointer, note_wal_pages, open_wal_checkpointer};
 
+mod batch;
 pub mod install;
 mod readers;
 pub mod run_row;
 mod wal_checkpointer;
 
+pub use batch::{BatchRows, BatchStatement, BatchWriter, SealRequest, SealedBatch, Seals};
 pub(crate) use readers::RunStateReaders;
 
 /// How many writes wait for the writer before their callers wait.
-const MAILBOX: usize = 1024;
+pub(crate) const MAILBOX: usize = 1024;
 
 /// How long the writer's switch of a new file to WAL waits while another
 /// connection holds the file.
@@ -207,7 +211,10 @@ pub const DEFERRING_PAGE_CACHE_KIB: u32 = 128;
 pub const DEFERRED_CHARGES: u64 = 64;
 
 /// How many bytes of WAL the writer lets grow before it asks its
-/// checkpointer for a `PASSIVE` checkpoint (ADR 0138).
+/// checkpointer for a `PASSIVE` checkpoint (ADR 0138). Past twice as many
+/// the writer tries to start the WAL again itself, and a WAL that started
+/// again is truncated to this many (#2323): without a reader holding an
+/// old snapshot, a run file's WAL stays under twice this and one commit.
 pub const WAL_CHECKPOINT_AFTER_BYTES: u64 = 16 * 1024 * 1024;
 
 /// How a run file opens.
@@ -228,6 +235,9 @@ pub struct RunStateOptions {
     /// Where its writer reads the time at `periodic`, at each group and for
     /// the timer of an idle writer (ADR 0059).
     pub clock: Clock,
+    /// Where it reports its WAL's size and the checkpoints a reader
+    /// blocked: none by default.
+    pub metrics: Option<Metrics>,
 }
 
 impl Default for RunStateOptions {
@@ -238,6 +248,7 @@ impl Default for RunStateOptions {
             work: CountedWork::default(),
             wal_checkpoint_after: WAL_CHECKPOINT_AFTER_BYTES,
             clock: Clock::system(),
+            metrics: None,
         }
     }
 }
@@ -460,6 +471,20 @@ where
     T: Send + 'static,
     F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
 {
+    queued_holding(work, ())
+}
+
+/// As [`queued`], the write holding `held` until its commit ended and its
+/// answer is sent, or until the writer drops it unrun.
+fn queued_holding<T, F, H>(
+    work: F,
+    held: H,
+) -> (QueuedWrite, oneshot::Receiver<Result<T, RunStateError>>)
+where
+    T: Send + 'static,
+    F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    H: Send + 'static,
+{
     let (answer, answered) = oneshot::channel();
     let job: QueuedWrite = Box::new(move |transaction: Option<(&Connection, &Path)>| {
         let mut ends_group = None;
@@ -476,6 +501,7 @@ where
         };
         let completion: Completion = Box::new(move |committed: Result<(), RunStateError>| {
             let _ = answer.send(committed.and(done));
+            drop(held);
         });
         (completion, ends_group)
     });
@@ -548,6 +574,7 @@ pub struct RunState {
     epoch: u64,
     watched: std::sync::Arc<Watched>,
     readers: std::sync::Arc<RunStateReaders>,
+    batches: std::sync::Arc<batch::Batches>,
 }
 
 /// What a writer's watchers follow: its acknowledged commits and its first
@@ -585,7 +612,7 @@ impl RunState {
         let (connection, deferring, declared, checkpointing) = owner
             .blocking(move || open_connections(&opened_path, &opened, &tables))
             .await?;
-        let checkpointer = WalCheckpointer::start(&path, options, checkpointing, owner)
+        let mut checkpointer = WalCheckpointer::start(&path, options, checkpointing, owner)
             .map_err(|error| sqlite_error(&path, &error))?;
         let (mailbox, jobs) = mpsc::channel(MAILBOX);
         let actor_path = path.clone();
@@ -657,7 +684,7 @@ impl RunState {
                     if let Some(interval) = &mut interval {
                         interval.committed(planned.synced);
                     }
-                    checkpointer.committed(last.is_some());
+                    checkpointer.committed(&connection.connection, &actor_path, last.is_some());
                 }
                 for queued in refused {
                     (queued.write)(None).0(Err(RunStateError::Closed));
@@ -675,6 +702,7 @@ impl RunState {
             epoch,
             watched: std::sync::Arc::new(Watched { commits, failures }),
             readers,
+            batches: std::sync::Arc::new(batch::Batches::new()),
         })
     }
 
@@ -1206,7 +1234,8 @@ fn open_file(
             OpenError::Format(refusal) => refusal.into(),
             other => sqlite_error(path, &other),
         })?;
-    tune(&connection, PAGE_CACHE_KIB).map_err(|error| sqlite_error(path, &error))?;
+    tune(&connection, PAGE_CACHE_KIB, options.wal_checkpoint_after)
+        .map_err(|error| sqlite_error(path, &error))?;
     Ok(connection)
 }
 
@@ -1269,7 +1298,12 @@ fn open_deferring(path: &Path, options: &RunStateOptions) -> Result<Connection, 
     }
     .count_commits(&connection)
     .map_err(failed)?;
-    tune(&connection, DEFERRING_PAGE_CACHE_KIB).map_err(failed)?;
+    tune(
+        &connection,
+        DEFERRING_PAGE_CACHE_KIB,
+        options.wal_checkpoint_after,
+    )
+    .map_err(failed)?;
     connection_durability(Synchronous::Normal, Synchronous::Normal)
         .apply(&connection)
         .map_err(failed)?;
@@ -1278,9 +1312,15 @@ fn open_deferring(path: &Path, options: &RunStateOptions) -> Result<Connection, 
 }
 
 /// Sets up a writer's connection beyond its durability: its statement
-/// cache and a page cache of `cache_kib`.
-fn tune(connection: &Connection, cache_kib: u32) -> rusqlite::Result<()> {
+/// cache, a page cache of `cache_kib`, and a WAL it truncates to
+/// `wal_limit` bytes at its first commit after the WAL started again.
+fn tune(connection: &Connection, cache_kib: u32, wal_limit: u64) -> rusqlite::Result<()> {
     connection.set_prepared_statement_cache_capacity(STATEMENTS);
+    connection.pragma_update(
+        None,
+        "journal_size_limit",
+        i64::try_from(wal_limit).unwrap_or(i64::MAX),
+    )?;
     // Savepoints' statement journals stay in memory, never in `$TMPDIR`
     // (ADR 0138).
     connection.pragma_update(None, "temp_store", "MEMORY")?;
@@ -1501,14 +1541,6 @@ fn commit_writes(
             Err((completions, commit_error(path, &error)))
         }
     }
-}
-
-/// Runs `statement`, which binds nothing, through `connection`'s statement
-/// cache: the writer's transactions and savepoints prepare once per
-/// connection, not once per group or job, as rusqlite's own transactions
-/// do (ADR 0138).
-pub(crate) fn run_cached(connection: &Connection, statement: &str) -> rusqlite::Result<()> {
-    connection.prepare_cached(statement)?.execute([]).map(drop)
 }
 
 #[cfg(test)]

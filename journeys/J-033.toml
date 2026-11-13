@@ -1,0 +1,64 @@
+#:schema ./journey.schema.json
+id = "J-033"
+title = "Raise a run's Limit from \"Needs you\" at the CLI's prompt, see the run leave the list, then start the program again with its Run ID and see it resume"
+goal = """
+A person's program reads the catalog until a Limit stops its run. The \
+stopped run MUST appear in "Needs you" with the Limit that stopped it while \
+that Limit has nothing left; a person MUST be able to raise the Limit at the \
+CLI's prompt, while a program or agent MUST NOT be able to raise it; once \
+it is raised, the run MUST leave "Needs you"; and starting the program \
+again with the run's Run ID MUST resume the run, which then finishes under \
+the raised Limit."""
+area = 12
+product = "collie"
+status = "active"
+covers = ["story:12-23", "story:12-100"]
+
+[proving_ground]
+seed = 33
+tasks = [
+  { id = "catalog/1", digest = "b39fae1dede97fee09b5d238354a31c16326ceb2ef594a9a77c34af52c2cebcb" },
+]
+
+[surfaces]
+cli = "M3"
+
+[[steps]]
+text = "Set a monthly Limit on the install's requests too small for reading the whole catalog"
+on = "cli"
+
+[[steps]]
+text = "Run a program that reads every product of the catalog under a Run ID of its own, until the Limit stops its run"
+on = "sdk-typescript"
+
+[[steps]]
+text = "Have the program ask to raise the Limit itself"
+on = "sdk-typescript"
+
+[[steps]]
+text = "Read \"Needs you\" with `needs-you list`"
+on = "cli"
+
+[[steps]]
+text = "Raise the Limit at the `usage raise` prompt"
+on = "cli"
+
+[[steps]]
+text = "Start the program again with the run's Run ID"
+on = "sdk-typescript"
+
+[[expect]]
+text = "The Limit stopped the run, `stopped` and `incomplete`, and \"Needs you\" listed it with the Limit that stopped it"
+
+[[expect]]
+text = "The program could not raise the Limit itself: its call was refused with `person_required`"
+
+[[expect]]
+text = "Once a person answered yes at the prompt, the run left \"Needs you\""
+
+[[expect]]
+text = "The program's second start answered `resumed`, and the run finished under the raised Limit"
+
+[[expect]]
+text = "The oracle verifies the resumed run's result"
+task = "catalog/1"

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use crate::affected::repository;
 use crate::merge_pr::{NO_PROCESS, until};
-use crate::workspace::Workspace;
+use crate::workspace::{Workspace, write_executable};
 
 /// A stand-in `just` that appends its arguments, with `GOODFETCH_GATE_FULL`,
 /// to `calls`, prints `compare`'s content as `just _gate-compare`, and fails
@@ -65,12 +65,6 @@ fi
     // A stand-in LazyFS build, which the backstop asks for before any step.
     write_executable(&folder.join("lazyfs"), "#!/bin/sh\n");
     folder
-}
-
-fn write_executable(path: &Path, contents: &str) {
-    use std::os::unix::fs::PermissionsExt as _;
-    std::fs::write(path, contents).unwrap();
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 struct Run {
@@ -921,6 +915,50 @@ fn a_sweep_that_fails_only_warns() {
         "{}",
         run.results
     );
+}
+
+/// The merge gate's backstop runs ADR 0144's sweep of the tracker for real:
+/// once the day's line is written, green or red, and before its worktree's
+/// `target/` is swept, every `ready-for-agent` issue whose `Existing code` list
+/// no longer holds is set aside. A sweep that fails, on a tracker or a token,
+/// changes no verdict: the run warns and keeps its line.
+#[rstest::rstest]
+#[case::a_green_run("", Some(0), false)]
+#[case::a_red_run("pre-merge all\n", Some(1), false)]
+#[case::a_sweep_that_fails("existing-code-sweep --apply\n", Some(0), true)]
+fn once_its_line_is_written_the_backstop_sweeps_the_tracker(
+    #[case] failing: &str,
+    #[case] code: Option<i32>,
+    #[case] warned: bool,
+) {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("failing"), failing).unwrap();
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, code, "{}", run.log);
+    let position = |prefix: &str| {
+        run.calls
+            .iter()
+            .position(|call| call.starts_with(prefix))
+            .unwrap_or_else(|| panic!("no call {prefix}: {:?}", run.calls))
+    };
+    let tracker_sweep = position("existing-code-sweep --apply|");
+    assert!(
+        position("pre-merge all|1") < tracker_sweep,
+        "{:?}",
+        run.calls
+    );
+    assert!(tracker_sweep < position("sweep-target "), "{:?}", run.calls);
+    assert_eq!(
+        run.log
+            .contains("warning: the backstop did not sweep the tracker's `ready-for-agent` issues"),
+        warned,
+        "{}",
+        run.log
+    );
+    assert_eq!(run.results.lines().count(), 1, "{}", run.results);
 }
 
 /// The backstop's full run is a second gate's worth of suites, and two of

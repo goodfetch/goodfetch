@@ -8,3 +8,21 @@
 # With no revision, the check reports that it has not run yet. `xtask perf build`
 # fails when this file is missing.
 revision = "5d900125ec3eeaf15cbea22289cee3f3d9e283ef"
+
+# Each figure the owner accepted over 1.10 times the reference, by a note of
+# ADR 0140: `xtask perf` holds it to `up_to` instead (with the register's
+# 0.5 % for a figure read under Valgrind), fails it past that, and fails the
+# entry once the figure is back within 1.10 times its reference. A release's
+# pin starts the list again.
+
+[[accepted]]
+figure = "goodfetch-frontier/instructions::frontier::enqueue/no_urls instructions"
+up_to = 5109874
+cause = "#2489's rules_cursors and rules_ended tables, made with the run file's set-up, which this bench (the seed alone) measures"
+decision = "ADR 0140, note of 2026-11-13"
+
+[[accepted]]
+figure = "goodfetch-frontier/heap::frontier::enqueue/no_urls total-allocations"
+up_to = 2666
+cause = "#2489's rules_cursors and rules_ended tables, made with the run file's set-up, which this bench (the seed alone) measures"
+decision = "ADR 0140, note of 2026-11-13"

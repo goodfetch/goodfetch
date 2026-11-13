@@ -25,7 +25,6 @@ use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallContext, CallError, Handler};
-use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_frontier::Scope;
 use goodfetch_frontier::payload::PayloadRules;
 use goodfetch_protocol::events::{CREDIT, CreditParams};
@@ -90,14 +89,6 @@ fn unwritten(run_id: &RunId, error: &impl std::fmt::Display) -> CallError {
     )
 }
 
-/// Refuses a sitemap seed among `seeds` added to `run` while it sets a
-/// proxy, as the crawl's start refuses one (#1640).
-fn check_beside_a_proxy(run: &Run, seeds: &[Seed]) -> Result<(), CallError> {
-    run.settings().map_or(Ok(()), |settings| {
-        FetchTiers::check_seeds(settings.resolved(), seeds)
-    })
-}
-
 async fn add_seed(
     params: RunAddSeedParams,
     _context: CallContext,
@@ -119,7 +110,6 @@ async fn add_seed(
         seed,
         attempt,
     } = params;
-    check_beside_a_proxy(&run, std::slice::from_ref(&seed))?;
     let bound = attempt.clone();
     let work = run.metrics().counted_work().clone();
     let answered = run
@@ -238,7 +228,7 @@ async fn add_seeds(
         let Some(batch) = input.next().await? else {
             return Ok(added);
         };
-        let batch: SeedBatch = serde_json::from_value(batch).map_err(|error| {
+        let batch: SeedBatch = batch.read().map_err(|error| {
             CallError::protocol(
                 ProtocolFailure::InvalidParams,
                 format!("A `$/seeds` batch holds no seeds: {error}"),
@@ -254,7 +244,6 @@ async fn add_seeds(
             ));
         }
         credits -= taken;
-        check_beside_a_proxy(&run, &batch.seeds)?;
         let answers = admit_batch(&run, (&egress, &intake), &params.run_id, batch.seeds).await?;
         seeded.notify_one();
         for answer in &answers {

@@ -21,13 +21,14 @@ use goodfetch_protocol::run::{RunId, RunKind, Tags};
 use tokio_util::sync::CancellationToken;
 
 use super::run::{call, index_row, run_folder, run_row};
-use super::{Client, attached_on, dependencies, engine, engine_with};
+use super::{Client, attached_on, dependencies, engine, engine_with, records_of};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, Succession};
-use crate::engine::Engine;
+use crate::engine::{Dependencies, Engine};
 use crate::ops::Ops;
-use crate::runs::{EndedBy, Start, Started};
+use crate::runs::{EndedBy, Run, Start, Started};
+use crate::tasks::BlockingPolicy;
 use crate::transport::{self, InMemoryDialer, Network};
 
 mod listener;
@@ -94,6 +95,29 @@ pub(super) fn the_pick() -> DaemonOptions {
     options(true, &no_handover())
 }
 
+/// A Succession that is not the pick, whose handover, once begun, waits on
+/// its blocking thread until the test lets it go.
+struct Gated {
+    begun: Handovers,
+    #[expect(
+        clippy::disallowed_types,
+        reason = "it only makes the receiver shareable for the one handover that waits on it: no lock order to test under loom (ADR 0060)"
+    )]
+    go: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl Succession for Gated {
+    fn is_pick(&self) -> bool {
+        false
+    }
+
+    fn begin_handover(&self) -> Box<dyn Send> {
+        self.begun.send_modify(|count| *count += 1);
+        let _ = self.go.lock().unwrap().recv();
+        Box::new("the start lock")
+    }
+}
+
 /// Runs `engine` as a Daemon with `options` in `env` while `body` dials it,
 /// on the tests' paused runtime, and answers how it ended and what `body`
 /// answered. As in `attached_with`, the test `tracing` subscriber writes the
@@ -108,8 +132,58 @@ where
     F: FnOnce(InMemoryDialer) -> Fut,
     Fut: Future<Output = T>,
 {
+    on_daemon_runtime(
+        env,
+        BlockingPolicy::Inline,
+        |dependencies, listener, dialer| async move {
+            tokio::join!(
+                engine.run_daemon(listener, dependencies, options),
+                body(dialer)
+            )
+        },
+    )
+}
+
+/// [`daemon`], its blocking work under `blocking`, its end none when it did
+/// not end within `bound` on its `Clock`.
+pub(super) fn daemon_within<F, Fut, T>(
+    engine: &Engine,
+    env: &TestEnv,
+    blocking: BlockingPolicy,
+    options: DaemonOptions,
+    bound: Duration,
+    body: F,
+) -> (Option<DaemonEnd>, T)
+where
+    F: FnOnce(InMemoryDialer) -> Fut,
+    Fut: Future<Output = T>,
+{
+    on_daemon_runtime(env, blocking, |dependencies, listener, dialer| async move {
+        let clock = dependencies.clock;
+        let ended = async {
+            tokio::select! {
+                end = engine.run_daemon(listener, dependencies, options) => Some(end),
+                () = clock.sleep(bound) => None,
+            }
+        };
+        tokio::join!(ended, body(dialer))
+    })
+}
+
+/// Runs what `daemon` makes of the engine's dependencies in `env`, its
+/// blocking work under `blocking`, a listener on the in-memory network and
+/// its dialer, on the tests' paused runtime, with the test `tracing`
+/// subscriber.
+fn on_daemon_runtime<F, Fut, T>(env: &TestEnv, blocking: BlockingPolicy, daemon: F) -> T
+where
+    F: FnOnce(Dependencies, transport::DaemonListener, InMemoryDialer) -> Fut,
+    Fut: Future<Output = T>,
+{
     goodfetch_test_support::runtime().block_on(async {
-        let dependencies = dependencies(env);
+        let dependencies = Dependencies {
+            blocking,
+            ..dependencies(env)
+        };
         let clock = dependencies.clock;
         let unset = tracing::dispatcher::get_default(
             tracing::Dispatch::is::<tracing::subscriber::NoSubscriber>,
@@ -124,10 +198,7 @@ where
             .listen(std::path::Path::new("daemon.sock"))
             .await
             .unwrap();
-        tokio::join!(
-            engine.run_daemon(listener, dependencies, options),
-            body(dialer)
-        )
+        daemon(dependencies, listener, dialer).await
     })
 }
 
@@ -163,7 +234,7 @@ pub(super) fn cli_hello() -> Value {
 
 /// The `hello` of an SDK program's Connection, whose Runs end with it
 /// (ADR 0078).
-fn sdk_hello() -> Value {
+pub(super) fn sdk_hello() -> Value {
     hello_with("collie", "0.1", "sdk_typescript", Some(TOKEN))
 }
 
@@ -819,6 +890,123 @@ fn a_daemon_not_the_pick_hands_over_with_only_a_kennel_left_unless_it_keeps_the_
     );
 }
 
+/// `daemon.stop` that arrives while a handover is decided, beside a
+/// Client's end, never holds the Daemon: the handover goes on, the stop is
+/// answered and changes nothing, and the Daemon ends handed over within a
+/// bound.
+///
+/// Covers: story:3-138, operation:daemon.stop
+#[test]
+fn a_stop_asked_while_a_handover_is_decided_ends_the_daemon_handed_over() {
+    let env = TestEnv::new();
+    let handovers = no_handover();
+    let counted = Arc::clone(&handovers);
+    let (go, gate) = std::sync::mpsc::channel();
+    #[expect(
+        clippy::disallowed_types,
+        reason = "the Gated succession's receiver, as on its field"
+    )]
+    let options = DaemonOptions {
+        succession: Arc::new(Gated {
+            begun: Arc::clone(&handovers),
+            go: std::sync::Mutex::new(gate),
+        }),
+        ..the_pick()
+    };
+
+    let (end, (stopping, refusal)) = daemon_within(
+        &engine(Product::Collie),
+        &env,
+        // The handover waits on a blocking thread, which holds the paused
+        // clock still meanwhile.
+        BlockingPolicy::Threads,
+        options,
+        MINUTE,
+        |dialer| async move {
+            let mut asking = opened(&dialer, kennel_hello(false)).await;
+            let mut leaving = opened(&dialer, kennel_hello(false)).await;
+            let mut refused = connect(&dialer).await;
+            refused
+                .send(&[hello_with("collie", "0.2", "sdk_typescript", Some(TOKEN))])
+                .await;
+            counted
+                .subscribe()
+                .wait_for(|count| *count == 1)
+                .await
+                .unwrap();
+            leaving.close().await;
+            while leaving.next().await.is_some() {}
+            let stopping = call(&mut asking, 1, "daemon.stop", json!({})).await;
+            go.send(()).unwrap();
+            let refusal = refused.next().await.unwrap();
+            refused.close().await;
+            (
+                stopping["result"].clone(),
+                refusal["error"]["data"]["handover"].clone(),
+            )
+        },
+    );
+
+    assert_eq!(
+        (
+            end.map(|end| format!("{end:?}")),
+            stopping,
+            refusal,
+            begun(&handovers)
+        ),
+        (
+            Some("HandedOver".to_owned()),
+            json!({ "live_runs": 0 }),
+            json!(true),
+            1
+        )
+    );
+}
+
+/// A Connection that ends while the Daemon drains, and so receives no end,
+/// waits for room to report its own only until the Daemon's end closes it:
+/// more such ends than the Daemon holds never keep it from ending at its
+/// drain grace.
+///
+/// Covers: story:3-99
+#[test]
+fn connections_that_end_while_the_daemon_drains_never_keep_it_from_ending() {
+    let env = TestEnv::new();
+    let engine = engine_with(Product::Collie, Some(stuck()));
+    let asked = CancellationToken::new();
+
+    let (end, closed) = daemon_within(
+        &engine,
+        &env,
+        BlockingPolicy::Inline,
+        draining(&asked),
+        DRAIN_GRACE + MINUTE,
+        |dialer| async move {
+            let mut client = opened(&dialer, cli_hello()).await;
+            let mut leaving = Vec::new();
+            // More than the 16 ends the Daemon holds before a Connection
+            // waits for room.
+            for _ in 0..17 {
+                leaving.push(opened(&dialer, sdk_hello()).await);
+            }
+            call(&mut client, 1, "test.stuck", json!({ "run_id": "stuck" })).await;
+            asked.cancel();
+            // The drain began, and waits for the stuck Run.
+            tokio::time::sleep(MINUTE).await;
+            for mut left in leaving {
+                left.close().await;
+                while left.next().await.is_some() {}
+            }
+            client.next().await.is_none()
+        },
+    );
+
+    assert_eq!(
+        (end.map(|end| format!("{end:?}")), closed),
+        (Some("Drained".to_owned()), true)
+    );
+}
+
 /// Starts a Run its driver ends, which reaches no safe point: its task
 /// never ends, even cancelled, as one whose last write outlasts the drain
 /// grace.
@@ -840,36 +1028,46 @@ const STUCK: goodfetch_protocol::catalog::Operation = goodfetch_protocol::catalo
 };
 
 pub(super) fn stuck() -> Contribution {
-    Contribution::new("test-stuck").with_handler(Handler::new(
-        &STUCK,
-        |params: Value, context: CallContext| async move {
-            let started = context
-                .runs()
-                .start(Start {
-                    run_id: Some(RunId::parse(params["run_id"].as_str().unwrap()).unwrap()),
-                    tags: Tags::default(),
-                    kind: RunKind::Collie,
-                    needs: Product::Collie,
-                    inputs: BTreeMap::new(),
-                    ended_by: EndedBy::Driver,
-                    initialize: None,
-                    policy_version: None,
-                    weakened: Vec::new(),
-                    binding: None,
-                    clean_up_digest: None,
-                    checkpoint_interval: None,
-                    timeout: None,
-                    settings: None,
-                })
-                .await
-                .unwrap();
-            let Started::New(run) = started else {
-                panic!("the Run began before");
-            };
-            run.spawn(std::future::pending());
-            Ok::<Value, CallError>(json!({ "run_id": run.id().to_string() }))
-        },
-    ))
+    Contribution::new("test-stuck").with_handler(stuck_handler())
+}
+
+/// The handler of `test.stuck`, for a contribution that carries other
+/// calls too.
+pub(super) fn stuck_handler() -> Handler {
+    Handler::new(&STUCK, |params: Value, context: CallContext| async move {
+        let run = driven(&context, &params).await;
+        run.spawn(std::future::pending());
+        Ok::<Value, CallError>(json!({ "run_id": run.id().to_string() }))
+    })
+}
+
+/// The new Run of the Run ID in `params`, which its driver ends, begun
+/// for a call in `context`.
+pub(super) async fn driven(context: &CallContext, params: &Value) -> Run {
+    let started = context
+        .runs()
+        .start(Start {
+            run_id: Some(RunId::parse(params["run_id"].as_str().unwrap()).unwrap()),
+            tags: Tags::default(),
+            kind: RunKind::Collie,
+            needs: Product::Collie,
+            inputs: BTreeMap::new(),
+            ended_by: EndedBy::Driver,
+            initialize: None,
+            policy_version: None,
+            weakened: Vec::new(),
+            binding: None,
+            clean_up_digest: None,
+            checkpoint_interval: None,
+            timeout: None,
+            settings: None,
+        })
+        .await
+        .unwrap();
+    let Started::New(run) = started else {
+        panic!("the Run began before");
+    };
+    run
 }
 
 /// The pick, kept alive as `daemon run` is, draining once `asked` is
@@ -938,7 +1136,8 @@ fn a_drained_daemon_stops_each_live_run_with_a_checkpoint_resumable_by_its_run_i
 
 /// A draining Daemon takes no run, starting or resuming, and ends once its
 /// drain grace passes on its `Clock`; a Run that reached no safe point by
-/// then stays `running`, resumable from its run file (ADR 0049).
+/// then stays `running`, resumable from its run file (ADR 0049), and the
+/// Daemon logs how many it left so.
 ///
 /// Covers: story:3-99, error:daemon_draining
 #[test]
@@ -947,17 +1146,27 @@ fn a_draining_daemon_refuses_runs_and_ends_at_its_grace_leaving_a_stuck_run_resu
     let engine = engine_with(Product::Collie, Some(stuck()));
     let asked = CancellationToken::new();
 
-    let (end, refusals) = daemon(&engine, &env, draining(&asked), |dialer| async move {
-        let mut client = opened(&dialer, cli_hello()).await;
-        call(&mut client, 1, "test.stuck", json!({ "run_id": "stuck" })).await;
-        asked.cancel();
-        // The drain began, and waits for the stuck Run.
-        tokio::time::sleep(MINUTE).await;
-        let started = call(&mut client, 2, "run.start", json!({ "run_id": "late" })).await;
-        let resumed = call(&mut client, 3, "run.resume", json!({ "run_id": "stuck" })).await;
-        while client.next().await.is_some() {}
-        [started, resumed].map(|refused| refused["error"]["data"]["code"].clone())
+    let mut ended = None;
+    let records = records_of("goodfetch_engine::daemon", || {
+        ended = Some(daemon(
+            &engine,
+            &env,
+            draining(&asked),
+            |dialer| async move {
+                let mut client = opened(&dialer, cli_hello()).await;
+                call(&mut client, 1, "test.stuck", json!({ "run_id": "stuck" })).await;
+                asked.cancel();
+                // The drain began, and waits for the stuck Run.
+                tokio::time::sleep(MINUTE).await;
+                let started = call(&mut client, 2, "run.start", json!({ "run_id": "late" })).await;
+                let resumed =
+                    call(&mut client, 3, "run.resume", json!({ "run_id": "stuck" })).await;
+                while client.next().await.is_some() {}
+                [started, resumed].map(|refused| refused["error"]["data"]["code"].clone())
+            },
+        ));
     });
+    let (end, refusals) = ended.unwrap();
 
     assert_eq!(
         (
@@ -966,6 +1175,11 @@ fn a_draining_daemon_refuses_runs_and_ends_at_its_grace_leaving_a_stuck_run_resu
             run_row(&run_folder(&env, "stuck"))["lifecycle"].clone(),
             run_folder(&env, "late").exists(),
             resumed(&engine, &env, "stuck"),
+            // Its warning at the grace, not its count when the drain began.
+            records
+                .iter()
+                .any(|record| record.starts_with(": the drain grace passed")
+                    && record.contains("live_runs=1")),
         ),
         (
             "Drained".to_owned(),
@@ -973,6 +1187,8 @@ fn a_draining_daemon_refuses_runs_and_ends_at_its_grace_leaving_a_stuck_run_resu
             json!("running"),
             false,
             json!("resumed"),
-        )
+            true,
+        ),
+        "{records:#?}"
     );
 }

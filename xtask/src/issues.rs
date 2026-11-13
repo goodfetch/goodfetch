@@ -25,6 +25,7 @@ pub(crate) enum Label {
     FlakyTest,
     LiveCheck,
     NeedsTriage,
+    ReadyForAgent,
     Watchlist,
 }
 
@@ -34,6 +35,7 @@ impl Label {
             Self::FlakyTest => "flaky-test",
             Self::LiveCheck => "live-check",
             Self::NeedsTriage => "needs-triage",
+            Self::ReadyForAgent => "ready-for-agent",
             Self::Watchlist => "watchlist",
         }
     }

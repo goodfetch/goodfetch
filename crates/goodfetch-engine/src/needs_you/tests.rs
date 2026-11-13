@@ -16,7 +16,6 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{EngineInstance, ProductVersion};
-use goodfetch_protocol::events::EventEnvelope;
 use goodfetch_protocol::needs_you::{
     NeedsYouChange, NeedsYouItem, NeedsYouList, NeedsYouListParams, NeedsYouRemoval, PAGE,
 };
@@ -34,6 +33,7 @@ use crate::governor::StorageSample;
 use crate::home::Home;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
+use crate::run_index::RunIndex;
 use crate::settings::{Settings, SettingsFiles};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -130,8 +130,12 @@ async fn started(index: &Path, sources: Vec<NeedsYouSource>) -> Started {
     let context = SourceContext {
         clock: Clock::paused(UNIX_EPOCH + Duration::from_hours(500_000)),
         storage: watch::channel(Arc::new(StorageSample::default())).1,
-        run_index: index.to_owned(),
-        version: ProductVersion::parse("1.0.0").unwrap(),
+        run_index: RunIndex::of(
+            index.to_owned(),
+            &ProductVersion::parse("1.0.0").unwrap(),
+            None,
+            Arc::new(owner.child()),
+        ),
         ledger: Ledger::at(index.with_file_name("usage.sqlite"), None),
         settings: Settings::new(
             SettingsFiles::of(
@@ -144,6 +148,7 @@ async fn started(index: &Path, sources: Vec<NeedsYouSource>) -> Started {
         known_certificates: KnownCertificates::of(
             &Home::new(index.parent().unwrap().to_owned()),
             None,
+            Arc::new(owner.child()),
         ),
         owner: Arc::new(owner.child()),
     };
@@ -160,10 +165,11 @@ impl Started {
     async fn changes(&mut self, count: usize) -> Vec<NeedsYouChange> {
         let mut changes = Vec::new();
         while changes.len() < count {
-            let taken: Vec<EventEnvelope> = self.changes.next(count - changes.len()).await.unwrap();
+            let taken: Vec<crate::events::Envelope> =
+                self.changes.next(count - changes.len()).await.unwrap();
             changes.extend(taken.into_iter().map(|envelope| {
                 assert_eq!(envelope.event, "needs_you.changed");
-                serde_json::from_value::<NeedsYouChange>(envelope.data).unwrap()
+                serde_json::from_str::<NeedsYouChange>(envelope.data.json()).unwrap()
             }));
         }
         changes

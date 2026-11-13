@@ -63,7 +63,7 @@ fn inputs(released: &Arc<Notify>) -> Contribution {
                         let Some(input) = context.input().next().await? else {
                             break;
                         };
-                        read.push(input["number"].clone());
+                        read.push(input.read::<Value>().unwrap()["number"].clone());
                     }
                     Ok::<Value, CallError>(json!({ "read": read }))
                 }

@@ -248,6 +248,8 @@ fn a_run_hands_over_its_trials_after_each_part_before_callgrind() {
     };
     // No scenario, so no cell: every part runs, over nothing.
     let options = Options {
+        machine: None,
+        command: "just compare release".to_owned(),
         trials: 1,
         growth: false,
         spider_pages: None,

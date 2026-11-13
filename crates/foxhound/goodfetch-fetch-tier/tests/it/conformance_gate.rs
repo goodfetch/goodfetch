@@ -12,7 +12,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::response_limits::Limits;
-use goodfetch_fetch_tier::{FetchBounds, Fetched, Hop, Transport, fetch};
+use goodfetch_fetch_tier::{FetchBounds, FetchFailure, Fetched, Hop, Transport, fetch};
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use rstest::rstest;
@@ -43,7 +43,9 @@ fn fetched(
     deadlines: &FetchBounds,
 ) -> Result<Fetched, CallError> {
     let hop = Hop::get(Url::parse(&proving_ground.url(host, path)).unwrap());
-    running_clock_runtime().block_on(fetch(transport, &hop, deadlines, &Clock::system()))
+    running_clock_runtime()
+        .block_on(fetch(transport, &hop, deadlines, &Clock::system()))
+        .map_err(FetchFailure::into_error)
 }
 
 /// The error's code and its details' network error.

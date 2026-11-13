@@ -51,9 +51,9 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{Product, Reach};
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, ENGINE_PANICKED,
-    EnginePanickedDetails, HELLO, HelloParams, PERSON_REQUIRED, PanicEnded, PrivateEndpoint,
-    StoppedBy, Surface, TOO_MANY_CALLS, TooManyCallsDetails,
+    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams,
+    PERSON_REQUIRED, PanicEnded, PrivateEndpoint, StoppedBy, Surface, TOO_MANY_CALLS,
+    TooManyCallsDetails,
 };
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
@@ -129,11 +129,17 @@ pub(crate) struct Dispatch {
     /// Every live Run's resolved values, masked in every message the
     /// Connection sends (spec #564).
     pub(crate) masks: Masks,
+    /// The runtime's metrics, which count a call's panic (ADR 0148), and
+    /// whose Counted work the Connections' messages add to.
+    pub(crate) metrics: Metrics,
+}
+
+impl Dispatch {
     /// The engine's Counted work, what its Connections' messages add to
     /// (ADR 0140's E1).
-    pub(crate) work: CountedWork,
-    /// The runtime's metrics, which count a call's panic (ADR 0148).
-    pub(crate) metrics: Metrics,
+    pub(crate) fn work(&self) -> &CountedWork {
+        self.metrics.counted_work()
+    }
 }
 
 /// How a Connection reached the engine, which says what its `hello` must
@@ -368,7 +374,7 @@ async fn serve_carried(
         writing,
         lines,
         dispatch.masks.clone(),
-        dispatch.work.clone(),
+        dispatch.work().clone(),
     ));
     let metrics = dispatch.metrics.clone();
     let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
@@ -384,14 +390,14 @@ async fn serve_carried(
             () = telling.closed() => {}
         }
     });
-    let (client, requests) = Client::new(dispatch.work.clone());
+    let (client, requests) = Client::new(dispatch.work().clone());
     let daemon = access.daemon();
     let log = dispatch
         .log_events
         .as_ref()
         .map_or_else(ConnectionLog::none, LogEvents::connection);
     let logging = CancellationToken::new();
-    let forwarding = log.forward(outgoing.clone(), dispatch.work.clone());
+    let forwarding = log.forward(outgoing.clone(), dispatch.work().clone());
     let stop_logging = logging.clone();
     owner.spawn(async move {
         // Polled first, it sends every log event already waiting before
@@ -413,7 +419,7 @@ async fn serve_carried(
         engine,
         daemon,
         log,
-        work: dispatch.work.clone(),
+        work: dispatch.work().clone(),
     });
     let mut session = Session {
         dispatch,
@@ -686,7 +692,7 @@ impl Session<'_> {
     async fn handle(&mut self, frame: Frame) -> Flow {
         let incoming = match frame {
             Frame::TooLarge => Err(DecodeError::too_large()),
-            Frame::Line(line) => decode(&line, &self.dispatch.work),
+            Frame::Line(line) => decode(&line, self.dispatch.work()),
         };
         let message = Message::of(incoming);
         let effect = match self.transition(message.event()) {
@@ -815,7 +821,7 @@ impl Session<'_> {
                 if !self.pending.contains_key(&id) {
                     return Flow::Continue;
                 }
-                self.dispatch.work.count(Row::MessageEncodes);
+                self.dispatch.work().count(Row::MessageEncodes);
                 notification_line(CANCEL, &CancelParams { id })
             }
         };
@@ -918,7 +924,7 @@ impl Session<'_> {
                         .private_endpoint
                         .clone_from(private_endpoint);
                 }
-                self.dispatch.work.count(Row::MessageEncodes);
+                self.dispatch.work().count(Row::MessageEncodes);
                 let result = serde_json::to_value(accepted.result)
                     .expect("invariant: a `hello` reply encodes");
                 drop(span);
@@ -1036,7 +1042,7 @@ impl Session<'_> {
                 id.clone(),
                 self.outgoing.clone(),
                 notification_value_line,
-                self.dispatch.work.clone(),
+                self.dispatch.work().clone(),
             );
             let stream = credits
                 .clone()
@@ -1166,7 +1172,7 @@ impl Session<'_> {
             id: RequestId,
         }
         let params = self.params_copied(notification);
-        self.dispatch.work.count(Row::MessageDeepCopies);
+        self.dispatch.work().count(Row::MessageDeepCopies);
         let taker = serde_json::from_value::<Named>(params.clone())
             .ok()
             .and_then(|Named { id }| self.in_flight.get_mut(&id))
@@ -1199,7 +1205,7 @@ impl Session<'_> {
 
     /// A copy of `notification`'s params, counted (ADR 0140's E1).
     fn params_copied(&self, notification: &Notification) -> Value {
-        self.dispatch.work.count(Row::MessageDeepCopies);
+        self.dispatch.work().count(Row::MessageDeepCopies);
         notification.params.clone().unwrap_or(Value::Null)
     }
 
@@ -1283,18 +1289,12 @@ where
 }
 
 /// `engine_panicked` for a call whose handler panicked, counted on
-/// `metrics`: it names the crash report the panic left, when one was
-/// written, and never the panic's own text (ADR 0148). Made where the
-/// panic was caught, on the thread that panicked.
+/// `metrics` ([`crash_report::engine_panicked`]). Made where the panic was
+/// caught, on the thread that panicked.
 fn engine_panicked(metrics: &Metrics) -> CallError {
-    metrics.panicked(PanicEnded::Call);
-    CallError::new(
-        &ENGINE_PANICKED,
+    crash_report::engine_panicked(
+        metrics,
+        PanicEnded::Call,
         "The engine hit a bug in Goodfetch while it served this call, which ended the call; its Connection goes on",
-        &EnginePanickedDetails {
-            ended: PanicEnded::Call,
-            id: None,
-            crash_report: crash_report::take_written(),
-        },
     )
 }

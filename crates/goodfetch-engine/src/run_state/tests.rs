@@ -7,7 +7,9 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+mod batch;
 mod model;
+mod wal;
 
 use std::time::Duration;
 

@@ -4,8 +4,12 @@
 //! the generated script says (Records, a retryable failure, its own
 //! failure, silence until the lease ends, or Records sent only once the
 //! engine cancelled the attempt at its lease's end: a late commit, which
-//! commits nothing), and which may crash or lose power between attempts, or
-//! abort the Run. A reference model of the Run's policy says which work item
+//! commits nothing, or Records whose write the run file refuses, an
+//! outcome not written, which ends as a failed attempt), and which may crash or lose power between attempts, or
+//! abort the Run. Some work items' attempts panic inside the engine, as a
+//! bug would, before their handler request goes (issue 2285): each such
+//! item is tried again up to `crawl.retry.max`, with no handler request,
+//! and ends `failed` with `engine_panicked`, while the others go on. A reference model of the Run's policy says which work item
 //! and attempt each handler request must be, and which Records each commit
 //! holds; the Run's transition table (ADR 0128) is its reference for the
 //! Run's Lifecycle: the driver's finish once no work is left, an abort, the
@@ -37,7 +41,9 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
 use tokio::runtime::Runtime;
 
-use super::{POLICY, as_sent, configure, default_dependencies, dependencies, engine};
+use super::{
+    PANICS, POLICY, as_sent, configure, default_dependencies, dependencies, engine, work_items,
+};
 use crate::policy::CrawlPolicy;
 
 /// The model's crawls take one work item at a time.
@@ -60,6 +66,11 @@ enum Behaviour {
     /// Answers this many Records only once the engine cancelled the
     /// attempt at its lease's end: a late commit, which commits nothing.
     Late(u8),
+    /// Answers this many Records, one at least, whose write the run file
+    /// refuses: the attempt's outcome is not written, so it commits
+    /// nothing and ends as a failed attempt, retried while its work item
+    /// has retries left (issue 2320).
+    Unwritten(u8),
 }
 
 #[derive(Clone, Debug)]
@@ -73,11 +84,13 @@ enum Transition {
     Crash(CrashKind),
 }
 
-/// One work item as the policy moves it.
+/// One work item as the policy moves it; one whose attempts panic is
+/// never handed to the handler.
 #[derive(Clone, Debug, PartialEq)]
 struct Item {
     attempts: u32,
     done: bool,
+    panics: bool,
 }
 
 /// What the Run must hold: each work item, the Records committed for sure,
@@ -95,14 +108,15 @@ struct Model {
 
 impl Model {
     /// The work item the next handler request leases, and its attempt;
-    /// none once the Run ended.
+    /// none once the Run ended. A work item whose attempts panic ends
+    /// before any handler request, so none leases it.
     fn next(&self) -> Option<(usize, u32)> {
         if self.lifecycle != Lifecycle::Running {
             return None;
         }
         self.items
             .iter()
-            .position(|item| !item.done)
+            .position(|item| !item.done && !item.panics)
             .map(|index| (index, self.items[index].attempts + 1))
     }
 
@@ -155,15 +169,16 @@ impl ReferenceStateMachine for Model {
     type Transition = Transition;
 
     fn init_state() -> BoxedStrategy<Self> {
-        (1_usize..4)
-            .prop_map(|count| Self {
-                items: vec![
-                    Item {
+        prop::collection::vec(prop::bool::weighted(0.25), 1..4)
+            .prop_map(|panics| Self {
+                items: panics
+                    .into_iter()
+                    .map(|panics| Item {
                         attempts: 0,
                         done: false,
-                    };
-                    count
-                ],
+                        panics,
+                    })
+                    .collect(),
                 delivered: 0,
                 committed: Vec::new(),
                 last_answer: Vec::new(),
@@ -180,6 +195,7 @@ impl ReferenceStateMachine for Model {
             1 => Just(Transition::Deliver(Behaviour::FailsItself)),
             1 => Just(Transition::Deliver(Behaviour::Silent)),
             1 => (1_u8..3).prop_map(|count| Transition::Deliver(Behaviour::Late(count))),
+            1 => (1_u8..3).prop_map(|count| Transition::Deliver(Behaviour::Unwritten(count))),
             1 => prop_oneof![Just(CrashKind::Process), Just(CrashKind::PowerCut)].prop_map(Transition::Crash),
             1 => Just(Transition::Abort),
         ]
@@ -221,7 +237,10 @@ impl ReferenceStateMachine for Model {
                     .map(|number| record(index, attempt, number))
                     .collect();
             }
-            Behaviour::FailsRetryably | Behaviour::Silent | Behaviour::Late(_) => {
+            Behaviour::FailsRetryably
+            | Behaviour::Silent
+            | Behaviour::Late(_)
+            | Behaviour::Unwritten(_) => {
                 item.done = !ONE_AT_A_TIME.may_retry(attempt);
             }
             Behaviour::FailsItself => item.done = true,
@@ -317,6 +336,30 @@ impl Subject {
         self.hello();
     }
 
+    /// Has the run file refuse the Records of the `attempt`th attempt of
+    /// the work item at `index`, through a trigger planted beside the
+    /// writer: a write the run file refuses, with no storage failure.
+    fn refuse_records(&self, index: usize, attempt: u32) {
+        let connection = Connection::open_with_flags_and_vfs(
+            self.path(),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+            self.vfs.name(),
+        )
+        .unwrap();
+        connection
+            .busy_timeout(std::time::Duration::from_secs(10))
+            .unwrap();
+        let item = index + 1;
+        connection
+            .execute_batch(&format!(
+                "CREATE TRIGGER IF NOT EXISTS refuse_{item}_{attempt} BEFORE INSERT ON records
+                 WHEN NEW.work_item = '{item}'
+                     AND (SELECT attempts FROM work_items WHERE id = NEW.work_item) = {attempt}
+                 BEGIN SELECT RAISE(ABORT, 'refused by the model'); END"
+            ))
+            .unwrap();
+    }
+
     /// The Records the run file holds now, read beside the writer.
     fn records(&self) -> Vec<Stored> {
         let connection = Connection::open_with_flags_and_vfs(
@@ -326,6 +369,17 @@ impl Subject {
         )
         .unwrap();
         stored_records(&connection)
+    }
+
+    /// Each work item the run file holds now, read beside the writer.
+    fn work_items(&self) -> Vec<(String, String, i64, Option<String>)> {
+        let connection = Connection::open_with_flags_and_vfs(
+            self.path(),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            self.vfs.name(),
+        )
+        .unwrap();
+        work_items(&connection)
     }
 
     /// Closes the Connection and waits for the engine to stop.
@@ -451,7 +505,14 @@ impl StateMachineTest for Subject {
         };
         subject.hello();
         let seeds: Vec<Value> = (1..=model.items.len())
-            .map(|page| json!({ "url": format!("https://shop.test/{page}"), "label": "page" }))
+            .map(|page| {
+                let url = if model.items[page - 1].panics {
+                    format!("https://shop.test{PANICS}?page={page}")
+                } else {
+                    format!("https://shop.test/{page}")
+                };
+                json!({ "url": url, "label": "page" })
+            })
             .collect();
         let params = as_sent(
             "crawl.start",
@@ -524,7 +585,9 @@ impl StateMachineTest for Subject {
                 let attempt =
                     u32::try_from(request["params"]["attempt"].as_u64().unwrap()).unwrap();
                 assert!(
-                    model.items[..index].iter().all(|item| item.done)
+                    model.items[..index]
+                        .iter()
+                        .all(|item| item.done || item.panics)
                         && model.items[index].attempts == attempt,
                     "the engine asked for work item {} attempt {attempt}, which the policy does not give: {model:?}",
                     index + 1
@@ -547,6 +610,11 @@ impl StateMachineTest for Subject {
                     Behaviour::Late(count) => {
                         let records = pushed((0..count).map(|number| record(index, attempt, number)));
                         subject.silent.push((id, records));
+                    }
+                    Behaviour::Unwritten(count) => {
+                        subject.refuse_records(index, attempt);
+                        let records = pushed((0..count).map(|number| record(index, attempt, number)));
+                        subject.send(&json!({ "jsonrpc": "2.0", "id": id, "result": { "records": records } }));
                     }
                 }
             }
@@ -588,6 +656,21 @@ impl StateMachineTest for Subject {
             records.sort_by_key(Value::to_string);
             expected.sort_by_key(Value::to_string);
             assert_eq!(records, expected);
+            // Each work item whose attempts panicked was tried as often as
+            // the retry rule allows, and failed with `engine_panicked`.
+            let panicked: Vec<(String, String, i64, Option<String>)> = subject
+                .work_items()
+                .into_iter()
+                .filter(|(id, ..)| model.items[id.parse::<usize>().unwrap() - 1].panics)
+                .collect();
+            let tries = i64::from(ONE_AT_A_TIME.retry_max) + 1;
+            assert!(
+                panicked.iter().all(|(_, status, attempts, code)| {
+                    (status.as_str(), *attempts, code.as_deref())
+                        == ("failed", tries, Some("engine_panicked"))
+                }),
+                "{panicked:?}"
+            );
         }
         subject.stop();
     }

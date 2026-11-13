@@ -1,7 +1,11 @@
 use std::path::Path;
 
-use super::{order, spider_executable};
+use super::{
+    Executables, Options, counted_output, crawlee_rs_executable, order, run, set_aside,
+    spider_executable,
+};
 use crate::compare::matrix::{self, SpiderBuild};
+use crate::compare::trials::{Comparison, CountedCell, CountedRun, GrowthCell, Tool, Work};
 
 /// Each of Spider's side's builds runs the executable Cargo left in the
 /// build's own target folder, under the profile's: the main row's from
@@ -23,6 +27,41 @@ fn each_spider_build_runs_the_executable_built_in_its_own_folder() {
             Path::new("/t/compare-spider/spider-jemalloc/release/goodfetch-compare-spider")
                 .to_owned(),
         )
+    );
+}
+
+/// Each Callgrind run's output is kept in the run's folder under a name of
+/// its own, its scenario, cell and number, with no space in it, so a later
+/// run of the same cell does not replace it and the reports repository
+/// files it (#2281).
+#[test]
+fn each_callgrind_run_keeps_its_output_under_its_scenario_cell_and_number() {
+    let cell = |name| {
+        matrix::cell(matrix::Scenario::Raw, name).expect("invariant: scenario 1 has this cell")
+    };
+    let kept = Path::new("/t/compare/callgrind");
+
+    assert_eq!(
+        (
+            counted_output(kept, cell("foxhound"), 1),
+            counted_output(kept, cell("foxhound"), 3),
+            counted_output(kept, cell("spider capacity 4096"), 2),
+        ),
+        (
+            Path::new("/t/compare/callgrind/raw-foxhound-1.out").to_owned(),
+            Path::new("/t/compare/callgrind/raw-foxhound-3.out").to_owned(),
+            Path::new("/t/compare/callgrind/raw-spider-capacity-4096-2.out").to_owned(),
+        )
+    );
+}
+
+/// crawlee-rs's side runs the executable Cargo left in its own folder
+/// among the Rust sides' builds, under the profile's.
+#[test]
+fn crawlee_rs_runs_the_executable_built_in_its_folder() {
+    assert_eq!(
+        crawlee_rs_executable(Path::new("/t/compare-spider"), "release"),
+        Path::new("/t/compare-spider/crawlee-rs/release/goodfetch-compare-crawlee-rs")
     );
 }
 
@@ -65,6 +104,7 @@ fn only_a_run_of_the_full_trials_waits_for_a_quiet_machine() {
             growth: false,
             spider_pages: None,
             scenarios: crate::compare::matrix::Scenario::ALL.to_vec(),
+            callgrind_outputs: Path::new("/t/compare/callgrind").to_owned(),
         })
     };
 
@@ -167,5 +207,113 @@ fn a_stopped_timed_trial_is_retried_once() {
             ("done 8 Some(\"stall\")".to_owned(), 2),
             ("stopped: bound; its first attempt: stall".to_owned(), 2),
         )
+    );
+}
+
+/// Under strace, a cell one of whose runs missed a page of the site will
+/// be reported as not measured, so its later runs do not run; another
+/// cell's runs, and a cell whose runs fetched the site, go on.
+#[test]
+fn a_cell_whose_strace_run_missed_pages_runs_no_later_run() {
+    let cell = |name| {
+        matrix::cell(matrix::Scenario::Browser, name)
+            .expect("invariant: the headless browser scenario has this cell")
+    };
+    let run = |name: &str, pages: u64| CountedRun {
+        scenario: matrix::Scenario::Browser,
+        cell: name.to_owned(),
+        tool: Tool::Spider,
+        number: 1,
+        count: 9,
+        syncs: 0,
+        work: Work {
+            pages,
+            missing: (pages + 1..=1000)
+                .map(|page| format!("/sites/1000/{page}"))
+                .collect(),
+            ..Work::default()
+        },
+    };
+    let done = [run("spider", 970), run("crawlee", 1000)];
+
+    assert!(set_aside(&done, cell("spider"), 1000));
+    assert!(!set_aside(&done, cell("crawlee"), 1000));
+    assert!(!set_aside(&done, cell("scrapy"), 1000));
+}
+
+/// A run of hours keeps what it has measured: the trials file's contents
+/// are handed over once the timed trials are in, again once the
+/// system-call cell is and again once the growth cell is, so a failure in
+/// a later cell loses none of them (the base run of #2281 lost 220 trials
+/// to its first Callgrind run). Before its cell has run, the file says the
+/// run did not reach it.
+#[test]
+fn a_run_hands_over_its_trials_after_each_part_before_callgrind() {
+    let nowhere = Path::new("/nowhere");
+    let executables = Executables {
+        proving_ground: nowhere,
+        foxhound: nowhere,
+        spider_builds: nowhere,
+        spider_profile: "release",
+        crawlee: nowhere,
+        scrapy: nowhere,
+        browser: nowhere,
+    };
+    // No scenario, so no cell: every part runs, over nothing.
+    let options = Options {
+        machine: None,
+        command: "just compare release".to_owned(),
+        trials: 1,
+        growth: false,
+        spider_pages: None,
+        scenarios: Vec::new(),
+        callgrind_outputs: nowhere.to_owned(),
+    };
+    let reached = |cell: &CountedCell| match cell {
+        CountedCell::NotRun { reason } => reason.clone(),
+        CountedCell::Measured { .. } => "measured".to_owned(),
+    };
+    let grown = |cell: &GrowthCell| match cell {
+        GrowthCell::NotRun { reason } => reason.clone(),
+        GrowthCell::Measured { .. } => "measured".to_owned(),
+    };
+    let mut kept = Vec::new();
+
+    let whole = run(
+        &executables,
+        "0".repeat(40),
+        &options,
+        &mut |so_far: &Comparison| {
+            kept.push((
+                reached(&so_far.syscalls),
+                grown(&so_far.growth),
+                reached(&so_far.instructions),
+            ));
+            Ok(())
+        },
+    )
+    .unwrap();
+
+    let not_reached = |cell: &str| format!("the run ended before its {cell} cell");
+    let strace = if crate::compare::trial::strace_missing().is_some() {
+        reached(&whole.syscalls)
+    } else {
+        "measured".to_owned()
+    };
+    assert_eq!(
+        kept,
+        vec![
+            (
+                not_reached("system-call"),
+                not_reached("growth"),
+                not_reached("Callgrind")
+            ),
+            (
+                strace.clone(),
+                not_reached("growth"),
+                not_reached("Callgrind")
+            ),
+            (strace, grown(&whole.growth), not_reached("Callgrind")),
+        ]
     );
 }

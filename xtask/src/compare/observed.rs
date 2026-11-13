@@ -158,6 +158,7 @@ pub(crate) fn observe(
     // Each page's first answer, in seconds, and the bytes of that answer.
     let mut first: BTreeMap<u64, f64> = BTreeMap::new();
     let mut extra = BTreeSet::new();
+    let mut redirects = BTreeSet::new();
     let mut first_request = f64::INFINITY;
     for request in &on_site {
         if request["target"] == MARKER && request["connection"] == marker["connection"] {
@@ -172,11 +173,18 @@ pub(crate) fn observe(
             first_request = first_request.min(seconds_of(arrived));
         }
         let target = request["target"].as_str().unwrap_or_default();
-        if request["status"] != 200 {
+        let status = request["status"].as_u64().unwrap_or_default();
+        // A redirect the site answers under its pages' path, such as the
+        // realistic site's moved pages, is work the tool did, but no page:
+        // its page is the one it leads to. Asked for again, it is a
+        // duplicate.
+        let site_get = request["method"] == "GET" && target.starts_with(&site.prefix());
+        let redirect = site_get && (300..400).contains(&status);
+        if status != 200 && !redirect {
             observed.errors += 1;
             continue;
         }
-        if request["method"] != "GET" || !target.starts_with(&site.prefix()) {
+        if !site_get {
             continue;
         }
         let bytes = request["bytes"]["sent"]
@@ -184,6 +192,12 @@ pub(crate) fn observe(
             .with_context(|| format!("the request for {target} counts no bytes sent"))?;
         observed.work.requests += 1;
         observed.work.bytes += bytes;
+        if redirect {
+            if !redirects.insert(target) {
+                observed.duplicates += 1;
+            }
+            continue;
+        }
         let Some(page) = site.page(target) else {
             extra.insert(target.to_owned());
             continue;

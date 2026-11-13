@@ -19,10 +19,12 @@ mod admission;
 mod finishing;
 mod keep_alive;
 mod limits;
+mod lost_outcome;
 mod masking;
 mod metrics;
 mod model;
 mod needs_you;
+mod panics;
 mod progress;
 mod report;
 mod resume;
@@ -30,6 +32,7 @@ mod safe_point;
 mod sent_from;
 mod staging;
 mod verdict;
+mod wal;
 
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -59,6 +62,7 @@ pub(crate) const POLICY: CrawlPolicy = CrawlPolicy {
     handler_timeout: Duration::from_secs(1),
     retry_max: 2,
     retry_handler_failed: false,
+    retry_engine_panicked: true,
     handler_concurrency: 4,
 };
 
@@ -270,10 +274,11 @@ pub(crate) fn configure(env: &TestEnv, policy: CrawlPolicy) {
     std::fs::write(
         folder.join("configuration.toml"),
         format!(
-            "version = \"0.1\"\n\n[settings]\ntimeout.handler = {}\ncrawl.retry.max = {}\ncrawl.retry.handler_failed = {}\ncrawl.handler.concurrency = {}\n",
+            "version = \"0.1\"\n\n[settings]\ntimeout.handler = {}\ncrawl.retry.max = {}\ncrawl.retry.handler_failed = {}\ncrawl.retry.engine_panicked = {}\ncrawl.handler.concurrency = {}\n",
             policy.handler_timeout.as_millis(),
             policy.retry_max,
             policy.retry_handler_failed,
+            policy.retry_engine_panicked,
             policy.handler_concurrency,
         ),
     )
@@ -365,9 +370,17 @@ pub(crate) fn as_sent(method: &str, mut params: Value) -> Value {
     params
 }
 
+/// The path of the one sitemap [`Site`] serves, which lists
+/// the first three pages [`seeds`] names.
+pub(crate) const SITEMAP: &str = "/sitemap.xml";
+
+/// The path whose fetch panics, inside the attempt that fetches it, as a
+/// bug in the engine would (issue 2285).
+pub(crate) const PANICS: &str = "/panics";
+
 /// The site every crawl of the harness fetches from memory, through the
-/// fetch tiers' test seam: every URL answers one small document, and no
-/// site has a robots.txt.
+/// fetch tiers' test seam: every URL but [`SITEMAP`] and [`PANICS`]
+/// answers one small document, and no site has a robots.txt.
 struct Site;
 
 /// A body sent whole in one chunk.
@@ -385,21 +398,20 @@ impl goodfetch_fetch_tier::Transport for Site {
         hop: &'a goodfetch_fetch_tier::Hop,
         _reuse: goodfetch_fetch_tier::Reuse,
     ) -> goodfetch_fetch_tier::Sending<'a, goodfetch_fetch_tier::Sent> {
-        let (status, body) = if hop.url.path() == "/robots.txt" {
-            (404, "")
-        } else {
-            (
+        let (status, content_type, body) = match hop.url.path() {
+            PANICS => panic!("the test's site panics in the attempt that fetches {PANICS}"),
+            "/robots.txt" => (404, "text/html; charset=utf-8", ""),
+            SITEMAP => (200, "application/xml", SITEMAP_XML),
+            _ => (
                 200,
+                "text/html; charset=utf-8",
                 "<!doctype html><html><head><title>Page</title></head><body><h1>Page</h1></body></html>",
-            )
+            ),
         };
         Box::pin(std::future::ready(Ok(goodfetch_fetch_tier::Sent {
             status,
             headers: vec![
-                (
-                    "content-type".to_owned(),
-                    "text/html; charset=utf-8".to_owned(),
-                ),
+                ("content-type".to_owned(), content_type.to_owned()),
                 ("content-length".to_owned(), body.len().to_string()),
             ],
             body: Box::new(Whole(Some(bytes::Bytes::from_static(body.as_bytes())))),
@@ -409,6 +421,16 @@ impl goodfetch_fetch_tier::Transport for Site {
         })))
     }
 }
+
+/// The sitemap at [`SITEMAP`]: the first three pages [`seeds`] names.
+const SITEMAP_XML: &str = concat!(
+    r#"<?xml version="1.0" encoding="UTF-8"?>"#,
+    r#"<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">"#,
+    "<url><loc>https://shop.test/page/1</loc></url>",
+    "<url><loc>https://shop.test/page/2</loc></url>",
+    "<url><loc>https://shop.test/page/3</loc></url>",
+    "</urlset>",
+);
 
 /// The fetch tiers of the harness's engine, serving [`Site`] from memory.
 pub(crate) fn tiers() -> goodfetch_fetch_tier::FetchTiers {

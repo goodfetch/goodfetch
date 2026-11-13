@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 use tokio::time::Instant;
 
 use super::super::attempt::Answer;
+use super::super::failure::AttemptFailure;
 use super::domain_ending;
 
 /// 2026-01-05T09:00:00Z.
@@ -41,12 +42,12 @@ fn a_blocked_rate_limit_holds_its_domain_until_the_time_its_details_name() {
         panic!("details are a table");
     };
     let now = Instant::now();
-    let answer = Answer::Failed {
-        code: BLOCKED.name.to_owned(),
-        retryable: true,
-        message: String::new(),
+    let answer = Answer::failed(AttemptFailure::entered(
+        BLOCKED.name.to_owned(),
+        true,
+        String::new(),
         details,
-    };
+    ));
 
     assert_eq!(
         domain_ending(&answer, None, false, now, wall()),
@@ -84,12 +85,12 @@ fn navigation_failed(error: &str) -> Answer {
     let Value::Object(details) = json!({ "url": "https://shop.test/1", "error": error }) else {
         panic!("details are a table");
     };
-    Answer::Failed {
-        code: NAVIGATION_FAILED.name.to_owned(),
-        retryable: true,
-        message: String::new(),
+    Answer::failed(AttemptFailure::entered(
+        NAVIGATION_FAILED.name.to_owned(),
+        true,
+        String::new(),
         details,
-    }
+    ))
 }
 
 /// The class of answer the site's document gives its domain, whatever the

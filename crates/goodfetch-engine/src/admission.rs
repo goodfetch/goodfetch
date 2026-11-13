@@ -49,6 +49,7 @@ use tokio::time::Instant;
 use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::politeness::{Ending, Hold, Holder, Permit, PermitRule, Politeness, Taken, Wake};
+use crate::run_state::SealedBatch;
 use crate::settings::Resolved;
 
 /// How long a key the Politeness holds for want of room waits for a wake
@@ -169,8 +170,9 @@ impl fmt::Debug for Keys {
     }
 }
 
-/// What a gate writes into the run file, in one of its writer's commits.
-pub type Journal = Box<dyn FnOnce(&Connection) -> rusqlite::Result<()> + Send>;
+/// What a gate writes into the run file: rows it already decided, a sealed
+/// batch for the file's writer (ADR 0142).
+pub type Journal = SealedBatch;
 
 /// One Run's gate in admission (ADR 0087): the queues its waiting
 /// requests wait in, and the order and readiness they are admitted in.

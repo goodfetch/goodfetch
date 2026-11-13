@@ -199,6 +199,73 @@ fn the_script_rendered_sites_links_are_seen_only_by_a_browser() {
     );
 }
 
+/// The realistic-page site (#2316): the scale site's tree, each page
+/// carrying an article of tens of kilobytes and 30 to 100 links, as a real
+/// site's does (crawlee-rs publishes its figures on pages of 58 KB). A
+/// page's header, menu and footer repeat the same links, and every page
+/// whose number ends in 7 is linked only through its old path, which
+/// answers `301` to it. A crawl that follows redirects still reaches each
+/// page once.
+#[test]
+fn the_realistic_sites_pages_are_tens_of_kilobytes_with_30_to_100_links() {
+    let proving_ground = ProvingGround::start(SEED);
+    let origin = format!("http://realistic.localhost:{}", proving_ground.port());
+    let pages: Vec<String> = (1..=1000)
+        .map(|page| proving_ground.get(&format!("{origin}/sites/1000/{page}")))
+        .map(|answer| {
+            assert_eq!(answer.status, 200);
+            answer.body
+        })
+        .collect();
+    let mut sizes: Vec<usize> = pages.iter().map(String::len).collect();
+    sizes.sort_unstable();
+    let links: Vec<Vec<String>> = pages.iter().map(|body| hrefs(body)).collect();
+    let outside: Vec<usize> = links
+        .iter()
+        .map(Vec::len)
+        .filter(|count| !(30..=100).contains(count))
+        .collect();
+    let repeated = links
+        .iter()
+        .filter(|hrefs| hrefs.iter().collect::<BTreeSet<_>>().len() < hrefs.len())
+        .count();
+    let moved = proving_ground.get(&format!("{origin}/sites/1000/moved/7"));
+    let mut crawler = Crawler::new(&proving_ground);
+    crawler.follow_scripts = false;
+    let urls: Vec<String> = crawler
+        .crawl(&format!("{origin}/sites/1000/1"))
+        .into_iter()
+        .map(|page| page.url)
+        .collect();
+    let reached: BTreeSet<String> = urls.iter().cloned().collect();
+
+    assert!(
+        sizes[sizes.len() / 2] >= 20_000,
+        "median {}",
+        sizes[sizes.len() / 2]
+    );
+    assert_eq!(
+        (
+            outside,
+            repeated,
+            moved.status,
+            moved.header("location"),
+            urls.len(),
+            reached,
+        ),
+        (
+            Vec::new(),
+            1000,
+            301,
+            Some("/sites/1000/7"),
+            1000,
+            (1..=1000)
+                .map(|page| format!("{origin}/sites/1000/{page}"))
+                .collect(),
+        )
+    );
+}
+
 /// The comparison's sites are observed, so `just compare`'s same-work check
 /// reads what each tool fetched from them.
 #[test]
@@ -207,6 +274,7 @@ fn the_comparisons_sites_are_observed() {
     let port = proving_ground.port();
     proving_ground.get(&polite_url(&proving_ground, 1000, 7));
     proving_ground.get(&format!("http://rendered.localhost:{port}/sites/1000/7"));
+    proving_ground.get(&format!("http://realistic.localhost:{port}/sites/1000/7"));
 
     let observations = proving_ground.observations();
 
@@ -219,6 +287,10 @@ fn the_comparisons_sites_are_observed() {
         .collect();
     assert_eq!(
         hosts,
-        BTreeSet::from(["polite-7.localhost", "rendered.localhost"])
+        BTreeSet::from([
+            "polite-7.localhost",
+            "realistic.localhost",
+            "rendered.localhost"
+        ])
     );
 }

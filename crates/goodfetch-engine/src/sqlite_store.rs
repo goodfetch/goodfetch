@@ -469,5 +469,27 @@ pub(crate) fn run_cached(connection: &Connection, statement: &str) -> rusqlite::
     connection.prepare_cached(statement)?.execute([]).map(drop)
 }
 
+/// Runs `work` in one `BEGIN IMMEDIATE` transaction of `connection`, its
+/// `BEGIN`, `COMMIT` and `ROLLBACK` through the statement cache, as
+/// [`run_cached`] runs them: commits once `work` succeeds, and rolls back
+/// when it or the commit fails. A rollback that fails too leaves the
+/// transaction open, so its caller lets `connection` go, which ends it.
+///
+/// # Errors
+///
+/// `work`'s error, or SQLite's at the `BEGIN` or the `COMMIT`.
+pub(crate) fn immediate<T>(
+    connection: &Connection,
+    work: impl FnOnce(&Connection) -> rusqlite::Result<T>,
+) -> rusqlite::Result<T> {
+    run_cached(connection, "BEGIN IMMEDIATE")?;
+    let done =
+        work(connection).and_then(|answer| run_cached(connection, "COMMIT").map(|()| answer));
+    if done.is_err() && !connection.is_autocommit() {
+        let _ = run_cached(connection, "ROLLBACK");
+    }
+    done
+}
+
 #[cfg(test)]
 mod tests;

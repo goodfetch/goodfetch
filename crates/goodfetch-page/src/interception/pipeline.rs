@@ -47,10 +47,10 @@ use tokio::sync::oneshot;
 use super::answers::{Answer, Answers, Fulfillment, Reply, already_handled};
 use super::authentication;
 use super::hops;
+use super::lookups::Lookups;
 use super::routes::Route;
 use super::steps::{self, Blocking, Overrides, Stopped, entries};
 use super::{PageState, lock};
-use crate::borrowed::Lookups;
 use crate::driver::{PageDriver, cdp_response};
 use crate::errors::{gate_failure, gate_refused};
 use crate::page_events::{Refusals, is_navigation, post_data, resource_type};
@@ -131,10 +131,10 @@ pub(super) struct PageContext {
     /// navigation for its latest hop, a program's own included, and that
     /// navigation's network ID, held as `permit` is (ADRs 0053 and 0088).
     proxy_permit: Mutex<Option<(Option<network::RequestId>, ProxyPermit)>>,
-    /// On a Borrowed browser, its lookups, through which the engine
-    /// resolves each request's host itself, the Run's `network.resolve`
-    /// mapping first, and judges its answers, since no relay is under that
-    /// browser (ADR 0056).
+    /// On a Borrowed browser, or a launched one with no relay, its lookups,
+    /// through which the engine resolves each request's host itself, the
+    /// Run's `network.resolve` mapping first, and judges its answers, since
+    /// no relay is under that browser (ADR 0056; #2435).
     lookups: Option<Arc<Lookups>>,
     /// The Run trace's request log, where a refusal no page's event
     /// reports is recorded.
@@ -227,8 +227,8 @@ impl PageContext {
         }
     }
 
-    /// The same, on a Borrowed browser whose requests' hosts the engine
-    /// resolves through `lookups`, when it is one.
+    /// The same, on a browser no relay is under, whose requests' hosts the
+    /// engine resolves through `lookups`, when it is one.
     pub(super) fn with_lookups(self, lookups: Option<Arc<Lookups>>) -> Self {
         Self { lookups, ..self }
     }
@@ -1023,14 +1023,15 @@ impl PageContext {
         ))
     }
 
-    /// On a Borrowed browser, judges the addresses the engine resolves the
-    /// host of `url` to, as the browser would connect to them (ADR 0056):
-    /// the browser resolves names itself, so an answer that changes after
-    /// this lookup reaches it, the rebinding gap Provenance records. A
-    /// name the engine cannot resolve is left to a browser on the engine's
-    /// machine, which resolves it as the engine would, and refused on one
-    /// elsewhere, whose network may resolve it to an intranet host or a
-    /// cloud's metadata service (O9 of the deep review).
+    /// On a browser no relay is under, Borrowed or launched with none,
+    /// judges the addresses the engine resolves the host of `url` to, as
+    /// the browser would connect to them (ADR 0056; #2435): the browser
+    /// resolves names itself, so an answer that changes after this lookup
+    /// reaches it, the rebinding gap Provenance records. A name the engine
+    /// cannot resolve is left to a browser on the engine's machine, which
+    /// resolves it as the engine would, and refused on one elsewhere, or
+    /// behind a proxy, whose network may resolve it to an intranet host or
+    /// a cloud's metadata service (O9 of the deep review).
     ///
     /// # Errors
     ///
@@ -1055,7 +1056,7 @@ impl PageContext {
                 tracing::debug!(
                     ?failure,
                     ?location,
-                    "the engine resolved no address for a Borrowed browser's request"
+                    "the engine resolved no address for a request no relay is under"
                 );
                 egress::judge_unresolved(url, &self.policy, location)
             }
@@ -1641,7 +1642,11 @@ impl PageContext {
         if self.driver.relay().is_some() {
             return;
         }
-        if self.lookups.is_some() || self.driver.proxy().is_some() {
+        let borrowed = self
+            .lookups
+            .as_ref()
+            .is_some_and(|lookups| lookups.borrowed());
+        if borrowed || self.driver.proxy().is_some() {
             tracing::warn!(%refused, "a WebSocket the domain policy refuses is not held where it connects: the Session's browser or proxy is not the engine's");
             return;
         }

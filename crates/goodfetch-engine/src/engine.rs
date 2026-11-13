@@ -110,6 +110,7 @@ pub struct Dependencies {
 impl Engine {
     /// The engine `composition` makes for the Product `identity` names.
     pub fn new(identity: Identity, composition: &Composition) -> Result<Self, CompositionError> {
+        let metrics = Metrics::none();
         Ok(Self {
             dispatch: Arc::new(Dispatch {
                 identity: Arc::new(identity),
@@ -117,8 +118,7 @@ impl Engine {
                 drivers: Arc::new(composition.drivers()),
                 log_events: None,
                 masks: Masks::new(),
-                work: CountedWork::default(),
-                metrics: Metrics::none(),
+                metrics: metrics.clone(),
             }),
             tables: composition.run_state_tables(),
             driving: composition.driving(),
@@ -131,7 +131,7 @@ impl Engine {
             secret_providers: composition.secret_providers(),
             controls: composition.controls(),
             events: EventsOptions::default(),
-            metrics: Metrics::none(),
+            metrics,
             system: None,
             audit_events: None,
         })
@@ -140,9 +140,7 @@ impl Engine {
     /// The same, recording the runtime's metrics on `metrics` (ADR 0050).
     #[must_use]
     pub fn with_metrics(mut self, metrics: Metrics) -> Self {
-        let dispatch = Arc::make_mut(&mut self.dispatch);
-        dispatch.work = metrics.counted_work().clone();
-        dispatch.metrics = metrics.clone();
+        Arc::make_mut(&mut self.dispatch).metrics = metrics.clone();
         self.metrics = metrics;
         self
     }

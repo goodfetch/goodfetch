@@ -20,8 +20,9 @@
 //! `foxhound.spider_instruction_ratio` (ADR 0140) on each tool's main row.
 //! `report` holds every
 //! trial to the same-work check, then writes each cell's median and spread
-//! of every metric, labelled `local-controlled` with the machine and never
-//! published (ADR 0076); otherwise it fails naming each trial that did
+//! of every metric and Foxhound's verdicts against each competitor,
+//! labelled `local-controlled`, measured on the machine it names, with the
+//! command that reruns it; otherwise it fails naming each trial that did
 //! other work. It is no Live check, gates nothing and declares no Feature.
 #![expect(
     clippy::disallowed_methods,
@@ -32,6 +33,7 @@ mod foxhound;
 mod matrix;
 mod observed;
 mod report;
+mod rerun;
 mod run;
 mod same_work;
 mod sampler;
@@ -51,6 +53,13 @@ use crate::test_tools::{Tool, ToolManifest};
 
 use matrix::Scenario;
 use trials::Comparison;
+
+/// Crawlee's side's script, as the recipe runs it.
+const CRAWLEE: &str = "xtask/compare-crawlee/crawl.mjs";
+/// Scrapy's side's script, as the recipe runs it.
+const SCRAPY: &str = "xtask/compare-scrapy/crawl.py";
+/// The trials file the recipe writes.
+const TRIALS_FILE: &str = "target/compare/trials.json";
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
@@ -90,14 +99,14 @@ pub(crate) struct RunArguments {
     browser: Option<PathBuf>,
     /// Crawlee's side, `xtask/compare-crawlee`'s script, run by Node.js
     /// once its packages are installed beside it.
-    #[arg(long, default_value = "xtask/compare-crawlee/crawl.mjs")]
+    #[arg(long, default_value = CRAWLEE)]
     crawlee: PathBuf,
     /// Scrapy's side, `xtask/compare-scrapy`'s script, run by the Python
     /// environment `uv sync` makes beside it.
-    #[arg(long, default_value = "xtask/compare-scrapy/crawl.py")]
+    #[arg(long, default_value = SCRAPY)]
     scrapy: PathBuf,
     /// The trials file written; the report goes beside it.
-    #[arg(long, default_value = "target/compare/trials.json")]
+    #[arg(long, default_value = TRIALS_FILE)]
     out: PathBuf,
     /// Also runs the growth cell: each measured cell crawls the
     /// 100,000-page site, hours at `run_state.durability: full`.
@@ -115,6 +124,11 @@ pub(crate) struct RunArguments {
     /// default.
     #[arg(long = "scenario", value_enum)]
     scenarios: Vec<Scenario>,
+    /// The machine's name, which the report names it by, such as "Hetzner
+    /// Cloud CCX43, 16 dedicated vCPUs": a reader knows a machine by its
+    /// product or model, not by its CPU's.
+    #[arg(long)]
+    machine: Option<String>,
 }
 
 #[derive(Args)]
@@ -189,6 +203,8 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 },
                 String::from_utf8_lossy(&commit.stdout).trim().to_owned(),
                 &run::Options {
+                    machine: arguments.machine.clone(),
+                    command: rerun::of(&arguments),
                     trials: arguments.trials,
                     growth: arguments.growth,
                     spider_pages: arguments.spider_pages,

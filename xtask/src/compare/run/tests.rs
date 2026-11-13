@@ -233,6 +233,7 @@ fn a_cell_whose_strace_run_missed_pages_runs_no_later_run() {
                 .collect(),
             ..Work::default()
         },
+        extracted: None,
     };
     let done = [run("spider", 970), run("crawlee", 1000)];
 

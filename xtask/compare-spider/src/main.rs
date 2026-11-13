@@ -57,16 +57,38 @@ const PAGES_FILE: &str = "pages.jsonl";
 struct Fetched {
     pages: u64,
     body_bytes: u64,
-    written: Option<std::io::BufWriter<std::fs::File>>,
+    written: Option<Written>,
+}
+
+/// The `extraction` scenario's pages: the file they are written to, and the
+/// tasks reading them. Each page is read in a task of its own, as
+/// `Website::subscribe`'s example processes a page, so the one reader of
+/// the stream keeps up with the crawl: with `llm_readability` run in the
+/// reader itself, crawls of the 10,000-page site lost pages at every
+/// capacity from 256 to 4,096 (#2136).
+struct Written {
+    file: std::io::BufWriter<std::fs::File>,
+    reading: tokio::task::JoinSet<Result<serde_json::Value, String>>,
+}
+
+impl Written {
+    /// Writes the line of a page whose task ended.
+    fn write(&mut self, read: Result<Result<serde_json::Value, String>, tokio::task::JoinError>) -> Result<(), String> {
+        let line = read.map_err(|error| format!("reading a page: {error}"))??;
+        writeln!(self.file, "{line}").map_err(|error| format!("writing {PAGES_FILE}: {error}"))
+    }
 }
 
 impl Fetched {
-    fn add(&mut self, page: &spider::page::Page) -> Result<(), String> {
+    fn add(&mut self, page: spider::page::Page) -> Result<(), String> {
         self.pages += 1;
         self.body_bytes += page.get_bytes().map_or(0, |bytes| bytes.len() as u64);
         if let Some(written) = self.written.as_mut() {
-            let line = extracted(page)?;
-            writeln!(written, "{line}").map_err(|error| format!("writing {PAGES_FILE}: {error}"))?;
+            written.reading.spawn(async move { extracted(&page) });
+            // The pages read so far are written as the stream goes.
+            while let Some(read) = written.reading.try_join_next() {
+                written.write(read)?;
+            }
         }
         Ok(())
     }
@@ -98,10 +120,17 @@ fn extracted(page: &spider::page::Page) -> Result<serde_json::Value, String> {
         .as_ref()
         .and_then(|metadata| metadata.title.as_ref())
         .map(|title| collapsed(&html_escape::decode_html_entities(title.as_str())));
-    let url = page
-        .get_url_parsed_ref()
-        .as_ref()
-        .ok_or_else(|| format!("{} has no parsed URL", page.get_url()))?;
+    // The page's own URL, which a page read from the subscription has not
+    // parsed yet; `spider_transformations` passes a placeholder there.
+    let parsed;
+    let url = match page.get_url_parsed_ref() {
+        Some(url) => url,
+        None => {
+            parsed = spider::reqwest::Url::parse(page.get_url())
+                .map_err(|error| format!("parsing {}: {error}", page.get_url()))?;
+            &parsed
+        }
+    };
     let text = llm_readability::extractor::extract(&mut page.get_html_bytes_u8(), url)
         .map_err(|error| format!("reading {}'s main content: {error}", page.get_url()))?
         .text;
@@ -114,10 +143,14 @@ fn extracted(_page: &spider::page::Page) -> Result<serde_json::Value, String> {
 }
 
 impl Fetched {
-    /// Flushes the pages written, once the stream is drained.
-    fn finish(mut self) -> Result<Self, String> {
+    /// Writes the pages still being read and flushes the file, once the
+    /// stream is drained.
+    async fn finish(mut self) -> Result<Self, String> {
         if let Some(written) = self.written.as_mut() {
-            written.flush().map_err(|error| format!("writing {PAGES_FILE}: {error}"))?;
+            while let Some(read) = written.reading.join_next().await {
+                written.write(read)?;
+            }
+            written.file.flush().map_err(|error| format!("writing {PAGES_FILE}: {error}"))?;
         }
         Ok(self)
     }
@@ -199,9 +232,12 @@ async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
         site.with_headers(Some(headers));
     }
     let written = if arguments.scenario == "extraction" {
-        Some(std::io::BufWriter::new(
-            std::fs::File::create(PAGES_FILE).map_err(|error| format!("creating {PAGES_FILE}: {error}"))?,
-        ))
+        Some(Written {
+            file: std::io::BufWriter::new(
+                std::fs::File::create(PAGES_FILE).map_err(|error| format!("creating {PAGES_FILE}: {error}"))?,
+            ),
+            reading: tokio::task::JoinSet::new(),
+        })
     } else {
         None
     };
@@ -221,15 +257,15 @@ async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
         loop {
             tokio::select! {
                 page = pages.recv() => match page {
-                    Ok(page) => fetched.add(&page)?,
+                    Ok(page) => fetched.add(page)?,
                     Err(RecvError::Lagged(lost)) => return Err(format!("the page stream lost {lost} pages")),
-                    Err(RecvError::Closed) => return fetched.finish(),
+                    Err(RecvError::Closed) => return fetched.finish().await,
                 },
                 _ = &mut ended => loop {
                     match pages.try_recv() {
-                        Ok(page) => fetched.add(&page)?,
+                        Ok(page) => fetched.add(page)?,
                         Err(TryRecvError::Lagged(lost)) => return Err(format!("the page stream lost {lost} pages")),
-                        Err(_) => return fetched.finish(),
+                        Err(_) => return fetched.finish().await,
                     }
                 },
             }

@@ -1067,14 +1067,19 @@ rss-propose *scenarios:
 # scenario and marking pending each Foxhound value that does not exist yet.
 # Five scenarios: 1, raw; 2, durable (killed once half the site is served,
 # then resumed); 3, polite, on the Proving ground's 50-domain site; 4,
-# extraction of each page's title and main text to the tool's dataset; 5,
+# extraction of each page's title and Main content to the tool's dataset,
+# on the Proving ground's article site, each page held to its right answer
+# (#2136: a Foxhound trial that differs is refused, a competitor's is
+# labelled), with a second Foxhound row whose Filter lists are off; 5,
 # headless browser, on its script-rendered site. Four more run scenario
 # 1's settings and carry no bar (#2316): `realistic`, on the realistic-page
 # site, pages of tens of kilobytes with 30 to 100 links; `long`, over a
 # 100,000-page site, its timed trials only; and `raw-64` and `raw-256`, at
 # 64 and 256 requests at once. Foxhound against Spider
 # 2.53.9 (xtask/compare-spider, no workspace member: its HTTP mode, and its
-# `chrome` feature's executable for scenario 5; its main rows read its
+# `chrome` feature's executable for scenario 5, and its `extraction`
+# feature's, which reads each page with `llm_readability`, for scenario 4;
+# its main rows read its
 # pages at the smallest channel capacity that loses none, and its
 # sensitivity rows, each labelled, run the capacity of 4,096 it had before,
 # its default features, its `bloom` feature and the allocator its README
@@ -1096,8 +1101,9 @@ rss-propose *scenarios:
 # Every metric is measured from outside the tools (the OS's accounting of
 # the waited-for children, /proc samples of the process tree, the Proving
 # ground's observations, the data folder left), then each cell's system
-# calls and syncs are counted under strace, and scenario 1's instructions
-# per page under Callgrind (`foxhound.spider_instruction_ratio`, ADR
+# calls and syncs are counted under strace, and scenario 1's and scenario
+# 4's instructions per page under Callgrind
+# (`foxhound.spider_instruction_ratio` and scenario 4's two ratios, ADR
 # 0140), each run's output kept in target/compare/callgrind/, which the
 # reports repository files with the run (TESTING.md); `--growth` adds the 100,000-page crawls whose resident memory is
 # read at 1,000, 10,000 and 100,000 pages (hours). Once every trial passed
@@ -1109,7 +1115,7 @@ rss-propose *scenarios:
 # reports that cell as not run. It gates nothing and is no Live check; run
 # it when the 1-minute load is under 4.
 # Spider's and crawlee-rs's crates and the sides' packages are downloaded
-# once, free. Spider's six builds and crawlee-rs's go to
+# once, free. Spider's seven builds and crawlee-rs's go to
 # target/compare-spider/, or to the folder GOODFETCH_COMPARE_SPIDER_BUILDS
 # names: one outside every checkout keeps them from one measurement to the
 # next, whichever worktree measures and whatever sweeps its target/ (Cargo
@@ -1123,7 +1129,8 @@ compare profile="release" *args:
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features defaults --target-dir {{ compare_spider_builds }}/spider-defaults
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features bloom --target-dir {{ compare_spider_builds }}/spider-bloom
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features jemalloc --target-dir {{ compare_spider_builds }}/spider-jemalloc
-    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features mimalloc --target-dir {{ compare_spider_builds }}/spider-mimalloc
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features extraction --target-dir {{ compare_spider_builds }}/spider-extraction
+    cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features extraction,mimalloc --target-dir {{ compare_spider_builds }}/spider-extraction-mimalloc
     cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/crawlee-rs
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
     uv sync --frozen --quiet --directory xtask/compare-scrapy

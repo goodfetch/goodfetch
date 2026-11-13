@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::extracted::Extracted;
 use super::hostile::Broken;
 use super::matrix::Scenario;
 pub(crate) use super::matrix::Tool;
@@ -53,8 +54,10 @@ pub(crate) const SCRAPY_PLAYWRIGHT_VERSION: &str = "0.0.48";
 pub(crate) const INSTRUCTION_RUNS: u32 = 3;
 /// The tools the Callgrind cell counts.
 pub(crate) const INSTRUCTION_TOOLS: [Tool; 2] = [Tool::Foxhound, Tool::Spider];
-/// What the Callgrind cell crawls with.
-pub(crate) const INSTRUCTION_SCENARIO: &str = "scenario 1 of ADR 0138's matrix";
+/// The scenarios the Callgrind cell counts those tools' main rows in:
+/// scenario 1, and the extraction scenario, both of Foxhound's rows there
+/// (#2136; the owner's decision of 2026-11-10, #2252 Q7).
+pub(crate) const INSTRUCTION_SCENARIOS: [Scenario; 2] = [Scenario::Raw, Scenario::Extraction];
 /// Runs of each hostile pages' cell (#2439), at most: its counts are read
 /// with their spread, not timed.
 pub(crate) const RULE_RUNS: u32 = 3;
@@ -258,6 +261,10 @@ pub(crate) struct Measured {
     /// links it (the start, for the first page), to its end.
     pub(crate) latency: Percentiles,
     pub(crate) latency_end: Option<LatencyEnd>,
+    /// What the output check found of the pages it wrote, on a site whose
+    /// right answers the Proving ground serves (#2136).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) extracted: Option<Extracted>,
 }
 
 /// One run of a counted cell: one cell's tool in a fresh process under a
@@ -276,6 +283,10 @@ pub(crate) struct CountedRun {
     #[serde(default)]
     pub(crate) syncs: u64,
     pub(crate) work: Work,
+    /// What the output check found of the pages it wrote (see
+    /// [`Measured`]'s).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) extracted: Option<Extracted>,
 }
 
 /// A counted cell: Callgrind's instructions or strace's system calls.
@@ -344,9 +355,10 @@ pub(crate) struct Comparison {
     /// strace's count of each measured cell's system calls and syncs.
     pub(crate) syscalls: CountedCell,
     pub(crate) growth: GrowthCell,
-    /// Callgrind's count of scenario 1's instructions, Foxhound's and
-    /// Spider's: ADR 0140's row compares those two, and instructions are no
-    /// metric of the owner's list for the other tools.
+    /// Callgrind's count of scenario 1's instructions and of the extraction
+    /// scenario's, Foxhound's and Spider's: ADR 0140's rows compare those
+    /// two, and instructions are no metric of the owner's list for the
+    /// other tools.
     pub(crate) instructions: CountedCell,
     /// The hostile pages' cells' runs: the rules each tool broke (#2439).
     pub(crate) rules: Vec<RuledRun>,

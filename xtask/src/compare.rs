@@ -8,6 +8,8 @@
 //! capacity that loses none, and labelled sensitivity rows beside them run
 //! it one setting apart (#2213). `run` crawls each scenario's 1,000-page Proving ground site
 //! (`scale.test`'s, the multi-domain site for the polite scenario, the
+//! article site for the extraction scenario, where each tool's pages are
+//! also held to the site's right answers as its trial ends (#2136), the
 //! script-rendered site for the headless browser, the realistic-page site
 //! for its scenario, and a 100,000-page site for the long one, which runs
 //! only its timed trials) with each measured cell's tool in the declared
@@ -20,8 +22,9 @@
 //! counts each cell's system calls under strace, stopping a run whose crawl
 //! stalls and leaving its cell not measured, crawls the 100,000-page
 //! site for the growth of resident memory when asked, and counts scenario
-//! 1's instructions per page under Callgrind, which gives
-//! `foxhound.spider_instruction_ratio` (ADR 0140) on each tool's main row.
+//! 1's and the extraction scenario's instructions per page under
+//! Callgrind, which gives `foxhound.spider_instruction_ratio` and the
+//! extraction scenario's two ratios (ADR 0140) on each tool's main rows.
 //! The hostile pages' passes (#2439) instead crawl the Proving ground's
 //! `traps` and `limits` tasks a few times and count the rules each tool
 //! broke there, from the Proving ground's findings, with no bar and no
@@ -30,12 +33,14 @@
 //! of every metric and Foxhound's verdicts against each competitor,
 //! labelled `local-controlled`, measured on the machine it names, with the
 //! command that reruns it; otherwise it fails naming each trial that did
-//! other work. It is no Live check, gates nothing and declares no Feature.
+//! other work, and each of Foxhound's whose pages differ from the right
+//! answer. It is no Live check, gates nothing and declares no Feature.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
 )]
 
+mod extracted;
 mod foxhound;
 mod hostile;
 mod matrix;

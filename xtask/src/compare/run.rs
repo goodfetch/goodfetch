@@ -18,8 +18,8 @@ use super::sampler;
 use super::trial::{self, Counted, Ruled, callgrind_missing, strace_missing};
 use super::trials::{
     CONCURRENCY, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, Comparison, CountedCell, CountedRun, Declared,
-    GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_TOOLS, Machine, Measured,
-    PLAYWRIGHT_VERSION, QUIET_LOAD, QUIET_WAIT_SECONDS, RULE_RUNS, RuledRun,
+    GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS, Machine,
+    Measured, PLAYWRIGHT_VERSION, QUIET_LOAD, QUIET_WAIT_SECONDS, RULE_RUNS, RuledRun,
     SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SPIDER_VERSION, STATISTIC, StoppedRun,
     Trial,
 };
@@ -691,6 +691,7 @@ fn counted(
             count: counted.count,
             syncs: counted.syncs,
             work: counted.work,
+            extracted: counted.extracted,
         });
     }
     Ok(CountedCell::Measured {
@@ -871,20 +872,21 @@ pub(crate) fn run(
         }
     };
     keep(&comparison)?;
-    // ADR 0140's row compares Foxhound's instructions with Spider's, each
-    // on its main row.
-    let scenario_1: Vec<_> = measured
+    // ADR 0140's rows compare Foxhound's instructions with Spider's, each
+    // on its main rows, in scenario 1 and in the extraction scenario.
+    let instruction_cells: Vec<_> = measured
         .iter()
         .copied()
         .filter(|(cell, config)| {
-            cell.scenario == Scenario::Raw
+            INSTRUCTION_SCENARIOS.contains(&cell.scenario)
                 && cell.row == Row::Main
                 && INSTRUCTION_TOOLS.contains(&config.tool())
         })
         .collect();
     comparison.instructions = match callgrind_missing() {
-        _ if scenario_1.is_empty() => CountedCell::NotRun {
-            reason: "the run asked for no scenario 1 cell".to_owned(),
+        _ if instruction_cells.is_empty() => CountedCell::NotRun {
+            reason: "the run asked for no cell of scenario 1 or of the extraction scenario"
+                .to_owned(),
         },
         Some(reason) => {
             output::line(&format!("The Callgrind cell does not run: {reason}."));
@@ -895,7 +897,7 @@ pub(crate) fn run(
             let cell = counted(
                 executables,
                 options,
-                &scenario_1,
+                &instruction_cells,
                 INSTRUCTION_RUNS,
                 ("callgrind", false),
                 &options.callgrind_outputs,

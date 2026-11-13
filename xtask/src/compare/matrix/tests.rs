@@ -1,4 +1,4 @@
-use super::{CELLS, Config, Row, Scenario, Site, SpiderBuild, Status, Tool};
+use super::{CELLS, Config, OutputCheck, Row, Scenario, Site, SpiderBuild, Status, Tool};
 
 /// #2316's scenarios: the realistic-page site, the long site and scenario
 /// 1 at 64 and 256 in flight. Each gives every tool a main cell with its
@@ -158,13 +158,14 @@ fn spider_rows(scenario: Scenario) -> Vec<(&'static str, Row, SpiderBuild, usize
 /// also writes each page; the rows beside it are its sensitivity rows, each
 /// one setting apart (#2213): the capacity before, Spider's default
 /// features, `bloom` and the allocator its README recommends, jemalloc for
-/// the pure crawl and mimalloc where each page is also read. Its `smart`
-/// row, in the headless browser scenario, is not supported: it has its own
-/// test.
+/// the pure crawl and mimalloc where each page is also read. The
+/// extraction scenario's rows run the builds that read each page's Main
+/// content (#2136). Its `smart` row, in the headless browser scenario, is
+/// not supported: it has its own test.
 #[test]
 fn spiders_main_row_has_its_sensitivity_rows_beside_it() {
     use Row::{Main, Sensitivity};
-    use SpiderBuild::{Bloom, Chrome, Defaults, Http, Jemalloc, Mimalloc};
+    use SpiderBuild::{Bloom, Chrome, Defaults, Extraction, ExtractionMimalloc, Http, Jemalloc};
 
     assert_eq!(
         (
@@ -181,8 +182,8 @@ fn spiders_main_row_has_its_sensitivity_rows_beside_it() {
                 ("spider jemalloc", Sensitivity, Jemalloc, 64),
             ],
             vec![
-                ("spider", Main, Http, 256),
-                ("spider mimalloc", Sensitivity, Mimalloc, 256),
+                ("spider", Main, Extraction, 64),
+                ("spider mimalloc", Sensitivity, ExtractionMimalloc, 64),
             ],
             vec![("spider", Main, Chrome, 64)],
         )
@@ -272,9 +273,11 @@ fn just_compare_builds_each_of_spiders_sides_builds_into_its_folder() {
                  --profile {{{{ profile }}}}{features} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
                 build.folder()
             ));
-            let declared = build
-                .feature()
-                .is_none_or(|feature| manifest["features"].get(feature).is_some());
+            let declared = build.feature().is_none_or(|features| {
+                features
+                    .split(',')
+                    .all(|feature| manifest["features"].get(feature).is_some())
+            });
             !(built && declared)
         })
         .map(SpiderBuild::folder)
@@ -283,6 +286,122 @@ fn just_compare_builds_each_of_spiders_sides_builds_into_its_folder() {
     missing.dedup();
 
     assert_eq!(missing, Vec::<String>::new());
+}
+
+/// The extraction scenario crawls the article site (#2136), which every
+/// tool reaches by its name, and each cell's mapping names what reads its
+/// Main content: Foxhound's Clean-up rules and dom_smoothie, Spider's
+/// `llm_readability` at the versions its side pins, and the text of
+/// `<main>` for the tools that read no main content of their own.
+#[test]
+fn the_extraction_scenario_crawls_the_article_site_and_names_each_extractor() {
+    let manifest: toml::Table = include_str!("../../../compare-spider/Cargo.toml")
+        .parse()
+        .unwrap();
+    let pinned = |name: &str| {
+        manifest["dependencies"][name]["version"]
+            .as_str()
+            .unwrap()
+            .trim_start_matches('=')
+            .to_owned()
+    };
+    let spider = [
+        format!("`llm_readability` {}", pinned("llm_readability")),
+        format!(
+            "`spider_transformations` {}",
+            pinned("spider_transformations")
+        ),
+    ];
+    let extractors: [(&str, &[&str]); 7] = [
+        ("foxhound", &["Clean-up rules", "dom_smoothie"]),
+        (
+            "foxhound filter lists off",
+            &["`filter_lists.ads`", "dom_smoothie"],
+        ),
+        ("spider", &[&spider[0], &spider[1]]),
+        ("crawlee", &["the text of its `main`"]),
+        ("scrapy", &["the text of its `main`"]),
+        ("crawlee-rs", &["the text of its `main`"]),
+        ("spider mimalloc", &["the spider row's settings"]),
+    ];
+    let unnamed: Vec<(&str, &str)> = extractors
+        .iter()
+        .flat_map(|(name, named)| {
+            let mapping = super::cell(Scenario::Extraction, name).map_or("", |cell| cell.mapping);
+            named
+                .iter()
+                .filter(move |text| !mapping.contains(**text))
+                .map(move |text| (*name, *text))
+        })
+        .collect();
+    let cells = CELLS
+        .iter()
+        .filter(|cell| cell.scenario == Scenario::Extraction)
+        .count();
+
+    assert_eq!(
+        (
+            Scenario::Extraction.site(),
+            Site::Article.by_name(),
+            Site::Article.hosts(),
+            cells,
+            unnamed,
+        ),
+        (
+            Site::Article,
+            true,
+            vec!["article.localhost".to_owned()],
+            extractors.len(),
+            Vec::new(),
+        )
+    );
+}
+
+/// Foxhound's row with its Filter lists off (#2136) is a main row of the
+/// extraction scenario, where nothing removes the page's ad: its pages are
+/// held to the right answer with the ad allowed, every other cell of the
+/// scenario to the whole answer, and no other scenario's cell to any.
+#[test]
+fn foxhounds_filter_lists_off_row_is_checked_with_the_ad_allowed() {
+    let checks: Vec<(&str, bool, Option<OutputCheck>)> = CELLS
+        .iter()
+        .filter(|cell| cell.scenario == Scenario::Extraction)
+        .map(|cell| (cell.name, cell.filter_lists_off(), cell.output_check()))
+        .collect();
+    let lists_off = super::cell(Scenario::Extraction, "foxhound filter lists off").unwrap();
+    let elsewhere = CELLS
+        .iter()
+        .filter(|cell| cell.scenario != Scenario::Extraction)
+        .filter(|cell| cell.filter_lists_off() || cell.output_check().is_some())
+        .count();
+
+    let whole = Some(OutputCheck::Whole);
+    assert_eq!(
+        (
+            checks,
+            lists_off.row,
+            matches!(lists_off.status, Status::Measured(Config::Foxhound { .. })),
+            elsewhere,
+        ),
+        (
+            vec![
+                ("foxhound", false, whole),
+                (
+                    "foxhound filter lists off",
+                    true,
+                    Some(OutputCheck::AdAllowed)
+                ),
+                ("spider", false, whole),
+                ("crawlee", false, whole),
+                ("scrapy", false, whole),
+                ("crawlee-rs", false, whole),
+                ("spider mimalloc", false, whole),
+            ],
+            Row::Main,
+            true,
+            0,
+        )
+    );
 }
 
 /// crawlee-rs runs on its side in the four HTTP scenarios and in #2316's

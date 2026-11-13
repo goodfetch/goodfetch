@@ -4,9 +4,11 @@
 //! OS's accounting of its waited-for children is the tool's alone, samples
 //! the tool's process tree meanwhile, and once the tool exited reads the
 //! Proving ground's observations, the data folder it left and, for
-//! Foxhound, its Records' commit times. It prints the trial's figures as one
-//! JSON line. A counted trial runs the tool under strace or Callgrind
-//! instead, and prints its counts with the same work.
+//! Foxhound, its Records' commit times. On the article site, it also holds
+//! the pages the tool wrote to the right answers the Proving ground serves
+//! (#2136; see `extracted`). It prints the trial's figures as one JSON
+//! line. A counted trial runs the tool under strace or Callgrind instead,
+//! and prints its counts with the same work and the same check.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: a trial runs the tool as a blocking child process and reads its files (STYLE.md)"
@@ -26,7 +28,8 @@ use serde_json::Value;
 use crate::rss::crawl::Site;
 use crate::test_facts::{CHROME_FOR_TESTING_BUILD, PLAYWRIGHT_REVISION};
 
-use super::foxhound::Engine;
+use super::extracted::{self, Extracted, Written};
+use super::foxhound::{Engine, Record};
 use super::matrix::{Cell, Config, Scenario, Site as SiteKind};
 use super::observed::{self, MARKER, Observed};
 use super::sampler::{self, Sampler};
@@ -53,7 +56,15 @@ pub(crate) struct Counted {
     pub(crate) count: u64,
     pub(crate) syncs: u64,
     pub(crate) work: Work,
+    /// What the output check found, on the article site.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) extracted: Option<Extracted>,
 }
+
+/// The files Spider's and Scrapy's sides write the extraction scenario's
+/// pages to, in the folder they run in.
+const SPIDER_PAGES: &str = "pages.jsonl";
+const SCRAPY_ITEMS: &str = "items.jsonl";
 
 /// strace's program name, and the system calls that sync a file or the
 /// file system.
@@ -652,12 +663,7 @@ impl Plan<'_> {
         }
         let result = (|| -> Result<u32> {
             if let Some(engine) = driven.engine.as_mut() {
-                engine.start(
-                    &self.site,
-                    self.cell.scenario,
-                    &self.start_url(),
-                    self.durability(),
-                )?;
+                engine.start(&self.site, self.cell, &self.start_url(), self.durability())?;
                 if !resumes {
                     engine.finish()?;
                     return Ok(1);
@@ -703,7 +709,7 @@ impl Plan<'_> {
         }
         let finished = match second.engine.as_mut() {
             Some(engine) => engine
-                .resume(&self.site, self.cell.scenario, self.durability())
+                .resume(&self.site, self.cell, self.durability())
                 .and_then(|()| engine.finish()),
             None => self.read_count(&mut second.child),
         };
@@ -722,10 +728,9 @@ impl Plan<'_> {
         Ok(2)
     }
 
-    /// Foxhound's Records' commit times, in seconds from `started`, by
-    /// path, read by an engine of their own on `home` once the measured
-    /// processes are gone.
-    fn records(&self, home: &Path, started: jiff::Timestamp) -> Result<HashMap<String, f64>> {
+    /// Foxhound's Records, read by an engine of their own on `home` once
+    /// the measured processes are gone.
+    fn records(&self, home: &Path) -> Result<Vec<Record>> {
         let mut driven = self.spawn(home, 1, &Mode::Timed, None)?;
         let engine = driven.engine.as_mut().context("Foxhound's engine")?;
         let read = engine.records(&self.site);
@@ -733,22 +738,37 @@ impl Plan<'_> {
             engine.close();
         }
         let _ = driven.child.wait();
-        let mut times = HashMap::new();
-        for (url, committed) in read? {
-            let committed: jiff::Timestamp = committed
-                .parse()
-                .with_context(|| format!("a Record's commit time: {committed}"))?;
-            let seconds = committed.duration_since(started).as_secs_f64();
-            let path = url
-                .split_once("://")
-                .and_then(|(_, rest)| rest.find('/').map(|slash| rest[slash..].to_owned()))
-                .unwrap_or(url);
-            times
-                .entry(path)
-                .and_modify(|first: &mut f64| *first = first.min(seconds))
-                .or_insert(seconds);
+        read
+    }
+
+    /// Whether the trial's pages are held to the output check: on the
+    /// article site, while the Proving ground serves its right answers.
+    fn checks_output(&self) -> bool {
+        self.cell.output_check().is_some() && self.site.pages <= extracted::ANSWERED_PAGES
+    }
+
+    /// What the output check finds of the pages the tool left in `home`,
+    /// Foxhound's being its `records`; none where no check holds them.
+    fn extracted(&self, home: &Path, records: Option<Vec<Record>>) -> Result<Option<Extracted>> {
+        if !self.checks_output() {
+            return Ok(None);
         }
-        Ok(times)
+        let pages = match self.config {
+            Config::Foxhound { .. } => records
+                .context("Foxhound's extraction crawl keeps its Records")?
+                .into_iter()
+                .map(|record| extracted::Page {
+                    url: record.url,
+                    title: record.title,
+                    text: record.text,
+                })
+                .collect(),
+            Config::Spider { .. } => extracted::read(Written::Lines(SPIDER_PAGES), home)?,
+            Config::Scrapy => extracted::read(Written::Lines(SCRAPY_ITEMS), home)?,
+            Config::Crawlee | Config::CrawleeRs => extracted::read(Written::Dataset, home)?,
+        };
+        let answers = extracted::answers(self.site.address, self.site.pages)?;
+        Ok(Some(extracted::check(&answers, &pages)))
     }
 
     /// What the Proving ground observed of the trial on the site's hosts.
@@ -795,7 +815,7 @@ impl Plan<'_> {
         let footprint_bytes = footprint(home.path());
         let records = match self.config {
             Config::Foxhound { .. } if super::foxhound::keeps_records(self.cell.scenario) => {
-                Some(self.records(home.path(), started_wall)?)
+                Some(self.records(home.path())?)
             }
             Config::Foxhound { .. }
             | Config::Spider { .. }
@@ -803,7 +823,12 @@ impl Plan<'_> {
             | Config::Scrapy
             | Config::CrawleeRs => None,
         };
-        let observed = self.observe(seconds, records.as_ref())?;
+        let committed = records
+            .as_deref()
+            .map(|records| commit_times(records, started_wall))
+            .transpose()?;
+        let observed = self.observe(seconds, committed.as_ref())?;
+        let extracted = self.extracted(home.path(), records)?;
         let milestones: Vec<(u64, f64)> = MILESTONES
             .iter()
             .filter_map(|&pages| {
@@ -813,16 +838,19 @@ impl Plan<'_> {
             .collect();
         let tree = taken.map(|samples| sampler::figures(&samples, &milestones));
         let peak_bytes = usage.peak_bytes;
-        Ok(measured(
-            seconds,
-            processes,
-            usage,
-            peak_bytes,
-            tree,
-            footprint_bytes,
-            install_bytes(self.config, self.executable, self.browser()?),
-            observed,
-        ))
+        Ok(Measured {
+            extracted,
+            ..measured(
+                seconds,
+                processes,
+                usage,
+                peak_bytes,
+                tree,
+                footprint_bytes,
+                install_bytes(self.config, self.executable, self.browser()?),
+                observed,
+            )
+        })
     }
 
     /// Runs a counted trial: its count and the work it did.
@@ -836,6 +864,15 @@ impl Plan<'_> {
             cache.as_ref().map(tempfile::TempDir::path),
         )?;
         let work = self.observe(1.0, None)?.work;
+        let records = match self.config {
+            Config::Foxhound { .. } if self.checks_output() => Some(self.records(home.path())?),
+            Config::Foxhound { .. }
+            | Config::Spider { .. }
+            | Config::Crawlee
+            | Config::Scrapy
+            | Config::CrawleeRs => None,
+        };
+        let extracted = self.extracted(home.path(), records)?;
         let (count, syncs) = match &self.mode {
             Mode::Syscalls(output) => {
                 let (mut count, mut syncs) = (0, 0);
@@ -861,7 +898,12 @@ impl Plan<'_> {
             Mode::Timed => bail!("a timed trial counts nothing"),
             Mode::Rules => bail!("a hostile pages' run counts nothing"),
         };
-        Ok(Counted { count, syncs, work })
+        Ok(Counted {
+            count,
+            syncs,
+            work,
+            extracted,
+        })
     }
 }
 
@@ -904,7 +946,31 @@ fn measured(
         curve: observed.curve,
         latency: observed.latency,
         latency_end: observed.latency_end,
+        extracted: None,
     }
+}
+
+/// Foxhound's Records' commit times, in seconds from `started`, by path:
+/// each page's first.
+fn commit_times(records: &[Record], started: jiff::Timestamp) -> Result<HashMap<String, f64>> {
+    let mut times = HashMap::new();
+    for record in records {
+        let committed: jiff::Timestamp = record
+            .committed_at
+            .parse()
+            .with_context(|| format!("a Record's commit time: {}", record.committed_at))?;
+        let seconds = committed.duration_since(started).as_secs_f64();
+        let path = record
+            .url
+            .split_once("://")
+            .and_then(|(_, rest)| rest.find('/').map(|slash| rest[slash..].to_owned()))
+            .unwrap_or_else(|| record.url.clone());
+        times
+            .entry(path)
+            .and_modify(|first: &mut f64| *first = first.min(seconds))
+            .or_insert(seconds);
+    }
+    Ok(times)
 }
 
 /// Why this host cannot run a counted cell under `program`, when it

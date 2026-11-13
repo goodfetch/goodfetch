@@ -180,6 +180,7 @@ fn trials() -> Value {
         "commit": "0123456789abcdef0123456789abcdef01234567",
         "order_seed": 7,
         "trials": trials,
+        "rules": [],
         "syscalls": not_run("strace is not installed on this host"),
         "growth": not_run("the growth cell runs with `--growth`"),
         "instructions": not_run("valgrind is not installed on this host"),

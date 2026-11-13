@@ -14,7 +14,12 @@ scenario:
 - `extraction`: `raw` with each page's title and main text as an Item, which
   an Item pipeline writes as JSON lines to `items.jsonl`;
 - `browser`: `raw` with every request through `scrapy-playwright`, in the
-  headless Chrome `--browser` names.
+  headless Chrome `--browser` names;
+- `hostile`: the hostile pages' pass at each tool's defaults (#2439): no
+  setting but the `Host` header and `LOG_LEVEL: INFO`, which changes only
+  what Scrapy logs, so robots.txt is not obeyed (`ROBOTSTXT_OBEY` is False
+  by default), 16 requests in flight, 8 a domain, no delay, and 429s and
+  503s retried twice; `--concurrency` is unread.
 
 Scenario 2's cell says why Scrapy has none. It prints one line, `pages=<n>`,
 the pages Scrapy says it parsed; the comparison's same-work check reads the
@@ -41,7 +46,7 @@ if TYPE_CHECKING:
     from scrapy.http import Response
 
 
-SCENARIOS = ("raw", "polite", "extraction", "browser")
+SCENARIOS = ("raw", "polite", "extraction", "browser", "hostile")
 
 ITEMS_FILE = "items.jsonl"
 
@@ -118,6 +123,11 @@ class JsonLines:
 
 def settings_of(arguments: argparse.Namespace) -> dict[str, Any]:
     """The scenario's settings."""
+    if arguments.scenario == "hostile":
+        defaults: dict[str, Any] = {"LOG_LEVEL": "INFO"}
+        if arguments.host:
+            defaults["DEFAULT_REQUEST_HEADERS"] = {"Host": arguments.host}
+        return defaults
     settings: dict[str, Any] = {
         "ROBOTSTXT_OBEY": False,
         "CONCURRENT_REQUESTS": arguments.concurrency,

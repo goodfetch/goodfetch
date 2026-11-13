@@ -57,7 +57,7 @@ fn standing(
 }
 
 /// The section of `title` in the Markdown, to the next section.
-fn section<'a>(markdown: &'a str, title: &str) -> &'a str {
+pub(super) fn section<'a>(markdown: &'a str, title: &str) -> &'a str {
     let start = markdown
         .find(&format!("\n## {title}"))
         .unwrap_or_else(|| panic!("no section {title} in:\n{markdown}"));
@@ -312,7 +312,8 @@ fn spiders_extraction_cells_are_not_the_same_work() {
 
 /// Each cell of #2316's scenarios says it carries no bar, and each measured
 /// one gives its rate, latency percentiles and peak memory; no cell of the
-/// matrix's own five says so. The cell at the catalog's defaults says it is
+/// matrix's own five says so, and the hostile pages' cells say it for
+/// #2439 (their own test). The cell at the catalog's defaults says it is
 /// pending #2175 and gives no figure.
 #[test]
 fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
@@ -361,7 +362,9 @@ fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
                         .filter(|name| !matches!(metrics.get(*name), Some(Figure::Measured { .. })))
                         .map(|name| (scenario.scenario, cell.cell, *name))
                         .collect::<Vec<_>>(),
-                    CellStatus::NotSupported { .. } | CellStatus::NotMeasured { .. } => Vec::new(),
+                    CellStatus::NotSupported { .. }
+                    | CellStatus::NotMeasured { .. }
+                    | CellStatus::Ruled { .. } => Vec::new(),
                 })
         })
         .collect();
@@ -379,7 +382,7 @@ fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
                 .into_iter()
                 .map(|scenario| (
                     scenario,
-                    if scenario.carries_no_bar() {
+                    if scenario.carries_no_bar() && !scenario.hostile() {
                         every(scenario)
                     } else {
                         Vec::new()

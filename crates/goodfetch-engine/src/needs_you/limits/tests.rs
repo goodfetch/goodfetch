@@ -30,8 +30,9 @@ use crate::home::Home;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::{Holder, Ledger, SliceSizing};
 use crate::needs_you::SourceContext;
-use crate::run_index;
+use crate::run_index::{IndexFile, RunIndex};
 use crate::settings::{Settings, SettingsFiles};
+use crate::sqlite_store::StoreFile as _;
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// When the Run stopped: 10:00 UTC on a day whose Limit resets at midnight.
@@ -130,7 +131,8 @@ fn listed(then: Then, after: Duration) -> Vec<(String, Option<String>)> {
     let folder = tempfile::tempdir().unwrap();
     let index = folder.path().join("run-index.sqlite");
     let version = ProductVersion::parse("1.0.0").unwrap();
-    run_index::write(&index, &version, &stopped()).unwrap();
+    let file = IndexFile::of(index.clone(), &version);
+    file.write(&file.open().unwrap(), &stopped()).unwrap();
     let ledger = Ledger::at(folder.path().join("usage.sqlite"), None);
     let half_an_hour_later = STOPPED_AT.parse::<Timestamp>().unwrap() + Duration::from_mins(30);
     match then {
@@ -153,15 +155,18 @@ fn listed(then: Then, after: Duration) -> Vec<(String, Option<String>)> {
         let context = SourceContext {
             clock: Clock::paused(SystemTime::from(stopped_at) + after),
             storage: watch::channel(Arc::new(StorageSample::default())).1,
-            run_index: index,
+            run_index: RunIndex::of(index, &version, None, Arc::new(owner.child())),
             settings: Settings::new(
                 SettingsFiles::of(&Home::new(folder.path().to_owned()), &version),
                 Product::Collie,
                 owner.child(),
             ),
-            version,
             ledger,
-            known_certificates: KnownCertificates::of(&Home::new(folder.path().to_owned()), None),
+            known_certificates: KnownCertificates::of(
+                &Home::new(folder.path().to_owned()),
+                None,
+                Arc::new(owner.child()),
+            ),
             owner: Arc::new(owner.child()),
         };
         let items = runs_stopped().0.items(&context).await.unwrap();

@@ -17,8 +17,11 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::sync::Arc;
+
 use goodfetch_engine::home::Home;
 use goodfetch_engine::known_certificates::{KeyHash, KnownCertificates};
+use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::run::RunId;
@@ -38,35 +41,44 @@ const CALLER: &str = "os_user";
 /// A store holding a pin of the OS user's, made by a Run, and two of
 /// another person's on the same shared store, one for the same host.
 fn shared_store(env: &TestEnv) -> KnownCertificates {
-    let store = KnownCertificates::of(&Home::new(env.home().to_path_buf()), None);
-    let at = "2026-01-05T09:00:00Z".parse().unwrap();
-    store
-        .pin(
-            CALLER,
-            "expired.certificates.test",
-            &KeyHash::of_public_key(b"the caller's key"),
-            Some(&RunId::parse("pinned").unwrap()),
-            at,
-        )
-        .unwrap();
-    store
-        .pin(
-            "grace",
-            "expired.certificates.test",
-            &KeyHash::of_public_key(b"grace's key"),
-            None,
-            at,
-        )
-        .unwrap();
-    store
-        .pin(
-            "grace",
-            "intranet.example",
-            &KeyHash::of_public_key(b"grace's intranet key"),
-            None,
-            at,
-        )
-        .unwrap();
+    let store = KnownCertificates::of(
+        &Home::new(env.home().to_path_buf()),
+        None,
+        Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+    );
+    let at: jiff::Timestamp = "2026-01-05T09:00:00Z".parse().unwrap();
+    goodfetch_test_support::runtime().block_on(async {
+        store
+            .pin(
+                CALLER,
+                "expired.certificates.test",
+                &KeyHash::of_public_key(b"the caller's key"),
+                Some(&RunId::parse("pinned").unwrap()),
+                at,
+            )
+            .await
+            .unwrap();
+        store
+            .pin(
+                "grace",
+                "expired.certificates.test",
+                &KeyHash::of_public_key(b"grace's key"),
+                None,
+                at,
+            )
+            .await
+            .unwrap();
+        store
+            .pin(
+                "grace",
+                "intranet.example",
+                &KeyHash::of_public_key(b"grace's intranet key"),
+                None,
+                at,
+            )
+            .await
+            .unwrap();
+    });
     store
 }
 
@@ -154,15 +166,18 @@ const CHANGED: &str = "sha256/1jlINei1T2GB2iKNenHQJy1POCDvVjQqkhrCm156RBk=";
 /// waiting to be accepted.
 fn changed_store(env: &TestEnv) -> KnownCertificates {
     let store = shared_store(env);
-    store
-        .record_change(
-            CALLER,
-            HOST,
-            &KeyHash::of_public_key(b"the changed key"),
-            Some(&RunId::parse("stopped").unwrap()),
-            "2026-01-05T10:00:00Z".parse().unwrap(),
-        )
-        .unwrap();
+    goodfetch_test_support::runtime().block_on(async {
+        store
+            .record_change(
+                CALLER,
+                HOST,
+                &KeyHash::of_public_key(b"the changed key"),
+                Some(&RunId::parse("stopped").unwrap()),
+                "2026-01-05T10:00:00Z".parse().unwrap(),
+            )
+            .await
+            .unwrap();
+    });
     store
 }
 
@@ -466,7 +481,13 @@ fn certs_forget_asks_the_person_at_the_terminal(
         "{}",
         forgotten.stripped()
     );
-    assert_eq!(store.list("grace").unwrap().len(), 2);
+    assert_eq!(
+        goodfetch_test_support::runtime()
+            .block_on(store.list("grace"))
+            .unwrap()
+            .len(),
+        2
+    );
 }
 
 /// Story 4-37: under `--json`, and with stdin no terminal, `certs forget`

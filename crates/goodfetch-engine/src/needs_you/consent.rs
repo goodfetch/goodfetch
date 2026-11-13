@@ -14,7 +14,7 @@ use serde_json::{Map, Value, json};
 
 use super::{Answering, Changes, NeedsYouSource, Primitives, SourceContext, SourceError};
 use crate::host_name;
-use crate::run_index::{self, ConsentWallSeen};
+use crate::run_index::ConsentWallSeen;
 use crate::settings::Opening;
 
 /// Each domain whose consent wall a Run met, which `consent.domains` does
@@ -67,11 +67,10 @@ impl Primitives for Walls {
         &'a self,
         context: &'a SourceContext,
     ) -> Answering<'a, Result<Vec<NeedsYouItem>, SourceError>> {
-        let path = context.run_index.clone();
-        let version = context.version.clone();
         Box::pin(async move {
             let seen = context
-                .blocking(move || run_index::consent_walls(&path, &version))
+                .run_index
+                .consent_walls()
                 .await
                 .map_err(SourceError::new)?;
             if seen.is_empty() {

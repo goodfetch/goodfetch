@@ -10,7 +10,10 @@
 //! (ADR 0030). It also says which SQLite failure is a full disk or an I/O
 //! error (ADR 0122), which each store maps into its own typed error.
 //!
-//! Its calls block: callers run them under their owner's blocking policy.
+//! Its calls block: callers run them under their owner's blocking policy,
+//! or keep a file's connections in a [`KeptStore`], which runs them there.
+
+mod kept;
 
 use std::path::Path;
 use std::time::Duration;
@@ -21,6 +24,8 @@ use goodfetch_protocol::formats::{Compatibility, Format};
 use rusqlite::{Connection, OpenFlags, TransactionBehavior};
 
 use crate::sqlite_wal;
+
+pub(crate) use kept::{KeptStore, StoreFile};
 
 /// The table that names a store's format and its version (ADR 0066), the
 /// first of every store's tables.
@@ -478,13 +483,34 @@ pub(crate) fn run_cached(connection: &Connection, statement: &str) -> rusqlite::
 /// # Errors
 ///
 /// `work`'s error, or SQLite's at the `BEGIN` or the `COMMIT`.
-pub(crate) fn immediate<T>(
+pub(crate) fn immediate<T, E: From<rusqlite::Error>>(
     connection: &Connection,
-    work: impl FnOnce(&Connection) -> rusqlite::Result<T>,
-) -> rusqlite::Result<T> {
-    run_cached(connection, "BEGIN IMMEDIATE")?;
+    work: impl FnOnce(&Connection) -> Result<T, E>,
+) -> Result<T, E> {
+    transaction(connection, "BEGIN IMMEDIATE", work)
+}
+
+/// Runs `work` in one deferred transaction of `connection`, which takes no
+/// write lock until `work` writes, as [`immediate`] runs its own.
+///
+/// # Errors
+///
+/// As [`immediate`].
+pub(crate) fn deferred<T, E: From<rusqlite::Error>>(
+    connection: &Connection,
+    work: impl FnOnce(&Connection) -> Result<T, E>,
+) -> Result<T, E> {
+    transaction(connection, "BEGIN", work)
+}
+
+fn transaction<T, E: From<rusqlite::Error>>(
+    connection: &Connection,
+    begin: &str,
+    work: impl FnOnce(&Connection) -> Result<T, E>,
+) -> Result<T, E> {
+    run_cached(connection, begin)?;
     let done =
-        work(connection).and_then(|answer| run_cached(connection, "COMMIT").map(|()| answer));
+        work(connection).and_then(|answer| Ok(run_cached(connection, "COMMIT").map(|()| answer)?));
     if done.is_err() && !connection.is_autocommit() {
         let _ = run_cached(connection, "ROLLBACK");
     }

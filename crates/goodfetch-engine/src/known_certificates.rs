@@ -15,24 +15,30 @@
 //!
 //! The store opens through a VFS named by a value, none in production, and
 //! is of the Usage ledger's family: its major never changes and a newer
-//! minor only adds. Its calls block: callers run them under their owner's
-//! blocking policy.
+//! minor only adds. An engine opens it once for its writes and once for its
+//! lookups (#1886): its writes run on a writer, an actor of the engine's
+//! owner that keeps its connection, and its lookups on that owner's
+//! blocking threads, on one read-only connection it keeps beside the
+//! writer's, so a lookup on a handshake never waits behind a write, and
+//! every statement is prepared once on each.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::formats::{Compatibility, KNOWN_CERTIFICATES};
 use goodfetch_protocol::run::{PointInTime, RunId};
 use goodfetch_protocol::tls::CertificatePin;
 use jiff::Timestamp;
-use rusqlite::{Connection, OptionalExtension as _, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension as _};
 use sha2::{Digest as _, Sha256};
 
 use crate::home::Home;
 use crate::sqlite_store::{
-    self, Access, Durability, File, Folder, FormatRefusal, OpenError, Opening, Schema, Wait,
+    self, Access, Durability, File, Folder, FormatRefusal, KeptStore, OpenError, Opening, Schema,
+    StoreFile, Wait,
 };
+use crate::tasks::{ActorStopped, TaskOwner};
 
 /// The kind of exception a host was reached through, as Provenance marks
 /// what was fetched under it.
@@ -196,6 +202,14 @@ pub enum KnownCertificatesError {
         /// The host.
         host: String,
     },
+    /// The engine's writer of the store stopped with its owner.
+    #[error("the known-certificates store at `{path}` is not running: {message}")]
+    NotRunning {
+        /// The store's file.
+        path: PathBuf,
+        /// Why.
+        message: String,
+    },
     /// The store is of another major of the format (ADR 0030).
     #[error("the known-certificates store is {found}, which this engine cannot read")]
     Format {
@@ -206,16 +220,18 @@ pub enum KnownCertificatesError {
     },
 }
 
-/// The known-certificates store of one user: its file and the VFS it
-/// opens through. Clones share whether this engine has found the store's
-/// tables made.
+/// The known-certificates store of one user, as one engine opens it: its
+/// writer and the connection its lookups keep, which its clones share.
 #[derive(Clone, Debug)]
 pub struct KnownCertificates {
+    store: Arc<KeptStore<CertificatesFile>>,
+}
+
+/// The store's file and the VFS it opens through.
+#[derive(Debug)]
+struct CertificatesFile {
     path: PathBuf,
     vfs: Option<String>,
-    /// Set once this engine found every table of this version in the
-    /// store, or made them: a lookup then opens the store read-only.
-    made: Arc<OnceLock<()>>,
 }
 
 /// One row as SQLite gives it, before it is read.
@@ -294,10 +310,12 @@ impl Row {
     }
 }
 
-const SELECT: &str = "SELECT host, spki_sha256, pinned_at, run_id FROM pins";
+/// A person's pin of a host.
+const FIND: &str =
+    "SELECT host, spki_sha256, pinned_at, run_id FROM pins WHERE person = ?1 AND host = ?2";
 
-/// [`SELECT`]'s columns with the key of the change waiting for each pin.
-const SELECT_LISTED: &str = "SELECT pins.host, pins.spki_sha256, pins.pinned_at, pins.run_id, changes.spki_sha256 FROM pins LEFT JOIN changes ON changes.person = pins.person AND changes.host = pins.host";
+/// A person's pins by host, each with the key of the change waiting for it.
+const LIST: &str = "SELECT pins.host, pins.spki_sha256, pins.pinned_at, pins.run_id, changes.spki_sha256 FROM pins LEFT JOIN changes ON changes.person = pins.person AND changes.host = pins.host WHERE pins.person = ?1 ORDER BY pins.host";
 
 /// A change waiting for a person: the key the host presented instead, and
 /// the Run that met it.
@@ -308,18 +326,21 @@ struct Change {
 
 impl KnownCertificates {
     /// The store of `home`, opened through the SQLite VFS named `vfs` (none
-    /// in production, ADR 0060).
-    pub fn of(home: &Home, vfs: Option<String>) -> Self {
-        Self {
+    /// in production, ADR 0060), its writer an actor of `owner` and its
+    /// lookups on `owner`'s blocking threads.
+    pub fn of(home: &Home, vfs: Option<String>, owner: Arc<TaskOwner>) -> Self {
+        let file = CertificatesFile {
             path: home.known_certificates(),
             vfs,
-            made: Arc::default(),
+        };
+        Self {
+            store: Arc::new(KeptStore::of(file, "known-certificates-writer", owner)),
         }
     }
 
     /// Its file.
     pub fn path(&self) -> &Path {
-        &self.path
+        &self.store.file().path
     }
 
     /// What the store holds for `person`'s `host`. A store never written
@@ -327,13 +348,13 @@ impl KnownCertificates {
     ///
     /// # Errors
     ///
-    /// When the store cannot be read, or is of another major.
-    pub fn find(&self, person: &str, host: &str) -> Result<Found, KnownCertificatesError> {
-        if !self.path.exists() {
-            return Ok(Found::Unpinned);
-        }
-        let connection = self.open_read()?;
-        find_in(&connection, person, host).map_err(|error| self.failed(&error))
+    /// When the store cannot be read or is of another major.
+    pub async fn find(&self, person: &str, host: &str) -> Result<Found, KnownCertificatesError> {
+        let (person, host) = (person.to_owned(), host.to_owned());
+        self.read(Found::Unpinned, move |connection| {
+            find_in(connection, &person, &host)
+        })
+        .await
     }
 
     /// Pins `key` for `person`'s `host`, at `now`, by `run_id`, unless the
@@ -341,8 +362,9 @@ impl KnownCertificates {
     ///
     /// # Errors
     ///
-    /// When the store cannot be written, or is of another major.
-    pub fn pin(
+    /// When the store cannot be written, is of another major, or its writer
+    /// stopped.
+    pub async fn pin(
         &self,
         person: &str,
         host: &str,
@@ -350,29 +372,29 @@ impl KnownCertificates {
         run_id: Option<&RunId>,
         now: Timestamp,
     ) -> Result<Pinned, KnownCertificatesError> {
-        let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        let mut connection = self.open()?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| failed(&error))?;
-        let found = find_in(&transaction, person, host).map_err(|error| failed(&error))?;
-        if found != Found::Unpinned {
-            return Ok(Pinned::Already(found));
-        }
-        transaction
-            .execute(
-                "INSERT INTO pins (person, host, spki_sha256, pinned_at, run_id) VALUES (?1, ?2, ?3, ?4, ?5)",
-                (
-                    person,
-                    host,
-                    key.stored(),
-                    now.to_string(),
-                    run_id.map(RunId::as_str),
-                ),
-            )
-            .map_err(|error| failed(&error))?;
-        transaction.commit().map_err(|error| failed(&error))?;
-        Ok(Pinned::First)
+        let (person, host, key) = (person.to_owned(), host.to_owned(), *key);
+        let run_id = run_id.cloned();
+        self.write(None, move |connection| {
+            sqlite_store::immediate(connection, |connection| {
+                let found = find_in(connection, &person, &host)?;
+                if found != Found::Unpinned {
+                    return Ok(Pinned::Already(found));
+                }
+                connection
+                    .prepare_cached(
+                        "INSERT INTO pins (person, host, spki_sha256, pinned_at, run_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    )?
+                    .execute((
+                        &person,
+                        &host,
+                        key.stored(),
+                        now.to_string(),
+                        run_id.as_ref().map(RunId::as_str),
+                    ))?;
+                Ok(Pinned::First)
+            })
+        })
+        .await
     }
 
     /// Records `key`, which `person`'s pinned `host` presented at `now` in
@@ -381,8 +403,9 @@ impl KnownCertificates {
     ///
     /// # Errors
     ///
-    /// When the store cannot be written, or is of another major.
-    pub fn record_change(
+    /// When the store cannot be written, is of another major, or its writer
+    /// stopped.
+    pub async fn record_change(
         &self,
         person: &str,
         host: &str,
@@ -390,21 +413,26 @@ impl KnownCertificates {
         run_id: Option<&RunId>,
         now: Timestamp,
     ) -> Result<(), KnownCertificatesError> {
-        let connection = self.open()?;
-        connection
-            .execute(
-                "INSERT INTO changes (person, host, spki_sha256, seen_at, run_id) VALUES (?1, ?2, ?3, ?4, ?5)
-                 ON CONFLICT (person, host) DO UPDATE SET spki_sha256 = excluded.spki_sha256, seen_at = excluded.seen_at, run_id = excluded.run_id",
-                (
-                    person,
-                    host,
-                    key.stored(),
-                    now.to_string(),
-                    run_id.map(RunId::as_str),
-                ),
-            )
-            .map_err(|error| self.failed(&error))?;
-        Ok(())
+        let (person, host, key) = (person.to_owned(), host.to_owned(), *key);
+        let run_id = run_id.cloned();
+        self.write(None, move |connection| {
+            connection
+                .prepare_cached(
+                    "INSERT INTO changes (person, host, spki_sha256, seen_at, run_id) VALUES (?1, ?2, ?3, ?4, ?5)
+                     ON CONFLICT (person, host) DO UPDATE SET spki_sha256 = excluded.spki_sha256, seen_at = excluded.seen_at, run_id = excluded.run_id",
+                )
+                .and_then(|mut statement| {
+                    statement.execute((
+                        &person,
+                        &host,
+                        key.stored(),
+                        now.to_string(),
+                        run_id.as_ref().map(RunId::as_str),
+                    ))
+                })
+                .map(drop)
+        })
+        .await
     }
 
     /// Pins `key` for `person`'s `host` in place of its pin, dated `now`
@@ -415,59 +443,58 @@ impl KnownCertificates {
     ///
     /// [`KnownCertificatesError::NoSuchChange`] unless `key` is the change
     /// waiting for the host; otherwise when the store cannot be written,
-    /// or is of another major.
-    pub fn accept(
+    /// is of another major, or its writer stopped.
+    pub async fn accept(
         &self,
         person: &str,
         host: &str,
         key: &KeyHash,
         now: Timestamp,
     ) -> Result<Accepted, KnownCertificatesError> {
-        let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        let mut connection = self.open()?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| failed(&error))?;
-        let waiting = change_in(&transaction, person, host).map_err(|error| failed(&error))?;
-        let Some(Change {
-            key: changed,
-            run_id,
-        }) = waiting.filter(|change| change.key == *key)
-        else {
-            return Err(KnownCertificatesError::NoSuchChange {
-                host: host.to_owned(),
-            });
-        };
-        let previous = find_in(&transaction, person, host).map_err(|error| failed(&error))?;
-        transaction
-            .execute(
-                "INSERT INTO pins (person, host, spki_sha256, pinned_at, run_id) VALUES (?1, ?2, ?3, ?4, ?5)
-                 ON CONFLICT (person, host) DO UPDATE SET spki_sha256 = excluded.spki_sha256, pinned_at = excluded.pinned_at, run_id = excluded.run_id",
-                (
-                    person,
-                    host,
-                    changed.stored(),
-                    now.to_string(),
-                    run_id.as_ref().map(RunId::as_str),
-                ),
-            )
-            .map_err(|error| failed(&error))?;
-        transaction
-            .execute(
-                "DELETE FROM changes WHERE person = ?1 AND host = ?2",
-                [person, host],
-            )
-            .map_err(|error| failed(&error))?;
-        transaction.commit().map_err(|error| failed(&error))?;
-        Ok(Accepted {
-            previous,
-            pin: CertificatePin {
-                host: host.to_owned(),
-                spki_sha256: Some(changed.to_string()),
-                pinned_at: Some(PointInTime::from_rfc3339(now.to_string())),
-                run_id,
-                changed_spki_sha256: None,
-            },
+        let (person, owned_host, key) = (person.to_owned(), host.to_owned(), *key);
+        let accepted = self
+            .write(None, move |connection| {
+                let host = owned_host;
+                sqlite_store::immediate(connection, |connection| {
+                    let waiting = change_in(connection, &person, &host)?;
+                    let Some(Change {
+                        key: changed,
+                        run_id,
+                    }) = waiting.filter(|change| change.key == key)
+                    else {
+                        return Ok(None);
+                    };
+                    let previous = find_in(connection, &person, &host)?;
+                    connection
+                        .prepare_cached(
+                            "INSERT INTO pins (person, host, spki_sha256, pinned_at, run_id) VALUES (?1, ?2, ?3, ?4, ?5)
+                             ON CONFLICT (person, host) DO UPDATE SET spki_sha256 = excluded.spki_sha256, pinned_at = excluded.pinned_at, run_id = excluded.run_id",
+                        )?
+                        .execute((
+                            &person,
+                            &host,
+                            changed.stored(),
+                            now.to_string(),
+                            run_id.as_ref().map(RunId::as_str),
+                        ))?;
+                    connection
+                        .prepare_cached("DELETE FROM changes WHERE person = ?1 AND host = ?2")?
+                        .execute([&person, &host])?;
+                    Ok(Some(Accepted {
+                        previous,
+                        pin: CertificatePin {
+                            spki_sha256: Some(changed.to_string()),
+                            pinned_at: Some(PointInTime::from_rfc3339(now.to_string())),
+                            run_id,
+                            changed_spki_sha256: None,
+                            host,
+                        },
+                    }))
+                })
+            })
+            .await?;
+        accepted.ok_or_else(|| KnownCertificatesError::NoSuchChange {
+            host: host.to_owned(),
         })
     }
 
@@ -477,30 +504,22 @@ impl KnownCertificates {
     ///
     /// # Errors
     ///
-    /// When the store cannot be written, or is of another major.
-    pub fn forget(&self, person: &str, host: &str) -> Result<bool, KnownCertificatesError> {
-        if !self.path.exists() {
-            return Ok(false);
-        }
-        let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        let mut connection = self.open()?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| failed(&error))?;
-        let removed = transaction
-            .execute(
-                "DELETE FROM pins WHERE person = ?1 AND host = ?2",
-                [person, host],
-            )
-            .map_err(|error| failed(&error))?;
-        transaction
-            .execute(
-                "DELETE FROM changes WHERE person = ?1 AND host = ?2",
-                [person, host],
-            )
-            .map_err(|error| failed(&error))?;
-        transaction.commit().map_err(|error| failed(&error))?;
-        Ok(removed > 0)
+    /// When the store cannot be written, is of another major, or its writer
+    /// stopped.
+    pub async fn forget(&self, person: &str, host: &str) -> Result<bool, KnownCertificatesError> {
+        let (person, host) = (person.to_owned(), host.to_owned());
+        self.write(Some(false), move |connection| {
+            sqlite_store::immediate(connection, |connection| {
+                let removed = connection
+                    .prepare_cached("DELETE FROM pins WHERE person = ?1 AND host = ?2")?
+                    .execute([&person, &host])?;
+                connection
+                    .prepare_cached("DELETE FROM changes WHERE person = ?1 AND host = ?2")?
+                    .execute([&person, &host])?;
+                Ok(removed > 0)
+            })
+        })
+        .await
     }
 
     /// `person`'s pins, by host; a row this engine cannot read is listed
@@ -509,20 +528,12 @@ impl KnownCertificates {
     ///
     /// # Errors
     ///
-    /// When the store cannot be read, or is of another major.
-    pub fn list(&self, person: &str) -> Result<Vec<CertificatePin>, KnownCertificatesError> {
-        if !self.path.exists() {
-            return Ok(Vec::new());
-        }
-        let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        let connection = self.open_read()?;
-        let mut statement = connection
-            .prepare(&format!(
-                "{SELECT_LISTED} WHERE pins.person = ?1 ORDER BY pins.host"
-            ))
-            .map_err(|error| failed(&error))?;
-        let rows = statement
-            .query_map([person], |row| {
+    /// When the store cannot be read or is of another major.
+    pub async fn list(&self, person: &str) -> Result<Vec<CertificatePin>, KnownCertificatesError> {
+        let person = person.to_owned();
+        self.read(Vec::new(), move |connection| {
+            let mut statement = connection.prepare_cached(LIST)?;
+            let rows = statement.query_map([&person], |row| {
                 // A change whose key this engine cannot read waits for
                 // nothing a person could accept.
                 let changed = row
@@ -531,17 +542,18 @@ impl KnownCertificates {
                     .flatten()
                     .and_then(|bytes| KeyHash::from_stored(&bytes));
                 Ok((Row::from_sql(row)?, changed))
-            })
-            .map_err(|error| failed(&error))?;
-        let mut pins = Vec::new();
-        for row in rows {
-            let (row, changed) = row.map_err(|error| failed(&error))?;
-            pins.push(CertificatePin {
-                changed_spki_sha256: changed.map(|key| key.to_string()),
-                ..row.listed()
-            });
-        }
-        Ok(pins)
+            })?;
+            let mut pins = Vec::new();
+            for row in rows {
+                let (row, changed) = row?;
+                pins.push(CertificatePin {
+                    changed_spki_sha256: changed.map(|key| key.to_string()),
+                    ..row.listed()
+                });
+            }
+            Ok(pins)
+        })
+        .await
     }
 
     /// The changes waiting for `person`, by host: each pinned host that
@@ -551,99 +563,87 @@ impl KnownCertificates {
     ///
     /// # Errors
     ///
-    /// When the store cannot be read, or is of another major.
-    pub fn waiting(&self, person: &str) -> Result<Vec<Waiting>, KnownCertificatesError> {
-        if !self.path.exists() {
-            return Ok(Vec::new());
-        }
-        let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        let connection = self.open_read()?;
-        let mut statement = connection
-            .prepare(
+    /// When the store cannot be read or is of another major.
+    pub async fn waiting(&self, person: &str) -> Result<Vec<Waiting>, KnownCertificatesError> {
+        let person = person.to_owned();
+        self.read(Vec::new(), move |connection| {
+            let mut statement = connection.prepare_cached(
                 "SELECT host, spki_sha256, seen_at, run_id FROM changes WHERE person = ?1 ORDER BY host",
-            )
-            .map_err(|error| failed(&error))?;
-        let rows = statement
-            .query_map([person], |row| {
+            )?;
+            let rows = statement.query_map([&person], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, Vec<u8>>(1).ok(),
                     row.get::<_, String>(2).ok(),
                     row.get::<_, Option<String>>(3).ok().flatten(),
                 ))
-            })
-            .map_err(|error| failed(&error))?;
-        let mut waiting = Vec::new();
-        for row in rows {
-            let (host, key, seen_at, run_id) = row.map_err(|error| failed(&error))?;
-            let (Some(presented), Some(seen_at)) = (
-                key.as_deref().and_then(KeyHash::from_stored),
-                seen_at.and_then(|seen_at| seen_at.parse::<Timestamp>().ok()),
-            ) else {
-                continue;
-            };
-            let pinned = find_in(&connection, person, &host).map_err(|error| failed(&error))?;
-            waiting.push(Waiting {
-                pinned,
-                presented,
-                seen_at: PointInTime::from_rfc3339(seen_at.to_string()),
-                run_id: run_id.and_then(|run_id| RunId::parse(&run_id).ok()),
-                host,
-            });
-        }
-        Ok(waiting)
-    }
-
-    /// Opens the existing store for a lookup, refusing one of another major:
-    /// read-only, so it takes no write lock and, in WAL mode, never waits
-    /// for a writer. The first time this engine finds a table of this
-    /// version missing, it makes the tables through [`Self::open`] instead.
-    fn open_read(&self) -> Result<Connection, KnownCertificatesError> {
-        let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        if self.made.get().is_none() {
-            let connection = self.connect(Access::ReadOnly)?;
-            let tables: i64 = connection
-                .query_row(
-                    "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('format', 'pins', 'changes')",
-                    [],
-                    |row| row.get(0),
-                )
-                .map_err(|error| failed(&error))?;
-            if tables < 3 {
-                drop(connection);
-                return self.open();
+            })?;
+            let mut waiting = Vec::new();
+            for row in rows {
+                let (host, key, seen_at, run_id) = row?;
+                let (Some(presented), Some(seen_at)) = (
+                    key.as_deref().and_then(KeyHash::from_stored),
+                    seen_at.and_then(|seen_at| seen_at.parse::<Timestamp>().ok()),
+                ) else {
+                    continue;
+                };
+                let pinned = find_in(connection, &person, &host)?;
+                waiting.push(Waiting {
+                    pinned,
+                    presented,
+                    seen_at: PointInTime::from_rfc3339(seen_at.to_string()),
+                    run_id: run_id.and_then(|run_id| RunId::parse(&run_id).ok()),
+                    host,
+                });
             }
-            let _ = self.made.set(());
-        }
-        let connection = self.connect(Access::ReadOnly)?;
-        let found: String = connection
-            .query_row(
-                "SELECT version FROM format WHERE name = ?1",
-                [KNOWN_CERTIFICATES.name],
-                |row| row.get(0),
-            )
-            .map_err(|error| failed(&error))?;
-        sqlite_store::check_format(&KNOWN_CERTIFICATES, &found).map_err(refused)?;
-        Ok(connection)
+            Ok(waiting)
+        })
+        .await
     }
 
-    /// A connection to the store opened with `access`, waiting up to
-    /// [`BUSY_TIMEOUT`] where SQLite answers busy.
-    fn connect(&self, access: Access) -> Result<Connection, KnownCertificatesError> {
-        let failed = |error: &dyn std::fmt::Display| self.failed(error);
-        let connection = File::new(&self.path, self.vfs.as_deref())
-            .connect(access)
-            .map_err(|error| failed(&error))?;
-        connection
-            .busy_timeout(BUSY_TIMEOUT)
-            .map_err(|error| failed(&error))?;
-        Ok(connection)
+    /// Runs `work` on the lookups' connection, on a blocking thread of the
+    /// writer's owner, and answers what it returned; `missing` while the
+    /// store was never written, which is then not created.
+    async fn read<T, F>(&self, missing: T, work: F) -> Result<T, KnownCertificatesError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        self.store
+            .read(Some(missing), |file, connection| {
+                work(connection).map_err(|error| file.failed(&error))
+            })
+            .await
+    }
+
+    /// Runs `work` on the writer's connection, the store opened, and
+    /// created, now if it keeps none, and answers what it returned; with a
+    /// `missing` answer, that one while the store was never written, which
+    /// is then not created.
+    async fn write<T, F>(&self, missing: Option<T>, work: F) -> Result<T, KnownCertificatesError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        self.store
+            .write(missing, |file, connection| {
+                work(connection).map_err(|error| file.failed(&error))
+            })
+            .await
+    }
+}
+
+impl StoreFile for CertificatesFile {
+    type Error = KnownCertificatesError;
+
+    fn path(&self) -> &Path {
+        &self.path
     }
 
     /// Opens the store, creating it and its tables when it does not exist,
     /// and refuses one of another major.
     fn open(&self) -> Result<Connection, KnownCertificatesError> {
-        let connection = File::new(&self.path, self.vfs.as_deref())
+        File::new(&self.path, self.vfs.as_deref())
             .open(&Opening {
                 folder: Folder::Make,
                 access: Access::Create,
@@ -658,8 +658,58 @@ impl KnownCertificates {
             .map_err(|error| match error {
                 OpenError::Format(refusal) => refused(refusal),
                 other => self.failed(&other),
-            })?;
-        let _ = self.made.set(());
+            })
+    }
+
+    /// Opens the existing store for its lookups, refusing one of another
+    /// major: read-only, so it takes no write lock and, in WAL mode, never
+    /// waits for a writer. A store whose tables of this version are not all
+    /// there yet has them made, through [`StoreFile::open`], whose
+    /// connection then reads.
+    fn open_read(&self) -> Result<Connection, KnownCertificatesError> {
+        let failed = |error: &dyn std::fmt::Display| self.failed(error);
+        let connection = self.connect(Access::ReadOnly)?;
+        let tables: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('format', 'pins', 'changes')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| failed(&error))?;
+        if tables < 3 {
+            drop(connection);
+            return self.open();
+        }
+        let found: String = connection
+            .query_row(
+                "SELECT version FROM format WHERE name = ?1",
+                [KNOWN_CERTIFICATES.name],
+                |row| row.get(0),
+            )
+            .map_err(|error| failed(&error))?;
+        sqlite_store::check_format(&KNOWN_CERTIFICATES, &found).map_err(refused)?;
+        Ok(connection)
+    }
+
+    fn stopped(&self, stopped: &ActorStopped) -> KnownCertificatesError {
+        KnownCertificatesError::NotRunning {
+            path: self.path.clone(),
+            message: stopped.to_string(),
+        }
+    }
+}
+
+impl CertificatesFile {
+    /// A connection to the store opened with `access`, waiting up to
+    /// [`BUSY_TIMEOUT`] where SQLite answers busy.
+    fn connect(&self, access: Access) -> Result<Connection, KnownCertificatesError> {
+        let failed = |error: &dyn std::fmt::Display| self.failed(error);
+        let connection = File::new(&self.path, self.vfs.as_deref())
+            .connect(access)
+            .map_err(|error| failed(&error))?;
+        connection
+            .busy_timeout(BUSY_TIMEOUT)
+            .map_err(|error| failed(&error))?;
         Ok(connection)
     }
 
@@ -674,11 +724,8 @@ impl KnownCertificates {
 /// What `connection`'s store holds for `person`'s `host`.
 fn find_in(connection: &Connection, person: &str, host: &str) -> rusqlite::Result<Found> {
     let row = connection
-        .query_row(
-            &format!("{SELECT} WHERE person = ?1 AND host = ?2"),
-            [person, host],
-            Row::from_sql,
-        )
+        .prepare_cached(FIND)?
+        .query_row([person, host], Row::from_sql)
         .optional()?;
     Ok(row.map_or(Found::Unpinned, |row| row.found()))
 }
@@ -691,16 +738,13 @@ fn change_in(
     host: &str,
 ) -> rusqlite::Result<Option<Change>> {
     let row = connection
-        .query_row(
-            "SELECT spki_sha256, run_id FROM changes WHERE person = ?1 AND host = ?2",
-            [person, host],
-            |row| {
-                Ok((
-                    row.get::<_, Vec<u8>>(0).ok(),
-                    row.get::<_, Option<String>>(1).ok(),
-                ))
-            },
-        )
+        .prepare_cached("SELECT spki_sha256, run_id FROM changes WHERE person = ?1 AND host = ?2")?
+        .query_row([person, host], |row| {
+            Ok((
+                row.get::<_, Vec<u8>>(0).ok(),
+                row.get::<_, Option<String>>(1).ok(),
+            ))
+        })
         .optional()?;
     Ok(row.and_then(|(key, run_id)| {
         Some(Change {

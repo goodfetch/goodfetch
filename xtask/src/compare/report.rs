@@ -2,8 +2,10 @@
 //! the owner's list, each the median of the cell's trials with its spread
 //! (the lowest and the highest trial), or why the cell or the metric gives
 //! no figure; and `foxhound.spider_instruction_ratio` from the Callgrind
-//! cell. Labelled `local-controlled` with the machine and never published
-//! (ADR 0076), and written only once the same-work check passed.
+//! cell; the verdicts of Foxhound against each competitor ([`verdict`]).
+//! Labelled `local-controlled`, measured on the machine it names, with the
+//! command that reruns it, and written only once the same-work check
+//! passed.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -16,6 +18,11 @@ use super::trials::{
     Comparison, CountedCell, CountedRun, Declared, GrowthCell, LatencyEnd, MILESTONES, Machine,
     QUIET_LOAD, TRIALS, Trial,
 };
+
+mod verdict;
+
+#[cfg(test)]
+mod tests;
 
 /// The span of one window of the core sampling.
 const CORE_WINDOW_MILLISECONDS: u64 = CORE_WINDOW_SAMPLES as u64 * INTERVAL_MILLISECONDS;
@@ -58,6 +65,11 @@ pub(crate) struct CellReport {
     pub(crate) row: Row,
     pub(crate) mapping: &'static str,
     pub(crate) pending: &'static [&'static str],
+    /// Whether no check read the content it wrote: it gets no verdict.
+    pub(crate) content_unverified: bool,
+    /// Why it does not do the Product's work, when the matrix declares so:
+    /// it gets no verdict and no ratio.
+    pub(crate) unlike_work: Option<&'static str>,
     #[serde(flatten)]
     pub(crate) status: CellStatus,
 }
@@ -67,8 +79,10 @@ pub(crate) struct CellReport {
 pub(crate) enum CellStatus {
     Measured {
         trials: usize,
-        /// What the same-work check found every trial did.
+        /// What the same-work check found every trial did: the pages the
+        /// Proving ground saw it fetch, of the site's, and their bytes.
         pages: u64,
+        site_pages: u64,
         bytes: u64,
         metrics: BTreeMap<&'static str, Figure>,
         /// Pages per second in each tenth of the crawl.
@@ -89,6 +103,7 @@ pub(crate) struct ScenarioReport {
     pub(crate) scenario: Scenario,
     pub(crate) title: &'static str,
     pub(crate) cells: Vec<CellReport>,
+    pub(crate) verdicts: Vec<verdict::Verdicts>,
 }
 
 /// Scenario 1's figures of a tool, its main row's, which `just targets`
@@ -534,7 +549,6 @@ fn instructions(cell: &CountedCell) -> Instructions<'_> {
     }
 }
 
-/// The report of trials that passed the same-work check.
 /// Why `cell`'s timed trial was stopped twice, if it was.
 fn stopped_reason(trials: &Comparison, cell: &Cell) -> Option<String> {
     trials
@@ -544,6 +558,7 @@ fn stopped_reason(trials: &Comparison, cell: &Cell) -> Option<String> {
         .map(|run| run.reason.clone())
 }
 
+/// The report of trials that passed the same-work check.
 pub(crate) fn of(trials: &Comparison) -> Report<'_> {
     let mut scenarios = Vec::new();
     let mut tools = BTreeMap::new();
@@ -603,6 +618,7 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
                     CellStatus::Measured {
                         trials: ran.len(),
                         pages: ran.first().map_or(0, |trial| trial.measured.work.pages),
+                        site_pages: ran.first().map_or(0, |trial| trial.site_pages),
                         bytes: ran.first().map_or(0, |trial| {
                             if scenario.resumes() {
                                 trial.measured.work.first_bytes
@@ -621,12 +637,15 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
                 row: cell.row,
                 mapping: cell.mapping,
                 pending: cell.pending,
+                content_unverified: scenario.content_unverified(),
+                unlike_work: cell.unlike_work(),
                 status,
             });
         }
         scenarios.push(ScenarioReport {
             scenario,
             title: scenario.title(),
+            verdicts: verdict::of(&cells),
             cells,
         });
     }
@@ -645,6 +664,7 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
 }
 
 const MIB: f64 = 1024.0 * 1024.0;
+const GIB: f64 = 1024.0 * MIB;
 
 /// A value in its unit.
 fn shown(value: f64, unit: Unit) -> String {
@@ -752,9 +772,19 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
     let load = machine.load.map_or_else(String::new, |load| {
         format!(", 1-minute load {load:.2} at the start")
     });
+    let name = machine
+        .name
+        .as_deref()
+        .unwrap_or("a machine not named (`--machine`)");
+    let memory = machine.memory_bytes.map_or_else(
+        || "memory not read".to_owned(),
+        |bytes| format!("{:.1} GiB of memory", float(bytes) / GIB),
+    );
     let mut text = format!(
         "# Comparison matrix\n\n\
-         `local-controlled`, never published (ADR 0076): {} {} on {}, {} threads{load}, at commit `{}`.\n\n\
+         `local-controlled`, measured on {name}: {} {}, {}, {} threads, {memory}{load}, at commit `{}`. \
+         Compare its figures within this report, never with a report measured on another machine.\n\n\
+         Rerun it with `{}` at that commit.\n\n\
          Declared before the first trial: {} trials of each measured cell, interleaved in random order \
          (seed {}), each tool started in a fresh process against a fresh Proving ground, {} requests at \
          once, from `{}`; Spider {}, Crawlee {} (`@crawlee/cheerio`, and `@crawlee/playwright` on \
@@ -763,12 +793,14 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
          figure the {}. Every figure is measured from outside the tools: \
          the OS's accounting of the waited-for children (CPU, peak RSS, bytes read and written), `/proc` \
          samples of the process tree every 50 ms, strace's counts, the Proving ground's observations and \
-         the data folder left. Every cell passed the same-work check.\n",
+         the data folder left. Every cell passed the same-work check. It gives no false-success \
+         count: it reads no tool's own report, only what the Proving ground saw each tool fetch.\n",
         machine.os,
         machine.arch,
         machine.cpu,
         machine.threads,
         report.commit,
+        declared.command,
         declared.trials,
         report.order_seed,
         declared.concurrency,
@@ -805,6 +837,20 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             for pending in cell.pending {
                 let _ = writeln!(text, "  - pending: {pending}.");
             }
+            if !matches!(cell.status, CellStatus::NotSupported { .. }) {
+                if cell.content_unverified {
+                    text.push_str(
+                        "  - content not verified: no check reads what it wrote, until #2136's \
+                         output check lands; no verdict.\n",
+                    );
+                }
+                if let Some(reason) = cell.unlike_work {
+                    let _ = writeln!(
+                        text,
+                        "  - not the same work: {reason}; no verdict and no ratio."
+                    );
+                }
+            }
             match &cell.status {
                 CellStatus::NotSupported { reason } => {
                     let _ = writeln!(text, "  - not supported: {reason}.");
@@ -829,7 +875,17 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             .cells
             .iter()
             .filter_map(|cell| match &cell.status {
-                CellStatus::Measured { metrics, curve, .. } => Some((column(cell), metrics, curve)),
+                CellStatus::Measured {
+                    pages,
+                    site_pages,
+                    metrics,
+                    curve,
+                    ..
+                } => Some((
+                    format!("{}, {pages} of the site's {site_pages} pages", column(cell)),
+                    metrics,
+                    curve,
+                )),
                 CellStatus::NotSupported { .. } | CellStatus::NotMeasured { .. } => None,
             })
             .collect();
@@ -873,6 +929,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             }
             text.push('\n');
         }
+        verdict::markdown(&mut text, scenario);
     }
     match &report.instructions {
         Instructions::NotRun { reason } => {
@@ -905,12 +962,12 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
         );
     }
     text.push_str(
-        "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Peak RSS |\n|---|---|---:|---:|---:|---:|---:|\n",
+        "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Pages fetched | Peak RSS |\n|---|---|---:|---:|---:|---:|---:|---:|\n",
     );
     for trial in &trials.trials {
         let _ = writeln!(
             text,
-            "| {} | {} | {} | {} | {:.3} | {:.1} | {:.1} MiB |",
+            "| {} | {} | {} | {} | {:.3} | {:.1} | {} of {} | {:.1} MiB |",
             trial.scenario.name(),
             trial.cell,
             trial.retried.as_ref().map_or_else(
@@ -922,6 +979,8 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                 .map_or_else(|| "not measured".to_owned(), |load| format!("{load:.2}")),
             trial.measured.seconds,
             rate(trial),
+            trial.measured.work.pages,
+            trial.site_pages,
             float(peak(trial)) / MIB
         );
     }

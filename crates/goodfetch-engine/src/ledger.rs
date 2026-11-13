@@ -18,6 +18,10 @@
 //! under this module's target.
 //!
 //! Its calls block: callers run them under their owner's blocking policy.
+//! Each call opens the file for itself, but a run's [`Charging`] keeps the
+//! connection its first call opens, each statement prepared once on it, so
+//! a run's charges, the Slices it takes, the Limits it reads back and its
+//! give-back open the file once (#1886).
 //!
 //! Size: one concern, every statement of the one ledger file, so its
 //! transactions read side by side.
@@ -33,7 +37,7 @@ use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, PointInTime, ReachedLimit};
 use goodfetch_protocol::usage::{Limit, LimitUsage};
 use jiff::Timestamp;
-use rusqlite::{Connection, Row, TransactionBehavior};
+use rusqlite::{Connection, Row};
 
 pub use self::charging::{Charged, Charging, Counted, Refusal, Reservation};
 pub use self::period::{PeriodBounds, bounds};
@@ -41,13 +45,17 @@ pub use self::sizing::{SliceSizing, slice_size};
 pub use self::standing::{Placement, standing};
 pub use self::temporary::{temporary_filesystem, temporary_in};
 use crate::sqlite_store::{
-    self, Access, Counting, Durability, File, Folder, OpenError, Opening, Schema, Wait,
+    self, Access, Counting, Durability, File, Folder, OpenError, Opening, Schema, Wait, immediate,
 };
 
 /// The target of the `tracing` events that name the slices and reclaim
 /// model's transitions (`test-support/models/slices/`), each with its
 /// `transition` and the model's variables as fields.
 pub const TARGET: &str = "goodfetch::ledger";
+
+/// How many prepared statements a connection keeps: more than the ledger
+/// has, so a kept connection prepares none twice.
+const STATEMENTS: usize = 32;
 
 /// How long a transaction waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -265,7 +273,7 @@ pub fn point_in_time(at: Timestamp) -> PointInTime {
     PointInTime::from_rfc3339(at.to_string())
 }
 
-/// The Usage ledger of one user: its file, and the VFS it opens through.
+/// The Usage ledger of one user: its file and the VFS it opens through.
 #[derive(Clone, Debug)]
 pub struct Ledger {
     path: PathBuf,
@@ -285,7 +293,8 @@ impl Ledger {
         }
     }
 
-    /// The same ledger, its Usage charges' work counted on `work` (ADR 0140).
+    /// The same ledger, its Usage charges' work counted on `work` (ADR
+    /// 0140).
     #[must_use]
     pub fn counting(mut self, work: CountedWork) -> Self {
         self.work = work;
@@ -295,6 +304,46 @@ impl Ledger {
     /// Its file.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Answers `call` on `kept`, a connection its caller keeps from one call
+    /// to the next, opening the file into it first when it holds none:
+    /// creating the file when `create`, else answering none when no engine
+    /// created it yet. A failed call lets the connection go, so the next
+    /// one opens the file afresh.
+    fn on<T>(
+        &self,
+        kept: &mut Option<Connection>,
+        create: bool,
+        call: impl FnOnce(&Connection) -> rusqlite::Result<T>,
+    ) -> Result<Option<T>, LedgerError> {
+        if kept.is_none() {
+            let opened = if create {
+                Some(self.open()?)
+            } else {
+                self.open_existing()?
+            };
+            *kept = opened;
+        }
+        let Some(connection) = kept.as_ref() else {
+            return Ok(None);
+        };
+        call(connection).map(Some).map_err(|error| {
+            *kept = None;
+            self.failed(&error)
+        })
+    }
+
+    /// Answers `call` on `kept` as [`Ledger::on`] does, creating the file
+    /// when no engine did yet.
+    fn on_created<T>(
+        &self,
+        kept: &mut Option<Connection>,
+        call: impl FnOnce(&Connection) -> rusqlite::Result<T>,
+    ) -> Result<T, LedgerError> {
+        Ok(self
+            .on(kept, true, call)?
+            .expect("invariant: a call that creates the file answers on it"))
     }
 
     /// Opens the file, creating it and its tables when it does not exist,
@@ -331,7 +380,7 @@ impl Ledger {
     /// commit hook that counts what no wrapper sees, each transaction the
     /// connection commits, its set-up's among them (ADR 0140).
     fn connect(&self, folder: Folder, access: Access) -> Result<Connection, OpenError> {
-        File::new(&self.path, self.vfs.as_deref()).open(&Opening {
+        let connection = File::new(&self.path, self.vfs.as_deref()).open(&Opening {
             folder,
             access,
             wait: Wait::Busy(BUSY_TIMEOUT),
@@ -346,7 +395,9 @@ impl Ledger {
                 format: &USAGE_LEDGER,
                 statements: &[SCHEMA],
             }),
-        })
+        })?;
+        connection.set_prepared_statement_cache_capacity(STATEMENTS);
+        Ok(connection)
     }
 
     /// The failure of opening the ledger on `error`.
@@ -363,8 +414,8 @@ impl Ledger {
 
     /// The failure of a transaction of the ledger on `error`: a full disk
     /// or an I/O error as such, after which SQLite may have rolled the whole
-    /// transaction back, and the transaction's drop rolls back the rest (ADR
-    /// 0122).
+    /// transaction back, and [`immediate`] rolls back the rest, or the
+    /// connection, let go, does (ADR 0122).
     fn failed(&self, error: &(dyn std::error::Error + 'static)) -> LedgerError {
         let storage = error
             .downcast_ref::<rusqlite::Error>()
@@ -389,9 +440,9 @@ impl Ledger {
     ///
     /// When the ledger cannot be written.
     pub fn add_limit(&self, limit: &Limit, now: Timestamp) -> Result<LimitId, LedgerError> {
-        let connection = self.open()?;
-        let id =
-            insert_limit(&connection, limit, None, now).map_err(|error| self.failed(&error))?;
+        let id = self.on_created(&mut None, |connection| {
+            insert_limit(connection, limit, None, now)
+        })?;
         tracing::trace!(target: TARGET, transition = "set_limit", limit = id, amount = limit.amount, "a Limit was added");
         Ok(id)
     }
@@ -406,19 +457,18 @@ impl Ledger {
     ///
     /// When the ledger cannot be written.
     pub fn raise(&self, limit: &Limit, now: Timestamp) -> Result<LimitId, LedgerError> {
-        let mut connection = self.open()?;
         let period = limit.period.as_ref().map(|period| period.every.as_str());
         let time_zone = limit
             .period
             .as_ref()
             .map(|period| period.time_zone.as_str());
-        let id = (|| {
-            let transaction =
-                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            transaction.execute(
+        let id = self.on_created(&mut None, |connection| {
+            immediate(connection, |transaction| {
+                transaction.prepare_cached(
                 "UPDATE limits SET amount = ?1, must_understand = ?2, set_by = ?3, set_at = ?4
                  WHERE scope_kind = ?5 AND scope_id = ?6 AND usage_kind = ?7 AND currency IS ?8
                    AND period IS ?9 AND time_zone IS ?10 AND set_by <> 'managed_policy'",
+            )?.execute(
                 (
                     amount(limit.amount),
                     limit.must_understand,
@@ -432,28 +482,29 @@ impl Ledger {
                     time_zone,
                 ),
             )?;
-            let found: Option<LimitId> = transaction.query_row(
-                "SELECT MIN(limit_id) FROM limits
+                let found: Option<LimitId> = transaction
+                    .prepare_cached(
+                        "SELECT MIN(limit_id) FROM limits
                  WHERE scope_kind = ?1 AND scope_id = ?2 AND usage_kind = ?3 AND currency IS ?4
                    AND period IS ?5 AND time_zone IS ?6 AND set_by <> 'managed_policy'",
-                (
-                    &limit.scope.kind,
-                    &limit.scope.id,
-                    &limit.usage_kind,
-                    &limit.currency,
-                    period,
-                    time_zone,
-                ),
-                |row| row.get(0),
-            )?;
-            let id = match found {
-                Some(id) => id,
-                None => insert_limit(&transaction, limit, None, now)?,
-            };
-            transaction.commit()?;
-            Ok(id)
-        })()
-        .map_err(|error: rusqlite::Error| self.failed(&error))?;
+                    )?
+                    .query_row(
+                        (
+                            &limit.scope.kind,
+                            &limit.scope.id,
+                            &limit.usage_kind,
+                            &limit.currency,
+                            period,
+                            time_zone,
+                        ),
+                        |row| row.get(0),
+                    )?;
+                match found {
+                    Some(id) => Ok(id),
+                    None => insert_limit(transaction, limit, None, now),
+                }
+            })
+        })?;
         tracing::trace!(target: TARGET, transition = "set_limit", limit = id, amount = limit.amount, "a person set a Limit");
         Ok(id)
     }
@@ -466,36 +517,26 @@ impl Ledger {
     ///
     /// When the ledger cannot be read.
     pub fn limits(&self) -> Result<Vec<StoredLimit>, LedgerError> {
-        let Some(connection) = self.open_existing()? else {
-            return Ok(Vec::new());
-        };
-        stored_limits(&connection).map_err(|error| self.failed(&error))
+        self.limits_on(&mut None)
     }
 
-    /// Every Limit, as [`Ledger::limits`] reads them, on `kept`, a
-    /// connection its caller keeps between reads, opened now when it holds
-    /// none and let go when a read fails, so the next one opens afresh
-    /// (the deep review's 599-12: a run's every charge reopened the file).
-    /// A ledger no engine created yet holds no Limit, and stays uncreated:
-    /// the next read tries again, so a Limit set meanwhile holds the next
-    /// charge.
-    ///
-    /// # Errors
-    ///
-    /// When the ledger cannot be read.
+    /// Every Limit, as [`Ledger::limits`] reads them, on `kept` as
+    /// [`Ledger::on`] reads.
     fn limits_on(&self, kept: &mut Option<Connection>) -> Result<Vec<StoredLimit>, LedgerError> {
+        Ok(self.on(kept, false, stored_limits)?.unwrap_or_default())
+    }
+
+    /// Every Limit, as [`Ledger::limits`] reads them, for a charge: its one
+    /// counted statement, on `kept`, the run's connection (the deep
+    /// review's 599-12: a run's every charge reopened the file). A ledger
+    /// no engine created yet holds no Limit, and stays uncreated: the next
+    /// read tries again, so a Limit set meanwhile holds the next charge.
+    fn charge_limits(
+        &self,
+        kept: &mut Option<Connection>,
+    ) -> Result<Vec<StoredLimit>, LedgerError> {
         self.work.count(CountedRow::ChargeStatements);
-        let read = match kept {
-            Some(connection) => stored_limits(connection),
-            None => match self.open_existing()? {
-                Some(connection) => stored_limits(kept.insert(connection)),
-                None => return Ok(Vec::new()),
-            },
-        };
-        read.map_err(|error| {
-            *kept = None;
-            self.failed(&error)
-        })
+        self.limits_on(kept)
     }
 
     /// Every Limit, with what `product`'s engine makes of it and the Usage
@@ -505,15 +546,14 @@ impl Ledger {
     ///
     /// When the ledger cannot be read.
     pub fn usage(&self, product: Product, now: Timestamp) -> Result<Vec<LimitUsage>, LedgerError> {
-        let connection = self.open()?;
-        let mut limits = stored_limits(&connection).map_err(|error| self.failed(&error))?;
-        limits.sort_by(|left, right| left.scope.cmp(&right.scope).then(left.id.cmp(&right.id)));
-        limits
-            .iter()
-            .map(|stored| {
-                limit_usage(&connection, stored, product, now).map_err(|error| self.failed(&error))
-            })
-            .collect()
+        self.on_created(&mut None, |connection| {
+            let mut limits = stored_limits(connection)?;
+            limits.sort_by(|left, right| left.scope.cmp(&right.scope).then(left.id.cmp(&right.id)));
+            limits
+                .iter()
+                .map(|stored| limit_usage(connection, stored, product, now))
+                .collect()
+        })
     }
 
     /// The Limit of row `id` as [`Ledger::usage`] gives it; none when no
@@ -528,15 +568,13 @@ impl Ledger {
         product: Product,
         now: Timestamp,
     ) -> Result<Option<LimitUsage>, LedgerError> {
-        let connection = self.open()?;
-        let limits = stored_limits(&connection).map_err(|error| self.failed(&error))?;
-        limits
-            .iter()
-            .find(|stored| stored.id == id)
-            .map(|stored| {
-                limit_usage(&connection, stored, product, now).map_err(|error| self.failed(&error))
-            })
-            .transpose()
+        self.on_created(&mut None, |connection| {
+            stored_limits(connection)?
+                .iter()
+                .find(|stored| stored.id == id)
+                .map(|stored| limit_usage(connection, stored, product, now))
+                .transpose()
+        })
     }
 
     /// What is left of the Limit `stored` in the period that holds `now`.
@@ -545,12 +583,24 @@ impl Ledger {
     ///
     /// When the ledger cannot be read.
     pub fn left(&self, stored: &StoredLimit, now: Timestamp) -> Result<u64, LedgerError> {
-        let Some(connection) = self.open_existing()? else {
+        self.left_on(&mut None, stored, now)
+    }
+
+    /// What is left of `stored` as [`Ledger::left`] reads it, on `kept` as
+    /// [`Ledger::on`] reads.
+    fn left_on(
+        &self,
+        kept: &mut Option<Connection>,
+        stored: &StoredLimit,
+        now: Timestamp,
+    ) -> Result<u64, LedgerError> {
+        let (key, _) = stored.period_key(now);
+        let Some((charged, held)) = self.on(kept, false, |connection| {
+            counted(connection, stored.id, &key)
+        })?
+        else {
             return Ok(stored.amount);
         };
-        let (key, _) = stored.period_key(now);
-        let (charged, held) =
-            counted(&connection, stored.id, &key).map_err(|error| self.failed(&error))?;
         Ok(stored.amount.saturating_sub(charged.saturating_add(held)))
     }
 
@@ -573,54 +623,49 @@ impl Ledger {
         limits: &[Limit],
         now: Timestamp,
     ) -> Result<(), LedgerError> {
-        let opened = if limits.is_empty() {
-            self.open_existing()?
-        } else {
-            Some(self.open()?)
-        };
-        let Some(mut connection) = opened else {
-            return Ok(());
-        };
-        (|| {
-            let transaction =
-                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let held: Vec<StoredLimit> = stored_limits(&transaction)?
-                .into_iter()
-                .filter(|stored| stored.managed_major.as_deref() == Some(major))
-                .collect();
-            let mut kept = Vec::new();
-            for limit in limits {
-                let period = limit.period.as_ref().map(|period| period.every.as_str());
-                let time_zone = limit
-                    .period
-                    .as_ref()
-                    .map(|period| period.time_zone.as_str());
-                let same = held.iter().find(|stored| {
-                    stored.scope == limit.scope
-                        && stored.usage_kind == limit.usage_kind
-                        && stored.currency == limit.currency
-                        && stored.period.as_deref() == period
-                        && stored.time_zone.as_deref() == time_zone
-                        && !kept.contains(&stored.id)
-                });
-                match same {
-                    Some(stored) if stored.amount == limit.amount => kept.push(stored.id),
-                    Some(stored) => {
-                        transaction.execute(
-                            "UPDATE limits SET amount = ?1, set_at = ?2 WHERE limit_id = ?3",
-                            (amount(limit.amount), now.to_string(), stored.id),
-                        )?;
-                        kept.push(stored.id);
+        let written = self.on(&mut None, !limits.is_empty(), |connection| {
+            immediate(connection, |transaction| {
+                let held: Vec<StoredLimit> = stored_limits(transaction)?
+                    .into_iter()
+                    .filter(|stored| stored.managed_major.as_deref() == Some(major))
+                    .collect();
+                let mut kept = Vec::new();
+                for limit in limits {
+                    let period = limit.period.as_ref().map(|period| period.every.as_str());
+                    let time_zone = limit
+                        .period
+                        .as_ref()
+                        .map(|period| period.time_zone.as_str());
+                    let same = held.iter().find(|stored| {
+                        stored.scope == limit.scope
+                            && stored.usage_kind == limit.usage_kind
+                            && stored.currency == limit.currency
+                            && stored.period.as_deref() == period
+                            && stored.time_zone.as_deref() == time_zone
+                            && !kept.contains(&stored.id)
+                    });
+                    match same {
+                        Some(stored) if stored.amount == limit.amount => kept.push(stored.id),
+                        Some(stored) => {
+                            transaction
+                            .prepare_cached(
+                                "UPDATE limits SET amount = ?1, set_at = ?2 WHERE limit_id = ?3",
+                            )?
+                            .execute((amount(limit.amount), now.to_string(), stored.id))?;
+                            kept.push(stored.id);
+                        }
+                        None => kept.push(insert_limit(transaction, limit, Some(major), now)?),
                     }
-                    None => kept.push(insert_limit(&transaction, limit, Some(major), now)?),
                 }
-            }
-            for stored in held.iter().filter(|stored| !kept.contains(&stored.id)) {
-                drop_limit(&transaction, stored.id)?;
-            }
-            transaction.commit()
-        })()
-        .map_err(|error: rusqlite::Error| self.failed(&error))?;
+                for stored in held.iter().filter(|stored| !kept.contains(&stored.id)) {
+                    drop_limit(transaction, stored.id)?;
+                }
+                Ok(())
+            })
+        })?;
+        if written.is_none() {
+            return Ok(());
+        }
         tracing::trace!(target: TARGET, transition = "set_limit", major, limits = limits.len(), "a managed Operator policy's Limits were written");
         Ok(())
     }
@@ -643,76 +688,74 @@ impl Ledger {
         to: &str,
         older: impl Fn(&str) -> bool,
     ) -> Result<(usize, usize), LedgerError> {
-        let mut connection = self.open()?;
-        let counts = (|| {
-            let transaction =
-                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let managed: Vec<(LimitId, String)> = stored_limits(&transaction)?
-                .into_iter()
-                .filter_map(|stored| stored.managed_major.map(|major| (stored.id, major)))
-                .collect();
-            let has_own = managed.iter().any(|(_, major)| major == to);
-            let (mut taken, mut dropped) = (0, 0);
-            for (id, major) in &managed {
-                if major == to || !older(major) {
-                    continue;
+        let counts = self.on_created(&mut None, |connection| {
+            immediate(connection, |transaction| {
+                let managed: Vec<(LimitId, String)> = stored_limits(transaction)?
+                    .into_iter()
+                    .filter_map(|stored| stored.managed_major.map(|major| (stored.id, major)))
+                    .collect();
+                let has_own = managed.iter().any(|(_, major)| major == to);
+                let (mut taken, mut dropped) = (0, 0);
+                for (id, major) in &managed {
+                    if major == to || !older(major) {
+                        continue;
+                    }
+                    if major == from && !has_own {
+                        transaction
+                            .prepare_cached(
+                                "UPDATE limits SET managed_major = ?1 WHERE limit_id = ?2",
+                            )?
+                            .execute((to, id))?;
+                        taken += 1;
+                    } else {
+                        drop_limit(transaction, *id)?;
+                        dropped += 1;
+                    }
                 }
-                if major == from && !has_own {
-                    transaction.execute(
-                        "UPDATE limits SET managed_major = ?1 WHERE limit_id = ?2",
-                        (to, id),
-                    )?;
-                    taken += 1;
-                } else {
-                    drop_limit(&transaction, *id)?;
-                    dropped += 1;
-                }
-            }
-            transaction.commit()?;
-            Ok((taken, dropped))
-        })()
-        .map_err(|error: rusqlite::Error| self.failed(&error))?;
+                Ok((taken, dropped))
+            })
+        })?;
         tracing::trace!(target: TARGET, transition = "set_limit", from, to, taken = counts.0, dropped = counts.1, "upgrade-files replaced older majors' managed Limits");
         Ok(counts)
     }
 
     /// Takes a Slice of the Limit `stored` for `holder`, in the period that
-    /// holds `now`, in one transaction: sized by `sizing` from what is left
-    /// and the live runs holding Slices of it, and at least `needing`, as a
-    /// reserved worst case needs; none when less than that is left, or
-    /// nothing.
+    /// holds `now`, in one transaction on `kept` as [`Ledger::on`] writes:
+    /// sized by `sizing` from what is left and the live runs holding Slices
+    /// of it, and at least `needing`, as a reserved worst case needs; none
+    /// when less than that is left, or nothing.
     ///
     /// # Errors
     ///
     /// When the ledger cannot be written.
-    pub fn take_slice(
+    pub(crate) fn take_slice(
         &self,
+        kept: &mut Option<Connection>,
         stored: &StoredLimit,
         holder: &Holder,
         now: Timestamp,
         sizing: SliceSizing,
         needing: u64,
     ) -> Result<Option<Slice>, LedgerError> {
-        let mut connection = self.open()?;
         let (key, _) = stored.period_key(now);
-        let taken = (|| {
-            let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let (charged, held) = counted(&transaction, stored.id, &key)?;
+        let taken = self.on_created(kept, |connection| immediate(connection, |transaction| {
+            let (charged, held) = counted(transaction, stored.id, &key)?;
             let left = stored.amount.saturating_sub(charged.saturating_add(held));
-            let others: u64 = transaction.query_row(
-                "SELECT COUNT(DISTINCT run_id) FROM slices
-                 WHERE limit_id = ?1 AND period_start = ?2 AND state = 'held' AND run_id <> ?3",
-                (stored.id, &key, &holder.run_id),
-                |row| row.get::<_, i64>(0),
-            )
-            .map(|count| u64::try_from(count).unwrap_or_default())?;
+            let others: u64 = transaction
+                .prepare_cached(
+                    "SELECT COUNT(DISTINCT run_id) FROM slices
+                     WHERE limit_id = ?1 AND period_start = ?2 AND state = 'held' AND run_id <> ?3",
+                )?
+                .query_row((stored.id, &key, &holder.run_id), |row| row.get::<_, i64>(0))
+                .map(|count| u64::try_from(count).unwrap_or_default())?;
             let size = slice_size(sizing, stored.amount, left, others + 1).max(needing);
             if size == 0 || size > left {
                 return Ok(None);
             }
-            transaction.execute(
+            transaction.prepare_cached(
                 "INSERT INTO slices (limit_id, period_start, run_id, run_epoch, run_folder, size, charged, state, taken_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, 'held', ?7)",
+            )?.execute(
                 (
                     stored.id,
                     &key,
@@ -724,10 +767,8 @@ impl Ledger {
                 ),
             )?;
             let id = transaction.last_insert_rowid();
-            transaction.commit()?;
             Ok(Some(Slice { id, size }))
-        })()
-        .map_err(|error: rusqlite::Error| self.failed(&error))?;
+        }))?;
         match taken {
             Some(slice) => {
                 tracing::trace!(target: TARGET, transition = "take_slice", limit = stored.id, slice = slice.id, size = slice.size, run_id = %holder.run_id, epoch = holder.epoch, "a run took a Slice");
@@ -739,31 +780,33 @@ impl Ledger {
         Ok(taken)
     }
 
-    /// Gives back what is left of each Slice of `used`, charging what its
-    /// run used of it; a Slice no longer held, such as one a reclaimer
-    /// charged, stays as it is.
+    /// Gives back what is left of each Slice of `used`, on `kept` as
+    /// [`Ledger::on`] writes, charging what its run used of it; a Slice no
+    /// longer held, such as one a reclaimer charged, stays as it is.
     ///
     /// # Errors
     ///
     /// When the ledger cannot be written.
-    pub fn give_back(&self, used: &[(SliceId, u64)]) -> Result<(), LedgerError> {
+    fn give_back(
+        &self,
+        kept: &mut Option<Connection>,
+        used: &[(SliceId, u64)],
+    ) -> Result<(), LedgerError> {
         if used.is_empty() {
             return Ok(());
         }
-        let mut connection = self.open()?;
-        (|| {
-            let transaction =
-                connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            for (slice, used) in used {
-                transaction.execute(
+        self.on_created(kept, |connection| {
+            immediate(connection, |transaction| {
+                let mut statement = transaction.prepare_cached(
                     "UPDATE slices SET charged = MIN(size, ?2), state = 'returned'
                      WHERE slice_id = ?1 AND state = 'held'",
-                    (slice, amount(*used)),
                 )?;
-            }
-            transaction.commit()
-        })()
-        .map_err(|error: rusqlite::Error| self.failed(&error))?;
+                for (slice, used) in used {
+                    statement.execute((slice, amount(*used)))?;
+                }
+                Ok(())
+            })
+        })?;
         for (slice, used) in used {
             tracing::trace!(target: TARGET, transition = "give_back", slice = slice, used = used, "a run gave back a Slice");
         }
@@ -781,10 +824,10 @@ impl Ledger {
     ///
     /// When the ledger cannot be read or written.
     pub fn reclaim(&self, probe: &dyn Fn(&Holder) -> Probed) -> Result<Reclaimed, LedgerError> {
-        let Some(mut connection) = self.open_existing()? else {
+        let mut kept = None;
+        let Some(held) = self.on(&mut kept, false, held_slices)? else {
             return Ok(Reclaimed::default());
         };
-        let held = held_slices(&connection).map_err(|error| self.failed(&error))?;
         let mut reclaimed = Reclaimed::default();
         for (holder, slices) in held {
             let probed = probe(&holder);
@@ -803,23 +846,20 @@ impl Ledger {
                     .map(|slice| (slice.id, slice.size, "review"))
                     .collect(),
             };
-            let done = (|| {
-                let transaction =
-                    connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-                let mut done = Vec::new();
-                for (slice, charged, state) in &charges {
-                    let changed = transaction.execute(
+            let done = self.on_created(&mut kept, |connection| {
+                immediate(connection, |transaction| {
+                    let mut statement = transaction.prepare_cached(
                         "UPDATE slices SET charged = ?2, state = ?3 WHERE slice_id = ?1 AND state = 'held'",
-                        (slice, amount(*charged), state),
                     )?;
-                    if changed == 1 {
-                        done.push((*slice, *charged, *state));
+                    let mut done = Vec::new();
+                    for (slice, charged, state) in &charges {
+                        if statement.execute((slice, amount(*charged), state))? == 1 {
+                            done.push((*slice, *charged, *state));
+                        }
                     }
-                }
-                transaction.commit()?;
-                Ok(done)
-            })()
-            .map_err(|error: rusqlite::Error| self.failed(&error))?;
+                    Ok(done)
+                })
+            })?;
             for (slice, charged, state) in done {
                 if state == "review" {
                     tracing::trace!(target: TARGET, transition = "mark_for_review", slice = slice, charged = charged, run_id = %holder.run_id, epoch = holder.epoch, "a dead run's Slice was charged in full for review");
@@ -842,9 +882,10 @@ fn insert_limit(
     managed_major: Option<&str>,
     now: Timestamp,
 ) -> rusqlite::Result<LimitId> {
-    connection.execute(
+    connection.prepare_cached(
         "INSERT INTO limits (scope_kind, scope_id, usage_kind, currency, period, time_zone, amount, must_understand, set_by, set_at, managed_major)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+    )?.execute(
         (
             &limit.scope.kind,
             &limit.scope.id,
@@ -864,8 +905,12 @@ fn insert_limit(
 
 /// Drops the Limit row `id` and its Slices.
 fn drop_limit(connection: &Connection, id: LimitId) -> rusqlite::Result<()> {
-    connection.execute("DELETE FROM slices WHERE limit_id = ?1", [id])?;
-    connection.execute("DELETE FROM limits WHERE limit_id = ?1", [id])?;
+    connection
+        .prepare_cached("DELETE FROM slices WHERE limit_id = ?1")?
+        .execute([id])?;
+    connection
+        .prepare_cached("DELETE FROM limits WHERE limit_id = ?1")?
+        .execute([id])?;
     Ok(())
 }
 
@@ -876,7 +921,7 @@ struct HeldSlice {
 }
 
 fn held_slices(connection: &Connection) -> rusqlite::Result<BTreeMap<Holder, Vec<HeldSlice>>> {
-    let mut statement = connection.prepare(
+    let mut statement = connection.prepare_cached(
         "SELECT slice_id, run_id, run_epoch, run_folder, size FROM slices WHERE state = 'held' ORDER BY slice_id",
     )?;
     let mut held: BTreeMap<Holder, Vec<HeldSlice>> = BTreeMap::new();
@@ -925,13 +970,15 @@ fn limit_usage(
 /// The Usage charged and held against the Limit `limit` in the period
 /// `key`.
 fn counted(connection: &Connection, limit: LimitId, key: &str) -> rusqlite::Result<(u64, u64)> {
-    connection.query_row(
-        "SELECT COALESCE(SUM(CASE WHEN state = 'held' THEN 0 ELSE charged END), 0),
-                COALESCE(SUM(CASE WHEN state = 'held' THEN size ELSE 0 END), 0)
-         FROM slices WHERE limit_id = ?1 AND period_start = ?2",
-        (limit, key),
-        |row| Ok((counted_value(row, 0)?, counted_value(row, 1)?)),
-    )
+    connection
+        .prepare_cached(
+            "SELECT COALESCE(SUM(CASE WHEN state = 'held' THEN 0 ELSE charged END), 0),
+                    COALESCE(SUM(CASE WHEN state = 'held' THEN size ELSE 0 END), 0)
+             FROM slices WHERE limit_id = ?1 AND period_start = ?2",
+        )?
+        .query_row((limit, key), |row| {
+            Ok((counted_value(row, 0)?, counted_value(row, 1)?))
+        })
 }
 
 fn stored_limits(connection: &Connection) -> rusqlite::Result<Vec<StoredLimit>> {

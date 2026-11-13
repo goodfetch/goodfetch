@@ -108,7 +108,7 @@ fn used_up(ledger: &Ledger, limit: &Limit) {
         folder: "runs/capped".into(),
     };
     ledger
-        .take_slice(&stored, &holder, now, SliceSizing::default(), 1)
+        .take_slice(&mut None, &stored, &holder, now, SliceSizing::default(), 1)
         .unwrap()
         .unwrap();
 }

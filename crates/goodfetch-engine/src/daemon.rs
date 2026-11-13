@@ -571,16 +571,16 @@ pub(crate) async fn serve(
                 // A drain once a handover is decided changes nothing.
                 if let Ok(EngineState::Draining) = transition(&state, EngineEvent::Drain) {
                     decide_no_more(&mut asked_of_the_loop);
-                    drain_runs(&serving, &state, grace, serving.runs.drain()).await;
+                    let until = drain_runs(&serving, &state, grace, serving.runs.drain()).await;
                     drop(accepts);
-                    return finish(DaemonEnd::Drained, &connections_owner, &shared).await;
+                    return finish_by(DaemonEnd::Drained, &connections_owner, &shared, clock, until).await;
                 }
             }
             () = &mut panicked, if !panic_told => {
                 panic_told = true;
-                if stopped_on_panic(&serving, owner, &state, grace, &mut asked_of_the_loop).await {
+                if let Some(until) = stopped_on_panic(&serving, owner, &state, grace, &mut asked_of_the_loop).await {
                     drop(accepts);
-                    return finish(DaemonEnd::Panicked, &connections_owner, &shared).await;
+                    return finish_by(DaemonEnd::Panicked, &connections_owner, &shared, clock, until).await;
                 }
             }
             accepted = accepts.next() => match accepted {
@@ -593,9 +593,9 @@ pub(crate) async fn serve(
                     let failed = transition(&state, EngineEvent::ListenerFailed);
                     if let Ok(EngineState::Draining) = failed {
                         decide_no_more(&mut asked_of_the_loop);
-                        drain_runs(&serving, &state, grace, serving.runs.drain()).await;
+                        let until = drain_runs(&serving, &state, grace, serving.runs.drain()).await;
                         drop(accepts);
-                        return finish(DaemonEnd::ListenerFailed, &connections_owner, &shared).await;
+                        return finish_by(DaemonEnd::ListenerFailed, &connections_owner, &shared, clock, until).await;
                     }
                 }
             },
@@ -636,14 +636,15 @@ async fn closed_for(
 /// Daemon in `state`, as a step of its loop (ADR 0148): it logs the part
 /// and counts the panic, decides no more of what its Connections ask, and
 /// drains its Runs within `grace`, unless its Runs' registry is what
-/// panicked, when it stops at once; whether it now stops.
+/// panicked, when it stops at once; if it now stops, the moment its stop
+/// ends by, `grace` after the panic.
 async fn stopped_on_panic(
     serving: &Serving,
     owner: &TaskOwner,
     state: &watch::Sender<EngineState>,
     grace: Duration,
     asked_of_the_loop: &mut mpsc::Receiver<Ask>,
-) -> bool {
+) -> Option<Instant> {
     let part = owner.panicked_part();
     let draining = match transition(
         state,
@@ -653,10 +654,10 @@ async fn stopped_on_panic(
         Ok(EngineState::Stopping) => false,
         // Its loop serves until a handover is decided, which ends it.
         Ok(EngineState::Attached | EngineState::Serving | EngineState::HandingOver) => {
-            return false;
+            return None;
         }
         // Refused, which was logged.
-        Err(_) => return false,
+        Err(_) => return None,
     };
     tracing::error!(
         part,
@@ -666,9 +667,10 @@ async fn stopped_on_panic(
     serving.metrics.panicked(PanicEnded::Engine);
     decide_no_more(asked_of_the_loop);
     if draining {
-        drain_runs(serving, state, grace, serving.runs.drain_on_panic()).await;
+        Some(drain_runs(serving, state, grace, serving.runs.drain_on_panic()).await)
+    } else {
+        Some(serving.engine.clock().now() + grace)
     }
-    true
 }
 
 /// Decides what a Connection asked, as a step of the Daemon's loop in
@@ -913,37 +915,76 @@ async fn close_all_but(
 
 /// Drains the Daemon's Runs through `drain`, waiting at most `grace` for
 /// them to stop, after which the Daemon, which was `Draining`, is
-/// `Stopping`.
+/// `Stopping`; answers when that grace ends. Once the grace passed it asks
+/// its Runs' registry nothing more, which a panic may have wedged (ADR
+/// 0148): it counts the Runs not stopped from the drain's own answer.
 async fn drain_runs(
     serving: &Serving,
     state: &watch::Sender<EngineState>,
     grace: Duration,
     drain: impl Future<Output = Draining>,
-) {
+) -> Instant {
     serving.metrics.draining(true);
     let clock = serving.engine.clock();
-    let drained = async {
-        let draining = drain.await;
-        tracing::info!(
-            live_runs = draining.count(),
-            "the Daemon drains: it takes no run and checkpoints each live run"
-        );
-        draining.ended().await;
-    };
+    let until = clock.now() + grace;
+    let mut grace_ends = std::pin::pin!(clock.sleep_until(until));
     tokio::select! {
-        () = drained => tracing::info!("the Daemon drained every run"),
-        () = clock.sleep(grace) => tracing::warn!(
-            live_runs = serving.runs.live_count().await,
-            "the drain grace passed: each run not yet at a safe point stays resumable from its run file"
+        draining = drain => {
+            tracing::info!(
+                live_runs = draining.count(),
+                "the Daemon drains: it takes no run and checkpoints each live run"
+            );
+            tokio::select! {
+                () = draining.ended() => tracing::info!("the Daemon drained every run"),
+                () = &mut grace_ends => tracing::warn!(
+                    live_runs = draining.not_ended(),
+                    "the drain grace passed: each run not yet at a safe point stays resumable from its run file"
+                ),
+            }
+        }
+        () = &mut grace_ends => tracing::warn!(
+            "the drain grace passed and the Daemon's Run registry did not answer its drain: each live run stays resumable from its run file"
         ),
     }
     let _ = transition(state, EngineEvent::Drained);
+    until
 }
 
 /// Closes every Connection, then answers `end`.
 async fn finish(end: DaemonEnd, connections: &TaskOwner, shared: &Shared) -> DaemonEnd {
     connections.stop().await;
     shared.blocking.stop().await;
+    tracing::info!(end = ?end, "the Daemon stops");
+    end
+}
+
+/// [`finish`], waiting for its Connections and its shared blocking work
+/// only until `until` on `clock`, the end of its drain grace: a Connection
+/// still closing then, as one whose Runs' stop waits on a wedged registry,
+/// keeps the Daemon no longer; it and the blocking work, cancelled, are
+/// left to its process's exit.
+async fn finish_by(
+    end: DaemonEnd,
+    connections: &TaskOwner,
+    shared: &Shared,
+    clock: Clock,
+    until: Instant,
+) -> DaemonEnd {
+    let closed = async {
+        connections.stop().await;
+        shared.blocking.stop().await;
+    };
+    tokio::select! {
+        () = closed => {}
+        () = clock.sleep_until(until) => {
+            shared.blocking.cancel();
+            tracing::warn!(
+                connections = connections.running(),
+                blocking = shared.blocking.running(),
+                "the drain grace passed before the Daemon's Connections and blocking work stopped: it stops without them"
+            );
+        }
+    }
     tracing::info!(end = ?end, "the Daemon stops");
     end
 }

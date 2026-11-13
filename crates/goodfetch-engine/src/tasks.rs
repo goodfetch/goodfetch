@@ -388,6 +388,11 @@ impl TaskOwner {
         self.token.cancel();
     }
 
+    /// How many of the tasks it started still run, its actors aside.
+    pub fn running(&self) -> usize {
+        self.tracker.len()
+    }
+
     /// Waits for every task it started, without cancelling them, its
     /// actors last, each ending once every sender of its mailbox is gone.
     ///

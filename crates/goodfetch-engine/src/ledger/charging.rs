@@ -102,10 +102,12 @@ pub struct Charging {
     sizing: SliceSizing,
     held: Vec<Held>,
     uncapped: bool,
-    /// The connection each charge reads the Limits on, kept between
-    /// charges, so a charge out of the Slices held opens no file; the
-    /// Limits are still read on each, so one set meanwhile holds the next.
-    reader: Option<Connection>,
+    /// The connection its charges, the Slices they take, the Limits it
+    /// reads back and its give-back run on, opened at the first and kept, each statement prepared once
+    /// on it, so a run opens the ledger once (#1886); let go when a call
+    /// fails, so the next one opens afresh. The Limits are still read on
+    /// each charge, so one set meanwhile holds the next.
+    connection: Option<Connection>,
 }
 
 impl Charging {
@@ -118,7 +120,7 @@ impl Charging {
             sizing,
             held: Vec::new(),
             uncapped: false,
-            reader: None,
+            connection: None,
         }
     }
 
@@ -260,11 +262,11 @@ impl Charging {
     /// `NotUnderstood` when a Limit the run cannot be placed outside of
     /// appeared, `Ledger` when the ledger cannot be read.
     pub fn allowed_by(
-        &self,
+        &mut self,
         usage_kind: &str,
         currency: &str,
     ) -> Result<Option<LimitSetter>, Refusal> {
-        let limits = self.ledger.limits()?;
+        let limits = self.ledger.limits_on(&mut self.connection)?;
         let holding = self
             .placement
             .holding(&limits)
@@ -289,8 +291,8 @@ impl Charging {
     ///
     /// `NotUnderstood` when a Limit the run cannot be placed outside of
     /// appeared, `Ledger` when the ledger cannot be read.
-    pub fn applied(&self, now: Timestamp) -> Result<Vec<AppliedLimit>, Refusal> {
-        let limits = self.ledger.limits()?;
+    pub fn applied(&mut self, now: Timestamp) -> Result<Vec<AppliedLimit>, Refusal> {
+        let limits = self.ledger.limits_on(&mut self.connection)?;
         let holding = self
             .placement
             .holding(&limits)
@@ -306,7 +308,7 @@ impl Charging {
                     period: stored.known_period(),
                     resets_at: bounds.map(|bounds| point_in_time(bounds.end)),
                     amount: stored.amount,
-                    left: self.ledger.left(stored, now)?,
+                    left: self.ledger.left_on(&mut self.connection, stored, now)?,
                     set_by: stored.limit().set_by,
                 })
             })
@@ -340,7 +342,7 @@ impl Charging {
         amount: u64,
         now: Timestamp,
     ) -> Result<(Vec<(SliceId, u64)>, Charged), Refusal> {
-        let limits = self.ledger.limits_on(&mut self.reader)?;
+        let limits = self.ledger.charge_limits(&mut self.connection)?;
         let holding: Vec<StoredLimit> = self
             .placement
             .holding(&limits)
@@ -362,6 +364,7 @@ impl Charging {
                 .sum();
             if room < amount {
                 let Some(slice) = self.ledger.take_slice(
+                    &mut self.connection,
                     stored,
                     &self.holder,
                     now,
@@ -415,7 +418,7 @@ impl Charging {
     /// an engine that opens the ledger reclaims them.
     pub fn give_back(&mut self) -> Result<(), LedgerError> {
         let used: Vec<(SliceId, u64)> = self.held.iter().map(|held| (held.id, held.used)).collect();
-        self.ledger.give_back(&used)?;
+        self.ledger.give_back(&mut self.connection, &used)?;
         self.held.clear();
         Ok(())
     }

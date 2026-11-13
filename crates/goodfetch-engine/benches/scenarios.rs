@@ -48,13 +48,15 @@ pub(crate) fn engine_info_lines(count: usize) -> Vec<u8> {
 
 /// Frames `bytes` and decodes each line; returns how many decoded.
 pub(crate) fn frame_and_decode(bytes: &[u8]) -> usize {
-    let work = goodfetch_counted_work::CountedWork::default();
     let mut framer = Framer::new(MAX_MESSAGE_BYTES);
     let mut lines = Vec::new();
     framer.feed(bytes, &mut lines);
     lines
-        .iter()
-        .filter(|frame| matches!(frame, Frame::Line(line) if decode(line, &work).is_ok()))
+        .into_iter()
+        .filter_map(|frame| match frame {
+            Frame::Line(line) => decode(line).ok(),
+            Frame::TooLarge => None,
+        })
         .count()
 }
 

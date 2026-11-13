@@ -55,7 +55,7 @@ use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{RunSettings, Values};
-use goodfetch_engine::{CallContext, CallError, Contribution, Guard, Handler};
+use goodfetch_engine::{CallContext, CallError, Contribution, Guard, Handler, Params};
 use goodfetch_extractor::Serialization;
 use goodfetch_protocol::connection::{Surface, WaitedFor};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -93,7 +93,8 @@ use goodfetch_protocol::page::{
 };
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
-use serde_json::Value;
+use serde::Deserialize;
+use serde_json::{Value, value::RawValue};
 
 use crate::blocks::{Block, BlockClassifier, NoBlocks};
 use crate::browser_fetch;
@@ -1015,16 +1016,27 @@ impl BrowserPages for Opener {
 
 /// The page a call's params name, as a page call names it (`page_id`) or a
 /// locator's (`locator.page_id`).
-fn page_of(params: &Value) -> Option<PageId> {
-    params
-        .get("page_id")
-        .or_else(|| {
-            params
-                .get("locator")
-                .and_then(|locator| locator.get("page_id"))
-        })
-        .and_then(Value::as_str)
-        .map(|page_id| PageId(page_id.to_owned()))
+fn page_of(params: Params<'_>) -> Option<PageId> {
+    /// The members of a call's params that can name its page.
+    #[derive(Deserialize)]
+    struct Addressed<'a> {
+        page_id: Option<String>,
+        /// Read only when no `page_id` names the page, as a locator the
+        /// call does not need can be anything.
+        #[serde(borrow)]
+        locator: Option<&'a RawValue>,
+    }
+    /// A locator's member that names its page.
+    #[derive(Deserialize)]
+    struct Located {
+        page_id: Option<String>,
+    }
+    let addressed: Addressed<'_> = serde_json::from_str(params.json()).ok()?;
+    if let Some(page_id) = addressed.page_id {
+        return Some(PageId(page_id));
+    }
+    let located: Located = serde_json::from_str(addressed.locator?.get()).ok()?;
+    located.page_id.map(PageId)
 }
 
 /// The engine's pages, which every call of every Connection shares.

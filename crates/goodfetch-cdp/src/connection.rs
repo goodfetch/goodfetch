@@ -388,12 +388,13 @@ where
     }
 
     /// Runs the connection until the browser closes it or every handle is
-    /// dropped, and says which.
+    /// dropped, and says which. Every command still waiting when it ends,
+    /// including one queued as it ends, fails with [`Failure::Disconnected`].
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future closes the client's end: the commands in flight
-    /// get no answer.
+    /// Dropping the future closes the client's end: the commands in flight,
+    /// and any queued as it drops, get no answer while a handle lives.
     pub async fn run(mut self) -> Ended {
         let mut framer = Framer::with_limit(self.frame_limit);
         let mut pending: BTreeMap<u64, Pending> = BTreeMap::new();

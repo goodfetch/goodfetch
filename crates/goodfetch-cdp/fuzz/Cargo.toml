@@ -1,0 +1,29 @@
+# goodfetch-cdp's cargo-fuzz target (ADR 0067; TESTING.md, Fuzzing),
+# outside the workspace: its body is a plain function of the crate, whose
+# seeds and past crashers `fuzz_replay!` replays from `fuzz/<target>/` on
+# every OS. The browser writes the pipe: its framing and each message's
+# decoding into an answer or an event. Build and run with the pinned
+# nightly, growing the private corpus first and reading the seeds after:
+# `cargo fuzz run cdp_pipe fuzz/corpus/cdp_pipe fuzz/cdp_pipe/seeds
+# -- -dict=fuzz/cdp_pipe/dictionary.dict`.
+[package]
+name = "goodfetch-cdp-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+goodfetch-cdp = { path = ".." }
+libfuzzer-sys = "0.4.10"
+
+[[bin]]
+name = "cdp_pipe"
+path = "fuzz_targets/cdp_pipe.rs"
+test = false
+doc = false
+bench = false

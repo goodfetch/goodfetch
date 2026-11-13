@@ -62,6 +62,12 @@ merge_gate_holder() {
   gate_worktree_holder "$root/.claude/worktrees/merge-gate.lock"
 }
 
+# Prints the process of the nightly fuzzing (ci/fuzz-nightly.sh), when one
+# runs: a gate stops it before it starts (ci/merge-pr.sh).
+fuzz_nightly_holder() {
+  gate_worktree_holder "$root/.claude/worktrees/fuzz-nightly.lock"
+}
+
 # Prints the run that holds the backstop's worktree and that `just merge`'s
 # gate, process `$1`, lets end before it starts, as `the test-health run,
 # process <n>` or `the backstop, process <n>`; nothing when the gate may

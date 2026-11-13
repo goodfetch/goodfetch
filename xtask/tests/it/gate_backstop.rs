@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use crate::affected::repository;
 use crate::merge_pr::{NO_PROCESS, until};
-use crate::workspace::Workspace;
+use crate::workspace::{Workspace, write_executable};
 
 /// A stand-in `just` that appends its arguments, with `GOODFETCH_GATE_FULL`,
 /// to `calls`, prints `compare`'s content as `just _gate-compare`, and fails
@@ -65,12 +65,6 @@ fi
     // A stand-in LazyFS build, which the backstop asks for before any step.
     write_executable(&folder.join("lazyfs"), "#!/bin/sh\n");
     folder
-}
-
-fn write_executable(path: &Path, contents: &str) {
-    use std::os::unix::fs::PermissionsExt as _;
-    std::fs::write(path, contents).unwrap();
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 struct Run {

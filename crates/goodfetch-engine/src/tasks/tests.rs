@@ -358,6 +358,43 @@ fn a_child_actor_that_panics_is_told_to_its_parent_which_stops_the_child(
     assert_eq!((told, stopped), (true, true));
 }
 
+/// A panic under the engine's own owner reaches it through every owner of
+/// the engine's kind between them, as one of a part every Run shares does
+/// (ADR 0148); one under a Run's or a Connection's owner is told to its
+/// own owner only, whose holder reacts.
+#[test]
+fn a_panic_reaches_the_engines_own_owner_only_through_owners_of_the_engines_kind() {
+    let told = goodfetch_test_support::runtime().block_on(async {
+        let mut told = Vec::new();
+        for kind in [OwnerKind::Engine, OwnerKind::Run, OwnerKind::Connection] {
+            let engine = TaskOwner::root(BlockingPolicy::Inline);
+            let part = engine.child_for(kind);
+            let under = part.child();
+            under.spawn(async { panic!("the task's own panic") });
+            let reached_under = within(BlockingPolicy::Inline, under.panicked()).await;
+            under.stop().await;
+            part.stop().await;
+            told.push((
+                kind,
+                reached_under,
+                part.has_panicked(),
+                engine.has_panicked(),
+            ));
+            engine.stop().await;
+        }
+        told
+    });
+
+    assert_eq!(
+        told,
+        [
+            (OwnerKind::Engine, true, true, true),
+            (OwnerKind::Run, true, false, false),
+            (OwnerKind::Connection, true, false, false),
+        ]
+    );
+}
+
 /// Blocking work that panics once its caller was dropped, which only a
 /// blocking thread allows, is told to its owner's parent, which then stops
 /// the owner.

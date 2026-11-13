@@ -223,8 +223,10 @@ pub(in crate::executable) fn run(
     // Its last export, before the process exits.
     drop(export);
     match ended {
-        Ok(Some(DaemonEnd::ListenerFailed)) => ExitCode::FAILURE,
-        Ok(Some(_)) => ExitCode::SUCCESS,
+        Ok(Some(DaemonEnd::ListenerFailed | DaemonEnd::Panicked)) => ExitCode::FAILURE,
+        Ok(Some(
+            DaemonEnd::Idle | DaemonEnd::Stopped | DaemonEnd::Drained | DaemonEnd::HandedOver(_),
+        )) => ExitCode::SUCCESS,
         Ok(None) => {
             tracing::warn!("the drain grace passed before the Daemon stopped: it exits now");
             ExitCode::FAILURE

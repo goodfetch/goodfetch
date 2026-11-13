@@ -40,7 +40,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::{ProductVersion, Surface};
+use goodfetch_protocol::connection::{PanicEnded, ProductVersion, Surface};
 use goodfetch_protocol::daemon::{
     DaemonEndpoint, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, HEALTH, NOT_A_DAEMON,
     NotADaemonDetails, STATUS, STOP,
@@ -60,7 +60,7 @@ use crate::ops::{self, Health, Ops};
 use crate::product::{Channel, Identity};
 use crate::rpc::{self, Dispatch};
 use crate::run_state::install::InstallDatabase;
-use crate::runs::{ConnectionId, Runs};
+use crate::runs::{ConnectionId, Draining, Runs};
 use crate::tasks::{OwnerKind, TaskOwner};
 use crate::transition::engine::{self as table, EngineEvent, EngineState, InvalidEngineTransition};
 use crate::transport::{Connection, DaemonListener, TransportError};
@@ -160,6 +160,9 @@ pub enum DaemonEnd {
     ListenerFailed,
     /// It drained, as its starter asked.
     Drained,
+    /// A part every Run shares panicked (ADR 0148): it drained, or, when
+    /// its Runs' registry is what panicked, stopped at once.
+    Panicked,
 }
 
 impl std::fmt::Debug for DaemonEnd {
@@ -170,6 +173,7 @@ impl std::fmt::Debug for DaemonEnd {
             Self::HandedOver(_) => "HandedOver",
             Self::ListenerFailed => "ListenerFailed",
             Self::Drained => "Drained",
+            Self::Panicked => "Panicked",
         })
     }
 }
@@ -524,6 +528,9 @@ pub(crate) async fn serve(
     let mut accepts = Accepts::new(listener, clock);
     let mut idled = false;
     let mut drain_asked = false;
+    let panicked = owner.panicked();
+    tokio::pin!(panicked);
+    let mut panic_told = false;
     let end = loop {
         tokio::select! {
             biased;
@@ -553,9 +560,37 @@ pub(crate) async fn serve(
                 // A drain once a handover is decided changes nothing.
                 if let Ok(EngineState::Draining) = transition(&state, EngineEvent::Drain) {
                     decide_no_more(&mut asked_of_the_loop);
-                    drain_runs(&serving, &state, grace).await;
+                    drain_runs(&serving, &state, grace, serving.runs.drain()).await;
                     drop(accepts);
                     return finish(DaemonEnd::Drained, &connections_owner, &shared).await;
+                }
+            }
+            () = &mut panicked, if !panic_told => {
+                panic_told = true;
+                let event = if serving.runs.registry_panicked() {
+                    EngineEvent::RegistryPanicked
+                } else {
+                    EngineEvent::PartPanicked
+                };
+                match transition(&state, event) {
+                    Ok(EngineState::Draining) => {
+                        tracing::error!("a part every Run shares panicked: the Daemon drains its runs and stops");
+                        serving.metrics.panicked(PanicEnded::Engine);
+                        decide_no_more(&mut asked_of_the_loop);
+                        drain_runs(&serving, &state, grace, serving.runs.drain_on_panic()).await;
+                        drop(accepts);
+                        return finish(DaemonEnd::Panicked, &connections_owner, &shared).await;
+                    }
+                    Ok(EngineState::Stopping) => {
+                        tracing::error!("the Runs' registry panicked: the Daemon stops at once, and its next start reconciles its runs");
+                        serving.metrics.panicked(PanicEnded::Engine);
+                        decide_no_more(&mut asked_of_the_loop);
+                        drop(accepts);
+                        return finish(DaemonEnd::Panicked, &connections_owner, &shared).await;
+                    }
+                    // A panic once a handover is decided changes nothing.
+                    Ok(EngineState::Attached | EngineState::Serving | EngineState::HandingOver)
+                    | Err(_) => {}
                 }
             }
             accepted = accepts.next() => match accepted {
@@ -568,7 +603,7 @@ pub(crate) async fn serve(
                     let failed = transition(&state, EngineEvent::ListenerFailed);
                     if let Ok(EngineState::Draining) = failed {
                         decide_no_more(&mut asked_of_the_loop);
-                        drain_runs(&serving, &state, grace).await;
+                        drain_runs(&serving, &state, grace, serving.runs.drain()).await;
                         drop(accepts);
                         return finish(DaemonEnd::ListenerFailed, &connections_owner, &shared).await;
                     }
@@ -835,13 +870,19 @@ async fn close_all_but(
     }
 }
 
-/// Drains the Daemon's Runs, waiting at most `grace` for them to stop,
-/// after which the Daemon, which was `Draining`, is `Stopping`.
-async fn drain_runs(serving: &Serving, state: &watch::Sender<EngineState>, grace: Duration) {
+/// Drains the Daemon's Runs through `drain`, waiting at most `grace` for
+/// them to stop, after which the Daemon, which was `Draining`, is
+/// `Stopping`.
+async fn drain_runs(
+    serving: &Serving,
+    state: &watch::Sender<EngineState>,
+    grace: Duration,
+    drain: impl Future<Output = Draining>,
+) {
     serving.metrics.draining(true);
     let clock = serving.engine.clock();
     let drained = async {
-        let draining = serving.runs.drain().await;
+        let draining = drain.await;
         tracing::info!(
             live_runs = draining.count(),
             "the Daemon drains: it takes no run and checkpoints each live run"

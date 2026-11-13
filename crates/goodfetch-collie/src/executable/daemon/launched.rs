@@ -302,7 +302,7 @@ fn finish(
                 Err(failure) => failure.report(),
             }
         }
-        DaemonEnd::ListenerFailed => ExitCode::FAILURE,
+        DaemonEnd::ListenerFailed | DaemonEnd::Panicked => ExitCode::FAILURE,
         DaemonEnd::Idle | DaemonEnd::Stopped | DaemonEnd::Drained => ExitCode::SUCCESS,
     }
 }

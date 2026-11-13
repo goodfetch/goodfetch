@@ -19,7 +19,7 @@ use std::ffi::OsString;
 use std::sync::Arc;
 
 use goodfetch_protocol::connection::PrivateEndpoint;
-use goodfetch_protocol::connection::{EngineInstance, ProductVersion};
+use goodfetch_protocol::connection::{EngineInstance, PanicEnded, ProductVersion};
 use goodfetch_protocol::governor::{SYSTEM_INFO, SystemInfo};
 use goodfetch_protocol::run::{RunKind, RunOwner};
 use goodfetch_protocol::secret_reference::Provider;
@@ -255,10 +255,15 @@ impl Engine {
             &owner,
         )
         .await;
-        if matches!(ended, DaemonEnd::Drained | DaemonEnd::ListenerFailed) {
+        if matches!(
+            ended,
+            DaemonEnd::Drained | DaemonEnd::ListenerFailed | DaemonEnd::Panicked
+        ) {
             // Its process exits now, within its drain grace: a Run whose
             // tasks did not stop in time stays as it is, resumable from its
-            // run file, and nothing waits for them.
+            // run file, and nothing waits for them. One that panicked waits
+            // for no task either, as one of them may hold what the panic
+            // left half done (ADR 0148).
             drop(runs);
             owner.cancel();
         } else {
@@ -493,7 +498,16 @@ impl Engine {
     /// whose every Connection must say `hello` with its token (ADRs 0024
     /// and 0031); stops its live Runs once that one Connection ends or, on
     /// the OS, once its parent is gone, then stops every task it started
-    /// and removes its private endpoint.
+    /// and removes its private endpoint. A panic in a part every Run shares
+    /// stops it too, with no drain: it stops its live Runs for the panic,
+    /// unless the Run registry is what panicked, cancels every task it
+    /// started and fails with [`AttachedFailure::Panicked`] (ADR 0148).
+    ///
+    /// # Errors
+    ///
+    /// [`AttachedFailure::NoConnection`] when `network` gave it no
+    /// Connection; [`AttachedFailure::Panicked`] when it stopped on such a
+    /// panic.
     ///
     /// # Cancel safety
     ///
@@ -502,7 +516,7 @@ impl Engine {
         &self,
         mut network: Network,
         dependencies: Dependencies,
-    ) -> Result<(), TransportError> {
+    ) -> Result<(), AttachedFailure> {
         let on_the_os = matches!(network, Network::Os);
         let parent = on_the_os.then(ParentWatch::start);
         let connection = network.attached_connection().await?;
@@ -553,18 +567,47 @@ impl Engine {
             ));
             private_files = Some(files);
         }
+        let panicked = owner.panicked();
         let ended = tokio::select! {
             () = stdio => EngineEvent::StdioEnded,
             () = gone => {
                 tracing::warn!("the Attached engine's parent is gone: its Runs stop");
                 EngineEvent::ParentGone
             }
+            () = panicked => if runs.registry_panicked() {
+                EngineEvent::RegistryPanicked
+            } else {
+                EngineEvent::PartPanicked
+            },
         };
-        // Either end stops it, as the engine's table says (ADR 0128).
+        // Each end stops it, as the engine's table says (ADR 0128).
         if let Err(refused) = transition::engine::engine(EngineState::Attached, ended) {
             let _ = refused.logged();
         }
         accepting.stop().await;
+        let panicked = matches!(
+            ended,
+            EngineEvent::PartPanicked | EngineEvent::RegistryPanicked
+        );
+        if panicked {
+            // A panic in a part every Run shares stops the engine with no
+            // drain, and its process exits 1 (ADR 0148). Its Runs stop for
+            // the panic first, unless the registry that stops them is what
+            // panicked: then each stays as it is, read as interrupted.
+            tracing::error!(
+                registry = matches!(ended, EngineEvent::RegistryPanicked),
+                "a part every Run shares panicked: the Attached engine stops"
+            );
+            self.metrics.panicked(PanicEnded::Engine);
+            if matches!(ended, EngineEvent::PartPanicked) {
+                runs.stop_all_on_panic().await;
+            }
+            drop(runs);
+            connection_owner.cancel();
+            owner.cancel();
+            drop(private_files);
+            return Err(AttachedFailure::Panicked);
+        }
         runs.stop_all().await;
         drop(runs);
         connection_owner.stop().await;
@@ -572,6 +615,17 @@ impl Engine {
         drop(private_files);
         Ok(())
     }
+}
+
+/// Why an Attached engine failed ([`Engine::run_attached`]).
+#[derive(Debug, thiserror::Error)]
+pub enum AttachedFailure {
+    /// It got no Connection.
+    #[error("it got no Connection: {0}")]
+    NoConnection(#[from] TransportError),
+    /// A part every Run shares panicked, so it stopped (ADR 0148).
+    #[error("it stopped on a panic in a part every Run shares")]
+    Panicked,
 }
 
 /// Writes the install Limits the managed Operator policy of the engine's

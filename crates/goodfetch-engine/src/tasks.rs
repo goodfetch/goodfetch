@@ -15,8 +15,11 @@
 //! reaction, ending the owner through an end that already exists, never the
 //! owner that failed: stopping an owner waits for its tasks, so none of
 //! them can stop it. The task that serves a Connection ends it as when its
-//! Client goes away; until a Run's parent and the engine's await it (spec
-//! #2425), the log is their panic's only trace. Nothing is restarted in place.
+//! Client goes away. An owner of the engine's own kind under another tells
+//! that one too, up to the engine's root, whose holder stops the engine: a
+//! task that belongs to no Run and no Connection is a part every Run
+//! shares. Until a Run's parent awaits it (spec #2425), the log is a Run's
+//! panic's only trace. Nothing is restarted in place.
 //!
 //! Blocking work runs under the owner's [`BlockingPolicy`], a value: in
 //! production on tracked blocking threads, and an actor that owns blocking
@@ -119,7 +122,8 @@ impl TaskOwner {
     /// An owner under this one, of its kind, with its blocking policy:
     /// cancelling this one cancels it, never the other way round. Its tasks
     /// are its own, which its holder waits for, and whose panics are told
-    /// to its holder ([`TaskOwner::panicked`]).
+    /// to its holder ([`TaskOwner::panicked`]), and to this one's holder
+    /// too when both are the engine's own ([`OwnerKind::Engine`]).
     #[must_use]
     pub fn child(&self) -> Self {
         self.child_for(self.panics.kind())
@@ -136,7 +140,7 @@ impl TaskOwner {
             closing: CancellationToken::new(),
             policy: self.policy,
             analyses: Arc::clone(&self.analyses),
-            panics: Panics::new(kind),
+            panics: self.panics.child(kind),
         }
     }
 
@@ -424,6 +428,10 @@ struct Telling {
     kind: OwnerKind,
     /// Cancelled once one of the owner's tasks panicked.
     panicked: CancellationToken,
+    /// Its parent's, told too when both owners are the engine's own: a
+    /// task under the engine's owner that belongs to no Run and no
+    /// Connection is a part every Run shares (ADR 0148).
+    parent: Option<Panics>,
 }
 
 impl Panics {
@@ -431,6 +439,18 @@ impl Panics {
         Self(Arc::new(Telling {
             kind,
             panicked: CancellationToken::new(),
+            parent: None,
+        }))
+    }
+
+    /// The tell of a child owner of `kind`, which tells this one too when
+    /// both are the engine's own.
+    fn child(&self, kind: OwnerKind) -> Self {
+        let engines_own = kind == OwnerKind::Engine && self.kind() == OwnerKind::Engine;
+        Self(Arc::new(Telling {
+            kind,
+            panicked: CancellationToken::new(),
+            parent: engines_own.then(|| self.clone()),
         }))
     }
 
@@ -450,7 +470,11 @@ impl Panics {
             crash_report,
             "a task panicked, and its owner's parent is told"
         );
-        self.panicked().cancel();
+        let mut told = Some(self);
+        while let Some(panics) = told {
+            panics.panicked().cancel();
+            told = panics.0.parent.as_ref();
+        }
     }
 }
 

@@ -2,6 +2,8 @@
 //! `ci/test-health/scheduled.sh`; TESTING.md's After merge): a run does not start
 //! while `just merge`'s gate runs, and says so in its results line. It marks the
 //! lock it holds for a gate started during it to wait on, which `merge_pr` tests.
+//! The post-merge run checks what `main` gained since the commit it last
+//! checked, and only when `main` moved without a full gate.
 //! `just` is a stand-in that records each call. The
 //! local gate is repository tooling, so the module declares no Feature.
 #![cfg(unix)]
@@ -102,6 +104,11 @@ fn origin_repository() -> Workspace {
         ],
     );
     workspace
+}
+
+/// The commit `revision` names in the fixture.
+fn commit(workspace: &Workspace, revision: &str) -> String {
+    workspace.git(&["rev-parse", revision]).trim().to_owned()
 }
 
 /// Commits `files` to the fixture's `main` and goes back to its other branch.
@@ -215,6 +222,7 @@ fn a_run_uses_the_script_of_the_commit_it_tests() {
 #[rstest]
 #[case::mutants(0, "mutants")]
 #[case::constrained(1, "constrained")]
+#[case::post_merge(2, "post-merge")]
 fn a_crontab_line_runs_the_script_of_origin_main(#[case] index: usize, #[case] run: &str) {
     let crontab = std::fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/test-health.crontab"),
@@ -225,7 +233,7 @@ fn a_crontab_line_runs_the_script_of_origin_main(#[case] index: usize, #[case] r
         .filter_map(|line| line.split_once(" bash -lc '"))
         .filter_map(|(_, line)| line.strip_suffix('\''))
         .collect();
-    assert_eq!(lines.len(), 2, "{crontab}");
+    assert_eq!(lines.len(), 3, "{crontab}");
     let line = lines[index];
     assert!(
         line.ends_with(&format!(" scheduled {run} origin/main")),
@@ -448,4 +456,145 @@ fn a_run_goes_on_past_a_dead_owners_merge_gate_lock() {
             .join(".claude/worktrees/merge-gate.lock")
             .exists()
     );
+}
+
+/// The commit the post-merge run last checked, as it keeps it beside its log.
+fn post_merge_checked(workspace: &Workspace) -> PathBuf {
+    workspace.path().join("logs/post-merge-checked")
+}
+
+/// Marks `revision` as the commit the post-merge run last checked.
+fn checked_up_to(workspace: &Workspace, revision: &str) {
+    let checked = commit(workspace, revision);
+    workspace.write("logs/post-merge-checked", format!("{checked}\n").as_bytes());
+}
+
+fn checked(workspace: &Workspace) -> String {
+    std::fs::read_to_string(post_merge_checked(workspace))
+        .unwrap_or_default()
+        .trim()
+        .to_owned()
+}
+
+/// Cron starts the post-merge run every 20 minutes: while `main` has not
+/// moved since the commit it checked, it runs nothing and writes no line.
+#[test]
+fn a_post_merge_run_does_nothing_while_main_has_not_moved() {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+    checked_up_to(&workspace, "main");
+
+    let outcome = scheduled(&workspace, &stand_in, "post-merge");
+
+    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
+    assert!(outcome.calls.is_empty(), "{:?}", outcome.calls);
+    assert_eq!(outcome.results, "");
+    assert_eq!(checked(&workspace), commit(&workspace, "main"));
+}
+
+/// A post-merge run that cannot run now, while `just merge`'s gate runs, says
+/// so in its log alone and leaves the commit it checked where it was: the next
+/// cron run covers the range, and results.txt gets no line every 20 minutes.
+#[test]
+fn a_post_merge_run_skips_without_a_line_while_the_merge_gate_runs() {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+    checked_up_to(&workspace, "main^");
+    hold_the_merge_gate(&workspace, &std::process::id().to_string());
+
+    let outcome = scheduled(&workspace, &stand_in, "post-merge");
+
+    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
+    assert!(outcome.calls.is_empty(), "{:?}", outcome.calls);
+    assert_eq!(outcome.results, "");
+    assert!(
+        outcome.log.contains("the merge gate, process"),
+        "{}",
+        outcome.log
+    );
+    assert_eq!(checked(&workspace), commit(&workspace, "main^"));
+    assert!(!backstop_lock(&workspace).exists());
+}
+
+/// Lands a merge on the fixture's `main`, with `main`'s tree, whose message
+/// says the full gate passed, in the words `ci/merge-pr.sh` writes.
+fn land_on_the_full_gate(workspace: &Workspace) {
+    let main = "refs/heads/main";
+    let tree = format!("{main}^{{tree}}");
+    let change = workspace.git(&["commit-tree", &tree, "-p", main, "-m", "A change"]);
+    let change = change.trim();
+    let message = format!(
+        "A change (#1)\n\nMerged on the local gate: `just pre-merge all` (asked for with `--full`), which starts with `just quick all`'s lint and Quick suite, passed at {change}."
+    );
+    let merge = workspace.git(&[
+        "commit-tree",
+        &tree,
+        "-p",
+        main,
+        "-p",
+        change,
+        "-m",
+        &message,
+    ]);
+    workspace.git(&["update-ref", main, merge.trim()]);
+}
+
+/// A full gate ran the Pre-merge suite and `just counts` on the merge's tree
+/// already: a `main` whose newest merge passed it is recorded as checked, and
+/// nothing runs again.
+#[test]
+fn a_post_merge_run_records_a_full_gates_merge_as_checked_without_running() {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+    checked_up_to(&workspace, "main");
+    land_on_the_full_gate(&workspace);
+
+    let outcome = scheduled(&workspace, &stand_in, "post-merge");
+
+    assert_eq!(outcome.code, Some(0), "{}", outcome.log);
+    assert!(outcome.calls.is_empty(), "{:?}", outcome.calls);
+    assert_eq!(outcome.results, "");
+    assert_eq!(checked(&workspace), commit(&workspace, "main"));
+}
+
+/// Quick merges skip `just counts` and the Pre-merge suite, so the post-merge
+/// run runs both over what `main` gained since the commit it checked, the
+/// second even when the first fails, says how they ended in results.txt, and
+/// moves on either way: a red range is reported, not retried. Its first run
+/// starts from `main`'s commit before its head.
+#[rstest]
+#[case::green(false)]
+#[case::red(true)]
+fn a_post_merge_run_runs_the_counts_and_the_pre_merge_suite_over_the_range(#[case] red: bool) {
+    let workspace = origin_repository();
+    let stand_in = stand_in_just(&workspace);
+    if red {
+        std::fs::write(stand_in.join("failing-counts"), "").unwrap();
+    }
+    let since = commit(&workspace, "main^");
+    let head = commit(&workspace, "main");
+
+    let outcome = scheduled(&workspace, &stand_in, "post-merge");
+
+    assert_eq!(outcome.code, Some(i32::from(red)), "{}", outcome.log);
+    for call in [
+        "counts".to_owned(),
+        format!("test-affected pre-merge --base {since} --head {head}"),
+    ] {
+        assert!(
+            outcome.calls.contains(&call),
+            "no `{call}` in {:?}",
+            outcome.calls
+        );
+    }
+    let verdict = if red { "fail" } else { "pass" };
+    assert!(
+        outcome
+            .results
+            .ends_with(&format!(" {head} post-merge={verdict} since {since}\n")),
+        "{}",
+        outcome.results
+    );
+    assert_eq!(outcome.results.lines().count(), 1, "{}", outcome.results);
+    assert_eq!(checked(&workspace), head);
 }

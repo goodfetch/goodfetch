@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# `just test-health <constrained|mutants> [ref]`: the test-health runs the
-# gate host's cron starts while ADR 0135 keeps GitHub Actions to the
+# `just test-health <constrained|mutants|post-merge> [ref]`: the test-health
+# runs the gate host's cron starts while ADR 0135 keeps GitHub Actions to the
 # Release suite (TESTING.md, After merge; the entries in
-# ci/test-health.crontab), on `main`'s head by default. Both run in the
+# ci/test-health.crontab), on `main`'s head by default. They run in the
 # backstop's gate worktree (ci/gate-worktree.sh's `gate-backstop`), taking
 # its lock, so they never run beside the backstop or each other and reuse
-# its build; neither holds `just merge`'s worktree, neither starts while
+# its build; none holds `just merge`'s worktree, none starts while
 # `just merge`'s gate runs, and a gate started during a run waits for it.
 #   constrained  the constrained test-health run (ADR 0064): the Pre-merge
 #                suite on half the host's CPU and memory, with a fresh order
@@ -16,23 +16,37 @@
 #                the Rust that `main` changed in the last 24 hours, within
 #                150 minutes; a surviving mutant fails nothing, and the
 #                report is kept beside the log.
+#   post-merge   what quick merges skip (the 2026-11-13 retro: regressions
+#                surfaced hours later, at the next full gate): `just counts`
+#                and the Pre-merge suite over what `main` gained since the
+#                commit it last checked (`<log>/post-merge-checked`; on its
+#                first run, `main`'s commit before its head), both run even
+#                when the first fails, within 90 minutes. Cron starts it every
+#                20 minutes: it does nothing while `main` has not moved, and
+#                records a head whose merge passed the full gate as checked
+#                without running anything.
 # Each run appends one line to `<log>/results.txt`, `<UTC day> <commit>
 # <run>=<pass|fail>`, or `<run>=skipped (…)` when `just merge`'s gate runs,
 # the disk lacks room or the worktree is busy; a run that ends on its setup,
-# before its tests, reads `fail`. Its log is `<log>/<day>-<run>.log`, with
-# `<log>` GOODFETCH_TEST_HEALTH_LOG or ~/test-health. It fails when the run
-# fails or is skipped. A run is the scripts of the commit it tests, whichever
-# script started it: nothing fast-forwards the checkout cron starts in. It
-# keeps to bash 3.2, which stock macOS runs.
+# before its tests, reads `fail`. A post-merge run's line ends with `since
+# <checked>`, and it then moves `post-merge-checked` to the commit, pass or
+# fail: a red range is reported, not run again. A post-merge run that cannot
+# run now writes no line and moves nothing, so the next cron run covers the
+# range. Its log is `<log>/<day>-<run>.log`, with `<log>`
+# GOODFETCH_TEST_HEALTH_LOG or ~/test-health. It fails when the run fails or,
+# but for a post-merge run, is skipped. A run is the scripts of the commit it
+# tests, whichever script started it: nothing fast-forwards the checkout cron
+# starts in. It keeps to bash 3.2, which stock macOS runs.
 set -euo pipefail
 
-run=${1:?usage: just test-health <constrained|mutants> [ref]}
+run=${1:?usage: just test-health <constrained|mutants|post-merge> [ref]}
 ref=${2:-origin/main}
 case $run in
   constrained) minutes=120 ;;
   mutants) minutes=150 ;;
+  post-merge) minutes=90 ;;
   *)
-    echo "error: the run is constrained or mutants, not $run" >&2
+    echo "error: the run is constrained, mutants or post-merge, not $run" >&2
     exit 2
     ;;
 esac
@@ -46,9 +60,28 @@ commit=unknown
 said=""
 locked=""
 scripts=${GOODFETCH_GATE_SCRIPTS:-}
+# The post-merge run's range starts here once it is known.
+checked=""
 result() {
-  echo "$day $commit $run=$1" >>"$logs/results.txt"
+  if [[ -n $checked ]]; then
+    echo "$day $commit $run=$1 since $checked" >>"$logs/results.txt"
+    echo "$commit" >"$logs/post-merge-checked"
+  else
+    echo "$day $commit $run=$1" >>"$logs/results.txt"
+  fi
   said=yes
+}
+# A run that cannot run now: a post-merge run says so in its log alone and
+# exits green, leaving its range for the next cron run; any other lists
+# itself as skipped and fails.
+skip() {
+  echo "== skipped: $1"
+  if [[ $run == post-merge ]]; then
+    said=yes
+    exit 0
+  fi
+  result "skipped ($2)"
+  exit 1
 }
 # `set -e` ends the run on a setup that fails: its line still says so.
 trap '[[ -n $said ]] || result fail; [[ -z $locked ]] || rm -rf "$lock"; rm -rf "$scripts"' EXIT
@@ -63,25 +96,56 @@ if [[ ${GOODFETCH_GATE_SCRIPTS_OF:-} != "$commit" ]]; then
 fi
 unset GOODFETCH_GATE_SCRIPTS GOODFETCH_GATE_SCRIPTS_OF
 
+# What `main` gained since the post-merge run last checked it. The words
+# ci/merge-pr.sh opens a full gate's merge message with: a head merged on it
+# passed `just counts` and the Pre-merge suite on its own tree.
+if [[ $run == post-merge ]]; then
+  since=$(cat "$logs/post-merge-checked" 2>/dev/null || true)
+  if [[ -z $since ]] || ! git merge-base --is-ancestor "$since" "$commit" 2>/dev/null; then
+    since=$(git rev-parse --verify --quiet "$commit^1" || echo "$commit")
+  fi
+  if [[ $since == "$commit" ]]; then
+    echo "== main has not moved since $commit"
+    said=yes
+    exit 0
+  fi
+  full_gate=$(git rev-list -1 --first-parent --merges --fixed-strings \
+    --grep="Merged on the local gate: \`just pre-merge all\`" "$since..$commit")
+  if [[ $full_gate == "$commit" ]]; then
+    echo "== $commit merged on the full gate: recorded as checked"
+    echo "$commit" >"$logs/post-merge-checked"
+    said=yes
+    exit 0
+  fi
+  checked=$since
+fi
+
 gate_worktree_name="gate-backstop"
 # shellcheck source=ci/gate-worktree.sh
 source "$(dirname "$0")/../gate-worktree.sh"
 # The backstop's floor (ci/gate-backstop.sh): the host keeps 60 GB free, and
 # the worktree's first build takes about 25 GB, a later one 5 GB
-# (GOODFETCH_TEST_HEALTH_MIN_FREE_GB sets the floor itself).
-if [[ -d "$worktree/target" ]]; then needed=65; else needed=85; fi
+# (GOODFETCH_TEST_HEALTH_MIN_FREE_GB sets the floor itself). A post-merge
+# run, every 20 minutes, needs 40 GB on the file system of the worktree's
+# target/ once it exists, 10 more than `just merge`'s gate refuses under.
+on=$root
+if [[ -d "$worktree/target" ]]; then
+  needed=65
+  if [[ $run == post-merge ]]; then
+    needed=40
+    on=$worktree/target
+  fi
+else
+  needed=85
+fi
 needed=${GOODFETCH_TEST_HEALTH_MIN_FREE_GB:-$needed}
-free=$(df -Pk "$root" | awk 'NR == 2 { print int($4 / 1048576) }')
+free=$(df -Pk "$on/" | awk 'NR == 2 { print int($4 / 1048576) }')
 if ((free < needed)); then
-  echo "== skipped: $free GB free, the run needs $needed GB"
-  result "skipped (free disk $free GB < $needed GB)"
-  exit 1
+  skip "$free GB free, the run needs $needed GB" "free disk $free GB < $needed GB"
 fi
 holder=$(gate_worktree_holder "$lock")
 if [[ -n $holder ]]; then
-  echo "== skipped: process $holder holds $worktree"
-  result "skipped (the backstop's worktree is busy)"
-  exit 1
+  skip "process $holder holds $worktree" "the backstop's worktree is busy"
 fi
 gate_worktree_lock
 locked=yes
@@ -94,15 +158,13 @@ locked=yes
 : >"$lock/test-health"
 holder=$(gate_worktree_holder "$root/.claude/worktrees/merge-gate.lock")
 if [[ -n $holder ]]; then
-  echo "== skipped: the merge gate, process $holder, is running"
-  result "skipped (the merge gate is running)"
-  exit 1
+  skip "the merge gate, process $holder, is running" "the merge gate is running"
 fi
 gate_worktree_checkout "$commit"
 cd "$worktree"
 just fetch
 
-# Cron gives a run no user session: both runs start the OS services their tests
+# Cron gives a run no user session: the runs start the OS services their tests
 # use and find them through the setup's environment file, as `just pre-merge`
 # does, so a missing one fails instead of skipping its tests.
 if [[ "$(uname -s)" == Linux ]]; then
@@ -133,6 +195,17 @@ case $run in
       rm -rf "$logs/$day-mutants"
       cp -R target/mutants "$logs/$day-mutants"
     fi
+    ;;
+  post-merge)
+    echo "== just counts and the Pre-merge suite over $checked..$commit"
+    # Both run even when the first fails, and the inner shell expands $1 and $2.
+    read -r -d '' both <<'RUN' || true
+status=0
+just counts || status=1
+just test-affected pre-merge --base "$1" --head "$2" || status=1
+exit "$status"
+RUN
+    timeout "${minutes}m" bash -c "$both" post-merge "$checked" "$commit" || status=$?
     ;;
 esac
 if ((status == 124)); then echo "== stopped after $minutes minutes"; fi

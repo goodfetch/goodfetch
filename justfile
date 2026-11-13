@@ -1768,9 +1768,11 @@ gate-backstop ref="origin/main":
 # The test-health runs the gate host's cron starts while Actions is off
 # (TESTING.md, After merge; ci/test-health.crontab), on `main`'s head in the
 # backstop's gate worktree: `constrained`, the constrained test-health run,
-# and `mutants`, the advisory mutation run over the last day's Rust changes
-# (ci/test-health/scheduled.sh). Either skips while `just merge`'s gate runs,
-# and a gate started during one waits for it. Logs and results go to ~/test-health/ (GOODFETCH_TEST_HEALTH_LOG). Run from
+# `mutants`, the advisory mutation run over the last day's Rust changes, and
+# `post-merge`, `just counts` and the Pre-merge suite over what `main` gained
+# since the commit it last checked (ci/test-health/scheduled.sh). Each skips
+# while `just merge`'s gate runs, and a gate started during one waits for it.
+# Logs and results go to ~/test-health/ (GOODFETCH_TEST_HEALTH_LOG). Run from
 # the main checkout.
 test-health run ref="origin/main":
     ci/test-health/scheduled.sh {{ run }} {{ ref }}

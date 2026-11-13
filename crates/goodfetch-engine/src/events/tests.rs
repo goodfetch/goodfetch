@@ -30,7 +30,10 @@ fn waiting_for_a_command_the_stopped_stream_never_read_ends_with_the_stream() {
         permit.send(Command::Publish(Publish {
             event: &SYSTEM_INFO,
             scope: None,
-            data: Value::Null,
+            data: super::EventData::encode(
+                &Value::Null,
+                &goodfetch_counted_work::CountedWork::default(),
+            ),
             fold: None,
             accepted,
         }));

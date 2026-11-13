@@ -82,10 +82,11 @@ use std::time::{Duration, SystemTime};
 use data_encoding::BASE64;
 use goodfetch_cdp::generated::{network, page, runtime};
 use goodfetch_cdp::{NetError, SessionId as TargetSession, Subscription, SubscriptionEnd};
-use goodfetch_counted_work::Row;
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::events::Events;
+use goodfetch_engine::events::{Envelope, EventData};
 use goodfetch_engine::mask::{Masks, Scope};
 use goodfetch_engine::response_limits::{LimitExceeded, Limits};
 use goodfetch_engine::rpc::send_events;
@@ -94,7 +95,7 @@ use goodfetch_engine::runs::Run;
 use goodfetch_engine::{CallError, CallStream};
 use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::connection::{Surface, WaitedFor};
-use goodfetch_protocol::events::{EventEnvelope, Position};
+use goodfetch_protocol::events::Position;
 use goodfetch_protocol::jsonrpc::ErrorData;
 use goodfetch_protocol::page::events::{
     BODY_UNAVAILABLE, BodyUnavailableDetails, PAGE_CONSOLE, PAGE_DOM_CONTENT_LOADED,
@@ -320,6 +321,8 @@ const BODY_READ_TARGET: &str = "goodfetch::page::body_read";
 struct State {
     /// The calls that listen to each event.
     listeners: BTreeMap<PageEventName, Vec<Listener>>,
+    /// Where each event's one encode counts (ADR 0140's E1).
+    work: CountedWork,
     /// The number the next listener takes.
     next_listener: u64,
     /// When the `Runtime` domain was asked for, in milliseconds since the
@@ -464,9 +467,9 @@ impl Listening {
                 .into_iter()
                 .map(|(event, data)| {
                     position += 1;
-                    EventEnvelope {
+                    Envelope {
                         position: Position(position),
-                        event: event.name.to_owned(),
+                        event: event.name,
                         data,
                         dropped: 0,
                     }
@@ -576,6 +579,7 @@ impl PageEvents {
             )),
             state: Mutex::new(State {
                 url: "about:blank".to_owned(),
+                work: run.metrics().counted_work().clone(),
                 ..State::default()
             }),
             changed: Notify::new(),
@@ -1243,7 +1247,7 @@ const FRAME_RUNTIME: [&str; 2] = ["Runtime.consoleAPICalled", "Runtime.exception
 
 /// One event a page's events send a listener: its catalog entry and its
 /// data.
-type Published = (&'static Event, serde_json::Value);
+type Published = (&'static Event, EventData);
 
 /// Sends `data` as `event`'s to each call that listens to `name`, in the
 /// order the page's state changes, never waiting: a listener whose queue
@@ -1257,7 +1261,8 @@ fn emit(
     let Some(listeners) = state.listeners.get_mut(&name) else {
         return;
     };
-    let data = serde_json::to_value(data).expect("invariant: an event's payload encodes as JSON");
+    // Encoded once, every listener sharing it (ADR 0140's E1).
+    let data = EventData::encode(data, &state.work);
     listeners.retain_mut(
         |listener| match listener.queue.try_send((event, data.clone())) {
             Ok(()) => true,

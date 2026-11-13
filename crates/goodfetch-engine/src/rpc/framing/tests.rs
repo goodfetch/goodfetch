@@ -4,7 +4,7 @@ use rstest::rstest;
 use super::{DecodeError, Frame, Framer, Incoming, MAX_DEPTH};
 
 fn decode(line: &[u8]) -> Result<Incoming, DecodeError> {
-    super::decode(line, &goodfetch_counted_work::CountedWork::default())
+    super::decode(line.to_vec())
 }
 
 fn frames(chunks: &[&[u8]], limit: usize) -> Vec<Frame> {
@@ -63,7 +63,7 @@ fn a_message_decodes_as_its_kind(#[case] line: &[u8], #[case] kind: &str) {
     let decoded = decode(line).unwrap();
 
     let decoded_kind = match decoded {
-        Incoming::Request(_) => "request",
+        Incoming::Request { .. } => "request",
         Incoming::Notification(_) => "notification",
         Incoming::Reply { .. } => "reply",
     };
@@ -84,6 +84,31 @@ fn a_message_decodes_as_its_kind(#[case] line: &[u8], #[case] kind: &str) {
     Some(RequestId::Number(4))
 )]
 #[case::wrong_version(br#"{"jsonrpc":"1.0","id":"x","method":"hello"}"#, ProtocolFailure::InvalidRequest, Some(RequestId::Text("x".into())))]
+#[case::no_version(
+    br#"{"id":2,"method":"hello"}"#,
+    ProtocolFailure::InvalidRequest,
+    Some(RequestId::Number(2))
+)]
+#[case::unknown_member(
+    br#"{"jsonrpc":"2.0","id":2,"method":"hello","extra":1}"#,
+    ProtocolFailure::InvalidRequest,
+    Some(RequestId::Number(2))
+)]
+#[case::notification_with_a_result(
+    br#"{"jsonrpc":"2.0","method":"$/credit","result":1}"#,
+    ProtocolFailure::InvalidRequest,
+    None
+)]
+#[case::method_no_string(
+    br#"{"jsonrpc":"2.0","id":2,"method":7}"#,
+    ProtocolFailure::InvalidRequest,
+    Some(RequestId::Number(2))
+)]
+#[case::id_no_number_or_string(
+    br#"{"jsonrpc":"2.0","id":null,"method":"hello"}"#,
+    ProtocolFailure::InvalidRequest,
+    None
+)]
 fn a_line_that_is_no_message_answers_its_protocol_failure(
     #[case] line: &[u8],
     #[case] failure: ProtocolFailure,
@@ -110,6 +135,57 @@ fn a_failure_reply_without_an_error_code_reads_as_the_handlers_own() {
     assert_eq!(
         (id, error.data.code.as_str(), error.data.retryable),
         (RequestId::Number(3), "handler_failed", false)
+    );
+}
+
+/// A request's method and params are read from where they are in its line,
+/// an escaped method included, and `null` params are none.
+#[rstest]
+#[case::params(
+    br#"{"jsonrpc":"2.0","id":1,"method":"page.goto","params": {"url":"a"} }"#,
+    "page.goto",
+    Some(r#"{"url":"a"}"#)
+)]
+#[case::escaped_method(
+    br#"{"params":[1],"method":"page.\u0067oto","id":1,"jsonrpc":"2.0"}"#,
+    "page.goto",
+    Some("[1]")
+)]
+#[case::null_params(
+    br#"{"jsonrpc":"2.0","id":1,"method":"engine.info","params":null}"#,
+    "engine.info",
+    None
+)]
+#[case::last_member_wins(br#"{"jsonrpc":"2.0","id":1,"method":"a","method":"b"}"#, "b", None)]
+fn a_request_reads_its_method_and_params_from_its_line(
+    #[case] line: &[u8],
+    #[case] method: &str,
+    #[case] params: Option<&str>,
+) {
+    let Ok(Incoming::Request { id, call }) = decode(line) else {
+        panic!("no request");
+    };
+
+    assert_eq!(
+        (id, call.method(), call.params()),
+        (RequestId::Number(1), method, params)
+    );
+}
+
+/// A reply's result is read where it is, into the type its reader asks for.
+#[test]
+fn a_reply_reads_its_result_from_its_line() {
+    let Ok(Incoming::Reply {
+        answer: Ok(result), ..
+    }) = decode(br#"{"jsonrpc":"2.0","id":7,"result":{"records":[1, 2]}}"#)
+    else {
+        panic!("no result");
+    };
+
+    assert_eq!(result.json(), r#"{"records":[1, 2]}"#);
+    assert_eq!(
+        result.read::<serde_json::Value>().unwrap(),
+        serde_json::json!({ "records": [1, 2] })
     );
 }
 

@@ -45,6 +45,8 @@
 //! the Run's folder once asked for.
 
 use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -52,7 +54,7 @@ use data_encoding::BASE64;
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row as CountedRow};
 use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::{CallError, GuardAnswer};
+use goodfetch_engine::{CallError, Params};
 use goodfetch_page::page_value::{DocumentResponse, NavigationGate, ServedDocument};
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_protocol::foxhound::fetch::{RESPONSE_NOT_DOCUMENT, ResponseNotDocumentDetails};
@@ -76,7 +78,7 @@ use goodfetch_protocol::page::{
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde_json::{Value, json};
+use serde_json::value::RawValue;
 use url::Url;
 
 use super::{FetchTiers, ServedPage, lock};
@@ -99,8 +101,8 @@ pub(super) fn answer(
     tiers: &FetchTiers,
     page_id: &PageId,
     operation: &'static str,
-    params: &Value,
-) -> Option<GuardAnswer> {
+    params: Params<'_>,
+) -> Option<Served> {
     let page = tiers.served_page(page_id)?;
     if let Some(content_type) = &page.not_document
         && Row::of(operation).is_some_and(Row::reads_document)
@@ -108,12 +110,14 @@ pub(super) fn answer(
         return Some(ready(Err(not_document(content_type, operation))));
     }
     if let Some(call) = page.escalated {
+        drop(page);
         return Some(ready(Err(tiers.unserved(page_id, call, false))));
     }
     let forced = page.choice.forced.is_some();
     match verdict(operation, page.choice.tier, forced) {
         Some(Verdict::Serve(_)) => {}
         Some(Verdict::Escalate | Verdict::BrowserRequired) | None => {
+            drop(page);
             return Some(ready(Err(tiers.unserved(page_id, operation, false))));
         }
     }
@@ -121,7 +125,7 @@ pub(super) fn answer(
         name if name == PAGE_FORMATS.name => None,
         name if name == PAGE_CLOSE.name => {
             tiers.close(page_id);
-            Some(ready(Ok(json!({}))))
+            Some(ready(Ok(encoded(&serde_json::Map::new()))))
         }
         name if name == LOCATOR_WAIT_FOR.name => {
             let params: LocatorWaitForParams = read(params)?;
@@ -194,7 +198,10 @@ pub(super) fn answer(
             let waited = (params.url.as_ref(), params.timeout);
             Some(replayed::arm(tiers, page_id, &page, operation, waited))
         }
-        _ => Some(ready(Err(tiers.unserved(page_id, operation, false)))),
+        _ => {
+            drop(page);
+            Some(ready(Err(tiers.unserved(page_id, operation, false))))
+        }
     }
 }
 
@@ -207,7 +214,7 @@ fn url_waited(
     page: &ServedPage,
     operation: &'static str,
     params: &WaitForUrlParams,
-) -> Result<Value, CallError> {
+) -> Result<Box<RawValue>, CallError> {
     let pattern = match &params.url {
         UrlMatcher::Glob { pattern } => UrlPattern::glob(pattern),
         UrlMatcher::Regex { pattern } => UrlPattern::regex(pattern),
@@ -224,10 +231,10 @@ fn url_waited(
 fn navigated(
     tiers: &FetchTiers,
     page_id: &PageId,
-    page: ServedPage,
+    page: Arc<ServedPage>,
     operation: &'static str,
-    params: &Value,
-) -> Option<GuardAnswer> {
+    params: Params<'_>,
+) -> Option<Served> {
     let step = match operation {
         name if name == PAGE_GOTO.name => Step::To(read::<GotoParams>(params)?.url),
         name if name == PAGE_RELOAD.name => Step::Reload,
@@ -237,7 +244,7 @@ fn navigated(
     let tiers = tiers.clone();
     let page_id = page_id.clone();
     Some(Box::pin(async move {
-        let navigated = navigate(&tiers, &page_id, page.clone(), step, operation).await?;
+        let navigated = navigate(&tiers, &page_id, page, step, operation).await?;
         // A `discovered_api` page replays its document's calls for the
         // waits armed before it (the `replayed` module).
         if let Some(document) = navigated
@@ -245,7 +252,7 @@ fn navigated(
             .as_ref()
             .and_then(|response| Url::parse(&response.url).ok())
         {
-            replayed::replay(&tiers, &page_id, &page, &document).await;
+            replayed::replay(&tiers, &page_id, &document).await;
         }
         Ok(encoded(&navigated))
     }))
@@ -257,29 +264,38 @@ fn navigated(
 fn body(
     tiers: &FetchTiers,
     page_id: &PageId,
-    page: ServedPage,
+    page: Arc<ServedPage>,
     operation: &'static str,
     request_id: &str,
-) -> GuardAnswer {
+) -> Served {
     if let Some(body) = page.bodies.get(request_id) {
         return ready(Ok(encoded(body)));
     }
-    match page.own {
-        Some((response, body)) if response.request_id == request_id => {
-            let tiers = tiers.clone();
-            let page_id = page_id.clone();
-            let run = page.document.run.clone();
-            Box::pin(async move {
-                let stored = run
-                    .store_body(body.clone())
-                    .await
-                    .map_err(|error| failed(&response.url, &error))?;
-                tiers.keep_body(&page_id, &response.request_id, stored.clone());
-                Ok(encoded(&stored))
-            })
-        }
-        _ => ready(Err(tiers.unserved(page_id, operation, false))),
-    }
+    let own = match &page.own {
+        Some((response, body)) if response.request_id == request_id => Some((
+            page.document.run.clone(),
+            response.url.clone(),
+            response.request_id.clone(),
+            body.clone(),
+        )),
+        _ => None,
+    };
+    // `unserved` and `keep_body` change the page, which this call no longer
+    // holds, so that it is changed without a copy.
+    drop(page);
+    let Some((run, url, request_id, body)) = own else {
+        return ready(Err(tiers.unserved(page_id, operation, false)));
+    };
+    let tiers = tiers.clone();
+    let page_id = page_id.clone();
+    Box::pin(async move {
+        let stored = run
+            .store_body(body)
+            .await
+            .map_err(|error| failed(&url, &error))?;
+        tiers.keep_body(&page_id, &request_id, stored.clone());
+        Ok(encoded(&stored))
+    })
 }
 
 /// The answer to the call `operation`, its params `params`, on the browser
@@ -292,8 +308,8 @@ pub(super) fn on_browser(
     tiers: &FetchTiers,
     page_id: &PageId,
     operation: &'static str,
-    params: &Value,
-) -> Option<GuardAnswer> {
+    params: Params<'_>,
+) -> Option<Served> {
     let held = lock(&tiers.served.pages)
         .browser
         .get(page_id)
@@ -335,18 +351,22 @@ fn not_document(content_type: &str, operation: &str) -> CallError {
 }
 
 /// `params` as `P`, or `None` when they do not read.
-fn read<P: DeserializeOwned>(params: &Value) -> Option<P> {
-    serde_json::from_value(params.clone()).ok()
+fn read<P: DeserializeOwned>(params: Params<'_>) -> Option<P> {
+    params.read().ok()
 }
 
+/// A served page's answer to a call, its result encoded once or its
+/// error, which [`FetchTiers`]'s guard copies into the call's success.
+pub(super) type Served = Pin<Box<dyn Future<Output = Result<Box<RawValue>, CallError>> + Send>>;
+
 /// An answer already known.
-fn ready(answer: Result<Value, CallError>) -> GuardAnswer {
+fn ready(answer: Result<Box<RawValue>, CallError>) -> Served {
     Box::pin(std::future::ready(answer))
 }
 
-/// `value` as a call's result.
-fn encoded(value: &impl Serialize) -> Value {
-    serde_json::to_value(value).expect("invariant: a protocol type encodes as JSON")
+/// `value` as a call's result, encoded into bytes once.
+fn encoded(value: &impl Serialize) -> Box<RawValue> {
+    serde_json::value::to_raw_value(value).expect("invariant: a protocol type encodes as JSON")
 }
 
 /// What a locator wait on a static document waits for.
@@ -369,11 +389,11 @@ enum Wait {
 fn waited(
     tiers: &FetchTiers,
     page_id: &PageId,
-    page: ServedPage,
+    page: Arc<ServedPage>,
     operation: &'static str,
     selector: String,
     wait: Wait,
-) -> GuardAnswer {
+) -> Served {
     let tiers = tiers.clone();
     let page_id = page_id.clone();
     Box::pin(async move {
@@ -455,11 +475,14 @@ pub(crate) fn matches(
 async fn request(
     tiers: &FetchTiers,
     page_id: &PageId,
-    page: ServedPage,
+    page: Arc<ServedPage>,
     params: PageRequestParams,
 ) -> Result<PageResponse, CallError> {
     let run = page.document.run.clone();
     let fetched = sent(&page, &params).await?;
+    // Its answer changes the page, which would copy it while this call
+    // held it.
+    drop(page);
     answered(tiers, page_id, &run, fetched).await
 }
 

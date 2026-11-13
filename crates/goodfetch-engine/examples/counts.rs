@@ -67,6 +67,7 @@ use std::sync::Arc;
 use audit::{Audit, PLANTED_RETENTION};
 use charge_counts::{Outcome, charges};
 use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_engine::Params;
 use goodfetch_engine::audit::AuditLog;
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_test_support::CountingVfs;
@@ -103,13 +104,13 @@ fn governor_plant(name: &str) -> Option<governor::Plant> {
 fn plant(name: &str, work: &CountedWork) -> Plant {
     let work = work.clone();
     match name {
-        "E1.deep_copies" => Arc::new(move |params: &Value| {
+        "E1.deep_copies" => Arc::new(move |params: Params<'_>| {
             work.count(Row::MessageDeepCopies);
-            drop(params.clone());
+            drop(params.json().to_owned());
         }),
-        "E1.encodes" => Arc::new(move |params: &Value| {
+        "E1.encodes" => Arc::new(move |params: Params<'_>| {
             work.count(Row::MessageEncodes);
-            drop(serde_json::to_vec(params));
+            drop(serde_json::to_vec(&params.read::<Value>().ok()));
         }),
         other => panic!("no plant for the row {other}"),
     }
@@ -325,7 +326,7 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
     );
     let units = BTreeMap::from([
         ("incoming_messages", count(TRAFFIC.incoming())),
-        ("outgoing_messages", count(sent.outgoing)),
+        ("answers_and_events", count(sent.answers_and_events())),
         ("covered_charges", charged.covered),
         ("slices", charged.slices),
         ("charges", charged.covered + charged.slices),

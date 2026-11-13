@@ -389,7 +389,9 @@ impl Masks {
 
     /// `line`, one JSON message, masked as `scope` says and still one JSON
     /// message: masked as text, or string by string where a value's raw
-    /// form spanned the message's own syntax.
+    /// form spanned the message's own syntax. A line no mask changed comes
+    /// back as it came, unread: only a line holding a masked value is read
+    /// again, and encoded again only when masking it as text broke it.
     pub fn apply_json_line(&self, line: Vec<u8>, scope: Scope) -> Vec<u8> {
         let masked = match self.apply_bytes(&line, scope) {
             Cow::Borrowed(_) => return line,

@@ -101,7 +101,9 @@ async fn fetched(transport: &Untyped) -> Result<Fetched, goodfetch_engine::CallE
     };
     let clock = Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001));
     let hop = Hop::get(Url::parse("http://files.test/download").unwrap());
-    fetch_accepting(transport, &hop, &bounds, &clock, Some(&Accepts::default())).await
+    fetch_accepting(transport, &hop, &bounds, &clock, Some(&Accepts::default()))
+        .await
+        .map_err(crate::driver::FetchFailure::into_error)
 }
 
 /// The judgment of a fetch: its type when refused, and its body's length.

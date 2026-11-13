@@ -1,8 +1,9 @@
 //! The Resource governor through `goodfetch-engine`'s public interface
 //! (ADR 0040; spec #213's Seams 3 and 4): its sampling loop on the paused
 //! `Clock`, reading a folder laid out as Linux's `/proc` that the test
-//! writes, and the user configuration of the test's Goodfetch home, each
-//! read again at every sample; and Runs sharing its admissions.
+//! writes, read again at every sample, and the user configuration of the
+//! test's Goodfetch home, through the engine's snapshot of it; and Runs
+//! sharing its admissions.
 #![expect(
     clippy::disallowed_methods,
     reason = "the test writes the files the governor reads, and runs it on the paused Clock, the Clock's test version (ADR 0059; TESTING.md, Time)"
@@ -115,6 +116,15 @@ fn rollup(pss: u64) -> String {
 /// A governor sampling `proc` under the user configuration of `env`, with
 /// `run` given it, on the paused Clock.
 fn governed<T>(env: &TestEnv, proc: &Proc, run: impl AsyncFnOnce(Governor) -> T) -> T {
+    governed_under(env, proc, async |governor, _| run(governor).await)
+}
+
+/// The same, with `run` given the settings the governor reads too.
+fn governed_under<T>(
+    env: &TestEnv,
+    proc: &Proc,
+    run: impl AsyncFnOnce(Governor, Settings) -> T,
+) -> T {
     goodfetch_test_support::runtime().block_on(async {
         let owner = TaskOwner::root(BlockingPolicy::Inline);
         let version = ProductVersion::parse("0.0.0").unwrap();
@@ -126,12 +136,12 @@ fn governed<T>(env: &TestEnv, proc: &Proc, run: impl AsyncFnOnce(Governor) -> T)
         let clock = Clock::paused(SystemTime::UNIX_EPOCH);
         let governor = Governor::start(
             System::linux_files(proc.proc()),
-            settings,
+            settings.clone(),
             clock,
             &owner,
             CountedWork::default(),
         );
-        let answer = run(governor).await;
+        let answer = run(governor, settings).await;
         owner.stop().await;
         answer
     })
@@ -193,35 +203,38 @@ fn the_allowance_is_the_own_cgroups_limit_read_again_at_every_sample() {
 }
 
 /// `governor.memory_allowance` tighter than the cgroup's limit is the
-/// allowance, read again at every sample from the user configuration.
+/// allowance, from the engine's snapshot of the machine's settings: a hand
+/// edit of the user configuration is not seen by the samples after it, and
+/// the engine's own write of it, which refreshes the snapshot, is seen by
+/// the next sample (ADR 0140).
 ///
 /// Covers: story:3-56, setting:governor.memory_allowance
 #[test]
-fn a_tighter_memory_allowance_setting_takes_over_at_the_next_sample() {
+fn a_tighter_memory_allowance_setting_takes_over_at_the_next_sample_after_the_engines_write() {
     let env = TestEnv::new();
     env.user_configuration(SAMPLED);
     let proc = Proc::new();
 
-    let (before, after) = governed(&env, &proc, async |governor| {
+    let samples = governed_under(&env, &proc, async |governor, settings| {
         let mut samples = Samples::of(&governor);
         let before = samples.next().await;
         env.user_configuration(&format!(
             "{SAMPLED}governor.memory_allowance = {}\n",
             128 * MIB
         ));
-        let after = samples.next().await;
-        (before, after)
+        let edited = samples.next().await;
+        settings.refresh().await;
+        let written = samples.next().await;
+        [before, edited, written]
     });
 
     assert_eq!(
-        (
-            (before.memory.allowance, before.memory.allowance_source),
-            (after.memory.allowance, after.memory.allowance_source),
-        ),
-        (
+        samples.map(|sample| (sample.memory.allowance, sample.memory.allowance_source)),
+        [
+            (256 * MIB, AllowanceSource::Cgroup),
             (256 * MIB, AllowanceSource::Cgroup),
             (128 * MIB, AllowanceSource::Setting),
-        )
+        ]
     );
 }
 

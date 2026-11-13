@@ -98,8 +98,8 @@ The absolute ceilings and Performance targets these rules serve are in [ADR 0134
 - **Every channel and every buffer between tasks is bounded,** and a full one makes its sender wait or refuse (backpressure), never grow. `mpsc::unbounded_channel` and unbounded `VecDeque` buffers between tasks are not used.
   _Why:_ an unbounded channel turns a slow consumer into unbounded memory, which no ceiling then catches until the crash.
 - **No `String` clone per request or per message.** Share a value read by many owners as `Arc<str>` or an ID; borrow where the lifetime allows.
-- **The Frontier keeps in memory only bounded caches.** URLs and the duplicate check live in the run's SQLite file, and the duplicate check is exact: no Bloom, cuckoo or other lossy filter.
-  _Why:_ the Frontier may hold at most 8 heap bytes per URL, and a false positive silently drops a page.
+- **The Frontier's memory is bounded by `run_state.memory.budget`, and the duplicate check stays exact** ([ADR 0142](docs/adr/0142-a-runs-state-lives-in-memory-its-run-file-is-written-in-batches-and-a-clean-stop-writes-everything.md)): no Bloom, cuckoo or other lossy filter. Past the budget, or under memory pressure, what a Run-state batch already wrote leaves memory and is read back from the run file; at a budget of 0 the Frontier lives in the run file.
+  _Why:_ a crawl of millions of URLs must never exhaust memory, the Frontier may hold at most 8 heap bytes per URL at a budget of 0 and past the spill (ADR 0134), and a false positive silently drops a page.
 - **A collection that grows with load has a bound from a setting or the resource governor** (ADR 0040), never from the input alone.
 
 ### Lints, formatting and toolchain

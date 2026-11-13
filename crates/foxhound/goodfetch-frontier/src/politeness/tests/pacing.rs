@@ -15,15 +15,16 @@ use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::politeness::{
-    Ending, Hold, Holder, PermitRule, Politeness, PolitenessOptions, Taken, Verdict,
+    Ending, Hold, Holder, PermitRule, Politeness, PolitenessError, PolitenessOptions, Taken,
+    Verdict,
 };
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{CrashVfs, IoFault, TestEnv};
 use proptest::prelude::*;
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{KEY, at, file, milliseconds, rule};
+use super::{KEY, at, file, milliseconds, pace, rule};
 use crate::politeness::{TABLES, latency_noted, send_taken, start_moved, started_at_send};
 
 fn adaptive(delay: u64, max: u64) -> Value {
@@ -558,5 +559,128 @@ async fn a_send_that_waited_for_the_file_counts_its_interval_from_when_it_was_re
             at(10),
             Verdict::Until(at(11) + milliseconds(300), Hold::Delay)
         )
+    );
+}
+
+/// How the Politeness file fails a send's transaction.
+#[derive(Clone, Copy, Debug)]
+enum Failing {
+    /// SQLite refuses the statement: the Frontier's table is gone.
+    Sqlite,
+    /// Its storage fails an I/O.
+    Storage,
+    /// Its actor stopped with its owner.
+    Closed,
+}
+
+/// The last check before a send answers each failure of its transaction as
+/// an error, the run file's, the storage's and a stopped file's alike, so
+/// its caller holds the request back (issue 2321): none of them reads as a
+/// send that may go.
+///
+/// Covers: story:6-247, format:politeness-file
+#[rstest]
+#[case::sqlite(Failing::Sqlite)]
+#[case::storage(Failing::Storage)]
+#[case::closed(Failing::Closed)]
+fn a_send_whose_transaction_fails_is_answered_as_an_error(#[case] failing: Failing) {
+    let sent = goodfetch_test_support::runtime().block_on(send_failing(failing));
+
+    assert!(
+        matches!(
+            (failing, &sent),
+            (Failing::Sqlite, Err(PolitenessError::Sqlite { .. }))
+                | (Failing::Storage, Err(PolitenessError::Storage { .. }))
+                | (Failing::Closed, Err(PolitenessError::Closed))
+        ),
+        "{sent:?}"
+    );
+}
+
+/// What a send is answered on a Politeness file that fails as `failing`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test runs on Tokio's paused clock and the test Clock (ADR 0059)"
+)]
+async fn send_failing(failing: Failing) -> Result<Option<SystemTime>, PolitenessError> {
+    let env = TestEnv::new();
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let clock = Clock::paused(at(10));
+    let vfs = CrashVfs::register(&env.unique_name("send-fails"), env.seed()).unwrap();
+    let path = env.folder().join("politeness.sqlite");
+    let politeness = Politeness::open(
+        path.clone(),
+        &PolitenessOptions {
+            vfs: matches!(failing, Failing::Storage).then(|| vfs.name().to_owned()),
+            ..PolitenessOptions::default()
+        },
+        vec![TABLES],
+        |_, _| false,
+        "first".to_owned(),
+        &owner,
+    )
+    .await
+    .unwrap();
+    match failing {
+        Failing::Sqlite => rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute_batch("DROP TABLE domain_limits")
+            .unwrap(),
+        Failing::Storage => vfs.fail_at(vfs.operations(), IoFault::Error),
+        Failing::Closed => owner.stop().await,
+    }
+
+    started_at_send(&politeness, KEY, clock, None).await
+}
+
+/// A file that fails one send's transaction records nothing of it, and
+/// answers the same send asked again: the send then goes, and the next one
+/// waits out the delay counted from it (issue 2321).
+///
+/// Covers: story:6-247, setting:politeness.domain.delay, format:politeness-file
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test runs on Tokio's paused clock and the test Clock (ADR 0059)"
+)]
+#[tokio::test(start_paused = true)]
+async fn a_send_asked_again_once_the_file_answers_goes_and_its_delay_is_kept() {
+    let env = TestEnv::new();
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let clock = Clock::paused(at(10));
+    let vfs = CrashVfs::register(&env.unique_name("send-fails-once"), env.seed()).unwrap();
+    let politeness = Politeness::open(
+        env.folder().join("politeness.sqlite"),
+        &PolitenessOptions {
+            vfs: Some(vfs.name().to_owned()),
+            ..PolitenessOptions::default()
+        },
+        vec![TABLES],
+        |_, _| false,
+        "first".to_owned(),
+        &owner,
+    )
+    .await
+    .unwrap();
+    let a_second = Some(pace(
+        json!({ "politeness": { "domain": { "delay": 1_000 } } }),
+    ));
+    started_at_send(&politeness, KEY, clock, a_second)
+        .await
+        .unwrap();
+    tokio::time::advance(milliseconds(1_500)).await;
+
+    vfs.fail_at(vfs.operations(), IoFault::Error);
+    let failed = started_at_send(&politeness, KEY, clock, a_second).await;
+    let again = started_at_send(&politeness, KEY, clock, a_second).await;
+    tokio::time::advance(milliseconds(100)).await;
+    let next = started_at_send(&politeness, KEY, clock, a_second).await;
+
+    assert!(
+        matches!(failed, Err(PolitenessError::Storage { .. })),
+        "{failed:?}"
+    );
+    assert_eq!(
+        (again.unwrap(), next.unwrap()),
+        (None, Some(at(12) + milliseconds(500)))
     );
 }

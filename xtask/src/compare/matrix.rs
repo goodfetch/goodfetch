@@ -10,9 +10,17 @@
 //! Proving ground of [`super::trials::SITE_PAGES`] pages in the same tree:
 //! `scale.test`'s, or for the polite and headless browser scenarios, the
 //! multi-domain and script-rendered sites the Proving ground serves for
-//! them (#1903).
+//! them (#1903). #2316's four scenarios run scenario 1's settings where a
+//! lead or a gap is decided: on pages of realistic size, on a site of
+//! [`LONG_PAGES`] pages, and at 64 and 256 requests in flight. They carry
+//! no bar until the owner sets one (#2252 Q11).
+//!
+//! Size: one concern, the matrix: its scenarios, its tools and the table of
+//! every cell with its mapping (`CELLS`), which is most of its length.
 
 use serde::{Deserialize, Serialize};
+
+use super::hostile::{LIMITS_IN_FLIGHT, LIMITS_RATE, TRAPS, Task};
 
 /// A tool compared.
 #[derive(
@@ -28,10 +36,20 @@ pub(crate) enum Tool {
     Crawlee,
     /// Scrapy's default HTTP crawl, or `scrapy-playwright`'s, on `CPython`.
     Scrapy,
+    /// crawlee-rs's `HtmlCrawler`, Apify's Rust port of Crawlee (#2214).
+    #[serde(rename = "crawlee-rs")]
+    #[value(name = "crawlee-rs")]
+    CrawleeRs,
 }
 
 impl Tool {
-    pub(crate) const ALL: [Self; 4] = [Self::Foxhound, Self::Spider, Self::Crawlee, Self::Scrapy];
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Foxhound,
+        Self::Spider,
+        Self::Crawlee,
+        Self::Scrapy,
+        Self::CrawleeRs,
+    ];
 
     pub(crate) fn name(self) -> &'static str {
         match self {
@@ -39,6 +57,7 @@ impl Tool {
             Self::Spider => "spider",
             Self::Crawlee => "crawlee",
             Self::Scrapy => "scrapy",
+            Self::CrawleeRs => "crawlee-rs",
         }
     }
 }
@@ -65,7 +84,35 @@ pub(crate) enum Scenario {
     /// Scenario 5, headless browser: the script-rendered site, whose links
     /// only a browser sees.
     Browser,
+    /// Scenario 1 on the realistic-page site (#2316): pages of tens of
+    /// kilobytes with 30 to 100 links each, some repeated and some through
+    /// a redirect.
+    Realistic,
+    /// Scenario 1 on a site of [`LONG_PAGES`] pages (#2316), long enough to
+    /// reach the steady rate.
+    Long,
+    /// Scenario 1 at 64 requests in flight (#2316's sweep).
+    #[serde(rename = "raw-64")]
+    #[value(name = "raw-64")]
+    Raw64,
+    /// Scenario 1 at 256 requests in flight (#2316's sweep).
+    #[serde(rename = "raw-256")]
+    #[value(name = "raw-256")]
+    Raw256,
+    /// The hostile pages at each tool's own defaults (#2439): the `traps`
+    /// family, `limits/1` and `limits/3`, each crawl counted for the rules
+    /// it broke, not timed.
+    Hostile,
+    /// The hostile pages' `traps` family at scenario 1's settings, 16 in
+    /// flight and no delay, so each tool's waste is read at one pace
+    /// (#2439).
+    #[serde(rename = "hostile-16")]
+    #[value(name = "hostile-16")]
+    Hostile16,
 }
+
+/// The pages of the long scenario's site.
+pub(crate) const LONG_PAGES: u64 = 100_000;
 
 /// The Proving ground site a scenario's trials crawl.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,6 +125,11 @@ pub(crate) enum Site {
     MultiDomain,
     /// The script-rendered site on `rendered.localhost`.
     Rendered,
+    /// The realistic-page site on `realistic.localhost`.
+    Realistic,
+    /// The hostile pages: each task's host, reached on the Proving
+    /// ground's address with its host name sent as each request's `Host`.
+    Hostile,
 }
 
 /// The multi-domain site's domains, as the Proving ground serves them.
@@ -93,14 +145,21 @@ impl Site {
             Self::Scale => SCALE_HOST.to_owned(),
             Self::MultiDomain => format!("polite-{}.localhost", (page - 1) % DOMAINS + 1),
             Self::Rendered => "rendered.localhost".to_owned(),
+            Self::Realistic => "realistic.localhost".to_owned(),
+            Self::Hostile => super::hostile::TRAPS.host.to_owned(),
         }
     }
 
     /// Every host of the site.
     pub(crate) fn hosts(self) -> Vec<String> {
         match self {
-            Self::Scale | Self::Rendered => vec![self.host_of(1)],
+            Self::Scale | Self::Rendered | Self::Realistic => vec![self.host_of(1)],
             Self::MultiDomain => (1..=DOMAINS).map(|page| self.host_of(page)).collect(),
+            Self::Hostile => Scenario::Hostile
+                .hostile_tasks()
+                .iter()
+                .map(|task| task.host.to_owned())
+                .collect(),
         }
     }
 
@@ -108,17 +167,23 @@ impl Site {
     /// and a browser both resolve to loopback (`*.localhost`), rather than
     /// on the Proving ground's address with a `Host` header.
     pub(crate) fn by_name(self) -> bool {
-        !matches!(self, Self::Scale)
+        !matches!(self, Self::Scale | Self::Hostile)
     }
 }
 
 impl Scenario {
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 11] = [
         Self::Raw,
         Self::Durable,
         Self::Polite,
         Self::Extraction,
         Self::Browser,
+        Self::Realistic,
+        Self::Long,
+        Self::Raw64,
+        Self::Raw256,
+        Self::Hostile,
+        Self::Hostile16,
     ];
 
     pub(crate) fn name(self) -> &'static str {
@@ -128,15 +193,111 @@ impl Scenario {
             Self::Polite => "polite",
             Self::Extraction => "extraction",
             Self::Browser => "browser",
+            Self::Realistic => "realistic",
+            Self::Long => "long",
+            Self::Raw64 => "raw-64",
+            Self::Raw256 => "raw-256",
+            Self::Hostile => "hostile",
+            Self::Hostile16 => "hostile-16",
         }
+    }
+
+    /// The scenario whose settings each tool runs: scenario 1's for
+    /// #2316's, which change only the site or the requests in flight, and
+    /// for the hostile pages' `traps` pass, so each tool's side takes them
+    /// as `raw`.
+    pub(crate) fn settings(self) -> Self {
+        match self {
+            Self::Realistic | Self::Long | Self::Raw64 | Self::Raw256 | Self::Hostile16 => {
+                Self::Raw
+            }
+            Self::Raw
+            | Self::Durable
+            | Self::Polite
+            | Self::Extraction
+            | Self::Browser
+            | Self::Hostile => self,
+        }
+    }
+
+    /// Whether its cells carry no bar until the owner sets one: #2316's
+    /// (#2252 Q11) and the hostile pages' (#2439, Q3).
+    pub(crate) fn carries_no_bar(self) -> bool {
+        self.settings() != self || self.hostile()
+    }
+
+    /// The Proving ground's tasks its trials crawl, each counted for the
+    /// rules the tool broke (#2439): none for a timed scenario.
+    pub(crate) fn hostile_tasks(self) -> &'static [Task] {
+        match self {
+            Self::Hostile => &[TRAPS, LIMITS_RATE, LIMITS_IN_FLIGHT],
+            // `limits/1` would flag any tool at 16 in flight and no delay.
+            Self::Hostile16 => &[TRAPS],
+            Self::Raw
+            | Self::Durable
+            | Self::Polite
+            | Self::Extraction
+            | Self::Browser
+            | Self::Realistic
+            | Self::Long
+            | Self::Raw64
+            | Self::Raw256 => &[],
+        }
+    }
+
+    /// Whether its trials count the rules each tool broke instead of
+    /// timing a crawl: the hostile pages'.
+    pub(crate) fn hostile(self) -> bool {
+        !self.hostile_tasks().is_empty()
+    }
+
+    /// The requests each tool keeps in flight: the resident-memory check's
+    /// crawl's, as [`super::trials::CONCURRENCY`] is, but in the sweep.
+    pub(crate) fn concurrency(self) -> u32 {
+        match self {
+            Self::Raw64 => 64,
+            Self::Raw256 => 256,
+            Self::Raw
+            | Self::Durable
+            | Self::Polite
+            | Self::Extraction
+            | Self::Browser
+            | Self::Realistic
+            | Self::Long
+            | Self::Hostile
+            | Self::Hostile16 => crate::rss::crawl::CONCURRENCY,
+        }
+    }
+
+    /// The pages of the site its trials crawl, `declared` being the run's.
+    pub(crate) fn site_pages(self, declared: u64) -> u64 {
+        if self == Self::Long {
+            LONG_PAGES
+        } else {
+            declared
+        }
+    }
+
+    /// Whether only its timed trials run: the long scenario's site is
+    /// already the growth cell's length, and strace over it would take
+    /// hours.
+    pub(crate) fn timed_only(self) -> bool {
+        self == Self::Long
     }
 
     /// The site its trials crawl.
     pub(crate) fn site(self) -> Site {
         match self {
-            Self::Raw | Self::Durable | Self::Extraction => Site::Scale,
+            Self::Raw
+            | Self::Durable
+            | Self::Extraction
+            | Self::Long
+            | Self::Raw64
+            | Self::Raw256 => Site::Scale,
             Self::Polite => Site::MultiDomain,
             Self::Browser => Site::Rendered,
+            Self::Realistic => Site::Realistic,
+            Self::Hostile | Self::Hostile16 => Site::Hostile,
         }
     }
 
@@ -162,6 +323,18 @@ impl Scenario {
             }
             Self::Browser => {
                 "5. Headless browser: the script-rendered site, whose links an HTTP-only crawl never finds"
+            }
+            Self::Realistic => {
+                "Realistic pages: scenario 1 on pages of tens of kilobytes with 30 to 100 links each, some repeated and some through a redirect"
+            }
+            Self::Long => "Long site: scenario 1 on a site of 100,000 pages",
+            Self::Raw64 => "Concurrency sweep: scenario 1 at 64 in flight",
+            Self::Raw256 => "Concurrency sweep: scenario 1 at 256 in flight",
+            Self::Hostile => {
+                "Hostile pages at each tool's defaults: the rules it broke on the `traps` family, `limits/1` and `limits/3`"
+            }
+            Self::Hostile16 => {
+                "Hostile pages at one pace: the rules each tool broke on the `traps` family at scenario 1's settings, 16 in flight and no delay"
             }
         }
     }
@@ -204,6 +377,14 @@ pub(crate) const SPIDER_EXTRACTION_CAPACITY: usize = 256;
 
 /// The capacity Spider's rows had before #2213, kept as a sensitivity row.
 pub(crate) const SPIDER_CAPACITY_BEFORE: usize = 4096;
+
+/// Spider's capacity at 64 requests in flight (#2316): [`SPIDER_CAPACITY`]
+/// scaled with the requests in flight, four times scenario 1's, not
+/// measured apart; a trial that loses a page fails.
+pub(crate) const SPIDER_CAPACITY_64: usize = 256;
+
+/// The same at 256 requests in flight.
+pub(crate) const SPIDER_CAPACITY_256: usize = 1024;
 
 /// A build of Spider's side, `xtask/compare-spider`: `just compare` builds
 /// each apart, with its Cargo feature or none, into a folder of its own.
@@ -249,6 +430,10 @@ impl SpiderBuild {
     }
 }
 
+/// The folder of crawlee-rs's side's build among the Rust sides' builds,
+/// beside Spider's (`just compare`).
+pub(crate) const CRAWLEE_RS_FOLDER: &str = "crawlee-rs";
+
 /// What a cell's row is read for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -283,6 +468,8 @@ pub(crate) enum Config {
     /// Scrapy's side at the scenario's settings: its default crawl, or
     /// `scrapy-playwright`'s in the headless browser scenario.
     Scrapy,
+    /// crawlee-rs's side at the scenario's settings: its `HtmlCrawler`.
+    CrawleeRs,
 }
 
 impl Config {
@@ -293,6 +480,7 @@ impl Config {
             Self::Spider { .. } => Tool::Spider,
             Self::Crawlee => Tool::Crawlee,
             Self::Scrapy => Tool::Scrapy,
+            Self::CrawleeRs => Tool::CrawleeRs,
         }
     }
 }
@@ -303,6 +491,9 @@ pub(crate) enum Status {
     Measured(Config),
     /// The tool cannot do what the scenario asks.
     NotSupported(&'static str),
+    /// The cell stands in the matrix before the ticket that brings it, as
+    /// this names it, has landed: it runs no trial.
+    Pending(&'static str),
 }
 
 /// One cell: a tool's configuration in one scenario.
@@ -323,7 +514,7 @@ pub(crate) struct Cell {
 }
 
 /// Every cell, in the report's order.
-pub(crate) const CELLS: [Cell; 27] = [
+pub(crate) const CELLS: [Cell; 65] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
@@ -383,6 +574,21 @@ pub(crate) const CELLS: [Cell; 27] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Scrapy),
+    },
+    defaults(Scenario::Raw),
+    Cell {
+        scenario: Scenario::Raw,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "`HtmlCrawler`, crawlee-rs's `CheerioCrawler`, on its `reqwest` client, with \
+                  `persist_storage: false` and `max_concurrency(16)`, its autoscaled pool \
+                  starting at its desired concurrency of 10 and growing toward 16 as the system \
+                  allows (its default), robots.txt not obeyed (its default), no delay, \
+                  `enqueue_links` on the same hostname (its default), with no log subscriber \
+                  (a library, it writes no log of its own), on the system's allocator",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::CrawleeRs),
     },
     Cell {
         scenario: Scenario::Raw,
@@ -509,6 +715,19 @@ pub(crate) const CELLS: [Cell; 27] = [
         ),
     },
     Cell {
+        scenario: Scenario::Durable,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "scenario 1's `HtmlCrawler` with its storage on disk (`persist_storage: true`, \
+                  its default) and `purge_on_start: false`, so a process started again on the \
+                  same storage takes up the request queue the killed one left; killed with \
+                  SIGKILL once half the site is served, then the same command in a new process \
+                  on the same folder",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::CrawleeRs),
+    },
+    Cell {
         scenario: Scenario::Polite,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -567,6 +786,21 @@ pub(crate) const CELLS: [Cell; 27] = [
         status: Status::Measured(Config::Scrapy),
     },
     Cell {
+        scenario: Scenario::Polite,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "`HtmlCrawler` with `respect_robots_txt(true)`, `same_domain_delay(1 s)` and \
+                  `max_concurrency(16)`; crawlee-rs has no limit of requests in flight per \
+                  domain, so its same-domain delay, one request start a second on each domain \
+                  (its registrable domain, else its host name), is what holds each domain to \
+                  one in flight while an answer takes under a second; `enqueue_links` with \
+                  `EnqueueStrategy::All`, since the site spans 50 domains and links nothing \
+                  else; `persist_storage: false`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::CrawleeRs),
+    },
+    Cell {
         scenario: Scenario::Extraction,
         tool: Tool::Foxhound,
         name: "foxhound",
@@ -618,6 +852,18 @@ pub(crate) const CELLS: [Cell; 27] = [
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Scrapy),
+    },
+    Cell {
+        scenario: Scenario::Extraction,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "scenario 1's `HtmlCrawler`, each page's URL, title (`Document::title`) and main \
+                  text (the text of its `main`, as crawlee-rs reads no main content of its own) \
+                  given to `push_data`, its default Dataset kept on disk (`persist_storage: \
+                  true`, its default, which keeps its request queue on disk too)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::CrawleeRs),
     },
     Cell {
         scenario: Scenario::Extraction,
@@ -688,6 +934,15 @@ pub(crate) const CELLS: [Cell; 27] = [
     },
     Cell {
         scenario: Scenario::Browser,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "none: crawlee-rs crawls over HTTP only",
+        pending: &[],
+        row: Row::Main,
+        status: Status::NotSupported(CRAWLEE_RS_NO_BROWSER),
+    },
+    Cell {
+        scenario: Scenario::Browser,
         tool: Tool::Spider,
         name: "spider smart",
         mapping: "none: Spider's `smart` feature, `crawl_smart()`, which fetches each page over \
@@ -696,7 +951,382 @@ pub(crate) const CELLS: [Cell; 27] = [
         row: Row::Sensitivity,
         status: Status::NotSupported(SPIDER_NOT_SMART),
     },
+    Cell {
+        scenario: Scenario::Realistic,
+        tool: Tool::Foxhound,
+        name: "foxhound",
+        mapping: "scenario 1's settings (its maximum-throughput combination, 16 in flight) on the \
+                  realistic-page site, `realistic.localhost`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Foxhound {
+            durability: "off",
+            commit_interval: None,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Realistic,
+        tool: Tool::Spider,
+        name: "spider",
+        mapping: "scenario 1's settings (`with_concurrency_limit(16)`, `subscribe(64)`) on the \
+                  realistic-page site; its redirects followed, as Spider follows them by default",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Http,
+            capacity: SPIDER_CAPACITY,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Realistic,
+        tool: Tool::Crawlee,
+        name: "crawlee",
+        mapping: "scenario 1's `CheerioCrawler` (`maxConcurrency: 16`) on the realistic-page site, \
+                  its redirects followed, as Crawlee follows them by default",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlee),
+    },
+    Cell {
+        scenario: Scenario::Realistic,
+        tool: Tool::Scrapy,
+        name: "scrapy",
+        mapping: "scenario 1's `scrapy.Spider` (`CONCURRENT_REQUESTS` and \
+                  `CONCURRENT_REQUESTS_PER_DOMAIN` 16) on the realistic-page site, `allowed_domains` \
+                  its host, its redirects followed by its default `RedirectMiddleware`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Scrapy),
+    },
+    Cell {
+        scenario: Scenario::Realistic,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "scenario 1's `HtmlCrawler` (`max_concurrency(16)`, `persist_storage: false`) on the \
+                  realistic-page site, its redirects followed, as its `reqwest` client follows \
+                  them by default",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::CrawleeRs),
+    },
+    Cell {
+        scenario: Scenario::Long,
+        tool: Tool::Foxhound,
+        name: "foxhound",
+        mapping: "scenario 1's settings (its maximum-throughput combination, 16 in flight) on \
+                  `scale.test`'s site of 100,000 pages",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Foxhound {
+            durability: "off",
+            commit_interval: None,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Long,
+        tool: Tool::Spider,
+        name: "spider",
+        mapping: "scenario 1's settings (`with_concurrency_limit(16)`) on the site of 100,000 \
+                  pages, its pages read from `subscribe(64)`, the capacity at which a 10,000-page \
+                  crawl lost no page (#2213); a trial that loses a page fails",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Http,
+            capacity: SPIDER_CAPACITY,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Long,
+        tool: Tool::Crawlee,
+        name: "crawlee",
+        mapping: "scenario 1's `CheerioCrawler` (`maxConcurrency: 16`, `persistStorage: false`) on the \
+                  site of 100,000 pages",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlee),
+    },
+    Cell {
+        scenario: Scenario::Long,
+        tool: Tool::Scrapy,
+        name: "scrapy",
+        mapping: "scenario 1's `scrapy.Spider` (`CONCURRENT_REQUESTS` and \
+                  `CONCURRENT_REQUESTS_PER_DOMAIN` 16) on the site of 100,000 pages",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Scrapy),
+    },
+    Cell {
+        scenario: Scenario::Long,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "scenario 1's `HtmlCrawler` (`max_concurrency(16)`, `persist_storage: false`) on the \
+                  site of 100,000 pages",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::CrawleeRs),
+    },
+    Cell {
+        scenario: Scenario::Raw64,
+        tool: Tool::Foxhound,
+        name: "foxhound",
+        mapping: "scenario 1's settings with `politeness.domain` concurrency 64 and \
+                  `crawl.handler.concurrency: 64`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Foxhound {
+            durability: "off",
+            commit_interval: None,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Raw64,
+        tool: Tool::Spider,
+        name: "spider",
+        mapping: "scenario 1's settings with `with_concurrency_limit(64)`, its pages read from \
+                  `subscribe(256)`: scenario 1's capacity of 64 scaled with the requests in \
+                  flight, not measured at 64, so a trial that loses a page fails",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Http,
+            capacity: SPIDER_CAPACITY_64,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Raw64,
+        tool: Tool::Crawlee,
+        name: "crawlee",
+        mapping: "scenario 1's `CheerioCrawler` with `maxConcurrency: 64`, its autoscaled pool \
+                  growing toward 64 as the system allows (its default)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlee),
+    },
+    Cell {
+        scenario: Scenario::Raw64,
+        tool: Tool::Scrapy,
+        name: "scrapy",
+        mapping: "scenario 1's `scrapy.Spider` with `CONCURRENT_REQUESTS: 64` and \
+                  `CONCURRENT_REQUESTS_PER_DOMAIN: 64`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Scrapy),
+    },
+    Cell {
+        scenario: Scenario::Raw64,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "scenario 1's `HtmlCrawler` with `max_concurrency(64)`, its autoscaled pool growing \
+                  toward 64 as the system allows (its default)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::CrawleeRs),
+    },
+    defaults(Scenario::Raw64),
+    Cell {
+        scenario: Scenario::Raw256,
+        tool: Tool::Foxhound,
+        name: "foxhound",
+        mapping: "scenario 1's settings with `politeness.domain` concurrency 256 and \
+                  `crawl.handler.concurrency: 256`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Foxhound {
+            durability: "off",
+            commit_interval: None,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Raw256,
+        tool: Tool::Spider,
+        name: "spider",
+        mapping: "scenario 1's settings with `with_concurrency_limit(256)`, its pages read from \
+                  `subscribe(1024)`: scenario 1's capacity of 64 scaled with the requests in \
+                  flight, not measured at 256, so a trial that loses a page fails",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Http,
+            capacity: SPIDER_CAPACITY_256,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Raw256,
+        tool: Tool::Crawlee,
+        name: "crawlee",
+        mapping: "scenario 1's `CheerioCrawler` with `maxConcurrency: 256`, its autoscaled pool \
+                  growing toward 256 as the system allows (its default)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlee),
+    },
+    Cell {
+        scenario: Scenario::Raw256,
+        tool: Tool::Scrapy,
+        name: "scrapy",
+        mapping: "scenario 1's `scrapy.Spider` with `CONCURRENT_REQUESTS: 256` and \
+                  `CONCURRENT_REQUESTS_PER_DOMAIN: 256`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Scrapy),
+    },
+    Cell {
+        scenario: Scenario::Raw256,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "scenario 1's `HtmlCrawler` with `max_concurrency(256)`, its autoscaled pool growing \
+                  toward 256 as the system allows (its default)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::CrawleeRs),
+    },
+    defaults(Scenario::Raw256),
+    Cell {
+        scenario: Scenario::Hostile,
+        tool: Tool::Foxhound,
+        name: "foxhound",
+        mapping: "the catalog's defaults, setting nothing but each task's host resolved to the \
+                  Proving ground (`network.resolve`, `egress.private_ranges`): `fetch.tier: auto` \
+                  with a Browser cache laid out for it (`GOODFETCH_BROWSERS_PATH`), robots.txt \
+                  obeyed, `politeness.sharing: shared`, `run_state.durability: full`, and no \
+                  delay or cap per domain until #1499 puts ADR 0086's pace in the catalog; one \
+                  crawl per task from its start page, `formats: {}` and `follow: scope`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Foxhound {
+            durability: "full",
+            commit_interval: None,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Hostile,
+        tool: Tool::Spider,
+        name: "spider",
+        mapping: "Spider's defaults in its HTTP mode (`crawl_raw`, no `chrome` feature), setting \
+                  nothing but the start URL and the `Host` it sends: its own limit of requests \
+                  in flight (no `with_concurrency_limit`), robots.txt not obeyed (its default), \
+                  no delay; its pages read from `subscribe(64)`",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Http,
+            capacity: SPIDER_CAPACITY,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Hostile,
+        tool: Tool::Crawlee,
+        name: "crawlee",
+        mapping: "`CheerioCrawler` at Crawlee's defaults, setting nothing but the `Host` it sends: \
+                  `maxConcurrency` 200, robots.txt not obeyed, no delay, its storage on disk \
+                  (`persistStorage: true`), `enqueueLinks()` on the same hostname",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlee),
+    },
+    Cell {
+        scenario: Scenario::Hostile,
+        tool: Tool::Scrapy,
+        name: "scrapy",
+        mapping: "a default `scrapy.Spider` following every link on the address it starts from \
+                  (`allowed_domains`; the task's links are all relative), setting nothing but the `Host` it sends and `LOG_LEVEL: INFO`, which \
+                  changes only what it logs: `ROBOTSTXT_OBEY: False`, `CONCURRENT_REQUESTS: 16`, \
+                  `CONCURRENT_REQUESTS_PER_DOMAIN: 8`, `DOWNLOAD_DELAY: 0`, `429` and `503` \
+                  retried twice (its defaults)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Scrapy),
+    },
+    Cell {
+        scenario: Scenario::Hostile,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "`HtmlCrawler` at crawlee-rs's defaults (`Configuration::default()`), setting \
+                  nothing but the `Host` it sends: `max_concurrency` 200, robots.txt not \
+                  obeyed, no delay, its storage on disk (`persist_storage: true`), \
+                  `enqueue_links` on the same hostname",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::CrawleeRs),
+    },
+    Cell {
+        scenario: Scenario::Hostile16,
+        tool: Tool::Foxhound,
+        name: "foxhound",
+        mapping: "scenario 1's settings (its maximum-throughput combination, 16 in flight, no \
+                  delay, robots.txt not obeyed) on the `traps` family",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Foxhound {
+            durability: "off",
+            commit_interval: None,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Hostile16,
+        tool: Tool::Spider,
+        name: "spider",
+        mapping: "scenario 1's settings (`with_concurrency_limit(16)`, \
+                  `with_respect_robots_txt(false)`, no delay, `subscribe(64)`) on the `traps` family",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Http,
+            capacity: SPIDER_CAPACITY,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Hostile16,
+        tool: Tool::Crawlee,
+        name: "crawlee",
+        mapping: "scenario 1's `CheerioCrawler` (`maxConcurrency: 16`, `persistStorage: false`, \
+                  robots.txt not obeyed, no delay) on the `traps` family",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlee),
+    },
+    Cell {
+        scenario: Scenario::Hostile16,
+        tool: Tool::Scrapy,
+        name: "scrapy",
+        mapping: "scenario 1's `scrapy.Spider` (`CONCURRENT_REQUESTS` and \
+                  `CONCURRENT_REQUESTS_PER_DOMAIN` 16, `DOWNLOAD_DELAY: 0`, \
+                  `ROBOTSTXT_OBEY: False`) on the `traps` family",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Scrapy),
+    },
+    Cell {
+        scenario: Scenario::Hostile16,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "scenario 1's `HtmlCrawler` (`max_concurrency(16)`, `persist_storage: false`, \
+                  robots.txt not obeyed, no delay) on the `traps` family",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::CrawleeRs),
+    },
 ];
+
+/// The cell at the catalog's defaults (#2175) in `scenario`, one of
+/// scenario 1's concurrency sweep: pending until #2175 brings it.
+const fn defaults(scenario: Scenario) -> Cell {
+    Cell {
+        scenario,
+        tool: Tool::Foxhound,
+        name: "foxhound defaults",
+        mapping: "Foxhound at the catalog's defaults, setting nothing but the crawl's name and the \
+                  scenario's pace, `politeness.domain.delay: 0` and `politeness.domain.concurrency` \
+                  at its requests in flight",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Pending(DEFAULTS_PENDING),
+    }
+}
+
+/// Why the cell at the catalog's defaults gives no figure yet.
+const DEFAULTS_PENDING: &str = "#2175, which brings the cell at the catalog's defaults";
 
 /// Why Spider's `smart` row has no figures: what its crawl of the
 /// script-rendered site fetched (#2213).
@@ -705,6 +1335,12 @@ const SPIDER_NOT_SMART: &str = "Spider's `crawl_smart()` fetched 1 of the site's
      threshold, the feed page's did not, and the feed's items are linked by its script alone. \
      On 2026-11-11 (#2213), 2 of 2 such crawls of Spider 2.53.9, built with its `smart` \
      feature beside the spider row's settings, ended so, with no Chrome started";
+
+/// Why crawlee-rs has no headless browser cell.
+const CRAWLEE_RS_NO_BROWSER: &str = "crawlee-rs has no browser crawler at its pinned commit: \
+     its README plans browser crawlers under \"What's not there yet\", and its \
+     `HtmlCrawler` fetches over HTTP only, so it never sees the links the script-rendered site's \
+     script adds";
 
 /// Why Spider has no polite cell: what a crawl of the multi-domain site
 /// with its delay and robots.txt showed.
@@ -742,12 +1378,23 @@ pub(crate) fn cell(scenario: Scenario, name: &str) -> Option<&'static Cell> {
         .find(|cell| cell.scenario == scenario && cell.name == name)
 }
 
-/// Each measured cell with its configuration.
-pub(crate) fn measured() -> impl Iterator<Item = (&'static Cell, Config)> {
+/// Each cell that runs, with its configuration.
+fn running() -> impl Iterator<Item = (&'static Cell, Config)> {
     CELLS.iter().filter_map(|cell| match cell.status {
         Status::Measured(config) => Some((cell, config)),
-        Status::NotSupported(_) => None,
+        Status::NotSupported(_) | Status::Pending(_) => None,
     })
+}
+
+/// Each measured cell with its configuration: each whose trials are timed.
+pub(crate) fn measured() -> impl Iterator<Item = (&'static Cell, Config)> {
+    running().filter(|(cell, _)| !cell.scenario.hostile())
+}
+
+/// Each cell of the hostile pages' passes with its configuration: each
+/// whose trials count the rules its tool broke (#2439).
+pub(crate) fn ruled() -> impl Iterator<Item = (&'static Cell, Config)> {
+    running().filter(|(cell, _)| cell.scenario.hostile())
 }
 
 #[cfg(test)]

@@ -93,24 +93,22 @@ pub(crate) struct ToOwner {
 
 impl ToOwner {
     /// How long the owner has to answer the forwarded call once it accepted
-    /// `hello`: what the machine's `timeout.close` gives a stop, its default
+    /// `hello`: what the `timeout.close` of the engine's snapshot of the
+    /// machine's settings gives a stop, its default
     /// when the machine's settings cannot be read, since an abort waits for
     /// the Run's next safe point. This engine holds none of the settings of
     /// a Run another engine works. An owner that answers nothing by then
     /// counts as one that did not take the action, so the abort retries the
     /// writer lock rather than waiting forever.
     async fn answer_deadline(&self) -> Duration {
-        let product = self.settings.product();
-        let resolved = self
-            .settings
-            .machine()
-            .await
-            .and_then(|machine| machine.resolve(product))
+        let machine = self.settings.snapshot().await;
+        let resolved = machine
+            .resolved()
             .inspect_err(|error| {
                 tracing::warn!(%error, "`timeout.close` cannot be read, so a forwarded call waits for its default");
             })
             .ok();
-        Deadline::of_resolved(resolved.as_ref(), &TIMEOUT_CLOSE).duration()
+        Deadline::of_resolved(resolved, &TIMEOUT_CLOSE).duration()
     }
 
     /// Where `owner` listens and the token its `hello` takes; `None` when

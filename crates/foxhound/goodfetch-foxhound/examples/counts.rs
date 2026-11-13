@@ -43,6 +43,11 @@
 //! the Frontier's outcomes beyond a links batch: a hop's, a sitemap's and a
 //! Payload's rows say "no hops" there.
 //!
+//! `F3.actor_round_trips` divides by the attempts that ended, the unit
+//! `attempts_ended`: the attempts the site served a page to and the one that
+//! read each sitemap, which is a Work item's attempt as a page's is and
+//! serves no page.
+//!
 //! The cell `varying_parameter` crawls, beside the site, as many pages
 //! `/item?id=<n>` as the site has pages, each its own, with learning on: the
 //! input `F2.evidence_reads` is read on, and its `--shorter` run serves half
@@ -1130,6 +1135,7 @@ fn main() {
             "sitemaps": cell.sitemaps,
             "payloads": u64::from(cell.frontier),
             "attempts": cell.attempts,
+            "attempts_ended": cell.attempts + cell.sitemaps,
             "runs": RUNS,
             "effects": EFFECTS,
             "entries": cell.entries,

@@ -51,33 +51,32 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{Product, Reach};
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, ENGINE_PANICKED,
-    EnginePanickedDetails, HELLO, HelloParams, PERSON_REQUIRED, PanicEnded, PrivateEndpoint,
-    StoppedBy, Surface, TOO_MANY_CALLS, TooManyCallsDetails,
+    CALL_CANCELLED, CANCEL, CallCancelledDetails, CancelParams, HELLO, HelloParams,
+    PERSON_REQUIRED, PanicEnded, PrivateEndpoint, StoppedBy, Surface, TOO_MANY_CALLS,
+    TooManyCallsDetails,
 };
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
-use goodfetch_protocol::jsonrpc::{
-    ErrorObject, Notification, ProtocolFailure, Request, RequestId, TraceContext, Version,
-};
-use serde_json::{Map, Value};
+use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure, RequestId};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
-use super::framing::{DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
+use super::framing::{
+    Call, DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, Received, decode,
+};
 use super::websocket::{self, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined};
 use super::{
-    failure_line, handshake, line, not_in_product, notification_line, notification_value_line,
-    record, record_cancel, success_line, trace_context,
+    Line, Preamble, failure_line, handshake, not_in_product, notification_line, record,
+    record_cancel, success_line,
 };
 use crate::call_error::CallError;
 use crate::client::{Client, Outgoing};
 use crate::clock::Clock;
 use crate::composition::{
-    CallChannels, CallContext, CallInput, CallNotifier, CallStream, ConnectionContext, DaemonSide,
-    Driver, Handler, InputSender,
+    Answered, CallChannels, CallContext, CallInput, CallNotifier, CallStream, ConnectionContext,
+    DaemonSide, Driver, Handler, InputSender, Params,
 };
 use crate::crash_report;
 use crate::endpoint::{Authorities, same_token};
@@ -129,11 +128,17 @@ pub(crate) struct Dispatch {
     /// Every live Run's resolved values, masked in every message the
     /// Connection sends (spec #564).
     pub(crate) masks: Masks,
+    /// The runtime's metrics, which count a call's panic (ADR 0148), and
+    /// whose Counted work the Connections' messages add to.
+    pub(crate) metrics: Metrics,
+}
+
+impl Dispatch {
     /// The engine's Counted work, what its Connections' messages add to
     /// (ADR 0140's E1).
-    pub(crate) work: CountedWork,
-    /// The runtime's metrics, which count a call's panic (ADR 0148).
-    pub(crate) metrics: Metrics,
+    pub(crate) fn work(&self) -> &CountedWork {
+        self.metrics.counted_work()
+    }
 }
 
 /// How a Connection reached the engine, which says what its `hello` must
@@ -368,7 +373,7 @@ async fn serve_carried(
         writing,
         lines,
         dispatch.masks.clone(),
-        dispatch.work.clone(),
+        dispatch.work().clone(),
     ));
     let metrics = dispatch.metrics.clone();
     let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
@@ -384,14 +389,14 @@ async fn serve_carried(
             () = telling.closed() => {}
         }
     });
-    let (client, requests) = Client::new(dispatch.work.clone());
+    let (client, requests) = Client::new();
     let daemon = access.daemon();
     let log = dispatch
         .log_events
         .as_ref()
         .map_or_else(ConnectionLog::none, LogEvents::connection);
     let logging = CancellationToken::new();
-    let forwarding = log.forward(outgoing.clone(), dispatch.work.clone());
+    let forwarding = log.forward(outgoing.clone());
     let stop_logging = logging.clone();
     owner.spawn(async move {
         // Polled first, it sends every log event already waiting before
@@ -413,7 +418,6 @@ async fn serve_carried(
         engine,
         daemon,
         log,
-        work: dispatch.work.clone(),
     });
     let mut session = Session {
         dispatch,
@@ -427,7 +431,6 @@ async fn serve_carried(
         connection,
         requests,
         pending: BTreeMap::new(),
-        next_request: 0,
         opened_client: None,
         access,
         listener,
@@ -477,17 +480,20 @@ async fn linger(reading: &mut Reading, clock: Clock) {
 /// its WebSocket, when every sender is gone. Every line passes through
 /// `masks` first, as what a call returns or an event carries: no message
 /// the Connection sends holds a value a Run resolved (spec #564). Every line
-/// counts once on `work`, as the one encode into bytes each was made by,
-/// whoever made it (ADR 0140's E1).
+/// encoded for its message counts once on `work`, as the one encode into
+/// bytes it was made by, whoever made it; a `$/events` batch copies events
+/// counted as they were published (ADR 0140's E1).
 async fn write_lines(
     mut writing: Writing,
-    mut lines: mpsc::Receiver<Vec<u8>>,
+    mut lines: mpsc::Receiver<Line>,
     masks: Masks,
     work: CountedWork,
 ) {
     while let Some(line) = lines.recv().await {
-        work.count(Row::MessageEncodes);
-        let line = masks.apply_json_line(line, Scope::Returned);
+        if line.encoded() {
+            work.count(Row::MessageEncodes);
+        }
+        let line = masks.apply_json_line(line.bytes, Scope::Returned);
         let sent = match &mut writing {
             Writing::Lines(writer) => writer.write_all(&line).await.is_ok(),
             Writing::Messages(messages) => messages.feed(line).await,
@@ -525,12 +531,12 @@ struct InFlight {
 /// A message read from the Connection, by the event of the engine's table
 /// it is.
 enum Message {
-    Hello(Request),
-    Request(Request),
-    Notification(Notification),
+    Hello(RequestId, Call),
+    Request(RequestId, Call),
+    Notification(Call),
     Reply {
         id: RequestId,
-        answer: Result<Value, ErrorObject>,
+        answer: Result<Received, ErrorObject>,
     },
     Unreadable(DecodeError),
 }
@@ -538,8 +544,8 @@ enum Message {
 impl Message {
     fn of(incoming: Result<Incoming, DecodeError>) -> Self {
         match incoming {
-            Ok(Incoming::Request(request)) if request.method == HELLO => Self::Hello(request),
-            Ok(Incoming::Request(request)) => Self::Request(request),
+            Ok(Incoming::Request { id, call }) if call.method() == HELLO => Self::Hello(id, call),
+            Ok(Incoming::Request { id, call }) => Self::Request(id, call),
             Ok(Incoming::Notification(notification)) => Self::Notification(notification),
             Ok(Incoming::Reply { id, answer }) => Self::Reply { id, answer },
             Err(error) => Self::Unreadable(error),
@@ -548,8 +554,8 @@ impl Message {
 
     fn event(&self) -> ConnectionEvent {
         match self {
-            Self::Hello(_) => ConnectionEvent::Hello,
-            Self::Request(_) => ConnectionEvent::Request,
+            Self::Hello(..) => ConnectionEvent::Hello,
+            Self::Request(..) => ConnectionEvent::Request,
             Self::Notification(_) => ConnectionEvent::Notification,
             Self::Reply { .. } => ConnectionEvent::Reply,
             Self::Unreadable(_) => ConnectionEvent::Unreadable,
@@ -574,7 +580,7 @@ enum Flow {
 struct Session<'owner> {
     dispatch: Arc<Dispatch>,
     owner: &'owner TaskOwner,
-    outgoing: mpsc::Sender<Vec<u8>>,
+    outgoing: mpsc::Sender<Line>,
     completed: mpsc::Sender<Told>,
     completions: mpsc::Receiver<Told>,
     /// Whether one of its own tasks panicked, which ends it as when its
@@ -586,7 +592,6 @@ struct Session<'owner> {
     connection: Arc<ConnectionContext>,
     requests: mpsc::Receiver<Outgoing>,
     pending: BTreeMap<RequestId, Pending>,
-    next_request: i64,
     /// On a Daemon, the count of this Client, held while it is open.
     opened_client: Option<Box<dyn Send + Sync>>,
     /// How the Connection reached the engine.
@@ -598,7 +603,7 @@ struct Session<'owner> {
 /// A handler request the engine sent, waiting for its reply.
 struct Pending {
     method: &'static str,
-    reply: oneshot::Sender<Result<Value, ErrorObject>>,
+    reply: oneshot::Sender<Result<Received, ErrorObject>>,
 }
 
 impl Session<'_> {
@@ -686,7 +691,7 @@ impl Session<'_> {
     async fn handle(&mut self, frame: Frame) -> Flow {
         let incoming = match frame {
             Frame::TooLarge => Err(DecodeError::too_large()),
-            Frame::Line(line) => decode(&line, &self.dispatch.work),
+            Frame::Line(line) => decode(line),
         };
         let message = Message::of(incoming);
         let effect = match self.transition(message.event()) {
@@ -694,10 +699,10 @@ impl Session<'_> {
             Err(refused) => return self.refuse_transition(refused, message).await,
         };
         match (effect, message) {
-            (ConnectionEffect::Handshake, Message::Hello(request)) => self.open(request).await,
-            (ConnectionEffect::Serve, Message::Request(request)) => self.request(request).await,
+            (ConnectionEffect::Handshake, Message::Hello(id, call)) => self.open(id, &call).await,
+            (ConnectionEffect::Serve, Message::Request(id, call)) => self.request(id, &call).await,
             (ConnectionEffect::Serve, Message::Notification(notification)) => {
-                self.notification(&notification);
+                self.notification(notification);
                 Flow::Continue
             }
             (ConnectionEffect::Serve, Message::Reply { id, answer }) => {
@@ -742,13 +747,13 @@ impl Session<'_> {
             return Flow::Close;
         }
         match message {
-            Message::Hello(request) | Message::Request(request) => {
+            Message::Hello(id, call) | Message::Request(id, call) => {
                 let error = CallError::protocol(
                     ProtocolFailure::InvalidRequest,
                     "a Connection opens with `hello`",
                 );
-                record(self.named(&request.method), Some(error.code()));
-                self.send(failure_line(Some(request.id), &error)).await;
+                record(self.named(call.method()), Some(error.code()));
+                self.send(failure_line(Some(id), &error)).await;
             }
             Message::Unreadable(error) => {
                 let failure = CallError::protocol(error.failure, error.detail);
@@ -773,49 +778,39 @@ impl Session<'_> {
         message: Message,
     ) -> Flow {
         let refused = refused.logged();
-        let request = match (refused.refusal, message) {
-            (Refusal::Program(_), Message::Hello(request)) => request,
+        let (id, call) = match (refused.refusal, message) {
+            (Refusal::Program(_), Message::Hello(id, call)) => (id, call),
             (Refusal::Program(_) | Refusal::Internal, _) => return Flow::Close,
         };
         let error = CallError::protocol(
             ProtocolFailure::InvalidRequest,
             "a Connection opens with `hello` once",
         );
-        record(self.named(&request.method), Some(error.code()));
-        if self.send(failure_line(Some(request.id), &error)).await {
+        record(self.named(call.method()), Some(error.code()));
+        if self.send(failure_line(Some(id), &error)).await {
             Flow::Continue
         } else {
             Flow::Close
         }
     }
 
-    /// Sends a handler request under the next id of the engine's own, or
-    /// `$/cancel` of one still waiting for its reply.
+    /// Sends a handler request, its line encoded under an id of the
+    /// engine's own, or `$/cancel` of one still waiting for its reply.
     async fn send_request(&mut self, request: Outgoing) -> Flow {
         let line = match request {
             Outgoing::Request {
+                id,
                 method,
-                params,
-                sent,
+                line,
                 reply,
             } => {
-                let id = RequestId::Number(self.next_request);
-                self.next_request += 1;
-                let message = Request {
-                    jsonrpc: Version,
-                    id: id.clone(),
-                    method: method.to_owned(),
-                    params: Some(params),
-                };
-                let _ = sent.send(id.clone());
                 self.pending.insert(id, Pending { method, reply });
-                line(&message)
+                line
             }
             Outgoing::Cancel(id) => {
                 if !self.pending.contains_key(&id) {
                     return Flow::Continue;
                 }
-                self.dispatch.work.count(Row::MessageEncodes);
                 notification_line(CANCEL, &CancelParams { id })
             }
         };
@@ -828,7 +823,7 @@ impl Session<'_> {
 
     /// Routes a reply to the handler request it answers; a reply whose
     /// sender stopped waiting, or that answers no request, is dropped.
-    fn reply(&mut self, id: &RequestId, answer: Result<Value, ErrorObject>) {
+    fn reply(&mut self, id: &RequestId, answer: Result<Received, ErrorObject>) {
         let Some(pending) = self.pending.remove(id) else {
             tracing::debug!(?id, "a reply that answers no handler request is ignored");
             return;
@@ -842,14 +837,14 @@ impl Session<'_> {
 
     /// The Connection's `hello`, which carries the token on a Daemon and
     /// on a private endpoint.
-    async fn open(&mut self, request: Request) -> Flow {
+    async fn open(&mut self, id: RequestId, call: &Call) -> Flow {
         let daemon = self.connection.daemon.clone();
-        let (hello, meta) = match trace_context(request.params) {
-            Ok((params, meta)) => (
-                serde_json::from_value::<HelloParams>(params.unwrap_or(Value::Null)).map_err(
-                    |error| CallError::protocol(ProtocolFailure::InvalidParams, error.to_string()),
-                ),
-                meta,
+        let params = call.params();
+        let (hello, meta) = match Preamble::read(params) {
+            Ok(preamble) => (
+                // A `hello` without params is refused as one with `null`.
+                Params::new(params.unwrap_or("null")).read::<HelloParams>(),
+                preamble.meta,
             ),
             Err(error) => (Err(error), None),
         };
@@ -869,7 +864,7 @@ impl Session<'_> {
         }
         // Opened once the token is checked: a stranger's `hello` has no
         // span, and its Trace context is not read.
-        let span = trace::server_span(HELLO, &request.id, None, meta.as_ref());
+        let span = trace::server_span(HELLO, &id, &trace::Ids::default(), meta.as_ref());
         let answered = match hello {
             Ok(hello) => handshake::answer(
                 &self.dispatch.identity,
@@ -918,11 +913,10 @@ impl Session<'_> {
                         .private_endpoint
                         .clone_from(private_endpoint);
                 }
-                self.dispatch.work.count(Row::MessageEncodes);
-                let result = serde_json::to_value(accepted.result)
+                let line = success_line(&id, &accepted.result)
                     .expect("invariant: a `hello` reply encodes");
                 drop(span);
-                if self.send(success_line(request.id, result)).await {
+                if self.send(line).await {
                     Flow::Continue
                 } else {
                     Flow::Close
@@ -932,7 +926,7 @@ impl Session<'_> {
                 record(HELLO, Some(error.code()));
                 trace::record_failure(&span, error.code(), error.wire_code());
                 drop(span);
-                self.send(failure_line(Some(request.id), &error)).await;
+                self.send(failure_line(Some(id), &error)).await;
                 self.rejected()
             }
         }
@@ -946,10 +940,8 @@ impl Session<'_> {
         Flow::Close
     }
 
-    async fn request(&mut self, request: Request) -> Flow {
-        let Request {
-            id, method, params, ..
-        } = request;
+    async fn request(&mut self, id: RequestId, call: &Call) -> Flow {
+        let method = call.method();
         let refusal = if method == CANCEL {
             Some(CallError::protocol(
                 ProtocolFailure::InvalidRequest,
@@ -960,7 +952,7 @@ impl Session<'_> {
                 ProtocolFailure::InvalidRequest,
                 format!("a call with the id {id:?} is already in flight"),
             ))
-        } else if let Some(handler) = self.dispatch.handlers.get(method.as_str()) {
+        } else if let Some(handler) = self.dispatch.handlers.get(method) {
             if handler.operation().reach == Reach::PersonOnly
                 && !self
                     .connection
@@ -969,26 +961,27 @@ impl Session<'_> {
                     .copied()
                     .is_some_and(Surface::is_a_person)
             {
-                Some(person_required(&method))
+                Some(person_required(method))
             } else {
                 let handler = handler.clone();
-                match trace_context(params) {
+                match Preamble::read(call.params()) {
                     // Refused last, so a call the engine would never start
                     // keeps its own refusal at the cap.
                     Ok(_) if self.in_flight.len() >= MAX_IN_FLIGHT => Some(too_many_calls()),
-                    Ok((params, meta)) => {
-                        self.call(id, &handler, params, meta.as_ref());
+                    Ok(preamble) => {
+                        let params = call.params().map_or_else(Params::none, Params::new);
+                        self.call(id, &handler, params, &preamble);
                         return Flow::Continue;
                     }
                     Err(error) => Some(error),
                 }
             }
         } else if !self.dispatch.identity.product.contains(Product::Foxhound)
-            && foxhound_names::OPERATIONS.contains(&method.as_str())
+            && foxhound_names::OPERATIONS.contains(&method)
         {
             Some(not_in_product(
                 &self.dispatch.identity,
-                Requested::Name(&method),
+                Requested::Name(method),
                 Product::Foxhound,
                 self.connection
                     .behind_gateway
@@ -1005,7 +998,7 @@ impl Session<'_> {
         let Some(error) = refusal else {
             return Flow::Continue;
         };
-        record(self.named(&method), Some(error.code()));
+        record(self.named(method), Some(error.code()));
         if self.send(failure_line(Some(id), &error)).await {
             Flow::Continue
         } else {
@@ -1014,17 +1007,18 @@ impl Session<'_> {
     }
 
     /// Starts `handler` on `params` as a task of the Connection, in the
-    /// request's span, the child of the span the Trace context `meta` names.
+    /// request's span, the child of the span the Trace context of
+    /// `preamble` names; the handler reads `params` before it returns.
     fn call(
         &mut self,
         id: RequestId,
         handler: &Handler,
-        params: Option<Value>,
-        meta: Option<&TraceContext>,
+        params: Params<'_>,
+        preamble: &Preamble<'_>,
     ) {
         let token = self.owner.token().child_token();
         let operation = handler.operation();
-        let span = trace::server_span(operation.name, &id, params.as_ref(), meta);
+        let span = trace::server_span(operation.name, &id, &preamble.ids, preamble.meta.as_ref());
         let credits = handler.streams().then(Credits::new);
         // Only a call that streams or takes input notifies its Client: any
         // other, most calls, makes no notifier and carries no channels (E1,
@@ -1032,12 +1026,7 @@ impl Session<'_> {
         let (input, channels) = if credits.is_none() && handler.input().is_none() {
             (None, None)
         } else {
-            let notifier = CallNotifier::new(
-                id.clone(),
-                self.outgoing.clone(),
-                notification_value_line,
-                self.dispatch.work.clone(),
-            );
+            let notifier = CallNotifier::new(id.clone(), self.outgoing.clone());
             let stream = credits
                 .clone()
                 .map(|credits| CallStream::new(notifier.clone(), credits));
@@ -1061,9 +1050,7 @@ impl Session<'_> {
         // here, in the task the call already has, and never reaches the
         // Connection's owner.
         let answer = CallWatch {
-            answer: handler
-                .call(params.unwrap_or(Value::Object(Map::new())), context)
-                .instrument(span.clone()),
+            answer: handler.call(params, context).instrument(span.clone()),
             metrics: self.dispatch.metrics.clone(),
         };
         self.in_flight.insert(
@@ -1076,6 +1063,10 @@ impl Session<'_> {
             },
         );
         let (outgoing, completed) = (self.outgoing.clone(), self.completed.clone());
+        // Each call keeps its own task (the audit's E1-4, kept by #1898):
+        // the Connection goes on reading while a handler waits, a
+        // `$/cancel` reaches the call at once, and [`MAX_IN_FLIGHT`] caps
+        // how many there are.
         self.owner.spawn(async move {
             let answered = if operation.cancellable {
                 tokio::select! {
@@ -1094,9 +1085,9 @@ impl Session<'_> {
                 answer.await
             };
             let line = match answered {
-                Ok(result) => {
+                Ok(answered) => {
                     record(operation.name, None);
-                    success_line(id.clone(), result)
+                    answered.into_line()
                 }
                 Err(error) => {
                     record(operation.name, Some(error.code()));
@@ -1109,7 +1100,7 @@ impl Session<'_> {
             // as soon as the answer arrives, and `still_in_flight` then
             // finds this end waiting.
             let _ = completed.send(Told::CallEnded(id)).await;
-            let _ = outgoing.send(line).await;
+            let _ = outgoing.send(line.into()).await;
         });
     }
 
@@ -1136,17 +1127,16 @@ impl Session<'_> {
         }
     }
 
-    fn notification(&mut self, notification: &Notification) {
-        if notification.method == CREDIT {
-            self.credit(notification);
+    fn notification(&mut self, notification: Call) {
+        if notification.method() == CREDIT {
+            self.credit(&notification);
             return;
         }
-        if notification.method != CANCEL {
+        if notification.method() != CANCEL {
             self.input(notification);
             return;
         }
-        let params = self.params_copied(notification);
-        let Ok(CancelParams { id }) = serde_json::from_value::<CancelParams>(params) else {
+        let Some(CancelParams { id }) = read_params(&notification) else {
             tracing::debug!("a `$/cancel` without a call's id is ignored");
             return;
         };
@@ -1160,20 +1150,17 @@ impl Session<'_> {
 
     /// Hands an input notification to the call in flight it names, which
     /// takes it; any other is ignored.
-    fn input(&mut self, notification: &Notification) {
+    fn input(&mut self, notification: Call) {
         #[derive(serde::Deserialize)]
         struct Named {
             id: RequestId,
         }
-        let params = self.params_copied(notification);
-        self.dispatch.work.count(Row::MessageDeepCopies);
-        let taker = serde_json::from_value::<Named>(params.clone())
-            .ok()
+        let taker = read_params::<Named>(&notification)
             .and_then(|Named { id }| self.in_flight.get_mut(&id))
             .and_then(|call| call.input.as_mut())
-            .filter(|(method, _)| *method == notification.method);
+            .filter(|(method, _)| *method == notification.method());
         if let Some((_, sender)) = taker {
-            sender.hand_over(params);
+            sender.hand_over(notification.into_params());
         } else {
             tracing::debug!("an unknown notification is ignored");
         }
@@ -1181,10 +1168,8 @@ impl Session<'_> {
 
     /// Adds a `$/credit`'s credits to the call it names; one for a call no
     /// longer in flight, or for one that does not stream, is ignored.
-    fn credit(&self, notification: &Notification) {
-        let params = self.params_copied(notification);
-        let Ok(CreditParams { id, credits }) = serde_json::from_value::<CreditParams>(params)
-        else {
+    fn credit(&self, notification: &Call) {
+        let Some(CreditParams { id, credits }) = read_params(notification) else {
             tracing::debug!("a `$/credit` that is not one is ignored");
             return;
         };
@@ -1197,15 +1182,9 @@ impl Session<'_> {
         }
     }
 
-    /// A copy of `notification`'s params, counted (ADR 0140's E1).
-    fn params_copied(&self, notification: &Notification) -> Value {
-        self.dispatch.work.count(Row::MessageDeepCopies);
-        notification.params.clone().unwrap_or(Value::Null)
-    }
-
     /// Sends a line; `false` once the writer is gone.
     async fn send(&self, line: Vec<u8>) -> bool {
-        self.outgoing.send(line).await.is_ok()
+        self.outgoing.send(line.into()).await.is_ok()
     }
 }
 
@@ -1230,6 +1209,12 @@ impl Session<'_> {
             .refused(self.listener, reason)
             .await;
     }
+}
+
+/// A notification's params, read as `P` where they are; none when they
+/// are no `P`.
+fn read_params<P: serde::de::DeserializeOwned>(notification: &Call) -> Option<P> {
+    serde_json::from_str(notification.params()?).ok()
 }
 
 /// `person_required`: `method` is a person's answer, which only the Kennel
@@ -1270,9 +1255,9 @@ struct CallWatch<F> {
 
 impl<F> Future for CallWatch<F>
 where
-    F: Future<Output = Result<Value, CallError>> + Unpin,
+    F: Future<Output = Result<Answered, CallError>> + Unpin,
 {
-    type Output = Result<Value, CallError>;
+    type Output = Result<Answered, CallError>;
 
     fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
         let watch = self.get_mut();
@@ -1283,18 +1268,12 @@ where
 }
 
 /// `engine_panicked` for a call whose handler panicked, counted on
-/// `metrics`: it names the crash report the panic left, when one was
-/// written, and never the panic's own text (ADR 0148). Made where the
-/// panic was caught, on the thread that panicked.
+/// `metrics` ([`crash_report::engine_panicked`]). Made where the panic was
+/// caught, on the thread that panicked.
 fn engine_panicked(metrics: &Metrics) -> CallError {
-    metrics.panicked(PanicEnded::Call);
-    CallError::new(
-        &ENGINE_PANICKED,
+    crash_report::engine_panicked(
+        metrics,
+        PanicEnded::Call,
         "The engine hit a bug in Goodfetch while it served this call, which ended the call; its Connection goes on",
-        &EnginePanickedDetails {
-            ended: PanicEnded::Call,
-            id: None,
-            crash_report: crash_report::take_written(),
-        },
     )
 }

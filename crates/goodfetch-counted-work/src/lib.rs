@@ -154,6 +154,9 @@ rows! {
     BatchCompilations => "F3.compilations", "frontier_admission", "compilations";
     /// `F3.transactions`: a write of its own a links batch asks the writer for.
     BatchTransactions => "F3.transactions", "frontier_admission", "transactions";
+    /// `F3.actor_round_trips`: a message a page's task sends the actor that
+    /// owns its crawl's Run state, whose answer the task waits for (ADR 0142).
+    ActorRoundTrips => "F3.actor_round_trips", "frontier_admission", "actor_round_trips";
     /// `F3.invariant_reads`, of a redirect hop.
     HopInvariantReads => "F3.invariant_reads.hop", "frontier_hop", "invariant_reads";
     /// `F3.compilations`, of a redirect hop.

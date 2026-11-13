@@ -228,7 +228,7 @@ async fn add_seeds(
         let Some(batch) = input.next().await? else {
             return Ok(added);
         };
-        let batch: SeedBatch = serde_json::from_value(batch).map_err(|error| {
+        let batch: SeedBatch = batch.read().map_err(|error| {
             CallError::protocol(
                 ProtocolFailure::InvalidParams,
                 format!("A `$/seeds` batch holds no seeds: {error}"),

@@ -229,6 +229,30 @@ pub const COUNTED_WORK: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
+/// `goodfetch.run_state.wal.size`: what the open run files' write-ahead
+/// logs hold.
+pub const RUN_STATE_WAL_SIZE: Metric = Metric {
+    name: "goodfetch.run_state.wal.size",
+    description: "The bytes the write-ahead logs of the Daemon's open run files hold, summed over them, each as of its writer's last commit. A run file's log stays under twice its checkpoint threshold (32 MiB) unless a reader holds an old snapshot of it (ADR 0138).",
+    instrument: Instrument::UpDownCounter,
+    unit: "By",
+    labels: &[],
+    stability: Stability::Experimental,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `goodfetch.run_state.blocked_checkpoints`: the checkpoints a reader's
+/// old snapshot blocked.
+pub const RUN_STATE_BLOCKED_CHECKPOINTS: Metric = Metric {
+    name: "goodfetch.run_state.blocked_checkpoints",
+    description: "The checkpoints of a run file's write-ahead log that could not copy the whole log into the file, or start the log again, because a reader held an old snapshot of it (ADR 0138).",
+    instrument: Instrument::Counter,
+    unit: "{checkpoint}",
+    labels: &[],
+    stability: Stability::Experimental,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -246,6 +270,8 @@ pub const ENTRIES: Entries = Entries {
         CLIENT_CONNECTED,
         DAEMON_DRAINING,
         COUNTED_WORK,
+        RUN_STATE_WAL_SIZE,
+        RUN_STATE_BLOCKED_CHECKPOINTS,
         ENGINE_PANICS,
     ],
     settings: &[ADDRESS, OTLP_METRICS_ENDPOINT],

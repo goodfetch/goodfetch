@@ -1,5 +1,5 @@
 //! `xtask compare` (ADRs 0134 and 0138): the comparison matrix, Foxhound
-//! against the crawlers nearest it (Spider, Crawlee and Scrapy), on one machine with nothing else
+//! against the crawlers nearest it (Spider, Crawlee, Scrapy and crawlee-rs), on one machine with nothing else
 //! running. Each scenario sets every tool to the closest equivalent
 //! configuration and the report writes that mapping; a tool that cannot do
 //! a scenario has a cell saying so, and a Foxhound value that does not
@@ -8,17 +8,24 @@
 //! capacity that loses none, and labelled sensitivity rows beside them run
 //! it one setting apart (#2213). `run` crawls each scenario's 1,000-page Proving ground site
 //! (`scale.test`'s, the multi-domain site for the polite scenario, the
-//! script-rendered site for the headless browser) with each measured cell's
-//! tool in the declared number of trials, interleaved in random order, each
-//! tool in a fresh process at the same concurrency and, in a run of the
-//! full trials, once the machine is quiet, measuring every metric of the
-//! owner's list from outside the tools; then
+//! script-rendered site for the headless browser, the realistic-page site
+//! for its scenario, and a 100,000-page site for the long one, which runs
+//! only its timed trials) with each measured cell's tool in the declared
+//! number of trials, interleaved in random order, each tool in a fresh
+//! process at the same concurrency (64 and 256 in the concurrency sweep's
+//! scenarios, which with the realistic-page and long scenarios run scenario
+//! 1's settings and carry no bar, #2316) and, in a run of the full trials,
+//! once the machine is quiet, measuring every metric of the owner's list
+//! from outside the tools; then
 //! counts each cell's system calls under strace, stopping a run whose crawl
 //! stalls and leaving its cell not measured, crawls the 100,000-page
 //! site for the growth of resident memory when asked, and counts scenario
 //! 1's instructions per page under Callgrind, which gives
 //! `foxhound.spider_instruction_ratio` (ADR 0140) on each tool's main row.
-//! `report` holds every
+//! The hostile pages' passes (#2439) instead crawl the Proving ground's
+//! `traps` and `limits` tasks a few times and count the rules each tool
+//! broke there, from the Proving ground's findings, with no bar and no
+//! standing. `report` holds every
 //! trial to the same-work check, then writes each cell's median and spread
 //! of every metric and Foxhound's verdicts against each competitor,
 //! labelled `local-controlled`, measured on the machine it names, with the
@@ -30,6 +37,7 @@
 )]
 
 mod foxhound;
+mod hostile;
 mod matrix;
 mod observed;
 mod report;
@@ -60,6 +68,9 @@ const CRAWLEE: &str = "xtask/compare-crawlee/crawl.mjs";
 const SCRAPY: &str = "xtask/compare-scrapy/crawl.py";
 /// The trials file the recipe writes.
 const TRIALS_FILE: &str = "target/compare/trials.json";
+/// The folder beside the trials file where a run keeps the Callgrind cell's
+/// outputs.
+const CALLGRIND_OUTPUTS: &str = "callgrind";
 
 #[derive(Subcommand)]
 pub(crate) enum Command {
@@ -82,10 +93,11 @@ pub(crate) struct RunArguments {
     /// executables.
     #[arg(long)]
     tools: PathBuf,
-    /// The folder of Spider's side's builds: `xtask/compare-spider` built
+    /// The folder of the Rust sides' builds: `xtask/compare-spider` built
     /// once for each build the matrix's Spider rows run, each into the
     /// target folder of its name under this one (`spider`, `spider-chrome`,
-    /// `spider-bloom` and so on).
+    /// `spider-bloom` and so on), and `xtask/compare-crawlee-rs` built into
+    /// `crawlee-rs`.
     #[arg(long)]
     spider_builds: PathBuf,
     /// The folder Cargo names after the profile those builds were made
@@ -105,7 +117,8 @@ pub(crate) struct RunArguments {
     /// environment `uv sync` makes beside it.
     #[arg(long, default_value = SCRAPY)]
     scrapy: PathBuf,
-    /// The trials file written; the report goes beside it.
+    /// The trials file written; the report goes beside it, and the
+    /// Callgrind cell's outputs into `callgrind/` beside it.
     #[arg(long, default_value = TRIALS_FILE)]
     out: PathBuf,
     /// Also runs the growth cell: each measured cell crawls the
@@ -144,6 +157,8 @@ enum Mode {
     Timed,
     Syscalls,
     Callgrind,
+    /// A hostile pages' cell's run (#2439): the rules its tool broke.
+    Rules,
 }
 
 #[derive(Args)]
@@ -191,7 +206,9 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     )
                 })?,
             };
-            let trials = run::run(
+            let out = environment.path(&arguments.out);
+            let folder = out.parent().unwrap_or_else(|| Path::new("."));
+            let mut trials = run::run(
                 &run::Executables {
                     proving_ground: tools.path(Tool::ProvingGround)?,
                     foxhound: tools.path(Tool::Foxhound)?,
@@ -213,37 +230,29 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     } else {
                         arguments.scenarios.clone()
                     },
+                    callgrind_outputs: folder.join(CALLGRIND_OUTPUTS),
                 },
+                &mut |so_far| write(so_far, &out),
             )?;
-            let out = environment.path(&arguments.out);
-            if let Some(folder) = out.parent() {
-                std::fs::create_dir_all(folder)
-                    .with_context(|| format!("creating {}", folder.display()))?;
-            }
-            std::fs::write(&out, serde_json::to_vec_pretty(&trials)?)
-                .with_context(|| format!("writing {}", out.display()))?;
-            report(&trials, &out)
+            write(&trials, &out)?;
+            report(&mut trials, &out)
         }
         Command::Report(arguments) => {
             let path = environment.path(&arguments.trials);
             let text =
                 std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-            let trials: Comparison = serde_json::from_slice(&text)
+            let mut trials: Comparison = serde_json::from_slice(&text)
                 .with_context(|| format!("parsing {}", path.display()))?;
-            report(&trials, &path)
+            report(&mut trials, &path)
         }
         Command::Trial(arguments) => {
             let (cell, config) = trial::cell_of(arguments.scenario, &arguments.cell)?;
-            let output_file = || {
-                arguments
-                    .output
-                    .clone()
-                    .context("a counted trial takes --output")
-            };
+            let output_file = || trial::counting_output(arguments.output.as_deref());
             let mode = match arguments.mode {
                 Mode::Timed => trial::Mode::Timed,
                 Mode::Syscalls => trial::Mode::Syscalls(output_file()?),
                 Mode::Callgrind => trial::Mode::Callgrind(output_file()?),
+                Mode::Rules => trial::Mode::Rules,
             };
             // Absolute, since a tool other than Foxhound runs in its data
             // folder.
@@ -264,6 +273,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             };
             let line = match plan.mode {
                 trial::Mode::Timed => serde_json::to_string(&plan.timed()?)?,
+                trial::Mode::Rules => serde_json::to_string(&plan.ruled()?)?,
                 trial::Mode::Syscalls(_) | trial::Mode::Callgrind(_) => {
                     serde_json::to_string(&plan.counted()?)?
                 }
@@ -274,10 +284,24 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
     }
 }
 
+/// Writes the trials file at `out`, creating its folder: the whole run's,
+/// and before that what the run has measured so far, which `report` reads
+/// as a run that did not reach its later cells.
+fn write(trials: &Comparison, out: &Path) -> Result<()> {
+    let folder = out.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(folder).with_context(|| format!("creating {}", folder.display()))?;
+    std::fs::write(out, serde_json::to_vec_pretty(trials)?)
+        .with_context(|| format!("writing {}", out.display()))
+}
+
 /// Holds the trials to the same-work check, then writes the report beside
 /// the trials file at `trials_path` and prints it; no figure is written
-/// when the check fails.
-fn report(trials: &Comparison, trials_path: &Path) -> Result<ExitCode> {
+/// when the check fails. A strace run that did other work fails nothing:
+/// its cell's system calls are reported as not measured, and the trials
+/// file keeps the run as it was.
+fn report(trials: &mut Comparison, trials_path: &Path) -> Result<ExitCode> {
+    same_work::strace_runs_of_other_work_set_aside(trials);
+    let trials = &*trials;
     let findings = same_work::check(trials);
     if !findings.is_empty() {
         return Ok(check::report(&findings));

@@ -200,6 +200,16 @@ fn through<P, E>(
     })
 }
 
+/// The URL a failure of `route`'s proxy names it by: its own, with the
+/// username it answers with and never its password.
+fn proxy_named(route: &ProxyRoute) -> Option<Url> {
+    let mut url = Url::parse(&route.url).ok()?;
+    if let Some((username, _)) = &route.credentials {
+        url.set_username(username).ok()?;
+    }
+    Some(url)
+}
+
 /// Why a transport could not be built.
 #[derive(Debug, thiserror::Error)]
 pub enum TransportUnavailable {
@@ -668,6 +678,10 @@ fn bind_device(
 }
 
 impl Transport for Reqwest {
+    fn proxy(&self) -> Option<Url> {
+        self.proxy.as_ref().and_then(proxy_named)
+    }
+
     fn presents(&self, url: &Url) -> Vec<(String, String)> {
         self.document_request
             .as_ref()

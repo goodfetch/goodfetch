@@ -18,12 +18,13 @@ use std::io;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::SystemTime;
 
-use tracing_subscriber::Layer as _;
+use tracing_subscriber::Layer;
 use tracing_subscriber::filter::{LevelFilter, Targets};
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::time::FormatTime;
 use tracing_subscriber::layer::SubscriberExt as _;
+use tracing_subscriber::registry::LookupSpan;
 
 use crate::exercise::ExerciseRecord;
 use crate::facts::{DISPATCH_TARGET, OUTCOME_TARGET};
@@ -63,28 +64,44 @@ pub fn subscriber_writing_to<W>(
 where
     W: for<'writer> MakeWriter<'writer> + Send + Sync + 'static,
 {
-    let record = ExerciseRecord::of(&Variables::from_process()).map(|record| {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_timer(SimulatedTime(now.clone()))
+                .with_writer(writer)
+                .with_filter(LevelFilter::INFO),
+        )
+        .with(exercise_layer(now))
+}
+
+/// The layer of [`subscriber`] that writes the dispatch and outcome records,
+/// timed by `now`, into the test's exercise record under `just test`, and
+/// is none otherwise: for a test that installs a subscriber of its own,
+/// whose record must still show what it reached (ADR 0072).
+///
+/// # Panics
+///
+/// Under `just test`, if the test's exercise record cannot be opened.
+pub fn exercise_layer<S>(
+    now: impl Fn() -> SystemTime + Send + Sync + 'static,
+) -> Option<impl Layer<S> + Send + Sync>
+where
+    S: tracing::Subscriber + for<'span> LookupSpan<'span>,
+{
+    ExerciseRecord::of(&Variables::from_process()).map(|record| {
         let file = record
             .open()
             .unwrap_or_else(|error| panic!("the test's exercise record cannot be opened: {error}"));
         tracing_subscriber::fmt::layer()
             .json()
-            .with_timer(SimulatedTime(now.clone()))
+            .with_timer(SimulatedTime(now))
             .with_writer(Arc::new(file))
             .with_filter(
                 Targets::new()
                     .with_target(DISPATCH_TARGET, LevelFilter::TRACE)
                     .with_target(OUTCOME_TARGET, LevelFilter::TRACE),
             )
-    });
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_timer(SimulatedTime(now))
-                .with_writer(writer)
-                .with_filter(LevelFilter::INFO),
-        )
-        .with(record)
+    })
 }
 
 /// What `tracing` wrote while `work` ran, at every level and without

@@ -131,7 +131,7 @@ fn is_off(value: &serde_json::Value) -> bool {
 /// `storage.low_free` (ADR 0122).
 pub const LOW_FREE: Setting = Setting {
     name: "storage.low_free",
-    description: "The free space, in bytes, below which a filesystem a Run writes to is at the `low` storage level: its Runs go on, record no Run trace video, store no new Response cache entry, skip their periodic Checkpoints onto it, and carry the warning `storage_low`. Unset, each filesystem takes the smaller of 5 GiB and 10 % of its size, and free inodes go by 10 %; `0` turns the level off, which the Run's report lists in `weakened`. Read again at every sample of the Resource governor; set in user configuration or an Operator policy only.",
+    description: "The free space, in bytes, below which a filesystem a Run writes to is at the `low` storage level: its Runs go on, record no Run trace video, store no new Response cache entry, skip their periodic Checkpoints onto it, and carry the warning `storage_low`. Unset, each filesystem takes the smaller of 5 GiB and 10 % of its size, and free inodes go by 10 %; `0` turns the level off, which the Run's report lists in `weakened`. Each sample of the Resource governor reads it from the engine's settings: the engine's own write (`config.user_write`, `config.policy_write`) is seen at the next sample, a hand edit at the engine's next read of the file, by the next Run's start at the latest; set in user configuration or an Operator policy only.",
     kind: ValueKind::Count,
     default: unset,
     clearable: true,
@@ -145,7 +145,7 @@ pub const LOW_FREE: Setting = Setting {
 /// `storage.critical_free` (ADR 0122).
 pub const CRITICAL_FREE: Setting = Setting {
     name: "storage.critical_free",
-    description: "The free space, in bytes, below which a filesystem a Run writes to is at the `critical` storage level: every Run with an essential write on it stops resumably at its next safe point, with `resource: \"storage\"`, and a new Run whose run file would go there is refused with `resources_exhausted`. Unset, each filesystem takes the smaller of 1 GiB and 2 % of its size, and free inodes go by 2 %; `0` turns the level off, which the Run's report lists in `weakened`. Read again at every sample of the Resource governor; set in user configuration or an Operator policy only.",
+    description: "The free space, in bytes, below which a filesystem a Run writes to is at the `critical` storage level: every Run with an essential write on it stops resumably at its next safe point, with `resource: \"storage\"`, and a new Run whose run file would go there is refused with `resources_exhausted`. Unset, each filesystem takes the smaller of 1 GiB and 2 % of its size, and free inodes go by 2 %; `0` turns the level off, which the Run's report lists in `weakened`. Each sample of the Resource governor reads it from the engine's settings: the engine's own write (`config.user_write`, `config.policy_write`) is seen at the next sample, a hand edit at the engine's next read of the file, by the next Run's start at the latest; set in user configuration or an Operator policy only.",
     kind: ValueKind::Count,
     default: unset,
     clearable: true,

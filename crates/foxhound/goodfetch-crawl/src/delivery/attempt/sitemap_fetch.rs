@@ -11,7 +11,7 @@ use goodfetch_frontier::sitemap;
 use goodfetch_protocol::foxhound::crawl::RESPONSE_NOT_OK;
 use serde_json::{Map, Value};
 
-use super::{Answer, On, address_check, failed};
+use super::{Answer, AttemptFailure, On, address_check, failed, fetch_failed};
 
 impl On<'_> {
     /// The fetch of a sitemap seed's sitemap, or of the robots.txt whose
@@ -67,7 +67,7 @@ impl On<'_> {
                         Err(sitemap::Refusal::Unreadable(why)) => unreadable(url.as_str(), &why.0),
                         Err(sitemap::Refusal::Limit(exceeded)) => failed(&exceeded.error()),
                     },
-                    Err(error) => failed(&error),
+                    Err(failure) => fetch_failed(&failure),
                 }
             } => answer,
             _ = lease.ended() => Answer::LeaseEnded,
@@ -80,10 +80,10 @@ impl On<'_> {
 fn unreadable(url: &str, why: &str) -> Answer {
     let mut details = Map::new();
     details.insert("url".to_owned(), Value::from(url));
-    Answer::Failed {
-        code: RESPONSE_NOT_OK.name.to_owned(),
-        retryable: false,
-        message: format!("The sitemap {url} could not be read: {why}."),
+    Answer::failed(AttemptFailure::entered(
+        RESPONSE_NOT_OK.name.to_owned(),
+        false,
+        format!("The sitemap {url} could not be read: {why}."),
         details,
-    }
+    ))
 }

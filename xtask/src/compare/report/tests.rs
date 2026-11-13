@@ -1,5 +1,5 @@
 use super::standing::Standing;
-use super::{Report, markdown, of};
+use super::{CellStatus, Figure, Report, markdown, of};
 use crate::compare::matrix::Scenario;
 use crate::compare::trials::{Comparison, Measured, Work, fixture};
 
@@ -57,7 +57,7 @@ fn standing(
 }
 
 /// The section of `title` in the Markdown, to the next section.
-fn section<'a>(markdown: &'a str, title: &str) -> &'a str {
+pub(super) fn section<'a>(markdown: &'a str, title: &str) -> &'a str {
     let start = markdown
         .find(&format!("\n## {title}"))
         .unwrap_or_else(|| panic!("no section {title} in:\n{markdown}"));
@@ -144,6 +144,7 @@ fn three_sets_of_trials_read_ahead_behind_and_overlapping() {
                 "Throughput: pages per second",
                 "ahead",
                 "behind",
+                "behind",
                 "behind"
             ]),
             Some(&vec![
@@ -189,7 +190,8 @@ fn standings_are_against_each_competitors_main_row() {
         [
             ("foxhound", "spider"),
             ("foxhound", "crawlee"),
-            ("foxhound", "scrapy")
+            ("foxhound", "scrapy"),
+            ("foxhound", "crawlee-rs")
         ]
     );
 }
@@ -279,7 +281,14 @@ fn extraction_cells_say_content_not_verified_and_get_no_standing() {
         ),
         (
             Some(0),
-            vec!["foxhound", "spider", "crawlee", "scrapy", "spider mimalloc"],
+            vec![
+                "foxhound",
+                "spider",
+                "crawlee",
+                "scrapy",
+                "crawlee-rs",
+                "spider mimalloc"
+            ],
             Vec::<Vec<&str>>::new()
         )
     );
@@ -298,6 +307,91 @@ fn spiders_extraction_cells_are_not_the_same_work() {
     assert_eq!(
         cells_saying(section(&markdown, "4. "), unlike),
         ["spider", "spider mimalloc"]
+    );
+}
+
+/// Each cell of #2316's scenarios says it carries no bar, and each measured
+/// one gives its rate, latency percentiles and peak memory; no cell of the
+/// matrix's own five says so, and the hostile pages' cells say it for
+/// #2439 (their own test). The cell at the catalog's defaults says it is
+/// pending #2175 and gives no figure.
+#[test]
+fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
+    let trials = comparison(&[]);
+
+    let report = of(&trials);
+    let markdown = markdown(&report, &trials);
+
+    let no_bar = "  - no bar: none is set on this cell until the owner sets one (#2316).";
+    let saying: Vec<(Scenario, Vec<&str>)> = report
+        .scenarios
+        .iter()
+        .map(|scenario| {
+            (
+                scenario.scenario,
+                cells_saying(section(&markdown, scenario.title), no_bar),
+            )
+        })
+        .collect();
+    let every = |scenario: Scenario| -> Vec<&str> {
+        report
+            .scenarios
+            .iter()
+            .find(|report| report.scenario == scenario)
+            .map(|report| report.cells.iter().map(|cell| cell.cell).collect())
+            .unwrap_or_default()
+    };
+    let figures = [
+        "pages_per_second",
+        "latency_p50_seconds",
+        "latency_p95_seconds",
+        "latency_p99_seconds",
+        "peak_rss_bytes",
+    ];
+    let unmeasured: Vec<(Scenario, &str, &str)> = report
+        .scenarios
+        .iter()
+        .filter(|scenario| scenario.scenario.carries_no_bar())
+        .flat_map(|scenario| {
+            scenario
+                .cells
+                .iter()
+                .flat_map(move |cell| match &cell.status {
+                    CellStatus::Measured { metrics, .. } => figures
+                        .iter()
+                        .filter(|name| !matches!(metrics.get(*name), Some(Figure::Measured { .. })))
+                        .map(|name| (scenario.scenario, cell.cell, *name))
+                        .collect::<Vec<_>>(),
+                    CellStatus::NotSupported { .. }
+                    | CellStatus::NotMeasured { .. }
+                    | CellStatus::Ruled { .. } => Vec::new(),
+                })
+        })
+        .collect();
+    let pending = "  - not measured: pending #2175, which brings the cell at the catalog's \
+                   defaults.";
+
+    assert_eq!(
+        (
+            saying,
+            unmeasured,
+            cells_saying(section(&markdown, Scenario::Raw256.title()), pending),
+        ),
+        (
+            Scenario::ALL
+                .into_iter()
+                .map(|scenario| (
+                    scenario,
+                    if scenario.carries_no_bar() && !scenario.hostile() {
+                        every(scenario)
+                    } else {
+                        Vec::new()
+                    }
+                ))
+                .collect::<Vec<_>>(),
+            Vec::new(),
+            vec!["foxhound defaults"],
+        )
     );
 }
 
@@ -327,5 +421,33 @@ fn the_pages_fetched_are_beside_each_rate() {
     assert!(
         trials_table.contains("| 1.000 | 1000.0 | 1000 of 1000 |"),
         "{trials_table}"
+    );
+}
+
+/// crawlee-rs's published CPU per page is written beside the median
+/// measured here, on each of its measured cells and no other tool's.
+#[test]
+fn crawlee_rss_published_cpu_per_page_is_beside_its_measured_figure() {
+    let trials = fixture::comparison(PAGES, |_, _| Measured {
+        seconds: 1.0,
+        user_seconds: 0.5,
+        system_seconds: 0.25,
+        work: work(),
+        ..Measured::default()
+    });
+
+    let markdown = markdown(&of(&trials), &trials);
+
+    let line = format!(
+        "  - CPU per page: 0.75 ms measured here, the median of its trials; {}.",
+        super::published::CRAWLEE_RS_CPU
+    );
+    assert_eq!(
+        (
+            cells_saying(section(&markdown, "1. "), &line),
+            cells_saying(section(&markdown, "2. "), &line),
+            cells_saying(section(&markdown, "5. "), &line),
+        ),
+        (vec!["crawlee-rs"], vec!["crawlee-rs"], Vec::<&str>::new())
     );
 }

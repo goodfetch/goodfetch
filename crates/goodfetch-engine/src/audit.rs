@@ -44,7 +44,7 @@ use goodfetch_protocol::audit::{
     AUDIT_LOG_ANCHOR, AUDIT_LOG_PRUNED, AUDIT_RETENTION, Actor, AuditEntry, AuditVerified,
     ExportedAuditEntry,
 };
-use goodfetch_protocol::catalog::{Product, SharedType, SharedTypeValue};
+use goodfetch_protocol::catalog::{SharedType, SharedTypeValue};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::formats::{AUDIT_LOG, Compatibility};
 use goodfetch_protocol::run::{PointInTime, RunId};
@@ -59,7 +59,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::durable;
 use crate::home::Home;
-use crate::settings::SettingsFiles;
+use crate::settings::Settings;
 use crate::sqlite_store::{
     Access, Counting, Durability, File, Folder, OpenError, Opening, Schema, Synchronous, Wait,
 };
@@ -212,14 +212,15 @@ pub struct AuditLog {
 }
 
 /// The store of an Audit log: its file, its head file, the VFS it opens
-/// through, the machine's settings files its `audit.retention` is read
-/// from, where its entries are sent, and where its work is counted.
+/// through, the settings from whose snapshot of the machine's settings its
+/// `audit.retention` is read, where its entries are sent, and where its
+/// work is counted.
 #[derive(Clone, Debug)]
 struct Store {
     path: PathBuf,
     head: PathBuf,
     vfs: Option<String>,
-    retained_under: Option<(SettingsFiles, Product)>,
+    retained_under: Option<Settings>,
     events: Option<AuditEvents>,
     work: CountedWork,
 }
@@ -320,12 +321,12 @@ impl AuditLog {
     }
 
     /// The same, each append first pruning what the `audit.retention` of
-    /// the machine's layers in `files` prunes, read then as an engine of
-    /// `product` resolves it; without it, nothing is ever pruned but
-    /// through [`AuditLog::prune`].
+    /// the snapshot `settings` keeps of the machine's settings prunes, as
+    /// the snapshot is then: no append reads a settings file (ADR 0140);
+    /// without it, nothing is ever pruned but through [`AuditLog::prune`].
     #[must_use]
-    pub fn retained_under(mut self, files: SettingsFiles, product: Product) -> Self {
-        self.configured().retained_under = Some((files, product));
+    pub fn retained_under(mut self, settings: Settings) -> Self {
+        self.configured().retained_under = Some(settings);
         self
     }
 
@@ -411,7 +412,8 @@ impl AuditLog {
         if entries.is_empty() {
             return Ok(Vec::new());
         }
-        self.write(move |store, held| store.commit_entries(held, entries, now))
+        let retention = self.store.retention().await;
+        self.write(move |store, held| store.commit_entries(held, entries, retention, now))
             .await
     }
 
@@ -489,15 +491,17 @@ impl Store {
     /// Appends each of `entries` in one transaction, on the writer's
     /// connection, chained after the tail it holds while the store's
     /// `data_version` says no other connection committed since, then writes
-    /// the head file after the last and sends each to the events. Under an
-    /// `audit.retention`, it first prunes what it prunes at `now`.
+    /// the head file after the last and sends each to the events. Under a
+    /// `retention`, with the layer that set it, it first prunes what it
+    /// prunes at `now`.
     fn commit_entries(
         &self,
         held: &mut Held,
         entries: Vec<Appended>,
+        retention: Option<(Duration, SettingsLayer)>,
         now: Timestamp,
     ) -> Result<Vec<AuditEntry>, AuditError> {
-        if let Some((retention, layer)) = self.retention() {
+        if let Some((retention, layer)) = retention {
             self.prune(held, retention, Some(layer), now)?;
         }
         let failed = |error: &dyn std::fmt::Display| self.failed(error);
@@ -664,16 +668,15 @@ impl Store {
         }
     }
 
-    /// The `audit.retention` the machine's layers set now, with the layer
-    /// that set it; none when unset, when the log is retained under no
-    /// layers, or when they cannot be read, which says nothing of the entry
-    /// being appended, so it is kept and nothing is pruned on this pass.
-    fn retention(&self) -> Option<(Duration, SettingsLayer)> {
-        let (files, product) = self.retained_under.as_ref()?;
-        self.work.count(Row::AuditConfigurationReads);
-        let resolved = files
-            .load(*product)
-            .and_then(|machine| machine.resolve(*product))
+    /// The `audit.retention` the engine's snapshot of the machine's
+    /// settings sets now, with the layer that set it; none when unset, when
+    /// the log is retained under no settings, or when they cannot be read,
+    /// which says nothing of the entry being appended, so it is kept and
+    /// nothing is pruned on this pass.
+    async fn retention(&self) -> Option<(Duration, SettingsLayer)> {
+        let machine = self.retained_under.as_ref()?.snapshot().await;
+        let resolved = machine
+            .resolved()
             .inspect_err(|error| {
                 tracing::warn!(%error, "`audit.retention` cannot be read, so nothing is pruned");
             })

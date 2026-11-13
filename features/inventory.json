@@ -7980,6 +7980,16 @@
       ]
     },
     {
+      "id": "setting:crawl.retry.engine_panicked",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:crawl.retry.handler_failed",
       "kind": "setting",
       "area": 3,

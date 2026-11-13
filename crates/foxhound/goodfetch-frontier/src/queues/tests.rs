@@ -15,6 +15,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use goodfetch_engine::admission::{Ended, Gate, Gates, Held, Waiting};
 use goodfetch_engine::entropy::Entropy;
+use goodfetch_engine::run_state::BatchWriter;
 use goodfetch_engine::settings::{Layers, Values, resolve};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::settings::SettingsLayer;
@@ -353,7 +354,10 @@ fn a_domains_wait_survives_a_resume_from_the_journal() {
     enqueue(gate.as_mut(), "h1", "https://heavy.test/1", 0);
     let first = gate.admit(now).unwrap();
     gate.ended(&first.key, now, Ended::Until(now + Duration::from_secs(30)));
-    gate.journal(wall, now).unwrap()(&file).unwrap();
+    gate.journal(wall, now)
+        .unwrap()
+        .write(&BatchWriter::over(&file))
+        .unwrap();
 
     let later = now + Duration::from_secs(10);
     let mut resumed = DomainGates
@@ -386,7 +390,10 @@ fn a_released_domain_leaves_the_journal() {
     enqueue(gate.as_mut(), "h1", "https://heavy.test/1", 0);
     let first = gate.admit(now).unwrap();
     gate.ended(&first.key, now, Ended::Until(now + Duration::from_secs(5)));
-    gate.journal(wall, now).unwrap()(&file).unwrap();
+    gate.journal(wall, now)
+        .unwrap()
+        .write(&BatchWriter::over(&file))
+        .unwrap();
     let held: i64 = file
         .query_row("SELECT count(*) FROM domains", [], |row| row.get(0))
         .unwrap();
@@ -395,7 +402,10 @@ fn a_released_domain_leaves_the_journal() {
     enqueue(gate.as_mut(), "h2", "https://heavy.test/2", 0);
     let second = gate.admit(later).unwrap();
     gate.ended(&second.key, later, Ended::Done);
-    gate.journal(wall + Duration::from_secs(5), later).unwrap()(&file).unwrap();
+    gate.journal(wall + Duration::from_secs(5), later)
+        .unwrap()
+        .write(&BatchWriter::over(&file))
+        .unwrap();
     let released: i64 = file
         .query_row("SELECT count(*) FROM domains", [], |row| row.get(0))
         .unwrap();

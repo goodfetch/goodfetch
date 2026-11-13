@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::hostile::Broken;
 use super::matrix::Scenario;
 pub(crate) use super::matrix::Tool;
 
@@ -35,6 +36,10 @@ pub(crate) const SPIDER_VERSION: &str = "2.53.9";
 /// `xtask/compare-scrapy/pyproject.toml` (unit tests hold each equal).
 pub(crate) const CRAWLEE_VERSION: &str = "3.18.2";
 pub(crate) const SCRAPY_VERSION: &str = "2.19.0";
+/// crawlee-rs's pinned commit, which has no release: the `rev` of
+/// `xtask/compare-crawlee-rs/Cargo.toml`'s `crawlee` (a unit test holds
+/// the two equal).
+pub(crate) const CRAWLEE_RS_COMMIT: &str = "2a3ed90b8391c86005ce6ed8dd3e3248d0d34579";
 /// Playwright's pinned version, which both sides' headless browser crawls
 /// drive Chrome with (`playwright` in `xtask/compare-crawlee/package.json`
 /// and `xtask/compare-scrapy/pyproject.toml`), and `scrapy-playwright`'s,
@@ -50,6 +55,9 @@ pub(crate) const INSTRUCTION_RUNS: u32 = 3;
 pub(crate) const INSTRUCTION_TOOLS: [Tool; 2] = [Tool::Foxhound, Tool::Spider];
 /// What the Callgrind cell crawls with.
 pub(crate) const INSTRUCTION_SCENARIO: &str = "scenario 1 of ADR 0138's matrix";
+/// Runs of each hostile pages' cell (#2439), at most: its counts are read
+/// with their spread, not timed.
+pub(crate) const RULE_RUNS: u32 = 3;
 
 /// What was declared before the first trial.
 #[derive(Debug, Serialize, Deserialize)]
@@ -64,6 +72,8 @@ pub(crate) struct Declared {
     pub(crate) spider: String,
     pub(crate) crawlee: String,
     pub(crate) scrapy: String,
+    /// crawlee-rs's commit.
+    pub(crate) crawlee_rs: String,
     pub(crate) playwright: String,
     pub(crate) scrapy_playwright: String,
     /// The Chrome for Testing build every tool of the headless browser
@@ -121,6 +131,14 @@ pub(crate) struct Work {
     /// The bytes of each page's first `200` answer, the work of a crawl
     /// that fetched some pages again after a kill.
     pub(crate) first_bytes: u64,
+}
+
+impl Work {
+    /// Whether the crawl fetched each page of the site of `pages` pages and
+    /// no other page.
+    pub(crate) fn is_the_site_of(&self, pages: u64) -> bool {
+        self.pages == pages && self.missing.is_empty() && self.extra.is_empty()
+    }
 }
 
 /// The p50, p95 and p99 of a trial's per-page times, in seconds.
@@ -330,6 +348,19 @@ pub(crate) struct Comparison {
     /// Spider's: ADR 0140's row compares those two, and instructions are no
     /// metric of the owner's list for the other tools.
     pub(crate) instructions: CountedCell,
+    /// The hostile pages' cells' runs: the rules each tool broke (#2439).
+    pub(crate) rules: Vec<RuledRun>,
+}
+
+/// One run of a hostile pages' cell: the rules its tool broke on each task
+/// of its pass, read from the Proving ground's findings.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct RuledRun {
+    pub(crate) scenario: Scenario,
+    pub(crate) cell: String,
+    pub(crate) tool: Tool,
+    pub(crate) number: u32,
+    pub(crate) tasks: Vec<Broken>,
 }
 
 #[cfg(test)]

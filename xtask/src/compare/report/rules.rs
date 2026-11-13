@@ -23,11 +23,13 @@ pub(crate) struct RuledTask {
     pub(crate) honeypot: Figure,
     /// The runs whose address the family's rule had flagged by its end.
     pub(crate) flagged: usize,
+    /// Requests the host refused, having flagged the address.
+    pub(crate) refused: Figure,
     /// The task's items fetched over its items, as a percentage.
     pub(crate) coverage: Figure,
     pub(crate) wanted: u64,
-    /// Duplicates and trap requests over every request, as a percentage,
-    /// where the family records them.
+    /// Duplicates and trap requests over the requests the host answered,
+    /// as a percentage, where the family records them.
     pub(crate) waste: Option<Figure>,
     /// Each run the comparison stopped before its tool ended its crawl:
     /// its number and why.
@@ -63,7 +65,7 @@ pub(super) fn status(trials: &Comparison, cell: &Cell) -> CellStatus {
             let counts: Vec<(u32, &Broken)> = runs
                 .iter()
                 .filter_map(|run| {
-                    let counts = run.tasks.iter().find(|counts| counts.task == task.task)?;
+                    let counts = run.tasks.iter().find(|counts| counts.task == task.name)?;
                     Some((run.number, counts))
                 })
                 .collect();
@@ -75,12 +77,13 @@ pub(super) fn status(trials: &Comparison, cell: &Cell) -> CellStatus {
                 spread(&values, unit)
             };
             RuledTask {
-                task: task.task.to_owned(),
+                task: task.name.to_owned(),
                 requests: each(|counts| float(counts.requests), Unit::Count),
                 retry_after_ignored: each(|counts| float(counts.retry_after_ignored), Unit::Count),
                 over_in_flight_cap: each(|counts| float(counts.over_in_flight_cap), Unit::Count),
                 honeypot: each(|counts| float(counts.honeypot), Unit::Count),
                 flagged: counts.iter().filter(|(_, counts)| counts.flagged).count(),
+                refused: each(|counts| float(counts.refused), Unit::Count),
                 coverage: each(
                     |counts| percent(counts.wanted_fetched, counts.wanted),
                     Unit::Percent,
@@ -88,7 +91,12 @@ pub(super) fn status(trials: &Comparison, cell: &Cell) -> CellStatus {
                 wanted: task.wanted,
                 waste: task.records_waste.then(|| {
                     each(
-                        |counts| percent(counts.duplicate + counts.trap, counts.requests),
+                        |counts| {
+                            percent(
+                                counts.duplicate + counts.trap,
+                                counts.requests - counts.refused,
+                            )
+                        },
                         Unit::Percent,
                     )
                 }),
@@ -102,24 +110,6 @@ pub(super) fn status(trials: &Comparison, cell: &Cell) -> CellStatus {
     CellStatus::Ruled {
         runs: runs.len(),
         tasks,
-    }
-}
-
-/// `figure` after `label`: its median, then its range.
-fn counted(label: &str, figure: &Figure) -> String {
-    match figure {
-        Figure::Measured {
-            median,
-            low,
-            high,
-            unit,
-        } => format!(
-            "{label} {} ({}–{})",
-            shown(*median, *unit),
-            shown(*low, *unit),
-            shown(*high, *unit)
-        ),
-        Figure::NotMeasured { reason } => format!("{label} not measured: {reason}"),
     }
 }
 
@@ -142,23 +132,25 @@ pub(super) fn markdown(text: &mut String, runs: usize, tasks: &[RuledTask]) {
         };
         let _ = write!(
             text,
-            "    - `{}`: {} requests ({}–{}), {}, {}, {}; the address ended flagged in {} of \
-             {runs} runs; coverage {} of its {} wanted pages",
+            "    - `{}`: {} requests ({}–{}), `retry_after_ignored` {}, `over_in_flight_cap` {}, \
+             `honeypot` {}; the address ended flagged in {} of {runs} runs, refused {} \
+             requests; coverage {} of its {} wanted pages",
             task.task,
             shown(*median, Unit::Count),
             shown(*low, Unit::Count),
             shown(*high, Unit::Count),
-            counted("`retry_after_ignored`", &task.retry_after_ignored),
-            counted("`over_in_flight_cap`", &task.over_in_flight_cap),
-            counted("`honeypot`", &task.honeypot),
+            cell_text(&task.retry_after_ignored),
+            cell_text(&task.over_in_flight_cap),
+            cell_text(&task.honeypot),
             task.flagged,
+            cell_text(&task.refused),
             cell_text(&task.coverage),
             task.wanted,
         );
         if let Some(waste) = &task.waste {
             let _ = write!(
                 text,
-                "; waste {} of its requests, duplicates and trap requests",
+                "; waste {} of the requests answered, duplicates and trap requests",
                 cell_text(waste)
             );
         }

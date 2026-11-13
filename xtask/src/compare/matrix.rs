@@ -1229,8 +1229,8 @@ pub(crate) const CELLS: [Cell; 65] = [
         scenario: Scenario::Hostile,
         tool: Tool::Scrapy,
         name: "scrapy",
-        mapping: "a default `scrapy.Spider` following every link (`allowed_domains` the task's \
-                  host), setting nothing but the `Host` it sends and `LOG_LEVEL: INFO`, which \
+        mapping: "a default `scrapy.Spider` following every link on the address it starts from \
+                  (`allowed_domains`; the task's links are all relative), setting nothing but the `Host` it sends and `LOG_LEVEL: INFO`, which \
                   changes only what it logs: `ROBOTSTXT_OBEY: False`, `CONCURRENT_REQUESTS: 16`, \
                   `CONCURRENT_REQUESTS_PER_DOMAIN: 8`, `DOWNLOAD_DELAY: 0`, `429` and `503` \
                   retried twice (its defaults)",

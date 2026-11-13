@@ -8,8 +8,11 @@
     clippy::disallowed_methods,
     reason = "xtask is synchronous: a watcher thread reads the Proving ground's request count, sleeping between reads, while the tool runs (STYLE.md)"
 )]
+#![expect(
+    clippy::disallowed_types,
+    reason = "xtask is no engine crate loom models (ADR 0060): the watcher thread reads whether the crawl ended from std's atomic"
+)]
 
-use std::io::Read as _;
 use std::path::Path;
 use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -56,13 +59,8 @@ pub(crate) fn bound(seconds: u64, requests: u64) -> Option<String> {
 /// Reads a tool's output to its end, whatever it printed: a hostile pages'
 /// crawl is read from what the Proving ground saw.
 fn drained(child: &mut Child) -> Result<()> {
-    let mut text = String::new();
-    child
-        .stdout
-        .take()
-        .context("the tool's stdout is piped")?
-        .read_to_string(&mut text)
-        .context("reading the tool's output")?;
+    let mut stdout = child.stdout.take().context("the tool's stdout is piped")?;
+    std::io::copy(&mut stdout, &mut std::io::sink()).context("reading the tool's output")?;
     Ok(())
 }
 
@@ -115,7 +113,7 @@ impl Plan<'_> {
         let done = AtomicBool::new(false);
         let started = now();
         let (ended, watched) = std::thread::scope(|scope| {
-            let watcher = scope.spawn(|| -> Result<Option<String>> {
+            let bounds = scope.spawn(|| -> Result<Option<String>> {
                 while !done.load(Ordering::Relaxed) {
                     std::thread::sleep(WATCH);
                     let sent = request_count(address).map(|count| count.saturating_sub(baseline));
@@ -147,7 +145,7 @@ impl Plan<'_> {
                 None => drained(&mut driven.child),
             };
             done.store(true, Ordering::Relaxed);
-            let watched = watcher
+            let watched = bounds
                 .join()
                 .unwrap_or_else(|_| Err(anyhow::anyhow!("the request count's watcher panicked")));
             (ended, watched)
@@ -162,9 +160,9 @@ impl Plan<'_> {
         if let Some(reason) = watched? {
             return Ok(Some(reason));
         }
-        ended.with_context(|| format!("{} on {}", self.cell.name, task.task))?;
+        ended.with_context(|| format!("{} on {}", self.cell.name, task.name))?;
         if !status.success() {
-            bail!("{} exited with {status} on {}", self.cell.name, task.task);
+            bail!("{} exited with {status} on {}", self.cell.name, task.name);
         }
         Ok(None)
     }

@@ -3,10 +3,11 @@ use crate::compare::matrix::{Scenario, Tool};
 use crate::compare::report::{markdown, of};
 use crate::compare::trials::{Measured, RuledRun, fixture};
 
-/// `traps/1`'s counts in one run: its requests, honeypot requests, items
-/// fetched, duplicates and trap requests, and why it was stopped, if it was.
+/// `traps/1`'s counts in one run: its requests and those refused, honeypot
+/// requests, items fetched, duplicates and trap requests, and why it was
+/// stopped, if it was.
 fn traps(
-    requests: u64,
+    (requests, refused): (u64, u64),
     honeypot: u64,
     wanted_fetched: u64,
     (duplicate, trap): (u64, u64),
@@ -19,6 +20,7 @@ fn traps(
         over_in_flight_cap: 0,
         honeypot,
         flagged: honeypot > 0,
+        refused,
         wanted_fetched,
         wanted: 30,
         duplicate,
@@ -36,6 +38,7 @@ fn limits(retry_after_ignored: u64) -> Broken {
         over_in_flight_cap: 0,
         honeypot: 0,
         flagged: retry_after_ignored >= 3,
+        refused: 0,
         wanted_fetched: 24,
         wanted: 24,
         duplicate: 0,
@@ -46,7 +49,8 @@ fn limits(retry_after_ignored: u64) -> Broken {
 
 /// Each hostile pages' cell gives, for each task of its pass, the median
 /// and range of each count over its runs, in how many runs the address
-/// ended flagged, its coverage and, where the family records it, its waste,
+/// ended flagged, the requests refused, its coverage and, where the family
+/// records it, its waste over the requests answered,
 /// and the runs the comparison stopped, and says a task some run gave no
 /// counts of is not measured; it carries no bar until the owner sets one
 /// (#2439, Q3), and gets no standing and no metric table.
@@ -54,11 +58,17 @@ fn limits(retry_after_ignored: u64) -> Broken {
 fn a_hostile_cell_gives_each_tasks_counts_over_its_runs_with_no_bar() {
     let mut trials = fixture::comparison(1000, |_, _| Measured::default());
     trials.rules = [
-        (1, traps(100, 0, 30, (5, 5), None), limits(0)),
-        (2, traps(120, 1, 30, (6, 6), None), limits(2)),
+        (1, traps((100, 0), 0, 30, (5, 5), None), limits(0)),
+        (2, traps((120, 0), 1, 30, (6, 6), None), limits(2)),
         (
             3,
-            traps(1000, 2, 27, (400, 500), Some("stopped after 1000 requests")),
+            traps(
+                (1000, 500),
+                2,
+                27,
+                (200, 250),
+                Some("stopped after 1000 requests"),
+            ),
             limits(5),
         ),
     ]
@@ -89,12 +99,13 @@ fn a_hostile_cell_gives_each_tasks_counts_over_its_runs_with_no_bar() {
             "  - rules broken over 3 runs, each figure the median (lowest–highest) of its runs:",
             "    - `traps/1`: 120 requests (100–1000), `retry_after_ignored` 0 (0–0), \
              `over_in_flight_cap` 0 (0–0), `honeypot` 1 (0–2); the address ended flagged in 2 of \
-             3 runs; coverage 100.0 % (90.0 %–100.0 %) of its 30 wanted pages; waste 10.0 % \
-             (10.0 %–90.0 %) of its requests, duplicates and trap requests; stopped in 1 of 3 \
-             runs: run 3, stopped after 1000 requests.",
+             3 runs, refused 0 (0–500) requests; coverage 100.0 % (90.0 %–100.0 %) of its 30 \
+             wanted pages; waste 10.0 % (10.0 %–90.0 %) of the requests answered, duplicates and \
+             trap requests; stopped in 1 of 3 runs: run 3, stopped after 1000 requests.",
             "    - `limits/1`: 40 requests (40–40), `retry_after_ignored` 2 (0–5), \
              `over_in_flight_cap` 0 (0–0), `honeypot` 0 (0–0); the address ended flagged in 1 of \
-             3 runs; coverage 100.0 % (100.0 %–100.0 %) of its 24 wanted pages.",
+             3 runs, refused 0 (0–0) requests; coverage 100.0 % (100.0 %–100.0 %) of its 24 \
+             wanted pages.",
             "    - `limits/3`: not measured: a run gave no count of this task.",
         ]
     );

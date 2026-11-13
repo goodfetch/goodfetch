@@ -64,11 +64,12 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
     );
 }
 
-/// Each new scenario runs scenario 1's settings, so the sides take it as
-/// `raw`, and carries no bar until the owner sets one (#2252 Q11); the
-/// matrix's own five scenarios are unchanged.
+/// Each scenario added to the matrix's own five runs scenario 1's settings,
+/// so the sides take it as `raw`, but the hostile pages' pass at defaults,
+/// which runs each tool's own; each carries no bar until the owner sets one
+/// (#2252 Q11, #2439 Q3); the matrix's own five are unchanged.
 #[test]
-fn the_new_scenarios_run_scenario_1s_settings_and_carry_no_bar() {
+fn the_added_scenarios_run_scenario_1s_settings_but_the_pass_at_defaults() {
     let read = |scenario: Scenario| (scenario.settings(), scenario.carries_no_bar());
 
     assert_eq!(
@@ -114,7 +115,7 @@ fn the_hostile_pages_passes_map_every_tool_and_carry_no_bar() {
         scenario
             .hostile_tasks()
             .iter()
-            .map(|task| task.task)
+            .map(|task| task.name)
             .collect()
     };
 

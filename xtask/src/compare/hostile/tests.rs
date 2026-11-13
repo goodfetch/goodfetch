@@ -32,10 +32,10 @@ fn traps_counts_each_item_once_and_flags_on_a_honeypot() {
             ("traps/1", "/items/I-0001", 200),
             ("traps/1", "/items/I%2D0001;jsessionid=7", 200),
             ("traps/1", "/items/I%2d0002?ref=home", 200),
-            ("traps/1", "/items/I-0003", 403),
             ("traps/1", "/items/I-0031", 404),
             ("traps/1", "/hp/0badc0de", 200),
             ("traps/1", "/calendar/2026-01", 200),
+            ("traps/1", "/items/I-0003", 403),
             ("limits/1", "/items/I-0004", 200),
         ],
         &[
@@ -57,12 +57,36 @@ fn traps_counts_each_item_once_and_flags_on_a_honeypot() {
             over_in_flight_cap: 0,
             honeypot: 1,
             flagged: true,
+            refused: 1,
             wanted_fetched: 2,
             wanted: 30,
             duplicate: 1,
             trap: 2,
             stopped: None,
         }
+    );
+}
+
+/// Once flagged, the family refuses the address and records no finding of
+/// its requests: every request for a page `robots.txt` disallows still
+/// counts as a honeypot, read from the requests, and each refused one as
+/// refused.
+#[test]
+fn honeypot_requests_still_count_once_the_address_is_flagged() {
+    let seen = observations(
+        &[
+            ("traps/1", "/hp/0badc0de", 200),
+            ("traps/1", "/hp/feed", 403),
+            ("traps/1", "/items/I-0001", 403),
+        ],
+        &[("traps/1", "honeypot")],
+    );
+
+    let counts = broken(&seen, &TRAPS).unwrap();
+
+    assert_eq!(
+        (counts.honeypot, counts.refused, counts.flagged),
+        (2, 2, true)
     );
 }
 

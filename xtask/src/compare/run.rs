@@ -678,7 +678,7 @@ fn rules(
         };
         for task in &ruled.tasks {
             output::line(&format!(
-                "{} {} run {number}, {}: {} requests, {} retry_after_ignored, {} over_in_flight_cap, {} honeypot, flagged {}, {} of {} wanted pages{}",
+                "{} {} run {number}, {}: {} requests, {} retry_after_ignored, {} over_in_flight_cap, {} honeypot, flagged {}, {} refused, {} duplicate, {} trap, {} of {} wanted pages{}",
                 cell.scenario.name(),
                 cell.name,
                 task.task,
@@ -687,6 +687,9 @@ fn rules(
                 task.over_in_flight_cap,
                 task.honeypot,
                 task.flagged,
+                task.refused,
+                task.duplicate,
+                task.trap,
                 task.wanted_fetched,
                 task.wanted,
                 task.stopped
@@ -722,7 +725,6 @@ pub(crate) fn run(
         &mut state,
         "",
     )?;
-    let rules = rules(executables, options, &ruled(options), &mut state)?;
     let counted_cells: Vec<_> = measured.iter().copied().filter(runs_counted).collect();
     let syscalls = match strace_missing() {
         Some(reason) => {
@@ -812,7 +814,7 @@ pub(crate) fn run(
         syscalls,
         growth,
         instructions,
-        rules,
+        rules: rules(executables, options, &ruled(options), &mut state)?,
     })
 }
 

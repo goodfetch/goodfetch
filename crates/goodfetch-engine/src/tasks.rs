@@ -500,9 +500,28 @@ impl Panics {
         &self.0.panicked
     }
 
-    /// Tells a panic of one of the owner's tasks, whose crash report is
-    /// `crash_report`, when one was written.
+    /// Tells a panic of one of the owner's tasks or actors, whose crash
+    /// report is `crash_report`, when one was written, to the owner and to
+    /// every owner of the engine's kind it tells.
     fn tell(&self, crash_report: Option<&str>) {
+        self.log(crash_report);
+        let mut told = Some(self);
+        while let Some(panics) = told {
+            panics.told(self.part());
+            told = panics.0.parent.as_ref();
+        }
+    }
+
+    /// Tells a panic of blocking work whose caller has gone, whose crash
+    /// report is `crash_report`, to the owner alone: the work was its
+    /// caller's, such as a call's read on the engine's stores, not a part
+    /// every Run shares (ADR 0148).
+    fn tell_alone(&self, crash_report: Option<&str>) {
+        self.log(crash_report);
+        self.told(self.part());
+    }
+
+    fn log(&self, crash_report: Option<&str>) {
         // A Run's or a Connection's task is no part every Run shares, so
         // only the engine's own name one.
         let part = (self.kind() == OwnerKind::Engine).then(|| self.part());
@@ -512,12 +531,11 @@ impl Panics {
             crash_report,
             "a task panicked, and its owner's parent is told"
         );
-        let mut told = Some(self);
-        while let Some(panics) = told {
-            let _ = panics.0.first.set(self.part());
-            panics.panicked().cancel();
-            told = panics.0.parent.as_ref();
-        }
+    }
+
+    fn told(&self, part: &'static str) {
+        let _ = self.0.first.set(part);
+        self.panicked().cancel();
     }
 }
 
@@ -537,7 +555,7 @@ where
 
 /// A panic that blocking work caught on its thread, with the name of its
 /// crash report, on its way to the caller: dropped there unresumed, the
-/// caller having gone, it is told to `panics`.
+/// caller having gone, it is told to `panics` alone.
 struct Caught {
     panic: Option<Box<dyn Any + Send>>,
     crash_report: Option<String>,
@@ -558,7 +576,7 @@ impl Caught {
 impl Drop for Caught {
     fn drop(&mut self) {
         if self.panic.take().is_some() {
-            self.panics.tell(self.crash_report.as_deref());
+            self.panics.tell_alone(self.crash_report.as_deref());
         }
     }
 }

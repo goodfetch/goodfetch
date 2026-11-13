@@ -437,6 +437,38 @@ fn blocking_work_that_panics_after_its_caller_dropped_is_told_to_its_parent() {
     assert!(stopped);
 }
 
+/// Blocking work on a part of the engine that panics once its caller has
+/// gone is told to that part alone, never to the engine's own owner: it
+/// was its caller's work, such as a call's read on the engine's stores,
+/// not a part every Run shares (ADR 0148).
+#[test]
+fn blocking_work_whose_caller_dropped_is_no_part_every_run_shares() {
+    let told = goodfetch_test_support::runtime().block_on(async {
+        let engine = TaskOwner::root(BlockingPolicy::Threads);
+        let part = engine.part("a shared part");
+        let (started, starting) = oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let caller = part.blocking(move || {
+            let _ = started.send(());
+            let _ = released.recv();
+            panic!("the work's own panic")
+        });
+        tokio::select! {
+            () = caller => unreachable!("the work waits for its release"),
+            _ = starting => {}
+        }
+        release.send(()).unwrap();
+
+        let reached_part = within(BlockingPolicy::Threads, part.panicked()).await;
+        part.stop().await;
+        let told = (reached_part, engine.has_panicked());
+        engine.stop().await;
+        told
+    });
+
+    assert_eq!(told, (true, false));
+}
+
 /// An owner none of whose tasks panicked is never told so.
 #[test]
 fn an_owner_whose_tasks_ended_is_not_told_of_a_panic() {

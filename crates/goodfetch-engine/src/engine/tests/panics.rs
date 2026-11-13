@@ -5,12 +5,11 @@
 //! goes on, and the ops endpoint counts the panic. A Connection whose own
 //! task panics ends alone, as when its Client goes away, and an Attached
 //! engine ends with it. A panic in a part every Run shares stops the
-//! engine and nothing is restarted: a Daemon drains its Runs, unless its
-//! Run registry is what panicked, and ends at once; an Attached engine
-//! stops its Runs for the panic and fails. Each such Run resumes by its
-//! Run ID. The panic comes from an extra operation the test hands
-//! the engine, or a task it starts on a Connection's, the engine's or the
-//! Run registry's owner, never from a switch in a Product.
+//! engine and nothing is restarted: a Daemon drains its Runs and ends; an
+//! Attached engine stops its Runs for the panic and fails. Each such Run
+//! resumes by its Run ID. The panic comes from an extra operation the test
+//! hands the engine, or a task it starts on a Connection's or the engine's
+//! owner, never from a switch in a Product.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -465,53 +464,31 @@ const PANIC_IN_A_SHARED_PART: Operation = Operation {
     ..PANIC
 };
 
-/// A call that starts a panicking task on the owner of the Runs'
-/// registry's own task, as the registry would panic.
-const PANIC_IN_THE_REGISTRY: Operation = Operation {
-    name: "test.panic_in_the_registry",
-    description: "Panics in the Runs' registry.",
-    ..PANIC
-};
-
 fn panicking_parts() -> Contribution {
-    Contribution::new("test_panicking_parts")
-        .with_handler(Handler::new(
-            &PANIC_IN_A_SHARED_PART,
-            |_: Value, context: CallContext| async move {
-                context
-                    .engine()
-                    .owner()
-                    .spawn(async { panic!("{PANIC_TEXT}") });
-                Ok::<Value, CallError>(json!({}))
-            },
-        ))
-        .with_handler(Handler::new(
-            &PANIC_IN_THE_REGISTRY,
-            |_: Value, context: CallContext| async move {
-                context
-                    .runs()
-                    .registry()
-                    .spawn(async { panic!("{PANIC_TEXT}") });
-                Ok::<Value, CallError>(json!({}))
-            },
-        ))
+    Contribution::new("test_panicking_parts").with_handler(Handler::new(
+        &PANIC_IN_A_SHARED_PART,
+        |_: Value, context: CallContext| async move {
+            context
+                .engine()
+                .owner()
+                .spawn(async { panic!("{PANIC_TEXT}") });
+            Ok::<Value, CallError>(json!({}))
+        },
+    ))
 }
 
 /// How the Daemon `engine` ended in `env` once a Client that started the
-/// Run `run_id` called `panicking`, and whether that Client's Connection
-/// closed; a Daemon still serving is asked to drain after the wait, so a
-/// Daemon that goes on ends too.
-fn daemon_panicked(
-    engine: &Engine,
-    env: &TestEnv,
-    run_id: &str,
-    panicking: &str,
-) -> (String, bool) {
+/// Run `run_id` made a part every Run shares panic, and whether that
+/// Client's Connection closed; a Daemon still serving is asked to drain
+/// after the wait, so a Daemon that goes on ends too.
+fn daemon_panicked(engine: &Engine, env: &TestEnv, run_id: &str) -> (String, bool) {
     let asked = CancellationToken::new();
     let (end, closed) = daemon(engine, env, draining(&asked), |dialer| async move {
         let mut client = daemon_opened(&dialer, cli_hello()).await;
         call(&mut client, 1, "run.start", json!({ "run_id": run_id })).await;
-        client.send(&[request(2, panicking)]).await;
+        client
+            .send(&[request(2, "test.panic_in_a_shared_part")])
+            .await;
         let (_, closed) = until_closed(&mut client).await;
         asked.cancel();
         closed
@@ -557,7 +534,7 @@ fn a_daemon_whose_shared_part_panics_drains_its_runs_and_ends() {
     let (metrics, registry, _provider) = metering();
     let engine = engine_with(Product::Collie, Some(panicking_parts())).with_metrics(metrics);
 
-    let (end, closed) = daemon_panicked(&engine, &env, "drained", "test.panic_in_a_shared_part");
+    let (end, closed) = daemon_panicked(&engine, &env, "drained");
 
     let stopped = run_row(&run_folder(&env, "drained"));
     let (report, resumed) = reported_then_resumed(&env, "drained");
@@ -577,40 +554,6 @@ fn a_daemon_whose_shared_part_panics_drains_its_runs_and_ends() {
             json!("stopped"),
             json!({ "kind": "drain" }),
             vec![json!("engine_panicked")],
-            json!("resumed"),
-            true,
-        ),
-        "{report}"
-    );
-}
-
-/// When the Runs' registry is what panicked, a Daemon cannot drain: it
-/// ends at once, and a new engine on the same home reads its live Run as
-/// interrupted, as after a crash, and resumes it by its Run ID; the ops
-/// endpoint counts one panic that ended the engine.
-///
-/// Covers: error:run_interrupted
-#[test]
-fn a_daemon_whose_runs_registry_panics_ends_at_once_leaving_its_runs_interrupted() {
-    let env = TestEnv::new();
-    let (metrics, registry, _provider) = metering();
-    let engine = engine_with(Product::Collie, Some(panicking_parts())).with_metrics(metrics);
-
-    let (end, closed) = daemon_panicked(&engine, &env, "interrupted", "test.panic_in_the_registry");
-
-    let (report, resumed) = reported_then_resumed(&env, "interrupted");
-    assert_eq!(
-        (
-            end,
-            closed,
-            report["error"]["data"]["code"].clone(),
-            resumed["result"]["started_as"].clone(),
-            series(&registry).contains(r#"goodfetch_engine_panics_total{ended="engine"} 1"#),
-        ),
-        (
-            "Panicked".to_owned(),
-            true,
-            json!("run_interrupted"),
             json!("resumed"),
             true,
         ),

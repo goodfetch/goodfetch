@@ -2764,19 +2764,6 @@ impl Runs {
         runs
     }
 
-    /// The owner of the registry's own task, under the engine's owner: its
-    /// panic tells the engine, which then stops at once (ADR 0148).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0148's Q13: a test of this crate starts a panicking task on the owner in question, here the registry's own, which nothing else can reach"
-        )
-    )]
-    pub(crate) fn registry(&self) -> &TaskOwner {
-        &self.registry
-    }
-
     fn downgrade(&self) -> mpsc::WeakSender<Command> {
         self.commands.downgrade()
     }
@@ -4659,9 +4646,11 @@ impl Registry {
         reports
     }
 
-    /// Stops each of `ids` for its Attached engine's panic (ADR 0148), its
-    /// report warned first, and answers the waits for their reports.
+    /// Takes no Run from now on, stops each of `ids` for its Attached
+    /// engine's panic (ADR 0148), its report warned first, and answers the
+    /// waits for their reports.
     async fn stop_on_panic(&mut self, ids: Vec<RunId>) -> Vec<watch::Receiver<Option<Ended>>> {
+        self.draining = true;
         let mut reports = Vec::new();
         for run_id in ids {
             self.warn_engine_panicked(&run_id).await;

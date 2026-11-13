@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::affected::{commit_all, repository, value};
+use crate::github::GitHub;
 use crate::workspace::{Outcome, Workspace};
 
 /// Now, in seconds since the Unix epoch, for every run.
@@ -50,6 +51,29 @@ pub(crate) fn plan_text(workspace: &Workspace, records: &Path) -> String {
 
 /// Runs `xtask gate plan` as [`plan_with`] does: its outcome, which passed.
 fn planned(workspace: &Workspace, records: &Path, environment: &str, extra: &[&str]) -> Outcome {
+    planned_reading(workspace, records, environment, extra, &[])
+}
+
+/// Plans as [`plan`] does, reading the quarantined tests' issues from
+/// `github` with a token.
+fn plan_reading_issues(workspace: &Workspace, records: &Path, github: &GitHub) -> Plan {
+    parse(&planned_reading(
+        workspace,
+        records,
+        "CI=",
+        &["--api-url", github.url()],
+        &[("GITHUB_TOKEN", "a-read-token".as_ref())],
+    ))
+}
+
+/// Runs `xtask gate plan` as [`planned`] does, with these variables added.
+fn planned_reading(
+    workspace: &Workspace,
+    records: &Path,
+    environment: &str,
+    extra: &[&str],
+    variables: &[(&str, &std::ffi::OsStr)],
+) -> Outcome {
     let target = target(records);
     let records = records.to_string_lossy();
     let target = target.to_string_lossy();
@@ -66,7 +90,7 @@ fn planned(workspace: &Workspace, records: &Path, environment: &str, extra: &[&s
         environment,
     ];
     args.extend(extra);
-    let outcome = workspace.xtask(&args);
+    let outcome = workspace.xtask_with_env(&args, variables);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     outcome
 }
@@ -582,6 +606,53 @@ fn a_result_for_another_head_or_a_changed_tree_is_refused() {
     for head in [&first, &second] {
         let recorded = std::fs::read_to_string(records.join(format!("{head}.tsv"))).unwrap();
         assert!(!recorded.contains("\nperf\t"), "{recorded}");
+    }
+}
+
+const ISSUE: &str = "/repos/goodfetch/goodfetch/issues/1601";
+
+/// The checks whose result follows from the tree and the host alone.
+const TREE_ONLY: [&str; 4] = ["lint", "feature-combinations", "fuzz-check", "proofs"];
+
+/// A run on the tree of a green run reuses the checks that read only the
+/// tree and the host. Lint's quarantine check also reads each quarantined
+/// test's issue (ADR 0064), so lint reruns once that issue is closed.
+#[test]
+fn a_run_on_the_same_tree_reuses_the_checks_that_read_only_the_tree() {
+    let (workspace, _folder, records) = gated_repository(&[]);
+    workspace.write(
+        "quarantine.toml",
+        b"[[test]]\nrunner = \"nextest\"\nid = \"goodfetch-engine tests::flaky\"\nissue = 1601\ndate = 2026-11-13\n",
+    );
+    commit_all(&workspace, "Quarantine a test");
+    let open = GitHub::serving(&[(
+        ISSUE,
+        r#"{ "number": 1601, "state": "open", "labels": [ { "name": "flaky-test" } ] }"#,
+    )]);
+    let closed = GitHub::serving(&[(
+        ISSUE,
+        r#"{ "number": 1601, "state": "closed", "labels": [ { "name": "flaky-test" } ] }"#,
+    )]);
+    let first = plan_reading_issues(&workspace, &records, &open);
+    for step in TREE_ONLY {
+        record(&workspace, &records, &first.head, step, "pass");
+    }
+
+    let again = plan_reading_issues(&workspace, &records, &open);
+    let after_the_close = plan_reading_issues(&workspace, &records, &closed);
+
+    assert_eq!(again.previous, first.head);
+    for step in TREE_ONLY {
+        assert_eq!(action(&again, step).0, "reuse", "{step}");
+    }
+    assert_eq!(action(&after_the_close, "lint").0, "run");
+    assert!(
+        after_the_close.why["lint"].contains("is closed"),
+        "{}",
+        after_the_close.why["lint"]
+    );
+    for step in ["feature-combinations", "fuzz-check", "proofs"] {
+        assert_eq!(action(&after_the_close, step).0, "reuse", "{step}");
     }
 }
 

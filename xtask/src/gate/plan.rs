@@ -46,6 +46,9 @@ enum Reach {
     /// A check that judges the whole change and takes seconds or minutes:
     /// every run reruns it.
     Always,
+    /// A check whose result follows from the tree and the host alone: it
+    /// reruns on another tree, whatever the change reaches.
+    Tree,
     /// The step runs when the selection runs this job of the pull-request
     /// tier.
     Job(Job),
@@ -120,15 +123,12 @@ impl Step {
             Self::Dco
             | Self::CommitMessages
             | Self::FloorGuard
-            | Self::Lint
-            | Self::FeatureCombinations
             | Self::Audit
             | Self::CommitLeaks
-            | Self::FuzzCheck
-            | Self::Proofs
             | Self::JourneysTasks
             | Self::FeaturesTests
             | Self::Notices => Reach::Always,
+            Self::Lint | Self::FeatureCombinations | Self::FuzzCheck | Self::Proofs => Reach::Tree,
             Self::Perf => Reach::Job(Job::Perf),
             // On a Linux host the Pre-merge suite runs these tests itself;
             // elsewhere they are a slice of it, in a container.
@@ -178,6 +178,13 @@ impl Step {
     /// red run may leave part way ([`EarnedPasses`]).
     pub(crate) const fn counts_passes(self) -> bool {
         matches!(self, Self::Stress)
+    }
+
+    /// Whether the step reads GitHub besides the tree: lint's quarantine
+    /// check reads whether each quarantined test's issue is an open
+    /// `flaky-test` issue (ADR 0064).
+    const fn reads_github(self) -> bool {
+        matches!(self, Self::Lint)
     }
 
     /// Whether the step compares the head with the change's base (the merge
@@ -459,10 +466,16 @@ pub(crate) struct Head<'a> {
     /// The members whose tests Vitest, Playwright or pytest run, which order
     /// them by the head's seed, and [`UNOWNED`].
     pub(crate) shuffled: &'a BTreeSet<String>,
+    /// The head's tree.
+    pub(crate) tree: &'a str,
     /// The fingerprint of this host and its tools.
     pub(crate) host: &'a str,
     /// Now, in seconds since the Unix epoch.
     pub(crate) now: u64,
+    /// What lint's quarantine check reads from GitHub, read now: `Ok` when
+    /// each quarantined test's issue is an open `flaky-test` issue, as a
+    /// green lint found it, or why not.
+    pub(crate) quarantined_issues: Result<(), String>,
 }
 
 /// What the run does with a step.
@@ -605,6 +618,12 @@ fn judge(
     if !outcome.green {
         return Err(format!("red on {origin}"));
     }
+    if matches!(step.reach(), Reach::Tree) && outcome.tree != head.tree {
+        return Err(format!("the tree changed since {origin}"));
+    }
+    if step.reads_github() {
+        head.quarantined_issues.clone()?;
+    }
     still_holds(
         step,
         member,
@@ -675,6 +694,8 @@ fn still_holds(
     let reached = touched.steps.contains(&step)
         || match step.reach() {
             Reach::Always => true,
+            // Judged by its tree, in `judge`.
+            Reach::Tree => false,
             Reach::Job(job) => touched.jobs.contains(&job),
             Reach::Crates => touched.crates,
             Reach::Members => member.is_some_and(|member| {

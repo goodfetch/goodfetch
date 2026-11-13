@@ -102,39 +102,7 @@ pub(crate) struct Sources<'a> {
 
 pub(crate) fn check(root: &Path, sources: &Sources<'_>) -> Result<Vec<Finding>> {
     let entries = read(root)?;
-    let mut findings = Vec::new();
-    for entry in &entries {
-        let issue = issues::find(&sources.api, sources.repository, entry.issue)?;
-        let problem = match issue {
-            None => Some((
-                "quarantine-issue-missing",
-                "is no issue of the repository, or the token cannot read it",
-            )),
-            Some(issue) if !issue.open => Some(("quarantine-issue-closed", "is closed")),
-            Some(issue)
-                if !issue
-                    .labels
-                    .iter()
-                    .any(|label| label == IssueLabel::FlakyTest.name()) =>
-            {
-                Some((
-                    "quarantine-issue-not-flaky-test",
-                    "is not labelled `flaky-test`",
-                ))
-            }
-            Some(_) => None,
-        };
-        if let Some((kind, why)) = problem {
-            findings.push(Finding::new(
-                kind,
-                entry.test.to_string(),
-                format!(
-                    "issue #{} {why}; a quarantined test needs its open `flaky-test` issue (ADR 0064)",
-                    entry.issue
-                ),
-            ));
-        }
-    }
+    let mut findings = issue_findings(&entries, &sources.api, sources.repository)?;
 
     let runners: BTreeSet<Runner> = entries.iter().map(|entry| entry.runner).collect();
     for runner in runners {
@@ -166,6 +134,66 @@ pub(crate) fn check(root: &Path, sources: &Sources<'_>) -> Result<Vec<Finding>> 
                     ));
                 }
             }
+        }
+    }
+    Ok(findings)
+}
+
+/// What lint's check reads from GitHub, read now, for `xtask gate plan`
+/// before it reuses a green lint on the same tree: `Ok` when each test the
+/// list quarantines has its open `flaky-test` issue, or why not. An empty
+/// list reads nothing.
+pub(crate) fn issues_hold(
+    root: &Path,
+    github: &github::Arguments,
+    token: Option<&str>,
+) -> Result<(), String> {
+    let entries = read(root).map_err(|error| format!("{error:#}"))?;
+    let findings = issue_findings(&entries, &github.api(token), &github.repository)
+        .map_err(|error| format!("the quarantined tests' issues cannot be read: {error:#}"))?;
+    match findings.first() {
+        None => Ok(()),
+        Some(finding) => Err(format!(
+            "lint's quarantine check: {}: {}",
+            finding.subject, finding.message
+        )),
+    }
+}
+
+/// The findings on each entry's issue, which must be an open `flaky-test`
+/// issue of `repository`.
+fn issue_findings(entries: &[Entry], api: &Api<'_>, repository: &str) -> Result<Vec<Finding>> {
+    let mut findings = Vec::new();
+    for entry in entries {
+        let issue = issues::find(api, repository, entry.issue)?;
+        let problem = match issue {
+            None => Some((
+                "quarantine-issue-missing",
+                "is no issue of the repository, or the token cannot read it",
+            )),
+            Some(issue) if !issue.open => Some(("quarantine-issue-closed", "is closed")),
+            Some(issue)
+                if !issue
+                    .labels
+                    .iter()
+                    .any(|label| label == IssueLabel::FlakyTest.name()) =>
+            {
+                Some((
+                    "quarantine-issue-not-flaky-test",
+                    "is not labelled `flaky-test`",
+                ))
+            }
+            Some(_) => None,
+        };
+        if let Some((kind, why)) = problem {
+            findings.push(Finding::new(
+                kind,
+                entry.test.to_string(),
+                format!(
+                    "issue #{} {why}; a quarantined test needs its open `flaky-test` issue (ADR 0064)",
+                    entry.issue
+                ),
+            ));
         }
     }
     Ok(findings)

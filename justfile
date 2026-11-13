@@ -1682,7 +1682,9 @@ _gate-steps form:
 # gates; GOODFETCH_GATE_FULL=1 reuses nothing.
 # Vitest's and Playwright's listings since a recorded head, the evidence of
 # what the TypeScript tests read, load each test file, which reads only the
-# keys of the test tool manifest: an empty one serves.
+# keys of the test tool manifest: an empty one serves. A run on the tree of a
+# green lint reads each quarantined test's issue again, as lint's quarantine
+# check does, with the same token.
 _gate-plan:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1692,7 +1694,8 @@ _gate-plan:
     # fingerprint, so a result counts only for a run in the same environment;
     # `xtask gate plan` leaves out the launcher's own (GOODFETCH_GATE_MIN_FREE_GB).
     variables=$(env | grep -E '^(CI|GOODFETCH_[A-Z0-9_]+|NEXTEST_[A-Z0-9_]+|CARGO_[A-Z0-9_]+|RUST[A-Z0-9_]*|UV_[A-Z0-9_]+|NODE_[A-Z0-9_]+)=' | LC_ALL=C sort || true)
-    GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_TEST_TOOLS="$PWD/target/gate-runs/listing-tools.json" \
+    GITHUB_TOKEN="${GITHUB_TOKEN:-$(gh auth token 2>/dev/null || true)}" \
+      GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_TEST_TOOLS="$PWD/target/gate-runs/listing-tools.json" \
       cargo run --quiet --bin xtask -- gate plan --records target/gate-runs --now "$(date +%s)" \
       --environment "$variables" ${GOODFETCH_GATE_FULL:+--full}
 

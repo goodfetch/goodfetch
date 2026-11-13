@@ -18,6 +18,8 @@ use crate::affected::{Job, RepoPath};
 const BASE: &str = "base";
 const EARLIER: &str = "earlier";
 const HOST: &str = "host";
+/// The tree of the head every case plans for, but those on `EARLIER`'s.
+const HEAD_TREE: &str = "head-tree";
 /// Now, in seconds since the Unix epoch, for every case.
 const NOW: u64 = 1_800_000_000;
 
@@ -92,10 +94,37 @@ fn planned_shuffling(
         base: BASE,
         members,
         shuffled,
+        tree: HEAD_TREE,
         host: HOST,
         now: NOW,
+        quarantined_issues: Ok(()),
     };
     plan(&head, record, "no earlier run", touched)
+}
+
+/// The plan for a head on `EARLIER`'s tree, where the quarantine check's
+/// issues read `quarantined_issues` now.
+fn planned_on_earliers_tree(
+    record: &GateRun,
+    quarantined_issues: Result<(), &str>,
+) -> Vec<Planned> {
+    let members = members();
+    let tree = green(EARLIER).tree;
+    let head = Head {
+        base: BASE,
+        members: &members,
+        shuffled: &BTreeSet::new(),
+        tree: &tree,
+        host: HOST,
+        now: NOW,
+        quarantined_issues: quarantined_issues.map_err(str::to_owned),
+    };
+    plan(
+        &head,
+        Some(record),
+        "no earlier run",
+        &touched_since_earlier(Touched::default()),
+    )
 }
 
 fn action(plan: &[Planned], step: Step) -> &Action {
@@ -124,7 +153,7 @@ fn reruns(plan: &[Planned]) -> (BTreeSet<&'static str>, BTreeMap<&'static str, V
     (full, part)
 }
 
-/// The checks every run reruns, whatever the change.
+/// The checks every run on another tree reruns, whatever the change.
 const ALWAYS: [&str; 12] = [
     "dco",
     "commit-messages",
@@ -791,6 +820,112 @@ fn a_changed_host_reruns_every_step() {
     assert!(part.is_empty());
 }
 
+/// The checks whose result follows from the tree and the host alone.
+const TREE_ONLY: [Step; 4] = [
+    Step::Lint,
+    Step::FeatureCombinations,
+    Step::FuzzCheck,
+    Step::Proofs,
+];
+
+#[test]
+fn a_run_on_the_same_tree_reuses_the_checks_that_read_only_the_tree() {
+    let plan = planned_on_earliers_tree(&full_green_run(), Ok(()));
+
+    for step in TREE_ONLY {
+        assert_eq!(
+            action(&plan, step),
+            &Action::Reuse {
+                origins: BTreeSet::from([EARLIER.to_owned()])
+            },
+            "{}",
+            step.name()
+        );
+    }
+    let (full, part) = reruns(&plan);
+    let mut expected = BTreeSet::from(ALWAYS);
+    for step in TREE_ONLY {
+        expected.remove(step.name());
+    }
+    assert_eq!(full, expected);
+    assert!(part.is_empty());
+}
+
+#[test]
+fn another_tree_reruns_the_checks_that_read_only_the_tree() {
+    let plan = planned(
+        Some(&full_green_run()),
+        &touched_since_earlier(Touched::default()),
+    );
+
+    for step in TREE_ONLY {
+        assert_eq!(
+            action(&plan, step),
+            &Action::Run {
+                why: "the tree changed since earlier".to_owned()
+            },
+            "{}",
+            step.name()
+        );
+    }
+}
+
+/// Lint's quarantine check reads each quarantined test's issue from GitHub
+/// as well as the tree (ADR 0064): a result on the same tree holds only
+/// while those issues read as they did.
+#[test]
+fn lint_reruns_on_the_same_tree_when_a_quarantined_tests_issue_no_longer_holds() {
+    let plan = planned_on_earliers_tree(&full_green_run(), Err("issue #1601 is closed"));
+
+    assert_eq!(
+        action(&plan, Step::Lint),
+        &Action::Run {
+            why: "issue #1601 is closed".to_owned()
+        }
+    );
+    for step in [Step::FeatureCombinations, Step::FuzzCheck, Step::Proofs] {
+        assert!(
+            matches!(action(&plan, step), Action::Reuse { .. }),
+            "{}",
+            step.name()
+        );
+    }
+}
+
+#[rstest]
+#[case::on_another_host(|record: &mut GateRun| record.host = "another host".to_owned(), "the host or its tools changed")]
+#[case::older_than_a_day(
+    |record: &mut GateRun| {
+        for step in TREE_ONLY {
+            record.units.insert(unit(step, None), Outcome { at: NOW - MAX_AGE - 1, ..green(EARLIER) });
+        }
+    },
+    "older than a day"
+)]
+#[case::red(
+    |record: &mut GateRun| {
+        for step in TREE_ONLY {
+            record.units.insert(unit(step, None), Outcome { green: false, ..green(EARLIER) });
+        }
+    },
+    "red on earlier"
+)]
+fn a_tree_only_result_on_the_same_tree_reruns(#[case] change: fn(&mut GateRun), #[case] why: &str) {
+    let mut record = full_green_run();
+    change(&mut record);
+
+    let plan = planned_on_earliers_tree(&record, Ok(()));
+
+    for step in TREE_ONLY {
+        assert!(
+            matches!(action(&plan, step), Action::Run { why: reason } if reason.contains(why)),
+            "{}: {:?}",
+            step.name(),
+            action(&plan, step)
+        );
+    }
+}
+
 #[test]
 fn a_result_older_than_a_day_reruns() {
     let mut record = full_green_run();
@@ -1062,9 +1197,9 @@ fn a_plan_reads_back_each_steps_action_members_and_reason() {
     assert_eq!(plan_value(&text, "unowned").unwrap(), "-");
     assert_eq!(plan_value(&text, "quick.action").unwrap(), "part");
     assert_eq!(plan_value(&text, "quick.members").unwrap(), "xtask");
-    assert_eq!(plan_value(&text, "lint.action").unwrap(), "run");
+    assert_eq!(plan_value(&text, "audit.action").unwrap(), "run");
     assert_eq!(
-        plan_value(&text, "lint.why").unwrap(),
+        plan_value(&text, "audit.why").unwrap(),
         "every run reruns it"
     );
     assert_eq!(plan_value(&text, "perf.action").unwrap(), "reuse");

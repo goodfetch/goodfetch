@@ -1,12 +1,13 @@
-//! `xtask gate`, the incremental local gate (ADR 0135): `just pre-merge all`
-//! on a head that descends from a head whose gate already ran reruns only
-//! the steps, and the members' tests, that the change since then reaches,
-//! by `xtask affected` and by the evidence of what each member read
-//! (`evidence`), and every check that judges the whole change; it reuses
-//! the other green results. A red result, a result older than a day and a
-//! result from another host fingerprint are never reused, a change to the
-//! gate's own inputs reruns everything, and a working tree with uncommitted
-//! changes neither reuses nor records anything.
+//! `xtask gate`, the incremental local gate (ADR 0135): `just pre-merge all` on
+//! a head that descends from a head whose gate already ran reruns only the
+//! steps, and the members' tests, that the change since then reaches, by `xtask
+//! affected` and by the evidence of what each member read (`evidence`), and
+//! every check that judges the whole change but those a run on the same tree
+//! reuses, which read only the tree and the host (lint, feature combinations,
+//! fuzz-check, proofs); it reuses the other green results. A red result, a
+//! result older than a day and a result from another host fingerprint are never
+//! reused, a change to the gate's own inputs reruns everything, and a working
+//! tree with uncommitted changes neither reuses nor records anything.
 //! - **steps**: prints what a form of `just pre-merge` runs, in its order,
 //!   and the `just` command of each step (`steps`), which `ci/pre-merge.sh`
 //!   follows.
@@ -58,7 +59,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::affected::{self, Job, Range, RepoPath, WorkspaceMembers};
 use crate::environment::Environment;
-use crate::{git, metadata, output};
+use crate::{git, github, metadata, output, quarantine};
 use attribution::{Evidence, Judged, StressEvidence};
 use earlier::StressBase;
 use evidence::RustInputs;
@@ -130,6 +131,9 @@ pub(crate) enum Command {
         /// counts only for a run in the same environment.
         #[arg(long, default_value = "")]
         environment: String,
+        /// Where lint's quarantine check reads its quarantined tests' issues.
+        #[command(flatten)]
+        github: github::Arguments,
     },
     /// Appends a step's result to the record of the run on HEAD, for the
     /// units the plan ran; nothing without a plan for HEAD.
@@ -205,6 +209,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             now,
             target_dir,
             environment: variables,
+            github,
         } => {
             let records = environment.path(&records);
             let target = match target_dir {
@@ -221,6 +226,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     now,
                     target,
                     variables,
+                    github,
                 },
             )?;
         }
@@ -304,6 +310,7 @@ struct Options {
     now: u64,
     target: std::path::PathBuf,
     variables: String,
+    github: github::Arguments,
 }
 
 fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Result<()> {
@@ -331,8 +338,10 @@ fn plan_run(environment: &Environment, records: &Path, options: &Options) -> Res
         base: &base,
         members: &members,
         shuffled: &shuffled,
+        tree: &git::line(root, &["rev-parse", "--verify", "HEAD^{tree}"])?,
         host: &host,
         now: options.now,
+        quarantined_issues: quarantine::issues_hold(root, &options.github, environment.token()),
     };
     let (previous, no_previous) = if options.full {
         (

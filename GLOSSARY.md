@@ -768,6 +768,10 @@ _Avoid_: cassette, fixture (alone), snapshot
 One thing the Proving ground asks a tool to do on one page family, with its starting URL and the expected result its oracle judges against. Called a task where the Proving ground is already the subject.
 _Avoid_: fixture, test case
 
+**Standing**:
+What a comparison report says of the Product's figure against a competitor's on one metric: ahead when every trial of the Product's is better than every trial of the competitor's, behind when every one is worse, overlapping when their ranges overlap.
+_Avoid_: verdict, winner
+
 **Result document**:
 The one JSON document a conformance suite or a Journey variant writes each time it is run, of kind `conformance` or `journey`, whose outcomes are derived from what it records and recomputed by every reader, never set by the test.
 _Avoid_: test report, run result, results file

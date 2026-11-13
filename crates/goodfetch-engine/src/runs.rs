@@ -1786,7 +1786,7 @@ impl Run {
             .blocking(move || {
                 shared
                     .charging()
-                    .as_ref()
+                    .as_mut()
                     .map(|charging| charging.applied(now))
                     .transpose()
             })

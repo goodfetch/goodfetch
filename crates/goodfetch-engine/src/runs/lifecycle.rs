@@ -9,7 +9,7 @@
 //! | `Start` | — | — | — | — |
 //! | `Resume` | `running` | `running` | — | `running` |
 //! | `Checkpoint` | — | — | — | — |
-//! | `Pause`, `Migrate`, `Abort`, `Timeout`, `Limit`, `LimitNotUnderstood`, `ResourcesExhausted`, `EngineLost`, `Drain` | `stopped` | — | — | — |
+//! | `Pause`, `Migrate`, `Abort`, `Timeout`, `Limit`, `LimitNotUnderstood`, `ResourcesExhausted`, `EngineLost`, `EnginePanicked`, `Drain` | `stopped` | — | — | — |
 //! | `Finish` | `finished` | — | — | — |
 //! | `Fail` | `failed` | — | — | — |
 //! | `RetryFailed` | — | `running` | `running` | `running` |
@@ -61,6 +61,9 @@ pub enum RunEvent {
     ResourcesExhausted,
     /// Its engine is gone: its state says `running` and no writer holds it.
     EngineLost,
+    /// Its Attached engine stops on a panic in a part every Run shares
+    /// (ADR 0148): stopped, to be resumed by its Run ID.
+    EnginePanicked,
     /// Its Daemon drains (ADR 0049): checkpointed and stopped, to be
     /// resumed by its Run ID.
     Drain,
@@ -107,6 +110,7 @@ pub fn apply(state: Lifecycle, event: RunEvent) -> Result<Next, InvalidRunTransi
             | RunEvent::LimitNotUnderstood
             | RunEvent::ResourcesExhausted
             | RunEvent::EngineLost
+            | RunEvent::EnginePanicked
             | RunEvent::Drain => Ok(Next::To(Lifecycle::Stopped)),
             RunEvent::Finish => Ok(Next::To(Lifecycle::Finished)),
             RunEvent::Fail => Ok(Next::To(Lifecycle::Failed)),
@@ -124,6 +128,7 @@ pub fn apply(state: Lifecycle, event: RunEvent) -> Result<Next, InvalidRunTransi
             | RunEvent::LimitNotUnderstood
             | RunEvent::ResourcesExhausted
             | RunEvent::EngineLost
+            | RunEvent::EnginePanicked
             | RunEvent::Drain
             | RunEvent::Finish
             | RunEvent::Fail => Ok(Next::Unchanged),
@@ -142,6 +147,7 @@ pub fn apply(state: Lifecycle, event: RunEvent) -> Result<Next, InvalidRunTransi
             | RunEvent::LimitNotUnderstood
             | RunEvent::ResourcesExhausted
             | RunEvent::EngineLost
+            | RunEvent::EnginePanicked
             | RunEvent::Drain
             | RunEvent::Finish
             | RunEvent::Fail => Ok(Next::Unchanged),

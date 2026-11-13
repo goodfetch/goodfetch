@@ -96,6 +96,16 @@ mod process {
     #[case::attached_drain(EngineState::Attached, EngineEvent::Drain, INTERNAL)]
     #[case::attached_drained(EngineState::Attached, EngineEvent::Drained, INTERNAL)]
     #[case::attached_listener_failed(EngineState::Attached, EngineEvent::ListenerFailed, INTERNAL)]
+    #[case::attached_part_panicked(
+        EngineState::Attached,
+        EngineEvent::PartPanicked,
+        Ok(EngineState::Stopping)
+    )]
+    #[case::attached_registry_panicked(
+        EngineState::Attached,
+        EngineEvent::RegistryPanicked,
+        Ok(EngineState::Stopping)
+    )]
     #[case::serving_client_lost(
         EngineState::Serving,
         EngineEvent::ClientLost,
@@ -120,6 +130,16 @@ mod process {
         EngineState::Serving,
         EngineEvent::ListenerFailed,
         Ok(EngineState::Draining)
+    )]
+    #[case::serving_part_panicked(
+        EngineState::Serving,
+        EngineEvent::PartPanicked,
+        Ok(EngineState::Draining)
+    )]
+    #[case::serving_registry_panicked(
+        EngineState::Serving,
+        EngineEvent::RegistryPanicked,
+        Ok(EngineState::Stopping)
     )]
     #[case::handing_over_client_lost(
         EngineState::HandingOver,
@@ -154,6 +174,16 @@ mod process {
         EngineEvent::ListenerFailed,
         Ok(EngineState::HandingOver)
     )]
+    #[case::handing_over_part_panicked(
+        EngineState::HandingOver,
+        EngineEvent::PartPanicked,
+        Ok(EngineState::HandingOver)
+    )]
+    #[case::handing_over_registry_panicked(
+        EngineState::HandingOver,
+        EngineEvent::RegistryPanicked,
+        Ok(EngineState::HandingOver)
+    )]
     #[case::draining_client_lost(
         EngineState::Draining,
         EngineEvent::ClientLost,
@@ -181,6 +211,16 @@ mod process {
     #[case::draining_listener_failed(
         EngineState::Draining,
         EngineEvent::ListenerFailed,
+        Ok(EngineState::Draining)
+    )]
+    #[case::draining_part_panicked(
+        EngineState::Draining,
+        EngineEvent::PartPanicked,
+        Ok(EngineState::Draining)
+    )]
+    #[case::draining_registry_panicked(
+        EngineState::Draining,
+        EngineEvent::RegistryPanicked,
         Ok(EngineState::Draining)
     )]
     #[case::stopping_client_lost(
@@ -220,6 +260,16 @@ mod process {
         EngineEvent::ListenerFailed,
         Ok(EngineState::Stopping)
     )]
+    #[case::stopping_part_panicked(
+        EngineState::Stopping,
+        EngineEvent::PartPanicked,
+        Ok(EngineState::Stopping)
+    )]
+    #[case::stopping_registry_panicked(
+        EngineState::Stopping,
+        EngineEvent::RegistryPanicked,
+        Ok(EngineState::Stopping)
+    )]
     fn each_pair_of_the_engines_table_gives_its_outcome(
         #[case] state: EngineState,
         #[case] event: EngineEvent,
@@ -257,6 +307,8 @@ fn engine_event() -> impl Strategy<Value = EngineEvent> {
         EngineEvent::Drain,
         EngineEvent::Drained,
         EngineEvent::ListenerFailed,
+        EngineEvent::PartPanicked,
+        EngineEvent::RegistryPanicked,
     ])
 }
 

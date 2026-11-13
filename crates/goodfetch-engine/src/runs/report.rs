@@ -213,6 +213,7 @@ fn stopped_for(reason: &StopReason) -> String {
             limit.scope.kind, limit.usage_kind
         ),
         StopReason::EngineLost => "its engine was lost".to_owned(),
+        StopReason::EnginePanicked => "its engine stopped on a bug".to_owned(),
         StopReason::Resources { resource, .. } => match resource {
             goodfetch_protocol::run::Resource::Memory => "memory ran out".to_owned(),
             goodfetch_protocol::run::Resource::Storage => "storage ran out".to_owned(),

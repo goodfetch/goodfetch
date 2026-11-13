@@ -290,7 +290,7 @@ fn just_compare_builds_each_of_spiders_sides_builds_into_its_folder() {
 
 /// The extraction scenario crawls the article site (#2136), which every
 /// tool reaches by its name, and each cell's mapping names what reads its
-/// Main content: Foxhound's Clean-up rules and dom_smoothie, Spider's
+/// Main content: Foxhound's Clean-up rules and `dom_smoothie`, Spider's
 /// `llm_readability` at the versions its side pins, and the text of
 /// `<main>` for the tools that read no main content of their own.
 #[test]

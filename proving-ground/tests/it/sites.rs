@@ -302,18 +302,17 @@ fn the_article_sites_pages_hold_an_article_among_boilerplate_and_an_ad_and_its_a
     let mut raw_titles = Vec::new();
     let mut wrong = Vec::new();
 
+    let title = regex::Regex::new("<title>([^<]*)</title>").expect("a valid expression");
     for page in 1..=1000_usize {
         let body = proving_ground
             .get(&format!("{origin}/sites/1000/{page}"))
             .body;
         sizes.push(body.len());
-        raw_titles.push(
-            regex::Regex::new("<title>([^<]*)</title>")
-                .expect("a valid expression")
-                .captures(&body)
-                .expect("a title")[1]
-                .to_owned(),
-        );
+        raw_titles.push(title.captures(&body).expect("a title")[1].to_owned());
+        #[expect(
+            clippy::disallowed_types,
+            reason = "the test reads the page as a reader would: no Product's counted parse"
+        )]
         let document = dom_query::Document::from(body.as_str());
         let text = |selector: &str| collapsed(&document.select(selector).text());
         let paragraphs: Vec<String> = document

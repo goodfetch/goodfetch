@@ -172,7 +172,7 @@ pub(crate) struct Figures {
 
 /// One ratio of the Callgrind cell's.
 #[derive(Serialize)]
-pub(crate) struct Ratio {
+pub(crate) struct InstructionRatio {
     pub(crate) row: &'static str,
     pub(crate) scenario: &'static str,
     /// Foxhound's cell.
@@ -197,7 +197,7 @@ pub(crate) enum Instructions<'a> {
     },
     /// A ratio for each of [`RATIOS`] whose scenario the cell counted.
     Measured {
-        ratios: Vec<Ratio>,
+        ratios: Vec<InstructionRatio>,
     },
 }
 
@@ -685,7 +685,7 @@ fn instructions(cell: &CountedCell) -> Instructions<'_> {
                                 worst(spider.iter().filter_map(|run| run.extracted.as_ref()))?;
                             output_differs(&output, check, spider.first()?.work.pages)
                         });
-                    Some(Ratio {
+                    Some(InstructionRatio {
                         row: row.row,
                         scenario: row.described,
                         foxhound: row.foxhound,
@@ -697,6 +697,22 @@ fn instructions(cell: &CountedCell) -> Instructions<'_> {
                 })
                 .collect(),
         },
+    }
+}
+
+/// What the output check found of a measured cell's trials, on the article
+/// site: under each check, its worst trial's.
+fn output_of(trials: &Comparison, cell: &Cell, status: &CellStatus) -> Option<Extracted> {
+    match status {
+        CellStatus::Measured { .. } if cell.output_check().is_some() => worst(
+            trials_of(&trials.trials, cell)
+                .into_iter()
+                .filter_map(|trial| trial.measured.extracted.as_ref()),
+        ),
+        CellStatus::Measured { .. }
+        | CellStatus::NotSupported { .. }
+        | CellStatus::NotMeasured { .. }
+        | CellStatus::Ruled { .. } => None,
     }
 }
 
@@ -782,17 +798,7 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
                     }
                 }
             };
-            let output = match &status {
-                CellStatus::Measured { .. } if cell.output_check().is_some() => worst(
-                    trials_of(&trials.trials, cell)
-                        .into_iter()
-                        .filter_map(|trial| trial.measured.extracted.as_ref()),
-                ),
-                CellStatus::Measured { .. }
-                | CellStatus::NotSupported { .. }
-                | CellStatus::NotMeasured { .. }
-                | CellStatus::Ruled { .. } => None,
-            };
+            let output = output_of(trials, cell, &status);
             cells.push(CellReport {
                 cell: cell.name,
                 tool: cell.tool.name(),
@@ -1166,7 +1172,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             Err(reason) => {
                 let _ = writeln!(text, "\n`{}`: not run: {reason}.", row.row);
             }
-            Ok(Ratio {
+            Ok(InstructionRatio {
                 row,
                 scenario,
                 foxhound_per_page,

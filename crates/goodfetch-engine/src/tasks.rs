@@ -33,7 +33,7 @@ use std::io;
 use std::num::NonZeroUsize;
 use std::ops::ControlFlow;
 use std::panic::AssertUnwindSafe;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use futures_util::FutureExt as _;
 use tokio::sync::{Semaphore, mpsc, oneshot};
@@ -53,6 +53,10 @@ pub enum BlockingPolicy {
     Inline,
 }
 
+/// The part a panic's log names for a task of the engine's root owner, or
+/// of an owner under it that names no part of its own.
+const ENGINES_OWN: &str = "engine";
+
 /// What an owner is, which the log of a panic in one of its tasks names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OwnerKind {
@@ -62,7 +66,8 @@ pub enum OwnerKind {
     /// A Connection, whose own tasks are its writer and its log forwarder,
     /// and its calls.
     Connection,
-    /// A Run, and its writer.
+    /// A Run, its writer, and the work the Run registry does for one Run,
+    /// such as publishing its progress or recording its end.
     Run,
 }
 
@@ -126,13 +131,25 @@ impl TaskOwner {
     /// too when both are the engine's own ([`OwnerKind::Engine`]).
     #[must_use]
     pub fn child(&self) -> Self {
-        self.child_for(self.panics.kind())
+        self.under(self.panics.kind(), self.panics.part())
     }
 
     /// An owner under this one, as [`TaskOwner::child`], of `kind`, such
     /// as a Connection's or a Run's.
     #[must_use]
     pub fn child_for(&self, kind: OwnerKind) -> Self {
+        self.under(kind, self.panics.part())
+    }
+
+    /// An owner under this one, as [`TaskOwner::child`], for `part`, a part
+    /// every Run shares, such as the Run registry, which the log of a panic
+    /// of its tasks or of those of its children names (ADR 0148).
+    #[must_use]
+    pub fn part(&self, part: &'static str) -> Self {
+        self.under(self.panics.kind(), part)
+    }
+
+    fn under(&self, kind: OwnerKind, part: &'static str) -> Self {
         Self {
             token: self.token.child_token(),
             tracker: TaskTracker::new(),
@@ -140,7 +157,7 @@ impl TaskOwner {
             closing: CancellationToken::new(),
             policy: self.policy,
             analyses: Arc::clone(&self.analyses),
-            panics: self.panics.child(kind),
+            panics: self.panics.child(kind, part),
         }
     }
 
@@ -172,6 +189,13 @@ impl TaskOwner {
     /// this reads every panic among them.
     pub fn has_panicked(&self) -> bool {
         self.panics.panicked().is_cancelled()
+    }
+
+    /// The part whose task panicked first among its own and its children's
+    /// that tell it ([`TaskOwner::part`]): the name the engine's log gives
+    /// when that panic stops it; none while none has panicked.
+    pub fn panicked_part(&self) -> Option<&'static str> {
+        self.panics.0.first.get().copied()
     }
 
     /// Its blocking policy.
@@ -426,8 +450,14 @@ struct Panics(Arc<Telling>);
 #[derive(Debug)]
 struct Telling {
     kind: OwnerKind,
+    /// The part every Run shares it is, or is under, which the log of a
+    /// panic names: its parent's unless it was named.
+    part: &'static str,
     /// Cancelled once one of the owner's tasks panicked.
     panicked: CancellationToken,
+    /// The part whose task panicked first among its own and those of the
+    /// owners that tell it.
+    first: OnceLock<&'static str>,
     /// Its parent's, told too when both owners are the engine's own: a
     /// task under the engine's owner that belongs to no Run and no
     /// Connection is a part every Run shares (ADR 0148).
@@ -438,24 +468,32 @@ impl Panics {
     fn new(kind: OwnerKind) -> Self {
         Self(Arc::new(Telling {
             kind,
+            part: ENGINES_OWN,
             panicked: CancellationToken::new(),
+            first: OnceLock::new(),
             parent: None,
         }))
     }
 
-    /// The tell of a child owner of `kind`, which tells this one too when
-    /// both are the engine's own.
-    fn child(&self, kind: OwnerKind) -> Self {
+    /// The tell of a child owner of `kind`, of the part `part`, which tells
+    /// this one too when both are the engine's own.
+    fn child(&self, kind: OwnerKind, part: &'static str) -> Self {
         let engines_own = kind == OwnerKind::Engine && self.kind() == OwnerKind::Engine;
         Self(Arc::new(Telling {
             kind,
+            part,
             panicked: CancellationToken::new(),
+            first: OnceLock::new(),
             parent: engines_own.then(|| self.clone()),
         }))
     }
 
     fn kind(&self) -> OwnerKind {
         self.0.kind
+    }
+
+    fn part(&self) -> &'static str {
+        self.0.part
     }
 
     fn panicked(&self) -> &CancellationToken {
@@ -465,13 +503,18 @@ impl Panics {
     /// Tells a panic of one of the owner's tasks, whose crash report is
     /// `crash_report`, when one was written.
     fn tell(&self, crash_report: Option<&str>) {
+        // A Run's or a Connection's task is no part every Run shares, so
+        // only the engine's own name one.
+        let part = (self.kind() == OwnerKind::Engine).then(|| self.part());
         tracing::error!(
             owner = self.kind().as_str(),
+            part,
             crash_report,
             "a task panicked, and its owner's parent is told"
         );
         let mut told = Some(self);
         while let Some(panics) = told {
+            let _ = panics.0.first.set(self.part());
             panics.panicked().cancel();
             told = panics.0.parent.as_ref();
         }

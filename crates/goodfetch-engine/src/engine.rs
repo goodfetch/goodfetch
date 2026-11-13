@@ -271,7 +271,30 @@ impl Engine {
             drop(runs);
             owner.stop().await;
         }
-        ended
+        self.late_panic(&owner, ended)
+    }
+
+    /// `ended`, unless a part every Run shares panicked after the Daemon's
+    /// loop stopped waiting for a panic, as it stopped: then
+    /// [`DaemonEnd::Panicked`], which exits 1 like any other such panic
+    /// (ADR 0148). A handover keeps its end, the next Daemon serving on.
+    fn late_panic(&self, owner: &TaskOwner, ended: DaemonEnd) -> DaemonEnd {
+        match ended {
+            DaemonEnd::Idle
+            | DaemonEnd::Stopped
+            | DaemonEnd::Drained
+            | DaemonEnd::ListenerFailed
+                if owner.has_panicked() =>
+            {
+                tracing::error!(
+                    part = owner.panicked_part(),
+                    "a part every Run shares panicked as the Daemon stopped"
+                );
+                self.metrics.panicked(PanicEnded::Engine);
+                DaemonEnd::Panicked
+            }
+            ended => ended,
+        }
     }
 
     /// The engine's Resource governor, a task of `owner` that reads
@@ -351,7 +374,7 @@ impl Engine {
                     &dependencies.home,
                     dependencies.run_state.vfs.clone(),
                 ),
-                owner: Arc::new(owner.child()),
+                owner: Arc::new(owner.part("Needs-you list")),
             },
             events.clone(),
             owner,
@@ -433,7 +456,7 @@ impl Engine {
             dependencies.clock,
             settings,
             Arc::clone(&audit),
-            Arc::new(owner.child()),
+            Arc::new(owner.part("engine's stores")),
             needs_you,
             sandbox_probe,
             os_user(&dependencies.environment),
@@ -538,7 +561,7 @@ impl Engine {
         let reported = private.as_ref().map(|(_, endpoint, _)| endpoint.clone());
         // The private endpoint's Connections, which the stdio Connection
         // does not wait for.
-        let accepting = owner.child();
+        let accepting = owner.part("private endpoint");
         let stdio = rpc::serve(
             Arc::clone(&self.dispatch),
             connection,
@@ -574,51 +597,61 @@ impl Engine {
                 tracing::warn!("the Attached engine's parent is gone: its Runs stop");
                 EngineEvent::ParentGone
             }
-            () = panicked => if runs.registry_panicked() {
-                EngineEvent::RegistryPanicked
-            } else {
-                EngineEvent::PartPanicked
-            },
+            () = panicked => EngineEvent::panicked(runs.registry_panicked()),
         };
         // Each end stops it, as the engine's table says (ADR 0128).
         if let Err(refused) = transition::engine::engine(EngineState::Attached, ended) {
             let _ = refused.logged();
         }
         accepting.stop().await;
-        let panicked = matches!(
-            ended,
-            EngineEvent::PartPanicked | EngineEvent::RegistryPanicked
-        );
-        if panicked {
-            // A panic in a part every Run shares stops the engine with no
-            // drain, and its process exits 1 (ADR 0148). Its Runs stop for
-            // the panic first, unless the registry that stops them is what
-            // panicked: then each stays as it is, read as interrupted.
-            tracing::error!(
-                registry = matches!(ended, EngineEvent::RegistryPanicked),
-                "a part every Run shares panicked: the Attached engine stops"
-            );
-            self.metrics.panicked(PanicEnded::Engine);
-            if matches!(ended, EngineEvent::PartPanicked) {
-                runs.stop_all_on_panic().await;
+        match ended {
+            EngineEvent::PartPanicked | EngineEvent::RegistryPanicked => {
+                // A panic in a part every Run shares stops the engine with
+                // no drain, and its process exits 1 (ADR 0148). Its Runs
+                // stop for the panic first, unless the registry that stops
+                // them is what panicked: then each stays as it is, read as
+                // interrupted.
+                let registry = matches!(ended, EngineEvent::RegistryPanicked);
+                tracing::error!(
+                    part = owner.panicked_part(),
+                    registry,
+                    "a part every Run shares panicked: the Attached engine stops"
+                );
+                self.metrics.panicked(PanicEnded::Engine);
+                if !registry {
+                    runs.stop_all_on_panic().await;
+                }
+                drop(runs);
+                connection_owner.cancel();
+                owner.cancel();
+                drop(private_files);
+                Err(AttachedFailure::Panicked)
             }
-            drop(runs);
-            connection_owner.cancel();
-            owner.cancel();
-            drop(private_files);
-            return Err(AttachedFailure::Panicked);
+            _ => {
+                runs.stop_all().await;
+                drop(runs);
+                connection_owner.stop().await;
+                owner.stop().await;
+                drop(private_files);
+                if owner.has_panicked() {
+                    // One panicked after the wait above stopped waiting, as
+                    // the engine stopped: it fails all the same (ADR 0148).
+                    tracing::error!(
+                        part = owner.panicked_part(),
+                        "a part every Run shares panicked as the Attached engine stopped"
+                    );
+                    self.metrics.panicked(PanicEnded::Engine);
+                    return Err(AttachedFailure::Panicked);
+                }
+                Ok(())
+            }
         }
-        runs.stop_all().await;
-        drop(runs);
-        connection_owner.stop().await;
-        owner.stop().await;
-        drop(private_files);
-        Ok(())
     }
 }
 
 /// Why an Attached engine failed ([`Engine::run_attached`]).
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum AttachedFailure {
     /// It got no Connection.
     #[error("it got no Connection: {0}")]
@@ -674,7 +707,7 @@ fn host_settings(
     (keychain, probe): (Keychain, SandboxProbe),
     work: CountedWork,
 ) -> Settings {
-    let probing = Arc::new(owner.child());
+    let probing = Arc::new(owner.part("sandbox probe"));
     {
         let (probing, probe) = (Arc::clone(&probing), probe.clone());
         owner.spawn(async move {
@@ -700,7 +733,7 @@ fn host_settings(
         },
         move || secrets::known_host_defaults(&keychain),
     );
-    Settings::with_host(files, product, owner.child(), work, search)
+    Settings::with_host(files, product, owner.part("settings"), work, search)
 }
 
 /// Sends each of the Resource governor's samples as `engine.system_info`

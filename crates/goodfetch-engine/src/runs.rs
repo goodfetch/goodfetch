@@ -2721,7 +2721,7 @@ impl Runs {
             controls: Arc::new(setup.controls.clone()),
             version: setup.version.clone(),
             metrics: setup.metrics.clone(),
-            registry: Arc::new(owner.child()),
+            registry: Arc::new(owner.part("Run registry")),
         };
         let politeness = SharedPoliteness {
             file: Arc::new(tokio::sync::OnceCell::new()),
@@ -2729,7 +2729,7 @@ impl Runs {
             options: setup.politeness.clone(),
             tables: setup.politeness_tables.clone(),
             engine: format!("{:016x}", setup.entropy.next_u64()),
-            owner: Arc::new(owner.child()),
+            owner: Arc::new(owner.part("Politeness store")),
         };
         let admitting = Arc::new(Admitting {
             gates: setup.gates.clone(),
@@ -2738,8 +2738,9 @@ impl Runs {
         let registry = Registry {
             setup,
             admitting,
-            owner: owner.child(),
-            ending_owner: owner.child(),
+            owner: owner.part("Run registry's shared work"),
+            for_one_run: owner.child_for(OwnerKind::Run),
+            ending_owner: owner.child_for(OwnerKind::Run),
             itself: Arc::clone(&runs.registry),
             readers,
             live: BTreeMap::new(),
@@ -2765,6 +2766,13 @@ impl Runs {
 
     /// The owner of the registry's own task, under the engine's owner: its
     /// panic tells the engine, which then stops at once (ADR 0148).
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0148's Q13: a test of this crate starts a panicking task on the owner in question, here the registry's own, which nothing else can reach"
+        )
+    )]
     pub(crate) fn registry(&self) -> &TaskOwner {
         &self.registry
     }
@@ -4173,7 +4181,15 @@ struct Registry {
     setup: RunsSetup,
     /// The gate in admission and the Politeness the engine's Runs share.
     admitting: Arc<Admitting>,
+    /// The owner of the work it does for every Run, such as following the
+    /// governor's samples, whose panic stops the engine (ADR 0148).
     owner: TaskOwner,
+    /// The owner of the work it does for one Run, such as publishing its
+    /// progress or erasing its state, whose panic ends no other Run and
+    /// not the engine (ADR 0148).
+    for_one_run: TaskOwner,
+    /// The owner of each Run's end: recording it, its takeover and its
+    /// last Checkpoint, of one Run too.
     ending_owner: TaskOwner,
     /// The owner of its own task, which each handle carries.
     itself: Arc<TaskOwner>,
@@ -4269,6 +4285,7 @@ impl Registry {
         }
         self.readers.wait().await;
         self.ending_owner.wait().await;
+        self.for_one_run.wait().await;
         self.owner.wait().await;
     }
 
@@ -4847,7 +4864,7 @@ impl Registry {
             return;
         }
         let erasing = Erasing {
-            owner: self.owner.child(),
+            owner: self.for_one_run.child(),
             clock: self.setup.engine.clock(),
             entropy: self.setup.entropy.fork(),
             vfs: self.setup.run_state.vfs.clone(),
@@ -4856,7 +4873,7 @@ impl Registry {
             version: self.setup.version.clone(),
         };
         let registry = self.runs.clone();
-        self.owner.spawn(async move {
+        self.for_one_run.spawn(async move {
             let erased = erasing.erase(run_id, folder).await;
             if let Some(registry) = registry.upgrade() {
                 let _ = registry
@@ -5560,7 +5577,7 @@ impl Registry {
     /// change goes out as `run.progress` (ADR 0102).
     fn progress(&self, run_id: &RunId, start: Progressing) -> Progress {
         let progress = Progress::new(start);
-        self.owner.spawn(progress::publish(
+        self.for_one_run.spawn(progress::publish(
             run_id.clone(),
             progress.subscribe(),
             self.setup.events.clone(),

@@ -548,11 +548,9 @@ fn warnings(report: &Value) -> Vec<Value> {
 /// A part every Run shares that panics stops a Daemon (ADR 0148): while
 /// its Runs' registry runs, it drains as on a requested drain, each live
 /// Run `stopped` for the drain and carrying the warning `engine_panicked`
-/// in its report, resumable by its Run ID, and ends as
-/// panicked, which its executable exits 1 on; the ops endpoint counts one
-/// panic that ended the engine.
-///
-/// Covers: error:engine_panicked
+/// in its report, resumable by its Run ID, and ends as panicked, which its
+/// executable exits 1 on; the ops endpoint counts one panic that ended the
+/// engine.
 #[test]
 fn a_daemon_whose_shared_part_panics_drains_its_runs_and_ends() {
     let env = TestEnv::new();
@@ -588,14 +586,15 @@ fn a_daemon_whose_shared_part_panics_drains_its_runs_and_ends() {
 
 /// When the Runs' registry is what panicked, a Daemon cannot drain: it
 /// ends at once, and a new engine on the same home reads its live Run as
-/// interrupted, as after a crash, and resumes it by its Run
-/// ID.
+/// interrupted, as after a crash, and resumes it by its Run ID; the ops
+/// endpoint counts one panic that ended the engine.
 ///
-/// Covers: error:engine_panicked, error:run_interrupted
+/// Covers: error:run_interrupted
 #[test]
 fn a_daemon_whose_runs_registry_panics_ends_at_once_leaving_its_runs_interrupted() {
     let env = TestEnv::new();
-    let engine = engine_with(Product::Collie, Some(panicking_parts()));
+    let (metrics, registry, _provider) = metering();
+    let engine = engine_with(Product::Collie, Some(panicking_parts())).with_metrics(metrics);
 
     let (end, closed) = daemon_panicked(&engine, &env, "interrupted", "test.panic_in_the_registry");
 
@@ -606,12 +605,14 @@ fn a_daemon_whose_runs_registry_panics_ends_at_once_leaving_its_runs_interrupted
             closed,
             report["error"]["data"]["code"].clone(),
             resumed["result"]["started_as"].clone(),
+            series(&registry).contains(r#"goodfetch_engine_panics_total{ended="engine"} 1"#),
         ),
         (
             "Panicked".to_owned(),
             true,
             json!("run_interrupted"),
             json!("resumed"),
+            true,
         ),
         "{report}"
     );
@@ -621,11 +622,9 @@ fn a_daemon_whose_runs_registry_panics_ends_at_once_leaving_its_runs_interrupted
 /// has no drain (ADR 0148): it stops its Runs through the registry, as
 /// when its program goes away, each `stopped` for the engine's panic,
 /// never as aborted by its Client, with the warning `engine_panicked` in
-/// its report and resumable by its Run ID; its Connection
-/// closes and the engine returns its failure, which its executable exits 1
-/// on, so its program reads `engine_exited` with that code.
-///
-/// Covers: error:engine_panicked
+/// its report and resumable by its Run ID; its Connection closes and the
+/// engine returns its failure, which its executable exits 1 on, so its
+/// program reads `engine_exited` with that code.
 #[test]
 fn an_attached_engine_whose_shared_part_panics_stops_its_runs_and_fails() {
     let env = TestEnv::new();

@@ -225,6 +225,18 @@ pub enum EngineEvent {
     RegistryPanicked,
 }
 
+impl EngineEvent {
+    /// The panic of a part every Run shares, which is the Runs' registry
+    /// when `registry` (ADR 0148).
+    pub fn panicked(registry: bool) -> Self {
+        if registry {
+            Self::RegistryPanicked
+        } else {
+            Self::PartPanicked
+        }
+    }
+}
+
 /// A transition the engine's table refuses.
 pub type InvalidEngineTransition = InvalidTransition<EngineState, EngineEvent>;
 

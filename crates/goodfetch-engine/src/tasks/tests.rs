@@ -362,37 +362,49 @@ fn a_child_actor_that_panics_is_told_to_its_parent_which_stops_the_child(
 /// the engine's kind between them, as one of a part every Run shares does
 /// (ADR 0148); one under a Run's or a Connection's owner is told to its
 /// own owner only, whose holder reacts.
-#[test]
-fn a_panic_reaches_the_engines_own_owner_only_through_owners_of_the_engines_kind() {
+#[rstest]
+#[case::engine(OwnerKind::Engine, (true, true, true))]
+#[case::run(OwnerKind::Run, (true, false, false))]
+#[case::connection(OwnerKind::Connection, (true, false, false))]
+fn a_panic_reaches_the_engines_own_owner_only_through_owners_of_the_engines_kind(
+    #[case] kind: OwnerKind,
+    #[case] expected: (bool, bool, bool),
+) {
     let told = goodfetch_test_support::runtime().block_on(async {
-        let mut told = Vec::new();
-        for kind in [OwnerKind::Engine, OwnerKind::Run, OwnerKind::Connection] {
-            let engine = TaskOwner::root(BlockingPolicy::Inline);
-            let part = engine.child_for(kind);
-            let under = part.child();
-            under.spawn(async { panic!("the task's own panic") });
-            let reached_under = within(BlockingPolicy::Inline, under.panicked()).await;
-            under.stop().await;
-            part.stop().await;
-            told.push((
-                kind,
-                reached_under,
-                part.has_panicked(),
-                engine.has_panicked(),
-            ));
-            engine.stop().await;
-        }
+        let engine = TaskOwner::root(BlockingPolicy::Inline);
+        let part = engine.child_for(kind);
+        let under = part.child();
+        under.spawn(async { panic!("the task's own panic") });
+        let reached_under = within(BlockingPolicy::Inline, under.panicked()).await;
+        under.stop().await;
+        part.stop().await;
+        let told = (reached_under, part.has_panicked(), engine.has_panicked());
+        engine.stop().await;
         told
     });
 
-    assert_eq!(
-        told,
-        [
-            (OwnerKind::Engine, true, true, true),
-            (OwnerKind::Run, true, false, false),
-            (OwnerKind::Connection, true, false, false),
-        ]
-    );
+    assert_eq!(told, expected);
+}
+
+/// The engine's own owner names the part whose task panicked first, from
+/// under any owner of the engine's kind below that part, as the engine's
+/// log of the panic does (ADR 0148).
+#[test]
+fn the_engines_own_owner_names_the_part_that_panicked() {
+    let named = goodfetch_test_support::runtime().block_on(async {
+        let engine = TaskOwner::root(BlockingPolicy::Inline);
+        let part = engine.part("a shared part");
+        let under = part.child();
+        under.spawn(async { panic!("the task's own panic") });
+        within(BlockingPolicy::Inline, engine.panicked()).await;
+        under.stop().await;
+        part.stop().await;
+        let named = engine.panicked_part();
+        engine.stop().await;
+        named
+    });
+
+    assert_eq!(named, Some("a shared part"));
 }
 
 /// Blocking work that panics once its caller was dropped, which only a

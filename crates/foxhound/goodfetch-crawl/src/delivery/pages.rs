@@ -43,10 +43,12 @@ pub(super) struct Start {
 }
 
 /// A page's task's one message to the loop: its attempt's end. The answer
-/// is the next attempt the task runs; dropped, the task ends.
+/// is the next attempt the task runs; dropped, the task ends. Both travel
+/// boxed, so the round trip moves pointers rather than copying an attempt
+/// and its end through each channel (#2243).
 struct Ended {
     attempt: Attempt,
-    next: oneshot::Sender<Start>,
+    next: oneshot::Sender<Box<Start>>,
 }
 
 /// The pages' tasks of one crawl, as its delivery loop holds them.
@@ -54,10 +56,10 @@ pub(super) struct Pages {
     run: Run,
     in_flight: SharedInFlight,
     tasks: JoinSet<()>,
-    mailbox: mpsc::Sender<Ended>,
-    ended: mpsc::Receiver<Ended>,
+    mailbox: mpsc::Sender<Box<Ended>>,
+    ended: mpsc::Receiver<Box<Ended>>,
     /// The tasks whose attempt ended and that wait for their next one.
-    waiting: Vec<oneshot::Sender<Start>>,
+    waiting: Vec<oneshot::Sender<Box<Start>>>,
     /// How many attempts run now.
     running: usize,
 }
@@ -85,7 +87,7 @@ impl Pages {
 
     /// Runs the attempt `start`: on a task that waits for its next one, as
     /// the answer to its message, else on a new task.
-    pub(super) fn start(&mut self, mut start: Start) {
+    pub(super) fn start(&mut self, mut start: Box<Start>) {
         self.running += 1;
         while let Some(waiting) = self.waiting.pop() {
             match waiting.send(start) {
@@ -132,11 +134,11 @@ impl Pages {
         };
         let mut attempts = Vec::new();
         let mut next = Some(first);
-        while let Some(Ended {
-            attempt,
-            next: waiting,
-        }) = next
-        {
+        while let Some(ended) = next {
+            let Ended {
+                attempt,
+                next: waiting,
+            } = *ended;
             self.running = self.running.saturating_sub(1);
             self.waiting.push(waiting);
             attempts.push(attempt);
@@ -157,7 +159,12 @@ impl Pages {
 /// ends, unless its document's fetch gave it back first; tells the loop of
 /// its end through `mailbox`; and runs the attempt the answer carries, until
 /// the loop has none for it.
-async fn page(run: Run, in_flight: SharedInFlight, mailbox: mpsc::Sender<Ended>, mut start: Start) {
+async fn page(
+    run: Run,
+    in_flight: SharedInFlight,
+    mailbox: mpsc::Sender<Box<Ended>>,
+    mut start: Box<Start>,
+) {
     loop {
         let Start {
             server: (server, context),
@@ -166,7 +173,7 @@ async fn page(run: Run, in_flight: SharedInFlight, mailbox: mpsc::Sender<Ended>,
             watch,
             fetching,
             admission,
-        } = start;
+        } = *start;
         // Boxed: an attempt's future is large, and the task keeps it only
         // while the attempt runs.
         let ended = Box::pin(attempt(
@@ -181,10 +188,10 @@ async fn page(run: Run, in_flight: SharedInFlight, mailbox: mpsc::Sender<Ended>,
         .await;
         admission.give_back();
         let (next, answer) = oneshot::channel();
-        let ended = Ended {
+        let ended = Box::new(Ended {
             attempt: ended,
             next,
-        };
+        });
         run.metrics().counted_work().count(Row::ActorRoundTrips);
         if mailbox.send(ended).await.is_err() {
             return;

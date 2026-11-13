@@ -700,15 +700,15 @@ impl Fetching<'_> {
         &self,
         of_run: &std::sync::Arc<RunHandOver>,
         (leased, lease, watch): (&Leased, &WorkItemLease, &Watch),
-        second_copies: &SecondCopies,
+        second_copies: SecondCopies,
         fetch_admission: FetchAdmission,
     ) -> std::sync::Arc<HandOver> {
         let label = leased.crawl_request.label.as_str();
         std::sync::Arc::new(HandOver {
             of_run: std::sync::Arc::clone(of_run),
             domain_key: leased.waiting.key.clone(),
-            second_copies: second_copies.clone(),
-            lease: handler_lease(&of_run.run, (leased, lease, watch), &self.in_flight),
+            second_copies,
+            lease: handler_lease(of_run, (leased, lease, watch), &self.in_flight),
             fetch_admission,
             page_check: self.labels.settings.page_check(label).cloned(),
             extractor: self.labels.settings.extractor(label),
@@ -887,7 +887,7 @@ async fn lease_to_servers(
             let hand_over = fetching.hand_over(
                 pooled.handing,
                 (&leased, &lease, &watch),
-                &copies,
+                copies,
                 admission.clone(),
             );
             let fetches = tiering.tier().or(leased.sitemap.then_some(FetchTier::Http));
@@ -906,14 +906,14 @@ async fn lease_to_servers(
                     started_at: run.point_in_time(),
                 },
             );
-            pages.start(Start {
+            pages.start(Box::new(Start {
                 server: (place, server.context.clone()),
                 leased: (leased, (session, in_browser), leased_count(run)),
                 lease,
                 watch,
                 fetching: (tiering, (hand_over, fetching.code_free.clone())),
                 admission,
-            });
+            }));
         }
     }
     Ok(())

@@ -809,7 +809,7 @@ fn rules(
 /// is handed them as they stand once the timed trials are in, again once
 /// the system-call cell is, again once the growth cell is and again once
 /// the Callgrind cell is, so a failure in a later part, the hostile pages'
-/// pass included, loses none of them.
+/// passes included, loses none of them.
 pub(crate) fn run(
     executables: &Executables<'_>,
     commit: String,

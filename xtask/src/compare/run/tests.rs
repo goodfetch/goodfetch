@@ -340,18 +340,22 @@ fn a_run_hands_over_its_trials_after_each_part_before_the_next() {
                 grown(&whole.growth),
                 not_reached("Callgrind")
             ),
-            (strace, grown(&whole.growth), reached(&whole.instructions)),
+            (
+                strace,
+                grown(&whole.growth),
+                "the run asked for no scenario 1 cell".to_owned()
+            ),
         ]
     );
 }
 
-/// The hostile pages' pass runs last and fails when a run of it does (#2439):
-/// the trials file handed over before it holds the Callgrind cell as it
-/// ended, so the pass's failure loses no part before it (#2607).
+/// The hostile pages' passes run last and fail when a run of theirs does
+/// (#2439): the trials file handed over before them holds the Callgrind
+/// cell as it ended, so their failure loses no part before them (#2607).
 #[test]
 fn a_failed_hostile_pass_leaves_the_callgrind_cell_in_the_trials_handed_over() {
-    // The pass's first run cannot start its Proving ground; every part
-    // before it runs over no cell.
+    // The passes' first run cannot start its Proving ground; every part
+    // before them runs over no cell.
     let (ended, kept) = handed_over(vec![matrix::Scenario::Hostile]);
 
     let callgrind = kept.last().map(|(_, _, callgrind)| callgrind.clone());

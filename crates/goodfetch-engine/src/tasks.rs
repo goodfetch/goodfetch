@@ -43,6 +43,10 @@ use tokio_util::task::TaskTracker;
 
 use crate::crash_report;
 
+mod state_actor;
+
+pub(crate) use state_actor::{ActorStopped, StateActor};
+
 /// How long a stop waits for its cancelled tasks before it logs that some
 /// still run (issue 2525).
 const STOP_TOLD_AFTER: Duration = Duration::from_secs(10);
@@ -386,6 +390,11 @@ impl TaskOwner {
     /// Asks its tasks to stop at their next cancellation point.
     pub fn cancel(&self) {
         self.token.cancel();
+    }
+
+    /// How many of the tasks it started still run, its actors aside.
+    pub fn running(&self) -> usize {
+        self.tracker.len()
     }
 
     /// Waits for every task it started, without cancelling them, its

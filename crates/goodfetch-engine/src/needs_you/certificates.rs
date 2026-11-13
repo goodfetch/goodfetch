@@ -38,10 +38,7 @@ impl Primitives for Changed {
         let store = context.known_certificates.clone();
         let person = self.person;
         Box::pin(async move {
-            let waiting = context
-                .blocking(move || store.waiting(person))
-                .await
-                .map_err(SourceError::new)?;
+            let waiting = store.waiting(person).await.map_err(SourceError::new)?;
             Ok(waiting
                 .iter()
                 .map(|waiting| item(waiting, person))

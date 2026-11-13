@@ -85,3 +85,28 @@ fn it_names_each_file_it_opened_once() {
     );
     assert_eq!(other.files(), Vec::<std::path::PathBuf>::new());
 }
+
+/// Each connection that opens a database through it counts one open of
+/// that database, however often its file was opened before; its journal's
+/// and WAL's opens count none.
+#[test]
+fn it_counts_each_open_of_a_database() {
+    let folder = tempfile::tempdir().unwrap();
+    let (used, other) = (CountingVfs::register(), CountingVfs::register());
+
+    let writer = connection(&used, folder.path(), "FULL");
+    writer.execute("INSERT INTO items VALUES (1)", []).unwrap();
+    for _ in 0..2 {
+        let reader = Connection::open_with_flags_and_vfs(
+            folder.path().join("counted.sqlite"),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            used.name(),
+        )
+        .unwrap();
+        reader
+            .query_row("SELECT count(*) FROM items", [], |_| Ok(()))
+            .unwrap();
+    }
+
+    assert_eq!((used.opens(), other.opens()), (3, 0));
+}

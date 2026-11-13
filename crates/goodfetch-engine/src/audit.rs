@@ -56,7 +56,6 @@ use crate::sqlite_store::run_cached;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
-use tokio::sync::{OnceCell, mpsc, oneshot};
 
 use crate::durable;
 use crate::home::Home;
@@ -64,14 +63,10 @@ use crate::settings::SettingsFiles;
 use crate::sqlite_store::{
     Access, Counting, Durability, File, Folder, OpenError, Opening, Schema, Synchronous, Wait,
 };
-use crate::tasks::TaskOwner;
+use crate::tasks::{StateActor, TaskOwner};
 
 /// How long an append waits for another engine's.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// How many writes wait for the writer before a caller waits to send its
-/// own.
-const MAILBOX: usize = 64;
 
 /// How its commits reach the disk: as a synced per-user store's, but for its
 /// tables' commit, unsynced (#2117).
@@ -211,7 +206,7 @@ struct Head {
 #[derive(Clone, Debug)]
 pub struct AuditLog {
     store: Arc<Store>,
-    writer: Arc<Writer>,
+    writer: Arc<StateActor<Held>>,
     /// The Runs whose entries are written unchained, shared by its clones.
     unchained: Arc<Mutex<BTreeSet<RunId>>>,
 }
@@ -229,29 +224,13 @@ struct Store {
     work: CountedWork,
 }
 
-/// The log's writer: an actor of `owner`, started by the first write, whose
-/// mailbox every clone of the log shares.
-#[derive(Debug)]
-struct Writer {
-    owner: Arc<TaskOwner>,
-    mailbox: OnceCell<mpsc::Sender<Job>>,
-}
-
-impl Writer {
-    fn of(owner: Arc<TaskOwner>) -> Self {
-        Self {
-            owner,
-            mailbox: OnceCell::new(),
-        }
-    }
-}
-
-/// A write the writer does on what it holds.
-type Job = Box<dyn FnOnce(&mut Held) + Send>;
+/// The name of the log's writer: an actor of its owner, started by the
+/// first write, which every clone of the log shares.
+const WRITER: &str = "audit-log-writer";
 
 /// What the writer holds between its writes: its connection, opened by its
 /// first, and the tail its last commit left.
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct Held {
     connection: Option<Connection>,
     tail: Option<Tail>,
@@ -281,7 +260,7 @@ impl AuditLog {
                 events: None,
                 work: CountedWork::default(),
             }),
-            writer: Arc::new(Writer::of(owner)),
+            writer: Arc::new(StateActor::of(WRITER, owner)),
             unchained: Arc::default(),
         }
     }
@@ -289,7 +268,7 @@ impl AuditLog {
     /// Its store, to configure: the log then writes through a writer of its
     /// own, whose connection counts and sends as the store now says.
     fn configured(&mut self) -> &mut Store {
-        self.writer = Arc::new(Writer::of(Arc::clone(&self.writer.owner)));
+        self.writer = Arc::new(StateActor::of(WRITER, Arc::clone(self.writer.owner())));
         Arc::make_mut(&mut self.store)
     }
 
@@ -469,41 +448,16 @@ impl AuditLog {
         F: FnOnce(&Store, &mut Held) -> Result<T, AuditError> + Send + 'static,
     {
         let store = Arc::clone(&self.store);
-        let (answer, answered) = oneshot::channel();
-        let job: Job = Box::new(move |held| {
-            let written = work(&store, held);
-            if written.is_err() {
-                *held = Held::default();
-            }
-            let _ = answer.send(written);
-        });
-        let stopped = || self.store.stopped(&"its owner stopped");
-        self.mailbox()
-            .await?
-            .send(job)
-            .await
-            .map_err(|_| stopped())?;
-        answered.await.map_err(|_| stopped())?
-    }
-
-    /// The writer's mailbox, its actor started now if it is not yet.
-    async fn mailbox(&self) -> Result<&mpsc::Sender<Job>, AuditError> {
         self.writer
-            .mailbox
-            .get_or_try_init(|| async {
-                let (mailbox, jobs) = mpsc::channel::<Job>(MAILBOX);
-                let mut held = Held::default();
-                self.writer
-                    .owner
-                    .actor("audit-log-writer", jobs, move |group: Vec<Job>| {
-                        for job in group {
-                            job(&mut held);
-                        }
-                    })
-                    .map_err(|error| self.store.stopped(&error))?;
-                Ok(mailbox)
+            .run(move |held| {
+                let written = work(&store, held);
+                if written.is_err() {
+                    *held = Held::default();
+                }
+                written
             })
             .await
+            .map_err(|stopped| self.store.stopped(&stopped))?
     }
 
     /// Verifies the chain from its first entry and the head file against

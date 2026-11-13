@@ -41,7 +41,9 @@
 
 use std::collections::BTreeMap;
 use std::panic::AssertUnwindSafe;
+use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures_util::FutureExt as _;
@@ -74,8 +76,8 @@ use crate::call_error::CallError;
 use crate::client::{Client, Outgoing};
 use crate::clock::Clock;
 use crate::composition::{
-    CallContext, CallInput, CallNotifier, CallStream, ConnectionContext, DaemonSide, Driver,
-    Handler, InputSender,
+    CallChannels, CallContext, CallInput, CallNotifier, CallStream, ConnectionContext, DaemonSide,
+    Driver, Handler, InputSender,
 };
 use crate::crash_report;
 use crate::endpoint::{Authorities, same_token};
@@ -1024,41 +1026,46 @@ impl Session<'_> {
         let operation = handler.operation();
         let span = trace::server_span(operation.name, &id, params.as_ref(), meta);
         let credits = handler.streams().then(Credits::new);
-        let notifier = CallNotifier::new(
-            id.clone(),
-            self.outgoing.clone(),
-            notification_value_line,
-            self.dispatch.work.clone(),
-        );
-        let stream = credits
-            .clone()
-            .map(|credits| CallStream::new(notifier.clone(), credits));
-        let (input, call_input) = match handler.input() {
-            Some((method, room)) => {
-                let (sender, call_input) = CallInput::new(notifier, room);
-                (Some((method, sender)), Some(call_input))
-            }
-            None => (None, None),
+        // Only a call that streams or takes input notifies its Client: any
+        // other, most calls, makes no notifier and carries no channels (E1,
+        // ADR 0140).
+        let (input, channels) = if credits.is_none() && handler.input().is_none() {
+            (None, None)
+        } else {
+            let notifier = CallNotifier::new(
+                id.clone(),
+                self.outgoing.clone(),
+                notification_value_line,
+                self.dispatch.work.clone(),
+            );
+            let stream = credits
+                .clone()
+                .map(|credits| CallStream::new(notifier.clone(), credits));
+            let (input, call_input) = match handler.input() {
+                Some((method, room)) => {
+                    let (sender, call_input) = CallInput::new(notifier, room);
+                    (Some((method, sender)), Some(call_input))
+                }
+                None => (None, None),
+            };
+            (input, Some(CallChannels::new(stream, call_input)))
         };
         let context = CallContext::new(
             Arc::clone(&self.connection),
             operation,
             id.clone(),
             token.clone(),
-            stream,
-            call_input,
+            channels,
         );
         // The call's watch (ADR 0148): a panic in its handler is answered
         // here, in the task the call already has, and never reaches the
         // Connection's owner.
-        let metrics = self.dispatch.metrics.clone();
-        let answer = AssertUnwindSafe(
-            handler
+        let answer = CallWatch {
+            answer: handler
                 .call(params.unwrap_or(Value::Object(Map::new())), context)
                 .instrument(span.clone()),
-        )
-        .catch_unwind()
-        .map(move |answered| answered.unwrap_or_else(|_| Err(engine_panicked(&metrics))));
+            metrics: self.dispatch.metrics.clone(),
+        };
         self.in_flight.insert(
             id.clone(),
             InFlight {
@@ -1249,6 +1256,30 @@ fn too_many_calls() -> CallError {
             max: u64::try_from(MAX_IN_FLIGHT).unwrap_or(u64::MAX),
         },
     )
+}
+
+/// A call's answer under its watch (ADR 0148): a panic while its handler
+/// is polled is caught there and answered [`engine_panicked`].
+///
+/// Hand-written rather than `catch_unwind().map(…)`, whose two layers cost
+/// every call on E1's path (ADR 0140) more than the one catch they hold.
+struct CallWatch<F> {
+    answer: F,
+    metrics: Metrics,
+}
+
+impl<F> Future for CallWatch<F>
+where
+    F: Future<Output = Result<Value, CallError>> + Unpin,
+{
+    type Output = Result<Value, CallError>;
+
+    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        let watch = self.get_mut();
+        let answer = &mut watch.answer;
+        std::panic::catch_unwind(AssertUnwindSafe(|| Pin::new(answer).poll(context)))
+            .unwrap_or_else(|_| Poll::Ready(Err(engine_panicked(&watch.metrics))))
+    }
 }
 
 /// `engine_panicked` for a call whose handler panicked, counted on

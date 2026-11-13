@@ -42,7 +42,7 @@ fn only_a_limit_a_person_or_a_managed_policy_set_allows_paying(
             .add_limit(&solves("USD", *set_by, *amount), now())
             .unwrap();
     }
-    let run = charging(&env, "solver");
+    let mut run = charging(&env, "solver");
 
     assert_eq!(run.allowed_by("paid_solves", "USD"), Ok(allowed_by));
 }
@@ -54,7 +54,7 @@ fn a_persons_limit_in_another_currency_allows_no_payment_in_this_one() {
     ledger
         .add_limit(&solves("EUR", LimitSetter::Person, 10), now())
         .unwrap();
-    let run = charging(&env, "solver");
+    let mut run = charging(&env, "solver");
 
     assert_eq!(run.allowed_by("paid_solves", "USD"), Ok(None));
 }

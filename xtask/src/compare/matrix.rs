@@ -173,6 +173,13 @@ impl Scenario {
     pub(crate) fn resumes(self) -> bool {
         matches!(self, Self::Durable)
     }
+
+    /// Whether its cells write content that no check reads, so the report
+    /// gives them no standing: the extraction scenario's, until #2136's
+    /// output check lands.
+    pub(crate) fn content_unverified(self) -> bool {
+        matches!(self, Self::Extraction)
+    }
 }
 
 /// The capacity of the broadcast channel Spider's rows read its pages
@@ -707,6 +714,26 @@ const SPIDER_NOT_POLITE: &str = "Spider's `with_delay` waits between any two req
      `with_respect_robots_txt(true)` and every domain allowed (`with_external_domains`) sent its \
      102 requests over 101.5 s, one a second across all 50 domains, read robots.txt on 1 of them, \
      and fetched the page that robots.txt disallows (`Disallow: /sites/*/private`)";
+
+/// The tools' cells declared, in a scenario, as not doing the Product's
+/// work, each with why: the report gives them no standing, and the
+/// instruction ratio reads scenario 1 only, where none is declared.
+const UNLIKE_WORK: &[(Scenario, Tool, &str)] = &[(
+    Scenario::Extraction,
+    Tool::Spider,
+    "it writes each page's raw HTML, where the others write the text of its main content \
+     (until #2136)",
+)];
+
+impl Cell {
+    /// Why the cell does not do the Product's work, when it is declared so.
+    pub(crate) fn unlike_work(&self) -> Option<&'static str> {
+        UNLIKE_WORK
+            .iter()
+            .find(|(scenario, tool, _)| *scenario == self.scenario && *tool == self.tool)
+            .map(|(_, _, reason)| *reason)
+    }
+}
 
 /// The cell `name` of `scenario`.
 pub(crate) fn cell(scenario: Scenario, name: &str) -> Option<&'static Cell> {

@@ -161,6 +161,7 @@ fn trials() -> Value {
             "playwright": "1.64.1",
             "scrapy_playwright": "0.0.48",
             "browser": "156.0.8078.4",
+            "command": "just compare release",
         },
         "machine": {
             "class": "local-controlled",
@@ -361,9 +362,11 @@ fn spiders_sensitivity_rows_are_labelled_and_no_target_reads_them() {
         "- **spider mimalloc** (sensitivity row): ",
         "- **spider smart** (sensitivity row): ",
         "  - not supported: Spider's `crawl_smart()` fetched 1 of the site's 100 pages",
-        "| Metric | foxhound | spider | crawlee | scrapy | spider capacity 4096 (sensitivity) | \
-         spider default features (sensitivity) | spider bloom (sensitivity) | \
-         spider jemalloc (sensitivity) |",
+        "| Metric | foxhound, 1000 of the site's 1000 pages | spider, 1000 of the site's 1000 pages \
+         | crawlee, 1000 of the site's 1000 pages | scrapy, 1000 of the site's 1000 pages | \
+         spider capacity 4096 (sensitivity), 1000 of the site's 1000 pages | spider default \
+         features (sensitivity), 1000 of the site's 1000 pages | spider bloom (sensitivity), 1000 \
+         of the site's 1000 pages | spider jemalloc (sensitivity), 1000 of the site's 1000 pages |",
     ] {
         assert!(
             markdown.contains(expected),
@@ -707,7 +710,8 @@ fn the_report_shows_the_load_each_trial_started_at() {
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
-        "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Peak RSS |",
+        "| Scenario | Cell | Trial | Load at start | Seconds | Pages per second | Pages fetched | \
+         Peak RSS |",
         "| raw | foxhound | 1 | 6.50 | 1.000 |",
         "| raw | foxhound | 2 | 1.25 | 2.000 |",
         "1 of the 66 timed trials started above a 1-minute load of 4.",

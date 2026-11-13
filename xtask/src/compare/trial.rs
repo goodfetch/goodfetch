@@ -648,6 +648,9 @@ impl Plan<'_> {
             // by `run.resume`, another tool by the same command, which
             // takes up the state it left there.
             while request_count(self.site.address)? < self.site.pages / 2 {
+                if let Some(status) = driven.child.try_wait()? {
+                    bail!("the tool exited with {status} before half the site was asked for");
+                }
                 std::thread::sleep(POLL);
             }
             kill(tool_pid(&driven.child, &self.mode))?;

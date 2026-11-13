@@ -27,7 +27,7 @@ name = "goodfetch-compare-crawlee-rs"
 version = "0.0.0"
 edition = "2024"
 publish = false
-license = "Apache-2.0"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 crawlee = { git = "https://github.com/apify/crawlee-rs", rev = "2a3ed90b8391c86005ce6ed8dd3e3248d0d34579" }

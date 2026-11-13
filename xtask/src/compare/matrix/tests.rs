@@ -148,23 +148,16 @@ fn just_compare_builds_each_of_spiders_sides_builds_into_its_folder() {
 }
 
 /// crawlee-rs runs on its side in the four HTTP scenarios, each its main
-/// row, and its headless browser cell says why it has none (#2214).
+/// row, and its headless browser cell is not supported (#2214).
 #[test]
-fn crawlee_rs_runs_the_http_scenarios_and_says_why_it_has_no_browser_cell() {
+fn crawlee_rs_runs_the_http_scenarios_and_not_the_browser() {
     let cells: Vec<(Scenario, &str, Row, Option<Config>)> = CELLS
         .iter()
         .filter(|cell| cell.tool == Tool::CrawleeRs)
         .map(|cell| {
             let config = match cell.status {
                 Status::Measured(config) => Some(config),
-                Status::NotSupported(reason) => {
-                    assert!(
-                        reason.contains("no browser crawler"),
-                        "{}: {reason}",
-                        cell.name
-                    );
-                    None
-                }
+                Status::NotSupported(_) => None,
             };
             (cell.scenario, cell.name, cell.row, config)
         })

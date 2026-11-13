@@ -355,20 +355,14 @@ fn crawlee_rss_published_cpu_per_page_is_beside_its_measured_figure() {
 
     let line = format!(
         "  - CPU per page: 0.75 ms measured here, the median of its trials; {}.",
-        super::published::PUBLISHED_CPU[0].1
+        super::published::CRAWLEE_RS_CPU
     );
     assert_eq!(
         (
-            super::published::PUBLISHED_CPU.len(),
             cells_saying(section(&markdown, "1. "), &line),
             cells_saying(section(&markdown, "2. "), &line),
             cells_saying(section(&markdown, "5. "), &line),
         ),
-        (
-            1,
-            vec!["crawlee-rs"],
-            vec!["crawlee-rs"],
-            Vec::<&str>::new()
-        )
+        (vec!["crawlee-rs"], vec!["crawlee-rs"], Vec::<&str>::new())
     );
 }

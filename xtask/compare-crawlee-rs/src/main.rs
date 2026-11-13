@@ -19,20 +19,19 @@
 //!   disk under `./storage`.
 //!
 //! The working folder is the trial's home. It prints one line, `pages=<n>`,
-//! the pages this process handled; the comparison's same-work check reads
-//! the Proving ground's own observations instead.
+//! the requests crawlee-rs's statistics count as handled (after a resume,
+//! the killed process's too), and its failed requests' errors on stderr;
+//! the comparison's same-work check reads the Proving ground's own
+//! observations instead, and refuses a trial that missed a page.
 //!
 //!   goodfetch-compare-crawlee-rs --url http://127.0.0.1:<port>/sites/1000/1 \
 //!     --host scale.test:<port> --concurrency 16 --scenario raw
 #![expect(
-    clippy::disallowed_types,
     clippy::disallowed_methods,
-    reason = "a comparison side, no Product crate: ADR 0060's loom sync types and runtime ownership govern the Products"
+    reason = "a comparison side, no Product crate: its `main` builds its runtime"
 )]
 
 use std::process::ExitCode;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use crawlee::{
@@ -123,8 +122,6 @@ async fn crawl(arguments: Arguments) -> Result<u64, String> {
     } else {
         EnqueueStrategy::SameHostname
     };
-    let handled = Arc::new(AtomicU64::new(0));
-    let counted = Arc::clone(&handled);
     // At most `--concurrency` in flight, as the other tools. Its autoscaled
     // pool starts at the crawler's desired concurrency and grows toward the
     // limit as the system allows: crawlee-rs's own behaviour, kept, as
@@ -138,32 +135,28 @@ async fn crawl(arguments: Arguments) -> Result<u64, String> {
             .same_domain_delay(Duration::from_secs(1));
     }
     let crawler = builder
-        .request_handler(move |context: HtmlContext| {
-            let counted = Arc::clone(&counted);
-            async move {
-                counted.fetch_add(1, Ordering::Relaxed);
-                if scenario == Scenario::Extraction {
-                    let (title, text) = context
-                        .with_html(|document| -> Result<_, String> {
-                            let text = document
-                                .select("main")
-                                .map_err(|error| error.to_string())?
-                                .text();
-                            Ok((document.title(), text.trim().to_owned()))
-                        })
-                        .await?
-                        .map_err(anyhow::Error::msg)?;
-                    context.push_data(&serde_json::json!({
-                        "url": context.url().as_str(),
-                        "title": title,
-                        "text": text,
-                    }))?;
-                }
-                context
-                    .enqueue_links(EnqueueLinksOptions::new().strategy(strategy))
-                    .await?;
-                Ok(())
+        .request_handler(move |context: HtmlContext| async move {
+            if scenario == Scenario::Extraction {
+                let (title, text) = context
+                    .with_html(|document| -> Result<_, String> {
+                        let text = document
+                            .select("main")
+                            .map_err(|error| error.to_string())?
+                            .text();
+                        Ok((document.title(), text.trim().to_owned()))
+                    })
+                    .await?
+                    .map_err(anyhow::Error::msg)?;
+                context.push_data(&serde_json::json!({
+                    "url": context.url().as_str(),
+                    "title": title,
+                    "text": text,
+                }))?;
             }
+            context
+                .enqueue_links(EnqueueLinksOptions::new().strategy(strategy))
+                .await?;
+            Ok(())
         })
         .build()
         .map_err(|error| error.to_string())?;
@@ -171,13 +164,15 @@ async fn crawl(arguments: Arguments) -> Result<u64, String> {
         .run([arguments.url])
         .await
         .map_err(|error| error.to_string())?;
+    // A failed request is no failed run: the same-work check names the
+    // trial that missed a page, as for the other tools.
     if statistics.requests_failed > 0 {
-        return Err(format!(
-            "{} requests failed: {:?}",
+        eprintln!(
+            "goodfetch-compare-crawlee-rs: {} requests failed: {:?}",
             statistics.requests_failed, statistics.errors
-        ));
+        );
     }
-    Ok(handled.load(Ordering::Relaxed))
+    Ok(statistics.requests_succeeded)
 }
 
 #[tokio::main]

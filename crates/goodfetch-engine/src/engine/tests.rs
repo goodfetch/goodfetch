@@ -809,16 +809,23 @@ fn dispatch_records<T>(run: impl FnOnce() -> T) -> Vec<String> {
 }
 
 /// The records `run` logs under `target`, sorted, each without its level
-/// and target.
+/// and target. Its subscriber stands in for the test subscriber, so it also
+/// writes the test's exercise record (ADR 0072).
 fn records_of<T>(target: &str, run: impl FnOnce() -> T) -> Vec<String> {
+    use tracing_subscriber::layer::SubscriberExt as _;
+
     let (sender, log) = std::sync::mpsc::channel();
     let writer = LogWriter(sender);
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .with_ansi(false)
-        .without_time()
-        .with_writer(move || writer.clone())
-        .finish();
+    let subscriber = tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .without_time()
+                .with_writer(move || writer.clone()),
+        )
+        .with(goodfetch_test_support::exercise_layer(|| {
+            std::time::SystemTime::UNIX_EPOCH
+        }));
     // With one dispatcher alive, tracing-core judges a callsite by the
     // registering thread's own: another test's thread would cache that no
     // one listens to a record this test reads. A second one, alive for the

@@ -10,11 +10,12 @@
 //! whose links past the first page only a script adds, a trial that missed
 //! pages is named for the script-rendered pages it never reached. Each
 //! counted cell and the growth cell are held to it among themselves, as
-//! other cells of the comparison (ADR 0140). A strace run that did other
-//! work fails nothing: strace's slowdown alone can keep a headless browser
-//! crawl from its last pages, so that cell's system calls are not
-//! measured, with the pages the run reached, and the timed figures count
-//! ([`strace_runs_of_other_work_set_aside`]).
+//! other cells of the comparison (ADR 0140). The long scenario's site is of
+//! its own length, and its cells run only their timed trials. A strace run
+//! that did other work fails nothing: strace's slowdown alone can keep a
+//! headless browser crawl from its last pages, so that cell's system calls
+//! are not measured, with the pages the run reached, and the timed figures
+//! count ([`strace_runs_of_other_work_set_aside`]).
 
 use std::collections::BTreeMap;
 
@@ -129,6 +130,11 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
     };
     let declared = trials.declared.trials;
     let ran = &trials.declared.scenarios[..];
+    let counted: Vec<Scenario> = ran
+        .iter()
+        .copied()
+        .filter(|scenario| !scenario.timed_only())
+        .collect();
     let raw: &[Scenario] = if ran.contains(&Scenario::Raw) {
         &[Scenario::Raw]
     } else {
@@ -148,7 +154,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         (
             " strace",
             &trials.syscalls,
-            ran,
+            &counted[..],
             &Tool::ALL[..],
             EVERY_ROW,
             "strace counted no system call, so the run measured nothing",
@@ -198,7 +204,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             suffix: " growth",
             declared: *declared,
             site_pages: *site_pages,
-            scenarios: ran,
+            scenarios: &counted,
             tools: &Tool::ALL,
             rows: EVERY_ROW,
             done: of_trials(trials_run),
@@ -247,10 +253,11 @@ fn short_or_past(pass: &Pass<'_>) -> Vec<Finding> {
 fn other_work<'a, 'b>(pass: &'a Pass<'b>) -> Vec<(&'a Done<'b>, Finding)> {
     let mut findings = Vec::new();
     for scenario in pass.scenarios {
+        let site_pages = scenario.site_pages(pass.site_pages);
         let mut whole = Vec::new();
         for done in pass.done.iter().filter(|done| done.scenario == *scenario) {
             let work = done.work;
-            if work.is_the_site_of(pass.site_pages) {
+            if work.is_the_site_of(site_pages) {
                 whole.push(done);
                 continue;
             }
@@ -266,7 +273,7 @@ fn other_work<'a, 'b>(pass: &'a Pass<'b>) -> Vec<(&'a Done<'b>, Finding)> {
                         format!(
                             "{} of the site's {} pages its script links not reached",
                             work.missing.len(),
-                            pass.site_pages.saturating_sub(1)
+                            site_pages.saturating_sub(1)
                         ),
                     ),
                 ));
@@ -280,7 +287,7 @@ fn other_work<'a, 'b>(pass: &'a Pass<'b>) -> Vec<(&'a Done<'b>, Finding)> {
                     format!(
                         "{} of the site's {} pages missing and {} other pages fetched",
                         work.missing.len(),
-                        pass.site_pages,
+                        site_pages,
                         work.extra.len()
                     ),
                 ),

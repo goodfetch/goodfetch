@@ -139,6 +139,8 @@ gungraun.workspace = true
 hyper = { workspace = true, features = ["server"] }
 rcgen = { workspace = true, features = ["ring"] }
 insta.workspace = true
+# The masking benchmark's line ends (benches/scenarios.rs).
+memchr.workspace = true
 mimalloc.workspace = true
 # The metrics tests read what the engine records through the SDK and the
 # Prometheus exporter the executables use (src/engine/tests/metrics.rs).

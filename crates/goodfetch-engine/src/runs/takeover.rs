@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::connection::{ProductVersion, StoppedBy};
+use goodfetch_protocol::connection::StoppedBy;
 use goodfetch_protocol::run::{
     Lifecycle, Presence, RunAxes, RunId, RunIndexRow, RunReport, StopReason,
 };
@@ -25,7 +25,7 @@ use super::{Forwarder, RUN_FILE, RunError};
 use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::events::Events;
-use crate::run_index;
+use crate::run_index::RunIndex;
 use crate::run_state::{self, RunState, RunStateOptions, RunStateTables};
 use crate::tasks::{OwnerKind, TaskOwner};
 
@@ -40,10 +40,8 @@ pub(super) struct TakeOver {
     pub(super) tables: Vec<RunStateTables>,
     pub(super) clock: Clock,
     pub(super) entropy: Entropy,
-    pub(super) index: PathBuf,
-    /// This engine's Product version, which the Run index's marker holds
-    /// to its lowest minor (ADR 0098).
-    pub(super) version: ProductVersion,
+    /// The Run index, as this engine opened it.
+    pub(super) index: RunIndex,
     pub(super) events: Events,
     pub(super) forwarder: Arc<dyn Forwarder>,
     pub(super) owner: Arc<TaskOwner>,
@@ -123,13 +121,7 @@ impl TakeOver {
             stop_reason: report.stop_reason.clone(),
             replayed: report.replayed(),
         };
-        let index = self.index.clone();
-        let version = self.version.clone();
-        if let Err(error) = self
-            .owner
-            .blocking(move || run_index::write(&index, &version, &row))
-            .await
-        {
+        if let Err(error) = self.index.write(row).await {
             tracing::warn!(%error, "the Run index row was not written; `runs reindex` restores it");
         }
         drop(lock);
@@ -209,13 +201,7 @@ impl TakeOver {
     /// Asks the owner the Run index names to abort the Run: its report, or
     /// `None` when the index names none or it did not stop the Run.
     async fn forward(&self) -> Option<RunReport> {
-        let index = self.index.clone();
-        let version = self.version.clone();
-        let run_id = self.run_id.clone();
-        let row = self
-            .owner
-            .blocking(move || run_index::read(&index, &version, &run_id))
-            .await;
+        let row = self.index.read(self.run_id.clone()).await;
         let owner = match row {
             Ok(row) => row?.owner?,
             Err(error) => {

@@ -35,14 +35,12 @@ use crate::clock::Clock;
 use crate::composition::{Composition, CompositionError};
 use crate::controls::Controls;
 use crate::daemon::{self, DaemonEnd, DaemonOptions};
-use crate::engine_context::{EngineContext, os_user};
+use crate::engine_context::{EngineContext, Stores, os_user};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::ToOwner;
 use crate::governor::{Governor, System};
 use crate::home::{Home, RunStateLocation};
-use crate::known_certificates::KnownCertificates;
-use crate::ledger::Ledger;
 use crate::log::LogEvents;
 use crate::mask::Masks;
 use crate::metrics::Metrics;
@@ -113,6 +111,7 @@ pub struct Dependencies {
 impl Engine {
     /// The engine `composition` makes for the Product `identity` names.
     pub fn new(identity: Identity, composition: &Composition) -> Result<Self, CompositionError> {
+        let metrics = Metrics::none();
         Ok(Self {
             dispatch: Arc::new(Dispatch {
                 identity: Arc::new(identity),
@@ -120,8 +119,7 @@ impl Engine {
                 drivers: Arc::new(composition.drivers()),
                 log_events: None,
                 masks: Masks::new(),
-                work: CountedWork::default(),
-                metrics: Metrics::none(),
+                metrics: metrics.clone(),
             }),
             tables: composition.run_state_tables(),
             driving: composition.driving(),
@@ -134,7 +132,7 @@ impl Engine {
             secret_providers: composition.secret_providers(),
             controls: composition.controls(),
             events: EventsOptions::default(),
-            metrics: Metrics::none(),
+            metrics,
             system: None,
             audit_events: None,
             drain_grace: get_or_default(None, &DRAIN_GRACE),
@@ -144,9 +142,7 @@ impl Engine {
     /// The same, recording the runtime's metrics on `metrics` (ADR 0050).
     #[must_use]
     pub fn with_metrics(mut self, metrics: Metrics) -> Self {
-        let dispatch = Arc::make_mut(&mut self.dispatch);
-        dispatch.work = metrics.counted_work().clone();
-        dispatch.metrics = metrics.clone();
+        Arc::make_mut(&mut self.dispatch).metrics = metrics.clone();
         self.metrics = metrics;
         self
     }
@@ -371,24 +367,22 @@ impl Engine {
             self.metrics.counted_work().clone(),
         );
         let governor = self.governor(&settings, dependencies.clock, owner, &events);
+        let stores = Stores::of(
+            &dependencies.home,
+            &self.identity().product_version,
+            dependencies.run_state.vfs.clone(),
+            Arc::new(owner.part("engine's stores")),
+            part_stopped_with(owner, "engine's store connections"),
+        );
         let needs_you = NeedsYou::start(
             &self.needs_you_sources,
             SourceContext {
                 clock: dependencies.clock,
                 storage: governor.storage(),
-                run_index: dependencies
-                    .home
-                    .run_index(&self.identity().product_version),
-                version: self.identity().product_version.clone(),
-                ledger: Ledger::at(
-                    dependencies.home.usage_ledger(),
-                    dependencies.run_state.vfs.clone(),
-                ),
+                run_index: stores.run_index().clone(),
+                ledger: stores.ledger().clone(),
                 settings: settings.clone(),
-                known_certificates: KnownCertificates::of(
-                    &dependencies.home,
-                    dependencies.run_state.vfs.clone(),
-                ),
+                known_certificates: stores.known_certificates().clone(),
                 owner: Arc::new(owner.part("Needs-you list")),
             },
             events.clone(),
@@ -403,7 +397,7 @@ impl Engine {
         let (context, secrets) = self.engine_context(
             &mut dependencies,
             settings,
-            (needs_you, sandbox_probe),
+            (needs_you, sandbox_probe, stores),
             owner,
         );
         let runs = Runs::start_registry(
@@ -448,7 +442,7 @@ impl Engine {
     }
 
     /// What the engine's Runs and calls are given, under `settings` with
-    /// `needs_you`, its blocking work a child of `owner`, and the engine's
+    /// `needs_you` and `stores`, and the engine's
     /// Secret-provider driver, which records in the same Audit log: both
     /// over `dependencies`' home and clock, the driver over its environment
     /// map, its keychain and a fork of its entropy. Nothing here opens the
@@ -457,25 +451,14 @@ impl Engine {
         &self,
         dependencies: &mut Dependencies,
         settings: Settings,
-        (needs_you, sandbox_probe): (NeedsYou, SandboxProbe),
+        (needs_you, sandbox_probe, stores): (NeedsYou, SandboxProbe, Stores),
         owner: &TaskOwner,
     ) -> (EngineContext, Secrets) {
-        // The Audit log's writer is an actor of a part of its own, which
-        // `owner`'s stop would not end: a task of `owner` ends it once that
-        // stop began, which the engine starts after its Runs and
-        // Connections, which record, have stopped, and `owner`'s stop waits
-        // for that task (ADR 0060).
-        let writer = Arc::new(owner.part("Audit log"));
-        let (stopping, stopped) = (owner.token().clone(), Arc::clone(&writer));
-        owner.spawn(async move {
-            stopping.cancelled().await;
-            stopped.stop().await;
-        });
         let audit = Arc::new(
             AuditLog::of(
                 &dependencies.home,
                 dependencies.run_state.vfs.clone(),
-                writer,
+                part_stopped_with(owner, "Audit log"),
             )
             .counting_on(dependencies.run_state.work.clone())
             .retained_under(settings.files().clone(), settings.product())
@@ -486,11 +469,10 @@ impl Engine {
             dependencies.clock,
             settings,
             Arc::clone(&audit),
-            Arc::new(owner.part("engine's stores")),
+            stores,
             needs_you,
             sandbox_probe,
             os_user(&dependencies.environment),
-            dependencies.run_state.vfs.clone(),
         );
         let secrets = Secrets::new(
             Carried {
@@ -699,6 +681,23 @@ pub enum AttachedFailure {
 /// ledger of `context`, as each engine does when it starts (ADR 0041); a
 /// policy that names none, or none at all, leaves that major no managed
 /// row. The Run registry answers no command before it ends.
+/// A part of `owner` named `part` for the actors of a store the engine's
+/// Runs, Connections and calls share, such as the Audit log's writer: its
+/// actors end once every sender is gone, which `owner`'s stop would not
+/// see, since whoever waits for the engine's readers, such as the Run
+/// registry, holds a sender. A task of `owner` stops the part once that
+/// stop began, which the engine starts after its Runs and Connections have
+/// stopped, and `owner`'s stop waits for that task (ADR 0060).
+fn part_stopped_with(owner: &TaskOwner, part: &'static str) -> Arc<TaskOwner> {
+    let part = Arc::new(owner.part(part));
+    let (stopping, stopped) = (owner.token().clone(), Arc::clone(&part));
+    owner.spawn(async move {
+        stopping.cancelled().await;
+        stopped.stop().await;
+    });
+    part
+}
+
 async fn write_managed(context: EngineContext, version: ProductVersion) {
     let machine = match context.settings().machine().await {
         Ok(machine) => machine,

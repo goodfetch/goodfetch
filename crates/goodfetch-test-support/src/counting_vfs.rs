@@ -1,8 +1,9 @@
-//! A SQLite VFS that counts syncs (ADR 0140) and is otherwise the OS's own:
-//! it opens each file through SQLite's default VFS, then puts one method table
-//! in front of the file's that counts `xSync` and calls the original, so the
-//! real files take the real writes, at the real sector size and device
-//! characteristics, and the count is what the file does in production. It
+//! A SQLite VFS that counts syncs and opens (ADR 0140) and is otherwise the
+//! OS's own: it opens each file through SQLite's default VFS, counting each
+//! database it opens, then puts one method table in front of the file's that
+//! counts `xSync` and calls the original, so the real files take the real
+//! writes, at the real sector size and device characteristics, and the count
+//! is what the file does in production. It
 //! names each file it opened, so a sync seen from outside the process, as
 //! `xtask counts --strace` sees one, can be held to its count. It sits
 //! where the crash VFS sits (ADR 0060), named by a value production leaves
@@ -29,6 +30,7 @@ use rusqlite::ffi;
 pub struct CountingVfs {
     name: String,
     syncs: Arc<AtomicU64>,
+    opens: Arc<AtomicU64>,
     files: Arc<Mutex<Vec<PathBuf>>>,
 }
 
@@ -44,6 +46,7 @@ impl CountingVfs {
         let name = format!("counting-{}", NEXT.fetch_add(1, Ordering::Relaxed));
         let c_name = CString::new(name.clone()).expect("invariant: a name with no NUL");
         let syncs = Arc::new(AtomicU64::new(0));
+        let opens = Arc::new(AtomicU64::new(0));
         let files = Arc::new(Mutex::new(Vec::new()));
         // SAFETY: a null name asks for the default VFS, which SQLite never
         // frees while the process lives.
@@ -52,6 +55,7 @@ impl CountingVfs {
         let shared = Box::leak(Box::new(Shared {
             base,
             syncs: Arc::clone(&syncs),
+            opens: Arc::clone(&opens),
             files: Arc::clone(&files),
             tables: Mutex::new(Vec::new()),
         }));
@@ -67,7 +71,12 @@ impl CountingVfs {
             ffi::sqlite3_vfs_register(vfs, 0)
         };
         assert_eq!(code, ffi::SQLITE_OK, "SQLite refused the counting VFS");
-        Self { name, syncs, files }
+        Self {
+            name,
+            syncs,
+            opens,
+            files,
+        }
     }
 
     /// The name the code under test opens its database with.
@@ -80,6 +89,14 @@ impl CountingVfs {
     #[must_use]
     pub fn syncs(&self) -> u64 {
         self.syncs.load(Ordering::Relaxed)
+    }
+
+    /// How many times a database was opened through it so far, by any
+    /// connection: a store that keeps its connection opens its file once.
+    /// Its journal's and WAL's opens are not counted.
+    #[must_use]
+    pub fn opens(&self) -> u64 {
+        self.opens.load(Ordering::Relaxed)
     }
 
     /// Each file opened through it so far, once, by the full path SQLite
@@ -98,6 +115,7 @@ impl CountingVfs {
 struct Shared {
     base: *mut ffi::sqlite3_vfs,
     syncs: Arc<AtomicU64>,
+    opens: Arc<AtomicU64>,
     files: Arc<Mutex<Vec<PathBuf>>>,
     /// One table per original method table the default VFS gave: it has a few,
     /// one per locking style.
@@ -170,6 +188,9 @@ unsafe extern "C" fn open(
         let code = base_open(shared.base, name, file, flags, out_flags);
         if code == ffi::SQLITE_OK && !(*file).pMethods.is_null() {
             (*file).pMethods = &raw const shared.table((*file).pMethods).methods;
+            if flags & ffi::SQLITE_OPEN_MAIN_DB != 0 {
+                shared.opens.fetch_add(1, Ordering::Relaxed);
+            }
             if !name.is_null() {
                 shared.opened(Path::new(&*CStr::from_ptr(name).to_string_lossy()));
             }

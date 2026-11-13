@@ -4,25 +4,40 @@ use crate::compare::trials::{
     Comparison, CountedCell, CountedRun, INSTRUCTION_TOOLS, Measured, Tool, Work, fixture,
 };
 
+/// The work of a trial that fetched every page of the site of `pages`
+/// pages once, 600 bytes each.
+fn whole(pages: u64) -> Work {
+    Work {
+        pages,
+        missing: Vec::new(),
+        extra: Vec::new(),
+        requests: pages,
+        bytes: 600 * pages,
+        first_bytes: 600 * pages,
+    }
+}
+
 /// The work of a trial that fetched every page of the 4-page site once,
 /// 600 bytes each, plus `again` pages fetched a second time.
 fn work(again: u64) -> Work {
     Work {
-        pages: 4,
-        missing: Vec::new(),
-        extra: Vec::new(),
         requests: 4 + again,
         bytes: 600 * (4 + again),
-        first_bytes: 2400,
+        ..whole(4)
     }
 }
 
 /// Three trials of each measured cell over the 4-page site, each with the
-/// work `work` gives its scenario and number.
+/// work `work` gives its scenario and number; the long scenario's trials
+/// crawl its own site, and each did all of its work.
 fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
     fixture::comparison(4, |cell, number| Measured {
         seconds: 1.0,
-        work: work(cell.scenario, number),
+        work: if cell.scenario == Scenario::Long {
+            whole(matrix::LONG_PAGES)
+        } else {
+            work(cell.scenario, number)
+        },
         ..Measured::default()
     })
 }
@@ -125,6 +140,7 @@ fn a_raw_trial_that_fetched_a_page_twice_did_other_work() {
             "spider",
             "crawlee",
             "scrapy",
+            "crawlee-rs",
             "spider capacity 4096",
             "spider default features",
             "spider bloom",
@@ -188,6 +204,7 @@ fn a_resumed_trial_whose_pages_were_first_served_other_bytes_did_other_work() {
                 "different_bytes",
                 "durable foxhound periodic trial 3".to_owned()
             ),
+            ("different_bytes", "durable crawlee-rs trial 3".to_owned()),
         ]
     );
 }
@@ -236,13 +253,16 @@ fn a_browser_trial_that_never_rendered_the_links_misses_the_script_rendered_page
 }
 
 /// Three runs of each cell `counts` keeps, each of the work `work` gives
-/// its scenario, cell and number: a counted cell over the 4-page site.
+/// its scenario, cell and number: a counted cell over the 4-page site,
+/// which a scenario that runs only its timed trials has no run in.
 fn counted(
     counts: impl Fn(Scenario, Row, Tool) -> bool,
     work: impl Fn(Scenario, &str, u32) -> Work,
 ) -> CountedCell {
     let runs = matrix::measured()
-        .filter(|(cell, config)| counts(cell.scenario, cell.row, config.tool()))
+        .filter(|(cell, config)| {
+            !cell.scenario.timed_only() && counts(cell.scenario, cell.row, config.tool())
+        })
         .flat_map(|(cell, config)| {
             let work = &work;
             (1..=3).map(move |number| CountedRun {
@@ -399,6 +419,7 @@ fn a_timed_trial_and_a_callgrind_run_of_other_work_still_fail_the_check() {
             ("different_pages", "polite foxhound trial 1".to_owned()),
             ("different_pages", "polite crawlee trial 1".to_owned()),
             ("different_pages", "polite scrapy trial 1".to_owned()),
+            ("different_pages", "polite crawlee-rs trial 1".to_owned()),
             ("different_pages", "raw spider callgrind trial 3".to_owned()),
         ]
     );

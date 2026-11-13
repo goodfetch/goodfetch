@@ -172,21 +172,35 @@ impl Automaton {
 
     /// `haystack` with every match replaced, borrowed when none.
     fn replace<'h>(&self, haystack: &'h [u8]) -> Cow<'h, [u8]> {
-        let mut masked: Option<Vec<u8>> = None;
+        let mut found = self.searcher.find_iter(haystack).peekable();
+        if found.peek().is_none() {
+            return Cow::Borrowed(haystack);
+        }
+        let mut out = Vec::with_capacity(haystack.len());
+        self.replaced(haystack, found, &mut out);
+        Cow::Owned(out)
+    }
+
+    /// Appends `haystack` to `out` with every match replaced.
+    fn replace_into(&self, haystack: &[u8], out: &mut Vec<u8>) {
+        self.replaced(haystack, self.searcher.find_iter(haystack), out);
+    }
+
+    /// Appends `haystack` to `out` with each of its matches `found`
+    /// replaced.
+    fn replaced(
+        &self,
+        haystack: &[u8],
+        found: impl Iterator<Item = aho_corasick::Match>,
+        out: &mut Vec<u8>,
+    ) {
         let mut cursor = 0;
-        for found in self.searcher.find_iter(haystack) {
-            let out = masked.get_or_insert_with(|| Vec::with_capacity(haystack.len()));
+        for found in found {
             out.extend_from_slice(&haystack[cursor..found.start()]);
             out.extend_from_slice(self.replacement(found.pattern()));
             cursor = found.end();
         }
-        match masked {
-            None => Cow::Borrowed(haystack),
-            Some(mut out) => {
-                out.extend_from_slice(&haystack[cursor..]);
-                Cow::Owned(out)
-            }
-        }
+        out.extend_from_slice(&haystack[cursor..]);
     }
 
     fn replacement(&self, pattern: aho_corasick::PatternID) -> &[u8] {
@@ -334,6 +348,19 @@ impl Masks {
         {
             None | Some(Cow::Borrowed(_)) => Cow::Borrowed(bytes),
             Some(Cow::Owned(masked)) => Cow::Owned(masked),
+        }
+    }
+
+    /// Appends `bytes` to `out` with every value `scope` masks replaced by
+    /// its `%name%`, as [`Masks::apply_bytes`] masks them: a writer that
+    /// masks line after line reuses `out` rather than taking a new buffer
+    /// for each line it masks. Each call reads the values masked at that
+    /// moment, so a line masks every value joined before it was written.
+    pub fn apply_bytes_into(&self, bytes: &[u8], scope: Scope, out: &mut Vec<u8>) {
+        let state = self.read();
+        match state.automaton(scope) {
+            Some(automaton) => automaton.replace_into(bytes, out),
+            None => out.extend_from_slice(bytes),
         }
     }
 

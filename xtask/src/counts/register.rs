@@ -16,6 +16,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result, bail};
 
 use crate::markdown::Table;
+use crate::perf;
 use crate::register::document::{COUNTED_WORK, Document, FILE as TESTING, MEASURED, SECTION};
 
 /// The first column of a table of rows.
@@ -55,7 +56,7 @@ impl Limit {
     /// This limit with the 0.5 % a figure read under Valgrind may vary by
     /// (the register's ratchet).
     pub(super) const fn with_valgrind_tolerance(self) -> Self {
-        Self(self.0 * 1_005 / 1_000)
+        Self(perf::with_valgrind_tolerance(self.0))
     }
 
     /// `count` over `units`, as the limit is written: rounded up to

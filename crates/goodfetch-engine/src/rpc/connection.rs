@@ -41,7 +41,9 @@
 
 use std::collections::BTreeMap;
 use std::panic::AssertUnwindSafe;
+use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures_util::FutureExt as _;
@@ -74,8 +76,8 @@ use crate::call_error::CallError;
 use crate::client::{Client, Outgoing};
 use crate::clock::Clock;
 use crate::composition::{
-    CallContext, CallInput, CallNotifier, CallStream, ConnectionContext, DaemonSide, Driver,
-    Handler, InputSender,
+    CallChannels, CallContext, CallInput, CallNotifier, CallStream, ConnectionContext, DaemonSide,
+    Driver, Handler, InputSender,
 };
 use crate::crash_report;
 use crate::endpoint::{Authorities, same_token};
@@ -127,11 +129,17 @@ pub(crate) struct Dispatch {
     /// Every live Run's resolved values, masked in every message the
     /// Connection sends (spec #564).
     pub(crate) masks: Masks,
+    /// The runtime's metrics, which count a call's panic (ADR 0148), and
+    /// whose Counted work the Connections' messages add to.
+    pub(crate) metrics: Metrics,
+}
+
+impl Dispatch {
     /// The engine's Counted work, what its Connections' messages add to
     /// (ADR 0140's E1).
-    pub(crate) work: CountedWork,
-    /// The runtime's metrics, which count a call's panic (ADR 0148).
-    pub(crate) metrics: Metrics,
+    pub(crate) fn work(&self) -> &CountedWork {
+        self.metrics.counted_work()
+    }
 }
 
 /// How a Connection reached the engine, which says what its `hello` must
@@ -366,7 +374,7 @@ async fn serve_carried(
         writing,
         lines,
         dispatch.masks.clone(),
-        dispatch.work.clone(),
+        dispatch.work().clone(),
     ));
     let metrics = dispatch.metrics.clone();
     let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
@@ -382,14 +390,14 @@ async fn serve_carried(
             () = telling.closed() => {}
         }
     });
-    let (client, requests) = Client::new(dispatch.work.clone());
+    let (client, requests) = Client::new(dispatch.work().clone());
     let daemon = access.daemon();
     let log = dispatch
         .log_events
         .as_ref()
         .map_or_else(ConnectionLog::none, LogEvents::connection);
     let logging = CancellationToken::new();
-    let forwarding = log.forward(outgoing.clone(), dispatch.work.clone());
+    let forwarding = log.forward(outgoing.clone(), dispatch.work().clone());
     let stop_logging = logging.clone();
     owner.spawn(async move {
         // Polled first, it sends every log event already waiting before
@@ -411,7 +419,7 @@ async fn serve_carried(
         engine,
         daemon,
         log,
-        work: dispatch.work.clone(),
+        work: dispatch.work().clone(),
     });
     let mut session = Session {
         dispatch,
@@ -684,7 +692,7 @@ impl Session<'_> {
     async fn handle(&mut self, frame: Frame) -> Flow {
         let incoming = match frame {
             Frame::TooLarge => Err(DecodeError::too_large()),
-            Frame::Line(line) => decode(&line, &self.dispatch.work),
+            Frame::Line(line) => decode(&line, self.dispatch.work()),
         };
         let message = Message::of(incoming);
         let effect = match self.transition(message.event()) {
@@ -813,7 +821,7 @@ impl Session<'_> {
                 if !self.pending.contains_key(&id) {
                     return Flow::Continue;
                 }
-                self.dispatch.work.count(Row::MessageEncodes);
+                self.dispatch.work().count(Row::MessageEncodes);
                 notification_line(CANCEL, &CancelParams { id })
             }
         };
@@ -916,7 +924,7 @@ impl Session<'_> {
                         .private_endpoint
                         .clone_from(private_endpoint);
                 }
-                self.dispatch.work.count(Row::MessageEncodes);
+                self.dispatch.work().count(Row::MessageEncodes);
                 let result = serde_json::to_value(accepted.result)
                     .expect("invariant: a `hello` reply encodes");
                 drop(span);
@@ -1024,41 +1032,46 @@ impl Session<'_> {
         let operation = handler.operation();
         let span = trace::server_span(operation.name, &id, params.as_ref(), meta);
         let credits = handler.streams().then(Credits::new);
-        let notifier = CallNotifier::new(
-            id.clone(),
-            self.outgoing.clone(),
-            notification_value_line,
-            self.dispatch.work.clone(),
-        );
-        let stream = credits
-            .clone()
-            .map(|credits| CallStream::new(notifier.clone(), credits));
-        let (input, call_input) = match handler.input() {
-            Some((method, room)) => {
-                let (sender, call_input) = CallInput::new(notifier, room);
-                (Some((method, sender)), Some(call_input))
-            }
-            None => (None, None),
+        // Only a call that streams or takes input notifies its Client: any
+        // other, most calls, makes no notifier and carries no channels (E1,
+        // ADR 0140).
+        let (input, channels) = if credits.is_none() && handler.input().is_none() {
+            (None, None)
+        } else {
+            let notifier = CallNotifier::new(
+                id.clone(),
+                self.outgoing.clone(),
+                notification_value_line,
+                self.dispatch.work().clone(),
+            );
+            let stream = credits
+                .clone()
+                .map(|credits| CallStream::new(notifier.clone(), credits));
+            let (input, call_input) = match handler.input() {
+                Some((method, room)) => {
+                    let (sender, call_input) = CallInput::new(notifier, room);
+                    (Some((method, sender)), Some(call_input))
+                }
+                None => (None, None),
+            };
+            (input, Some(CallChannels::new(stream, call_input)))
         };
         let context = CallContext::new(
             Arc::clone(&self.connection),
             operation,
             id.clone(),
             token.clone(),
-            stream,
-            call_input,
+            channels,
         );
         // The call's watch (ADR 0148): a panic in its handler is answered
         // here, in the task the call already has, and never reaches the
         // Connection's owner.
-        let metrics = self.dispatch.metrics.clone();
-        let answer = AssertUnwindSafe(
-            handler
+        let answer = CallWatch {
+            answer: handler
                 .call(params.unwrap_or(Value::Object(Map::new())), context)
                 .instrument(span.clone()),
-        )
-        .catch_unwind()
-        .map(move |answered| answered.unwrap_or_else(|_| Err(engine_panicked(&metrics))));
+            metrics: self.dispatch.metrics.clone(),
+        };
         self.in_flight.insert(
             id.clone(),
             InFlight {
@@ -1159,7 +1172,7 @@ impl Session<'_> {
             id: RequestId,
         }
         let params = self.params_copied(notification);
-        self.dispatch.work.count(Row::MessageDeepCopies);
+        self.dispatch.work().count(Row::MessageDeepCopies);
         let taker = serde_json::from_value::<Named>(params.clone())
             .ok()
             .and_then(|Named { id }| self.in_flight.get_mut(&id))
@@ -1192,7 +1205,7 @@ impl Session<'_> {
 
     /// A copy of `notification`'s params, counted (ADR 0140's E1).
     fn params_copied(&self, notification: &Notification) -> Value {
-        self.dispatch.work.count(Row::MessageDeepCopies);
+        self.dispatch.work().count(Row::MessageDeepCopies);
         notification.params.clone().unwrap_or(Value::Null)
     }
 
@@ -1249,6 +1262,30 @@ fn too_many_calls() -> CallError {
             max: u64::try_from(MAX_IN_FLIGHT).unwrap_or(u64::MAX),
         },
     )
+}
+
+/// A call's answer under its watch (ADR 0148): a panic while its handler
+/// is polled is caught there and answered [`engine_panicked`].
+///
+/// Hand-written rather than `catch_unwind().map(…)`, whose two layers cost
+/// every call on E1's path (ADR 0140) more than the one catch they hold.
+struct CallWatch<F> {
+    answer: F,
+    metrics: Metrics,
+}
+
+impl<F> Future for CallWatch<F>
+where
+    F: Future<Output = Result<Value, CallError>> + Unpin,
+{
+    type Output = Result<Value, CallError>;
+
+    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        let watch = self.get_mut();
+        let answer = &mut watch.answer;
+        std::panic::catch_unwind(AssertUnwindSafe(|| Pin::new(answer).poll(context)))
+            .unwrap_or_else(|_| Poll::Ready(Err(engine_panicked(&watch.metrics))))
+    }
 }
 
 /// `engine_panicked` for a call whose handler panicked, counted on

@@ -154,6 +154,32 @@ fn a_trials_work_is_its_answered_page_gets_on_the_sites_host() {
     );
 }
 
+/// A redirect the site answers under its pages' path, such as the
+/// realistic site's `/sites/<n>/moved/<page>`, is work the tool did, its
+/// request and bytes counted, but no page, no extra page and no error: its
+/// page is the one it leads to. Asked for again, it is a duplicate.
+#[test]
+fn a_redirect_on_the_site_is_work_but_no_page_and_no_error() {
+    let mut observations = observations();
+    let requests = observations["requests"].as_array_mut().unwrap();
+    requests.push(request(3, "/sites/4/moved/4", 301, 1_910_000, 1_920_000));
+    requests.push(request(3, "/sites/4/moved/4", 301, 1_930_000, 1_940_000));
+
+    let observed = observe(&observations, &SITE, 1.0, None).unwrap();
+
+    assert_eq!(
+        (
+            observed.work.pages,
+            observed.work.extra.len(),
+            observed.work.requests,
+            observed.work.bytes,
+            observed.errors,
+            observed.duplicates,
+        ),
+        (4, 0, 7, 4200, 1, 2)
+    );
+}
+
 #[test]
 fn unrecorded_requests_measure_nothing() {
     let mut observations = observations();

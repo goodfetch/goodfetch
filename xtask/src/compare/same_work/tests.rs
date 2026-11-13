@@ -138,6 +138,7 @@ fn a_raw_trial_that_fetched_a_page_twice_did_other_work() {
             "spider",
             "crawlee",
             "scrapy",
+            "crawlee-rs",
             "spider capacity 4096",
             "spider default features",
             "spider bloom",
@@ -201,6 +202,7 @@ fn a_resumed_trial_whose_pages_were_first_served_other_bytes_did_other_work() {
                 "different_bytes",
                 "durable foxhound periodic trial 3".to_owned()
             ),
+            ("different_bytes", "durable crawlee-rs trial 3".to_owned()),
         ]
     );
 }

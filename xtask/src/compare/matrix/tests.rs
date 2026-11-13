@@ -233,3 +233,51 @@ fn just_compare_builds_each_of_spiders_sides_builds_into_its_folder() {
 
     assert_eq!(missing, Vec::<String>::new());
 }
+
+/// crawlee-rs runs on its side in the four HTTP scenarios and in #2316's
+/// four, each its main row, and its headless browser cell is not supported
+/// (#2214).
+#[test]
+fn crawlee_rs_runs_the_http_scenarios_and_not_the_browser() {
+    let cells: Vec<(Scenario, &str, Row, Option<Config>)> = CELLS
+        .iter()
+        .filter(|cell| cell.tool == Tool::CrawleeRs)
+        .map(|cell| {
+            let config = match cell.status {
+                Status::Measured(config) => Some(config),
+                Status::NotSupported(_) | Status::Pending(_) => None,
+            };
+            (cell.scenario, cell.name, cell.row, config)
+        })
+        .collect();
+
+    let measured = Some(Config::CrawleeRs);
+    assert_eq!(
+        cells,
+        [
+            (Scenario::Raw, measured),
+            (Scenario::Durable, measured),
+            (Scenario::Polite, measured),
+            (Scenario::Extraction, measured),
+            (Scenario::Browser, None),
+            (Scenario::Realistic, measured),
+            (Scenario::Long, measured),
+            (Scenario::Raw64, measured),
+            (Scenario::Raw256, measured),
+        ]
+        .map(|(scenario, config)| (scenario, "crawlee-rs", Row::Main, config))
+    );
+}
+
+/// `just compare` builds crawlee-rs's side, locked, at the run's profile,
+/// into the folder the run reads its executable from.
+#[test]
+fn just_compare_builds_crawlee_rss_side_into_its_folder() {
+    let recipes = include_str!("../../../../justfile");
+
+    assert!(recipes.contains(&format!(
+        "cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml \
+         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
+        super::CRAWLEE_RS_FOLDER
+    )));
+}

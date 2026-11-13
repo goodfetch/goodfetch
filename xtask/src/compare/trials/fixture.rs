@@ -62,5 +62,6 @@ pub(crate) fn comparison(site_pages: u64, measured: impl Fn(&Cell, u32) -> Measu
         instructions: CountedCell::NotRun {
             reason: "a test".to_owned(),
         },
+        rules: Vec::new(),
     }
 }

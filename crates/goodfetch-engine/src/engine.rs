@@ -461,7 +461,7 @@ impl Engine {
                 part_stopped_with(owner, "Audit log"),
             )
             .counting_on(dependencies.run_state.work.clone())
-            .retained_under(settings.files().clone(), settings.product())
+            .retained_under(settings.clone())
             .sending_to(self.audit_events.clone()),
         );
         let context = EngineContext::new(
@@ -698,8 +698,12 @@ fn part_stopped_with(owner: &TaskOwner, part: &'static str) -> Arc<TaskOwner> {
     part
 }
 
+/// Writes the managed Operator policy's Limits into the Usage ledger, from
+/// the engine's snapshot of the machine's settings, read as the engine
+/// starts (ADR 0140), so no Run counts a read of its own for them.
 async fn write_managed(context: EngineContext, version: ProductVersion) {
-    let machine = match context.settings().machine().await {
+    let snapshot = context.settings().snapshot().await;
+    let machine = match snapshot.layers() {
         Ok(machine) => machine,
         Err(error) => {
             tracing::warn!(%error, "the machine's settings files could not be read, so no managed Limit was written");

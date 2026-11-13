@@ -19811,7 +19811,7 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
-      "description": "The most memory, in bytes, the engine and its children may use, as its Memory allowance when it is tighter than the process's own cgroup limit, its Windows Job object's limit or half of physical memory; unset by default. Read again at every sample.",
+      "description": "The most memory, in bytes, the engine and its children may use, as its Memory allowance when it is tighter than the process's own cgroup limit, its Windows Job object's limit or half of physical memory; unset by default. Each sample reads it from the engine's settings: the engine's own write (`config.user_write`, `config.policy_write`) is seen at the next sample, a hand edit at the engine's next read of the file, by the next Run's start at the latest.",
       "name": "governor.memory_allowance",
       "product": "collie",
       "products": [
@@ -21980,7 +21980,7 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
-      "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `critical` storage level: every Run with an essential write on it stops resumably at its next safe point, with `resource: \"storage\"`, and a new Run whose run file would go there is refused with `resources_exhausted`. Unset, each filesystem takes the smaller of 1 GiB and 2 % of its size, and free inodes go by 2 %; `0` turns the level off, which the Run's report lists in `weakened`. Read again at every sample of the Resource governor; set in user configuration or an Operator policy only.",
+      "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `critical` storage level: every Run with an essential write on it stops resumably at its next safe point, with `resource: \"storage\"`, and a new Run whose run file would go there is refused with `resources_exhausted`. Unset, each filesystem takes the smaller of 1 GiB and 2 % of its size, and free inodes go by 2 %; `0` turns the level off, which the Run's report lists in `weakened`. Each sample of the Resource governor reads it from the engine's settings: the engine's own write (`config.user_write`, `config.policy_write`) is seen at the next sample, a hand edit at the engine's next read of the file, by the next Run's start at the latest; set in user configuration or an Operator policy only.",
       "name": "storage.critical_free",
       "product": "collie",
       "products": [
@@ -21998,7 +21998,7 @@
       "authority": "machine",
       "clearable": true,
       "default": null,
-      "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `low` storage level: its Runs go on, record no Run trace video, store no new Response cache entry, skip their periodic Checkpoints onto it, and carry the warning `storage_low`. Unset, each filesystem takes the smaller of 5 GiB and 10 % of its size, and free inodes go by 10 %; `0` turns the level off, which the Run's report lists in `weakened`. Read again at every sample of the Resource governor; set in user configuration or an Operator policy only.",
+      "description": "The free space, in bytes, below which a filesystem a Run writes to is at the `low` storage level: its Runs go on, record no Run trace video, store no new Response cache entry, skip their periodic Checkpoints onto it, and carry the warning `storage_low`. Unset, each filesystem takes the smaller of 5 GiB and 10 % of its size, and free inodes go by 10 %; `0` turns the level off, which the Run's report lists in `weakened`. Each sample of the Resource governor reads it from the engine's settings: the engine's own write (`config.user_write`, `config.policy_write`) is seen at the next sample, a hand edit at the engine's next read of the file, by the next Run's start at the latest; set in user configuration or an Operator policy only.",
       "name": "storage.low_free",
       "product": "collie",
       "products": [

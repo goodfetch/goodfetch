@@ -403,7 +403,7 @@ fn each_b3_row_divides_by_the_outcome_that_did_its_work(
         &workspace,
         "benchmark.sh",
         &format!(
-            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"incoming_messages\":10,\"outgoing_messages\":10,\"audit_entries\":20}},\"counts\":{{\"E1.deep_copies\":{copies},\"E1.encodes\":{encodes},\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":{transactions},\"E2.syncs\":104}}}}'\n"
+            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"incoming_messages\":10,\"answers_and_events\":10,\"audit_entries\":20}},\"counts\":{{\"E1.deep_copies\":{copies},\"E1.encodes\":{encodes},\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":{transactions},\"E2.syncs\":104}}}}'\n"
         ),
     );
 
@@ -463,7 +463,7 @@ fn a_b3_benchmark_that_does_a_working_copy_updates_work_fails_its_row() {
     let path = executable_script(
         &workspace,
         "benchmark.sh",
-        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"incoming_messages\":10,\"outgoing_messages\":10,\"covered_charges\":4,\"slices\":4,\"charges\":8,\"audit_entries\":20,\"samples\":4,\"process_samples\":8},\"counts\":{\"E1.deep_copies\":11,\"E1.encodes\":20,\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":41,\"E2.syncs\":104,\"E3.statements\":4,\"E3.slice_transactions\":9,\"E3.opens\":1,\"E3.prepares\":79,\"E4.configuration_reads\":8,\"E4.meminfo_opens\":12,\"E4.static_opens\":8,\"E4.process_reads\":12,\"E7.encodes\":3}}'\n",
+        "#!/bin/sh\necho '{\"cell\":\"default\",\"units\":{\"incoming_messages\":10,\"answers_and_events\":10,\"covered_charges\":4,\"slices\":4,\"charges\":8,\"audit_entries\":20,\"samples\":4,\"process_samples\":8},\"counts\":{\"E1.deep_copies\":11,\"E1.encodes\":20,\"E2.configuration_reads\":20,\"E2.opens\":20,\"E2.prepares\":280,\"E2.prunes\":0,\"E2.transactions\":41,\"E2.syncs\":104,\"E3.statements\":4,\"E3.slice_transactions\":9,\"E3.opens\":1,\"E3.prepares\":79,\"E4.configuration_reads\":8,\"E4.meminfo_opens\":12,\"E4.static_opens\":8,\"E4.process_reads\":12,\"E7.encodes\":3}}'\n",
     );
 
     let outcome = workspace.xtask(&[

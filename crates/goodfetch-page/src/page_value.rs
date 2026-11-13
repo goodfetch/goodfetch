@@ -47,7 +47,7 @@ use std::sync::Arc;
 pub use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::response_limits::LimitExceeded;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::{CallContext, CallError, GuardAnswer};
+use goodfetch_engine::{CallContext, CallError, GuardAnswer, Params};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_protocol::page::{
     FormatsRequest, Navigated, PageFormats, PageId, PageResponse, SessionId, SitePreference,
@@ -776,7 +776,7 @@ pub trait HandlerPages: Send + Sync {
         &self,
         page_id: &PageId,
         operation: &'static str,
-        params: &serde_json::Value,
+        params: Params<'_>,
         context: &CallContext,
     ) -> Option<GuardAnswer> {
         let _ = (page_id, operation, params, context);

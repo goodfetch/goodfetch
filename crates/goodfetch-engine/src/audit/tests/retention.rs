@@ -22,7 +22,8 @@ use super::export::{joined, jsonl};
 use super::{at, broken, log, now, origin, tamper};
 use crate::audit::{AuditLog, verify_exported};
 use crate::home::Home;
-use crate::settings::SettingsFiles;
+use crate::settings::{Settings, SettingsFiles};
+use crate::tasks::{BlockingPolicy, TaskOwner};
 
 /// One day, the retention the tests prune with.
 const DAY: Duration = Duration::from_hours(24);
@@ -321,14 +322,17 @@ async fn an_append_under_settings_that_cannot_be_read_keeps_its_entry_and_prunes
     if let Some(policy) = policy {
         std::fs::write(files.operator_policy(), policy).unwrap();
     }
-    let log = aged(&env, 2, 0)
-        .await
-        .retained_under(files, Product::Collie);
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let log =
+        aged(&env, 2, 0)
+            .await
+            .retained_under(Settings::new(files, Product::Collie, owner.child()));
 
     let recorded = log
         .record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
         .await
         .unwrap();
+    owner.stop().await;
 
     assert_eq!(
         (
@@ -347,5 +351,67 @@ async fn an_append_under_settings_that_cannot_be_read_keeps_its_entry_and_prunes
                 (3, "secret_reference_used".to_owned()),
             ]
         )
+    );
+}
+
+/// The kinds of `log`'s entries, in order.
+fn kinds(log: &AuditLog) -> Vec<String> {
+    log.export()
+        .unwrap()
+        .into_iter()
+        .map(|entry| entry.entry.kind)
+        .collect()
+}
+
+/// Each append prunes by the `audit.retention` of the engine's snapshot of
+/// the machine's settings, which reads no file per entry: a hand edit
+/// setting it is not seen by the next entry, and the engine's own write of
+/// it, which refreshes the snapshot, is (ADR 0140).
+/// Covers: story:4-72, setting:audit.retention
+#[test]
+fn an_append_prunes_by_the_engines_own_write_of_the_retention_not_by_a_hand_edit() {
+    let env = TestEnv::in_memory();
+    let files = SettingsFiles::of(
+        &Home::new(env.home().to_path_buf()),
+        &ProductVersion::parse("1.4.0").unwrap(),
+    );
+
+    let [before, edited, written] = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let settings = Settings::new(files.clone(), Product::Collie, owner.child());
+        let log = aged(&env, 2, 0).await.retained_under(settings.clone());
+        let append = async || {
+            log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
+                .await
+                .unwrap();
+            kinds(&log)
+        };
+        let before = append().await;
+        std::fs::create_dir_all(files.user_configuration().parent().unwrap()).unwrap();
+        std::fs::write(
+            files.user_configuration(),
+            format!(
+                "version = \"0.1\"\n\n[settings]\naudit.retention = {}\n",
+                DAY.as_millis()
+            ),
+        )
+        .unwrap();
+        let edited = append().await;
+        settings.refresh().await;
+        let written = append().await;
+        owner.stop().await;
+        [before, edited, written]
+    });
+
+    let pruned = |kinds: &[String]| {
+        kinds
+            .iter()
+            .filter(|kind| *kind == "audit_log_pruned")
+            .count()
+    };
+    assert_eq!(
+        (pruned(&before), pruned(&edited), pruned(&written)),
+        (0, 0, 1),
+        "{written:?}"
     );
 }

@@ -12,14 +12,13 @@
 //! turns into the wire's error object.
 
 mod call_streams;
-mod params;
+pub(crate) mod params;
 
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 
-use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::{Operation, Setting, SharedTypeValue};
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::daemon::{DaemonHealth, DaemonState, DaemonStopping};
@@ -49,6 +48,7 @@ use goodfetch_protocol::secret_reference::Provider;
 
 pub use call_streams::{CallInput, CallStream};
 pub(crate) use call_streams::{CallNotifier, InputSender};
+pub use params::Params;
 
 /// What a handler is given beside its params: its Connection's handles,
 /// shared by every call of that Connection, its cancellation, and for a
@@ -102,8 +102,6 @@ pub(crate) struct ConnectionContext {
     pub(crate) daemon: Option<Arc<dyn DaemonSide>>,
     /// The log events the Connection receives, at the level it asks for.
     pub(crate) log: ConnectionLog,
-    /// The engine's Counted work, which a call's answer adds its encode to.
-    pub(crate) work: CountedWork,
 }
 
 /// Whether a Client's Connection holds the Daemon it reaches (ADR 0141).
@@ -276,7 +274,35 @@ impl CallContext {
     }
 }
 
-type Answer = Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+type Answer = Pin<Box<dyn Future<Output = Result<Answered, CallError>> + Send>>;
+
+/// A call's result, encoded once, straight into the line of its success
+/// (ADR 0140's E1).
+#[derive(Debug)]
+pub struct Answered(Vec<u8>);
+
+impl Answered {
+    /// The success of the call `context` names, with `result`.
+    ///
+    /// # Errors
+    ///
+    /// `internal_error` when `result` does not encode as JSON, such as a
+    /// map whose keys are no strings.
+    pub fn encode(context: &CallContext, result: &impl Serialize) -> Result<Self, CallError> {
+        Self::of(context.id(), result)
+    }
+
+    fn of(id: &RequestId, result: &impl Serialize) -> Result<Self, CallError> {
+        crate::wire::success_line(id, result)
+            .map(Self)
+            .map_err(|error| CallError::protocol(ProtocolFailure::InternalError, error.to_string()))
+    }
+
+    /// Its line.
+    pub(crate) fn into_line(self) -> Vec<u8> {
+        self.0
+    }
+}
 
 /// What drives a kind of Run, such as Foxhound's crawl's delivery, given
 /// the Run, the context of the call that resumed it, whose Connection's
@@ -287,21 +313,24 @@ pub type Driver = Arc<
 >;
 
 /// A call's answer as a [`Guard`] gives it in place of its handler's: the
-/// result, as JSON, or its error.
-pub type GuardAnswer = Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+/// result, encoded, or its error.
+pub type GuardAnswer = Answer;
 
 /// What a contribution asks of each of its calls before its handler, given
 /// the operation, the call's params as they arrived and its context: an
 /// answer given in the handler's place, or `None` to let the handler
 /// answer. It runs when the request arrives, as the handler does.
-pub type Guard =
-    Arc<dyn Fn(&'static Operation, &Value, &CallContext) -> Option<GuardAnswer> + Send + Sync>;
+pub type Guard = Arc<
+    dyn for<'params> Fn(&'static Operation, Params<'params>, &CallContext) -> Option<GuardAnswer>
+        + Send
+        + Sync,
+>;
 
 /// The handler of one operation of the catalog.
 #[derive(Clone)]
 pub struct Handler {
     operation: &'static Operation,
-    call: Arc<dyn Fn(Value, CallContext) -> Answer + Send + Sync>,
+    call: Arc<dyn for<'params> Fn(Params<'params>, CallContext) -> Answer + Send + Sync>,
     streams: bool,
     input: Option<(&'static str, usize)>,
 }
@@ -321,22 +350,18 @@ impl Handler {
         F: Fn(P, CallContext) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<R, CallError>> + Send + 'static,
     {
-        let call = move |params: Value, context: CallContext| -> Answer {
+        let call = move |params: Params<'_>, context: CallContext| -> Answer {
             // `handle` runs when the request arrives, before the next one
             // is read, so what it does before its future (arming a route or
             // a waiter, ADR 0080) is done in the Connection's arrival order.
-            let work = context.connection.work.clone();
-            let answering = params::read::<P>(params)
-                .map(|params| handle(params, context))
-                .map_err(|error| {
-                    CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
-                });
+            let answering = params.read::<P>().map(|params| {
+                let id = context.id().clone();
+                (id, handle(params, context))
+            });
             Box::pin(async move {
-                let result = answering?.await?;
-                work.count(Row::MessageEncodes);
-                serde_json::to_value(result).map_err(|error| {
-                    CallError::protocol(ProtocolFailure::InternalError, error.to_string())
-                })
+                let (id, answering) = answering?;
+                let result = answering.await?;
+                Answered::of(&id, &result)
             })
         };
         Self {
@@ -382,7 +407,7 @@ impl Handler {
         self.operation
     }
 
-    pub(crate) fn call(&self, params: Value, context: CallContext) -> Answer {
+    pub(crate) fn call(&self, params: Params<'_>, context: CallContext) -> Answer {
         (self.call)(params, context)
     }
 }
@@ -505,8 +530,8 @@ impl Contribution {
                 handler.operation,
                 Arc::clone(guard),
             );
-            handler.call = Arc::new(move |params: Value, context: CallContext| {
-                match guard(operation, &params, &context) {
+            handler.call = Arc::new(move |params: Params<'_>, context: CallContext| {
+                match guard(operation, params, &context) {
                     Some(answer) => answer,
                     None => inner(params, context),
                 }

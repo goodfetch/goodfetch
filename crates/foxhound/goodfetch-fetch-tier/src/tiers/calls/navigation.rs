@@ -69,7 +69,7 @@ pub(super) enum Step {
 pub(super) async fn navigate(
     tiers: &FetchTiers,
     page_id: &PageId,
-    page: ServedPage,
+    page: Arc<ServedPage>,
     step: Step,
     operation: &'static str,
 ) -> Result<Navigated, CallError> {
@@ -129,7 +129,10 @@ pub(super) async fn navigate(
         (other, _) => stopped(other),
     })?;
     let extractor = page.document.extractor;
-    if let Err(refusal) = Gate::new(Arc::clone(&page.hand_over))
+    let (hand_over, forced) = (Arc::clone(&page.hand_over), page.choice.forced.is_some());
+    // The page changes below, which would copy it while this call held it.
+    drop(page);
+    if let Err(refusal) = Gate::new(Arc::clone(&hand_over))
         .judge_document(&DocumentResponse {
             url: fetched.url.as_str(),
             status: fetched.status,
@@ -140,7 +143,7 @@ pub(super) async fn navigate(
     {
         tiers.navigated(
             page_id,
-            blank(&run, &fetched.url, (extractor, &page.hand_over.untouched)),
+            blank(&run, &fetched.url, (extractor, &hand_over.untouched)),
             at,
         );
         return Err(refused(fetched.url.as_str(), &refusal));
@@ -149,7 +152,7 @@ pub(super) async fn navigate(
     // `crawl.content_types` (ADR 0119): a response that is no document
     // leaves the page holding none, and a document only a guess could read
     // is never served. The document is read on the CPU pool.
-    let opened = opened_on(&run, &fetched, (extractor, &page.hand_over.untouched)).await;
+    let opened = opened_on(&run, &fetched, (extractor, &hand_over.untouched)).await;
     if opened.read.is_none() && opened.not_document.is_none() {
         return Err(tiers.unserved(page_id, operation, false));
     }
@@ -169,9 +172,10 @@ pub(super) async fn navigate(
             .await
             .filter(|(block, _)| block.checks_the_browser())
         {
-            return Err(match page.choice.forced {
-                None => tiers.unserved(page_id, BLOCKED.name, false),
-                Some(_) => error,
+            return Err(if forced {
+                error
+            } else {
+                tiers.unserved(page_id, BLOCKED.name, false)
             });
         }
     }

@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::hostile::Broken;
 use super::matrix::Scenario;
 pub(crate) use super::matrix::Tool;
 
@@ -54,6 +55,9 @@ pub(crate) const INSTRUCTION_RUNS: u32 = 3;
 pub(crate) const INSTRUCTION_TOOLS: [Tool; 2] = [Tool::Foxhound, Tool::Spider];
 /// What the Callgrind cell crawls with.
 pub(crate) const INSTRUCTION_SCENARIO: &str = "scenario 1 of ADR 0138's matrix";
+/// Runs of each hostile pages' cell (#2439), at most: its counts are read
+/// with their spread, not timed.
+pub(crate) const RULE_RUNS: u32 = 3;
 
 /// What was declared before the first trial.
 #[derive(Debug, Serialize, Deserialize)]
@@ -344,6 +348,19 @@ pub(crate) struct Comparison {
     /// Spider's: ADR 0140's row compares those two, and instructions are no
     /// metric of the owner's list for the other tools.
     pub(crate) instructions: CountedCell,
+    /// The hostile pages' cells' runs: the rules each tool broke (#2439).
+    pub(crate) rules: Vec<RuledRun>,
+}
+
+/// One run of a hostile pages' cell: the rules its tool broke on each task
+/// of its pass, read from the Proving ground's findings.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct RuledRun {
+    pub(crate) scenario: Scenario,
+    pub(crate) cell: String,
+    pub(crate) tool: Tool,
+    pub(crate) number: u32,
+    pub(crate) tasks: Vec<Broken>,
 }
 
 #[cfg(test)]

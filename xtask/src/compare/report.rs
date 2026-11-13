@@ -23,6 +23,7 @@ use super::trials::{
 };
 
 mod published;
+mod rules;
 mod standing;
 
 #[cfg(test)]
@@ -43,6 +44,7 @@ pub(crate) enum Unit {
     Bytes,
     Cores,
     Count,
+    Percent,
 }
 
 /// A figure over a cell's trials.
@@ -97,6 +99,12 @@ pub(crate) enum CellStatus {
     /// ticket that brings it has not landed.
     NotMeasured {
         reason: String,
+    },
+    /// A hostile pages' cell (#2439): the rules its tool broke on each task
+    /// of its pass, over its runs.
+    Ruled {
+        runs: usize,
+        tasks: Vec<rules::RuledTask>,
     },
 }
 
@@ -592,6 +600,7 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
                 Status::Pending(ticket) => CellStatus::NotMeasured {
                     reason: format!("pending {ticket}"),
                 },
+                Status::Measured(_) if scenario.hostile() => rules::status(trials, cell),
                 Status::Measured(_) if let Some(reason) = stopped_reason(trials, cell) => {
                     CellStatus::NotMeasured { reason }
                 }
@@ -698,6 +707,7 @@ fn shown(value: f64, unit: Unit) -> String {
         Unit::Bytes if value >= 1024.0 => format!("{:.1} KiB", value / 1024.0),
         Unit::Bytes => format!("{value:.0} B"),
         Unit::Cores => format!("{value:.2}"),
+        Unit::Percent => format!("{value:.1} %"),
     }
 }
 
@@ -864,8 +874,14 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                 let _ = writeln!(text, "  - pending: {pending}.");
             }
             if scenario.scenario.carries_no_bar() {
-                text.push_str(
-                    "  - no bar: none is set on this cell until the owner sets one (#2316).\n",
+                let _ = writeln!(
+                    text,
+                    "  - no bar: none is set on this cell until the owner sets one ({}).",
+                    if scenario.scenario.hostile() {
+                        "#2439, Q3"
+                    } else {
+                        "#2316"
+                    }
                 );
             }
             if !matches!(cell.status, CellStatus::NotSupported { .. }) {
@@ -902,6 +918,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                     );
                     published::cpu(&mut text, cell.tool, metrics);
                 }
+                CellStatus::Ruled { runs, tasks } => rules::markdown(&mut text, *runs, tasks),
             }
         }
         let measured: Vec<_> = scenario
@@ -919,7 +936,9 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                     metrics,
                     curve,
                 )),
-                CellStatus::NotSupported { .. } | CellStatus::NotMeasured { .. } => None,
+                CellStatus::NotSupported { .. }
+                | CellStatus::NotMeasured { .. }
+                | CellStatus::Ruled { .. } => None,
             })
             .collect();
         if measured.is_empty() {

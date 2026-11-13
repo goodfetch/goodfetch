@@ -326,10 +326,11 @@ fn a_web_socket_handshake_carries_no_session_cookie_to_a_host_reached_through_an
 
     let opened = reached(&program.goto(&page, &secure(&proving_ground, host, "/")));
     let before = open(&mut program);
+    let setter_host = "name-mismatch.certificates.test";
     let cookie_set = reached(&program.goto(
         &setter,
         &format!(
-            "http://name-mismatch.certificates.test:{}/set-cookie",
+            "http://{setter_host}:{}/set-cookie",
             proving_ground.address().port()
         ),
     ));
@@ -346,7 +347,7 @@ fn a_web_socket_handshake_carries_no_session_cookie_to_a_host_reached_through_an
     // document is replaced under it, so the open before may reach the host
     // twice, both times before the cookie exists.
     let received = proving_ground.received_requests().unwrap();
-    let listed = received
+    let every_request = received
         .every()
         .map(|request| {
             format!(
@@ -358,17 +359,14 @@ fn a_web_socket_handshake_carries_no_session_cookie_to_a_host_reached_through_an
         .join("\n");
     let cookie_set_at = received
         .every()
-        .find(|request| {
-            request.host.starts_with("name-mismatch.certificates.test")
-                && request.target == "/set-cookie"
-        })
+        .find(|request| request.host == setter_host && request.target == "/set-cookie")
         .map(|request| request.sequence)
         .expect("the setter's request reached the Proving ground");
     let handshakes: Vec<_> = received
         .every()
         .filter(|request| request.kind == "websocket" && request.host.starts_with(host))
         .collect();
-    let context = format!("before: {before}, after: {after}\n{listed}");
+    let context = format!("before: {before}, after: {after}\n{every_request}");
     assert!(
         handshakes.iter().all(|request| request.cookies.is_empty()),
         "no handshake carries a cookie: {context}"

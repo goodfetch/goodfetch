@@ -14,7 +14,14 @@
 # figures (ci/perf.sh); `just linux`, the tests only Linux decides
 # (ci/linux.sh), which on a Linux host run among the host's tests, after the
 # OS-service setup below; `just visual`, the visual projects in the pinned Playwright
-# image (ci/visual/container.sh). The suite waits for each and fails when one
+# image (ci/visual/container.sh). TLC and Miri run beside them too, on the
+# host (issue 2090's F7): each builds and writes in folders of its own
+# (`target/tlc/`, `target/miri/`), which no other step reads, and its verdict
+# follows from the tree and its pinned tools; what it shares with the host's
+# steps it only reads or waits for (ADR 0135's note of 2026-11-13). The
+# Kennel's check does not: it
+# builds the test tools into the folder the suites' own are in, so it runs
+# after them. The suite waits for each and fails when one
 # fails. The host's checks that take seconds and judge the whole change
 # (sign-offs, commit messages, the floor guard, secrets in commits,
 # advisories, notices) run first, before the steps

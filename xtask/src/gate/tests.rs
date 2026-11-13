@@ -1107,6 +1107,8 @@ const FULL_STEPS: [&str; 22] = [
     "perf",
     "linux",
     "visual",
+    "tlc",
+    "miri",
     "lint",
     "feature-combinations",
     "fuzz-check",
@@ -1116,10 +1118,8 @@ const FULL_STEPS: [&str; 22] = [
     "stress",
     "journeys-tasks",
     "features-tests",
-    "tlc",
     "kennel",
     "msrv",
-    "miri",
 ];
 
 /// The steps that judge the whole change in seconds.
@@ -1132,8 +1132,9 @@ const WHOLE_CHANGE_STEPS: [&str; 6] = [
     "notices",
 ];
 
-/// The steps that run beside the host's, in a container of their own.
-const BESIDE_STEPS: [&str; 3] = ["perf", "linux", "visual"];
+/// The steps that run beside the host's: each builds and writes in folders
+/// no host step reads, and its verdict is the one it gives after them.
+const BESIDE_STEPS: [&str; 5] = ["perf", "linux", "visual", "tlc", "miri"];
 
 /// The quick form's steps, in order: those that judge every change, never a
 /// test of the Pre-merge suite or a step beside the host's.
@@ -1184,6 +1185,31 @@ fn the_whole_changes_checks_end_the_full_gate_before_any_step_beside(#[case] for
         .min();
 
     assert!(last_check < first_beside, "{last_check:?} {first_beside:?}");
+}
+
+/// A step beside the host's that started after lint, the first of the
+/// host's steps that takes minutes, would wait behind it: each starts
+/// before it, after the checks of the whole change.
+#[rstest]
+#[case::all(Form::All)]
+#[case::changed(Form::Changed)]
+fn the_steps_beside_are_these_and_start_before_lint(#[case] form: Form) {
+    let list = entries(form);
+    let beside: Vec<&str> = list
+        .iter()
+        .filter(|entry| entry.kind == Kind::Beside)
+        .map(|entry| entry.name)
+        .collect();
+    let last_beside = BESIDE_STEPS
+        .map(|step| position(form, step))
+        .into_iter()
+        .max();
+
+    assert_eq!(beside, BESIDE_STEPS);
+    assert!(
+        last_beside < Some(position(form, "lint")),
+        "{last_beside:?}"
+    );
 }
 
 #[test]

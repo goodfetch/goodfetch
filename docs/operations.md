@@ -62,3 +62,5 @@ age_notice = false
 In a file that already exists, keep its `version` line and add the `[settings.version]` table.
 
 A Run reads both files once, when it starts, and keeps the values it resolved until it ends. A change to either file, whether you edit it by hand or the engine writes it (`config.policy_write`, `config.user_write`), a tightened Operator policy cap included, reaches the next Run, not the Runs already going.
+
+The engine keeps one copy of the machine's settings, the Operator policy and user configuration, for what serves every Run at once: the Resource governor's samples, the Audit log's retention, the managed Limits and the deadline of a forwarded call. It reads them when it starts, again whenever it writes either file itself, and again whenever it reads them for something else, such as a Run's start or `config explain`. So the engine's own write is seen at once, by the next sample and the next Audit log entry, while a hand edit is seen at the engine's next read of the files, when the next Run starts at the latest.

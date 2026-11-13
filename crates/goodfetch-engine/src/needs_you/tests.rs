@@ -16,7 +16,6 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{EngineInstance, ProductVersion};
-use goodfetch_protocol::events::EventEnvelope;
 use goodfetch_protocol::needs_you::{
     NeedsYouChange, NeedsYouItem, NeedsYouList, NeedsYouListParams, NeedsYouRemoval, PAGE,
 };
@@ -166,10 +165,11 @@ impl Started {
     async fn changes(&mut self, count: usize) -> Vec<NeedsYouChange> {
         let mut changes = Vec::new();
         while changes.len() < count {
-            let taken: Vec<EventEnvelope> = self.changes.next(count - changes.len()).await.unwrap();
+            let taken: Vec<crate::events::Envelope> =
+                self.changes.next(count - changes.len()).await.unwrap();
             changes.extend(taken.into_iter().map(|envelope| {
                 assert_eq!(envelope.event, "needs_you.changed");
-                serde_json::from_value::<NeedsYouChange>(envelope.data).unwrap()
+                serde_json::from_str::<NeedsYouChange>(envelope.data.json()).unwrap()
             }));
         }
         changes

@@ -188,7 +188,13 @@ impl SettingsEditor {
                 details,
             } => {
                 draft.drafted(layer)?.changed = true;
-                draft.write()?;
+                let wrote = draft.write();
+                // The engine's own write is seen at once by what reads its
+                // snapshot of the machine's settings, the Resource governor
+                // and the Audit log, the files it wrote before any failure
+                // included (ADR 0140).
+                self.settings.refresh_blocking();
+                wrote?;
                 Ok((
                     answer,
                     Some(Made {

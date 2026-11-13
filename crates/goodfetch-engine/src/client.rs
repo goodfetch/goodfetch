@@ -4,24 +4,33 @@
 //! protocol server carries each request on the Connection under an id of
 //! the engine's own and routes the reply back; a sender that stops waiting
 //! early, such as an attempt whose lease ended, cancels the request with
-//! `$/cancel` and may still read the answer that comes (ADR 0093). A
+//! `$/cancel` and may still read the answer that comes (ADR 0093). Each
+//! request's line is encoded once, by its sender, under the next id of the
+//! Connection's own (ADR 0140's E1). A
 //! Connection's end fails every request still waiting with
 //! [`ClientRequestError::Gone`], which a run tells apart from a failed
 //! handler. Each request is sent in a `CLIENT` span of its own, a child of
 //! the sender's span, whose Trace context its params' `_meta` carries while
 //! the engine exports its spans (ADR 0132).
 
-use std::marker::PhantomData;
+#![expect(
+    clippy::disallowed_types,
+    reason = "the next request id is taken in one step, never across an `.await` or under a lock, so there is no lock order for loom to test (ADR 0060)"
+)]
 
-use goodfetch_counted_work::{CountedWork, Row};
+use std::marker::PhantomData;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
+
 use goodfetch_protocol::catalog::HandlerRequest;
-use goodfetch_protocol::jsonrpc::{ErrorObject, META, RequestId};
+use goodfetch_protocol::jsonrpc::{ErrorObject, RequestId, TraceContext};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::trace;
+use crate::wire::{Received, request_line};
 
 /// How many handler requests wait for the Connection's writer before their
 /// senders wait.
@@ -31,14 +40,14 @@ pub(crate) const OUTGOING_REQUESTS: usize = 64;
 pub(crate) enum Outgoing {
     /// A handler request on its way to the Client.
     Request {
+        /// The id it is sent under.
+        id: RequestId,
         /// Its method.
         method: &'static str,
-        /// Its params.
-        params: Value,
-        /// Where the id it is sent under goes.
-        sent: oneshot::Sender<RequestId>,
+        /// Its line.
+        line: Vec<u8>,
         /// Where its reply goes.
-        reply: oneshot::Sender<Result<Value, ErrorObject>>,
+        reply: oneshot::Sender<Result<Received, ErrorObject>>,
     },
     /// `$/cancel` of the request sent under this id, unless it is answered.
     Cancel(RequestId),
@@ -49,7 +58,8 @@ pub(crate) enum Outgoing {
 #[derive(Clone, Debug)]
 pub struct Client {
     requests: mpsc::Sender<Outgoing>,
-    work: CountedWork,
+    /// The id the next request is sent under.
+    next_id: Arc<AtomicI64>,
 }
 
 /// Why a handler request got no answer.
@@ -82,7 +92,7 @@ pub enum ClientRequestError {
 pub struct Sent<R> {
     id: RequestId,
     /// Where its reply comes, until it is read.
-    replied: Option<oneshot::Receiver<Result<Value, ErrorObject>>>,
+    replied: Option<oneshot::Receiver<Result<Received, ErrorObject>>>,
     requests: mpsc::Sender<Outgoing>,
     /// Its `CLIENT` span, which ends once its answer is read or it is
     /// dropped (ADR 0132).
@@ -93,9 +103,10 @@ pub struct Sent<R> {
 impl Client {
     /// A Client whose requests go to `requests`, and the end the protocol
     /// server reads them from.
-    pub(crate) fn new(work: CountedWork) -> (Self, mpsc::Receiver<Outgoing>) {
+    pub(crate) fn new() -> (Self, mpsc::Receiver<Outgoing>) {
         let (requests, outgoing) = mpsc::channel(OUTGOING_REQUESTS);
-        (Self { requests, work }, outgoing)
+        let next_id = Arc::new(AtomicI64::new(0));
+        (Self { requests, next_id }, outgoing)
     }
 
     /// Sends the handler request `request` with `params`, and answers once
@@ -115,28 +126,26 @@ impl Client {
         params: &impl Serialize,
     ) -> Result<Sent<R>, ClientRequestError> {
         let span = trace::client_span(request.name);
-        self.work.count(Row::MessageEncodes);
-        let mut params = serde_json::to_value(params)
-            .expect("invariant: a handler request's params encode as JSON");
-        if let (Some(meta), Value::Object(members)) = (trace::sent(&span), &mut params) {
-            members.insert(
-                META.to_owned(),
-                serde_json::to_value(meta).expect("invariant: a Trace context encodes as JSON"),
-            );
+        let id = RequestId::Number(self.next_id.fetch_add(1, Ordering::Relaxed));
+        trace::record_id(&span, &id);
+        // Params that are no object carry no Trace context, as `_meta` is
+        // one of an object's members.
+        let line = match trace::sent(&span) {
+            Some(meta) => request_line(&id, request.name, &WithMeta { params, meta })
+                .or_else(|_| request_line(&id, request.name, params)),
+            None => request_line(&id, request.name, params),
         }
-        let (sent, assigned) = oneshot::channel();
+        .expect("invariant: a handler request's params encode as JSON");
         let (reply, replied) = oneshot::channel();
         self.requests
             .send(Outgoing::Request {
+                id: id.clone(),
                 method: request.name,
-                params,
-                sent,
+                line,
                 reply,
             })
             .await
             .map_err(|_| ClientRequestError::Gone)?;
-        let id = assigned.await.map_err(|_| ClientRequestError::Gone)?;
-        trace::record_id(&span, &id);
         Ok(Sent {
             id,
             replied: Some(replied),
@@ -145,6 +154,16 @@ impl Client {
             answer: PhantomData,
         })
     }
+}
+
+/// A handler request's params with the Trace context of its `CLIENT` span
+/// among them.
+#[derive(Serialize)]
+struct WithMeta<'a, P> {
+    #[serde(flatten)]
+    params: &'a P,
+    #[serde(rename = "_meta")]
+    meta: TraceContext,
 }
 
 impl<R: DeserializeOwned> Sent<R> {
@@ -171,7 +190,8 @@ impl<R: DeserializeOwned> Sent<R> {
         // The span ends with the answer.
         self.span = tracing::Span::none();
         match answer {
-            Ok(result) => serde_json::from_value(result)
+            Ok(result) => result
+                .read()
                 .map_err(|error| ClientRequestError::Malformed(error.to_string())),
             Err(error) => Err(ClientRequestError::Failed {
                 code: error.data.code,

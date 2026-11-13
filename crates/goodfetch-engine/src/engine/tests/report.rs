@@ -216,7 +216,10 @@ async fn cancelled_stop(params: Value, context: CallContext) -> Result<Value, Ca
         .into_iter()
         .find(|handler| handler.operation().name == RUN_STOP.name)
         .expect("invariant: the engine handles `run.stop`");
-    let answered = stop.call(params, context).now_or_never();
+    let params = params.to_string();
+    let answered = stop
+        .call(crate::Params::new(&params), context)
+        .now_or_never();
     Ok(json!({ "answered": answered.is_some() }))
 }
 

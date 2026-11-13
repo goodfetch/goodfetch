@@ -56,7 +56,7 @@ use crate::sqlite_store::run_cached;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
-use tokio::sync::{OnceCell, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 
 use crate::durable;
 use crate::home::Home;
@@ -230,18 +230,21 @@ struct Store {
 }
 
 /// The log's writer: an actor of `owner`, started by the first write, whose
-/// mailbox every clone of the log shares.
+/// mailbox every clone of the log shares. A write after the actor ended
+/// while its owner runs starts it again, as one does after the runtime it
+/// ran on under the Inline policy ended (a harness that builds a runtime
+/// per step); once its owner is cancelled, none does.
 #[derive(Debug)]
 struct Writer {
     owner: Arc<TaskOwner>,
-    mailbox: OnceCell<mpsc::Sender<Job>>,
+    mailbox: Mutex<Option<mpsc::Sender<Job>>>,
 }
 
 impl Writer {
     fn of(owner: Arc<TaskOwner>) -> Self {
         Self {
             owner,
-            mailbox: OnceCell::new(),
+            mailbox: Mutex::new(None),
         }
     }
 }
@@ -478,32 +481,35 @@ impl AuditLog {
             let _ = answer.send(written);
         });
         let stopped = || self.store.stopped(&"its owner stopped");
-        self.mailbox()
-            .await?
-            .send(job)
-            .await
-            .map_err(|_| stopped())?;
+        self.mailbox()?.send(job).await.map_err(|_| stopped())?;
         answered.await.map_err(|_| stopped())?
     }
 
-    /// The writer's mailbox, its actor started now if it is not yet.
-    async fn mailbox(&self) -> Result<&mpsc::Sender<Job>, AuditError> {
-        self.writer
+    /// The writer's mailbox, its actor started now if it is not running
+    /// and its owner is not cancelled.
+    fn mailbox(&self) -> Result<mpsc::Sender<Job>, AuditError> {
+        let mut mailbox = self
+            .writer
             .mailbox
-            .get_or_try_init(|| async {
-                let (mailbox, jobs) = mpsc::channel::<Job>(MAILBOX);
-                let mut held = Held::default();
-                self.writer
-                    .owner
-                    .actor("audit-log-writer", jobs, move |group: Vec<Job>| {
-                        for job in group {
-                            job(&mut held);
-                        }
-                    })
-                    .map_err(|error| self.store.stopped(&error))?;
-                Ok(mailbox)
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(running) = mailbox.as_ref().filter(|mailbox| !mailbox.is_closed()) {
+            return Ok(running.clone());
+        }
+        if self.writer.owner.token().is_cancelled() {
+            return Err(self.store.stopped(&"its owner stopped"));
+        }
+        let (sender, jobs) = mpsc::channel::<Job>(MAILBOX);
+        let mut held = Held::default();
+        self.writer
+            .owner
+            .actor("audit-log-writer", jobs, move |group: Vec<Job>| {
+                for job in group {
+                    job(&mut held);
+                }
             })
-            .await
+            .map_err(|error| self.store.stopped(&error))?;
+        Ok(mailbox.insert(sender).clone())
     }
 
     /// Verifies the chain from its first entry and the head file against

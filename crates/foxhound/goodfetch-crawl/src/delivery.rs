@@ -75,6 +75,7 @@ use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes};
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::egress::Policy;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::ledger::Refusal;
 use goodfetch_engine::local_addresses::{BlockSizes, LocalAddresses, Rotation, System};
@@ -123,6 +124,7 @@ use tokio::time::Instant;
 use crate::attempt_outcome::{self, Outcome, Refusing};
 use crate::code_free::{self, CodeFree};
 use crate::completeness;
+use crate::invariants::Invariants;
 use crate::labels;
 use crate::lease::{CommitError, Leases, WorkItemLease};
 use crate::policy::{CrawlPolicy, resumed_domain_policy};
@@ -252,6 +254,10 @@ pub(crate) async fn drive(
         in_flight: std::sync::Arc::new(tokio::sync::Mutex::new(InFlight::default())),
         untouched,
         code_free: code_free.map(std::sync::Arc::new),
+        sitemaps: (
+            std::sync::Arc::clone(&arrivals.egress),
+            arrivals.invariants.shared_frontier(),
+        ),
     };
     for (setting, code, message) in SWITCHED_OFF {
         if !settings.resolved().get::<bool>(setting) {
@@ -259,7 +265,13 @@ pub(crate) async fn drive(
         }
     }
     // What every attempt hands over alike, built once (ADR 0138).
-    let handing = run_hand_over(&run, settings.resolved(), fetching.http, &arrivals.egress).await;
+    let handing = run_hand_over(
+        &run,
+        settings.resolved(),
+        fetching.http,
+        (&arrivals.egress, arrivals.invariants.shared_frontier()),
+    )
+    .await;
     let fetching = (&fetching, &handing);
     let choices = choices.sampled_as(sampling(settings.resolved()));
     deliver(
@@ -478,7 +490,7 @@ async fn deliver(
             }
             ended = pages.ended() => {
                 let state = (&mut state, fetching);
-                settled(run, (resolved, read), &mut admission, state, servers, ended).await;
+                settled(run, read, &mut admission, state, servers, ended).await;
             }
             () = sleep_until(run.clock(), wake), if wake.is_some() => {}
             () = run.governor().turn(WorkKind::Http), if free && starved => {}
@@ -571,12 +583,19 @@ pub(crate) async fn resume(
             bounds.record(connection)?;
             goodfetch_frontier::payload::record_max_size(connection, &resolved)?;
             work_items::recover_leases(connection, &lost, retry_max, &resumed_at)?;
+            let fragments = labels::Fragments::read(connection)?;
+            let invariants = Invariants::read(connection, fragments.clone())?;
+            goodfetch_frontier::prepare_admission(connection, invariants.frontier())?;
             Ok((
                 work_items::left(connection)?,
                 labels::read(connection)?,
-                labels::Fragments::read(connection)?,
+                fragments,
                 tier_choice::read(connection)?,
-                (code_free::read(connection)?, Datasets::read(connection)?),
+                (
+                    code_free::read(connection)?,
+                    Datasets::read(connection)?,
+                    invariants,
+                ),
             ))
         })
         .await;
@@ -587,7 +606,7 @@ pub(crate) async fn resume(
         });
         (left, (labels, choices, declarations))
     });
-    let (labels, choices, (extraction, datasets)) = match left {
+    let (labels, choices, (extraction, datasets, invariants)) = match left {
         Err(error) => {
             tracing::error!(%error, run_id = %run.id(), "the resumed crawl's work items could not be recovered");
             run.end(failed(&run, &error)).await;
@@ -602,7 +621,7 @@ pub(crate) async fn resume(
         Ok((_, labels)) => labels,
     };
     let egress = resumed_domain_policy(settings.resolved(), run.id());
-    let opened = crawls.open(&run, egress, datasets).await;
+    let opened = crawls.open(&run, egress, invariants, datasets).await;
     let code_free = CodeFree::of(extraction, &crawls, &tiers, &run);
     drive(
         run,
@@ -644,6 +663,12 @@ struct Fetching<'a> {
     in_flight: SharedInFlight,
     /// The readers of the untouched page of each Label, built once.
     untouched: Untouched,
+    /// What each sitemap's read admits its entries under: the Run's domain
+    /// policy and its invariants, built once (#1896).
+    sitemaps: (
+        std::sync::Arc<Policy>,
+        std::sync::Arc<goodfetch_frontier::Invariants>,
+    ),
 }
 
 /// The readers of the untouched page a Run's documents are read by (ADR
@@ -700,15 +725,15 @@ impl Fetching<'_> {
         &self,
         of_run: &std::sync::Arc<RunHandOver>,
         (leased, lease, watch): (&Leased, &WorkItemLease, &Watch),
-        second_copies: &SecondCopies,
+        second_copies: SecondCopies,
         fetch_admission: FetchAdmission,
     ) -> std::sync::Arc<HandOver> {
         let label = leased.crawl_request.label.as_str();
         std::sync::Arc::new(HandOver {
             of_run: std::sync::Arc::clone(of_run),
             domain_key: leased.waiting.key.clone(),
-            second_copies: second_copies.clone(),
-            lease: handler_lease(&of_run.run, (leased, lease, watch), &self.in_flight),
+            second_copies,
+            lease: handler_lease(of_run, (leased, lease, watch), &self.in_flight),
             fetch_admission,
             page_check: self.labels.settings.page_check(label).cloned(),
             extractor: self.labels.settings.extractor(label),
@@ -887,7 +912,7 @@ async fn lease_to_servers(
             let hand_over = fetching.hand_over(
                 pooled.handing,
                 (&leased, &lease, &watch),
-                &copies,
+                copies,
                 admission.clone(),
             );
             let fetches = tiering.tier().or(leased.sitemap.then_some(FetchTier::Http));
@@ -906,14 +931,14 @@ async fn lease_to_servers(
                     started_at: run.point_in_time(),
                 },
             );
-            pages.start(Start {
+            pages.start(Box::new(Start {
                 server: (place, server.context.clone()),
                 leased: (leased, (session, in_browser), leased_count(run)),
                 lease,
                 watch,
                 fetching: (tiering, (hand_over, fetching.code_free.clone())),
                 admission,
-            });
+            }));
         }
     }
     Ok(())
@@ -1095,7 +1120,7 @@ struct Scored {
 /// was added, and journals what the queues changed.
 async fn settled(
     run: &Run,
-    (resolved, read): (&Resolved, Read),
+    read: Read,
     admission: &mut Admission,
     (state, fetching): (&mut RunState, &Fetching<'_>),
     servers: &mut [Serving],
@@ -1111,7 +1136,16 @@ async fn settled(
     let mut queued = Vec::with_capacity(attempts.len());
     for ((attempt, settling), scored) in attempts.into_iter().zip(&settlings).zip(scores) {
         let held = settling.held.is_some();
-        queued.push(queue_outcome(run, (resolved, read.policy), held, attempt, scored).await);
+        queued.push(
+            queue_outcome(
+                run,
+                (&fetching.sitemaps, read.policy),
+                held,
+                attempt,
+                scored,
+            )
+            .await,
+        );
     }
     let mut retried = Vec::with_capacity(queued.len());
     let mut keyed = Vec::new();
@@ -1602,11 +1636,17 @@ struct Finished {
 /// item retried or failed, under the Run's `policy`, with no retry when its
 /// failure's site asked for a time further away than the Run waits
 /// (`held`), or its sitemap's entries admitted under the Run's domain
-/// policy as `resolved` holds it, within the scope the run file holds,
-/// the fetch ended with no outcome (ADR 0093).
+/// policy and within its invariants, `sitemaps`, the fetch ended with no
+/// outcome (ADR 0093).
 async fn queue_outcome(
     run: &Run,
-    (resolved, policy): (&Resolved, CrawlPolicy),
+    (sitemaps, policy): (
+        &(
+            std::sync::Arc<Policy>,
+            std::sync::Arc<goodfetch_frontier::Invariants>,
+        ),
+        CrawlPolicy,
+    ),
     held: bool,
     attempt: Attempt,
     scored: Scored,
@@ -1649,7 +1689,8 @@ async fn queue_outcome(
             let ending = attempt_outcome::Ending::Sitemap {
                 work_item,
                 lease_epoch,
-                egress: resumed_domain_policy(resolved, run.id()),
+                egress: std::sync::Arc::clone(&sitemaps.0),
+                invariants: std::sync::Arc::clone(&sitemaps.1),
                 document,
                 work,
             };

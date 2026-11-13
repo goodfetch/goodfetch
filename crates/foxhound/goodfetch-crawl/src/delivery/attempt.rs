@@ -255,12 +255,13 @@ const BROWSER: TierChoice = TierChoice {
 /// the navigation gate and the site's preferences read them, the
 /// Politeness it shares, robots.txt and the AI-use signal files fetched on
 /// `http`, the Run's HTTP tier, whose address check judges each redirect
-/// hop, and `egress`, its domain policy.
+/// hop, `egress`, its domain policy, and `invariants`, its admission's,
+/// which each hop is admitted within.
 pub(super) async fn run_hand_over(
     run: &Run,
     settings: &Resolved,
     http: Option<&HttpTier>,
-    egress: &Arc<Policy>,
+    (egress, invariants): (&Arc<Policy>, Arc<goodfetch_frontier::Invariants>),
 ) -> Arc<RunHandOver> {
     let site_preferences = SitePreferences::of(settings);
     // The Run reads robots.txt from the copy its user's runs share in the
@@ -288,22 +289,23 @@ pub(super) async fn run_hand_over(
         pace: goodfetch_frontier::Pace::of(settings),
         site_preferences,
         egress: Arc::clone(egress),
+        invariants,
         addresses: http.map(HttpTier::address_check),
     })
 }
 
 /// The lease check of the handler pages of the attempt of `leased`,
-/// holding `lease` and watched by `watch` ([`HandlerLease`]); `in_flight`
-/// names its waits.
+/// holding `lease` and watched by `watch` ([`HandlerLease`]), in the Run
+/// `of_run` hands over; `in_flight` names its waits.
 pub(super) fn handler_lease(
-    run: &Run,
+    of_run: &Arc<RunHandOver>,
     (leased, lease, watch): (&Leased, &WorkItemLease, &Watch),
     in_flight: &SharedInFlight,
 ) -> Arc<dyn LeaseCheck> {
     Arc::new(HandlerLease {
         lease: lease.clone(),
         watch: watch.clone(),
-        run: run.clone(),
+        of_run: Arc::clone(of_run),
         request_id: leased.crawl_request.id.clone(),
         in_flight: Arc::clone(in_flight),
     })
@@ -313,14 +315,29 @@ pub(super) fn handler_lease(
 /// renewed while a page waits for a navigation gate's permit, the wait
 /// named in the Run's live status, so a handler waiting for a permit is not
 /// timed out meanwhile (ADR 0093). A panic in the renewal ends the
-/// attempt ([`Watch`]).
-#[derive(Clone, Debug)]
+/// attempt ([`Watch`]). It shares its Run with every attempt's hand-over
+/// rather than holding a clone of its own, which the loop would build and
+/// the page's task drop once a page (#2243).
+#[derive(Clone)]
 struct HandlerLease {
     lease: WorkItemLease,
     watch: Watch,
-    run: Run,
+    of_run: Arc<RunHandOver>,
     request_id: String,
     in_flight: SharedInFlight,
+}
+
+impl std::fmt::Debug for HandlerLease {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("HandlerLease")
+            .field("lease", &self.lease)
+            .field("watch", &self.watch)
+            .field("run", &self.of_run.run)
+            .field("request_id", &self.request_id)
+            .field("in_flight", &self.in_flight)
+            .finish()
+    }
 }
 
 /// How often a permit's wait renews its lease, as a share of its length.
@@ -338,14 +355,11 @@ impl LeaseCheck for HandlerLease {
     fn permit_wait(&self, _url: &str) -> PermitWait {
         let (stop, mut stopped) = oneshot::channel::<()>();
         let waiting = self.clone();
-        self.run.spawn(self.watch.over(async move {
+        self.of_run.run.spawn(self.watch.over(async move {
             let id = &waiting.request_id;
-            waiting
-                .in_flight
-                .lock()
-                .await
-                .permit_wait_began(&waiting.run, id);
-            let (length, clock) = (waiting.lease.length(), waiting.run.clock());
+            let run = &waiting.of_run.run;
+            waiting.in_flight.lock().await.permit_wait_began(run, id);
+            let (length, clock) = (waiting.lease.length(), run.clock());
             loop {
                 waiting.lease.renew(length);
                 tokio::select! {
@@ -355,11 +369,7 @@ impl LeaseCheck for HandlerLease {
             }
             // The handler's timeout runs again from the wait's end.
             waiting.lease.renew(length);
-            waiting
-                .in_flight
-                .lock()
-                .await
-                .permit_wait_ended(&waiting.run, id);
+            waiting.in_flight.lock().await.permit_wait_ended(run, id);
         }));
         PermitWait::holding(stop)
     }

@@ -14,8 +14,8 @@ use std::fmt::Write as _;
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::run_state::PAGE_CACHE_KIB;
 use goodfetch_frontier::{
-    BOUNDS_TABLES, Candidate, Declared, Narrowing, RULES_TABLES, SCOPE_TABLES, Scope, Url,
-    VISITED_TABLES, admit,
+    BOUNDS_TABLES, Bounds, Candidate, Declared, Invariants, Narrowing, RULES_TABLES, SCOPE_TABLES,
+    Scope, Url, VISITED_TABLES, admit,
 };
 use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
 use goodfetch_test_support::{Suite, TestEnv, peak_resident_bytes};
@@ -32,7 +32,7 @@ const BATCH: u64 = 1_000;
 /// cache), its seed admitted.
 struct RunFile {
     connection: Connection,
-    scope: Scope,
+    invariants: Invariants,
     policy: Policy,
     base: Url,
 }
@@ -64,7 +64,7 @@ impl RunFile {
         }
         let file = Self {
             connection,
-            scope: Scope::default(),
+            invariants: Invariants::new(Scope::default(), Bounds::default()).unwrap(),
             policy: Policy::new(&["*"], &[] as &[&str]).unwrap(),
             base: Url::parse(SEED).unwrap(),
         };
@@ -86,9 +86,13 @@ impl RunFile {
     }
 
     fn admit(&self, connection: &Connection, candidate: Candidate<'_>) -> Enqueued {
-        admit(connection, &self.scope, &self.policy, candidate, |url| {
-            Ok(url.as_str().to_owned())
-        })
+        admit(
+            connection,
+            &self.invariants,
+            &self.policy,
+            candidate,
+            |url| Ok(url.as_str().to_owned()),
+        )
         .unwrap()
     }
 
@@ -104,7 +108,13 @@ impl RunFile {
             for link in start..end {
                 synthetic(link, &mut href);
                 if matches!(
-                    admit_link(&transaction, &self.scope, &self.policy, &self.base, &href),
+                    admit_link(
+                        &transaction,
+                        &self.invariants,
+                        &self.policy,
+                        &self.base,
+                        &href
+                    ),
                     Enqueued::Added { .. }
                 ) {
                     added += 1;
@@ -120,7 +130,7 @@ impl RunFile {
 /// Admits `href`, a link found on the seed's page.
 fn admit_link(
     connection: &Connection,
-    scope: &Scope,
+    invariants: &Invariants,
     policy: &Policy,
     base: &Url,
     href: &str,
@@ -134,7 +144,7 @@ fn admit_link(
         depth: 1,
         keeps_fragment: false,
     };
-    admit(connection, scope, policy, candidate, |url| {
+    admit(connection, invariants, policy, candidate, |url| {
         Ok(url.as_str().to_owned())
     })
     .unwrap()
@@ -169,7 +179,7 @@ fn a_million_urls_take_at_most_half_again_the_peak_memory_of_a_hundred_thousand(
     synthetic(count / 2, &mut visited);
     let again = admit_link(
         &file.connection,
-        &file.scope,
+        &file.invariants,
         &file.policy,
         &file.base,
         &visited,

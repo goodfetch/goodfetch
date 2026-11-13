@@ -546,10 +546,26 @@ fn frontier_crawl(globs: bool, schema: bool, planted: bool) -> Frontiers {
     }
 }
 
+/// The rows of [`FRONTIER_ROWS`] that the Run's invariants, built once as
+/// it starts, keep at 0 on every outcome: none reads the Scope, the Payload
+/// rules or the Fragments again, nor compiles a glob of the Scope, a
+/// sitemap's rule or a Label's schema (#1896).
+const BUILT_ONCE: [Row; 7] = [
+    Row::BatchInvariantReads,
+    Row::BatchCompilations,
+    Row::HopInvariantReads,
+    Row::HopCompilations,
+    Row::SitemapInvariantReads,
+    Row::SitemapCompilations,
+    Row::PayloadCompilations,
+];
+
 /// B1's Frontier rows (ADR 0140): a batch's, a hop's, a sitemap's and a
-/// Payload's work are each counted on their own row, once the crawl met each
-/// outcome; a plant per page adds exactly its pages' worth to each; and with
-/// no glob in the Scope or no schema on the Label, their work goes.
+/// Payload's work are each counted on their own row; a plant per page adds
+/// exactly its pages' worth to each; the Run's invariants are built once,
+/// so no outcome reads or compiles one, a glob in the Scope or a schema on
+/// the Label included; the one seed with a Payload is serialized once and
+/// validated once, and with no schema on its Label not validated (#1896).
 #[test]
 #[expect(
     clippy::disallowed_methods,
@@ -577,13 +593,27 @@ fn each_outcome_of_the_frontier_counts_on_its_own_row_a_plant_adds_one_a_page_an
         (u64::try_from(PAGES.len()).unwrap() + 4, 1, 1)
     );
     for row in FRONTIER_ROWS {
-        assert!(default.of(row) > 0, "{row:?} counted nothing");
         assert_eq!(planted.of(row) - default.of(row), default.pages, "{row:?}");
     }
-    assert!(no_globs.of(Row::BatchCompilations) < default.of(Row::BatchCompilations));
-    assert!(no_globs.of(Row::HopCompilations) < default.of(Row::HopCompilations));
-    assert_eq!(no_schema.of(Row::PayloadValidations), 0);
-    assert_eq!(no_schema.of(Row::PayloadCompilations), 0);
+    let built_once = |crawl: &Frontiers| BUILT_ONCE.map(|row| crawl.of(row));
+    assert_eq!(
+        (built_once(&default), built_once(&no_globs)),
+        ([0; 7], [0; 7])
+    );
+    for row in [Row::HopTransactions, Row::SitemapTransactions] {
+        assert!(default.of(row) > 0, "{row:?} counted nothing");
+    }
+    // A code-free page's links ride its outcome's job (#2245).
+    assert_eq!(default.of(Row::BatchTransactions), 0);
+    assert_eq!(
+        (
+            default.of(Row::PayloadSerializations),
+            default.of(Row::PayloadValidations),
+            no_schema.of(Row::PayloadSerializations),
+            no_schema.of(Row::PayloadValidations),
+        ),
+        (1, 1, 1, 0)
+    );
 }
 
 /// The run-state rows a crawl with `settings` counted and, when `planted`,

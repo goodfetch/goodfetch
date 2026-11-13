@@ -19,6 +19,8 @@
 //! again when it resumes under its new settings.
 
 use std::collections::BTreeMap;
+use std::fmt;
+use std::sync::Arc;
 
 use data_encoding::HEXLOWER;
 use goodfetch_counted_work::{CountedWork, Row};
@@ -31,6 +33,7 @@ use goodfetch_protocol::foxhound::frontier::{
     PayloadSchemaChangedDetails,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use jsonschema::Validator;
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
@@ -57,14 +60,65 @@ pub const TABLES: RunStateTables = RunStateTables {
     ],
 };
 
+/// A Payload, its JSON written compactly once, which both its check against
+/// the cap and its row in the run file read (#1896).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Payload {
+    value: Value,
+    json: String,
+}
+
+impl Payload {
+    /// `value`, written once, counted on `F3.payload_serializations`.
+    #[must_use]
+    pub fn of(value: Value, work: &CountedWork) -> Self {
+        work.count(Row::PayloadSerializations);
+        let json = value.to_string();
+        Self { value, json }
+    }
+
+    /// The Payload's JSON value.
+    #[must_use]
+    pub const fn value(&self) -> &Value {
+        &self.value
+    }
+
+    /// The Payload's JSON, written compactly.
+    #[must_use]
+    pub fn json(&self) -> &str {
+        &self.json
+    }
+}
+
 /// What a crawl's Payloads are checked against: the cap, and each declared
-/// Label's JSON Schema, none for a Label declared without one.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Label's JSON Schema, none for a Label declared without one, with the
+/// schema's validator, built once with the rules (#1896).
+#[derive(Clone)]
 pub struct PayloadRules {
     /// `crawl.payload.max_size`, in bytes.
     max_size: u64,
     /// Each declared Label's Payload schema.
     labels: BTreeMap<String, Option<Value>>,
+    /// The validator of each Label's schema that is a JSON Schema.
+    validators: BTreeMap<String, Arc<Validator>>,
+}
+
+impl PartialEq for PayloadRules {
+    fn eq(&self, other: &Self) -> bool {
+        (self.max_size, &self.labels) == (other.max_size, &other.labels)
+    }
+}
+
+impl Eq for PayloadRules {}
+
+impl fmt::Debug for PayloadRules {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PayloadRules")
+            .field("max_size", &self.max_size)
+            .field("labels", &self.labels)
+            .finish_non_exhaustive()
+    }
 }
 
 impl PayloadRules {
@@ -81,14 +135,16 @@ impl PayloadRules {
         settings: &Resolved,
         labels: &BTreeMap<String, LabelDeclaration>,
     ) -> Result<Self, CallError> {
+        let mut validators = BTreeMap::new();
         for (label, declaration) in labels {
-            if let Some(schema) = &declaration.payload
-                && let Err(error) = jsonschema::validator_for(schema)
-            {
-                return Err(CallError::protocol(
-                    ProtocolFailure::InvalidParams,
-                    format!("The Label `{label}`'s Payload schema is no JSON Schema: {error}"),
-                ));
+            if let Some(schema) = &declaration.payload {
+                let validator = jsonschema::validator_for(schema).map_err(|error| {
+                    CallError::protocol(
+                        ProtocolFailure::InvalidParams,
+                        format!("The Label `{label}`'s Payload schema is no JSON Schema: {error}"),
+                    )
+                })?;
+                validators.insert(label.clone(), Arc::new(validator));
             }
         }
         Ok(Self {
@@ -97,7 +153,30 @@ impl PayloadRules {
                 .iter()
                 .map(|(label, declaration)| (label.clone(), declaration.payload.clone()))
                 .collect(),
+            validators,
         })
+    }
+
+    /// The rules of the cap `max_size` and each Label's schema in `labels`,
+    /// each schema's validator built once; a schema that is no JSON Schema
+    /// has none, and fits any Payload.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "each Label's schema compiled once, as the rules are built (ADR 0140)"
+    )]
+    fn built(max_size: u64, labels: BTreeMap<String, Option<Value>>) -> Self {
+        let validators = labels
+            .iter()
+            .filter_map(|(label, schema)| {
+                let validator = jsonschema::validator_for(schema.as_ref()?).ok()?;
+                Some((label.clone(), Arc::new(validator)))
+            })
+            .collect();
+        Self {
+            max_size,
+            labels,
+            validators,
+        }
     }
 
     /// Records the rules in the run file `connection` holds, as the Run
@@ -146,7 +225,7 @@ impl PayloadRules {
                 ))
             })?
             .collect::<rusqlite::Result<_>>()?;
-        Ok(Self { max_size, labels })
+        Ok(Self::built(max_size, labels))
     }
 
     /// Whether `payload`, enqueued under `label`, may be added.
@@ -158,12 +237,11 @@ impl PayloadRules {
     pub fn check(
         &self,
         label: &str,
-        payload: Option<&Value>,
+        payload: Option<&Payload>,
         work: &CountedWork,
     ) -> Result<(), CallError> {
         if let Some(payload) = payload {
-            work.count(Row::PayloadSerializations);
-            let size = u64::try_from(payload.to_string().len()).unwrap_or(u64::MAX);
+            let size = u64::try_from(payload.json.len()).unwrap_or(u64::MAX);
             if size > self.max_size {
                 return Err(CallError::new(
                     &PAYLOAD_INVALID,
@@ -181,12 +259,11 @@ impl PayloadRules {
                 ));
             }
         }
-        let Some(Some(schema)) = self.labels.get(label) else {
+        let Some(validator) = self.validators.get(label) else {
             return Ok(());
         };
-        work.count(Row::PayloadCompilations);
         work.count(Row::PayloadValidations);
-        let issues = issues(schema, payload);
+        let issues = issues(validator, payload.map(Payload::value));
         if issues.is_empty() {
             return Ok(());
         }
@@ -232,12 +309,15 @@ impl PayloadRules {
             if kept.as_deref() == Some(hash(schema).as_str()) {
                 continue;
             }
+            let Some(validator) = self.validators.get(label) else {
+                continue;
+            };
             let requests = pending(label)?;
             let mut failing = 0_u64;
             let mut first = None;
             for request in &requests {
                 let payload = of_request(connection, request)?;
-                let issues = issues(schema, payload.as_ref());
+                let issues = issues(validator, payload.as_ref());
                 if !issues.is_empty() {
                     failing += 1;
                     first.get_or_insert_with(|| (request.clone(), issues));
@@ -289,14 +369,12 @@ fn max_size(settings: &Resolved) -> u64 {
 pub fn store(
     connection: &Connection,
     request: &str,
-    payload: Option<&Value>,
-    work: &CountedWork,
+    payload: Option<&Payload>,
 ) -> rusqlite::Result<()> {
     if let Some(payload) = payload {
-        work.count(Row::PayloadSerializations);
         connection
             .prepare_cached("INSERT INTO payloads (request, payload) VALUES (?1, ?2)")
-            .and_then(|mut cached| cached.execute((request, payload.to_string())))?;
+            .and_then(|mut cached| cached.execute((request, payload.json())))?;
     }
     Ok(())
 }
@@ -329,16 +407,9 @@ fn hash(schema: &Value) -> String {
     HEXLOWER.encode(&Sha256::digest(schema.to_string().as_bytes()))
 }
 
-/// Each way `payload`, a missing one read as `null`, does not fit
-/// `schema`, a JSON Schema [`PayloadRules::of`] checked.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "a Payload's validator, which `F3.compilations` has yet to count (ADR 0140)"
-)]
-fn issues(schema: &Value, payload: Option<&Value>) -> Vec<PayloadIssue> {
-    let Ok(validator) = jsonschema::validator_for(schema) else {
-        return Vec::new();
-    };
+/// Each way `payload`, a missing one read as `null`, does not fit the
+/// schema `validator` was built from.
+fn issues(validator: &Validator, payload: Option<&Value>) -> Vec<PayloadIssue> {
     let payload = payload.unwrap_or(&Value::Null);
     validator
         .iter_errors(payload)

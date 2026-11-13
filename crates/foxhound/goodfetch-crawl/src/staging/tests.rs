@@ -20,6 +20,7 @@ use rusqlite::Connection;
 use serde_json::json;
 
 use super::{Answered, AttemptKey, Staging};
+use crate::invariants::fixture;
 use crate::work_items::{self, Adding, Positions};
 
 /// A run file in memory holding one seed, `https://shop.test/`, leased to
@@ -47,14 +48,15 @@ fn leased() -> Connection {
         Patterns::default(),
     );
     scope.record(&connection).unwrap();
+    let invariants = fixture::within(&connection, scope).unwrap();
     let seed: Seed =
         serde_json::from_value(json!({ "url": "https://shop.test/", "label": "page" })).unwrap();
     work_items::admit_seeds(
         &connection,
         &mut Positions::of(&connection).unwrap(),
-        &scope,
+        &invariants,
         &every_host(),
-        &[seed],
+        &fixture::checked(&invariants, [seed]),
     )
     .unwrap();
     let leased = work_items::lease(&connection, &["1".to_owned()]).unwrap();
@@ -86,7 +88,7 @@ fn enqueue(
             narrowing: Narrowing::none(),
             depth: 1,
         };
-        let scope = Scope::read(connection)?;
+        let invariants = fixture::within(connection, Scope::read(connection)?)?;
         let adding = Adding {
             method: &method,
             body: None,
@@ -99,7 +101,7 @@ fn enqueue(
         work_items::admit(
             connection,
             positions,
-            &scope,
+            &invariants,
             &every_host(),
             candidate,
             adding,
@@ -348,9 +350,10 @@ fn a_staged_enqueue_names_its_identity_without_scanning_the_visited_set() {
 }
 
 /// n separate enqueues of one attempt run n admissions while they stage,
-/// one each, and n again at the commit, in order: an enqueue does not run
-/// the attempt's earlier ones again to answer, and joins what it did to
-/// what they did where it lies, never copying theirs.
+/// one each, and none at the commit, which applies what each decided, in
+/// order, and adds each request (#2069): an enqueue does not run the
+/// attempt's earlier ones again to answer, and joins what it did to what
+/// they did where it lies, never copying theirs.
 ///
 /// Covers: story:6-236
 #[test]
@@ -398,7 +401,7 @@ fn separate_enqueues_of_one_attempt_run_one_admission_each() {
             work_items_of(&connection).len(),
             places.len()
         ),
-        (10, 10, 11, 1)
+        (10, 0, 11, 1)
     );
 }
 
@@ -414,12 +417,13 @@ fn a_commit_names_each_staged_request_another_commit_added_first() {
     let connection = leased();
     let seed: Seed =
         serde_json::from_value(json!({ "url": "https://shop.test/a", "label": "page" })).unwrap();
+    let invariants = fixture::within(&connection, Scope::read(&connection).unwrap()).unwrap();
     work_items::admit_seeds(
         &connection,
         &mut Positions::of(&connection).unwrap(),
-        &Scope::read(&connection).unwrap(),
+        &invariants,
         &every_host(),
-        &[seed],
+        &fixture::checked(&invariants, [seed]),
     )
     .unwrap();
     let epoch = work_items::lease(&connection, &["2".to_owned()]).unwrap()[0].lease_epoch;
@@ -515,12 +519,13 @@ fn dependent_steps() -> Vec<Step> {
         let seed: Seed =
             serde_json::from_value(json!({ "url": "https://other.test/", "label": "page" }))
                 .unwrap();
+        let invariants = fixture::within(connection, Scope::read(connection)?)?;
         let mut answers = work_items::admit_seeds(
             connection,
             positions,
-            &Scope::read(connection)?,
+            &invariants,
             &every_host(),
-            &[seed],
+            &fixture::checked(&invariants, [seed]),
         )?;
         Ok(Some(Ok(answers.pop().unwrap())))
     };
@@ -551,11 +556,29 @@ fn bounded() -> Connection {
     connection
 }
 
+/// What the bounds of the run file `connection` holds counted as refused:
+/// each setting's count, then each path budget's.
+fn refusals_of(connection: &Connection) -> Vec<(String, i64)> {
+    connection
+        .prepare(
+            "SELECT setting, count FROM bounds_refusals
+             UNION ALL
+             SELECT pattern, refused FROM bounds_path_counts WHERE refused > 0
+             ORDER BY 1",
+        )
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
 /// Separate staged admissions of one attempt are answered as admitting
 /// each in turn on the run file answers them, though none reached it: a
 /// duplicate of an earlier one, the path budget and `crawl.max_requests`
 /// counting the earlier ones, and a seed widening the scope for a later
-/// link; their commit then adds each as answered.
+/// link; their commit then adds each as answered, and counts each refusal
+/// of a bound as admitting it on the run file counts it.
 ///
 /// Covers: story:6-236
 #[test]
@@ -585,6 +608,7 @@ fn staged_admissions_are_answered_as_admitting_them_in_turn_answers() {
             staged,
             not_added,
             work_items_of(&staged_run),
+            refusals_of(&staged_run),
         ),
         (
             [
@@ -603,7 +627,15 @@ fn staged_admissions_are_answered_as_admitting_them_in_turn_answers() {
             direct,
             Vec::new(),
             work_items_of(&direct_run),
+            refusals_of(&direct_run),
         )
+    );
+    assert_eq!(
+        refusals_of(&staged_run),
+        [
+            ("/sale/*".to_owned(), 1),
+            ("crawl.max_requests".to_owned(), 1)
+        ]
     );
 }
 

@@ -5,8 +5,8 @@ use super::{Comparison, CountedCell, Declared, GrowthCell, Machine, Measured, Tr
 use crate::compare::matrix::{self, Cell, Scenario};
 
 /// Three trials of each measured cell over the site of `site_pages` pages,
-/// each with the figures `measured` gives its cell and number, on an
-/// unnamed machine whose memory was not read.
+/// or of its scenario's own length, each with the figures `measured` gives
+/// its cell and number, on an unnamed machine whose memory was not read.
 pub(crate) fn comparison(site_pages: u64, measured: impl Fn(&Cell, u32) -> Measured) -> Comparison {
     let trials = matrix::measured()
         .flat_map(|(cell, config)| {
@@ -16,7 +16,7 @@ pub(crate) fn comparison(site_pages: u64, measured: impl Fn(&Cell, u32) -> Measu
                 cell: cell.name.to_owned(),
                 tool: config.tool(),
                 number,
-                site_pages,
+                site_pages: cell.scenario.site_pages(site_pages),
                 load: None,
                 retried: None,
                 measured: measured(cell, number),

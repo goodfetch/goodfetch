@@ -1,4 +1,91 @@
-use super::{CELLS, Config, Row, Scenario, SpiderBuild, Status};
+use super::{CELLS, Config, Row, Scenario, Site, SpiderBuild, Status, Tool};
+
+/// #2316's scenarios: the realistic-page site, the long site and scenario
+/// 1 at 64 and 256 in flight. Each gives every tool a main cell with its
+/// mapping, and the cell at the catalog's defaults (#2175) stands at each
+/// of the sweep's three points, 16, 64 and 256 in flight, pending until
+/// #2175 brings it.
+#[test]
+fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
+    let added = [
+        Scenario::Realistic,
+        Scenario::Long,
+        Scenario::Raw64,
+        Scenario::Raw256,
+    ];
+    let mapped = |scenario: Scenario| -> Vec<Tool> {
+        let mut tools: Vec<Tool> = CELLS
+            .iter()
+            .filter(|cell| {
+                cell.scenario == scenario
+                    && cell.row == Row::Main
+                    && matches!(cell.status, Status::Measured(_))
+                    && !cell.mapping.is_empty()
+            })
+            .map(|cell| cell.tool)
+            .collect();
+        tools.dedup();
+        tools
+    };
+    let defaults: Vec<(Scenario, u32, bool)> = CELLS
+        .iter()
+        .filter(|cell| cell.name == "foxhound defaults")
+        .map(|cell| {
+            (
+                cell.scenario,
+                cell.scenario.concurrency(),
+                matches!(cell.status, Status::Pending(reason) if reason.contains("#2175")),
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        (
+            added.map(mapped),
+            added.map(Scenario::site),
+            added.map(|scenario| (scenario.concurrency(), scenario.site_pages(1000))),
+            defaults,
+        ),
+        (
+            [
+                Tool::ALL.to_vec(),
+                Tool::ALL.to_vec(),
+                Tool::ALL.to_vec(),
+                Tool::ALL.to_vec()
+            ],
+            [Site::Realistic, Site::Scale, Site::Scale, Site::Scale],
+            [(16, 1000), (16, 100_000), (64, 1000), (256, 1000)],
+            vec![
+                (Scenario::Raw, 16, true),
+                (Scenario::Raw64, 64, true),
+                (Scenario::Raw256, 256, true),
+            ],
+        )
+    );
+}
+
+/// Each new scenario runs scenario 1's settings, so the sides take it as
+/// `raw`, and carries no bar until the owner sets one (#2252 Q11); the
+/// matrix's own five scenarios are unchanged.
+#[test]
+fn the_new_scenarios_run_scenario_1s_settings_and_carry_no_bar() {
+    let read = |scenario: Scenario| (scenario.settings(), scenario.carries_no_bar());
+
+    assert_eq!(
+        Scenario::ALL.map(read),
+        [
+            (Scenario::Raw, false),
+            (Scenario::Durable, false),
+            (Scenario::Polite, false),
+            (Scenario::Extraction, false),
+            (Scenario::Browser, false),
+            (Scenario::Raw, true),
+            (Scenario::Raw, true),
+            (Scenario::Raw, true),
+            (Scenario::Raw, true),
+        ]
+    );
+}
 
 /// Spider's measured rows of `scenario`: each row's name, what it is read
 /// for, its build and its page channel's capacity.
@@ -10,7 +97,7 @@ fn spider_rows(scenario: Scenario) -> Vec<(&'static str, Row, SpiderBuild, usize
             Status::Measured(Config::Spider { build, capacity }) => {
                 Some((cell.name, cell.row, build, capacity))
             }
-            Status::Measured(_) | Status::NotSupported(_) => None,
+            Status::Measured(_) | Status::NotSupported(_) | Status::Pending(_) => None,
         })
         .collect()
 }
@@ -83,7 +170,7 @@ fn each_spider_rows_mapping_names_its_capacity() {
             {
                 Some(cell.name)
             }
-            Status::Measured(_) | Status::NotSupported(_) => None,
+            Status::Measured(_) | Status::NotSupported(_) | Status::Pending(_) => None,
         })
         .collect();
 
@@ -122,7 +209,7 @@ fn just_compare_builds_each_of_spiders_sides_builds_into_its_folder() {
         .unwrap();
     let builds = CELLS.iter().filter_map(|cell| match cell.status {
         Status::Measured(Config::Spider { build, .. }) => Some(build),
-        Status::Measured(_) | Status::NotSupported(_) => None,
+        Status::Measured(_) | Status::NotSupported(_) | Status::Pending(_) => None,
     });
     let mut missing: Vec<String> = builds
         .filter(|build| {

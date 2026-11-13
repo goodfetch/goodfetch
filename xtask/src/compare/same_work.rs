@@ -10,7 +10,8 @@
 //! whose links past the first page only a script adds, a trial that missed
 //! pages is named for the script-rendered pages it never reached. Each
 //! counted cell and the growth cell are held to it among themselves, as
-//! other cells of the comparison (ADR 0140).
+//! other cells of the comparison (ADR 0140). The long scenario's site is of
+//! its own length, and its cells run only their timed trials.
 
 use std::collections::BTreeMap;
 
@@ -125,6 +126,11 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
     };
     let declared = trials.declared.trials;
     let ran = &trials.declared.scenarios[..];
+    let counted: Vec<Scenario> = ran
+        .iter()
+        .copied()
+        .filter(|scenario| !scenario.timed_only())
+        .collect();
     let raw: &[Scenario] = if ran.contains(&Scenario::Raw) {
         &[Scenario::Raw]
     } else {
@@ -144,7 +150,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
         (
             " strace",
             &trials.syscalls,
-            ran,
+            &counted[..],
             &Tool::ALL[..],
             EVERY_ROW,
             "strace counted no system call, so the run measured nothing",
@@ -194,7 +200,7 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
             suffix: " growth",
             declared: *declared,
             site_pages: *site_pages,
-            scenarios: ran,
+            scenarios: &counted,
             tools: &Tool::ALL,
             rows: EVERY_ROW,
             done: of_trials(trials_run),
@@ -229,10 +235,11 @@ fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
         }
     }
     for scenario in pass.scenarios {
+        let site_pages = scenario.site_pages(pass.site_pages);
         let mut whole = Vec::new();
         for done in pass.done.iter().filter(|done| done.scenario == *scenario) {
             let work = done.work;
-            if work.pages == pass.site_pages && work.missing.is_empty() && work.extra.is_empty() {
+            if work.pages == site_pages && work.missing.is_empty() && work.extra.is_empty() {
                 whole.push(done);
                 continue;
             }
@@ -246,7 +253,7 @@ fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
                     format!(
                         "{} of the site's {} pages its script links not reached",
                         work.missing.len(),
-                        pass.site_pages.saturating_sub(1)
+                        site_pages.saturating_sub(1)
                     ),
                 ));
                 continue;
@@ -257,7 +264,7 @@ fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
                 format!(
                     "{} of the site's {} pages missing and {} other pages fetched",
                     work.missing.len(),
-                    pass.site_pages,
+                    site_pages,
                     work.extra.len()
                 ),
             ));

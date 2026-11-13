@@ -6,6 +6,9 @@
 //! Labelled `local-controlled`, measured on the machine it names, with the
 //! command that reruns it, and written only once the same-work check
 //! passed.
+//!
+//! Size: one concern, the report: the figures of each cell and standing,
+//! and the Markdown that writes them, which reads each of those figures.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -89,7 +92,8 @@ pub(crate) enum CellStatus {
     NotSupported {
         reason: &'static str,
     },
-    /// Its timed trial was stopped twice (see `run::stopped`).
+    /// Its timed trial was stopped twice (see `run::stopped`), or the
+    /// ticket that brings it has not landed.
     NotMeasured {
         reason: String,
     },
@@ -485,9 +489,17 @@ fn metrics(
     metrics
 }
 
+/// Why a cell of the long scenario has no strace or growth figures.
+const TIMED_ONLY: &str = "the long scenario runs only its timed trials: strace over its 100,000 \
+     pages would take hours, and its site is already the growth cell's length";
+
 /// The runs of `cell` in a counted cell, or why there are none: the cell
-/// did not run, or a run of `cell` was stopped.
+/// did not run, a run of `cell` was stopped, or its scenario runs only its
+/// timed trials.
 fn runs_of<'a>(counted: &'a CountedCell, cell: &Cell) -> Result<Vec<&'a CountedRun>, &'a str> {
+    if cell.scenario.timed_only() {
+        return Err(TIMED_ONLY);
+    }
     let of_cell = |scenario: Scenario, name: &str| scenario == cell.scenario && name == cell.name;
     match counted {
         CountedCell::NotRun { reason } => Err(reason),
@@ -503,7 +515,18 @@ fn runs_of<'a>(counted: &'a CountedCell, cell: &Cell) -> Result<Vec<&'a CountedR
     }
 }
 
+/// The trials of `cell` among `trials`.
+fn trials_of<'a>(trials: &'a [Trial], cell: &Cell) -> Vec<&'a Trial> {
+    trials
+        .iter()
+        .filter(|trial| trial.scenario == cell.scenario && trial.cell == cell.name)
+        .collect()
+}
+
 fn growth_of<'a>(growth: &'a GrowthCell, cell: &Cell) -> Result<Vec<&'a Trial>, &'a str> {
+    if cell.scenario.timed_only() {
+        return Err(TIMED_ONLY);
+    }
     match growth {
         GrowthCell::NotRun { reason } => Err(reason),
         GrowthCell::Measured {
@@ -515,10 +538,7 @@ fn growth_of<'a>(growth: &'a GrowthCell, cell: &Cell) -> Result<Vec<&'a Trial>, 
             .find(|run| run.scenario == cell.scenario && run.cell == cell.name)
         {
             Some(run) => Err(&run.reason),
-            None => Ok(trials_run
-                .iter()
-                .filter(|trial| trial.scenario == cell.scenario && trial.cell == cell.name)
-                .collect()),
+            None => Ok(trials_of(trials_run, cell)),
         },
     }
 }
@@ -568,15 +588,14 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
         for cell in CELLS.iter().filter(|cell| cell.scenario == scenario) {
             let status = match cell.status {
                 Status::NotSupported(reason) => CellStatus::NotSupported { reason },
+                Status::Pending(ticket) => CellStatus::NotMeasured {
+                    reason: format!("pending {ticket}"),
+                },
                 Status::Measured(_) if let Some(reason) = stopped_reason(trials, cell) => {
                     CellStatus::NotMeasured { reason }
                 }
                 Status::Measured(_) => {
-                    let ran: Vec<&Trial> = trials
-                        .trials
-                        .iter()
-                        .filter(|trial| trial.scenario == scenario && trial.cell == cell.name)
-                        .collect();
+                    let ran = trials_of(&trials.trials, cell);
                     let metrics = metrics(
                         cell,
                         &ran,
@@ -790,8 +809,9 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
          Rerun it with `{}` at that commit.\n\n\
          Declared before the first trial: {} trials of each measured cell, interleaved in random order \
          (seed {}), each tool started in a fresh process against a fresh Proving ground, {} requests at \
-         once, from `{}`; Spider {}, Crawlee {} (`@crawlee/cheerio`, and `@crawlee/playwright` on \
-         Playwright {}) on Node.js and Scrapy {} (and scrapy-playwright {} on Playwright {}) on \
+         once, from `{}`, unless a scenario's title names other requests in flight or another \
+         site; Spider {}, Crawlee {} (`@crawlee/cheerio`, and `@crawlee/playwright` on Playwright \
+         {}) on Node.js and Scrapy {} (and scrapy-playwright {} on Playwright {}) on \
          CPython, every tool of the headless browser scenario running Chrome for Testing {}; each \
          figure the {}. Every figure is measured from outside the tools: \
          the OS's accounting of the waited-for children (CPU, peak RSS, bytes read and written), `/proc` \
@@ -839,6 +859,11 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             );
             for pending in cell.pending {
                 let _ = writeln!(text, "  - pending: {pending}.");
+            }
+            if scenario.scenario.carries_no_bar() {
+                text.push_str(
+                    "  - no bar: none is set on this cell until the owner sets one (#2316).\n",
+                );
             }
             if !matches!(cell.status, CellStatus::NotSupported { .. }) {
                 if scenario.content_unverified {

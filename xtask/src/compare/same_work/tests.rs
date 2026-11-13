@@ -2,25 +2,40 @@ use super::check;
 use crate::compare::matrix::{self, Scenario};
 use crate::compare::trials::{Comparison, Measured, Work, fixture};
 
+/// The work of a trial that fetched every page of the site of `pages`
+/// pages once, 600 bytes each.
+fn whole(pages: u64) -> Work {
+    Work {
+        pages,
+        missing: Vec::new(),
+        extra: Vec::new(),
+        requests: pages,
+        bytes: 600 * pages,
+        first_bytes: 600 * pages,
+    }
+}
+
 /// The work of a trial that fetched every page of the 4-page site once,
 /// 600 bytes each, plus `again` pages fetched a second time.
 fn work(again: u64) -> Work {
     Work {
-        pages: 4,
-        missing: Vec::new(),
-        extra: Vec::new(),
         requests: 4 + again,
         bytes: 600 * (4 + again),
-        first_bytes: 2400,
+        ..whole(4)
     }
 }
 
 /// Three trials of each measured cell over the 4-page site, each with the
-/// work `work` gives its scenario and number.
+/// work `work` gives its scenario and number; the long scenario's trials
+/// crawl its own site, and each did all of its work.
 fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
     fixture::comparison(4, |cell, number| Measured {
         seconds: 1.0,
-        work: work(cell.scenario, number),
+        work: if cell.scenario == Scenario::Long {
+            whole(matrix::LONG_PAGES)
+        } else {
+            work(cell.scenario, number)
+        },
         ..Measured::default()
     })
 }

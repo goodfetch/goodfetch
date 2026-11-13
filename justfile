@@ -1065,7 +1065,11 @@ rss-propose *scenarios:
 # Five scenarios: 1, raw; 2, durable (killed once half the site is served,
 # then resumed); 3, polite, on the Proving ground's 50-domain site; 4,
 # extraction of each page's title and main text to the tool's dataset; 5,
-# headless browser, on its script-rendered site. Foxhound against Spider
+# headless browser, on its script-rendered site. Four more run scenario
+# 1's settings and carry no bar (#2316): `realistic`, on the realistic-page
+# site, pages of tens of kilobytes with 30 to 100 links; `long`, over a
+# 100,000-page site, its timed trials only; and `raw-64` and `raw-256`, at
+# 64 and 256 requests at once. Foxhound against Spider
 # 2.53.9 (xtask/compare-spider, no workspace member: its HTTP mode, and its
 # `chrome` feature's executable for scenario 5; its main rows read its
 # pages at the smallest channel capacity that loses none, and its
@@ -1081,7 +1085,8 @@ rss-propose *scenarios:
 # installed it (`pnpm exec playwright install chromium`). A cell a tool
 # cannot run says why: 10 trials of each measured cell in random order,
 # each tool in a fresh process against a fresh Proving ground at 16
-# requests at once over the scenario's 1,000-page site.
+# requests at once over the scenario's 1,000-page site, unless the scenario
+# names another site or concurrency.
 # Every metric is measured from outside the tools (the OS's accounting of
 # the waited-for children, /proc samples of the process tree, the Proving
 # ground's observations, the data folder left), then each cell's system

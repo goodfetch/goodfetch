@@ -8,11 +8,15 @@
 //! capacity that loses none, and labelled sensitivity rows beside them run
 //! it one setting apart (#2213). `run` crawls each scenario's 1,000-page Proving ground site
 //! (`scale.test`'s, the multi-domain site for the polite scenario, the
-//! script-rendered site for the headless browser) with each measured cell's
-//! tool in the declared number of trials, interleaved in random order, each
-//! tool in a fresh process at the same concurrency and, in a run of the
-//! full trials, once the machine is quiet, measuring every metric of the
-//! owner's list from outside the tools; then
+//! script-rendered site for the headless browser, the realistic-page site
+//! for its scenario, and a 100,000-page site for the long one, which runs
+//! only its timed trials) with each measured cell's tool in the declared
+//! number of trials, interleaved in random order, each tool in a fresh
+//! process at the same concurrency (64 and 256 in the concurrency sweep's
+//! scenarios, which with the realistic-page and long scenarios run scenario
+//! 1's settings and carry no bar, #2316) and, in a run of the full trials,
+//! once the machine is quiet, measuring every metric of the owner's list
+//! from outside the tools; then
 //! counts each cell's system calls under strace, stopping a run whose crawl
 //! stalls and leaving its cell not measured, crawls the 100,000-page
 //! site for the growth of resident memory when asked, and counts scenario

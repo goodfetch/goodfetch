@@ -251,7 +251,8 @@ fn trial<T: serde::de::DeserializeOwned>(
         .args(["--cell", cell.name, "--executable"])
         .arg(&executable)
         .args(["--address", &serving.address, "--pages", &pages.to_string()])
-        .args(["--concurrency", &CONCURRENCY.to_string(), "--mode", mode.0])
+        .args(["--concurrency", &cell.scenario.concurrency().to_string()])
+        .args(["--mode", mode.0])
         .arg("--browser")
         .arg(executables.browser);
     if let Some(output) = mode.1 {
@@ -441,28 +442,39 @@ fn pages_of(config: Config, pages: u64, spider_pages: Option<u64>) -> u64 {
     }
 }
 
-/// Runs the timed trials of each measured cell over the site of `pages`,
-/// each watched (see [`stopped`]): a stopped trial runs once more, and a
-/// cell whose trial is stopped twice is not measured, its later trials not
-/// run. Returns the trials and the cells stopped.
+/// Whether a measured cell runs its strace and growth passes as well as
+/// its timed trials: every scenario's but the long one's (see
+/// [`Scenario::timed_only`]).
+fn runs_counted((cell, _): &(&'static Cell, Config)) -> bool {
+    !cell.scenario.timed_only()
+}
+
+/// Runs the timed trials of each of `cells` over the site of `pages`, or
+/// of its scenario's own length (see [`Scenario::site_pages`]), each
+/// watched (see [`stopped`]): a stopped trial runs once more, and a cell
+/// whose trial is stopped twice is not measured, its later trials not run.
+/// Returns the trials and the cells stopped.
 fn timed(
     executables: &Executables<'_>,
     options: &Options,
-    pages: u64,
+    (cells, pages): (&[(&'static Cell, Config)], u64),
     state: &mut u64,
     pass: &str,
 ) -> Result<(Vec<Trial>, Vec<StoppedRun>)> {
-    let cells = measured(options);
     let mut trials = Vec::new();
     let mut stopped: Vec<StoppedRun> = Vec::new();
-    for (cell, config, number) in order(&cells, options.trials, state) {
+    for (cell, config, number) in order(cells, options.trials, state) {
         if stopped
             .iter()
             .any(|run| run.scenario == cell.scenario && run.cell == cell.name)
         {
             continue;
         }
-        let site_pages = pages_of(config, pages, options.spider_pages);
+        let site_pages = pages_of(
+            config,
+            cell.scenario.site_pages(pages),
+            options.spider_pages,
+        );
         let mut started_at = None;
         let outcome = retried(|| {
             started_at = if waits_for_quiet(options) {
@@ -624,8 +636,15 @@ pub(crate) fn run(
     let machine = machine(options.machine.clone());
     let order_seed = drawn_seed();
     let mut state = order_seed;
-    let (trials, stopped) = timed(executables, options, SITE_PAGES, &mut state, "")?;
     let measured = measured(options);
+    let (trials, stopped) = timed(
+        executables,
+        options,
+        (&measured, SITE_PAGES),
+        &mut state,
+        "",
+    )?;
+    let counted_cells: Vec<_> = measured.iter().copied().filter(runs_counted).collect();
     let syscalls = match strace_missing() {
         Some(reason) => {
             output::line(&format!("The system-call cell does not run: {reason}."));
@@ -634,15 +653,20 @@ pub(crate) fn run(
         None => counted(
             executables,
             options,
-            &measured,
+            &counted_cells,
             options.trials,
             ("syscalls", true),
             &mut state,
         )?,
     };
     let growth = if options.growth {
-        let (trials_run, stopped) =
-            timed(executables, options, GROWTH_PAGES, &mut state, "growth ")?;
+        let (trials_run, stopped) = timed(
+            executables,
+            options,
+            (&counted_cells, GROWTH_PAGES),
+            &mut state,
+            "growth ",
+        )?;
         GrowthCell::Measured {
             trials: options.trials,
             site_pages: GROWTH_PAGES,

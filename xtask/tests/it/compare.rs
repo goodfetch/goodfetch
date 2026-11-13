@@ -161,6 +161,7 @@ fn trials() -> Value {
             "playwright": "1.64.1",
             "scrapy_playwright": "0.0.48",
             "browser": "156.0.8078.4",
+            "scenarios": ["raw", "durable", "polite", "extraction", "browser"],
             "command": "just compare release",
         },
         "machine": {

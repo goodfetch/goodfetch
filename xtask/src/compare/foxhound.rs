@@ -210,9 +210,14 @@ fn extraction(scenario: Scenario) -> Value {
             "follow": "scope",
             "fields": { "title": { "locator": { "kind": "css", "selector": "title" } } },
         }),
-        Scenario::Raw | Scenario::Durable | Scenario::Polite | Scenario::Browser => {
-            json!({ "formats": {}, "follow": "scope" })
-        }
+        Scenario::Raw
+        | Scenario::Durable
+        | Scenario::Polite
+        | Scenario::Browser
+        | Scenario::Realistic
+        | Scenario::Long
+        | Scenario::Raw64
+        | Scenario::Raw256 => json!({ "formats": {}, "follow": "scope" }),
     }
 }
 
@@ -220,9 +225,13 @@ fn extraction(scenario: Scenario) -> Value {
 /// scenario, whose resume is judged by them, and the extraction scenario,
 /// which writes each page's; scenario 1's maximum-throughput combination
 /// and the headless browser scenario, which asks for its settings, keep
-/// none, as the other tools keep nothing there.
+/// none, as the other tools keep nothing there, nor do #2316's scenarios,
+/// which run scenario 1's settings.
 pub(crate) fn keeps_records(scenario: Scenario) -> bool {
-    matches!(scenario, Scenario::Durable | Scenario::Extraction)
+    matches!(
+        scenario.settings(),
+        Scenario::Durable | Scenario::Extraction
+    )
 }
 
 /// A cell's Run settings, its site's hosts resolved to the Proving ground:
@@ -264,7 +273,14 @@ fn settings(
         // `docs/throughput.md`): every per-page feature the crawl does not
         // need switched off, its Records kept only where the scenario
         // reads them.
-        Scenario::Raw | Scenario::Durable | Scenario::Extraction | Scenario::Browser => json!({
+        Scenario::Raw
+        | Scenario::Durable
+        | Scenario::Extraction
+        | Scenario::Browser
+        | Scenario::Realistic
+        | Scenario::Long
+        | Scenario::Raw64
+        | Scenario::Raw256 => json!({
             "fetch": {
                 "tier": if scenario == Scenario::Browser { "browser" } else { "http" },
                 "block_classification": false,

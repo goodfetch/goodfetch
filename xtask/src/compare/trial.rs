@@ -520,7 +520,9 @@ impl Plan<'_> {
             command
                 .args(["--url", &self.site_url()])
                 .args(["--concurrency", &self.site.concurrency.to_string()])
-                .args(["--scenario", self.cell.scenario.name()])
+                // #2316's scenarios run scenario 1's settings, at their own
+                // site and requests in flight.
+                .args(["--scenario", self.cell.scenario.settings().name()])
                 .current_dir(home)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped());
@@ -939,7 +941,7 @@ pub(crate) fn cell_of(scenario: Scenario, name: &str) -> Result<(&'static Cell, 
         .with_context(|| format!("no cell `{name}` in scenario {}", scenario.name()))?;
     match cell.status {
         super::matrix::Status::Measured(config) => Ok((cell, config)),
-        super::matrix::Status::NotSupported(_) => bail!(
+        super::matrix::Status::NotSupported(_) | super::matrix::Status::Pending(_) => bail!(
             "the cell `{name}` of scenario {} runs no trial",
             scenario.name()
         ),

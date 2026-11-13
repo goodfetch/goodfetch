@@ -89,6 +89,12 @@ impl<V: Clone + Send + Sync + 'static> Part<V> {
         cache.get_with(lookup.owned(), compile)
     }
 
+    /// How many it keeps, as its cache counted them last; `None` before its
+    /// first text built the cache.
+    fn count(&self) -> Option<u64> {
+        self.cache.get().map(moka::sync::Cache::entry_count)
+    }
+
     /// How many it keeps now, its evictions done; none before its first
     /// text.
     #[cfg(test)]
@@ -118,19 +124,15 @@ impl Default for Compiled {
     }
 }
 
+// Each part as how many it keeps, or `None` while its cache is not built.
 impl std::fmt::Debug for Compiled {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("Compiled")
-            .field(
-                "selectors",
-                &self
-                    .selectors
-                    .cache
-                    .get()
-                    .map_or(0, moka::sync::Cache::entry_count),
-            )
-            .finish_non_exhaustive()
+            .field("selectors", &self.selectors.count())
+            .field("regexes", &self.regexes.count())
+            .field("globs", &self.globs.count())
+            .finish()
     }
 }
 
@@ -170,16 +172,5 @@ impl Compiled {
     #[cfg(test)]
     pub(crate) fn selectors(&self) -> u64 {
         self.selectors.len()
-    }
-
-    /// Whether it built its selectors', its regular expressions' and its
-    /// globs' cache, in that order.
-    #[cfg(test)]
-    pub(crate) fn built(&self) -> [bool; 3] {
-        [
-            self.selectors.cache.get().is_some(),
-            self.regexes.cache.get().is_some(),
-            self.globs.cache.get().is_some(),
-        ]
     }
 }

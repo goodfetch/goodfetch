@@ -262,7 +262,7 @@ const ROWS: [Row; 99] = [
     Row {
         name: "F2.prepares",
         family: "B1",
-        unit: "added_pages",
+        unit: ADDED_PAGES,
         happens: false,
         valgrind: None,
     },
@@ -324,7 +324,7 @@ const ROWS: [Row; 99] = [
     b1("F3.actor_round_trips", ATTEMPTS_ENDED, true),
     // What each page more builds, read as `F2.prepares` is: the whole
     // site's run less a run on half its pages, over the pages it adds.
-    b1("F3.counted_work_constructions", "added_pages", false),
+    b1("F3.counted_work_constructions", ADDED_PAGES, false),
     Row {
         name: "C1.encodes",
         family: "B2",
@@ -915,6 +915,9 @@ const NOT_RUN_YET: [NotRunYet; 26] = [
     },
 ];
 
+/// The pages B1's whole site serves beyond a run on half of it.
+const ADDED_PAGES: &str = "added_pages";
+
 /// The links batches B1's crawl admitted.
 const LINKS_BATCHES: &str = "links_batches";
 /// The redirect hops it took through the Frontier.
@@ -1438,7 +1441,7 @@ fn one_of(unit: &str) -> &str {
         LINKS_BATCHES => "links batch",
         "audit_entries" => "audit_entry",
         "entries" => "entry",
-        "added_pages" => "page added",
+        ADDED_PAGES => "page added",
         ATTEMPTS_ENDED => "attempt",
         unit => unit.trim_end_matches('s'),
     }

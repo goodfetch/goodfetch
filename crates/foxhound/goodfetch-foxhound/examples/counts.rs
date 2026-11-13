@@ -586,7 +586,7 @@ fn cells() -> Vec<Cell> {
     cells
 }
 
-/// What a cell's runs under Callgrind prepared.
+/// What a cell's runs under Callgrind prepared and built.
 #[derive(Clone, Copy)]
 struct Prepared {
     /// Beneath the Politeness file's functions, its opening's left out, on
@@ -848,11 +848,12 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
     ran
 }
 
-/// Runs `cell` under Callgrind for `F2.prepares` and `E6.opens` beside
-/// `beside`, which runs on this thread, when this run reads their rows and is
-/// `counted`: a plant of another row has no use for their figures and would
-/// wait for them, and `strace` would trace that run too. The run is scoped to
-/// this call, so its Valgrind child never outlives a panic of `beside`.
+/// Runs `cell` under Callgrind for `F2.prepares`, `E6.opens` and
+/// `F3.counted_work_constructions` beside `beside`, which runs on this
+/// thread, when this run reads their rows and is `counted`: a plant of
+/// another row has no use for their figures and would wait for them, and
+/// `strace` would trace that run too. The run is scoped to this call, so its
+/// Valgrind child never outlives a panic of `beside`.
 #[expect(
     clippy::disallowed_methods,
     reason = "the ADR 0140 counts harness runs Callgrind beside the crawl on a scoped thread, which nothing else waits on"
@@ -923,7 +924,9 @@ fn prepare_calls<T>(
                     })
                 }
                 Err(error) => {
-                    eprintln!("{RUN_STATE_PREPARES} is not read: {error}");
+                    eprintln!(
+                        "{RUN_STATE_PREPARES}, {POLITENESS_OPENS} and {CONSTRUCTIONS} are not read: {error}"
+                    );
                     None
                 }
             }

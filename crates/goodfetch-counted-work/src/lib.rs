@@ -355,8 +355,18 @@ rows! {
 /// for the engine and its compilation counts once. A default one builds no
 /// part of that cache before a text of its kind is asked for, so the one an
 /// owner holds until it is given the engine's costs it no cache.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct CountedWork(Arc<Shared>);
+
+impl Default for CountedWork {
+    /// Never inlined: `just counts` reads `F3.counted_work_constructions`
+    /// as Callgrind's count of this function's calls, which a copy inlined
+    /// into its caller would escape.
+    #[inline(never)]
+    fn default() -> Self {
+        Self(Arc::default())
+    }
+}
 
 /// What every clone of a [`CountedWork`] shares, behind its one `Arc`: a
 /// clone costs one reference count and its handle stays a pointer wide, as
@@ -505,13 +515,6 @@ impl CountedWork {
     #[cfg(test)]
     fn kept(&self) -> u64 {
         self.0.compiled.selectors()
-    }
-
-    /// Whether the engine's cache built its selectors', its regular
-    /// expressions' and its globs' part, in that order.
-    #[cfg(test)]
-    fn caches_built(&self) -> [bool; 3] {
-        self.0.compiled.built()
     }
 
     /// `pattern` compiled, counted on `row`: the one function a regular

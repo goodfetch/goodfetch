@@ -123,6 +123,14 @@ pub(crate) struct Work {
     pub(crate) first_bytes: u64,
 }
 
+impl Work {
+    /// Whether the crawl fetched each page of the site of `pages` pages and
+    /// no other page.
+    pub(crate) fn is_the_site_of(&self, pages: u64) -> bool {
+        self.pages == pages && self.missing.is_empty() && self.extra.is_empty()
+    }
+}
+
 /// The p50, p95 and p99 of a trial's per-page times, in seconds.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Percentiles {

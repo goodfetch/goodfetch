@@ -10,7 +10,11 @@
 //! whose links past the first page only a script adds, a trial that missed
 //! pages is named for the script-rendered pages it never reached. Each
 //! counted cell and the growth cell are held to it among themselves, as
-//! other cells of the comparison (ADR 0140).
+//! other cells of the comparison (ADR 0140). A strace run that did other
+//! work fails nothing: strace's slowdown alone can keep a headless browser
+//! crawl from its last pages, so that cell's system calls are not
+//! measured, with the pages the run reached, and the timed figures count
+//! ([`strace_runs_of_other_work_set_aside`]).
 
 use std::collections::BTreeMap;
 
@@ -205,9 +209,15 @@ pub(crate) fn check(trials: &Comparison) -> Vec<Finding> {
 }
 
 /// Each finding of one pass: a measured cell short of or past its declared
-/// trials, every trial whose pages are not the site's, and every other
-/// trial whose work is not the one most of its scenario's trials share.
+/// trials, and every trial that did other work ([`other_work`]).
 fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
+    let mut findings = short_or_past(pass);
+    findings.extend(other_work(pass).into_iter().map(|(_, finding)| finding));
+    findings
+}
+
+/// Each measured cell of a pass short of or past its declared trials.
+fn short_or_past(pass: &Pass<'_>) -> Vec<Finding> {
     let mut findings = Vec::new();
     for (cell, _) in matrix::measured().filter(|(cell, config)| {
         pass.scenarios.contains(&cell.scenario)
@@ -228,11 +238,19 @@ fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
             ));
         }
     }
+    findings
+}
+
+/// Every trial of a pass that did other work, with its finding: each whose
+/// pages are not the site's, and every other whose work is not the one
+/// most of its scenario's trials share.
+fn other_work<'a, 'b>(pass: &'a Pass<'b>) -> Vec<(&'a Done<'b>, Finding)> {
+    let mut findings = Vec::new();
     for scenario in pass.scenarios {
         let mut whole = Vec::new();
         for done in pass.done.iter().filter(|done| done.scenario == *scenario) {
             let work = done.work;
-            if work.pages == pass.site_pages && work.missing.is_empty() && work.extra.is_empty() {
+            if work.is_the_site_of(pass.site_pages) {
                 whole.push(done);
                 continue;
             }
@@ -240,25 +258,31 @@ fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
             // linked only by a script: a trial that missed some never
             // rendered their links.
             if scenario.renders_links() && work.extra.is_empty() && work.pages > 0 {
-                findings.push(Finding::new(
-                    "unrendered_pages",
-                    pass.subject(done),
-                    format!(
-                        "{} of the site's {} pages its script links not reached",
-                        work.missing.len(),
-                        pass.site_pages.saturating_sub(1)
+                findings.push((
+                    done,
+                    Finding::new(
+                        "unrendered_pages",
+                        pass.subject(done),
+                        format!(
+                            "{} of the site's {} pages its script links not reached",
+                            work.missing.len(),
+                            pass.site_pages.saturating_sub(1)
+                        ),
                     ),
                 ));
                 continue;
             }
-            findings.push(Finding::new(
-                "different_pages",
-                pass.subject(done),
-                format!(
-                    "{} of the site's {} pages missing and {} other pages fetched",
-                    work.missing.len(),
-                    pass.site_pages,
-                    work.extra.len()
+            findings.push((
+                done,
+                Finding::new(
+                    "different_pages",
+                    pass.subject(done),
+                    format!(
+                        "{} of the site's {} pages missing and {} other pages fetched",
+                        work.missing.len(),
+                        pass.site_pages,
+                        work.extra.len()
+                    ),
                 ),
             ));
         }
@@ -300,10 +324,73 @@ fn check_pass(pass: &Pass<'_>) -> Vec<Finding> {
                     "{count} {what} {bytes} bytes, and no count and bytes is shared by more trials than another"
                 ),
             };
-            findings.push(Finding::new("different_bytes", pass.subject(done), message));
+            findings.push((
+                done,
+                Finding::new("different_bytes", pass.subject(done), message),
+            ));
         }
     }
     findings
+}
+
+/// Sets aside each cell of the system-call cell one of whose runs did
+/// other work: the cell's runs leave, and its first such run joins the
+/// stopped runs with what it did and the pages it reached, so the report
+/// reads the cell's system calls as not measured and [`check`] holds
+/// nothing against it. The timed trials, the growth cell and the Callgrind
+/// cell keep the check as it is, so a tool that does other work without
+/// strace still fails the report there.
+pub(crate) fn strace_runs_of_other_work_set_aside(trials: &mut Comparison) {
+    let Some(pages) = site_pages(&trials.declared.site) else {
+        return;
+    };
+    let CountedCell::Measured {
+        trials: declared,
+        runs,
+        stopped,
+    } = &mut trials.syscalls
+    else {
+        return;
+    };
+    let pass = Pass {
+        suffix: " strace",
+        declared: *declared,
+        site_pages: pages,
+        scenarios: &trials.declared.scenarios,
+        tools: &Tool::ALL,
+        rows: EVERY_ROW,
+        done: of_runs(runs),
+        stopped: of_stopped(stopped),
+    };
+    let mut aside: Vec<StoppedRun> = Vec::new();
+    for (done, finding) in other_work(&pass) {
+        if aside
+            .iter()
+            .any(|run| run.scenario == done.scenario && run.cell == done.cell)
+        {
+            continue;
+        }
+        aside.push(StoppedRun {
+            scenario: done.scenario,
+            cell: done.cell.to_owned(),
+            tool: runs
+                .iter()
+                .find(|run| run.scenario == done.scenario && run.cell == done.cell)
+                .expect("invariant: a finding names a run of `runs`")
+                .tool,
+            number: done.number,
+            reason: format!(
+                "under `strace -f`, run {} did other work, reaching {} of the site's {pages} pages: {}",
+                done.number, done.work.pages, finding.message
+            ),
+        });
+    }
+    runs.retain(|run| {
+        !aside
+            .iter()
+            .any(|stop| stop.scenario == run.scenario && stop.cell == run.cell)
+    });
+    stopped.extend(aside);
 }
 
 #[cfg(test)]

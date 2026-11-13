@@ -1087,7 +1087,8 @@ rss-propose *scenarios:
 # ground's observations, the data folder left), then each cell's system
 # calls and syncs are counted under strace, and scenario 1's instructions
 # per page under Callgrind (`foxhound.spider_instruction_ratio`, ADR
-# 0140); `--growth` adds the 100,000-page crawls whose resident memory is
+# 0140), each run's output kept in target/compare/callgrind/, which the
+# reports repository files with the run (TESTING.md); `--growth` adds the 100,000-page crawls whose resident memory is
 # read at 1,000, 10,000 and 100,000 pages (hours). Once every trial passed
 # the same-work check, it writes each cell's median and spread of every
 # metric, with Foxhound's standings against each competitor, to

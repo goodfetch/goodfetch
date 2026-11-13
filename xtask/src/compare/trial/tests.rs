@@ -98,3 +98,24 @@ fn strace_counts_give_the_total_and_the_syncs() {
 fn counts_with_no_total_are_an_error() {
     assert!(system_calls_of("    calls syscall\n          7 fsync\n").is_err());
 }
+
+/// A counting tool is started in its tool's own folder (a tool other than
+/// Foxhound runs in its data folder), so the file it writes its count to is
+/// named from the root: `just compare` names Callgrind's outputs under
+/// `./target/compare/callgrind/`, and Callgrind could not open that from
+/// another folder (#2281).
+#[test]
+fn a_counted_trials_output_file_is_named_from_the_root() {
+    let output = super::counting_output(Some(std::path::Path::new(
+        "./target/compare/callgrind/raw-spider-1.out",
+    )))
+    .unwrap();
+
+    assert!(output.is_absolute(), "{}", output.display());
+    assert!(
+        output.ends_with("target/compare/callgrind/raw-spider-1.out"),
+        "{}",
+        output.display()
+    );
+    assert!(super::counting_output(None).is_err());
+}

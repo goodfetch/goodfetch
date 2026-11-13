@@ -148,14 +148,12 @@ impl Progressing {
     /// The value of `run_id` it gives, read at `at`, before its parts fill
     /// theirs: its typed parts encoded as they stand.
     pub(super) fn value(&self, run_id: &RunId, at: PointInTime) -> RunProgress {
-        let (mut value, typed) = self.unencoded(run_id, at);
-        typed.encode_into(&mut value);
-        value
+        self.unencoded(run_id, at).encoded()
     }
 
-    /// The same with its typed parts left out, and those parts, for a
-    /// reader whose [`fill`] encodes them.
-    pub(super) fn unencoded(&self, run_id: &RunId, at: PointInTime) -> (RunProgress, TypedParts) {
+    /// The same with its typed parts not encoded yet, for a reader whose
+    /// parts fill theirs first.
+    pub(super) fn unencoded(&self, run_id: &RunId, at: PointInTime) -> Unencoded {
         let value = RunProgress {
             run_id: run_id.clone(),
             position: self.position,
@@ -171,7 +169,43 @@ impl Progressing {
             last: self.last,
             kind_parts: self.kind_parts.clone(),
         };
-        (value, self.typed_parts.clone())
+        Unencoded {
+            value,
+            typed: self.typed_parts.clone(),
+        }
+    }
+}
+
+/// A value of a live Run's progress whose typed parts are not encoded yet.
+#[derive(Clone, Debug)]
+pub(super) struct Unencoded {
+    value: RunProgress,
+    typed: TypedParts,
+}
+
+impl Unencoded {
+    /// Says the value is the last that comes from here.
+    pub(super) fn last(mut self) -> Self {
+        self.value.last = true;
+        self
+    }
+
+    /// The value, its typed parts encoded as they stand.
+    pub(super) fn encoded(mut self) -> RunProgress {
+        self.typed.encode_into(&mut self.value);
+        self.value
+    }
+
+    /// The value once each of `parts` filled its own from the committed
+    /// state `connection` reads, as [`fill`] does, and each typed part none
+    /// of them encoded is encoded as it stands.
+    pub(super) fn filled(
+        mut self,
+        parts: &[Arc<dyn ProgressPart>],
+        connection: &Connection,
+    ) -> RunProgress {
+        fill(parts, connection, &self.typed, &mut self.value);
+        self.value
     }
 }
 

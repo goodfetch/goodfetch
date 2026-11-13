@@ -3530,7 +3530,7 @@ impl Runs {
                 .await?
                 .ok_or(RunError::NotFound(run_id));
         };
-        let (value, typed) = loop {
+        let value = loop {
             let ready = {
                 let current = changes.borrow_and_update();
                 (current.last || after.is_none_or(|after| current.position() > after))
@@ -3542,26 +3542,21 @@ impl Runs {
             if changes.changed().await.is_err() {
                 // The registry stopped with the Run live: nothing more
                 // comes from here.
-                let (mut value, typed) = changes.borrow().unencoded(&run_id, clock.point_in_time());
-                value.last = true;
-                break (value, typed);
+                break changes
+                    .borrow()
+                    .unencoded(&run_id, clock.point_in_time())
+                    .last();
             }
         };
-        let unfilled = (value.clone(), typed.clone());
+        let unfilled = value.clone();
         match reader
-            .read(move |connection| {
-                let mut value = value;
-                progress::fill(&parts, connection, &typed, &mut value);
-                Ok(value)
-            })
+            .read(move |connection| Ok(value.filled(&parts, connection)))
             .await
         {
             Ok(value) => Ok(value),
             Err(error) => {
-                let (mut value, typed) = unfilled;
-                tracing::warn!(%error, run_id = %value.run_id, "the Run's committed parts of its progress could not be read");
-                typed.encode_into(&mut value);
-                Ok(value)
+                tracing::warn!(%error, %run_id, "the Run's committed parts of its progress could not be read");
+                Ok(unfilled.encoded())
             }
         }
     }

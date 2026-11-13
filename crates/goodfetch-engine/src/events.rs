@@ -203,9 +203,11 @@ impl Events {
 
     /// Whether the stream holds a subscription. With none, a telemetry
     /// event reaches no queue and is not kept, so its producer may leave
-    /// its payload unbuilt. A subscription that opens as this is read
-    /// starts with the next event, as one that opens just after a publish
-    /// does.
+    /// its payload unbuilt. A subscription counts from before its
+    /// [`subscribe`](Self::subscribe) is answered, so what is published
+    /// once it is answered reaches it; one still on its way to the stream
+    /// when this is read starts with the next event, as one that opens
+    /// just after a publish does.
     pub(crate) fn subscribed(&self) -> bool {
         *self.subscribed.borrow()
     }
@@ -480,7 +482,6 @@ struct Stream {
 impl Stream {
     async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
         while let Some(command) = mailbox.recv().await {
-            let subscribed = !self.subscriptions.is_empty();
             match command {
                 Command::Publish(publish) => self.accept(publish),
                 Command::Subscribe {
@@ -490,6 +491,9 @@ impl Stream {
                     answer,
                 } => {
                     let id = self.subscribe(after, system_info, alive);
+                    // Before the answer: its caller, once answered, finds
+                    // the stream subscribed.
+                    self.tell_subscribed();
                     if answer.send(id).is_err() {
                         self.subscriptions.remove(&id);
                     }
@@ -509,10 +513,16 @@ impl Stream {
                 }
             }
             self.subscriptions.retain(|_, queue| !queue.is_gone());
-            if self.subscriptions.is_empty() == subscribed {
-                self.subscribed.send_replace(!subscribed);
-            }
+            self.tell_subscribed();
         }
+    }
+
+    /// Tells [`Events::subscribed`] whether it holds a subscription now,
+    /// when that changed.
+    fn tell_subscribed(&self) {
+        let subscribed = !self.subscriptions.is_empty();
+        self.subscribed
+            .send_if_modified(|told| std::mem::replace(told, subscribed) != subscribed);
     }
 
     fn accept(&mut self, publish: Publish) {

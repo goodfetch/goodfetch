@@ -12,7 +12,7 @@
 //!
 //! `inFlight` stays typed until a reader takes a value: an attempt that
 //! begins, goes on or ends serializes nothing, and each value read
-//! serializes the requests in flight once (ADR 0140's
+//! serializes the requests in flight once (the Quality register's
 //! `F3.in_flight_serializations`).
 
 use std::collections::BTreeMap;
@@ -283,7 +283,7 @@ impl InFlight {
     fn show(&self, run: &Run) {
         run.set_typed_progress_part(
             IN_FLIGHT,
-            TypedPart::new(Shown {
+            TypedPart::new(InFlightPart {
                 requests: self.requests.values().cloned().collect(),
                 work: run.metrics().counted_work().clone(),
             }),
@@ -291,28 +291,39 @@ impl InFlight {
     }
 }
 
-/// The requests in flight at one change of them, by work item ID, as a
-/// value of the Run's progress holds them until a reader takes it.
+/// The typed `inFlight` part of a value of the Run's progress: the
+/// requests in flight at one change of them, by work item ID, which the
+/// value holds until a reader takes it.
 #[derive(Debug)]
-struct Shown {
+struct InFlightPart {
     requests: Vec<Arc<InFlightRequest>>,
     /// Where each serialization of them counts.
     work: CountedWork,
 }
 
-impl Shown {
-    /// `requests`, some of its own, as the JSON value of `inFlight`: the
-    /// one serialization of the requests in flight a value read costs.
-    fn encode(&self, requests: &[&InFlightRequest]) -> Value {
+impl InFlightPart {
+    /// Those of its requests that `keep` keeps, in their order, and the
+    /// JSON value of `inFlight` that lists them: the one serialization of
+    /// the requests in flight a value read costs.
+    fn listed(
+        &self,
+        mut keep: impl FnMut(&InFlightRequest) -> bool,
+    ) -> (Vec<&InFlightRequest>, Value) {
+        let kept: Vec<&InFlightRequest> = self
+            .requests
+            .iter()
+            .map(Arc::as_ref)
+            .filter(|request| keep(request))
+            .collect();
         self.work.count(Row::InFlightSerializations);
-        encoded!(requests)
+        let listed = encoded!(&kept);
+        (kept, listed)
     }
 }
 
-impl PartValue for Shown {
+impl PartValue for InFlightPart {
     fn encoded(&self) -> Value {
-        let requests: Vec<&InFlightRequest> = self.requests.iter().map(Arc::as_ref).collect();
-        self.encode(&requests)
+        self.listed(|_| true).1
     }
 }
 
@@ -340,14 +351,17 @@ impl ProgressPart for CrawlProgress {
         }
         let (ended, _) = crate::report::ended(connection)?;
         let (pending, leased) = work_items::pending_and_leased(connection)?;
-        let shown = typed.get(IN_FLIGHT).and_then(TypedPart::value::<Shown>);
-        let in_flight: Vec<&InFlightRequest> = shown
-            .map(|shown| shown.requests.as_slice())
-            .unwrap_or_default()
-            .iter()
-            .map(Arc::as_ref)
-            .filter(|request| leased.contains(&(request.request_id.clone(), request.attempt)))
-            .collect();
+        let (in_flight, listed) = typed
+            .get(IN_FLIGHT)
+            .and_then(TypedPart::value::<InFlightPart>)
+            .map_or_else(
+                || (Vec::new(), Value::Array(Vec::new())),
+                |part| {
+                    part.listed(|request| {
+                        leased.contains(&(request.request_id.clone(), request.attempt))
+                    })
+                },
+            );
         let count = |requests: usize| u64::try_from(requests).unwrap_or(u64::MAX);
         let fetching = in_flight
             .iter()
@@ -358,10 +372,6 @@ impl ProgressPart for CrawlProgress {
         if let Some(concurrency) = progress.kind_parts.get_mut(CONCURRENCY) {
             concurrency["handlers"] = Value::from(count(handlers));
         }
-        let listed = shown.map_or_else(
-            || Value::Array(Vec::new()),
-            |shown| shown.encode(&in_flight),
-        );
         progress.kind_parts.insert(IN_FLIGHT.to_owned(), listed);
         let requests = RequestProgress {
             pending: pending + count(starting),

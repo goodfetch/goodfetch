@@ -31,6 +31,7 @@ mod resume;
 mod safe_point;
 mod sent_from;
 mod staging;
+mod verdict;
 mod wal;
 
 use std::path::PathBuf;
@@ -633,6 +634,11 @@ pub(crate) fn work_items(connection: &Connection) -> Vec<(String, String, i64, O
 
 pub(super) fn page_of(params: &Value) -> String {
     params["crawl_request"]["url"].as_str().unwrap().to_owned()
+}
+
+/// Answers each page with one Record naming it.
+pub(super) fn answer_all(params: &Value) -> Reply {
+    Reply::Records(vec![json!({ "page": page_of(params) })])
 }
 
 /// Covers: story:3-41, operation:crawl.start, operation:run.finish

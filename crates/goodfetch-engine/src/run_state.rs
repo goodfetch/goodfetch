@@ -175,6 +175,21 @@ pub struct RunStateTables {
     pub statements: &'static [&'static str],
 }
 
+/// A column of a run file that holds what a Run creates itself, such as a
+/// Session's cookies, a token or login state (ADR 0015). Its owner declares
+/// it as a constant beside its tables, where the column is a `BLOB`; every
+/// value written to it is one `Run::seal` sealed for it and its row under
+/// the Run's data key, and every value read from it goes through
+/// `Run::open`, so the run file, its WAL and its Checkpoints hold it sealed
+/// alone. A Run that writes none makes no data key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SecretColumn {
+    /// Its table.
+    pub table: &'static str,
+    /// Its name in that table.
+    pub column: &'static str,
+}
+
 /// The run file writer's page cache, in KiB: a bounded cache over what the
 /// file keeps on disk, such as the Frontier's exact visited set, sized so
 /// a Frontier of 100,000 URLs keeps under ADR 0134's 8 heap bytes per URL

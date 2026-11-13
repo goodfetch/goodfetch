@@ -98,7 +98,7 @@ struct Builder {
     resolver: Arc<Resolver>,
     local: Option<super::LocalSource>,
     proxy: Option<wreq::Proxy>,
-    /// The proxy's URL, as the Session gave it.
+    /// The proxy's URL, as a failure of the proxy's own names it.
     through: Option<Url>,
     decision: SharedTrust,
     examiner: Arc<Examiner>,
@@ -175,7 +175,9 @@ impl Wreq {
         let proxy = config
             .proxy
             .as_ref()
-            .map(|proxy| wreq::Proxy::all(proxy.as_str()).map_err(refused))
+            .map(|route| {
+                super::through(route, wreq::Proxy::all, wreq::Proxy::basic_auth).map_err(refused)
+            })
             .transpose()?;
         let decision = SharedTrust::new(
             config.trust.clone(),
@@ -188,7 +190,7 @@ impl Wreq {
             resolver: Arc::clone(&resolver),
             local: config.local.clone(),
             proxy,
-            through: config.proxy.clone(),
+            through: config.proxy.as_ref().and_then(super::proxy_named),
             decision: decision.clone(),
             examiner: Arc::new(config.trust.examiner(config.clock)),
             verdicts: verdicts.clone(),

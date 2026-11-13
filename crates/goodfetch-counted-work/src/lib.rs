@@ -320,9 +320,14 @@ rows! {
     GovernorCpuStatOpens => "E4.cpu_stat_opens", "governor_sample", "cpu_stat_opens";
     /// `E4.process_reads`: one process's memory read for a governor sample.
     GovernorProcessReads => "E4.process_reads", "governor_sample", "process_reads";
-    /// `E4.pool_walks`: a browser's processes walked for their memory as a
+    /// `C7.pool_walks`: a browser's processes walked for their memory as a
     /// page opens in the browser pool.
-    PoolWalks => "E4.pool_walks", "governor_sample", "pool_walks";
+    PoolWalks => "C7.pool_walks", "page_opening", "pool_walks";
+    /// `C7.opening_commands`: a CDP command a page target's opening awaits
+    /// in turn before the page is ready, from its creation to its last
+    /// set-up. Its Session's browser context is made as the Session opens,
+    /// not in a page's opening.
+    PageOpeningCommands => "C7.opening_commands", "page_opening", "opening_commands";
     /// `C5.fetch_messages_no_rule`: a message of CDP's `Fetch` domain, a
     /// command sent or an event read, for a page's requests.
     InterceptedFetchMessages => "C5.fetch_messages_no_rule", "intercepted_request", "fetch_messages_no_rule";

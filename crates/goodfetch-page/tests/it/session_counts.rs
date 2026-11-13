@@ -14,17 +14,21 @@ use goodfetch_engine::metrics::Metrics;
 use rstest::rstest;
 use serde_json::{Map, Value};
 
-use session::{Counted, READ_ROWS, counted, counting, page_check};
+use session::{Browsers, Counted, READ_ROWS, counted, counting, page_check};
 
 fn run(planted: Option<Row>) -> Counted {
     run_with(Map::new(), planted)
 }
 
 fn run_with(settings: Map<String, Value>, planted: Option<Row>) -> Counted {
+    run_in(Browsers::Borrowed, settings, planted)
+}
+
+fn run_in(browsers: Browsers, settings: Map<String, Value>, planted: Option<Row>) -> Counted {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let metrics = Metrics::none();
     let plant = planted.map(|row| counting(metrics.counted_work(), row));
-    counted(home.path(), metrics, settings, plant)
+    counted(browsers, home.path(), metrics, settings, plant)
 }
 
 /// The rows of a navigation's judgement (C4), each one's count.
@@ -328,4 +332,61 @@ fn a_planted_unit_adds_one_to_a_navigation_row_a_command(#[case] row: Row) {
     let Counted { commands, work, .. } = run(Some(row));
 
     assert_eq!(work.read(row), unplanted + commands, "{}", row.name());
+}
+
+/// In the browser pool (C7), the three pages open one after another in one
+/// Session of the pool, in the one browser it launched: the pool walks that
+/// browser's processes for their memory before each page but the first,
+/// which it has nothing to judge by yet.
+#[test]
+fn a_pool_page_walks_its_browsers_memory_but_before_its_first() {
+    let Counted {
+        pages_opened, work, ..
+    } = run_in(Browsers::Pool, Map::new(), None);
+
+    assert_eq!((pages_opened, work.read(Row::PoolWalks)), (3, 2));
+}
+
+/// A page's opening awaits each of its commands in turn (C7): its target's
+/// creation and attachment, then its own set-up (its focus, `Page.enable`,
+/// its lifecycle events, `Network.enable` and its new documents' script),
+/// then the Session's (the interception's `Fetch.enable`, `DOM.enable` and
+/// `CSS.enable` for live hiding, the Consent prompt runner's binding and its
+/// children's auto-attach). A Borrowed browser's page shows its own
+/// identity, and the Session's browser context was found as it opened.
+#[test]
+fn a_borrowed_pages_opening_counts_each_command_it_awaits() {
+    let Counted {
+        pages_opened, work, ..
+    } = run(None);
+
+    assert_eq!((pages_opened, work.read(Row::PageOpeningCommands)), (1, 12));
+}
+
+/// A pool page of the headless browser takes its window's identity too
+/// (`Emulation.setUserAgentOverride`), one command more; the Session's
+/// browser context was made as the Session opened, before its first page.
+#[test]
+fn a_pool_pages_opening_counts_its_windows_identity_too() {
+    let Counted {
+        pages_opened, work, ..
+    } = run_in(Browsers::Pool, Map::new(), None);
+
+    assert_eq!(
+        (pages_opened, work.read(Row::PageOpeningCommands)),
+        (3, 3 * 13)
+    );
+}
+
+/// A plant adds one unit of C7's row per command the browser reads.
+#[test]
+fn a_planted_unit_adds_one_an_opening_command_a_command() {
+    let unplanted = run_in(Browsers::Pool, Map::new(), None);
+
+    let planted = run_in(Browsers::Pool, Map::new(), Some(Row::PageOpeningCommands));
+
+    assert_eq!(
+        planted.work.read(Row::PageOpeningCommands),
+        unplanted.work.read(Row::PageOpeningCommands) + planted.commands
+    );
 }

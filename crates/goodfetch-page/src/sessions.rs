@@ -60,8 +60,9 @@ use goodfetch_engine::egress::CdpUrlOrigin;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::local_addresses::Unavailable;
 use goodfetch_engine::run::settings_error;
-use goodfetch_engine::run_state::{RunStateError, RunStateTables, run_row};
-use goodfetch_engine::runs::{Run, RunError};
+use goodfetch_engine::run_key::Sealed;
+use goodfetch_engine::run_state::{RunStateError, RunStateTables, SecretColumn, run_row};
+use goodfetch_engine::runs::{Run, RunError, RunKeyError};
 use goodfetch_engine::settings::{RunSettings, SettingsError, Values, setting};
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::browser_cache::PinnedBy;
@@ -90,12 +91,13 @@ use self::lifecycle::{
 use crate::borrowed::{CdpUrl, Lookups, resolve_of};
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
-use crate::document_request::DocumentRequest;
-use crate::driver::{PageDriver, SessionEgress, Visibility};
+use crate::document_request::{DocumentRequest, Unread};
+use crate::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::egress_relay::{self, EgressRelay};
 use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::{Hiding, PageHiding};
 use crate::interception::{Interception, SESSION_KEYS};
+use crate::launch::Launcher;
 use crate::page_events;
 use crate::page_functions::{FrameScripts, Injections};
 use crate::page_value::{HandlerPages, PageValue, PooledSession};
@@ -109,12 +111,20 @@ use crate::trace;
 /// whether it is closed, its own settings, as a JSON object by key, its
 /// identity seed, its 64 bits as SQLite's signed integer, and, for one on a
 /// Borrowed browser, its `cdp_url` and who gave it, so a resumed Run
-/// reopens it on that browser (`source`, null for a fresh Session).
+/// reopens it on that browser (`source`, null for a fresh Session), sealed
+/// under the Run's data key ([`SOURCE`]).
 pub(crate) const TABLES: RunStateTables = RunStateTables {
     name: "page-sessions",
     statements: &[
-        "CREATE TABLE IF NOT EXISTS page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL, source TEXT) STRICT",
+        "CREATE TABLE IF NOT EXISTS page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL, source BLOB) STRICT",
     ],
+};
+
+/// A Session's `source` is secret: a `cdp_url` names the one browser it
+/// reaches and may carry its provider's access token.
+const SOURCE: SecretColumn = SecretColumn {
+    table: "page_sessions",
+    column: "source",
 };
 
 /// What separates a Session's Run ID from its position in its ID; a
@@ -127,6 +137,8 @@ const SESSION_MARK: &str = ".session-";
 pub(crate) struct Sessions {
     state: Arc<Mutex<State>>,
     pins: Vec<PinnedArtifact>,
+    /// How each Run's browsers start.
+    launcher: Launcher,
     interception: Interception,
     /// The Consent prompt runner every page starts.
     consent: Consent,
@@ -375,11 +387,12 @@ impl Drop for EnginePage {
 }
 
 impl Sessions {
-    /// The engine's Sessions, whose browsers come from `pins`, under
-    /// `interception`, their pages' events in `events` and their dialogs in
-    /// `dialogs`, each page's value and response observer from `handler_pages`.
+    /// The engine's Sessions, whose browsers `launcher` starts from `pins`,
+    /// under `interception`, their pages' events in `events` and their
+    /// dialogs in `dialogs`, each page's value and response observer from
+    /// `handler_pages`.
     pub(crate) fn new(
-        pins: Vec<PinnedArtifact>,
+        (pins, launcher): (Vec<PinnedArtifact>, Launcher),
         interception: Interception,
         events: page_events::Table,
         dialogs: Dialogs,
@@ -388,6 +401,7 @@ impl Sessions {
         Self {
             state: Arc::new(Mutex::new(State::default())),
             pins,
+            launcher,
             interception,
             consent: Consent::default(),
             hiding: Hiding::default(),
@@ -399,9 +413,12 @@ impl Sessions {
     }
 
     /// The request a Session's browser sends for a document, read from
-    /// the pinned build it would launch.
-    pub(crate) fn document_request(&self) -> Option<DocumentRequest> {
-        DocumentRequest::of_pinned(&self.pins)
+    /// the build it would launch, pinned or installed, for `run`.
+    pub(crate) async fn document_request(
+        &self,
+        run: &Run,
+    ) -> Result<Option<DocumentRequest>, Unread> {
+        DocumentRequest::of_browser(&self.pins, run).await
     }
 
     /// The consent walls the pages' Consent prompt runners left for each
@@ -625,17 +642,17 @@ impl Sessions {
             .with_value(value, run.clock())
             .with_reader(self.handler_pages.reader(run.id(), session));
         let open_session = Arc::clone(&open);
-        let page = self
-            .adopt(session_pages::Adopting {
-                observer: self.handler_pages.observer(run.id(), session),
-                settings,
-                open,
-                driver,
-                in_browser,
-                admission,
-                events: context.events().clone(),
-            })
-            .await?;
+        // Its set-up is the rest of its opening (ADR 0140's C7).
+        let page = counted_as_opening(self.adopt(session_pages::Adopting {
+            observer: self.handler_pages.observer(run.id(), session),
+            settings,
+            open,
+            driver,
+            in_browser,
+            admission,
+            events: context.events().clone(),
+        }))
+        .await?;
         tracing::Span::current().record("page_id", page.0.as_str());
         mark_egress(&open_session, session).await;
         Ok(PageOpened {
@@ -1024,7 +1041,7 @@ impl Sessions {
                         row.get::<_, bool>(1)?,
                         row.get::<_, bool>(2)?,
                         row.get::<_, String>(3)?,
-                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<Sealed>>(4)?,
                     ))
                 })?;
                 rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -1033,6 +1050,7 @@ impl Sessions {
             .map_err(|error| unavailable(run, &error, context))?;
         let (pool, losses) = Pool::new(
             run.clone(),
+            self.launcher.clone(),
             context.engine().home().clone(),
             Pins {
                 pinned_by: PinnedBy {
@@ -1060,9 +1078,10 @@ impl Sessions {
                 continue;
             }
             let settings = recorded_settings(&settings, run, context)?;
-            let borrowed = source
-                .map(|source| recorded_source(&source, run, context))
-                .transpose()?;
+            let borrowed = match source {
+                Some(sealed) => Some(opened_source(&sealed, position, run, context).await?),
+                None => None,
+            };
             let (proxy, relay, reopen_failed) =
                 reopened_egress(run, &settings, &pool, borrowed.as_ref(), position, context).await;
             let session = session_id(run.id(), position);
@@ -1191,14 +1210,22 @@ impl Sessions {
         borrowed: Option<&CdpUrl>,
         context: &CallContext,
     ) -> Result<(), CallError> {
-        let source = borrowed.map(|cdp_url| {
-            json!({
-                "url": cdp_url.url,
-                "layer": cdp_url.origin.layer,
-                "acting_for_model": cdp_url.origin.acting_for_model,
-            })
-            .to_string()
-        });
+        let source = match borrowed {
+            Some(cdp_url) => {
+                let source = json!({
+                    "url": cdp_url.url,
+                    "layer": cdp_url.origin.layer,
+                    "acting_for_model": cdp_url.origin.acting_for_model,
+                })
+                .to_string();
+                let sealed = run
+                    .seal(&SOURCE, &position.to_string(), source.as_bytes())
+                    .await
+                    .map_err(|error| no_source(run, error, context))?;
+                Some(sealed)
+            }
+            None => None,
+        };
         let settings = Value::Object(
             settings
                 .keys()
@@ -1398,9 +1425,35 @@ async fn open_proxy(
         .map(Arc::new))
 }
 
-/// The `cdp_url` `recorded`, as the run state of `run` holds it, of a
-/// Session on a Borrowed browser reopened from it.
-fn recorded_source(recorded: &str, run: &Run, context: &CallContext) -> Result<CdpUrl, CallError> {
+/// The failure a call answers when the data key of `run` neither seals nor
+/// opens a Session's source: the key-encryption key's own refusal, or the
+/// Run's state as unavailable.
+fn no_source(run: &Run, error: RunKeyError, context: &CallContext) -> CallError {
+    match error {
+        RunKeyError::Secret(error) => goodfetch_engine::run::secret_error(&error),
+        error => unavailable(run, &error, context),
+    }
+}
+
+/// The `cdp_url` of the Session at `position` of `run`, opened from the
+/// source its run state holds `sealed`, to reopen it on its Borrowed
+/// browser.
+async fn opened_source(
+    sealed: &Sealed,
+    position: u32,
+    run: &Run,
+    context: &CallContext,
+) -> Result<CdpUrl, CallError> {
+    let source = run
+        .open(&SOURCE, &position.to_string(), sealed)
+        .await
+        .map_err(|error| no_source(run, error, context))?;
+    recorded_source(&source, run, context)
+}
+
+/// The `cdp_url` `recorded`, as the run state of `run` holds it once
+/// opened, of a Session on a Borrowed browser reopened from it.
+fn recorded_source(recorded: &[u8], run: &Run, context: &CallContext) -> Result<CdpUrl, CallError> {
     #[derive(serde::Deserialize)]
     struct Recorded {
         url: String,
@@ -1408,7 +1461,7 @@ fn recorded_source(recorded: &str, run: &Run, context: &CallContext) -> Result<C
         acting_for_model: bool,
     }
     let recorded: Recorded =
-        serde_json::from_str(recorded).map_err(|error| unavailable(run, &error, context))?;
+        serde_json::from_slice(recorded).map_err(|error| unavailable(run, &error, context))?;
     Ok(CdpUrl {
         url: recorded.url,
         origin: CdpUrlOrigin {

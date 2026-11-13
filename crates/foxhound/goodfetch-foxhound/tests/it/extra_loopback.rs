@@ -8,10 +8,10 @@
 //! `egress.local_addresses`, each Session from its own; a Session a block
 //! retired is replaced by one outside every `/30` block blocked on its
 //! domain, and, with every block blocked, by one within a block, which the
-//! Run report warns of. A replacement serving its domain on the browser
-//! tier binds its relay to the pool's address too. (A Run that sets a proxy
-//! beside the `http` tier fails its start until #1640 sends that tier
-//! through the proxy: `pool_proxies`.)
+//! Run report warns of. A Run that sets a proxy reaches the site only
+//! through it, from every Session, the replacement after a block included
+//! (#1640), which leaves from another exit (#682), and a replacement serving its domain on the browser tier binds
+//! its relay to the pool's address too.
 //! Until the engine detects blocks itself (area 5), the test's handler
 //! names the Block cause of the pages it is told to.
 
@@ -30,6 +30,9 @@ use crate::frontier::{crawl_declaring, crawl_with};
 
 /// The Proving ground's seed.
 const SEED: u64 = 682;
+
+/// The variable the engine's environment holds the proxies' password in.
+const PASSWORD_VARIABLE: &str = "PROVING_GROUND_PROXY_PASSWORD";
 
 /// The settings of a crawl on the `http` tier sending from `addresses`,
 /// spread over `/30` blocks.
@@ -222,6 +225,91 @@ fn a_replacement_after_a_block_reaches_the_site_from_an_unblocked_block() {
             vec![json!(["session-3"])],
         ),
         "{within}"
+    );
+}
+
+/// A Run that sets a Proxy provider has its `http` tier leave through it
+/// from every Session's local address, the replacement after a block
+/// included: the site sees only the proxy's own address, never one of the
+/// Run's `egress.local_addresses`, and the proxy relayed every page and
+/// robots.txt (#1640). The replacement holds a sticky session of its own,
+/// so it leaves from another exit than the Session the block retired
+/// (#682).
+///
+/// Covers: story:4-109, setting:proxy.provider
+#[test]
+fn a_run_that_sets_a_proxy_reaches_the_site_only_through_it_a_replacement_from_another_exit() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let fixtures = &proving_ground.description().fixtures;
+    env.user_configuration(&format!(
+        "[settings.proxy.providers.oxylabs]\nusername = \"{}\"\npassword = \"env:{PASSWORD_VARIABLE}\"\nendpoint = \"http://{}\"\n",
+        fixtures.proxy_credentials.username, fixtures.proxies["residential"],
+    ));
+    let pages = ["/consistency/1", "/consistency/2", "/version"];
+    let seeds: Vec<Value> = pages
+        .iter()
+        .map(|path| json!({ "url": proving_ground.url("access.test", path), "label": "page" }))
+        .collect();
+    let mut settings = settings(&proving_ground, &["127.0.0.2", "127.0.0.3", "127.0.0.4"]);
+    settings["proxy"] = json!({ "provider": "oxylabs" });
+    let mut engine = attached_with(&env, None, |command| {
+        command.env(PASSWORD_VARIABLE, &fixtures.proxy_credentials.password);
+    })
+    .settings_by_default(&crate::fetch_tiers::settings(
+        &proving_ground,
+        &json!({ "fetch": { "tier": "http" } }),
+    ));
+
+    let report = crawl_with(
+        &mut engine,
+        "proxied",
+        &seeds,
+        &settings,
+        &mut |_, handle| answer(handle, &["/consistency/1"]),
+    );
+    let observations = proving_ground.observations().unwrap();
+    assert!(engine.finished());
+
+    // Each relayed target's sticky session and exit.
+    let relays: Vec<(&str, (Option<&str>, &str))> = observations["relays"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|relay| relay["outcome"] == "relayed" && relay["proxy"] == "residential")
+        .filter_map(|relay| {
+            let path = goodfetch_test_support::path_of(relay["target"].as_str()?)?;
+            Some((
+                path,
+                (relay["sticky"]["session"].as_str(), relay["exit"].as_str()?),
+            ))
+        })
+        .collect();
+    let left_from = |page: &str| -> BTreeSet<(Option<&str>, &str)> {
+        relays
+            .iter()
+            .filter(|(path, _)| *path == page)
+            .map(|(_, left)| *left)
+            .collect()
+    };
+    // The first Session read robots.txt before its page, which the block
+    // retired it on; the other two pages went to two more Sessions, the
+    // replacement among them, each on a sticky session of its own.
+    let left = pages.map(left_from);
+    let stickies: BTreeSet<Option<&str>> =
+        left.iter().flatten().map(|(sticky, _)| *sticky).collect();
+    let exits: BTreeSet<&str> = left.iter().flatten().map(|(_, exit)| *exit).collect();
+    assert_eq!(
+        (
+            every_source(&observations),
+            left.each_ref().map(BTreeSet::len),
+            left_from("/robots.txt") == left[0],
+            stickies.len(),
+            stickies.contains(&None),
+            exits.len(),
+        ),
+        (BTreeSet::from([ip("127.0.0.1")]), [1; 3], true, 3, false, 3),
+        "{report}\n{relays:?}"
     );
 }
 

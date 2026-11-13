@@ -15,9 +15,9 @@ use std::time::Duration;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
-use serde_json::{Value, json};
+use serde_json::json;
 
-use super::{Client, Reply, crawl, dependencies, page_of, run_file, seeds, work_items};
+use super::{Client, Reply, answer_all, crawl, dependencies, run_file, seeds, work_items};
 
 /// Starts the keep-alive crawl `run_id` of one seed whose handler fails
 /// it unretried, waits for its outcome, and lets the crawl settle into
@@ -71,11 +71,6 @@ async fn turn() {
         std::task::Poll::Pending
     })
     .await;
-}
-
-/// Answers each page with one Record naming it.
-fn answer_all(params: &Value) -> Reply {
-    Reply::Records(vec![json!({ "page": page_of(params) })])
 }
 
 /// A failed request re-admitted while its crawl finishes is crawled again:

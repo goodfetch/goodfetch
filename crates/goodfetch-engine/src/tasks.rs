@@ -7,12 +7,24 @@
 //! that starts tasks and threads (ADR 0060); the engine builds no runtime,
 //! `main` does.
 //!
+//! No panic of a task goes unseen (ADR 0148): a task, an actor and blocking
+//! work whose caller has gone each run inside a watch that catches a panic
+//! where the task already runs, logs it at `error` with the owner's
+//! [`OwnerKind`] and the name of its crash report, and tells the owner's
+//! parent through [`TaskOwner::panicked`]. The parent carries out the
+//! reaction, ending the owner through an end that already exists, never the
+//! owner that failed: stopping an owner waits for its tasks, so none of
+//! them can stop it. The task that serves a Connection ends it as when its
+//! Client goes away; until a Run's parent and the engine's await it (spec
+//! #2425), the log is their panic's only trace. Nothing is restarted in place.
+//!
 //! Blocking work runs under the owner's [`BlockingPolicy`], a value: in
 //! production on tracked blocking threads, and an actor that owns blocking
 //! state (the run's SQLite writer) on a dedicated thread its owner joins; in
 //! the Simulation and in-process tests, blocking calls run inline and an
 //! actor's loop runs as a task on the host's runtime.
 
+use std::any::Any;
 use std::future::Future;
 use std::io;
 use std::num::NonZeroUsize;
@@ -20,6 +32,7 @@ use std::ops::ControlFlow;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
+use futures_util::FutureExt as _;
 use tokio::sync::{Semaphore, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -37,6 +50,30 @@ pub enum BlockingPolicy {
     Inline,
 }
 
+/// What an owner is, which the log of a panic in one of its tasks names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnerKind {
+    /// The engine process, and every owner under it that is no Connection
+    /// and no Run.
+    Engine,
+    /// A Connection, whose own tasks are its writer and its log forwarder,
+    /// and its calls.
+    Connection,
+    /// A Run, and its writer.
+    Run,
+}
+
+impl OwnerKind {
+    /// Its name in a log.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Engine => "engine",
+            Self::Connection => "connection",
+            Self::Run => "run",
+        }
+    }
+}
+
 /// An owner of tasks: what it starts stops with it.
 #[derive(Debug)]
 pub struct TaskOwner {
@@ -52,6 +89,8 @@ pub struct TaskOwner {
     /// The CPU pool's permits, one per core, which every owner of the
     /// tree shares: each Page analysis on a blocking thread holds one.
     analyses: Arc<Semaphore>,
+    /// Where a panic of its tasks is told.
+    panics: Panics,
 }
 
 impl TaskOwner {
@@ -73,14 +112,23 @@ impl TaskOwner {
             closing: CancellationToken::new(),
             policy,
             analyses: Arc::new(Semaphore::new(cores.get())),
+            panics: Panics::new(OwnerKind::Engine),
         }
     }
 
-    /// An owner under this one, with its blocking policy: cancelling this
-    /// one cancels it, never the other way round. Its tasks are its own,
-    /// which its holder waits for.
+    /// An owner under this one, of its kind, with its blocking policy:
+    /// cancelling this one cancels it, never the other way round. Its tasks
+    /// are its own, which its holder waits for, and whose panics are told
+    /// to its holder ([`TaskOwner::panicked`]).
     #[must_use]
     pub fn child(&self) -> Self {
+        self.child_for(self.panics.kind())
+    }
+
+    /// An owner under this one, as [`TaskOwner::child`], of `kind`, such
+    /// as a Connection's or a Run's.
+    #[must_use]
+    pub fn child_for(&self, kind: OwnerKind) -> Self {
         Self {
             token: self.token.child_token(),
             tracker: TaskTracker::new(),
@@ -88,6 +136,7 @@ impl TaskOwner {
             closing: CancellationToken::new(),
             policy: self.policy,
             analyses: Arc::clone(&self.analyses),
+            panics: Panics::new(kind),
         }
     }
 
@@ -97,17 +146,43 @@ impl TaskOwner {
         &self.token
     }
 
+    /// Waits until one of its tasks, its actors or its blocking work whose
+    /// caller has gone panicked, which its parent, its holder, awaits to end
+    /// it: the panic was logged already, with the name of its crash report.
+    ///
+    /// The future, which holds no borrow of the owner, so a task can await
+    /// it.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future stops waiting; a later wait still sees a panic
+    /// told before it.
+    pub fn panicked(&self) -> impl Future<Output = ()> + Send + 'static {
+        self.panics.panicked().clone().cancelled_owned()
+    }
+
+    /// Whether one of its tasks, its actors or its blocking work whose
+    /// caller has gone panicked already: what [`TaskOwner::panicked`] waits
+    /// for, read where its holder no longer waits. A task's panic is told
+    /// before the task ends, so once its tasks ended ([`TaskOwner::wait`])
+    /// this reads every panic among them.
+    pub fn has_panicked(&self) -> bool {
+        self.panics.panicked().is_cancelled()
+    }
+
     /// Its blocking policy.
     pub fn policy(&self) -> BlockingPolicy {
         self.policy
     }
 
-    /// Starts `future` as one of its tasks.
+    /// Starts `future` as one of its tasks, whose panic is told to its
+    /// parent ([`TaskOwner::panicked`]).
     pub fn spawn<F>(&self, future: F)
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        self.tracker.spawn(future);
+        let panics = self.panics.clone();
+        self.tracker.spawn(watched(future, panics));
     }
 
     /// Runs `work`, which blocks, under its blocking policy, and answers
@@ -116,13 +191,15 @@ impl TaskOwner {
     /// # Cancel safety
     ///
     /// Dropping the future never stops `work` once it started: on a
-    /// blocking thread it runs to its end, and the owner waits for it.
+    /// blocking thread it runs to its end, and the owner waits for it; a
+    /// panic in it then is told to the owner's parent
+    /// ([`TaskOwner::panicked`]).
     pub async fn blocking<T, F>(&self, work: F) -> T
     where
         F: FnOnce() -> T + Send + 'static,
         T: Send + 'static,
     {
-        run_blocking(&self.tracker, self.policy, work).await
+        run_blocking(&self.tracker, self.policy, &self.panics, work).await
     }
 
     /// Its blocking threads, as a handle that runs blocking work as
@@ -133,6 +210,7 @@ impl TaskOwner {
         BlockingThreads {
             tracker: self.tracker.clone(),
             policy: self.policy,
+            panics: self.panics.clone(),
         }
     }
 
@@ -176,6 +254,8 @@ impl TaskOwner {
     /// stop of the owner saw its other tasks end: it closes its mailbox
     /// then, refusing any later message, whoever holds a sender, and
     /// handles what the mailbox still holds first. The owner waits for it.
+    /// A panic in `handle` ends the actor, its mailbox dropped, and is told
+    /// to the owner's parent ([`TaskOwner::panicked`]).
     ///
     /// # Errors
     ///
@@ -214,16 +294,17 @@ impl TaskOwner {
         M: Send + 'static,
         H: FnMut(Vec<M>) -> ControlFlow<()> + Send + 'static,
     {
-        let closing = self.closing.clone();
+        let (closing, panics) = (self.closing.clone(), self.panics.clone());
         match self.policy {
             BlockingPolicy::Inline => {
-                self.actors.spawn(async move {
+                let handling = async move {
                     while let Some(first) = next(&mut mailbox, &closing).await {
                         if handle(drain(first, &mut mailbox)).is_break() {
                             break;
                         }
                     }
-                });
+                };
+                self.actors.spawn(watched(handling, panics));
             }
             BlockingPolicy::Threads => {
                 // The thread waits for its next message on the runtime's
@@ -231,6 +312,7 @@ impl TaskOwner {
                 // closing.
                 let runtime = tokio::runtime::Handle::current();
                 let (finished, ended) = oneshot::channel::<()>();
+                let joining = panics.clone();
                 #[expect(
                     clippy::disallowed_methods,
                     reason = "the tasks module is the one place that starts threads (ADR 0060)"
@@ -239,20 +321,28 @@ impl TaskOwner {
                     std::thread::Builder::new()
                         .name(name.to_owned())
                         .spawn(move || {
-                            while let Some(first) = runtime.block_on(next(&mut mailbox, &closing)) {
-                                if handle(drain(first, &mut mailbox)).is_break() {
-                                    break;
+                            // The actor's watch, on its own thread.
+                            let handled = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                                while let Some(first) =
+                                    runtime.block_on(next(&mut mailbox, &closing))
+                                {
+                                    if handle(drain(first, &mut mailbox)).is_break() {
+                                        break;
+                                    }
                                 }
+                            }));
+                            if handled.is_err() {
+                                panics.tell(crash_report::take_written().as_deref());
                             }
                             drop(mailbox);
                             let _ = finished.send(());
                         })?;
                 self.actors.spawn(async move {
                     let _ = ended.await;
-                    // The thread has returned, or panicked: joining takes no
-                    // time, and a panic resumes here.
-                    if let Err(panic) = thread.join() {
-                        std::panic::resume_unwind(panic);
+                    // The thread has returned, its own panic caught and
+                    // told: joining takes no time.
+                    if thread.join().is_err() {
+                        joining.tell(None);
                     }
                 });
             }
@@ -302,6 +392,7 @@ impl TaskOwner {
 pub struct BlockingThreads {
     tracker: TaskTracker,
     policy: BlockingPolicy,
+    panics: Panics,
 }
 
 impl BlockingThreads {
@@ -315,14 +406,106 @@ impl BlockingThreads {
         F: FnOnce() -> T + Send + 'static,
         T: Send + 'static,
     {
-        run_blocking(&self.tracker, self.policy, work).await
+        run_blocking(&self.tracker, self.policy, &self.panics, work).await
+    }
+}
+
+/// Where an owner's panics are told: logged at `error` with its kind, then
+/// told to whoever awaits [`TaskOwner::panicked`], its parent.
+///
+/// One pointer, which every task's watch holds: a call's task (ADR 0140's
+/// E1 starts one a call) grows by no more, and starting one copies no token.
+#[derive(Clone, Debug)]
+struct Panics(Arc<Telling>);
+
+/// What an owner's tasks tell, shared by their watches.
+#[derive(Debug)]
+struct Telling {
+    kind: OwnerKind,
+    /// Cancelled once one of the owner's tasks panicked.
+    panicked: CancellationToken,
+}
+
+impl Panics {
+    fn new(kind: OwnerKind) -> Self {
+        Self(Arc::new(Telling {
+            kind,
+            panicked: CancellationToken::new(),
+        }))
+    }
+
+    fn kind(&self) -> OwnerKind {
+        self.0.kind
+    }
+
+    fn panicked(&self) -> &CancellationToken {
+        &self.0.panicked
+    }
+
+    /// Tells a panic of one of the owner's tasks, whose crash report is
+    /// `crash_report`, when one was written.
+    fn tell(&self, crash_report: Option<&str>) {
+        tracing::error!(
+            owner = self.kind().as_str(),
+            crash_report,
+            "a task panicked, and its owner's parent is told"
+        );
+        self.panicked().cancel();
+    }
+}
+
+/// `future`, whose panic is caught where it runs and told to `panics`,
+/// on the thread it panicked on, so its crash report's name goes with it.
+/// A combinator, not an `async fn`, which would hold `future` twice.
+fn watched<F>(future: F, panics: Panics) -> impl Future<Output = ()>
+where
+    F: Future<Output = ()>,
+{
+    AssertUnwindSafe(future).catch_unwind().map(move |caught| {
+        if caught.is_err() {
+            panics.tell(crash_report::take_written().as_deref());
+        }
+    })
+}
+
+/// A panic that blocking work caught on its thread, with the name of its
+/// crash report, on its way to the caller: dropped there unresumed, the
+/// caller having gone, it is told to `panics`.
+struct Caught {
+    panic: Option<Box<dyn Any + Send>>,
+    crash_report: Option<String>,
+    panics: Panics,
+}
+
+impl Caught {
+    /// Resumes the panic in the caller, with its crash report's name.
+    fn resume(mut self) -> ! {
+        let panic = self
+            .panic
+            .take()
+            .expect("invariant: a caught panic is resumed once");
+        crash_report::resume_unwind(panic, self.crash_report.take())
+    }
+}
+
+impl Drop for Caught {
+    fn drop(&mut self) {
+        if self.panic.take().is_some() {
+            self.panics.tell(self.crash_report.as_deref());
+        }
     }
 }
 
 /// Runs `work` under `policy`, on a blocking thread `tracker` tracks, and
 /// answers what it returns; a panic in `work` resumes in the caller, with
-/// the name of its crash report (ADR 0148).
-async fn run_blocking<T, F>(tracker: &TaskTracker, policy: BlockingPolicy, work: F) -> T
+/// the name of its crash report, or, once the caller has gone, which only
+/// a blocking thread allows, is told to `panics` (ADR 0148).
+async fn run_blocking<T, F>(
+    tracker: &TaskTracker,
+    policy: BlockingPolicy,
+    panics: &Panics,
+    work: F,
+) -> T
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
@@ -330,13 +513,20 @@ where
     match policy {
         BlockingPolicy::Inline => work(),
         BlockingPolicy::Threads => {
+            let panics = panics.clone();
+            // A caller that has gone drops its handle: the runtime then
+            // drops what the work returned on its thread, and a `Caught`
+            // dropped unresumed tells its panic.
             let caught = tracker.spawn_blocking(move || {
-                std::panic::catch_unwind(AssertUnwindSafe(work))
-                    .map_err(|panic| (panic, crash_report::take_written()))
+                std::panic::catch_unwind(AssertUnwindSafe(work)).map_err(|panic| Caught {
+                    panic: Some(panic),
+                    crash_report: crash_report::take_written(),
+                    panics,
+                })
             });
             match caught.await {
                 Ok(Ok(answer)) => answer,
-                Ok(Err((panic, written))) => crash_report::resume_unwind(panic, written),
+                Ok(Err(caught)) => caught.resume(),
                 Err(error) => panic!("invariant: a blocking task is never cancelled: {error}"),
             }
         }

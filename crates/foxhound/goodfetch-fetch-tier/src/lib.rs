@@ -36,6 +36,7 @@ mod gate;
 mod hedging;
 mod http_profile;
 mod light_browser;
+mod proxied;
 mod redirects;
 mod redundant;
 mod refresh;

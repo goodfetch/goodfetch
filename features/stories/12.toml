@@ -132,7 +132,7 @@ reason = "The Console left both Products (ADR 0137), and this story was its alon
 
 [[story]]
 id = 15
-title = "As a user, I want a run's page to show its Run report: the three axes with the reasons it is not `verified` or not `complete`, its stop reason (a `resources` stop naming memory or storage and its folder), its Usage against its Limits, its Model allowance apart from its Limits with what remains, when it was reached and the setting and layer that set it, its Plan report, its warnings with their codes, its uncertain Effects, the settings that weakened a safeguard, its policy version, settings with their layers and Plugins, its last Checkpoint, its start and end, why nothing was done when nothing was, and, when it replayed a Response recording, that mark on its row and page with the recording's mode, file, responses used, when they were fetched and every miss, so that I understand how it ended and never read a replayed run as a live one (ADRs 0102, 0105, 0106, 0107, 0116, 0122; pain K05)."
+title = "As a user, I want to read a run's Run report through a Client: the three axes with the reasons it is not `verified` or not `complete`, its stop reason (a `resources` stop naming memory or storage and its folder), its Usage against its Limits, its Model allowance apart from its Limits with what remains, when it was reached and the setting and layer that set it, its Plan report, its warnings with their codes, its uncertain Effects, the settings that weakened a safeguard, its policy version, settings with their layers and Plugins, its last Checkpoint, its start and end, why nothing was done when nothing was, and, when it replayed a Response recording, that mark on its Run index row and in its report with the recording's mode, file, responses used, when they were fetched and every miss, so that I understand how it ended and never read a replayed run as a live one (ADRs 0102, 0105, 0106, 0107, 0116, 0122; pain K05)."
 milestone = "M3 Browser automation"
 journey = true
 status = "active"
@@ -175,7 +175,7 @@ reason = "The Console left both Products (ADR 0137), and this story was its alon
 
 [[story]]
 id = 23
-title = "As a user, I want one \"Needs you\" list across every run in the index and the stores beside it, counted in the side menu, so that nothing waiting for me is missed (ADR 0031; pain 18)."
+title = "As a user, I want one \"Needs you\" list across every run in the index and the stores beside it, read through a Client, so that nothing waiting for me is missed (ADR 0031; pain 18)."
 milestone = "M1 Core"
 journey = true
 status = "active"
@@ -505,9 +505,10 @@ product = "foxhound"
 
 [[story]]
 id = 204
-title = "As a user, I want a crawl run's page to list its Datasets with their declared schema and their committed, dropped and rejected Record counts, so that I see what the crawl kept (ADR 0103)."
+title = "As a user, I want a crawl's Datasets listed with their declared schema and their committed, dropped and rejected Record counts, so that I see what the crawl kept (ADR 0103)."
 milestone = "M1 Core"
-journey = true
+journey = false
+not_journey = "part"
 status = "active"
 product = "foxhound"
 

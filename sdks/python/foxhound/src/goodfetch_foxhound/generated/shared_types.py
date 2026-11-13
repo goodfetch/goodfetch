@@ -61,13 +61,14 @@ kept as received (ADR 0079).
 - `partitioned_crawl`: Every Partition of a Partitioned crawl (ADR 0054).
 """
 
-RunWarningCode: TypeAlias = CollieRunWarningCode | Literal["block_classification_off", "learning_off", "local_address_rotated_within_block", "provenance_off", "records_off", "trap_links_off"]
+RunWarningCode: TypeAlias = CollieRunWarningCode | Literal["block_classification_off", "browser_version_unread", "learning_off", "local_address_rotated_within_block", "provenance_off", "records_off", "trap_links_off"]
 """A `run_warning_code`, a type both Products share (ADR 0095).
 
 Collie's values and Foxhound's own below; a value this package does not know is
 kept as received (ADR 0079).
 
 - `block_classification_off`: The crawl ran with `fetch.block_classification` off: no document was read for a Challenge or a captcha, so a page a site blocked may be among its successes.
+- `browser_version_unread`: The installed browser's version could not be read, so a `standard` Session's own HTTP transport presented no browser identity.
 - `learning_off`: The crawl ran with `frontier.learning` off: its Frontier learned no URL rule, so `learned_rules` is empty by the setting, not for want of evidence.
 - `local_address_rotated_within_block`: A Session replacing one a block retired found every block of `egress.local_addresses` blocked on its domain, so it took an address within a blocked block; `sessions` names it.
 - `provenance_off`: The crawl ran with `provenance.log` off: its Run trace holds no Provenance log, while each Record still carries its own Provenance.

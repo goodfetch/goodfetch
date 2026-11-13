@@ -269,6 +269,12 @@ pub enum TransportFailure {
     /// The proxy itself could not be reached
     /// (`net::ERR_PROXY_CONNECTION_FAILED`).
     ProxyUnreachable,
+    /// The Session's proxy did not open, or answered or failed the hop
+    /// itself (#1640): the error it ended with, `proxy_unavailable`,
+    /// `proxy_auth_failed` or `proxy_relay_unavailable` among them
+    /// (`net::ERR_PROXY_CONNECTION_FAILED`). The proxy's answer is never
+    /// the site's.
+    Proxy(CallFailure),
     /// A content coding the body is labelled with did not decode
     /// (`net::ERR_CONTENT_DECODING_FAILED`, ADR 0119).
     ContentDecodingFailed,
@@ -387,7 +393,7 @@ impl TransportFailure {
             Self::InvalidResponse => "net::ERR_INVALID_HTTP_RESPONSE",
             Self::TunnelRefused => "net::ERR_TUNNEL_CONNECTION_FAILED",
             Self::ProxyAuthenticationRequired => "net::ERR_PROXY_AUTH_REQUESTED",
-            Self::ProxyUnreachable => "net::ERR_PROXY_CONNECTION_FAILED",
+            Self::ProxyUnreachable | Self::Proxy(_) => "net::ERR_PROXY_CONNECTION_FAILED",
             Self::ContentDecodingFailed => "net::ERR_CONTENT_DECODING_FAILED",
             Self::Browser(_) | Self::Other => "net::ERR_FAILED",
         }
@@ -397,13 +403,14 @@ impl TransportFailure {
     /// the egress policy's refusal, the browser's own error on the
     /// browser-fetch tier, `certificate_invalid` and `certificate_changed`
     /// for a certificate (ADR 0042), neither retryable, the client
-    /// certificate's own error, and `navigation_failed` with its network
+    /// certificate's own error, the error the Session's proxy did not open
+    /// with, and `navigation_failed` with its network
     /// error for every other failure, retryable (ADR 0118).
     pub fn error(&self, url: &str) -> CallError {
         match self {
             Self::Egress(refused) => return refused.error(),
             Self::Browser(failure) => return failure.0.clone(),
-            Self::ClientCertificate(failure) => return failure.0.clone(),
+            Self::ClientCertificate(failure) | Self::Proxy(failure) => return failure.0.clone(),
             Self::CertificateChanged(changed) => return changed.error(),
             Self::CertificateInvalid(failure) => {
                 let host = Url::parse(url)

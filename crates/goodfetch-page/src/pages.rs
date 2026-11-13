@@ -98,11 +98,12 @@ use serde_json::Value;
 use crate::blocks::{Block, BlockClassifier, NoBlocks};
 use crate::browser_fetch;
 use crate::dialogs::{self, Dialogs};
-use crate::document_request::DocumentRequest;
+use crate::document_request::{DocumentRequest, Unread};
 use crate::driver::{Destination, SerializedDocument};
 use crate::guard::{self, Action, Request, Window};
 use crate::hiding::Hidden;
 use crate::interception::{Answer, Fulfillment, Interception, Overrides, Reply, Scope};
+use crate::launch::Launcher;
 use crate::page_events::{self, Requested};
 use crate::page_functions::{self, InitScripts, Injection, Matches, Pending, Registered};
 use crate::page_value::{
@@ -131,16 +132,22 @@ mod waits;
 /// observer, as a Collie program's pages do, and no document has a Block
 /// cause.
 pub fn contribution(pins: Vec<PinnedArtifact>) -> Contribution {
-    contribution_with(pins, ProgramPages, Arc::new(NoBlocks))
+    contribution_with(
+        (pins, Launcher::Executable),
+        ProgramPages,
+        Arc::new(NoBlocks),
+    )
 }
 
 /// What the page crate adds to the engine, as [`contribution`], each page
 /// it opens taking its value and its response observer from
 /// `handler_pages` (ADR 0087): the seam through which Foxhound sets them
 /// on the pages it hands to handlers; `blocks` tells a page's Block cause,
-/// from the Product's rules (ADR 0035).
+/// from the Product's rules (ADR 0035); `launcher` starts each Run's
+/// browsers (ADR 0059), the Browser cache's build but in a benchmark or a
+/// test.
 pub fn contribution_with(
-    pins: Vec<PinnedArtifact>,
+    (pins, launcher): (Vec<PinnedArtifact>, Launcher),
     handler_pages: impl HandlerPages + 'static,
     blocks: Arc<dyn BlockClassifier>,
 ) -> Contribution {
@@ -150,7 +157,7 @@ pub fn contribution_with(
     let dialogs = Dialogs::default();
     let pages = Pages {
         sessions: Sessions::new(
-            pins,
+            (pins, launcher),
             interception.clone(),
             events.clone(),
             dialogs.clone(),
@@ -869,8 +876,11 @@ impl BrowserPages for Opener {
         })
     }
 
-    fn document_request(&self) -> Option<DocumentRequest> {
-        self.pages.sessions.document_request()
+    fn document_request<'a>(
+        &'a self,
+        run: &'a Run,
+    ) -> Opening<'a, Result<Option<DocumentRequest>, Unread>> {
+        Box::pin(self.pages.sessions.document_request(run))
     }
 
     fn retire<'a>(

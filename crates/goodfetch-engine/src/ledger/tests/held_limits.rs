@@ -365,3 +365,71 @@ fn a_charge_is_made_without_the_ledger_only_while_the_held_slices_cover_it() {
         (None, Some(vec![(1, 10)]), None, 0)
     );
 }
+
+/// What a Run asks before it changes its charging with no blocking call
+/// (issue 2603): a charge or a reservation is a step in memory while the
+/// Slices the run holds cover its amount and its Limits are current. What
+/// the charging says they cover then reaches neither SQL nor the file; a
+/// settlement never does.
+///
+/// Covers: story:3-67
+#[test]
+fn a_change_the_charging_says_its_slices_cover_reaches_no_sql_and_no_file() {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register(&env.unique_name("ledger-covers"), env.seed()).unwrap();
+    let work = CountedWork::default();
+    let ledger = ledger_on(&env, &vfs);
+    ledger
+        .add_limit(&limit(install(), "requests", 1_000), now())
+        .unwrap();
+    let mut run = run_on(&env, &ledger.clone().counting(work.clone()));
+    let unread = run.covers("requests", None, 1, now());
+    run.charge("requests", 1, now()).unwrap();
+    let before = (work.read(CountedRow::ChargeStatements), vfs.operations());
+
+    let covered = run.covers("requests", None, 9, now());
+    let (reservation, _) = run.reserve("requests", None, 5, now()).unwrap();
+    run.settle(reservation, 2);
+    run.charge("requests", 4, now()).unwrap();
+    let short = run.covers("requests", None, 4, now());
+    let uncapped = run.covers("paid_solves", Some("USD"), 1_000, now());
+    let (unlimited, _) = run
+        .reserve("paid_solves", Some("USD"), 1_000, now())
+        .unwrap();
+    run.settle(unlimited, 0);
+
+    assert_eq!(
+        (
+            (unread, covered, short, uncapped),
+            work.read(CountedRow::ChargeStatements) - before.0,
+            vfs.operations() - before.1
+        ),
+        ((false, true, false, true), 0, 0)
+    );
+}
+
+/// A change stops being a step in memory once the run's Limits may no
+/// longer be the ledger's: an engine of its process changed them.
+///
+/// Covers: story:3-67
+#[test]
+fn a_change_is_no_step_in_memory_once_the_limits_changed() {
+    let env = TestEnv::new();
+    let vfs = CrashVfs::register(&env.unique_name("ledger-covers-changed"), env.seed()).unwrap();
+    let ledger = ledger_on(&env, &vfs);
+    ledger
+        .add_limit(&limit(install(), "requests", 1_000), now())
+        .unwrap();
+    let mut run = run_on(&env, &ledger);
+    run.charge("requests", 1, now()).unwrap();
+    let before = run.covers("requests", None, 1, now());
+
+    ledger
+        .add_limit(&limit(install(), "paid_solves", 5), now())
+        .unwrap();
+
+    assert_eq!(
+        (before, run.covers("requests", None, 1, now())),
+        (true, false)
+    );
+}

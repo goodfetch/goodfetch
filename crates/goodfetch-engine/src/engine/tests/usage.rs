@@ -29,11 +29,13 @@ use tokio::io::AsyncBufReadExt as _;
 use tokio::io::BufReader;
 
 use super::run::call;
-use super::{Client, attached_on, dependencies, engine_with, hello};
+use super::{Client, attached_on, attached_with, dependencies, engine_with, hello};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
+use crate::engine::Dependencies;
 use crate::ledger::Ledger;
 use crate::runs::{ChargeError, EndedBy, Start, Started, UnjournaledCharges};
+use crate::tasks::BlockingPolicy;
 use crate::transport::{self, Network};
 
 /// Starts a Run of its own and charges `unjournaled` requests, one at a
@@ -63,6 +65,29 @@ const RESERVE: Operation = Operation {
     description: "Starts a Run that reserves a paid solve's worst case.",
     ..CHARGE
 };
+
+/// Starts a Run of its own that takes a Slice, then holds the runtime's
+/// blocking threads while it makes each change of its charging that the
+/// Slice covers, beside a charge that needs another Slice; then lets the
+/// threads go.
+const COVERED: Operation = Operation {
+    name: "test.covered",
+    description: "Starts a Run that makes covered changes while the blocking threads are held.",
+    ..CHARGE
+};
+
+/// Starts a Run of its own whose `tasks` tasks charge requests one at a
+/// time, `each` of them each, all at once; answers how many they charged
+/// and what the Run's state then journals of its Slices.
+const CHARGE_FROM_TASKS: Operation = Operation {
+    name: "test.charge_from_tasks",
+    description: "Starts a Run whose tasks charge requests at once.",
+    ..CHARGE
+};
+
+/// How long [`COVERED`] holds a blocking thread at most: a change that
+/// needed the thread then gets it, and the test says it was let go late.
+const HELD_AT_MOST: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// Starts a new Collie Run named by `params`' `run_id`, tagged with its
 /// `tags`.
@@ -146,6 +171,8 @@ pub(super) fn charging() -> Contribution {
                 Ok::<Value, CallError>(json!({ "charged": charged, "refused": refused }))
             },
         ))
+        .with_handler(Handler::new(&COVERED, covered))
+        .with_handler(Handler::new(&CHARGE_FROM_TASKS, charge_from_tasks))
         .with_handler(Handler::new(
             &RESERVE,
             |params: Value, context: CallContext| async move {
@@ -166,6 +193,121 @@ pub(super) fn charging() -> Contribution {
                 Ok(json!({ "refused": false }))
             },
         ))
+}
+
+/// Holds one of the runtime's blocking threads until its sender is used,
+/// [`HELD_AT_MOST`]; the task answers whether it was let go in time. While
+/// a blocking thread is held, the paused clock stands still.
+async fn held_thread() -> (std::sync::mpsc::Sender<()>, tokio::task::JoinHandle<bool>) {
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let (holding, holds) = tokio::sync::oneshot::channel();
+    let thread = tokio::runtime::Handle::current().spawn_blocking(move || {
+        holding.send(()).unwrap();
+        held.recv_timeout(HELD_AT_MOST).is_ok()
+    });
+    holds.await.unwrap();
+    (release, thread)
+}
+
+/// [`COVERED`]'s handler, on a runtime of two blocking threads.
+async fn covered(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run = started(&params, &context).await?;
+    // The clock stands still from here, so the Limits the Run reads as it
+    // takes its Slice stay current, and the other thread serves that charge.
+    let first = held_thread().await;
+    run.charge("requests", 1).await.unwrap();
+    let second = held_thread().await;
+
+    let changes = async {
+        run.charge("requests", 1).await.unwrap();
+        run.charge_part("requests", "first", 1, None).await.unwrap();
+        let mut unjournaled = UnjournaledCharges::default();
+        run.charge_unjournaled(&mut unjournaled, "requests", 1)
+            .await
+            .unwrap();
+        let reservation = run.reserve("requests", None, 2).await.unwrap();
+        run.settle(reservation, 1).await.unwrap();
+        let allowance = run
+            .reserve_part("requests", "first", None, |amount| amount, 2, 1)
+            .await
+            .unwrap()
+            .unwrap();
+        run.settle_part(allowance, 1, 0).await.unwrap();
+        unjournaled
+    };
+    let another_slice = run.charge("requests", 20);
+    tokio::pin!(another_slice);
+    let (unjournaled, charged_while_held) = tokio::select! {
+        biased;
+        charged = &mut another_slice => (None, Some(charged.is_ok())),
+        unjournaled = changes => (Some(unjournaled), None),
+    };
+    let mut held_throughout = true;
+    for (release, thread) in [first, second] {
+        // A thread held to its end is gone, and answers that it was.
+        let _ = release.send(());
+        held_throughout &= thread.await.unwrap();
+    }
+    let charged_once_let_go = match charged_while_held {
+        Some(_) => None,
+        None => Some(another_slice.await.is_ok()),
+    };
+    if let Some(unjournaled) = unjournaled {
+        run.write_charged(unjournaled, |_| Ok(())).await.unwrap();
+    }
+    Ok(json!({
+        "threads_held_throughout": held_throughout,
+        "another_slice_charged_while_held": charged_while_held,
+        "another_slice_charged_once_let_go": charged_once_let_go,
+    }))
+}
+
+/// [`CHARGE_FROM_TASKS`]'s handler.
+async fn charge_from_tasks(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run = started(&params, &context).await?;
+    let each = params["each"].as_u64().unwrap();
+    let ended: Vec<_> = (0..params["tasks"].as_u64().unwrap())
+        .map(|task| {
+            let (end, ended) = tokio::sync::oneshot::channel();
+            let charging = run.clone();
+            run.spawn(async move {
+                let mut charged = 0_u64;
+                for charge in 0..each {
+                    // Every third charge is a claim's, journaled in a write
+                    // of its own, as a crawl's tasks mix them.
+                    let made = if (task + charge) % 3 == 0 {
+                        let mut unjournaled = UnjournaledCharges::default();
+                        match charging
+                            .charge_unjournaled(&mut unjournaled, "requests", 1)
+                            .await
+                        {
+                            Ok(()) => charging.write_charged(unjournaled, |_| Ok(())).await,
+                            Err(error) => Err(error),
+                        }
+                    } else {
+                        charging.charge("requests", 1).await
+                    };
+                    charged += u64::from(made.is_ok());
+                }
+                let _ = end.send(charged);
+            });
+            ended
+        })
+        .collect();
+    let mut charged = 0;
+    for ended in ended {
+        charged += ended.await.unwrap();
+    }
+    let journaled: i64 = run
+        .state()
+        .read(|connection| {
+            connection.query_row("SELECT COALESCE(SUM(used), 0) FROM usage", [], |row| {
+                row.get(0)
+            })
+        })
+        .await
+        .unwrap();
+    Ok(json!({ "charged": charged, "journaled": journaled }))
 }
 
 pub(super) fn monthly_install_limit(amount: u64) -> Value {
@@ -429,11 +571,47 @@ fn an_engine_that_starts_in_a_new_home_creates_no_usage_ledger() {
 /// Runs a Collie engine in `env` that makes `calls`, then dies with its
 /// Runs live: its runtime is dropped, as a killed process's would be.
 fn killed_after(env: &TestEnv, calls: &[(&str, Value)]) {
-    let runtime = goodfetch_test_support::runtime();
-    runtime.block_on(async {
+    killed_on(
+        goodfetch_test_support::runtime(),
+        BlockingPolicy::Inline,
+        env,
+        calls,
+    );
+}
+
+/// A paused runtime with two blocking threads, which a test can hold: no
+/// blocking call is then made until it lets one go.
+fn runtime_with_two_blocking_threads() -> tokio::runtime::Runtime {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the test bounds the runtime's blocking threads, which the shared test runtime does not (ADR 0060)"
+    )]
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .start_paused(true)
+        .max_blocking_threads(2)
+        .build()
+        .unwrap()
+}
+
+/// As [`killed_after`], on `runtime`, its engine's blocking work run as
+/// `blocking` says; answers each call's result.
+fn killed_on(
+    runtime: tokio::runtime::Runtime,
+    blocking: BlockingPolicy,
+    env: &TestEnv,
+    calls: &[(&str, Value)],
+) -> Vec<Value> {
+    let results = runtime.block_on(async {
         let (network, dialer) = transport::in_memory();
         let engine = engine_with(Product::Collie, Some(charging()));
-        let serving = engine.run_attached(Network::InMemory(network), dependencies(env));
+        let serving = engine.run_attached(
+            Network::InMemory(network),
+            Dependencies {
+                blocking,
+                ..dependencies(env)
+            },
+        );
         let talk = async {
             let (reader, writer) = dialer.connect().await.unwrap().split();
             let mut client = Client {
@@ -442,17 +620,90 @@ fn killed_after(env: &TestEnv, calls: &[(&str, Value)]) {
             };
             client.send(&[hello("collie", "0.1")]).await;
             client.next().await;
+            let mut results = Vec::new();
             for (id, (method, params)) in (1..).zip(calls) {
                 let reply = call(&mut client, id, method, params.clone()).await;
                 assert!(reply.get("result").is_some(), "{reply}");
+                results.push(reply["result"].clone());
             }
+            results
         };
         tokio::select! {
             served = serving => panic!("the engine ended: {served:?}"),
-            () = talk => {}
+            results = talk => results,
         }
     });
     drop(runtime);
+    results
+}
+
+/// A change of a Run's charging that its Slices cover is made where the
+/// Run asks for it, with no blocking call (ADR 0140's E3, issue 2603): a
+/// charge, a part's, a claim's, a reservation, an allowance and their
+/// settling all end while the runtime's blocking threads are held, in an
+/// engine that runs blocking work on them, as a Product does. A charge
+/// that needs another Slice still waits for a thread, and is made once one
+/// is let go.
+///
+/// Covers: story:3-67
+#[test]
+fn a_change_the_runs_slices_cover_makes_no_blocking_call_and_one_that_needs_a_slice_does() {
+    let env = TestEnv::new();
+
+    let results = killed_on(
+        runtime_with_two_blocking_threads(),
+        BlockingPolicy::Threads,
+        &env,
+        &[
+            ("usage.set", monthly_install_limit(1_000)),
+            ("test.covered", json!({ "run_id": "covered" })),
+        ],
+    );
+
+    assert_eq!(
+        results[1],
+        json!({
+            "threads_held_throughout": true,
+            "another_slice_charged_while_held": null,
+            "another_slice_charged_once_let_go": true,
+        })
+    );
+}
+
+/// Journals reach the run state in the order of the changes, whichever
+/// task made them and wherever: charges of several tasks at once, on a
+/// blocking thread when they need a Slice or the Limits, where the task
+/// runs when its Slices cover them, some journaled in a claim's write. A
+/// journal that went back would leave a Slice's journaled Usage below
+/// what the Run used of it.
+///
+/// Covers: story:3-72
+#[test]
+fn charges_of_several_tasks_at_once_are_journaled_in_the_order_they_were_made() {
+    let env = TestEnv::new();
+    let engine = engine_with(Product::Collie, Some(charging()));
+    let on_threads = || Dependencies {
+        blocking: BlockingPolicy::Threads,
+        ..dependencies(&env)
+    };
+
+    let charged = attached_with(&engine, on_threads, |mut client: Client| async move {
+        client.send(&[hello("collie", "0.1")]).await;
+        client.next().await;
+        call(&mut client, 1, "usage.set", monthly_install_limit(1_000)).await;
+        call(
+            &mut client,
+            2,
+            "test.charge_from_tasks",
+            json!({ "run_id": "at-once", "tasks": 4, "each": 30 }),
+        )
+        .await
+    });
+
+    assert_eq!(
+        charged["result"],
+        json!({ "charged": 120, "journaled": 120 })
+    );
 }
 
 /// A write that journals charges as a claim does needs no sync of its

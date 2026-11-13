@@ -375,20 +375,38 @@ impl Charging {
         Ok(self.charged(usage_kind, amount, charged))
     }
 
+    /// Whether a charge or a reservation of `amount` of `usage_kind` in
+    /// `currency` is a step in memory at `now`: the Slices the run holds
+    /// cover it, and the Limits it holds are still the ledger's as far as
+    /// its process can tell. [`Charging::charge`] and
+    /// [`Charging::reserve`] then call nothing that blocks, so a Run makes
+    /// them without a blocking call (E3-3 of the audit #1882, issue 2603);
+    /// [`Charging::settle`] never does. False when the change needs the
+    /// ledger, for a Slice, its Limits or a refusal.
+    pub fn covers(
+        &mut self,
+        usage_kind: &str,
+        currency: Option<&str>,
+        amount: u64,
+        now: Timestamp,
+    ) -> bool {
+        self.current(now)
+            && !self
+                .short(usage_kind, currency, amount, now)
+                .unwrap_or(true)
+    }
+
     /// Charges `amount` of `usage_kind` as [`Charging::charge`] does, when
-    /// that is a step in memory: the Slices the run holds cover it, and
-    /// the Limits it holds are still the ledger's as far as its process
-    /// can tell. It calls nothing that blocks, so a Run makes it without a
-    /// blocking task (E3-3 of the audit #1882). None, and nothing charged,
-    /// when the charge needs the ledger, for a Slice, its Limits or a
-    /// refusal: [`Charging::charge`] then makes it.
+    /// that is a step in memory ([`Charging::covers`]). None, and nothing
+    /// charged, when the charge needs the ledger: [`Charging::charge`]
+    /// then makes it.
     pub fn charge_held(
         &mut self,
         usage_kind: &str,
         amount: u64,
         now: Timestamp,
     ) -> Option<Charged> {
-        if !self.current(now) || self.short(usage_kind, None, amount, now).unwrap_or(true) {
+        if !self.covers(usage_kind, None, amount, now) {
             return None;
         }
         let (_, charged) = self.draw(usage_kind, None, amount).ok()?;

@@ -43,10 +43,12 @@
 //! the Frontier's outcomes beyond a links batch: a hop's, a sitemap's and a
 //! Payload's rows say "no hops" there.
 //!
-//! `F3.actor_round_trips` divides by the attempts that ended, the unit
-//! `attempts_ended`: the attempts the site served a page to and the one that
-//! read each sitemap, which is a Work item's attempt as a page's is and
-//! serves no page.
+//! `F3.actor_round_trips` and `F3.in_flight_serializations` divide by the
+//! attempts that ended, the unit `attempts_ended`: the attempts the site
+//! served a page to and the one that read each sitemap, which is a Work
+//! item's attempt as a page's is and serves no page. No cell reads its Run's
+//! progress or subscribes to the engine's events, so the second counts what
+//! the attempts alone serialize.
 //!
 //! The cell `varying_parameter` crawls, beside the site, as many pages
 //! `/item?id=<n>` as the site has pages, each its own, with learning on: the

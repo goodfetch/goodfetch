@@ -9,13 +9,20 @@
 //! `inFlight` and `concurrency` only the attempts that state leases, so a
 //! value is one moment of the crawl. A Run of another kind gets none of
 //! them.
+//!
+//! `inFlight` stays typed until a reader takes a value: an attempt that
+//! begins, goes on or ends serializes nothing, and each value read
+//! serializes the requests in flight once (ADR 0140's
+//! `F3.in_flight_serializations`).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::admission::{Held, QueuedGroup};
 use goodfetch_engine::run_state::run_row;
-use goodfetch_engine::runs::{ProgressPart, Run};
+use goodfetch_engine::runs::{PartValue, ProgressPart, Run, TypedPart, TypedParts};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::foxhound::crawl::CRAWL_HANDLER_CONCURRENCY;
@@ -210,7 +217,8 @@ pub(crate) fn show_concurrency(run: &Run, handlers: usize, handler_concurrency: 
 /// it goes on from fetching to handling.
 #[derive(Debug, Default)]
 pub(crate) struct InFlight {
-    requests: BTreeMap<String, InFlightRequest>,
+    /// Each shared with the values of the Run's progress that show it.
+    requests: BTreeMap<String, Arc<InFlightRequest>>,
     /// How many waits for a navigation gate's permit each request's
     /// handler pages have under way.
     permit_waits: BTreeMap<String, usize>,
@@ -218,21 +226,29 @@ pub(crate) struct InFlight {
 
 /// The crawl's requests in flight, shared by its delivery and its
 /// attempts; an async lock, never held across another await.
-pub(crate) type SharedInFlight = std::sync::Arc<tokio::sync::Mutex<InFlight>>;
+pub(crate) type SharedInFlight = Arc<tokio::sync::Mutex<InFlight>>;
 
 impl InFlight {
     /// `request` began.
     pub(crate) fn began(&mut self, run: &Run, request: InFlightRequest) {
-        self.requests.insert(request.request_id.clone(), request);
-        self.show(run);
+        let request = Arc::new(request);
+        let before = self
+            .requests
+            .insert(request.request_id.clone(), Arc::clone(&request));
+        if before != Some(request) {
+            self.show(run);
+        }
     }
 
     /// The request `id` went on to `phase`.
     pub(crate) fn went_on(&mut self, run: &Run, id: &str, phase: InFlightPhase) {
-        if let Some(request) = self.requests.get_mut(id) {
-            request.phase = phase;
+        let Some(request) = self.requests.get_mut(id) else {
+            return;
+        };
+        if request.phase != phase {
+            Arc::make_mut(request).phase = phase;
+            self.show(run);
         }
-        self.show(run);
     }
 
     /// A page of the request `id`'s handler began to wait for a navigation
@@ -256,14 +272,47 @@ impl InFlight {
 
     /// The request `id` ended.
     pub(crate) fn ended(&mut self, run: &Run, id: &str) {
-        self.requests.remove(id);
         self.permit_waits.remove(id);
-        self.show(run);
+        if self.requests.remove(id).is_some() {
+            self.show(run);
+        }
     }
 
+    /// Tells the Run's progress that the requests in flight changed, and
+    /// hands it those there are now, unencoded.
     fn show(&self, run: &Run) {
-        let requests: Vec<&InFlightRequest> = self.requests.values().collect();
-        run.set_progress_part(IN_FLIGHT, encoded!(&requests));
+        run.set_typed_progress_part(
+            IN_FLIGHT,
+            TypedPart::new(Shown {
+                requests: self.requests.values().cloned().collect(),
+                work: run.metrics().counted_work().clone(),
+            }),
+        );
+    }
+}
+
+/// The requests in flight at one change of them, by work item ID, as a
+/// value of the Run's progress holds them until a reader takes it.
+#[derive(Debug)]
+struct Shown {
+    requests: Vec<Arc<InFlightRequest>>,
+    /// Where each serialization of them counts.
+    work: CountedWork,
+}
+
+impl Shown {
+    /// `requests`, some of its own, as the JSON value of `inFlight`: the
+    /// one serialization of the requests in flight a value read costs.
+    fn encode(&self, requests: &[&InFlightRequest]) -> Value {
+        self.work.count(Row::InFlightSerializations);
+        encoded!(requests)
+    }
+}
+
+impl PartValue for Shown {
+    fn encoded(&self) -> Value {
+        let requests: Vec<&InFlightRequest> = self.requests.iter().map(Arc::as_ref).collect();
+        self.encode(&requests)
     }
 }
 
@@ -280,20 +329,23 @@ impl InFlight {
 pub(crate) struct CrawlProgress;
 
 impl ProgressPart for CrawlProgress {
-    fn fill(&self, connection: &Connection, progress: &mut RunProgress) -> rusqlite::Result<()> {
+    fn fill(
+        &self,
+        connection: &Connection,
+        typed: &TypedParts,
+        progress: &mut RunProgress,
+    ) -> rusqlite::Result<()> {
         if !run_row::is_of_kind(connection, RunKind::Crawl)? {
             return Ok(());
         }
         let (ended, _) = crate::report::ended(connection)?;
         let (pending, leased) = work_items::pending_and_leased(connection)?;
-        let in_flight: Vec<InFlightRequest> = progress
-            .kind_parts
-            .get(IN_FLIGHT)
-            .and_then(|requests| {
-                serde_json::from_value::<Vec<InFlightRequest>>(requests.clone()).ok()
-            })
+        let shown = typed.get(IN_FLIGHT).and_then(TypedPart::value::<Shown>);
+        let in_flight: Vec<&InFlightRequest> = shown
+            .map(|shown| shown.requests.as_slice())
             .unwrap_or_default()
-            .into_iter()
+            .iter()
+            .map(Arc::as_ref)
             .filter(|request| leased.contains(&(request.request_id.clone(), request.attempt)))
             .collect();
         let count = |requests: usize| u64::try_from(requests).unwrap_or(u64::MAX);
@@ -306,9 +358,11 @@ impl ProgressPart for CrawlProgress {
         if let Some(concurrency) = progress.kind_parts.get_mut(CONCURRENCY) {
             concurrency["handlers"] = Value::from(count(handlers));
         }
-        progress
-            .kind_parts
-            .insert(IN_FLIGHT.to_owned(), encoded!(&in_flight));
+        let listed = shown.map_or_else(
+            || Value::Array(Vec::new()),
+            |shown| shown.encode(&in_flight),
+        );
+        progress.kind_parts.insert(IN_FLIGHT.to_owned(), listed);
         let requests = RequestProgress {
             pending: pending + count(starting),
             fetching: count(fetching),

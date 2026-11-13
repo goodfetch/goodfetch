@@ -222,3 +222,116 @@ fn a_sitemap_attempt_costs_the_run_states_actor_one_round_trip() {
 
     assert_eq!(pages_and_round_trips(&seeds), (3, Some(4.0)));
 }
+
+/// An engine whose meter the registry renders, that registry, and the
+/// meter's provider, which renders while it lives.
+fn metered() -> (
+    goodfetch_engine::Engine,
+    prometheus::Registry,
+    SdkMeterProvider,
+) {
+    let registry = prometheus::Registry::new();
+    let exporter = opentelemetry_prometheus::exporter()
+        .with_registry(registry.clone())
+        .without_target_info()
+        .scope_info_enabled(false)
+        .build()
+        .unwrap();
+    let provider = SdkMeterProvider::builder().with_reader(exporter).build();
+    (
+        engine().with_metrics(Metrics::new(&provider.meter(METER))),
+        registry,
+        provider,
+    )
+}
+
+/// The serializations of the requests in flight `registry` counted, as
+/// `F3.in_flight_serializations`.
+fn in_flight_serializations(registry: &prometheus::Registry) -> Option<f64> {
+    counted(registry, "frontier_admission", "in_flight_serializations")
+}
+
+/// Attempts that begin, go on to handling and end while no reader takes a
+/// value of their crawl's progress serialize no request in flight: three
+/// pages, handled to the crawl's end, count none.
+///
+/// Covers: story:3-162
+#[test]
+fn attempts_whose_crawls_progress_no_reader_takes_serialize_no_request_in_flight() {
+    let env = TestEnv::new();
+    let (engine, registry, _provider) = metered();
+    let mut pages = 0;
+
+    crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "unread", "seeds": seeds(3) }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            let mut handler = |_: &Value| {
+                pages += 1;
+                Reply::Records(vec![json!({ "handled": true })])
+            };
+            client
+                .call("run.finish", json!({ "run_id": "unread" }), &mut handler)
+                .await
+        },
+    );
+
+    assert_eq!((pages, in_flight_serializations(&registry)), (3, Some(0.0)));
+}
+
+/// A reader that takes one value of a crawl's progress has its requests in
+/// flight serialized once: with a request in its handler, one more
+/// `run.progress` read counts one more serialization, and its value lists
+/// that request.
+///
+/// Covers: story:3-162, operation:run.progress
+#[test]
+fn a_reader_that_takes_one_value_of_a_crawls_progress_serializes_its_requests_in_flight_once() {
+    let env = TestEnv::new();
+    let (engine, registry, _provider) = metered();
+    let mut handler = |_: &Value| Reply::Silent;
+
+    let ((before, after, read), _) = crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({ "run_id": "read", "seeds": seeds(1) }),
+                    &mut handler,
+                )
+                .await;
+            let mut params = json!({ "run_id": "read" });
+            loop {
+                let progress = client
+                    .call("run.progress", params.clone(), &mut handler)
+                    .await;
+                if progress["result"]["requests"]["handling"] == 1 {
+                    break;
+                }
+                params["after"] = progress["result"]["position"].clone();
+            }
+            let before = in_flight_serializations(&registry);
+            let read = client
+                .call("run.progress", json!({ "run_id": "read" }), &mut handler)
+                .await;
+            (before, in_flight_serializations(&registry), read)
+        },
+    );
+
+    assert_eq!(
+        (
+            after.zip(before).map(|(after, before)| after - before),
+            read["result"]["in_flight"][0]["url"].as_str(),
+        ),
+        (Some(1.0), Some("https://shop.test/page/1"))
+    );
+}

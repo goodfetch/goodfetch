@@ -32,7 +32,7 @@ use goodfetch_protocol::needs_you::{NEEDS_YOU_CHANGED, NeedsYouChange, NeedsYouI
 use goodfetch_protocol::run::{Lifecycle, RUN_AXES_CHANGED, RunAxes, RunId};
 use serde::Serialize;
 use serde_json::Value;
-use tokio::sync::{Semaphore, mpsc, oneshot};
+use tokio::sync::{Semaphore, mpsc, oneshot, watch};
 
 use crate::tasks::TaskOwner;
 
@@ -70,6 +70,8 @@ pub struct Events {
     commands: mpsc::Sender<Command>,
     instance: EngineInstance,
     work: CountedWork,
+    /// Whether the stream holds a subscription, as its actor last said.
+    subscribed: watch::Receiver<bool>,
 }
 
 /// One subscription to the stream, as the call that reads it holds it;
@@ -167,6 +169,7 @@ impl Events {
         work: CountedWork,
     ) -> Self {
         let (commands, mailbox) = mpsc::channel(COMMANDS);
+        let (subscribed, followed) = watch::channel(false);
         let stream = Stream {
             options,
             instance: instance.clone(),
@@ -176,6 +179,7 @@ impl Events {
             snapshot: Snapshot::default(),
             subscriptions: BTreeMap::new(),
             next_subscription: 0,
+            subscribed,
         };
         let token = owner.token().clone();
         owner.spawn(async move {
@@ -188,12 +192,22 @@ impl Events {
             commands,
             instance,
             work,
+            subscribed: followed,
         }
     }
 
     /// The engine instance whose positions it gives.
     pub(crate) fn instance(&self) -> &EngineInstance {
         &self.instance
+    }
+
+    /// Whether the stream holds a subscription. With none, a telemetry
+    /// event reaches no queue and is not kept, so its producer may leave
+    /// its payload unbuilt. A subscription that opens as this is read
+    /// starts with the next event, as one that opens just after a publish
+    /// does.
+    pub(crate) fn subscribed(&self) -> bool {
+        *self.subscribed.borrow()
     }
 
     /// Publishes `event`, with `data` as its payload; `scope` (such as a
@@ -459,11 +473,14 @@ struct Stream {
     snapshot: Snapshot,
     subscriptions: BTreeMap<u64, Queue>,
     next_subscription: u64,
+    /// Tells [`Events::subscribed`] whether `subscriptions` holds one.
+    subscribed: watch::Sender<bool>,
 }
 
 impl Stream {
     async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
         while let Some(command) = mailbox.recv().await {
+            let subscribed = !self.subscriptions.is_empty();
             match command {
                 Command::Publish(publish) => self.accept(publish),
                 Command::Subscribe {
@@ -492,6 +509,9 @@ impl Stream {
                 }
             }
             self.subscriptions.retain(|_, queue| !queue.is_gone());
+            if self.subscriptions.is_empty() == subscribed {
+                self.subscribed.send_replace(!subscribed);
+            }
         }
     }
 

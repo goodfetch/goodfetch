@@ -93,7 +93,7 @@ use tokio_util::sync::CancellationToken;
 
 pub use self::clean_up::{Answering, Chosen, CleanUpVersions, Fallback, Holding, RulesContext};
 pub use self::import::fuzz_run_state_import;
-pub use self::progress::{PauseHeld, ProgressPart};
+pub use self::progress::{PartValue, PauseHeld, ProgressPart, TypedPart, TypedParts};
 pub use self::reader::{RunFileOpener, RunReader};
 pub use self::reindex::{Reindexed, reindex};
 pub use self::report::ReportPart;
@@ -1582,6 +1582,14 @@ impl Run {
     /// crawl's `waiting` (ADR 0102): a new value when it changed.
     pub fn set_progress_part(&self, name: &str, part: Value) {
         self.shared.progress.set_part(name, part);
+    }
+
+    /// Sets the part `name` its kind of Run adds to its progress to
+    /// `part`, which it keeps typed, such as a crawl's `in_flight`: a new
+    /// value, whose reader has the part encoded. The caller says so only
+    /// when the part changed.
+    pub fn set_typed_progress_part(&self, name: &'static str, part: TypedPart) {
+        self.shared.progress.set_typed_part(name, part);
     }
 
     /// An `Entropy` of its own for one of the Run's owners, such as its
@@ -3515,18 +3523,18 @@ impl Runs {
                     };
                     let mut progress = progress::committed(connection, writer, at)?;
                     if let Some(progress) = &mut progress {
-                        progress::fill(&parts, connection, progress);
+                        progress::fill(&parts, connection, &TypedParts::default(), progress);
                     }
                     Ok(progress)
                 })
                 .await?
                 .ok_or(RunError::NotFound(run_id));
         };
-        let value = loop {
+        let (value, typed) = loop {
             let ready = {
                 let current = changes.borrow_and_update();
                 (current.last || after.is_none_or(|after| current.position() > after))
-                    .then(|| current.value(&run_id, clock.point_in_time()))
+                    .then(|| current.unencoded(&run_id, clock.point_in_time()))
             };
             if let Some(value) = ready {
                 break value;
@@ -3534,24 +3542,26 @@ impl Runs {
             if changes.changed().await.is_err() {
                 // The registry stopped with the Run live: nothing more
                 // comes from here.
-                let mut value = changes.borrow().value(&run_id, clock.point_in_time());
+                let (mut value, typed) = changes.borrow().unencoded(&run_id, clock.point_in_time());
                 value.last = true;
-                break value;
+                break (value, typed);
             }
         };
-        let unfilled = value.clone();
+        let unfilled = (value.clone(), typed.clone());
         match reader
             .read(move |connection| {
                 let mut value = value;
-                progress::fill(&parts, connection, &mut value);
+                progress::fill(&parts, connection, &typed, &mut value);
                 Ok(value)
             })
             .await
         {
             Ok(value) => Ok(value),
             Err(error) => {
-                tracing::warn!(%error, run_id = %unfilled.run_id, "the Run's committed parts of its progress could not be read");
-                Ok(unfilled)
+                let (mut value, typed) = unfilled;
+                tracing::warn!(%error, run_id = %value.run_id, "the Run's committed parts of its progress could not be read");
+                typed.encode_into(&mut value);
+                Ok(value)
             }
         }
     }

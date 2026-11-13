@@ -665,14 +665,14 @@ fn not_reached(cell: &str) -> String {
 }
 
 /// Runs every declared trial and returns the trials file's contents. `keep`
-/// is handed them as they stand once the timed trials are in, and again
-/// once the system-call cell is, so a failure in a later cell loses
-/// neither.
+/// is handed them as they stand once the timed trials are in, again once
+/// the system-call cell is and again once the growth cell is, so a failure
+/// in a later cell loses none of them.
 pub(crate) fn run(
     executables: &Executables<'_>,
     commit: String,
     options: &Options,
-    keep: &mut dyn FnMut(&Comparison) -> Result<()>,
+    keep: &mut impl FnMut(&Comparison) -> Result<()>,
 ) -> Result<Comparison> {
     let machine = machine();
     let order_seed = drawn_seed();
@@ -731,6 +731,7 @@ pub(crate) fn run(
             ),
         }
     };
+    keep(&comparison)?;
     // ADR 0140's row compares Foxhound's instructions with Spider's, each
     // on its main row.
     let scenario_1: Vec<_> = measured

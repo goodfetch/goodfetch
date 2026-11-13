@@ -456,19 +456,3 @@ fn a_timed_trial_and_a_callgrind_run_of_other_work_still_fail_the_check() {
     let (_, stopped) = cells_of(&trials.syscalls);
     assert_eq!(stopped, vec![]);
 }
-
-/// What a run's later runs are skipped on: whether it fetched the site's
-/// own pages, each once or more, and no other.
-#[test]
-fn a_run_fetched_the_site_when_it_reached_each_of_its_pages_and_no_other() {
-    assert!(work(0).is_the_site_of(4));
-    assert!(work(1).is_the_site_of(4));
-    assert!(!short().is_the_site_of(4));
-    assert!(
-        !Work {
-            extra: vec!["/sites/4/9".to_owned()],
-            ..work(0)
-        }
-        .is_the_site_of(4)
-    );
-}

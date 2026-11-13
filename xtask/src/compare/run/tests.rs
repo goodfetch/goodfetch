@@ -2,7 +2,7 @@ use std::path::Path;
 
 use super::{Executables, Options, counted_output, order, run, set_aside, spider_executable};
 use crate::compare::matrix::{self, SpiderBuild};
-use crate::compare::trials::{Comparison, CountedCell, CountedRun, Tool, Work};
+use crate::compare::trials::{Comparison, CountedCell, CountedRun, GrowthCell, Tool, Work};
 
 /// Each of Spider's side's builds runs the executable Cargo left in the
 /// build's own target folder, under the profile's: the main row's from
@@ -227,12 +227,13 @@ fn a_cell_whose_strace_run_missed_pages_runs_no_later_run() {
 }
 
 /// A run of hours keeps what it has measured: the trials file's contents
-/// are handed over once the timed trials are in and again once the
-/// system-call cell is, so a failure in a later cell loses neither (the
-/// base run of #2281 lost 220 trials to its first Callgrind run). Before
-/// its cell has run, the file says the run did not reach it.
+/// are handed over once the timed trials are in, again once the
+/// system-call cell is and again once the growth cell is, so a failure in
+/// a later cell loses none of them (the base run of #2281 lost 220 trials
+/// to its first Callgrind run). Before its cell has run, the file says the
+/// run did not reach it.
 #[test]
-fn a_run_hands_over_its_trials_after_the_timed_part_and_after_the_strace_part() {
+fn a_run_hands_over_its_trials_after_each_part_before_callgrind() {
     let nowhere = Path::new("/nowhere");
     let executables = Executables {
         proving_ground: nowhere,
@@ -255,6 +256,10 @@ fn a_run_hands_over_its_trials_after_the_timed_part_and_after_the_strace_part() 
         CountedCell::NotRun { reason } => reason.clone(),
         CountedCell::Measured { .. } => "measured".to_owned(),
     };
+    let grown = |cell: &GrowthCell| match cell {
+        GrowthCell::NotRun { reason } => reason.clone(),
+        GrowthCell::Measured { .. } => "measured".to_owned(),
+    };
     let mut kept = Vec::new();
 
     let whole = run(
@@ -262,7 +267,11 @@ fn a_run_hands_over_its_trials_after_the_timed_part_and_after_the_strace_part() 
         "0".repeat(40),
         &options,
         &mut |so_far: &Comparison| {
-            kept.push((reached(&so_far.syscalls), reached(&so_far.instructions)));
+            kept.push((
+                reached(&so_far.syscalls),
+                grown(&so_far.growth),
+                reached(&so_far.instructions),
+            ));
             Ok(())
         },
     )
@@ -277,8 +286,17 @@ fn a_run_hands_over_its_trials_after_the_timed_part_and_after_the_strace_part() 
     assert_eq!(
         kept,
         vec![
-            (not_reached("system-call"), not_reached("Callgrind")),
-            (strace, not_reached("Callgrind")),
+            (
+                not_reached("system-call"),
+                not_reached("growth"),
+                not_reached("Callgrind")
+            ),
+            (
+                strace.clone(),
+                not_reached("growth"),
+                not_reached("Callgrind")
+            ),
+            (strace, grown(&whole.growth), not_reached("Callgrind")),
         ]
     );
 }

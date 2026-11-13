@@ -103,7 +103,7 @@ Spider spends half its instructions in libc (mostly `memcpy`) and a sixth in `lo
 Every hand-run is set up the same way:
 
 - **Site:** `scale.test/sites/1000/1` (1,000 pages), on a fresh Proving ground.
-- **Settings:** only what names the crawl (`network.resolve` for the site's host, `egress.private_ranges` so it may be reached), the scenario's pace (`politeness.domain.delay: 0`, `politeness.domain.concurrency: 16`), and `fetch.tier` where a tier is forced (G-04 Q3).
+- **Settings:** only what names the crawl (`network.resolve` for the site's host, `egress.private_ranges` so it may be reached), the scenario's pace (`politeness.domain.delay: 0`, `politeness.domain.concurrency: 16`), and `fetch.tier` where a tier is forced (G-04 Q3). The `browser_fetch` run alone also logs each CDP command (`log_level: info,goodfetch::cdp::command=trace`) for the hop split of §5, so its pages a second and CPU include that logging.
 - **Pages a second:** the Proving ground's 1,000 pages over the engine's wall time from start to exit.
 - **CPU seconds:**
   - "waited" is the OS's accounting of the waited-for process tree, user plus system;

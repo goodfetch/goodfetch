@@ -44,6 +44,7 @@ mod features;
 mod features_report;
 mod fixture_size;
 mod floor_guard;
+mod fuzz_nightly;
 mod gate;
 mod gate_backstop;
 mod head_order;

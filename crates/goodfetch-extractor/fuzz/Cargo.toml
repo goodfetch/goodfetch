@@ -2,7 +2,9 @@
 # outside the workspace: its body is `goodfetch_extractor::fuzz_formats`,
 # whose seeds and past crashers `fuzz_replay!` replays from `fuzz/formats/`
 # on every OS. A page's HTML is input from a site. Build and run with the
-# pinned nightly: `cargo fuzz run formats fuzz/formats/seeds`.
+# pinned nightly, the git-ignored corpus first so a run never grows the
+# committed seeds: `cargo fuzz run formats fuzz/corpus/formats
+# fuzz/formats/seeds`.
 [package]
 name = "goodfetch-extractor-fuzz"
 version = "0.0.0"

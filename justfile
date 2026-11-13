@@ -1345,6 +1345,16 @@ commit-leaks base="" head="HEAD":
 fuzz-check:
     ci/tool.sh cargo-fuzz ci/fuzz-check.sh check
 
+# The nightly fuzzing the gate host's cron starts (TESTING.md, Fuzzing;
+# ci/fuzz-nightly.crontab): every fuzz target with `cargo fuzz run` on `main`'s
+# head, for one hour in all on 4 cores, at the lowest priority, in a worktree
+# of its own (ci/fuzz-nightly.sh). It skips while a gate, the backstop or a
+# test-health run runs, and a gate started during one stops it. Logs, corpora
+# and results go to ~/fuzz-nightly/ (GOODFETCH_FUZZ_LOG). Run from the main
+# checkout.
+fuzz-nightly ref="origin/main":
+    ci/fuzz-nightly.sh {{ ref }}
+
 # The Release suite's AddressSanitizer run of the tests of every crate that
 # opts into `unsafe` (ADR 0067), on the pinned nightly; CI runs it on Linux
 # glibc. `build` builds them (before the deny in CI), `test` builds and runs

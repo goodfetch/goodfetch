@@ -461,5 +461,13 @@ pub(crate) fn no_checkpoint_on_close(connection: &Connection) -> rusqlite::Resul
         .map(drop)
 }
 
+/// Runs `statement`, which binds nothing, through `connection`'s statement
+/// cache: a writer's transactions and savepoints prepare once per
+/// connection, not once per group, job or entry, as rusqlite's own
+/// transactions do (ADR 0138).
+pub(crate) fn run_cached(connection: &Connection, statement: &str) -> rusqlite::Result<()> {
+    connection.prepare_cached(statement)?.execute([]).map(drop)
+}
+
 #[cfg(test)]
 mod tests;

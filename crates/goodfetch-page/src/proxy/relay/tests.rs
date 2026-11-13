@@ -96,10 +96,13 @@ async fn fake_proxy(owner: &TaskOwner, statuses: Vec<u8>) -> (SocketAddr, Arc<Me
 
 /// The Audit log of `env`'s home, and the refusals a relay records in it.
 fn audit(env: &TestEnv, owner: &TaskOwner) -> (AuditLog, Refusals) {
-    let log = AuditLog::of(&Home::new(env.home().to_path_buf()), None);
+    let log = AuditLog::of(
+        &Home::new(env.home().to_path_buf()),
+        None,
+        Arc::new(owner.child()),
+    );
     let refusals = Refusals::new(
         log.clone(),
-        Arc::new(owner.child()),
         Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001)),
     );
     (log, refusals)

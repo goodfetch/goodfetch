@@ -166,7 +166,7 @@ impl EngineContext {
     /// Where the engine's listeners record their refusals: the user's
     /// Audit log (`endpoint`).
     pub(crate) fn refusals(&self) -> Refusals {
-        Refusals::new(self.audit().clone(), Arc::clone(&self.owner), self.clock)
+        Refusals::new(self.audit().clone(), self.clock)
     }
 }
 

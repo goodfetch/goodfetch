@@ -94,7 +94,11 @@ fn driver_with(env: &TestEnv, variables: &[(&str, &str)], keychain: Keychain) ->
             home: Home::new(env.home().to_path_buf()),
             entropy: crate::entropy::Entropy::seeded(env.seed()),
         },
-        Arc::new(AuditLog::of(&Home::new(env.home().to_path_buf()), None)),
+        Arc::new(AuditLog::of(
+            &Home::new(env.home().to_path_buf()),
+            None,
+            Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+        )),
         Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
         Clock::paused(env.start_time()),
     )
@@ -116,8 +120,16 @@ fn reference(text: &str) -> SecretReference {
 
 /// Resolves `text` for the run's key through `secrets`.
 fn resolved(secrets: &RunSecrets, text: &str) -> Result<SecretString, SecretError> {
-    goodfetch_test_support::runtime()
-        .block_on(secrets.resolve(&reference(text), &for_the_key(None, &[])))
+    RUNTIME.with(|runtime| {
+        runtime.block_on(secrets.resolve(&reference(text), &for_the_key(None, &[])))
+    })
+}
+
+thread_local! {
+    /// The runtime each resolution of a test blocks on: one for the test's
+    /// thread, as the Audit log's writer, which records each resolution, is
+    /// a task of the first runtime that wrote.
+    static RUNTIME: tokio::runtime::Runtime = goodfetch_test_support::runtime();
 }
 
 /// The entries of the Audit log in `env`'s home, as recorded.

@@ -882,7 +882,6 @@ impl RunSecrets {
         reference: &SecretReference,
         purpose: &Purpose<'_>,
     ) -> Result<(), SecretError> {
-        let audit = Arc::clone(&self.0.secrets.0.audit);
         let origin = Origin {
             actor: Actor::Engine,
             surface: None,
@@ -898,8 +897,8 @@ impl RunSecrets {
         self.0
             .secrets
             .0
-            .owner
-            .blocking(move || audit.record(&origin, &SECRET_REFERENCE_USED, details, now))
+            .audit
+            .record(&origin, &SECRET_REFERENCE_USED, details, now)
             .await
             .map(|_| ())
             .map_err(|source| SecretError::Unrecorded {

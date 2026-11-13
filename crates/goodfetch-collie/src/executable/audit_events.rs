@@ -75,16 +75,14 @@ pub(super) fn export(
         .with_resource(resource)
         .build();
     let logger = provider.logger("goodfetch");
-    let events = AuditEvents::new(move |exported: &ExportedAuditEntry| {
+    let events = AuditEvents::new(move |exported: &ExportedAuditEntry, line: &str| {
         let mut record = logger.create_log_record();
         record.set_event_name(EVENT_NAME);
         record.set_severity_number(Severity::Info);
         if let Ok(time) = exported.entry.time.as_str().parse::<jiff::Timestamp>() {
             record.set_timestamp(SystemTime::from(time));
         }
-        if let Ok(line) = serde_json::to_string(exported) {
-            record.set_body(AnyValue::from(line));
-        }
+        record.set_body(AnyValue::from(line.to_owned()));
         record.add_attribute(
             "goodfetch.audit.sequence",
             i64::try_from(exported.entry.sequence).unwrap_or(i64::MAX),

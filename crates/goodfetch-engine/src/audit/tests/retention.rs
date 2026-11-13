@@ -33,7 +33,7 @@ fn long_ago() -> Timestamp {
 }
 
 /// A log of `old` entries recorded ten days ago, then `new` recorded now.
-fn aged(env: &TestEnv, old: u64, new: u64) -> AuditLog {
+async fn aged(env: &TestEnv, old: u64, new: u64) -> AuditLog {
     let log = log(env);
     for index in 1..=old + new {
         let time = if index <= old { long_ago() } else { now() };
@@ -43,6 +43,7 @@ fn aged(env: &TestEnv, old: u64, new: u64) -> AuditLog {
             json!({ "reference": format!("env:SECRET_{index}"), "domain": "example.com" }),
             time,
         )
+        .await
         .unwrap();
     }
     log
@@ -87,11 +88,12 @@ proptest! {
     #[test]
     fn pruning_leaves_an_anchor_then_the_newer_entries_as_they_were((old, new) in old_and_new()) {
         let env = TestEnv::in_memory();
-        let log = aged(&env, old, new);
+        let runtime = goodfetch_test_support::runtime();
+        let log = runtime.block_on(aged(&env, old, new));
         let before = log.export().unwrap();
         let last_pruned = hash_of(&before, old);
 
-        log.prune(DAY, Some(SettingsLayer::UserConfiguration), now()).unwrap();
+        runtime.block_on(log.prune(DAY, Some(SettingsLayer::UserConfiguration), now())).unwrap();
 
         let after = log.export().unwrap();
         let kept: Vec<&ExportedAuditEntry> = before.iter().skip(usize::try_from(old).unwrap()).collect();
@@ -135,9 +137,10 @@ proptest! {
     #[test]
     fn a_pruned_log_verifies_intact_from_its_anchor((old, new) in old_and_new()) {
         let env = TestEnv::in_memory();
-        let log = aged(&env, old, new);
+        let runtime = goodfetch_test_support::runtime();
+        let log = runtime.block_on(aged(&env, old, new));
 
-        log.prune(DAY, None, now()).unwrap();
+        runtime.block_on(log.prune(DAY, None, now())).unwrap();
 
         let exported = joined(&jsonl(&log.export().unwrap()));
         prop_assert_eq!(
@@ -150,8 +153,9 @@ proptest! {
     #[test]
     fn an_edited_entry_after_the_anchor_is_reported_at_its_sequence((old, new) in old_and_new()) {
         let env = TestEnv::in_memory();
-        let log = aged(&env, old, new);
-        log.prune(DAY, None, now()).unwrap();
+        let runtime = goodfetch_test_support::runtime();
+        let log = runtime.block_on(aged(&env, old, new));
+        runtime.block_on(log.prune(DAY, None, now())).unwrap();
         let edited = old + new;
         tamper(&log)
             .execute(
@@ -169,8 +173,9 @@ proptest! {
     #[test]
     fn an_edited_anchor_is_reported_at_its_sequence((old, new) in old_and_new()) {
         let env = TestEnv::in_memory();
-        let log = aged(&env, old, new);
-        log.prune(DAY, None, now()).unwrap();
+        let runtime = goodfetch_test_support::runtime();
+        let log = runtime.block_on(aged(&env, old, new));
+        runtime.block_on(log.prune(DAY, None, now())).unwrap();
         tamper(&log)
             .execute(
                 "UPDATE entries SET entry = replace(entry, '2026-01-05', '2025-01-05') WHERE sequence = ?1",
@@ -188,8 +193,9 @@ proptest! {
     #[test]
     fn an_anchor_moved_past_an_entry_is_reported_at_its_sequence((old, new) in old_and_new()) {
         let env = TestEnv::in_memory();
-        let log = aged(&env, old, new);
-        log.prune(DAY, None, now()).unwrap();
+        let runtime = goodfetch_test_support::runtime();
+        let log = runtime.block_on(aged(&env, old, new));
+        runtime.block_on(log.prune(DAY, None, now())).unwrap();
         let exported = log.export().unwrap();
         let moved = old + 1;
         let hash = hash_of(&exported, moved);
@@ -216,8 +222,9 @@ proptest! {
     #[test]
     fn an_anchor_with_another_hash_is_reported((old, new) in old_and_new()) {
         let env = TestEnv::in_memory();
-        let log = aged(&env, old, new);
-        log.prune(DAY, None, now()).unwrap();
+        let runtime = goodfetch_test_support::runtime();
+        let log = runtime.block_on(aged(&env, old, new));
+        runtime.block_on(log.prune(DAY, None, now())).unwrap();
         let other = "0".repeat(64);
         tamper(&log)
             .execute(
@@ -232,11 +239,11 @@ proptest! {
 
 /// An edited anchor shows in an export as in the store.
 /// Covers: story:4-72
-#[test]
-fn an_edited_anchor_in_an_export_is_reported_at_its_sequence() {
+#[tokio::test]
+async fn an_edited_anchor_in_an_export_is_reported_at_its_sequence() {
     let env = TestEnv::in_memory();
-    let log = aged(&env, 2, 2);
-    log.prune(DAY, None, now()).unwrap();
+    let log = aged(&env, 2, 2).await;
+    log.prune(DAY, None, now()).await.unwrap();
     let mut lines = jsonl(&log.export().unwrap());
     lines[0] = lines[0].replace("2026-01-05", "2025-01-05");
 
@@ -244,13 +251,13 @@ fn an_edited_anchor_in_an_export_is_reported_at_its_sequence() {
 }
 
 /// Covers: story:4-72, setting:audit.retention
-#[test]
-fn a_log_with_nothing_older_than_its_retention_is_not_pruned() {
+#[tokio::test]
+async fn a_log_with_nothing_older_than_its_retention_is_not_pruned() {
     let env = TestEnv::in_memory();
-    let log = aged(&env, 0, 3);
+    let log = aged(&env, 0, 3).await;
     let before = log.export().unwrap();
 
-    let pruned = log.prune(DAY, None, now()).unwrap();
+    let pruned = log.prune(DAY, None, now()).await.unwrap();
 
     assert_eq!((pruned, log.export().unwrap()), (None, before));
 }
@@ -258,16 +265,17 @@ fn a_log_with_nothing_older_than_its_retention_is_not_pruned() {
 /// A second pruning replaces the first's anchor, and the log still
 /// verifies from the new one.
 /// Covers: story:4-72, setting:audit.retention
-#[test]
-fn a_second_pruning_moves_the_anchor_and_the_log_verifies_from_it() {
+#[tokio::test]
+async fn a_second_pruning_moves_the_anchor_and_the_log_verifies_from_it() {
     let env = TestEnv::in_memory();
-    let log = aged(&env, 2, 1);
-    log.prune(DAY, None, now()).unwrap();
+    let log = aged(&env, 2, 1).await;
+    log.prune(DAY, None, now()).await.unwrap();
     let later = now() + SignedDuration::from_hours(48);
     log.record(&origin(), &SECRET_REFERENCE_USED, json!({}), later)
+        .await
         .unwrap();
 
-    log.prune(DAY, None, later).unwrap();
+    log.prune(DAY, None, later).await.unwrap();
 
     let exported = log.export().unwrap();
     assert_eq!(
@@ -299,7 +307,8 @@ fn a_second_pruning_moves_the_anchor_and_the_log_verifies_from_it() {
     Some("version = \"0.1\"\n\n[lock.timeout]\nnavigation = 10000\n"),
     "version = \"0.1\"\n\n[settings.timeout]\nnavigation = 2000\n"
 )]
-fn an_append_under_settings_that_cannot_be_read_keeps_its_entry_and_prunes_nothing(
+#[tokio::test]
+async fn an_append_under_settings_that_cannot_be_read_keeps_its_entry_and_prunes_nothing(
     #[case] policy: Option<&str>,
     #[case] configuration: &str,
 ) {
@@ -312,10 +321,13 @@ fn an_append_under_settings_that_cannot_be_read_keeps_its_entry_and_prunes_nothi
     if let Some(policy) = policy {
         std::fs::write(files.operator_policy(), policy).unwrap();
     }
-    let log = aged(&env, 2, 0).retained_under(files, Product::Collie);
+    let log = aged(&env, 2, 0)
+        .await
+        .retained_under(files, Product::Collie);
 
     let recorded = log
         .record(&origin(), &SECRET_REFERENCE_USED, json!({}), now())
+        .await
         .unwrap();
 
     assert_eq!(

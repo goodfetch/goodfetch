@@ -71,10 +71,11 @@ async fn accept(
         run_id: None,
     };
     let owner = Arc::clone(engine.owner());
-    owner
+    let store = engine.clone();
+    let now = engine.now();
+    let accepted = owner
         .blocking(move || {
-            let now = engine.now();
-            let accepted = engine
+            let accepted = store
                 .known_certificates()
                 .accept(CALLER, &host, &key, now)?;
             let pinned = match accepted.previous {
@@ -86,14 +87,17 @@ async fn accept(
                 "pinned_spki_sha256": pinned,
                 "accepted_spki_sha256": key.to_string(),
             });
-            engine
-                .audit()
-                .record(&origin, &CERTIFICATE_CHANGE_ACCEPTED, details, now)
-                .map_err(Failed::Unrecorded)?;
-            Ok(accepted.pin)
+            Ok((accepted.pin, details))
         })
         .await
-        .map_err(|failed: Failed| failed.call_error("written"))
+        .map_err(|failed: Failed| failed.call_error("written"))?;
+    let (pin, details) = accepted;
+    engine
+        .audit()
+        .record(&origin, &CERTIFICATE_CHANGE_ACCEPTED, details, now)
+        .await
+        .map_err(|error| Failed::Unrecorded(error).call_error("written"))?;
+    Ok(pin)
 }
 
 async fn forget(
@@ -111,21 +115,19 @@ async fn forget(
         run_id: None,
     };
     let owner = Arc::clone(engine.owner());
-    let removed = host.clone();
+    let (store, removed) = (engine.clone(), host.clone());
     let forgotten = owner
-        .blocking(move || {
-            let forgotten = engine.known_certificates().forget(CALLER, &removed)?;
-            if forgotten {
-                let details = json!({ "host": removed });
-                engine
-                    .audit()
-                    .record(&origin, &CERTIFICATE_PIN_FORGOTTEN, details, engine.now())
-                    .map_err(Failed::Unrecorded)?;
-            }
-            Ok(forgotten)
-        })
+        .blocking(move || Ok(store.known_certificates().forget(CALLER, &removed)?))
         .await
         .map_err(|failed: Failed| failed.call_error("written"))?;
+    if forgotten {
+        let details = json!({ "host": host });
+        engine
+            .audit()
+            .record(&origin, &CERTIFICATE_PIN_FORGOTTEN, details, engine.now())
+            .await
+            .map_err(|error| Failed::Unrecorded(error).call_error("written"))?;
+    }
     Ok(CertsForgotten { host, forgotten })
 }
 

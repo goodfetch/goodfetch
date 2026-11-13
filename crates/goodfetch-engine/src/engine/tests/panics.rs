@@ -1,13 +1,16 @@
-//! A call whose handler panics, through the engine's public interface over
-//! the in-memory network (ADR 0148): the call is answered
+//! A panic, through the engine's public interface over the in-memory
+//! network (ADR 0148). A call whose handler panics is answered
 //! `engine_panicked`, naming what ended and the crash report, never the
 //! panic's own text; its place in flight is given back, its Connection
-//! goes on, and the ops endpoint counts the panic. The panic comes from an
-//! extra operation the test hands the engine, never from a switch in a
-//! Product.
+//! goes on, and the ops endpoint counts the panic. A Connection whose own
+//! task panics ends alone, as when its Client goes away, and an Attached
+//! engine ends with it. The panic comes from an extra operation the test
+//! hands the engine, or a task it starts on a Connection's owner, never
+//! from a switch in a Product.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, PROTOCOL_VERSION, Product, Reach, Stability,
@@ -15,16 +18,22 @@ use goodfetch_protocol::catalog::{
 };
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
+use tokio::io::{AsyncBufReadExt as _, BufReader};
+use tokio::sync::oneshot;
 
+use super::daemon::{daemon, opened as daemon_opened, sdk_hello, the_pick};
 use super::ops::{metering, series};
+use super::run::{call, index_row};
 use super::{
-    Client, IN_FLIGHT_CAP, attached_with, dependencies, engine_with, opened, owed, request,
+    Client, IN_FLIGHT_CAP, OWED, attached_on, attached_with, dependencies, engine_with, opened,
+    owed, request,
 };
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::crash_report::record_panics;
 use crate::mask::Masks;
-use crate::tasks::BlockingPolicy;
+use crate::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
+use crate::transport::{self, Connection, Network};
 
 /// What the panicking handler says, which only the crash report may hold.
 const PANIC_TEXT: &str = "the widget count went negative";
@@ -238,4 +247,205 @@ fn a_panic_in_a_calls_blocking_work_is_answered_with_its_own_crash_report() {
         (&json!("engine_panicked"), &json!("call"), true),
         "{answered} {reports:?}"
     );
+}
+
+/// What a Connection sends until it closes, and whether it closed within
+/// [`OWED`] of the paused clock.
+async fn until_closed(client: &mut Client) -> (Vec<Value>, bool) {
+    let mut sent = Vec::new();
+    let closed = tokio::time::timeout(OWED, async {
+        while let Some(message) = client.next().await {
+            sent.push(message);
+        }
+    })
+    .await
+    .is_ok();
+    (sent, closed)
+}
+
+/// Whether `sent` holds the answer `call_cancelled` to the call `id`.
+fn cancelled(sent: &[Value], id: i64) -> bool {
+    sent.iter().any(|message| {
+        message["id"] == json!(id) && message["error"]["data"]["code"] == json!("call_cancelled")
+    })
+}
+
+/// A Connection one of whose own tasks panics ends as when its Client goes
+/// away, alone: its call in flight is answered `call_cancelled`, it closes,
+/// and serving it returns, after which its caller stops its Runs as for
+/// any Connection that ended (the Daemon's test, below), while another
+/// Connection of the same engine is answered as ever; the ops endpoint counts one panic that ended a
+/// Connection. Its writer and its log forwarder are both tasks of its
+/// owner, which a panicking task the test starts on that owner stands for.
+#[test]
+fn a_connection_whose_own_task_panics_ends_alone() {
+    let env = TestEnv::new();
+    let (metrics, registry, _provider) = metering();
+    let engine = engine_with(Product::Collie, None).with_metrics(metrics);
+    let (sent, closed, served, answered) = goodfetch_test_support::runtime().block_on(async {
+        let dependencies = dependencies(&env);
+        let owner = TaskOwner::root(dependencies.blocking);
+        let (runs, events, context) = engine.start_runs(dependencies, &owner, None, None);
+        let (failing_owner, staying_owner) = (
+            owner.child_for(OwnerKind::Connection),
+            owner.child_for(OwnerKind::Connection),
+        );
+        let (mut failing, failing_connection) = connected().await;
+        let (mut staying, staying_connection) = connected().await;
+        let (ended, serving_ended) = oneshot::channel();
+        let failing_served = async {
+            engine
+                .serve(
+                    failing_connection,
+                    &failing_owner,
+                    runs.clone(),
+                    events.clone(),
+                    context.clone(),
+                )
+                .await;
+            let _ = ended.send(());
+        };
+        let staying_served = engine.serve(
+            staying_connection,
+            &staying_owner,
+            runs.clone(),
+            events.clone(),
+            context.clone(),
+        );
+        let talk = async {
+            opened(&mut failing).await;
+            opened(&mut staying).await;
+            failing
+                .send(&[request(1, "test.wait"), request(2, "test.surface")])
+                .await;
+            // Its answer comes once the call before it started.
+            reply(&mut failing, 2).await;
+            failing_owner.spawn(async { panic!("{PANIC_TEXT}") });
+            let (sent, closed) = until_closed(&mut failing).await;
+            let served = tokio::time::timeout(OWED, serving_ended).await.is_ok();
+            staying.send(&[request(1, "test.surface")]).await;
+            let answered = reply(&mut staying, 1).await;
+            staying.close().await;
+            (sent, closed, served, answered)
+        };
+        let observed = tokio::select! {
+            biased;
+            observed = talk => observed,
+            ((), ()) = async { tokio::join!(failing_served, staying_served) } => {
+                unreachable!("the staying Connection is served until its Client closes")
+            }
+        };
+        runs.stop_all().await;
+        drop(runs);
+        failing_owner.stop().await;
+        staying_owner.stop().await;
+        owner.stop().await;
+        observed
+    });
+
+    assert_eq!(
+        (
+            cancelled(&sent, 1),
+            closed,
+            served,
+            answered["result"]["surface"].as_str(),
+            series(&registry).contains(r#"goodfetch_engine_panics_total{ended="connection"} 1"#),
+        ),
+        (true, true, true, Some("sdk_typescript"), true),
+        "{sent:?} {answered}"
+    );
+}
+
+/// A Client's end of an in-memory Connection, and the engine's.
+async fn connected() -> (Client, Connection) {
+    let (network, dialer) = transport::in_memory();
+    let mut network = Network::InMemory(network);
+    let (client, connection) = tokio::join!(dialer.connect(), network.attached_connection());
+    let (reader, writer) = client.unwrap().split();
+    (
+        Client {
+            lines: BufReader::new(reader).lines(),
+            writer,
+        },
+        connection.unwrap(),
+    )
+}
+
+/// A call whose handler panics as the request arrives, before its future:
+/// in the task that serves its Connection, which runs that part in the
+/// Connection's arrival order (ADR 0080).
+const PANIC_ON_ARRIVAL: Operation = Operation {
+    name: "test.panic_on_arrival",
+    description: "Panics as it arrives.",
+    ..PANIC
+};
+
+/// The part of `test.panic_on_arrival` that runs as it arrives.
+fn arrives(_: Value, _: CallContext) -> std::future::Ready<Result<Value, CallError>> {
+    panic!("{PANIC_TEXT}")
+}
+
+fn panicking_on_arrival() -> Contribution {
+    Contribution::new("test_panic_on_arrival")
+        .with_handler(Handler::new(&PANIC_ON_ARRIVAL, arrives))
+}
+
+/// On a Daemon, a Connection whose serving task panics while it handles a
+/// message ends alone: its call in flight is answered `call_cancelled`, it
+/// closes, and the Run its SDK Client started is stopped, while another
+/// Client's call on its own Connection is answered and the Daemon goes on;
+/// the ops endpoint counts one panic that ended a Connection.
+#[test]
+fn a_daemon_connection_whose_serving_task_panics_ends_alone() {
+    let env = TestEnv::new();
+    let (metrics, registry, _provider) = metering();
+    let engine = engine_with(Product::Collie, Some(panicking_on_arrival())).with_metrics(metrics);
+
+    let (_, (sent, closed, live)) = daemon(&engine, &env, the_pick(), |dialer| async move {
+        let mut failing = daemon_opened(&dialer, sdk_hello()).await;
+        let mut staying = daemon_opened(&dialer, sdk_hello()).await;
+        call(&mut failing, 1, "run.start", json!({ "run_id": "left" })).await;
+        call(&mut staying, 1, "run.start", json!({ "run_id": "stays" })).await;
+        failing
+            .send(&[request(2, "test.wait"), request(3, "test.panic_on_arrival")])
+            .await;
+        let (sent, closed) = until_closed(&mut failing).await;
+        tokio::time::sleep(Duration::from_mins(1)).await;
+        let status = call(&mut staying, 2, "daemon.status", json!({})).await;
+        staying.close().await;
+        (sent, closed, status["result"]["live_runs"].clone())
+    });
+
+    assert_eq!(
+        (
+            cancelled(&sent, 2),
+            closed,
+            live,
+            index_row(&env, "left")["lifecycle"].clone(),
+            series(&registry).contains(r#"goodfetch_engine_panics_total{ended="connection"} 1"#),
+        ),
+        (true, true, json!(1), json!("stopped"), true),
+        "{sent:?}"
+    );
+}
+
+/// On an Attached engine, whose one Connection is its program, a serving
+/// task that panics while it handles a message ends the engine with its
+/// Connection: its call in flight is answered `call_cancelled`, the
+/// Connection closes and the engine returns, as when that Connection
+/// closes.
+#[test]
+fn an_attached_engine_whose_serving_task_panics_ends() {
+    let env = TestEnv::new();
+    let engine = engine_with(Product::Collie, Some(panicking_on_arrival()));
+
+    let (sent, closed) = attached_on(&engine, &env, |mut client: Client| async move {
+        opened(&mut client).await;
+        client
+            .send(&[request(1, "test.wait"), request(2, "test.panic_on_arrival")])
+            .await;
+        until_closed(&mut client).await
+    });
+
+    assert_eq!((cancelled(&sent, 1), closed), (true, true), "{sent:?}");
 }

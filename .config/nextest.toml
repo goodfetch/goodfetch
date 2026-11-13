@@ -71,6 +71,7 @@ and not (
     | test(/^ops::(daemon_health_answers_whether_the_foreground_daemon_is_ready_or_live|metrics_answer_the_ops_token|the_ops_listener_passes_its_endpoint_table_rows|the_probes_answer_whether_the_daemon_is_live_and_ready)/)
     | test(/^proxy::(a_failing_proxy_raises_a_proxy_error|two_sessions_of_one_run_reach_the_site|a_host_proxy_bypass_names_is_reached|the_credentials_of_a_socks5_proxy_reach_it)/)
   ))
+  | (binary_id(goodfetch-page::it) & test(=installed_browser::chrome_for_testing_read_as_an_installed_browser_presents_its_pinned_request))
   | (binary_id(goodfetch-conformance::it) & test(/^page::the_page_suite_proves_/))
   | (binary_id(goodfetch-conformance::it) & test(/^protocol::the_reset_gate_is_proved_against_collie_in_either_layout/))
   | (binary_id(goodfetch-proving-ground::it) & test(/^rungs::(a_browser_identity_page_answers_the_pinned_browser|a_pinned_browser_s_crawl_reads_exactly_the_manifest_s_records)/))

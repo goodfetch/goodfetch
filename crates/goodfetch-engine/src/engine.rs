@@ -54,7 +54,7 @@ use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Runs, Runs
 use crate::sandbox_probe::{self, SandboxProbe};
 use crate::secrets::{self, Carried, Keychain, ProviderFactory, Secrets};
 use crate::settings::{HostDefaults, HostSearch, Settings, SettingsFiles};
-use crate::tasks::{BlockingPolicy, TaskOwner};
+use crate::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use crate::transition::{
     self,
     engine::{EngineEvent, EngineState},
@@ -520,7 +520,7 @@ impl Engine {
                 .map(|(_, endpoint, _)| RunOwner::Attached(endpoint.clone())),
             None,
         );
-        let connection_owner = owner.child();
+        let connection_owner = owner.child_for(OwnerKind::Connection);
         let reported = private.as_ref().map(|(_, endpoint, _)| endpoint.clone());
         // The private endpoint's Connections, which the stdio Connection
         // does not wait for.
@@ -734,7 +734,7 @@ async fn serve_private_endpoint(
             events.clone(),
             context.clone(),
         );
-        let its_owner = owner.child();
+        let its_owner = owner.child_for(OwnerKind::Connection);
         owner.spawn(async move {
             tokio::select! {
                 () = its_owner.token().cancelled() => {}

@@ -45,6 +45,10 @@ pub const BLOCK_CLASSIFICATION_OFF: &str = "block_classification_off";
 /// block of the Run's local addresses blocked on its domain, so it rotated
 /// within one (ADR 0044).
 pub const LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK: &str = "local_address_rotated_within_block";
+/// The warning that the installed browser's version could not be read, so
+/// a `standard` Session's own HTTP transport presented no browser identity
+/// (ADR 0021).
+pub const BROWSER_VERSION_UNREAD: &str = "browser_version_unread";
 
 /// The Completeness reason of the URLs learned traps refused (ADR 0005).
 pub const TRAP_PATH: &str = "trap_path";
@@ -368,6 +372,12 @@ pub const ENTRIES: Entries = Entries {
             shared_type: SharedType::RunWarningCode,
             name: LOCAL_ADDRESS_ROTATED_WITHIN_BLOCK,
             description: "A Session replacing one a block retired found every block of `egress.local_addresses` blocked on its domain, so it took an address within a blocked block; `sessions` names it.",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::RunWarningCode,
+            name: BROWSER_VERSION_UNREAD,
+            description: "The installed browser's version could not be read, so a `standard` Session's own HTTP transport presented no browser identity.",
             arrived_in: ARRIVED_IN,
         },
         reason(

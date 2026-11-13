@@ -69,7 +69,7 @@ mod wal_checkpointer;
 pub(crate) use readers::RunStateReaders;
 
 /// How many writes wait for the writer before their callers wait.
-const MAILBOX: usize = 1024;
+pub(crate) const MAILBOX: usize = 1024;
 
 /// How long the writer's switch of a new file to WAL waits while another
 /// connection holds the file.

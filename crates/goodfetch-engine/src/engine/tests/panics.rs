@@ -43,6 +43,7 @@ use crate::composition::{CallContext, Contribution, Handler};
 use crate::crash_report::record_panics;
 use crate::engine::Engine;
 use crate::mask::Masks;
+use crate::run_state::MAILBOX;
 use crate::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use crate::transport::{self, Connection, Network};
 
@@ -719,14 +720,11 @@ const WEDGED: Operation = Operation {
     ..PANIC
 };
 
-/// The places in a Run's writer's queue (`run_state`'s mailbox).
-const WRITER_QUEUE: usize = 1024;
-
 fn wedged_handler() -> Handler {
     Handler::new(&WEDGED, |params: Value, context: CallContext| async move {
         let run = driven(&context, &params).await;
-        let mut held = Vec::with_capacity(WRITER_QUEUE);
-        for _ in 0..WRITER_QUEUE {
+        let mut held = Vec::with_capacity(MAILBOX);
+        for _ in 0..MAILBOX {
             held.push(run.state().reserve().await.unwrap());
         }
         run.spawn(async move {

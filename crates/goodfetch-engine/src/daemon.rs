@@ -927,7 +927,7 @@ async fn drain_runs(
     serving.metrics.draining(true);
     let clock = serving.engine.clock();
     let until = clock.now() + grace;
-    let mut grace = std::pin::pin!(clock.sleep_until(until));
+    let mut grace_ends = std::pin::pin!(clock.sleep_until(until));
     tokio::select! {
         draining = drain => {
             tracing::info!(
@@ -936,13 +936,13 @@ async fn drain_runs(
             );
             tokio::select! {
                 () = draining.ended() => tracing::info!("the Daemon drained every run"),
-                () = &mut grace => tracing::warn!(
+                () = &mut grace_ends => tracing::warn!(
                     live_runs = draining.not_ended(),
                     "the drain grace passed: each run not yet at a safe point stays resumable from its run file"
                 ),
             }
         }
-        () = &mut grace => tracing::warn!(
+        () = &mut grace_ends => tracing::warn!(
             "the drain grace passed and the Daemon's Run registry did not answer its drain: each live run stays resumable from its run file"
         ),
     }
@@ -958,10 +958,11 @@ async fn finish(end: DaemonEnd, connections: &TaskOwner, shared: &Shared) -> Dae
     end
 }
 
-/// [`finish`], waiting for its Connections only until `until` on `clock`,
-/// the end of its drain grace: a Connection still closing then, as one
-/// whose Runs' stop waits on a wedged registry, keeps the Daemon no
-/// longer, and is left to its process's exit.
+/// [`finish`], waiting for its Connections and its shared blocking work
+/// only until `until` on `clock`, the end of its drain grace: a Connection
+/// still closing then, as one whose Runs' stop waits on a wedged registry,
+/// keeps the Daemon no longer; it and the blocking work, cancelled, are
+/// left to its process's exit.
 async fn finish_by(
     end: DaemonEnd,
     connections: &TaskOwner,
@@ -975,10 +976,14 @@ async fn finish_by(
     };
     tokio::select! {
         () = closed => {}
-        () = clock.sleep_until(until) => tracing::warn!(
-            connections = connections.running(),
-            "the drain grace passed before every Connection closed: the Daemon stops without them"
-        ),
+        () = clock.sleep_until(until) => {
+            shared.blocking.cancel();
+            tracing::warn!(
+                connections = connections.running(),
+                blocking = shared.blocking.running(),
+                "the drain grace passed before the Daemon's Connections and blocking work stopped: it stops without them"
+            );
+        }
     }
     tracing::info!(end = ?end, "the Daemon stops");
     end

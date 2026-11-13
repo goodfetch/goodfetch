@@ -21,7 +21,7 @@ use goodfetch_protocol::run::{RunId, RunKind, Tags};
 use tokio_util::sync::CancellationToken;
 
 use super::run::{call, index_row, run_folder, run_row};
-use super::{Client, attached_on, dependencies, engine, engine_with};
+use super::{Client, attached_on, dependencies, engine, engine_with, records_of};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, Succession};
@@ -1136,7 +1136,8 @@ fn a_drained_daemon_stops_each_live_run_with_a_checkpoint_resumable_by_its_run_i
 
 /// A draining Daemon takes no run, starting or resuming, and ends once its
 /// drain grace passes on its `Clock`; a Run that reached no safe point by
-/// then stays `running`, resumable from its run file (ADR 0049).
+/// then stays `running`, resumable from its run file (ADR 0049), and the
+/// Daemon logs how many it left so.
 ///
 /// Covers: story:3-99, error:daemon_draining
 #[test]
@@ -1145,17 +1146,27 @@ fn a_draining_daemon_refuses_runs_and_ends_at_its_grace_leaving_a_stuck_run_resu
     let engine = engine_with(Product::Collie, Some(stuck()));
     let asked = CancellationToken::new();
 
-    let (end, refusals) = daemon(&engine, &env, draining(&asked), |dialer| async move {
-        let mut client = opened(&dialer, cli_hello()).await;
-        call(&mut client, 1, "test.stuck", json!({ "run_id": "stuck" })).await;
-        asked.cancel();
-        // The drain began, and waits for the stuck Run.
-        tokio::time::sleep(MINUTE).await;
-        let started = call(&mut client, 2, "run.start", json!({ "run_id": "late" })).await;
-        let resumed = call(&mut client, 3, "run.resume", json!({ "run_id": "stuck" })).await;
-        while client.next().await.is_some() {}
-        [started, resumed].map(|refused| refused["error"]["data"]["code"].clone())
+    let mut ended = None;
+    let records = records_of("goodfetch_engine::daemon", || {
+        ended = Some(daemon(
+            &engine,
+            &env,
+            draining(&asked),
+            |dialer| async move {
+                let mut client = opened(&dialer, cli_hello()).await;
+                call(&mut client, 1, "test.stuck", json!({ "run_id": "stuck" })).await;
+                asked.cancel();
+                // The drain began, and waits for the stuck Run.
+                tokio::time::sleep(MINUTE).await;
+                let started = call(&mut client, 2, "run.start", json!({ "run_id": "late" })).await;
+                let resumed =
+                    call(&mut client, 3, "run.resume", json!({ "run_id": "stuck" })).await;
+                while client.next().await.is_some() {}
+                [started, resumed].map(|refused| refused["error"]["data"]["code"].clone())
+            },
+        ));
     });
+    let (end, refusals) = ended.unwrap();
 
     assert_eq!(
         (
@@ -1164,6 +1175,11 @@ fn a_draining_daemon_refuses_runs_and_ends_at_its_grace_leaving_a_stuck_run_resu
             run_row(&run_folder(&env, "stuck"))["lifecycle"].clone(),
             run_folder(&env, "late").exists(),
             resumed(&engine, &env, "stuck"),
+            // Its warning at the grace, not its count when the drain began.
+            records
+                .iter()
+                .any(|record| record.starts_with(": the drain grace passed")
+                    && record.contains("live_runs=1")),
         ),
         (
             "Drained".to_owned(),
@@ -1171,6 +1187,8 @@ fn a_draining_daemon_refuses_runs_and_ends_at_its_grace_leaving_a_stuck_run_resu
             json!("running"),
             false,
             json!("resumed"),
-        )
+            true,
+        ),
+        "{records:#?}"
     );
 }

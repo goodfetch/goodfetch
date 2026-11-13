@@ -1102,10 +1102,20 @@ rss-propose *scenarios:
 # them from one measurement to the next, whichever worktree measures and
 # whatever sweeps its target/ (Cargo still rebuilds what a changed
 # xtask/compare-spider needs).
+# xtask is built once and runs from its copy in the target folder's
+# compare/xtask: a build in the checkout while the matrix runs, for hours,
+# relinks or sweeps its debug executable, never the one measuring.
 # Runs the comparison matrix on this machine.
 [positional-arguments]
 compare profile="release" *args:
-    cargo run --quiet --bin xtask -- test-tools build --cargo-profile {{ profile }} --out "$PWD/target/compare/test-tools.json"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build --quiet --locked --bin xtask
+    target=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
+    mkdir -p "$target/compare"
+    cp "$target/debug/xtask" "$target/compare/xtask"
+    xtask=$target/compare/xtask
+    "$xtask" test-tools build --cargo-profile {{ profile }} --out "$PWD/target/compare/test-tools.json"
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/spider
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features chrome --target-dir {{ compare_spider_builds }}/spider-chrome
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features defaults --target-dir {{ compare_spider_builds }}/spider-defaults
@@ -1114,7 +1124,7 @@ compare profile="release" *args:
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features mimalloc --target-dir {{ compare_spider_builds }}/spider-mimalloc
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
     uv sync --frozen --quiet --directory xtask/compare-scrapy
-    cargo run --quiet --bin xtask -- compare run --tools target/compare/test-tools.json --spider-builds {{ compare_spider_builds }} --spider-profile {{ profile }} "${@:2}"
+    "$xtask" compare run --tools target/compare/test-tools.json --spider-builds {{ compare_spider_builds }} --spider-profile {{ profile }} "${@:2}"
 
 # The Kennel (ADR 0141), from the repository. On macOS: its release
 # executable in `Kennel.app`, signed ad hoc under the stable bundle

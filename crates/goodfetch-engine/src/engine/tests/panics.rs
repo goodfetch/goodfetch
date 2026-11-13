@@ -29,7 +29,8 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::daemon::{
-    cli_hello, daemon, draining, opened as daemon_opened, sdk_hello, stuck_handler, the_pick,
+    cli_hello, daemon, daemon_within, draining, driven, opened as daemon_opened, sdk_hello,
+    stuck_handler, the_pick,
 };
 use super::ops::{metering, series};
 use super::run::{call, index_row, run_folder, run_row};
@@ -42,6 +43,7 @@ use crate::composition::{CallContext, Contribution, Handler};
 use crate::crash_report::record_panics;
 use crate::engine::Engine;
 use crate::mask::Masks;
+use crate::run_state::MAILBOX;
 use crate::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use crate::transport::{self, Connection, Network};
 
@@ -700,6 +702,97 @@ fn an_attached_engine_that_panicked_fails_at_its_drain_grace_leaving_a_stuck_run
         ),
         (
             Some(("Err(Panicked)".to_owned(), Some(grace))),
+            json!("running"),
+            json!("resumed"),
+            true,
+        ),
+        "{records:#?}"
+    );
+}
+
+/// Starts a Run whose run state takes no more writes, as one whose writer
+/// is wedged: the Run's task holds every place in its writer's queue, so
+/// the Runs' registry never finishes a command that writes to that Run.
+const WEDGED: Operation = Operation {
+    name: "test.wedged",
+    description: "Starts a Run whose run state takes no more writes.",
+    class: OperationClass::Effect,
+    ..PANIC
+};
+
+fn wedged_handler() -> Handler {
+    Handler::new(&WEDGED, |params: Value, context: CallContext| async move {
+        let run = driven(&context, &params).await;
+        let mut held = Vec::with_capacity(MAILBOX);
+        for _ in 0..MAILBOX {
+            held.push(run.state().reserve().await.unwrap());
+        }
+        run.spawn(async move {
+            let _held = held;
+            std::future::pending::<()>().await;
+        });
+        Ok::<Value, CallError>(json!({ "run_id": run.id().to_string() }))
+    })
+}
+
+/// Where the Daemon's own records are logged.
+const DAEMON_TARGET: &str = "goodfetch_engine::daemon";
+
+/// A Daemon stopping on a panic in a part every Run shares ends within its
+/// drain grace even when its Runs' registry never finishes the drain (ADR
+/// 0148): it asks the registry nothing more once the grace passed, logs
+/// that the registry did not answer, and its Run stays `running`,
+/// resumable from its run file.
+#[test]
+fn a_daemon_whose_registry_never_finishes_the_drain_ends_at_its_drain_grace() {
+    let env = TestEnv::new();
+    let engine = engine_with(
+        Product::Collie,
+        Some(panicking_parts().with_handler(wedged_handler())),
+    );
+    let asked = CancellationToken::new();
+    let options = draining(&asked);
+    let grace = options.drain.grace;
+    // The Client's calls before the panic take no time on the paused
+    // Clock, so a Daemon still serving a second past the grace overran it.
+    let bound = grace + Duration::from_secs(1);
+
+    let mut ended = None;
+    let records = records_of(DAEMON_TARGET, || {
+        ended = Some(daemon_within(
+            &engine,
+            &env,
+            BlockingPolicy::Inline,
+            options,
+            bound,
+            |dialer| async move {
+                let mut client = daemon_opened(&dialer, cli_hello()).await;
+                call(&mut client, 1, "test.wedged", json!({ "run_id": "wedged" })).await;
+                client
+                    .send(&[request(2, "test.panic_in_a_shared_part")])
+                    .await;
+                let _ =
+                    tokio::time::timeout(bound, async { while client.next().await.is_some() {} })
+                        .await;
+            },
+        ));
+    });
+
+    let (end, ()) = ended.unwrap();
+    // Read before the Run resumes, which rewrites its row.
+    let lifecycle = run_row(&run_folder(&env, "wedged"))["lifecycle"].clone();
+    let (_, resumed) = reported_then_resumed(&env, "wedged");
+    assert_eq!(
+        (
+            end.map(|end| format!("{end:?}")),
+            lifecycle,
+            resumed["result"]["started_as"].clone(),
+            records
+                .iter()
+                .any(|record| record.contains("registry did not answer")),
+        ),
+        (
+            Some("Panicked".to_owned()),
             json!("running"),
             json!("resumed"),
             true,

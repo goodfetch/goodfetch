@@ -406,6 +406,16 @@ impl Site {
                 StatusCode::OK,
                 &serde_json::json!({ "requests": self.observations.request_count() }),
             ),
+            (&Method::GET, path)
+                if let Some(size) = path
+                    .strip_prefix(ROUTES.article_answers)
+                    .and_then(|rest| rest.strip_prefix('/')) =>
+            {
+                match crate::crawl::article_answers(self.seed, size) {
+                    Some(answers) => Reply::json(StatusCode::OK, &answers),
+                    None => Reply::not_found(),
+                }
+            }
             (&Method::GET, "/network-fixtures") => match self.observations.network_fixtures() {
                 Some(fixtures) => Reply::json(StatusCode::OK, &fixtures),
                 None => Reply::not_found(),

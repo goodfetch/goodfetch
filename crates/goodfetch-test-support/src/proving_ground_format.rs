@@ -1,6 +1,7 @@
 //! The Proving ground's interface as one described format (ADRs 0032 and
-//! 0063). The serve line, the routes, the tool status and the requests `GET
-//! /observations` lists are the Proving ground's own source,
+//! 0063). The serve line, the routes, the tool status, the requests `GET
+//! /observations` lists and the article site's answers (`GET
+//! /article-answers/<size>`) are the Proving ground's own source,
 //! `proving-ground/src/interface.rs`, compiled here too, as the conformance
 //! harness compiles it. What a test submits to the oracle and the whole
 //! observations document are written here: the oracle has a `Submission` of
@@ -23,13 +24,13 @@ use serde_json::Value;
 )]
 mod interface;
 
+pub use interface::{
+    ArticleAnswer, ArticleAnswers, FixtureAddresses, OWN_TARGETS, ObservedRequest,
+    ProxyCredentials, ROUTES, ReceivedRequests, RequestTiming, Routes, ServeLine, ToolStatus,
+};
 pub(crate) use interface::{
     BASE32_ALPHABET, CANARY_MARK, ENDPOINT_TOKEN_CANARY, SESSION_COOKIE_CANARY, TOTP_CANARY_DRAWN,
     TOTP_CANARY_MARK, TYPED_PASSWORD_CANARY,
-};
-pub use interface::{
-    FixtureAddresses, OWN_TARGETS, ObservedRequest, ProxyCredentials, ROUTES, ReceivedRequests,
-    RequestTiming, Routes, ServeLine, ToolStatus,
 };
 
 /// What a test submits to `POST /oracle` for one task: the tool's status

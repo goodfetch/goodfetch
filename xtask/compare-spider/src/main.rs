@@ -3,10 +3,15 @@
 //! origin, with `--host`, when given, sent as each request's `Host` so the
 //! Proving ground serves its family on the loopback address. `--scenario`
 //! names the matrix's scenario: `extraction` also writes each page's URL,
-//! title and HTML as one JSON line to `pages.jsonl` in the working folder,
-//! and `browser` renders each page in Chrome (`CHROME_BIN`), which only the
-//! executable built with the `chrome` feature does; every other scenario
-//! crawls in Spider's HTTP mode.
+//! title and Main content as one JSON line to `pages.jsonl` in the working
+//! folder, which only the executable built with the `extraction` feature
+//! does (#2136): the Main content is `llm_readability`'s text of the page,
+//! the readability step of `spider_transformations`, Spider's only path to
+//! one, and the title is Spider's page metadata's, its character references
+//! decoded and its white space collapsed here, inside the timed process, as
+//! the other tools' parsers do theirs. `browser` renders each page in
+//! Chrome (`CHROME_BIN`), which only the executable built with the `chrome`
+//! feature does; every other scenario crawls in Spider's HTTP mode.
 //!
 //! `--capacity` is the capacity of the broadcast channel Spider sends each
 //! page on. Spider's `Website` keeps a receiver of its own that never
@@ -58,20 +63,52 @@ impl Fetched {
         self.pages += 1;
         self.body_bytes += page.get_bytes().map_or(0, |bytes| bytes.len() as u64);
         if let Some(written) = self.written.as_mut() {
-            let title = page
-                .get_metadata()
-                .as_ref()
-                .and_then(|metadata| metadata.title.as_ref())
-                .map(|title| title.to_string());
-            let line = serde_json::json!({
-                "url": page.get_url(),
-                "title": title,
-                "content": page.get_html(),
-            });
+            let line = extracted(page)?;
             writeln!(written, "{line}").map_err(|error| format!("writing {PAGES_FILE}: {error}"))?;
         }
         Ok(())
     }
+}
+
+/// White space collapsed to single spaces, Unicode's included, and trimmed.
+#[cfg(feature = "extraction")]
+fn collapsed(text: &str) -> String {
+    let mut collapsed = String::with_capacity(text.len());
+    for word in text.split_whitespace() {
+        if !collapsed.is_empty() {
+            collapsed.push(' ');
+        }
+        collapsed.push_str(word);
+    }
+    collapsed
+}
+
+/// A page's line of `pages.jsonl`: its URL, its title and its Main content.
+/// The title is Spider's page metadata's, which holds the `<title>`'s source
+/// text: its character references are decoded and its white space
+/// collapsed. The Main content is `llm_readability`'s text of the page,
+/// called as `spider_transformations` calls it, without the reader page it
+/// wraps that text in, whose head repeats the title.
+#[cfg(feature = "extraction")]
+fn extracted(page: &spider::page::Page) -> Result<serde_json::Value, String> {
+    let title = page
+        .get_metadata()
+        .as_ref()
+        .and_then(|metadata| metadata.title.as_ref())
+        .map(|title| collapsed(&html_escape::decode_html_entities(title.as_str())));
+    let url = page
+        .get_url_parsed_ref()
+        .as_ref()
+        .ok_or_else(|| format!("{} has no parsed URL", page.get_url()))?;
+    let text = llm_readability::extractor::extract(&mut page.get_html_bytes_u8(), url)
+        .map_err(|error| format!("reading {}'s main content: {error}", page.get_url()))?
+        .text;
+    Ok(serde_json::json!({ "url": page.get_url(), "title": title, "text": text }))
+}
+
+#[cfg(not(feature = "extraction"))]
+fn extracted(_page: &spider::page::Page) -> Result<serde_json::Value, String> {
+    Err("the extraction scenario takes the `extraction` feature's executable".to_owned())
 }
 
 impl Fetched {
@@ -134,7 +171,11 @@ fn arguments() -> Result<Arguments, String> {
 
 async fn crawl(arguments: &Arguments) -> Result<Fetched, String> {
     let browser = match arguments.scenario.as_str() {
-        "raw" | "extraction" => false,
+        "raw" => false,
+        "extraction" if cfg!(feature = "extraction") => false,
+        "extraction" => {
+            return Err("the extraction scenario takes the `extraction` feature's executable".to_owned());
+        }
         "browser" if cfg!(feature = "chrome") => true,
         "browser" => return Err("the browser scenario takes the `chrome` feature's executable".to_owned()),
         other => return Err(format!("Spider runs no `{other}` scenario")),

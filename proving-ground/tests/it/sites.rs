@@ -266,6 +266,114 @@ fn the_realistic_sites_pages_are_tens_of_kilobytes_with_30_to_100_links() {
     );
 }
 
+/// White space collapsed, Unicode's included, and trimmed.
+fn collapsed(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The article site (#2136), for the extraction scenario: the scale site's
+/// tree, each page an article of a few paragraphs inside `<main>`, with a
+/// header, a nav, an aside and a footer around it, each holding a marker of
+/// its own, and one ad slot among the paragraphs that EasyList's
+/// `##.ad-slot` matches. Some titles carry entities and extra white space.
+/// `GET /article-answers/<size>` holds each page's right answer: its title,
+/// entity-decoded and white space collapsed, and its paragraphs, with the
+/// boilerplate's markers and the ad's.
+#[test]
+fn the_article_sites_pages_hold_an_article_among_boilerplate_and_an_ad_and_its_answers_are_right() {
+    let proving_ground = ProvingGround::start(SEED);
+    let origin = format!("http://article.localhost:{}", proving_ground.port());
+    let answers = proving_ground.control("/article-answers/1000").json();
+    let markers: Vec<&str> = answers["boilerplate"]
+        .as_array()
+        .expect("the boilerplate's markers")
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect();
+    let ad = answers["ad"].as_str().expect("the ad's marker");
+    let mut crawler = Crawler::new(&proving_ground);
+    crawler.follow_scripts = false;
+    let reached: BTreeSet<String> = crawler
+        .crawl(&format!("{origin}/sites/1000/1"))
+        .into_iter()
+        .map(|page| page.url)
+        .collect();
+    let mut sizes = Vec::new();
+    let mut raw_titles = Vec::new();
+    let mut wrong = Vec::new();
+
+    for page in 1..=1000_usize {
+        let body = proving_ground
+            .get(&format!("{origin}/sites/1000/{page}"))
+            .body;
+        sizes.push(body.len());
+        raw_titles.push(
+            regex::Regex::new("<title>([^<]*)</title>")
+                .expect("a valid expression")
+                .captures(&body)
+                .expect("a title")[1]
+                .to_owned(),
+        );
+        let document = dom_query::Document::from(body.as_str());
+        let text = |selector: &str| collapsed(&document.select(selector).text());
+        let paragraphs: Vec<String> = document
+            .select("main > article > p")
+            .iter()
+            .map(|paragraph| collapsed(&paragraph.text()))
+            .collect();
+        let main = text("main");
+        let around = [
+            "body > header",
+            "body > nav",
+            "body > aside",
+            "body > footer",
+        ]
+        .map(text);
+        let answer = &answers["pages"][page - 1];
+        let right = answer["path"] == format!("/sites/1000/{page}")
+            && answer["title"] == text("title")
+            && answer["paragraphs"] == serde_json::json!(paragraphs)
+            && (3..=8).contains(&paragraphs.len())
+            && markers.len() == 4
+            && markers
+                .iter()
+                .zip(&around)
+                .all(|(marker, text)| text.contains(marker) && !main.contains(marker))
+            && text("main > article > .ad-slot").contains(ad)
+            && !paragraphs.iter().any(|paragraph| paragraph.contains(ad));
+        if !right {
+            wrong.push(page);
+        }
+    }
+
+    sizes.sort_unstable();
+    let past = proving_ground.control("/article-answers/10001");
+    assert_eq!(
+        (
+            wrong,
+            reached,
+            answers["pages"].as_array().map(Vec::len),
+            past.status
+        ),
+        (
+            Vec::new(),
+            (1..=1000)
+                .map(|page| format!("{origin}/sites/1000/{page}"))
+                .collect(),
+            Some(1000),
+            404
+        )
+    );
+    assert!(
+        (2_000..=8_000).contains(&sizes[500]),
+        "median {}",
+        sizes[500]
+    );
+    assert!(raw_titles.iter().any(|title| title.contains("&amp;")));
+    assert!(raw_titles.iter().any(|title| title.contains("&nbsp;")));
+    assert!(raw_titles.iter().any(|title| title.contains("  ")));
+}
+
 /// The comparison's sites are observed, so `just compare`'s same-work check
 /// reads what each tool fetched from them.
 #[test]
@@ -275,6 +383,7 @@ fn the_comparisons_sites_are_observed() {
     proving_ground.get(&polite_url(&proving_ground, 1000, 7));
     proving_ground.get(&format!("http://rendered.localhost:{port}/sites/1000/7"));
     proving_ground.get(&format!("http://realistic.localhost:{port}/sites/1000/7"));
+    proving_ground.get(&format!("http://article.localhost:{port}/sites/1000/7"));
 
     let observations = proving_ground.observations();
 
@@ -288,6 +397,7 @@ fn the_comparisons_sites_are_observed() {
     assert_eq!(
         hosts,
         BTreeSet::from([
+            "article.localhost",
             "polite-7.localhost",
             "realistic.localhost",
             "rendered.localhost"

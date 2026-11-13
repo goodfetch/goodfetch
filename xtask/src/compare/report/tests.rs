@@ -1,4 +1,4 @@
-use super::verdict::Verdict;
+use super::standing::Standing;
 use super::{Report, markdown, of};
 use crate::compare::matrix::Scenario;
 use crate::compare::trials::{Comparison, Measured, Work, fixture};
@@ -35,22 +35,22 @@ fn comparison(rates: &[(Scenario, &str, [f64; 3])]) -> Comparison {
     })
 }
 
-/// The verdict on `metric` of the `product` cell of `scenario` against its
+/// The standing on `metric` of the `product` cell of `scenario` against its
 /// `competitor` cell.
-fn verdict(
+fn standing(
     report: &Report<'_>,
     scenario: Scenario,
     product: &str,
     competitor: &str,
     metric: &str,
-) -> Option<Verdict> {
+) -> Option<Standing> {
     report
         .scenarios
         .iter()
         .find(|report| report.scenario == scenario)?
-        .verdicts
+        .standings
         .iter()
-        .find(|verdicts| verdicts.product == product && verdicts.competitor == competitor)?
+        .find(|standings| standings.product == product && standings.competitor == competitor)?
         .metrics
         .get(metric)
         .copied()
@@ -65,12 +65,12 @@ fn section<'a>(markdown: &'a str, title: &str) -> &'a str {
     rest.find("\n## ").map_or(rest, |end| &rest[..end])
 }
 
-/// The rows of a section's verdict table: each metric's label and its
-/// verdict against each competitor, in the columns' order.
-fn verdict_rows(section: &str) -> Vec<Vec<&str>> {
+/// The rows of a section's standing table: each metric's label and its
+/// standing against each competitor, in the columns' order.
+fn standing_rows(section: &str) -> Vec<Vec<&str>> {
     section
         .lines()
-        .skip_while(|line| !line.starts_with("| Verdict |"))
+        .skip_while(|line| !line.starts_with("| Standing |"))
         .skip(2)
         .take_while(|line| line.starts_with('|'))
         .map(|line| {
@@ -119,18 +119,18 @@ fn three_sets_of_trials_read_ahead_behind_and_overlapping() {
     let rate = "pages_per_second";
     assert_eq!(
         (
-            verdict(&report, Scenario::Raw, "foxhound", "spider", rate),
-            verdict(&report, Scenario::Raw, "foxhound", "crawlee", rate),
-            verdict(&report, Scenario::Browser, "foxhound", "spider", rate),
+            standing(&report, Scenario::Raw, "foxhound", "spider", rate),
+            standing(&report, Scenario::Raw, "foxhound", "crawlee", rate),
+            standing(&report, Scenario::Browser, "foxhound", "spider", rate),
         ),
         (
-            Some(Verdict::Ahead),
-            Some(Verdict::Behind),
-            Some(Verdict::Overlapping)
+            Some(Standing::Ahead),
+            Some(Standing::Behind),
+            Some(Standing::Overlapping)
         )
     );
-    let raw = verdict_rows(section(&markdown, "1. "));
-    let browser = verdict_rows(section(&markdown, "5. "));
+    let raw = standing_rows(section(&markdown, "1. "));
+    let browser = standing_rows(section(&markdown, "5. "));
     assert_eq!(
         (
             raw.iter()
@@ -163,15 +163,15 @@ fn three_sets_of_trials_read_ahead_behind_and_overlapping() {
     assert!(
         words
             .iter()
-            .all(|word| ["ahead", "behind", "overlapping", "no verdict"].contains(word)),
+            .all(|word| ["ahead", "behind", "overlapping", "no standing"].contains(word)),
         "{words:?}"
     );
 }
 
-/// Sensitivity rows are no competitor of their own: the verdicts are
+/// Sensitivity rows are no competitor of their own: the standings are
 /// against each other tool's main row.
 #[test]
-fn verdicts_are_against_each_competitors_main_row() {
+fn standings_are_against_each_competitors_main_row() {
     let trials = comparison(&[]);
 
     let report = of(&trials);
@@ -182,9 +182,9 @@ fn verdicts_are_against_each_competitors_main_row() {
         .find(|report| report.scenario == Scenario::Raw)
         .expect("invariant: the comparison runs scenario 1");
     assert_eq!(
-        raw.verdicts
+        raw.standings
             .iter()
-            .map(|verdicts| (verdicts.product, verdicts.competitor))
+            .map(|standings| (standings.product, standings.competitor))
             .collect::<Vec<_>>(),
         [
             ("foxhound", "spider"),
@@ -253,9 +253,9 @@ fn a_run_given_no_name_says_machine_not_named() {
 }
 
 /// Every cell of the extraction scenario writes content no check reads yet
-/// (#2136): each says so, and the scenario gives no verdict.
+/// (#2136): each says so, and the scenario gives no standing.
 #[test]
-fn extraction_cells_say_content_not_verified_and_get_no_verdict() {
+fn extraction_cells_say_content_not_verified_and_get_no_standing() {
     let trials = comparison(&[
         (Scenario::Extraction, "foxhound", [20.0, 21.0, 22.0]),
         (Scenario::Extraction, "crawlee", [10.0, 11.0, 12.0]),
@@ -266,16 +266,16 @@ fn extraction_cells_say_content_not_verified_and_get_no_verdict() {
 
     let extraction = section(&markdown, "4. ");
     let unverified = "  - content not verified: no check reads what it wrote, until #2136's \
-                      output check lands; no verdict.";
+                      output check lands; no standing.";
     assert_eq!(
         (
             report
                 .scenarios
                 .iter()
                 .find(|report| report.scenario == Scenario::Extraction)
-                .map(|report| report.verdicts.len()),
+                .map(|report| report.standings.len()),
             cells_saying(extraction, unverified),
-            verdict_rows(extraction),
+            standing_rows(extraction),
         ),
         (
             Some(0),
@@ -286,7 +286,7 @@ fn extraction_cells_say_content_not_verified_and_get_no_verdict() {
 }
 
 /// The extraction scenario's Spider cells are declared as not doing the
-/// Product's work: each says why, with no verdict and no ratio.
+/// Product's work: each says why, with no standing and no ratio.
 #[test]
 fn spiders_extraction_cells_are_not_the_same_work() {
     let trials = comparison(&[]);
@@ -294,7 +294,7 @@ fn spiders_extraction_cells_are_not_the_same_work() {
     let markdown = markdown(&of(&trials), &trials);
 
     let unlike = "  - not the same work: it writes each page's raw HTML, where the others write \
-                  the text of its main content (until #2136); no verdict and no ratio.";
+                  the text of its main content (until #2136); no standing and no ratio.";
     assert_eq!(
         cells_saying(section(&markdown, "4. "), unlike),
         ["spider", "spider mimalloc"]

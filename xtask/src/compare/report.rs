@@ -2,7 +2,7 @@
 //! the owner's list, each the median of the cell's trials with its spread
 //! (the lowest and the highest trial), or why the cell or the metric gives
 //! no figure; and `foxhound.spider_instruction_ratio` from the Callgrind
-//! cell; the verdicts of Foxhound against each competitor ([`verdict`]).
+//! cell; the standings of Foxhound against each competitor ([`standing`]).
 //! Labelled `local-controlled`, measured on the machine it names, with the
 //! command that reruns it, and written only once the same-work check
 //! passed.
@@ -19,7 +19,7 @@ use super::trials::{
     QUIET_LOAD, TRIALS, Trial,
 };
 
-mod verdict;
+mod standing;
 
 #[cfg(test)]
 mod tests;
@@ -66,7 +66,7 @@ pub(crate) struct CellReport {
     pub(crate) mapping: &'static str,
     pub(crate) pending: &'static [&'static str],
     /// Why it does not do the Product's work, when the matrix declares so:
-    /// it gets no verdict.
+    /// it gets no standing.
     pub(crate) unlike_work: Option<&'static str>,
     #[serde(flatten)]
     pub(crate) status: CellStatus,
@@ -101,10 +101,10 @@ pub(crate) struct ScenarioReport {
     pub(crate) scenario: Scenario,
     pub(crate) title: &'static str,
     /// Whether no check read the content its cells wrote: none of them
-    /// gets a verdict.
+    /// gets a standing.
     pub(crate) content_unverified: bool,
     pub(crate) cells: Vec<CellReport>,
-    pub(crate) verdicts: Vec<verdict::Verdicts>,
+    pub(crate) standings: Vec<standing::Standings>,
 }
 
 /// Scenario 1's figures of a tool, its main row's, which `just targets`
@@ -646,7 +646,7 @@ pub(crate) fn of(trials: &Comparison) -> Report<'_> {
             scenario,
             title: scenario.title(),
             content_unverified: scenario.content_unverified(),
-            verdicts: verdict::of(scenario, &cells),
+            standings: standing::of(scenario, &cells),
             cells,
         });
     }
@@ -708,8 +708,8 @@ fn column(cell: &CellReport) -> String {
 }
 
 /// The metrics in the report's order, each with its group and label. A
-/// metric where more is better is also named in `verdict`'s
-/// `MORE_IS_BETTER`; the verdicts read every other as a cost.
+/// metric where more is better is also named in `standing`'s
+/// `MORE_IS_BETTER`; the standings read every other as a cost.
 const ROWS: &[(&str, &str)] = &[
     ("pages_per_second", "Throughput: pages per second"),
     ("first_page_seconds", "Throughput: time to the first page"),
@@ -844,13 +844,13 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                 if scenario.content_unverified {
                     text.push_str(
                         "  - content not verified: no check reads what it wrote, until #2136's \
-                         output check lands; no verdict.\n",
+                         output check lands; no standing.\n",
                     );
                 }
                 if let Some(reason) = cell.unlike_work {
                     let _ = writeln!(
                         text,
-                        "  - not the same work: {reason}; no verdict and no ratio."
+                        "  - not the same work: {reason}; no standing and no ratio."
                     );
                 }
             }
@@ -932,7 +932,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
             }
             text.push('\n');
         }
-        verdict::markdown(&mut text, scenario);
+        standing::markdown(&mut text, scenario);
     }
     match &report.instructions {
         Instructions::NotRun { reason } => {

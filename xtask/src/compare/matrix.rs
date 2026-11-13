@@ -175,7 +175,7 @@ impl Scenario {
     }
 
     /// Whether its cells write content that no check reads, so the report
-    /// gives them no verdict: the extraction scenario's, until #2136's
+    /// gives them no standing: the extraction scenario's, until #2136's
     /// output check lands.
     pub(crate) fn content_unverified(self) -> bool {
         matches!(self, Self::Extraction)
@@ -716,7 +716,7 @@ const SPIDER_NOT_POLITE: &str = "Spider's `with_delay` waits between any two req
      and fetched the page that robots.txt disallows (`Disallow: /sites/*/private`)";
 
 /// The tools' cells declared, in a scenario, as not doing the Product's
-/// work, each with why: the report gives them no verdict, and the
+/// work, each with why: the report gives them no standing, and the
 /// instruction ratio reads scenario 1 only, where none is declared.
 const UNLIKE_WORK: &[(Scenario, Tool, &str)] = &[(
     Scenario::Extraction,

@@ -1090,7 +1090,7 @@ rss-propose *scenarios:
 # 0140); `--growth` adds the 100,000-page crawls whose resident memory is
 # read at 1,000, 10,000 and 100,000 pages (hours). Once every trial passed
 # the same-work check, it writes each cell's median and spread of every
-# metric, with Foxhound's verdicts against each competitor, to
+# metric, with Foxhound's standings against each competitor, to
 # target/compare/report.md and report.json, `local-controlled`, measured on
 # the machine `--machine "<name>"` names, with the command that reruns it;
 # otherwise it fails naming the trial. A host without strace or Valgrind

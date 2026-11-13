@@ -8,8 +8,12 @@
 //! (ADR 0082). The
 //! request is one level deeper than the attempt's, and is staged with the
 //! attempt, answered as the Frontier will admit it, and committed with the
-//! attempt or discarded with it (ADR 0093); the crawl's delivery keys it
-//! and queues it under its domain once the attempt settles.
+//! attempt, which adds it as its staging keyed it and runs this admission
+//! no second time (#2245), or discarded with it (ADR 0093); the crawl's
+//! delivery keys it and queues it under its domain once the attempt
+//! settles.
+
+use std::sync::Arc;
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::egress::Policy;
@@ -75,12 +79,12 @@ async fn enqueue(
         .transpose()?;
     let mut request = params.clone();
     let work = run.metrics().counted_work().clone();
-    // Serialized once, for its check and the run file, however often its
-    // admission runs again (#1896).
+    // Serialized once, for its check, the run file and what its staging
+    // keeps for its attempt's commit (#1896, #2245).
     let payload = request
         .payload
         .take()
-        .map(|payload| Payload::of(payload, &work));
+        .map(|payload| Arc::new(Payload::of(payload, &work)));
     let answered = run
         .state()
         .write(move |connection| {
@@ -130,7 +134,7 @@ fn add(
     connection: &Connection,
     positions: &mut Positions,
     (egress, invariants): (&Policy, &Invariants),
-    (params, payload): (&CrawlRequestEnqueueParams, Option<&Payload>),
+    (params, payload): (&CrawlRequestEnqueueParams, Option<&Arc<Payload>>),
     document: Option<&goodfetch_frontier::Url>,
     work: &CountedWork,
 ) -> Answered<Enqueued> {
@@ -142,7 +146,8 @@ fn add(
     let Some(from) = document_base(&url, None) else {
         return Ok(None);
     };
-    if let Err(refused) = invariants.payloads().check(&params.label, payload, work) {
+    let checked = payload.map(|payload| &**payload);
+    if let Err(refused) = invariants.payloads().check(&params.label, checked, work) {
         return Ok(Some(Err(refused)));
     }
     let base = document.cloned().unwrap_or_else(|| from.clone());
@@ -168,15 +173,8 @@ fn add(
         forefront: params.forefront,
         depth: depth + 1,
     };
-    work_items::admit(
-        connection,
-        positions,
-        invariants.frontier(),
-        egress,
-        candidate,
-        adding,
-    )
-    .map(|enqueued| Some(Ok(enqueued)))
+    work_items::admit(connection, positions, invariants, egress, candidate, adding)
+        .map(|enqueued| Some(Ok(enqueued)))
 }
 
 pub(crate) mod links;

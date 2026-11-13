@@ -88,7 +88,7 @@ fn enqueue(
             narrowing: Narrowing::none(),
             depth: 1,
         };
-        let invariants = goodfetch_frontier::Invariants::read(connection)?;
+        let invariants = fixture::within(connection, Scope::read(connection)?)?;
         let adding = Adding {
             method: &method,
             body: None,
@@ -350,9 +350,10 @@ fn a_staged_enqueue_names_its_identity_without_scanning_the_visited_set() {
 }
 
 /// n separate enqueues of one attempt run n admissions while they stage,
-/// one each, and n again at the commit, in order: an enqueue does not run
-/// the attempt's earlier ones again to answer, and joins what it did to
-/// what they did where it lies, never copying theirs.
+/// one each, and none at the commit, which applies what each decided, in
+/// order, and adds each request (#2069): an enqueue does not run the
+/// attempt's earlier ones again to answer, and joins what it did to what
+/// they did where it lies, never copying theirs.
 ///
 /// Covers: story:6-236
 #[test]
@@ -400,7 +401,7 @@ fn separate_enqueues_of_one_attempt_run_one_admission_each() {
             work_items_of(&connection).len(),
             places.len()
         ),
-        (10, 10, 11, 1)
+        (10, 0, 11, 1)
     );
 }
 
@@ -555,11 +556,29 @@ fn bounded() -> Connection {
     connection
 }
 
+/// What the bounds of the run file `connection` holds counted as refused:
+/// each setting's count, then each path budget's.
+fn refusals_of(connection: &Connection) -> Vec<(String, i64)> {
+    connection
+        .prepare(
+            "SELECT setting, count FROM bounds_refusals
+             UNION ALL
+             SELECT pattern, refused FROM bounds_path_counts WHERE refused > 0
+             ORDER BY 1",
+        )
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
 /// Separate staged admissions of one attempt are answered as admitting
 /// each in turn on the run file answers them, though none reached it: a
 /// duplicate of an earlier one, the path budget and `crawl.max_requests`
 /// counting the earlier ones, and a seed widening the scope for a later
-/// link; their commit then adds each as answered.
+/// link; their commit then adds each as answered, and counts each refusal
+/// of a bound as admitting it on the run file counts it.
 ///
 /// Covers: story:6-236
 #[test]
@@ -589,6 +608,7 @@ fn staged_admissions_are_answered_as_admitting_them_in_turn_answers() {
             staged,
             not_added,
             work_items_of(&staged_run),
+            refusals_of(&staged_run),
         ),
         (
             [
@@ -607,7 +627,15 @@ fn staged_admissions_are_answered_as_admitting_them_in_turn_answers() {
             direct,
             Vec::new(),
             work_items_of(&direct_run),
+            refusals_of(&direct_run),
         )
+    );
+    assert_eq!(
+        refusals_of(&staged_run),
+        [
+            ("/sale/*".to_owned(), 1),
+            ("crawl.max_requests".to_owned(), 1)
+        ]
     );
 }
 

@@ -19,7 +19,7 @@
 //! `run.add_seeds` holding one fails the call, none of the batch admitted,
 //! with `payload_invalid` (ADR 0082).
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::egress::Policy;
@@ -38,7 +38,7 @@ use rusqlite::Connection;
 use crate::intake::Intake;
 use crate::invariants::Invariants;
 use crate::serving::{Crawls, LiveCrawl};
-use crate::work_items::{self, CheckedSeed, Positions};
+use crate::work_items::{self, Positions};
 
 /// The most `$/seeds` batches a `run.add_seeds` call leaves unread: a
 /// Client honouring its credits has at most [`SEED_CREDITS`] seeds
@@ -116,28 +116,25 @@ async fn add_seed(
         .state()
         .write(move |connection| {
             intake.admitting(|| match bound {
-                Some(attempt) => {
-                    let checked = OnceLock::new();
-                    staging.admit(
-                        connection,
-                        &attempt.crawl_request_id.clone(),
-                        attempt.lease_epoch,
-                        move |connection, positions| {
-                            admit_within(
-                                connection,
-                                positions,
-                                (&egress, &invariants, &work),
-                                (&seed, &checked),
-                                Some(&attempt),
-                            )
-                        },
-                    )
-                }
+                Some(attempt) => staging.admit(
+                    connection,
+                    &attempt.crawl_request_id,
+                    attempt.lease_epoch,
+                    |connection, positions| {
+                        admit_within(
+                            connection,
+                            positions,
+                            (&egress, &invariants, &work),
+                            &seed,
+                            Some(&attempt),
+                        )
+                    },
+                ),
                 None => admit_within(
                     connection,
                     &mut Positions::of(connection)?,
                     (&egress, &invariants, &work),
-                    (&seed, &OnceLock::new()),
+                    &seed,
                     None,
                 ),
             })
@@ -163,14 +160,14 @@ async fn add_seed(
 /// Admits `seed` within the Run's `invariants` and under its domain policy
 /// `egress`, at its position from `positions`, while `attempt`, when
 /// given, holds its lease, once its Payload fits its Label's schema and
-/// the cap, else `payload_invalid`; `None` once that attempt ended. Its
-/// check runs once, kept in `checked` for the admission's replay at the
-/// attempt's commit.
+/// the cap, else `payload_invalid`; `None` once that attempt ended. It
+/// runs once: an attempt's commit applies what its staging decided
+/// (#2245).
 fn admit_within(
     connection: &Connection,
     positions: &mut Positions,
     (egress, invariants, work): (&Policy, &Invariants, &CountedWork),
-    (seed, checked): (&Seed, &OnceLock<CheckedSeed>),
+    seed: &Seed,
     attempt: Option<&SeedAttempt>,
 ) -> rusqlite::Result<Option<Result<Enqueued, CallError>>> {
     if let Some(attempt) = attempt
@@ -179,19 +176,16 @@ fn admit_within(
     {
         return Ok(None);
     }
-    let checked = match checked.get() {
-        Some(checked) => checked,
-        None => match work_items::check_seed(invariants, seed.clone(), work) {
-            Ok(fresh) => checked.get_or_init(|| fresh),
-            Err(refused) => return Ok(Some(Err(refused))),
-        },
+    let checked = match work_items::check_seed(invariants, seed.clone(), work) {
+        Ok(checked) => checked,
+        Err(refused) => return Ok(Some(Err(refused))),
     };
     let mut answers = work_items::admit_seeds(
         connection,
         positions,
         invariants,
         egress,
-        std::slice::from_ref(checked),
+        std::slice::from_ref(&checked),
     )?;
     Ok(Some(Ok(answers
         .pop()

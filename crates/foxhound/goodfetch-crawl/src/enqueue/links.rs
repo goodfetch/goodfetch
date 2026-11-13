@@ -26,8 +26,11 @@
 //! by the Frontier under the Run's invariants and its domain policy. In
 //! the job that holds the attempt, where the Run's state is: its lease,
 //! the call's `limit`, and the Frontier's part that reads the visited set
-//! and the Bounds, and adds. An attempt's commit runs the second part
-//! again and the first never.
+//! and the Bounds, and adds. A program's call is answered so in a write of
+//! its own, counted as `F3.transactions`, and its attempt's commit applies
+//! what that write decided, running neither part again (#2245). A code-free
+//! page's links are answered to nobody: they ride its attempt's outcome,
+//! whose one job runs the second part the first time.
 
 use std::sync::Arc;
 
@@ -200,6 +203,9 @@ pub(crate) async fn enqueue_links(
         lease_epoch: params.lease_epoch,
     };
     let (run, staging, batch) = prepared(&params, &crawls, &tiers).await?;
+    // The write of its own a program's batch asks the writer for; a
+    // code-free page's batch rides its outcome's (#2245).
+    run.metrics().counted_work().count(Row::BatchTransactions);
     // An enqueue's answers promise nothing (ADR 0138's note of #1926): the
     // attempt's outcome syncs them with it.
     let answered = run
@@ -272,8 +278,7 @@ pub(crate) async fn defer_links(
 /// The live crawl of `params`'s Run, its staging, and the batch of links
 /// its locator matches on the served page, owned for a write to admit,
 /// its Payloads fitted and checked, its patterns compiled and each link
-/// keyed, on the task that serves the call, with no run file (#2244); one
-/// batch's transaction counted.
+/// keyed, on the task that serves the call, with no run file (#2244).
 async fn prepared(
     params: &CrawlRequestEnqueueLinksParams,
     crawls: &Crawls,
@@ -343,7 +348,6 @@ async fn prepared(
             reading.link(element.href, element.sight, payload, &mut refused_payload)
         })
         .collect();
-    work.count(Row::BatchTransactions);
     let batch = OwnedBatch {
         request: Request::of(params),
         invariants,
@@ -444,8 +448,8 @@ impl Request {
 }
 
 /// A batch of links as the task that serves its call read them, each keyed,
-/// and all it admits against, owned by the write that admits it, which may
-/// run it again at the commit.
+/// and all it admits against, owned by the write that admits it: its
+/// call's own, or its attempt's outcome's for a code-free page.
 struct OwnedBatch {
     request: Request,
     invariants: Invariants,
@@ -550,8 +554,8 @@ enum Suspected {
 }
 
 impl Suspected {
-    /// The mark of the request a link so suspected added.
-    fn mark(self) -> Mark {
+    /// The mark of the request a link so suspected adds.
+    const fn mark(self) -> Mark {
         match self {
             Self::Hidden(_) => Mark::Hidden,
             Self::Revealable => Mark::Revealable,
@@ -563,19 +567,6 @@ impl Suspected {
         match self {
             Self::Hidden(trap) => trap.name(),
             Self::Revealable => "revealable",
-        }
-    }
-
-    /// How a link so suspected, or one a person sees (`None`), answered
-    /// `duplicate`, reaches the request it names again: as one a person
-    /// sees (`Some(false)`), which clears its mark, as one a person reveals
-    /// (`Some(true)`), which leaves it followed on every tier, or as a
-    /// suspected trap (`None`), which leaves its mark as it is.
-    fn reaching_again(suspected: Option<Self>) -> Option<bool> {
-        match suspected {
-            None => Some(false),
-            Some(Self::Revealable) => Some(true),
-            Some(Self::Hidden(_)) => None,
         }
     }
 }
@@ -627,7 +618,11 @@ struct Admitted {
 /// call's attempt holds its lease, once every Payload fits its Label, else
 /// `payload_invalid` and none admitted; `None` once the attempt ended. The
 /// part of the call's admission that needs the Run's state (#2244): the
-/// lease, the count against the call's `limit`, and the Frontier's.
+/// lease, the count against the call's `limit`, and the Frontier's, which
+/// marks a request a link suspected a trap adds and tells one a link
+/// reaches again how it was seen (ADR 0035). It runs once for a batch:
+/// when its call stages it, or at its attempt's commit for a code-free
+/// page's (#2245).
 fn add(
     connection: &Connection,
     positions: &mut Positions,
@@ -680,7 +675,7 @@ fn add(
                     method: &method,
                     body: None,
                     label: &params.label,
-                    payload: payload.as_deref(),
+                    payload: payload.as_ref(),
                     priority: params.priority,
                     forefront: false,
                     depth: depth + 1,
@@ -688,32 +683,24 @@ fn add(
                 let enqueued = work_items::admit_keyed(
                     connection,
                     positions,
-                    batch.invariants.frontier(),
+                    &batch.invariants,
                     (href, keyed),
                     Entering {
                         from: Some(&from),
                         depth: depth + 1,
                     },
-                    adding,
+                    (adding, trap.map(Suspected::mark)),
                 )?;
                 match enqueued {
                     Enqueued::Added { id, url } => {
                         added += 1;
                         if let Some(trap) = trap {
                             tracing::debug!(%url, trap = trap.name(), "a link a person may not see was added, marked as a suspected trap");
-                            trap_links::suspect(connection, &id, trap.mark())?;
                             suspected.push((id.clone(), url.clone()));
                         }
                         EnqueuedLink::Added { id, url }
                     }
-                    Enqueued::NotAdded { reason, url } => {
-                        if reason == NotAddedReason::Duplicate
-                            && let Some(revealable) = Suspected::reaching_again(*trap)
-                        {
-                            trap_links::seen_again(connection, keyed, revealable)?;
-                        }
-                        EnqueuedLink::NotAdded { reason, url }
-                    }
+                    Enqueued::NotAdded { reason, url } => EnqueuedLink::NotAdded { reason, url },
                 }
             }
         };

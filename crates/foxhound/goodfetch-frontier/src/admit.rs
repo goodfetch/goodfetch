@@ -171,6 +171,28 @@ pub fn admit_in(
     admitting: &mut Admitting,
     add: impl FnOnce(&Url) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<Enqueued> {
+    let (given, keyed, entering) = key_candidate(invariants, policy, candidate);
+    admit_keyed(
+        connection,
+        invariants,
+        (given, &keyed),
+        entering,
+        admitting,
+        add,
+    )
+}
+
+/// Keys `candidate` within the Run's `invariants` and under its domain
+/// policy `policy`, as [`key_link`] keys a page's link: the part of its
+/// admission that takes no run file. Answers the candidate as given, keyed,
+/// and what it enters the crawl with, which [`admit_keyed`] admits; an
+/// attempt's staging keeps them for its commit (#2245).
+#[must_use]
+pub fn key_candidate<'a>(
+    invariants: &Invariants,
+    policy: &Policy,
+    candidate: Candidate<'a>,
+) -> (&'a str, Keyed, Entering<'a>) {
     let Read {
         given,
         parsed,
@@ -180,14 +202,7 @@ pub fn admit_in(
         depth,
     } = Read::of(candidate);
     let keyed = key(invariants, policy, parsed, declared, narrowing);
-    admit_keyed(
-        connection,
-        invariants,
-        (given, &keyed),
-        Entering { from, depth },
-        admitting,
-        add,
-    )
+    (given, keyed, Entering { from, depth })
 }
 
 /// A link of a page, as the page's task reads it: an `href`, a `GET` with
@@ -214,7 +229,7 @@ pub struct Link<'a> {
 /// the Scope's patterns, refused by the domain policy, or keyed, with all
 /// the second part needs of it. It holds no state of the Run, so it is as
 /// true when it is admitted as when it was made, and an attempt's commit
-/// admits it again without making it again.
+/// adds it as its staging keyed it.
 #[derive(Clone, Debug)]
 pub struct Keyed(Result<Measured, Unkeyed>);
 
@@ -438,6 +453,7 @@ fn admit_measured(
             for rule in rules {
                 rules::merged(connection, rule, url.as_str(), Some(identities.plain()))?;
             }
+            admitting.leaves();
             let reason = NotAddedReason::Duplicate;
             return Ok(not_added(admitting, answered, reason, Some(&crawl_request)));
         }
@@ -445,6 +461,7 @@ fn admit_measured(
     let bounds = invariants.bounds();
     if let Some((reason, rule)) = rules::refuses(connection, key.url(), bounds.learning)? {
         rules::merged(connection, rule, url.as_str(), None)?;
+        admitting.leaves();
         return Ok(not_added(admitting, answered, reason, None));
     }
     let budget = (*budget).and_then(|at| invariants.budget(at));
@@ -454,6 +471,7 @@ fn admit_measured(
         .or(*shape)
     {
         count_refused(connection, reason, budget)?;
+        admitting.leaves();
         return Ok(not_added(admitting, answered, reason, None));
     }
     let id = add(url)?;

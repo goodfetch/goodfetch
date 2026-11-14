@@ -245,7 +245,8 @@ fn extraction(scenario: Scenario) -> Value {
         | Scenario::Raw64
         | Scenario::Raw256
         | Scenario::Hostile
-        | Scenario::Hostile16 => json!({ "formats": {}, "follow": "scope" }),
+        | Scenario::Hostile16
+        | Scenario::CrawlLike => json!({ "formats": {}, "follow": "scope" }),
     }
 }
 
@@ -312,7 +313,8 @@ fn settings(
         | Scenario::Long
         | Scenario::Raw64
         | Scenario::Raw256
-        | Scenario::Hostile16 => json!({
+        | Scenario::Hostile16
+        | Scenario::CrawlLike => json!({
             "fetch": {
                 "tier": if scenario == Scenario::Browser { "browser" } else { "http" },
                 "block_classification": false,

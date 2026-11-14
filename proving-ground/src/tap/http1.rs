@@ -3,9 +3,9 @@
 
 use std::collections::VecDeque;
 
-use super::chunked::Chunked;
+use super::chunked::{Chunked, Consumed};
 use super::{split, text};
-use crate::observation::{ByteCount, Connection, Protocol, RequestHead, RequestId};
+use crate::observation::{ByteCount, Connection, Part, Protocol, RequestHead, RequestId};
 
 /// The longest head read; a longer one stops the parser.
 const HEAD_LIMIT: usize = 64 * 1024;
@@ -31,8 +31,10 @@ enum Direction {
     Head(Vec<u8>),
     /// Reading the body of the message whose head came last.
     Body(Option<RequestId>, Body),
-    /// Bytes the parser does not read: after a malformed message, or an
-    /// answer whose body runs to the connection's end.
+    /// An answer's body that runs to the connection's end.
+    Unbounded(Option<RequestId>),
+    /// Bytes the parser does not read: after a malformed message, or after
+    /// an answer switching protocols.
     Opaque(Option<RequestId>),
 }
 
@@ -63,15 +65,19 @@ impl Exchange {
                 }
                 Direction::Body(request, body) => {
                     let request = *request;
-                    let (used, done) = body.consume(bytes);
-                    count(connection, request, used, true);
-                    bytes = &bytes[used..];
-                    if done {
+                    let consumed = body.consume(bytes);
+                    count_body(connection, request, &consumed, true);
+                    bytes = &bytes[consumed.used..];
+                    if consumed.ended {
                         self.incoming = Direction::default();
                     }
                 }
+                Direction::Unbounded(request) => {
+                    count(connection, *request, bytes.len(), true, Part::Body);
+                    return;
+                }
                 Direction::Opaque(request) => {
-                    count(connection, *request, bytes.len(), true);
+                    count(connection, *request, bytes.len(), true, Part::Framing);
                     return;
                 }
             }
@@ -102,7 +108,7 @@ impl Exchange {
             headers,
             http2: None,
         });
-        count(connection, request, head.len(), true);
+        count(connection, request, head.len(), true, Part::Framing);
         self.waiting.push_back(Waiting {
             request,
             head: is_head,
@@ -128,15 +134,19 @@ impl Exchange {
                 }
                 Direction::Body(request, body) => {
                     let request = *request;
-                    let (used, done) = body.consume(bytes);
-                    count(connection, request, used, false);
-                    bytes = &bytes[used..];
-                    if done {
+                    let consumed = body.consume(bytes);
+                    count_body(connection, request, &consumed, false);
+                    bytes = &bytes[consumed.used..];
+                    if consumed.ended {
                         self.outgoing = Direction::default();
                     }
                 }
+                Direction::Unbounded(request) => {
+                    count(connection, *request, bytes.len(), false, Part::Body);
+                    return;
+                }
                 Direction::Opaque(request) => {
-                    count(connection, *request, bytes.len(), false);
+                    count(connection, *request, bytes.len(), false, Part::Framing);
                     return;
                 }
             }
@@ -154,7 +164,7 @@ impl Exchange {
             .nth(1)
             .and_then(|code| code.parse::<u16>().ok());
         let request = self.waiting.front().and_then(|waiting| waiting.request);
-        count(connection, request, head.len(), false);
+        count(connection, request, head.len(), false, Part::Framing);
         let Some(status) = status else {
             self.outgoing = Direction::Opaque(request);
             return;
@@ -180,19 +190,23 @@ impl Exchange {
                 Some(body) => Direction::Body(request, body),
                 None if value(&headers, "content-length").is_some() => Direction::default(),
                 // No length: the body runs to the connection's end.
-                None => Direction::Opaque(request),
+                None => Direction::Unbounded(request),
             }
         };
     }
 }
 
 impl Body {
-    fn consume(&mut self, bytes: &[u8]) -> (usize, bool) {
+    fn consume(&mut self, bytes: &[u8]) -> Consumed {
         match self {
             Self::Length(left) => {
                 let (taken, _) = split(bytes, usize::try_from(*left).unwrap_or(usize::MAX));
                 *left -= taken.len() as u64;
-                (taken.len(), *left == 0)
+                Consumed {
+                    used: taken.len(),
+                    data: taken.len(),
+                    ended: *left == 0,
+                }
             }
             Self::Chunked(chunked) => chunked.consume(bytes),
         }
@@ -258,9 +272,34 @@ fn framing(headers: &[(String, String)]) -> Option<Body> {
         .map(Body::Length)
 }
 
+/// Counts what a body consumed: its data, and the framing around it.
+fn count_body(
+    connection: &Connection,
+    request: Option<RequestId>,
+    consumed: &Consumed,
+    received: bool,
+) {
+    count(connection, request, consumed.data, received, Part::Body);
+    count(
+        connection,
+        request,
+        consumed.used - consumed.data,
+        received,
+        Part::Framing,
+    );
+}
+
 /// Counts `length` bytes of a request's messages, received or sent.
-fn count(connection: &Connection, request: Option<RequestId>, length: usize, received: bool) {
-    if let Some(request) = request {
+fn count(
+    connection: &Connection,
+    request: Option<RequestId>,
+    length: usize,
+    received: bool,
+    part: Part,
+) {
+    if let Some(request) = request
+        && length > 0
+    {
         let length = length as u64;
         connection.request_bytes(
             request,
@@ -275,6 +314,7 @@ fn count(connection: &Connection, request: Option<RequestId>, length: usize, rec
                     sent: length,
                 }
             },
+            part,
         );
     }
 }

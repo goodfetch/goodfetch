@@ -153,11 +153,18 @@ pub(crate) struct Work {
     pub(crate) extra: Vec<String>,
     /// The requests for the site's paths it answered `200`.
     pub(crate) requests: u64,
-    /// The bytes it sent answering them: heads and bodies as framed.
+    /// The bytes it sent answering them: heads and bodies as framed, or
+    /// over TLS (#2284) bodies alone, which no client's framing or header
+    /// compression changes.
     pub(crate) bytes: u64,
     /// The bytes of each page's first `200` answer, the work of a crawl
     /// that fetched some pages again after a kill.
     pub(crate) first_bytes: u64,
+    /// The requests for the site's paths that came over another protocol
+    /// than the scenario's: over TLS and HTTP/2 (#2284), each over plain
+    /// text or HTTP/1.1; none over loopback, where any protocol is the
+    /// scenario's.
+    pub(crate) other_protocol: u64,
 }
 
 impl Work {

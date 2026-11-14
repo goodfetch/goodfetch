@@ -1,7 +1,8 @@
 //! An HTTP/2 connection's frames (RFC 9113), read after the client's
 //! preface: the client's first `SETTINGS` and connection `WINDOW_UPDATE`, each
 //! request's header block decoded in the order sent (HPACK, RFC 7541), each
-//! answer's status, and every frame's bytes counted to its stream's request.
+//! answer's status, and every frame's bytes counted to its stream's request,
+//! `DATA` payloads as its body.
 //! Only header blocks and the frames that open the connection are kept in
 //! memory; every other payload is counted and skipped.
 
@@ -12,9 +13,10 @@ use loona_hpack::Decoder;
 
 use super::text;
 use crate::observation::{
-    ByteCount, Connection, Http2Connection, Http2Stream, Protocol, RequestHead, RequestId,
+    ByteCount, Connection, Http2Connection, Http2Stream, Part, Protocol, RequestHead, RequestId,
 };
 
+const DATA: u8 = 0x0;
 const HEADERS: u8 = 0x1;
 const SETTINGS: u8 = 0x4;
 const WINDOW_UPDATE: u8 = 0x8;
@@ -61,7 +63,9 @@ struct Stream {
     request: Option<RequestId>,
     opened: bool,
     answered: bool,
+    /// Its framing's bytes and its body's, until the request is known.
     pending: ByteCount,
+    pending_body: ByteCount,
 }
 
 /// One direction's frames as they arrive.
@@ -92,8 +96,9 @@ struct Kept {
 
 impl Frames {
     /// Reads `bytes`: counts each frame's bytes to its stream through
-    /// `count`, and returns each kept frame once complete.
-    fn read(&mut self, mut bytes: &[u8], mut count: impl FnMut(u32, usize)) -> Vec<Kept> {
+    /// `count`, a `DATA` frame's payload as [`Part::Body`], and returns each
+    /// kept frame once complete.
+    fn read(&mut self, mut bytes: &[u8], mut count: impl FnMut(u32, usize, Part)) -> Vec<Kept> {
         let mut kept = Vec::new();
         while !bytes.is_empty() {
             let Some(frame) = &mut self.current else {
@@ -109,7 +114,7 @@ impl Frames {
                     let kind = header[3];
                     let stream = u32::from_be_bytes([header[5], header[6], header[7], header[8]])
                         & 0x7fff_ffff;
-                    count(stream, 9);
+                    count(stream, 9, Part::Framing);
                     let keep = matches!(kind, HEADERS | CONTINUATION)
                         || (stream == 0 && matches!(kind, SETTINGS | WINDOW_UPDATE));
                     self.current = Some(Frame {
@@ -126,7 +131,12 @@ impl Frames {
             let (taken, rest) = bytes.split_at(frame.left.min(bytes.len()));
             bytes = rest;
             frame.left -= taken.len();
-            count(frame.stream, taken.len());
+            let part = if frame.kind == DATA {
+                Part::Body
+            } else {
+                Part::Framing
+            };
+            count(frame.stream, taken.len(), part);
             if let Some(payload) = &mut frame.kept {
                 payload.extend_from_slice(taken);
             }
@@ -174,8 +184,8 @@ impl Exchange {
 
     pub(super) fn received(&mut self, connection: &Connection, bytes: &[u8]) {
         let streams = &mut self.streams;
-        let frames = self.incoming.read(bytes, |stream, length| {
-            add(connection, streams, stream, length, true);
+        let frames = self.incoming.read(bytes, |stream, length, part| {
+            add(connection, streams, stream, length, true, part);
         });
         for frame in frames {
             match frame.kind {
@@ -276,14 +286,15 @@ impl Exchange {
         let entry = self.streams.entry(stream).or_default();
         entry.request = request;
         if let Some(request) = request {
-            connection.request_bytes(request, std::mem::take(&mut entry.pending));
+            connection.request_bytes(request, std::mem::take(&mut entry.pending), Part::Framing);
+            connection.request_bytes(request, std::mem::take(&mut entry.pending_body), Part::Body);
         }
     }
 
     pub(super) fn sent(&mut self, connection: &Connection, bytes: &[u8]) {
         let streams = &mut self.streams;
-        let frames = self.outgoing.read(bytes, |stream, length| {
-            add(connection, streams, stream, length, false);
+        let frames = self.outgoing.read(bytes, |stream, length, part| {
+            add(connection, streams, stream, length, false, part);
         });
         for frame in frames {
             if matches!(frame.kind, HEADERS | CONTINUATION)
@@ -358,6 +369,7 @@ fn add(
     stream: u32,
     length: usize,
     received: bool,
+    part: Part,
 ) {
     if stream == 0 || length == 0 {
         return;
@@ -376,10 +388,14 @@ fn add(
     };
     let entry = streams.entry(stream).or_default();
     match entry.request {
-        Some(request) => connection.request_bytes(request, bytes),
+        Some(request) => connection.request_bytes(request, bytes, part),
         None if !entry.opened => {
-            entry.pending.received += bytes.received;
-            entry.pending.sent += bytes.sent;
+            let pending = match part {
+                Part::Framing => &mut entry.pending,
+                Part::Body => &mut entry.pending_body,
+            };
+            pending.received += bytes.received;
+            pending.sent += bytes.sent;
         }
         None => {}
     }

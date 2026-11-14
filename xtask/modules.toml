@@ -168,8 +168,9 @@ rerun = ["trials"]
 run = ["collie", "matrix", "sampler", "trial", "trials"]
 sampler = ["trials"]
 same_work = ["extracted", "matrix", "trials"]
-trial = ["extracted", "foxhound", "hostile", "matrix", "observed", "sampler", "trials"]
+trial = ["extracted", "foxhound", "hostile", "matrix", "observed", "sampler", "trials", "trust"]
 trials = ["extracted", "hostile", "matrix"]
+trust = []
 
 # Which of `targets`'s own modules may import which.
 [submodules.targets]

@@ -12,6 +12,9 @@ dependencies = [
     "playwright==1.64.1",
     "scrapy==2.19.0",
     "scrapy-playwright==0.0.48",
+    # HTTP/2 for the crawl-like scenario's `H2DownloadHandler` (#2284): what
+    # Scrapy's `twisted-http2` extra installs, its version left to the lock.
+    "twisted[http2]",
 ]
 
 [tool.uv]

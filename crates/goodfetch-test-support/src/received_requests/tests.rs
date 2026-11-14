@@ -24,6 +24,7 @@ fn request(sequence: usize, target: &str) -> Value {
         "tls": null, "http2": null, "status": 200,
         "timing": { "arrived_microseconds": sequence, "answered_microseconds": null },
         "bytes": { "received": 0, "sent": 0 },
+        "body": { "received": 0, "sent": 0 },
     })
 }
 

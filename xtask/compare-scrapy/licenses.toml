@@ -45,10 +45,24 @@ reason = "stated as `PSFL`; its LICENSE file is the Python Software Foundation L
 
 [[package]]
 ecosystem = "python"
+name = "hyperframe"
+version = "6.1.0"
+license = "MIT"
+reason = "stated as `The MIT License (MIT)`; its LICENSE file is the MIT license, as its classifier says"
+
+[[package]]
+ecosystem = "python"
 name = "incremental"
 version = "24.11.0"
 license = "MIT"
 reason = "states no license; its LICENSE file is the MIT license, as its classifier says"
+
+[[package]]
+ecosystem = "python"
+name = "priority"
+version = "1.3.0"
+license = "MIT"
+reason = "stated as `MIT License`, as its classifier says; its wheel ships no license file"
 
 [[package]]
 ecosystem = "python"

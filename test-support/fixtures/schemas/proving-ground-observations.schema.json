@@ -4,6 +4,9 @@
       "additionalProperties": false,
       "description": "One request a page host received, as `GET /observations` lists it.",
       "properties": {
+        "body": {
+          "description": "The bytes of its bodies alone, received and sent: the same for\nevery client that sends and receives the same bodies."
+        },
         "bytes": {
           "description": "The bytes received and sent for it."
         },
@@ -140,7 +143,8 @@
         "headers",
         "cookies",
         "timing",
-        "bytes"
+        "bytes",
+        "body"
       ],
       "type": "object"
     },

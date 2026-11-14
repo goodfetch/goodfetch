@@ -70,6 +70,7 @@ fn a_request_is_recorded_with_its_headers_in_the_order_sent() {
             "http2": null,
             "status": 200,
             "bytes": { "received": request.len(), "sent": exchange.read },
+            "body": { "received": 0, "sent": exchange.body().len() },
         })
     );
 }
@@ -338,6 +339,30 @@ fn an_http2_streams_bytes_are_counted_per_request() {
     assert!(sent >= answers[0].body.len() as u64 + 9, "{bytes}");
     let host = &observations["hosts"]["catalog.test"];
     assert!(host["sent"].as_u64().expect("a count") > sent, "{host}");
+}
+
+/// A request's body bytes are its answer's content alone: an HTTP/2
+/// stream's DATA payloads, without the frames' headers or the HEADERS
+/// frame, which a client's HPACK and frame sizes change.
+#[test]
+fn an_http2_streams_body_bytes_are_its_data_payloads() {
+    let proving_ground = ProvingGround::start(SEED);
+    let config = clients::trusting(&proving_ground.certificate_authority(), &["h2"]);
+    let answers = clients::http2(
+        proving_ground.address(),
+        "catalog.test",
+        config,
+        &HTTP2,
+        &["/catalog/1"],
+        &[],
+    );
+
+    let observations = proving_ground.observations();
+
+    assert_eq!(
+        observations["requests"][0]["body"],
+        json!({ "received": 0, "sent": answers[0].body.len() })
+    );
 }
 
 /// Covers: story:2-75

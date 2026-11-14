@@ -31,13 +31,13 @@ use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::{Gate, Policy, Refused, RequestKind};
 use goodfetch_engine::happy_eyeballs::FamilyUnavailable;
-use goodfetch_engine::response_limits::{BodyFailure, ContentCoding, Decoding, Limits};
+use goodfetch_engine::response_limits::{BodyFailure, Decoding, Limits};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tls::{CertificateChanged, CertificateInvalid, ExceptionUsed};
 use goodfetch_frontier::backoff_classes::Met;
@@ -52,7 +52,7 @@ use goodfetch_protocol::tls::CertificateFailure;
 use url::{Host, Url};
 
 use crate::content_types::{Accepts, declared, typed};
-use crate::decoding::{self, Bound, DecodingFailed};
+use crate::decoding;
 use crate::sniffing::MAX_BYTES_TO_SNIFF;
 
 mod failure;
@@ -745,7 +745,6 @@ async fn fetch_on(
                 });
             }
         };
-        let body = decoded(body, url, expected, reading)?;
         if decoding::still_compressed(declared.as_deref(), &body) {
             return Err(TransportFailure::ContentDecodingFailed.error(url).into());
         }
@@ -776,8 +775,7 @@ async fn fetch_on(
 
 /// What reading an answer's body gave.
 enum Read {
-    /// The whole body as it arrived, or the bytes of it kept, no content
-    /// coding decoded.
+    /// The whole body, its codings decoded, or the bytes of it kept.
     Whole(Bytes),
     /// The type the sniffer gave its first bytes, which its Label does not
     /// take: the rest was left unread.
@@ -800,18 +798,20 @@ struct Reading<'a> {
 }
 
 /// Reads the body of `hop`'s answer, `status`, as it arrives as `reading`
-/// says, its `Content-Length` declaring `expected`. The bytes received
-/// never pass `network.max_body_size`, and a body that no coding decodes
-/// stops at the bytes it keeps. With a type to sniff, the answer named no
-/// type: its codings are decoded as its bytes arrive, and once the
-/// sniffer's 1,024 bytes are in (`kMaxBytesToSniff`), a type the Label
-/// refuses stops the read. A body that does not decode is read whole, and
-/// its decoding then decides.
+/// says, its `Content-Length` declaring `expected`, decoding its codings
+/// with the engine's one decoder ([`Decoding`]) as its bytes arrive. The
+/// bytes received never pass `network.max_body_size`, and a body kept for
+/// its first bytes stops once they are decoded. With a type to sniff, the
+/// answer named no type: once the sniffer's 1,024 bytes are decoded
+/// (`kMaxBytesToSniff`), a type the Label refuses stops the read.
 ///
 /// # Errors
 ///
-/// `response_truncated` when the body breaks off (ADR 0118);
-/// `response_limit_exceeded` once it passes a limit (ADR 0067).
+/// `response_truncated` when the body breaks off or a compressed stream
+/// stops before its end (ADR 0118); `navigation_failed` with
+/// `net::ERR_CONTENT_DECODING_FAILED` as soon as the body shows it does
+/// not decode; `response_limit_exceeded` once it passes a limit (ADR
+/// 0067).
 async fn read_body(
     body: &mut dyn Body,
     hop: &Hop,
@@ -825,104 +825,48 @@ async fn read_body(
         limits,
         keep,
     } = reading;
-    let plain =
-        ContentCoding::listed(codings.iter().copied()).is_none_or(|listed| listed.is_empty());
     let mut sniffing = sniffed;
-    // What the bytes so far decode to, for the sniffer, and for a coded
-    // body kept for its first bytes, to stop once they are in.
-    let mut decoding = (sniffing.is_some() || (keep.is_some() && !plain))
-        .then(|| Decoding::new(url, codings.iter().copied(), *limits));
-    let mut read = BytesMut::new();
+    let decoding = Decoding::new(url, codings.iter().copied(), *limits);
+    let mut decoding = match keep {
+        Some(keep) => decoding.keeping(keep),
+        None => decoding,
+    };
+    let mut received = 0_usize;
+    let failed = |failure, received| match failure {
+        BodyFailure::Cut => truncated(url, received, expected),
+        BodyFailure::Corrupt => TransportFailure::ContentDecodingFailed.error(url),
+        BodyFailure::Limit(exceeded) => exceeded.error(),
+    };
     // Any failure once the head arrived cuts the body (ADR 0118).
     while let Some(chunk) = body
         .chunk()
         .await
-        .map_err(|_| truncated(url, read.len(), expected))?
+        .map_err(|_| truncated(url, received, expected))?
     {
-        read.extend_from_slice(&chunk);
-        let received = u64::try_from(read.len()).unwrap_or(u64::MAX);
+        received += chunk.len();
         limits
-            .judge_decoded(url, received, None)
+            .judge_decoded(url, u64::try_from(received).unwrap_or(u64::MAX), None)
             .map_err(|exceeded| exceeded.error())?;
-        if plain && keep.is_some_and(|keep| read.len() >= keep) {
+        decoding
+            .push(&chunk)
+            .map_err(|failure| failed(failure, received))?;
+        if decoding.is_full() {
             break;
         }
-        let Some(gauge) = decoding.as_mut() else {
-            continue;
-        };
-        let judged = gauge
-            .push(&chunk)
-            .and_then(|()| gauge.decoded())
-            .map(|decoded| {
-                let full = keep.is_some_and(|keep| decoded.len() >= keep);
-                let sniffed = sniffing
-                    .filter(|_| decoded.len() >= MAX_BYTES_TO_SNIFF)
-                    .map(|accepts| {
-                        accepts.refused(status, &typed(None, decoded, hop.url.path()).0)
-                    });
-                (full, sniffed)
-            });
-        match judged {
-            // Kept for its first bytes, it passed the limits past them: the
-            // kept bytes' decoding judges them again.
-            Err(BodyFailure::Limit(_)) | Ok((true, _)) if keep.is_some() => break,
-            Err(BodyFailure::Limit(exceeded)) => return Err(exceeded.error()),
-            Ok((true, _)) => break,
-            Ok((false, Some(Some(refused)))) => return Ok(Read::Refused(refused)),
+        let decoded = decoding.decoded();
+        if let Some(accepts) = sniffing.filter(|_| decoded.len() >= MAX_BYTES_TO_SNIFF) {
+            if let Some(refused) = accepts.refused(status, &typed(None, decoded, hop.url.path()).0)
+            {
+                return Ok(Read::Refused(refused));
+            }
             // Judged and taken: the rest is read whole.
-            Ok((false, Some(None))) => {
-                sniffing = None;
-                if keep.is_none() {
-                    decoding = None;
-                }
-            }
-            // Too few bytes decoded yet.
-            Ok((false, None)) => {}
-            // No stream of its codings, which the whole body's decoding
-            // then fails.
-            Err(BodyFailure::Decoding) => {
-                sniffing = None;
-                decoding = None;
-            }
+            sniffing = None;
         }
     }
-    Ok(Read::Whole(read.freeze()))
-}
-
-/// `body`, as `url` sent it, with its codings decoded as `reading` says,
-/// keeping only what it keeps, its `Content-Length` declaring `expected`.
-///
-/// # Errors
-///
-/// `response_truncated` for a compressed stream that stops before its end
-/// (ADR 0118), `navigation_failed` with `net::ERR_CONTENT_DECODING_FAILED`
-/// for one that does not decode, `response_limit_exceeded` past a limit
-/// (ADR 0067).
-fn decoded(
-    body: Bytes,
-    url: &str,
-    expected: Option<u64>,
-    reading: Reading<'_>,
-) -> Result<Bytes, CallError> {
-    let received = body.len();
-    let bound = Bound {
-        url,
-        limits: reading.limits,
-        received,
-        keep: reading.keep,
-    };
-    let mut body =
-        decoding::decode(reading.codings.iter().copied(), body, &bound).map_err(|failed| {
-            match failed {
-                DecodingFailed::Cut => truncated(url, received, expected),
-                DecodingFailed::Corrupt => TransportFailure::ContentDecodingFailed.error(url),
-                DecodingFailed::Limit(exceeded) => exceeded.error(),
-            }
-        })?;
-    if let Some(keep) = reading.keep {
-        body.truncate(keep);
-    }
-    Ok(body)
+    let body = decoding
+        .finish()
+        .map_err(|failure| failed(failure, received))?;
+    Ok(Read::Whole(Bytes::from(body)))
 }
 
 /// The length an answer's `Content-Length` declares, if it declares one.

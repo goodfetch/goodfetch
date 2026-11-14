@@ -2571,7 +2571,6 @@ dependencies = [
 name = "goodfetch-fetch-tier"
 version = "0.0.0"
 dependencies = [
- "brotli-decompressor 6.0.1",
  "btls",
  "bytes",
  "cookie_store",

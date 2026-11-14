@@ -23,6 +23,38 @@ variable=CC_${target//-/_}
 cc=${!variable:?cargo-zigbuild sets $variable to its wrapper of Zig\'s cc}
 zig=${CARGO_ZIGBUILD_ZIG_PATH:?ci/musl/cargo sets the path of Zig}
 
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+
+# An instrumented build (ADR 0057's note of 2026-11-14) asks the linker to
+# keep the profile runtime with `-u __llvm_profile_runtime`: two arguments,
+# which Zig's `cc` reads as an option it ignores and an input file it
+# cannot open. Each such pair reaches it as `-Wl,-u,<symbol>`, among the
+# arguments and in a copy of the response file rustc passes them in when
+# they are too long for a command (one argument a line).
+arguments=()
+while [[ $# -gt 0 ]]; do
+  if [[ "$1" == -u && $# -gt 1 ]]; then
+    arguments+=("-Wl,-u,$2")
+    shift 2
+    continue
+  fi
+  if [[ "$1" == @* && -f "${1#@}" ]] && grep -qx -e '-u' -e '"-u"' "${1#@}"; then
+    copy=$(mktemp "$scratch/arguments.XXXXXX")
+    awk '
+      pending != "" { quote = ($0 ~ /^".*"$/) ? "\"" : ""; symbol = $0; gsub(/^"|"$/, "", symbol); print quote "-Wl,-u," symbol quote; pending = ""; next }
+      $0 == "-u" || $0 == "\"-u\"" { pending = $0; next }
+      { print }
+      END { if (pending != "") print pending }
+    ' "${1#@}" >"$copy"
+    arguments+=("@$copy")
+  else
+    arguments+=("$1")
+  fi
+  shift
+done
+set -- ${arguments[@]+"${arguments[@]}"}
+
 # rustc asks for a static-PIE with `-static-pie`, among its arguments or in
 # the response file it passes them in when they are too long for a command.
 static_pie=false
@@ -34,11 +66,13 @@ for argument in "$@"; do
   fi
 done
 if [[ "$static_pie" == false ]]; then
-  exec "$cc" "$@"
+  # Not `exec`: the scratch folder goes when the link ends.
+  status=0
+  "$cc" "$@" || status=$?
+  exit "$status"
 fi
 
-log=$(mktemp)
-trap 'rm -f "$log"' EXIT
+log=$scratch/log
 status=0
 ZIG_VERBOSE_LINK=1 "$cc" "$@" -pie 2>"$log" || status=$?
 # What Zig's `cc` wrote beside the commands it printed: its errors and
@@ -56,4 +90,47 @@ fi
 # Zig prints the arguments separated by spaces and unquoted, so a path
 # holding a space splits here and LLD fails on a file it cannot open.
 read -r -a arguments <<<"${command#ld.lld }"
-"$zig" ld.lld "${arguments[@]}" -z pack-relative-relocs
+
+# A profile-guided build's order file (ADR 0057's note of 2026-11-14),
+# which ci/musl/cargo names: LLD lays the executable's sections out in the
+# order of the symbols it lists. An anonymous constant's section
+# (`.rodata..L*`, `.data.rel.ro..L*`) has no named symbol, so the file
+# lists it by its section's name, and each Rust object holding such a
+# section is linked from a copy in which the section has a symbol of that
+# name: hidden, which the executable keeps local, since llvm-objcopy writes
+# an added local symbol after the global ones, which LLD refuses.
+extra=()
+order=${GOODFETCH_MUSL_ORDER_FILE:-}
+if [[ -n "$order" ]]; then
+  remaining=$scratch/anonymous
+  grep -E '^\.(rodata|data\.rel\.ro)\.\.L' "$order" >"$remaining" || true
+  if [[ -s "$remaining" ]]; then
+    tools=${GOODFETCH_MUSL_LLVM_TOOLS:?ci/musl/cargo sets the folder of the toolchain\'s LLVM tools}
+    for index in "${!arguments[@]}"; do
+      object=${arguments[$index]}
+      [[ "$object" == *.rcgu.o && -s "$remaining" ]] || continue
+      # The sections the object holds, among those still to name: each
+      # named once, so no two objects define the same symbol.
+      "$tools/llvm-objdump" -h "$object" | awk '$1 ~ /^[0-9]+$/ && NF >= 4 { print $2 }' |
+        grep -Fx -f "$remaining" >"$scratch/held" || true
+      [[ -s "$scratch/held" ]] || continue
+      awk '{ print "--add-symbol"; print $0 "=" $0 ":0,global,hidden,object" }' "$scratch/held" >"$scratch/symbols"
+      copy="$scratch/$index-$(basename "$object")"
+      "$tools/llvm-objcopy" "@$scratch/symbols" "$object" "$copy"
+      arguments[index]=$copy
+      grep -Fxv -f "$scratch/held" "$remaining" >"$remaining.next" || true
+      mv "$remaining.next" "$remaining"
+    done
+  fi
+  # The link map, beside the executable, places each section: `xtask pgo
+  # check` reads `.text`'s order there, as `xtask pgo refresh` reads which
+  # sections the training touched, by the names the order file holds.
+  output=""
+  previous=""
+  for argument in "${arguments[@]}"; do
+    [[ "$previous" == -o ]] && output=$argument
+    previous=$argument
+  done
+  extra+=("--symbol-ordering-file=$order" --no-warn-symbol-ordering "-Map=$output.map" --no-demangle)
+fi
+"$zig" ld.lld "${arguments[@]}" ${extra[@]+"${extra[@]}"} -z pack-relative-relocs

@@ -127,7 +127,7 @@ pub(crate) fn request_count(address: &str) -> Result<u64> {
 }
 
 /// The Proving ground's observations.
-fn observations(address: &str) -> Result<Value> {
+pub(crate) fn observations(address: &str) -> Result<Value> {
     ureq::get(&format!("http://{address}/observations"))
         .call()
         .context("reading the Proving ground's observations")?
@@ -979,8 +979,7 @@ mod chrome;
 mod output;
 mod rules;
 
-use chrome::browser_cache;
-pub(crate) use chrome::{CHROME, chrome_folder};
+pub(crate) use chrome::{CHROME, browser_cache, chrome_folder};
 pub(crate) use rules::Ruled;
 
 #[cfg(test)]

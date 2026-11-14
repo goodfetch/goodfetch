@@ -165,8 +165,8 @@ fn the_probes_answer_whether_the_daemon_is_live_and_ready(
 }
 
 /// The protocol's metric of the Prometheus series `name`: its name with
-/// `.` rendered `_`, and a counter's `_total`, a ratio's `_ratio` or a size's
-/// `_bytes`.
+/// `.` rendered `_`, and a counter's `_total`, a ratio's `_ratio`, a size's
+/// `_bytes`, or a histogram's `_bucket`, `_sum` or `_count`.
 fn declared(name: &str) -> Option<&'static Metric> {
     MODULES
         .iter()
@@ -178,9 +178,18 @@ fn declared(name: &str) -> Option<&'static Metric> {
                 format!("{rendered}_total"),
                 format!("{rendered}_ratio"),
                 format!("{rendered}_bytes"),
+                format!("{rendered}_bucket"),
+                format!("{rendered}_sum"),
+                format!("{rendered}_count"),
             ]
             .contains(&name.to_owned())
         })
+}
+
+/// Whether the label `key` of the Prometheus series `name` is the bucket
+/// bound Prometheus gives each `_bucket` series of a histogram.
+fn bucket_bound(name: &str, key: &str) -> bool {
+    key == "le" && name.ends_with("_bucket")
 }
 
 /// A series of a Prometheus text: its name, its labels and its value.
@@ -212,7 +221,8 @@ pub(crate) fn series(text: &str) -> Vec<Series> {
 /// `/metrics` answers the ops token with Prometheus' text of the runtime's
 /// metrics: a Run that finished, a Run still live with its page's browser
 /// running, and the Client that started them; each series a metric the
-/// protocol declares, each label one of its declared values.
+/// protocol declares, each label one of its declared values or a
+/// histogram's bucket bound.
 ///
 /// Covers: story:3-101, story:3-103
 #[test]
@@ -236,9 +246,10 @@ fn metrics_answer_the_ops_token_with_the_runtimes_metrics_under_bounded_labels()
         .filter(|(name, labels, _)| {
             declared(name).is_none_or(|metric| {
                 labels.iter().any(|(key, value)| {
-                    !metric.labels.iter().any(|label| {
-                        label.name == key && (label.values)().contains(&value.as_str())
-                    })
+                    !bucket_bound(name, key)
+                        && !metric.labels.iter().any(|label| {
+                            label.name == key && (label.values)().contains(&value.as_str())
+                        })
                 })
             })
         })
@@ -368,10 +379,11 @@ fn collector() -> (SocketAddr, mpsc::Receiver<(String, Vec<u8>)>) {
 /// and `goodfetch.browser.recycled` have none, since no browser ran,
 /// `goodfetch.browser.memory` is 0, `goodfetch.run_state.wal.size` holds
 /// the Run's run file's write-ahead log as of its last commit (ADR 0138),
-/// `goodfetch.run_state.blocked_checkpoints` has none, since no reader
-/// blocked a checkpoint, and [`INODES`] joins them only where the
+/// `goodfetch.run_state.batch_rows` the rows of the run file's batches
+/// (ADR 0142), `goodfetch.run_state.blocked_checkpoints` has none, since no
+/// reader blocked a checkpoint, and [`INODES`] joins them only where the
 /// filesystem reports its inodes.
-const SAMPLED: [&str; 12] = [
+const SAMPLED: [&str; 13] = [
     "goodfetch.browser.memory",
     "goodfetch.client.connected",
     "goodfetch.counted_work",
@@ -381,6 +393,7 @@ const SAMPLED: [&str; 12] = [
     "goodfetch.governor.target",
     "goodfetch.run.active",
     "goodfetch.run.ended",
+    "goodfetch.run_state.batch_rows",
     "goodfetch.run_state.wal.size",
     "goodfetch.storage.available",
     "goodfetch.storage.level",

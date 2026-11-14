@@ -401,6 +401,53 @@ fn each_escalation_moves_its_domain_one_proxy_tier_up_to_the_top() {
     );
 }
 
+/// A refusal of a Session's transport, answered by its Label's comparison
+/// (#2419), retires that Session and leaves its domain's proxy tier where
+/// it was; a browser Session refused after it moves the domain up.
+///
+/// Covers: story:6-251
+#[test]
+fn a_refused_transport_retires_its_session_without_moving_the_proxy_tier() {
+    let mut pool = pool(1);
+    let refused = pool.draw(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Transport,
+        &ONE,
+        start(),
+    );
+    pool.settle(&refused, "shop.test", Effect::TransportRefused, &ONE);
+    let browser = pool.draw(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &ONE,
+        start(),
+    );
+    pool.settle(
+        &browser,
+        "shop.test",
+        Effect::Blocked(BlockCause::IpBlock),
+        &ONE,
+    );
+
+    let next = pool.draw(
+        &PoolKey::Run,
+        "shop.test",
+        SendsFrom::Browser,
+        &ONE,
+        start(),
+    );
+
+    assert_eq!(
+        (browser, next),
+        (
+            serving("session-2", ProxyTier::None, false),
+            serving("session-3", ProxyTier::Datacenter, false)
+        )
+    );
+}
+
 /// Covers: story:6-251
 #[rstest]
 #[case::payment_required(BlockCause::PaymentRequired)]

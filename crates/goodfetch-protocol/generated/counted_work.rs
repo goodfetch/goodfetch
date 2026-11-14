@@ -29,11 +29,12 @@ const SHARED_PATHS: [&str; 23] = [
 ];
 
 /// Every work a row of Counted work counts (ADR 0140).
-const WORKS: [&str; 76] = [
+const WORKS: [&str; 78] = [
     "acknowledgements",
     "actor_round_trips",
     "analysis_handoffs",
     "answers",
+    "batches",
     "block_classifications",
     "builds",
     "calls",
@@ -73,6 +74,7 @@ const WORKS: [&str; 76] = [
     "messages_no_hook",
     "opening_commands",
     "opens",
+    "page_waits",
     "parses",
     "plugin_answer_parses",
     "plugin_serializations",

@@ -233,6 +233,13 @@ rows! {
     RunTransactions => "F2.transactions", "run_state", "transactions";
     /// `F2.writer_reads`: a read through a run file's writer.
     WriterReads => "F2.writer_reads", "run_state", "writer_reads";
+    /// `F2.page_waits`: a page's wait on the run file's writer: a lease, an
+    /// admission or a settled outcome the page's task or the delivery loop
+    /// awaits before it goes on (ADR 0140's note on batching).
+    RunPageWaits => "F2.page_waits", "run_state", "page_waits";
+    /// `F2.batches`: a batch the writer sealed before it reached its pages
+    /// or its interval: a barrier, a seal, its bytes, or the run's end.
+    RunBatches => "F2.batches", "run_state", "batches";
     /// `F2.evidence_reads`: a row of the evidence the Frontier learns its
     /// rules from, read for a fetched page or a redirect.
     EvidenceReads => "F2.evidence_reads", "run_state", "evidence_reads";

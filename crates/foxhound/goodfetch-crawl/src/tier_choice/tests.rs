@@ -4,14 +4,14 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use goodfetch_fetch_tier::{Forced, TierChoice};
+use goodfetch_fetch_tier::{Forced, HttpFrom, TierChoice};
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_session_pool::SendsFrom;
 use rusqlite::Connection;
 
 use super::{
-    AttemptPlan, MAX_SEGMENTS, Sampled, Sampling, TABLES, TierChoices, Unit, Weighed, encoded,
-    read, record, segment,
+    AttemptPlan, Between, MAX_SEGMENTS, Replay, Sampled, Sampling, TABLES, TierChoices, Unit,
+    Weighed, encoded, read, record, segment,
 };
 
 const KEY: &str = "tiers.test";
@@ -45,7 +45,7 @@ fn plan(choices: &mut TierChoices, label: &str, path: &str) -> AttemptPlan {
 /// The plan of a request of `label` at `path` on [`KEY`] at `now`, its
 /// HTTP sent from the browser.
 fn plan_at(choices: &mut TierChoices, label: &str, path: &str, now: u64) -> AttemptPlan {
-    plan_from(choices, label, path, SendsFrom::Browser, now)
+    plan_from(choices, label, path, HttpFrom::Browser, now)
 }
 
 /// The plan of a request of `label` at `path` on [`KEY`] at `now`, its
@@ -54,12 +54,35 @@ fn plan_from(
     choices: &mut TierChoices,
     label: &str,
     path: &str,
-    from: SendsFrom,
+    from: HttpFrom,
     now: u64,
 ) -> AttemptPlan {
     choices
         .serve_attempt(label, KEY, &format!("http://tiers.test{path}"), from, now)
         .0
+}
+
+/// A sample whose `http` run differed and no other run matched.
+fn differed() -> Weighed {
+    Weighed::Differed(Between::default())
+}
+
+/// A sample whose `http` run differed and whose `light_browser` run
+/// matched.
+fn light() -> Weighed {
+    Weighed::Differed(Between {
+        light: true,
+        ..Between::default()
+    })
+}
+
+/// A sample whose `http` run differed and whose `browser_fetch` run
+/// matched.
+fn fetched() -> Weighed {
+    Weighed::Differed(Between {
+        fetch: true,
+        ..Between::default()
+    })
 }
 
 /// Classifies the sample of a request of `label` at `path`, as matched or
@@ -68,14 +91,14 @@ fn sample(choices: &mut TierChoices, label: &str, path: &str, matched: bool) {
     let weighed = if matched {
         Weighed::Matched
     } else {
-        Weighed::Differed
+        differed()
     };
     weigh(choices, label, path, weighed);
 }
 
 /// Classifies the sample of a request of `label` at `path` as `weighed`.
 fn weigh(choices: &mut TierChoices, label: &str, path: &str, weighed: Weighed) {
-    weigh_from(choices, label, path, SendsFrom::Browser, weighed);
+    weigh_from(choices, label, path, HttpFrom::Browser, weighed);
 }
 
 /// Classifies the sample of a request of `label` at `path`, its HTTP sent
@@ -84,7 +107,7 @@ fn weigh_from(
     choices: &mut TierChoices,
     label: &str,
     path: &str,
-    from: SendsFrom,
+    from: HttpFrom,
     weighed: Weighed,
 ) {
     let AttemptPlan::Sample(sampled) = plan_from(choices, label, path, from, START) else {
@@ -96,7 +119,7 @@ fn weigh_from(
 /// The tier a request at `path` takes once the choice is made, `None`
 /// while it is still a sample.
 fn tier(choices: &mut TierChoices, label: &str, path: &str) -> Option<FetchTier> {
-    tier_from(choices, label, path, SendsFrom::Browser)
+    tier_from(choices, label, path, HttpFrom::Browser)
 }
 
 /// The tier a request at `path`, its HTTP sent from `from`, takes once
@@ -105,7 +128,7 @@ fn tier_from(
     choices: &mut TierChoices,
     label: &str,
     path: &str,
-    from: SendsFrom,
+    from: HttpFrom,
 ) -> Option<FetchTier> {
     match plan_from(choices, label, path, from, START) {
         AttemptPlan::On(TierChoice { tier, forced: None }) => Some(tier),
@@ -271,6 +294,7 @@ fn a_request_is_sampled_under_its_label_its_domain_key_and_its_first_segment() {
                 domain_key: KEY.to_owned(),
                 segment: "products".to_owned(),
                 from: SendsFrom::Browser,
+                browser_fetch: false,
             }),
             String::new(),
             String::new(),
@@ -320,6 +344,7 @@ fn a_choice_is_sampled_again_after_its_requests_or_its_time_whichever_comes_firs
                     domain_key: KEY.to_owned(),
                     segment: "products".to_owned(),
                     from: SendsFrom::Browser,
+                    browser_fetch: false,
                 }),
             ]
         )
@@ -450,23 +475,15 @@ fn fetch_sample_count_sets_how_many_samples_a_label_takes() {
 fn a_label_whose_samples_matched_only_with_the_light_browser_is_learned_onto_it() {
     let mut choices = TierChoices::default();
     for page in 1..=SAMPLES {
-        let light = if page == 2 {
-            Weighed::Matched
-        } else {
-            Weighed::MatchedLight
-        };
-        weigh(&mut choices, "scripted", &format!("/blog/{page}"), light);
+        let scripted = if page == 2 { Weighed::Matched } else { light() };
+        weigh(&mut choices, "scripted", &format!("/blog/{page}"), scripted);
         weigh(
             &mut choices,
             "static",
             &format!("/products/{page}"),
             Weighed::Matched,
         );
-        let painted = if page == 3 {
-            Weighed::Differed
-        } else {
-            Weighed::MatchedLight
-        };
+        let painted = if page == 3 { differed() } else { light() };
         weigh(
             &mut choices,
             "painted",
@@ -475,15 +492,10 @@ fn a_label_whose_samples_matched_only_with_the_light_browser_is_learned_onto_it(
         );
     }
     let mut split = TierChoices::default();
-    weigh(&mut split, "mixed", "/blog/1", Weighed::MatchedLight);
-    weigh(&mut split, "mixed", "/painted/1", Weighed::Differed);
+    weigh(&mut split, "mixed", "/blog/1", light());
+    weigh(&mut split, "mixed", "/painted/1", differed());
     for page in 2..=SAMPLES {
-        weigh(
-            &mut split,
-            "mixed",
-            &format!("/blog/{page}"),
-            Weighed::MatchedLight,
-        );
+        weigh(&mut split, "mixed", &format!("/blog/{page}"), light());
     }
 
     assert_eq!(
@@ -521,6 +533,14 @@ fn replay_plan(n: u32) -> goodfetch_fetch_tier::ReplayPlan {
     goodfetch_fetch_tier::infer_plan(&document, &calls).unwrap()
 }
 
+/// [`replay_plan`]`(n)`'s calls sent `from` that client.
+fn replay(n: u32, from: SendsFrom) -> Replay {
+    Replay {
+        plan: replay_plan(n),
+        from,
+    }
+}
+
 /// A Label whose samples all matched, those that differed over `http`
 /// matching on `discovered_api`, is learned onto `discovered_api`, its
 /// later requests replaying the last such sample's plan; one with a
@@ -537,30 +557,436 @@ fn a_label_whose_samples_matched_on_discovered_api_is_learned_onto_it_with_its_p
         let weighed = if page == 2 {
             Weighed::Matched
         } else {
-            Weighed::MatchedApi {
-                plan: replay_plan(number),
-                light: false,
-            }
+            Weighed::Differed(Between {
+                api: Some(replay(number, SendsFrom::Browser)),
+                ..Between::default()
+            })
         };
         weigh(&mut choices, "scroll", &format!("/scroll/{page}"), weighed);
         let mixed = if page == 1 {
-            Weighed::MatchedLight
+            light()
         } else {
-            Weighed::MatchedApi {
-                plan: replay_plan(number),
-                light: false,
-            }
+            Weighed::Differed(Between {
+                api: Some(replay(number, SendsFrom::Browser)),
+                ..Between::default()
+            })
         };
         weigh(&mut choices, "mixed", &format!("/mixed/{page}"), mixed);
     }
 
     assert_eq!(
         plan(&mut choices, "scroll", "/scroll/9"),
-        AttemptPlan::Replayed(replay_plan(3))
+        AttemptPlan::Replayed(replay(3, SendsFrom::Browser))
     );
     assert_eq!(
         tier(&mut choices, "mixed", "/mixed/9"),
         Some(FetchTier::Browser)
+    );
+}
+
+/// Under `fetch.http_from: learned`, a Label whose samples that differed
+/// over `http` all matched on `browser_fetch` is learned onto
+/// `browser_fetch`; one with a sample whose browser-fetch run differed too
+/// goes on `browser`. `browser_fetch` is dearer than `http` and
+/// `discovered_api`, and cheaper than `light_browser`. A Label split by
+/// segment keeps `browser_fetch` for the segment that needs it, `http` for
+/// one that matched over `http` and `browser` for one that matched on
+/// neither (#2417).
+///
+/// Covers: setting:fetch.http_from
+#[test]
+fn a_label_whose_samples_matched_only_on_browser_fetch_is_learned_onto_it() {
+    let mut choices = TierChoices::default();
+    let fetched_and_light = Weighed::Differed(Between {
+        fetch: true,
+        light: true,
+        ..Between::default()
+    });
+    for page in 1..=SAMPLES {
+        let number = u32::try_from(page).unwrap();
+        let identity = if page == 2 {
+            Weighed::Matched
+        } else {
+            fetched()
+        };
+        let scripted = if page == 3 { differed() } else { fetched() };
+        let replayed = Weighed::Differed(Between {
+            api: Some(replay(number, SendsFrom::Transport)),
+            fetch: true,
+            light: false,
+        });
+        for (label, path, weighed) in [
+            ("identity", format!("/identity/{page}"), identity),
+            ("scripted", format!("/scripted/{page}"), scripted),
+            (
+                "lighter",
+                format!("/lighter/{page}"),
+                fetched_and_light.clone(),
+            ),
+            ("scroll", format!("/scroll/{page}"), replayed),
+        ] {
+            weigh_from(&mut choices, label, &path, HttpFrom::Learned, weighed);
+        }
+    }
+    let mut split = TierChoices::default();
+    weigh_from(
+        &mut split,
+        "mixed",
+        "/identity/1",
+        HttpFrom::Learned,
+        fetched(),
+    );
+    weigh_from(
+        &mut split,
+        "mixed",
+        "/scripted/1",
+        HttpFrom::Learned,
+        differed(),
+    );
+    weigh_from(
+        &mut split,
+        "mixed",
+        "/static/1",
+        HttpFrom::Learned,
+        Weighed::Matched,
+    );
+    for page in 2..=SAMPLES {
+        weigh_from(
+            &mut split,
+            "mixed",
+            &format!("/identity/{page}"),
+            HttpFrom::Learned,
+            fetched(),
+        );
+        weigh_from(
+            &mut split,
+            "mixed",
+            &format!("/static/{page}"),
+            HttpFrom::Learned,
+            Weighed::Matched,
+        );
+    }
+
+    assert_eq!(
+        (
+            tier_from(&mut choices, "identity", "/identity/9", HttpFrom::Learned),
+            tier_from(&mut choices, "scripted", "/scripted/9", HttpFrom::Learned),
+            tier_from(&mut choices, "lighter", "/lighter/9", HttpFrom::Learned),
+            plan_from(
+                &mut choices,
+                "scroll",
+                "/scroll/9",
+                HttpFrom::Learned,
+                START
+            ),
+            tier_from(&mut split, "mixed", "/identity/9", HttpFrom::Learned),
+            tier_from(&mut split, "mixed", "/static/9", HttpFrom::Learned),
+            tier_from(&mut split, "mixed", "/scripted/9", HttpFrom::Learned),
+        ),
+        (
+            Some(FetchTier::BrowserFetch),
+            Some(FetchTier::Browser),
+            Some(FetchTier::BrowserFetch),
+            AttemptPlan::Replayed(replay(3, SendsFrom::Transport)),
+            Some(FetchTier::BrowserFetch),
+            Some(FetchTier::Http),
+            Some(FetchTier::Browser),
+        )
+    );
+}
+
+/// Under `fetch.http_from: learned`, a Label learned onto
+/// `discovered_api` keeps the client its samples' replays matched from
+/// (#2420): its own transport when every one matched there, the browser
+/// when one matched only from there, and its later requests replay the
+/// last plan from that client, drawing a Session that sends from it. A
+/// resumed crawl replays from the same client.
+///
+/// Covers: setting:fetch.http_from, story:5-119, story:6-257
+#[test]
+fn a_label_learned_onto_discovered_api_replays_from_the_cheapest_client_that_matched_every_sample()
+{
+    let connection = Connection::open_in_memory().unwrap();
+    for statement in TABLES.statements {
+        connection.execute_batch(statement).unwrap();
+    }
+    let mut choices = TierChoices::default();
+    for page in 1..=SAMPLES {
+        let number = u32::try_from(page).unwrap();
+        let mixed = if page == 2 {
+            SendsFrom::Browser
+        } else {
+            SendsFrom::Transport
+        };
+        for (label, from) in [
+            ("scroll", SendsFrom::Transport),
+            ("guarded", SendsFrom::Browser),
+            ("mixed", mixed),
+        ] {
+            weigh_from(
+                &mut choices,
+                label,
+                &format!("/{label}/{page}"),
+                HttpFrom::Learned,
+                Weighed::Differed(Between {
+                    api: Some(replay(number, from)),
+                    ..Between::default()
+                }),
+            );
+        }
+    }
+    let plans = |choices: &mut TierChoices| {
+        ["scroll", "guarded", "mixed"].map(|label| {
+            plan_from(
+                choices,
+                label,
+                &format!("/{label}/9"),
+                HttpFrom::Learned,
+                START,
+            )
+        })
+    };
+    let learned = plans(&mut choices);
+    for ((label, key), unit) in &choices.units {
+        record(&connection, label, key, unit).unwrap();
+    }
+    let resumed = plans(&mut read(&connection).unwrap());
+
+    let expected = [
+        replay(3, SendsFrom::Transport),
+        replay(3, SendsFrom::Browser),
+        replay(3, SendsFrom::Browser),
+    ]
+    .map(AttemptPlan::Replayed);
+    assert_eq!(learned, expected);
+    assert_eq!(resumed, expected);
+    assert_eq!(
+        expected
+            .each_ref()
+            .map(|plan| plan.sends_from(SendsFrom::Transport)),
+        [SendsFrom::Transport, SendsFrom::Browser, SendsFrom::Browser]
+    );
+}
+
+/// Only a sample under `fetch.http_from: learned` runs on
+/// `browser_fetch`, its `http` run sent from the transport; a choice that
+/// holds `browser_fetch` is sampled again once its Label sends its HTTP
+/// from the transport alone (#2417).
+///
+/// Covers: setting:fetch.http_from
+#[test]
+fn only_a_sample_under_learned_runs_on_browser_fetch() {
+    let mut choices = TierChoices::default();
+    let sampled = [HttpFrom::Browser, HttpFrom::Learned, HttpFrom::Transport].map(|from| {
+        match plan_from(&mut choices, "page", "/identity/1", from, START) {
+            AttemptPlan::Sample(sampled) => (sampled.from, sampled.browser_fetch),
+            other => panic!("{other:?} is no sample"),
+        }
+    });
+    for page in 1..=SAMPLES {
+        weigh_from(
+            &mut choices,
+            "identity",
+            &format!("/identity/{page}"),
+            HttpFrom::Learned,
+            fetched(),
+        );
+    }
+    let learned = tier_from(&mut choices, "identity", "/identity/9", HttpFrom::Learned);
+
+    assert_eq!(
+        (
+            sampled,
+            learned,
+            tier_from(
+                &mut choices,
+                "identity",
+                "/identity/10",
+                HttpFrom::Transport
+            ),
+        ),
+        (
+            [
+                (SendsFrom::Browser, false),
+                (SendsFrom::Transport, true),
+                (SendsFrom::Transport, false),
+            ],
+            Some(FetchTier::BrowserFetch),
+            None,
+        )
+    );
+}
+
+/// A refusal of a Label's transport drops its choice (#2419): the Label
+/// learned onto `http` from the transport is sampled again at once, a
+/// resumed crawl too, and samples whose `http` run was refused but whose
+/// `browser_fetch` run matched move it to `browser_fetch`. A Label still
+/// sampling keeps the samples it took, and a walled Label stays walled.
+///
+/// Covers: setting:fetch.http_from, story:6-251
+#[test]
+fn a_refused_transport_samples_its_label_again_onto_browser_fetch() {
+    let connection = Connection::open_in_memory().unwrap();
+    for statement in TABLES.statements {
+        connection.execute_batch(statement).unwrap();
+    }
+    let mut choices = TierChoices::default();
+    for page in 1..=SAMPLES {
+        weigh_from(
+            &mut choices,
+            "refused",
+            &format!("/refused/{page}"),
+            HttpFrom::Learned,
+            Weighed::Matched,
+        );
+        if page < SAMPLES {
+            weigh_from(
+                &mut choices,
+                "sampling",
+                &format!("/refused/{page}"),
+                HttpFrom::Learned,
+                Weighed::Matched,
+            );
+        }
+    }
+    weigh(&mut choices, "walled", "/refused/1", Weighed::Walled);
+    let before = tier_from(&mut choices, "refused", "/refused/4", HttpFrom::Learned);
+    let dropped = choices.invalidate("refused", KEY).cloned();
+    if let Some(unit) = &dropped {
+        record(&connection, "refused", KEY, unit).unwrap();
+    }
+    let unchanged = [
+        choices.invalidate("sampling", KEY).is_none(),
+        choices.invalidate("walled", KEY).is_none(),
+    ];
+    let resumed = tier_from(
+        &mut read(&connection).unwrap(),
+        "refused",
+        "/refused/4",
+        HttpFrom::Learned,
+    );
+    for page in 4..4 + SAMPLES {
+        weigh_from(
+            &mut choices,
+            "refused",
+            &format!("/refused/{page}"),
+            HttpFrom::Learned,
+            fetched(),
+        );
+    }
+    weigh_from(
+        &mut choices,
+        "sampling",
+        "/refused/3",
+        HttpFrom::Learned,
+        Weighed::Matched,
+    );
+
+    assert_eq!(
+        (
+            before,
+            dropped,
+            unchanged,
+            resumed,
+            tier_from(&mut choices, "refused", "/refused/9", HttpFrom::Learned),
+            tier_from(&mut choices, "sampling", "/refused/9", HttpFrom::Learned),
+            tier(&mut choices, "walled", "/refused/9"),
+        ),
+        (
+            Some(FetchTier::Http),
+            Some(Unit::Sampling {
+                samples: Vec::new(),
+                replay: None,
+                from: SendsFrom::Transport,
+            }),
+            [true, true],
+            None,
+            Some(FetchTier::BrowserFetch),
+            Some(FetchTier::Http),
+            Some(FetchTier::Browser),
+        )
+    );
+}
+
+/// A resumed crawl takes its `browser_fetch` choices again: a Label
+/// learned onto it, and a split Label's segment, read back from the run
+/// file on it, and so does a segment still sampling (#2417).
+///
+/// Covers: setting:fetch.http_from, story:6-257
+#[test]
+fn a_resumed_crawl_takes_its_browser_fetch_choices_again() {
+    let connection = Connection::open_in_memory().unwrap();
+    for statement in TABLES.statements {
+        connection.execute_batch(statement).unwrap();
+    }
+    let mut choices = TierChoices::default();
+    for page in 1..=SAMPLES {
+        weigh_from(
+            &mut choices,
+            "identity",
+            &format!("/identity/{page}"),
+            HttpFrom::Learned,
+            fetched(),
+        );
+    }
+    weigh_from(
+        &mut choices,
+        "mixed",
+        "/identity/1",
+        HttpFrom::Learned,
+        fetched(),
+    );
+    weigh_from(
+        &mut choices,
+        "mixed",
+        "/scripted/1",
+        HttpFrom::Learned,
+        differed(),
+    );
+    weigh_from(
+        &mut choices,
+        "mixed",
+        "/static/1",
+        HttpFrom::Learned,
+        fetched(),
+    );
+    for page in 2..=SAMPLES {
+        weigh_from(
+            &mut choices,
+            "mixed",
+            &format!("/identity/{page}"),
+            HttpFrom::Learned,
+            fetched(),
+        );
+    }
+    for ((label, key), unit) in &choices.units {
+        record(&connection, label, key, unit).unwrap();
+    }
+
+    let mut read = read(&connection).unwrap();
+    for page in 2..=SAMPLES {
+        weigh_from(
+            &mut read,
+            "mixed",
+            &format!("/static/{page}"),
+            HttpFrom::Learned,
+            fetched(),
+        );
+    }
+
+    assert_eq!(
+        [
+            tier_from(&mut read, "identity", "/identity/9", HttpFrom::Learned),
+            tier_from(&mut read, "mixed", "/identity/9", HttpFrom::Learned),
+            tier_from(&mut read, "mixed", "/static/9", HttpFrom::Learned),
+            tier_from(&mut read, "mixed", "/scripted/9", HttpFrom::Learned),
+        ],
+        [
+            Some(FetchTier::BrowserFetch),
+            Some(FetchTier::BrowserFetch),
+            Some(FetchTier::BrowserFetch),
+            Some(FetchTier::Browser),
+        ]
     );
 }
 
@@ -583,7 +1009,7 @@ fn a_choice_learned_from_another_client_is_sampled_again() {
         &mut choices,
         "api",
         "/products/10",
-        SendsFrom::Transport,
+        HttpFrom::Transport,
         START,
     );
     for page in 1..=SAMPLES {
@@ -591,7 +1017,7 @@ fn a_choice_learned_from_another_client_is_sampled_again() {
             &mut choices,
             "api",
             &format!("/products/{page}"),
-            SendsFrom::Transport,
+            HttpFrom::Transport,
             Weighed::Matched,
         );
     }
@@ -600,9 +1026,9 @@ fn a_choice_learned_from_another_client_is_sampled_again() {
         (
             from_the_browser,
             resampled,
-            tier_from(&mut choices, "api", "/products/11", SendsFrom::Transport),
+            tier_from(&mut choices, "api", "/products/11", HttpFrom::Transport),
             tier(&mut choices, "api", "/products/12"),
-            tier_from(&mut choices, "walled", "/products/2", SendsFrom::Transport),
+            tier_from(&mut choices, "walled", "/products/2", HttpFrom::Transport),
         ),
         (
             Some(FetchTier::Http),
@@ -611,6 +1037,7 @@ fn a_choice_learned_from_another_client_is_sampled_again() {
                 domain_key: KEY.to_owned(),
                 segment: "products".to_owned(),
                 from: SendsFrom::Transport,
+                browser_fetch: false,
             }),
             Some(FetchTier::Http),
             None,
@@ -643,6 +1070,7 @@ fn a_forced_tier_sends_from_its_own_client_whatever_the_label_sends_its_http_fro
         domain_key: KEY.to_owned(),
         segment: "products".to_owned(),
         from: SendsFrom::Transport,
+        browser_fetch: false,
     });
     let from_either = |plan: &AttemptPlan| {
         [SendsFrom::Browser, SendsFrom::Transport].map(|from| plan.sends_from(from))
@@ -679,18 +1107,18 @@ fn a_choice_stored_without_its_client_reads_back_as_sent_from_the_browser() {
     }
     let learned = format!(r#"{{"kind":"learned","tier":"http","since":{START}}}"#);
     let split = format!(
-        r#"{{"kind":"split","segments":[{{"name":"products","matched":3,"serves":{{"http":true,"api":true,"light":true}},"tier":"http"}},{{"name":"docs","matched":3,"tier":"http"}},{{"name":"blog","matched":0,"tier":"browser"}}],"since":{START}}}"#
+        r#"{{"kind":"split","segments":[{{"name":"products","matched":3,"serves":{{"http":true,"api":true,"fetch":true,"light":true}},"tier":"http"}},{{"name":"docs","matched":3,"tier":"http"}},{{"name":"blog","matched":0,"tier":"browser"}}],"since":{START}}}"#
     );
-    let sampling = r#"{"kind":"sampling","samples":[{"segment":"products","matched":true}]}"#;
+    let sampling = r#"{"kind":"sampling","samples":[{"segment":"products","serves":{"http":true,"api":true,"fetch":true,"light":true}}]}"#;
     // A segment stored without its `serves` is stored again with them all.
     let split_again = split
         .replace(
             r#""matched":3,"tier""#,
-            r#""matched":3,"serves":{"http":true,"api":true,"light":true},"tier""#,
+            r#""matched":3,"serves":{"http":true,"api":true,"fetch":true,"light":true},"tier""#,
         )
         .replace(
             r#""matched":0,"tier""#,
-            r#""matched":0,"serves":{"http":true,"api":true,"light":true},"tier""#,
+            r#""matched":0,"serves":{"http":true,"api":true,"fetch":true,"light":true},"tier""#,
         );
     for (label, unit) in [
         ("learned", learned.as_str()),
@@ -710,7 +1138,7 @@ fn a_choice_stored_without_its_client_reads_back_as_sent_from_the_browser() {
             &mut transport,
             "transport",
             &format!("/products/{page}"),
-            SendsFrom::Transport,
+            HttpFrom::Transport,
             Weighed::Matched,
         );
     }
@@ -736,7 +1164,7 @@ fn a_choice_stored_without_its_client_reads_back_as_sent_from_the_browser() {
             tier(&mut read, "split", "/docs/9"),
             tier(&mut read, "split", "/blog/9"),
             sampling_from_the_browser,
-            tier_from(&mut read, "transport", "/products/9", SendsFrom::Transport),
+            tier_from(&mut read, "transport", "/products/9", HttpFrom::Transport),
             tier(&mut read, "transport", "/products/10"),
         ),
         (

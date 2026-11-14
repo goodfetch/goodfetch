@@ -14,7 +14,7 @@ use goodfetch_engine::admission::SecondCopies;
 use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{
     Chosen, FetchTiers, HandOver, HttpTier, Judged, PageFacts, PooledSession, Race, RaceEnd,
-    TierChoice, record_race, room_taken,
+    TierChoice, record_race, room_taken, tier_provenance,
 };
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::page::{PageId, PageResponse};
@@ -22,8 +22,8 @@ use goodfetch_protocol::usage::REQUESTS;
 use tokio::sync::oneshot;
 
 use super::{
-    Answer, AttemptFailure, BLOCKED, BROWSER, Found, On, PAGE_CHECK_FAILED, RACED, Served, Taught,
-    Tiering, failed, judged, learn, reached_through_trap, read_by_browser, record_tier,
+    Answer, AttemptFailure, BLOCKED, BROWSER, FETCHED, Found, On, PAGE_CHECK_FAILED, Served,
+    Taught, Tiering, failed, judged, learn, reached_through_trap, read_by_browser, record_tier,
     refused_type,
 };
 use crate::lease::WorkItemLease;
@@ -86,7 +86,7 @@ impl On<'_> {
             // A raced chain a hop ends `skipped` teaches nothing: the
             // navigation may still serve the request.
             let (served, facts) = self
-                .document(tiering, &fetching, &RACED, hand_over)
+                .document(tiering, &fetching, &FETCHED, hand_over)
                 .await
                 .map_err(|unserved| unserved.answer)?;
             let latency = run.clock().now().duration_since(started);
@@ -95,10 +95,13 @@ impl On<'_> {
             // browser reads it (ADR 0119). Nor does a Challenge: the
             // navigation meets it in the browser, and the domain learns
             // the move (`escalation`).
-            let passed = match self.found(tiering, served.page_id(), &facts).await {
+            let passed = match self
+                .found(tiering, served.page_id(), &facts, (&FETCHED, Chosen::Raced))
+                .await
+            {
                 Found::Unreadable(_) => false,
-                Found::Challenge(cause, _) => {
-                    self.on_block(cause, &RACED);
+                Found::Blocked(cause, _) => {
+                    self.on_block(cause, &FETCHED, Chosen::Raced);
                     false
                 }
                 Found::Readable => matches!(
@@ -163,8 +166,7 @@ impl On<'_> {
                     run,
                     leased,
                     self.lease,
-                    &BROWSER_FETCH,
-                    Chosen::Raced,
+                    tier_provenance(&BROWSER_FETCH, Chosen::Raced),
                     facts.encoding,
                     facts.certificate_exception,
                 )
@@ -179,7 +181,7 @@ impl On<'_> {
                         self.lease.restage();
                         self.browser(tiers, &BROWSER, Chosen::Escalated(call)).await
                     }
-                    None if self.moves(&answer, &RACED) => {
+                    None if self.moves(&answer, &FETCHED, Chosen::Raced) => {
                         self.lease.renew(self.lease.length());
                         self.lease.restage();
                         self.browser(tiers, &BROWSER, Chosen::Escalated(BLOCKED))
@@ -202,8 +204,7 @@ impl On<'_> {
                     run,
                     leased,
                     self.lease,
-                    &BROWSER,
-                    Chosen::Raced,
+                    tier_provenance(&BROWSER, Chosen::Raced),
                     encoding,
                     certificate_exception,
                 )

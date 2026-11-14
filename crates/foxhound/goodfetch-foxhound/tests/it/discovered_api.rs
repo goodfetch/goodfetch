@@ -14,13 +14,15 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::collections::BTreeSet;
+
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::ObservedRequest;
 use goodfetch_test_support::{ProvingGround, TestEnv};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
-use crate::fetch_tiers::{engine, settings, tiers};
+use crate::fetch_tiers::{engine, provenance, settings, tiers};
 use crate::frontier::{Inside, crawl_declaring};
 
 /// The Proving ground's seed.
@@ -35,9 +37,9 @@ const LISTS: u64 = 6;
 /// first two calls of its list, as URL patterns.
 fn waits(kind: &str) -> [String; 2] {
     match kind {
-        "scroll" => [
-            r"/api/scroll/\d+\?page=1$".to_owned(),
-            r"/api/scroll/\d+\?page=2$".to_owned(),
+        "scroll" | "guarded" => [
+            format!(r"/api/{kind}/\d+\?page=1$"),
+            format!(r"/api/{kind}/\d+\?page=2$"),
         ],
         _ => [
             format!(r"/api/{kind}/\d+(\?token=\d+)?$"),
@@ -51,7 +53,8 @@ fn waits(kind: &str) -> [String; 2] {
 /// bodies the engine keeps, and a `page.wait_for_response` for the first,
 /// reloads the page, reads each finished call's body and pushes one Record
 /// of its items and the first response's URL and status. A call its tier
-/// cannot serve leaves it with nothing to push.
+/// cannot serve leaves it with nothing to push; a call answered without
+/// items adds none.
 fn read_the_list(kind: &'static str) -> impl FnMut(&mut Inside<'_>, &Value) -> Value {
     move |inside, handle| {
         let page_id = handle["page_id"].clone();
@@ -112,7 +115,7 @@ fn read_the_list(kind: &'static str) -> impl FnMut(&mut Inside<'_>, &Value) -> V
                 .as_str()
                 .unwrap_or_else(|| panic!("{} {read}", handle["tier"]));
             let body: Value = serde_json::from_slice(&body_of(path)).unwrap();
-            items.extend(body["items"].as_array().unwrap().iter().cloned());
+            items.extend(body["items"].as_array().into_iter().flatten().cloned());
         }
         let reply = inside.call(
             "crawl_request.push",
@@ -390,4 +393,153 @@ fn a_list_whose_call_carries_a_token_taken_once_stays_on_the_browser() {
     assert_eq!(chosen(&env, "api-signed"), expected_chosen);
     let records = committed(&env, "api-signed");
     assert_eq!(records.len(), 6, "{records:?}");
+}
+
+/// The lists of `kinds` on `origin`, each a Label of its kind's name.
+fn lists_of(origin: &str, kinds: &[&str]) -> Vec<Value> {
+    kinds
+        .iter()
+        .flat_map(|kind| {
+            (1..=LISTS)
+                .map(move |n| json!({ "url": format!("{origin}/{kind}/{n}"), "label": kind }))
+        })
+        .collect()
+}
+
+/// A crawl as `run_id` of the scroll and guarded lists on `origin`, under
+/// the `fetch` settings `fetch`, each read by [`read_the_list`].
+fn crawl_scroll_and_guarded(
+    env: &TestEnv,
+    proving_ground: &ProvingGround,
+    (run_id, origin): (&str, &str),
+    fetch: &Value,
+) {
+    let mut engine = engine(env);
+    let mut scroll = read_the_list("scroll");
+    let mut guarded = read_the_list("guarded");
+    let finished = crawl_declaring(
+        &mut engine,
+        run_id,
+        &lists_of(origin, &["scroll", "guarded"]),
+        &json!({ "scroll": {}, "guarded": {} }),
+        &settings(proving_ground, &json!({ "fetch": fetch })),
+        &mut |inside: &mut Inside<'_>, handle: &Value| {
+            let url = handle["crawl_request"]["url"].as_str().unwrap_or_default();
+            if url.contains("/guarded/") {
+                guarded(inside, handle)
+            } else {
+                scroll(inside, handle)
+            }
+        },
+    );
+    assert!(engine.finished());
+    assert_eq!(finished["result"]["lifecycle"], "finished", "{finished}");
+}
+
+/// The TLS fingerprints, without what a resumed handshake adds, of the
+/// requests for the lists of `kind` past the samples, their documents and
+/// their calls apart, among `requests`.
+fn later_fingerprints(
+    requests: &[&ObservedRequest],
+    kind: &str,
+) -> (BTreeSet<String>, BTreeSet<String>) {
+    let ja4 = |request: &&&ObservedRequest| {
+        request
+            .tls
+            .as_ref()
+            .and_then(|hello| hello["ja4_base"].as_str())
+            .unwrap_or("none")
+            .to_owned()
+    };
+    let documents = requests
+        .iter()
+        .filter(|request| (4..=LISTS).any(|n| request.target == format!("/{kind}/{n}")))
+        .map(|request| ja4(&request))
+        .collect();
+    let calls = requests
+        .iter()
+        .filter(|request| {
+            (4..=LISTS).any(|n| request.target.starts_with(&format!("/api/{kind}/{n}?")))
+        })
+        .map(|request| ja4(&request))
+        .collect();
+    (documents, calls)
+}
+
+/// Under `fetch.http_from: learned` (#2420), a sample's replay of its
+/// browser's calls leaves from a Session's own transport first, and from
+/// the browser where that replay differed: the infinite-scroll list, whose
+/// API answers any client alike, is learned onto `discovered_api` with its
+/// calls sent from the transport, its later lists' documents and calls
+/// arriving with the transport's TLS fingerprint; the guarded list, whose
+/// API answers only the pinned browser, keeps `discovered_api` with its
+/// calls sent from the browser, arriving with the browser's. Provenance's
+/// tier entry names where each replay's calls left from, and every list
+/// commits the Records a crawl on the browser commits.
+///
+/// Covers: story:5-119, setting:fetch.http_from, setting:fetch.tier
+#[test]
+fn under_learned_a_list_replays_its_calls_from_the_cheapest_sender_that_matches_the_browser() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    env.user_configuration(&format!(
+        "tls.trusted_cas.\"{HOST}\" = ['{}']\n",
+        proving_ground.description().ca.display()
+    ));
+    let origin = format!("https://{HOST}:{}", proving_ground.address().port());
+
+    crawl_scroll_and_guarded(
+        &env,
+        &proving_ground,
+        ("learned", &origin),
+        &json!({ "tier": "auto", "http_from": "learned" }),
+    );
+    let received = proving_ground.received_requests().unwrap();
+    let requests: Vec<&ObservedRequest> = received.every().collect();
+    crawl_scroll_and_guarded(
+        &env,
+        &proving_ground,
+        ("on-browser", &origin),
+        &json!({ "tier": "browser" }),
+    );
+
+    let mut learned: Vec<Value> = provenance(&env, "learned", "fetch_tier")
+        .iter()
+        .filter(|entry| entry["chosen"] != "sample")
+        .map(|entry| {
+            json!([
+                entry["label"],
+                entry["tier"],
+                entry["chosen"],
+                entry["calls_sent_on"]
+            ])
+        })
+        .collect();
+    learned.sort_by_key(ToString::to_string);
+    let mut expected: Vec<Value> = [("guarded", "browser_fetch"), ("scroll", "http")]
+        .into_iter()
+        .flat_map(|(label, sent_on)| {
+            (4..=LISTS).map(move |_| json!([label, "discovered_api", "compared", sent_on]))
+        })
+        .collect();
+    expected.sort_by_key(ToString::to_string);
+    assert_eq!(learned, expected);
+
+    let (scroll_documents, scroll_calls) = later_fingerprints(&requests, "scroll");
+    let (guarded_documents, guarded_calls) = later_fingerprints(&requests, "guarded");
+    assert_eq!(scroll_documents.len(), 1, "{scroll_documents:?}");
+    assert_eq!(scroll_calls, scroll_documents);
+    assert_eq!(guarded_documents.len(), 1, "{guarded_documents:?}");
+    assert_eq!(guarded_calls, guarded_documents);
+    assert_ne!(scroll_calls, guarded_calls);
+
+    let records = committed(&env, "learned");
+    assert_eq!(records.len(), 2 * 6, "{records:?}");
+    assert!(
+        records
+            .iter()
+            .all(|record| record["items"].as_array().unwrap().len() == 4),
+        "{records:?}"
+    );
+    assert_eq!(records, committed(&env, "on-browser"));
 }

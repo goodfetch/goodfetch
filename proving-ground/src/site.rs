@@ -40,6 +40,7 @@ use crate::login::{self, Logins};
 use crate::model::{self, Candidate, FakeModel};
 use crate::observation::{self, Observations, Recorded, Report};
 use crate::oracle::{self, Finding, Submission};
+use crate::page_load;
 use crate::portal::{self, Portal};
 use crate::protection;
 use crate::push::Push;
@@ -141,7 +142,9 @@ impl Site {
                 clean_up::PAYMENT_HOST,
                 consent::HOST,
                 consent::FRAME_HOST,
+                page_load::HOST,
             ])
+            .chain(page_load::AD_HOSTS)
             .map(|host| (host.to_owned(), None))
             .collect();
         hosts.extend(
@@ -324,6 +327,9 @@ impl Site {
             return reply;
         }
         if let Some(reply) = consent::respond(&name, request) {
+            return reply;
+        }
+        if let Some(reply) = page_load::respond(self.port, &name, request) {
             return reply;
         }
         if name == model::HOST {

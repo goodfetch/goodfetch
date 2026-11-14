@@ -1,16 +1,28 @@
 //! The Collie scenario of `xtask compare` (issue 2282): Collie against
 //! Playwright on the Proving ground's `actionability.test` and
-//! `portal.test` pages, in five cells (click, form, navigation, Sessions
-//! opened, pages at once), each tool carrying out the same plan through
-//! `xtask/compare-collie/act.ts`.
+//! `portal.test` pages, in six cells (click, form, navigation, Sessions
+//! opened, pages at once, pages opened), each tool carrying out the same
+//! plan through `xtask/compare-collie/act.ts`; beside them the arms,
+//! Puppeteer's two rows, Stagehand with no model and agent-browser's
+//! command line, through `xtask/compare-collie-arms/act.ts` (issues 2443,
+//! 2441 and 2442), and chromiumoxide, through the Rust program
+//! `xtask/compare-chromiumoxide` builds (issue 2444), each read against the
+//! Collie row the pages it got right place it at; and the page-load cell
+//! ([`page_load`], issue 2319), in which each tool launches its own browser.
 //!
-//! Both tools attach over CDP to one Chrome for Testing that xtask
-//! launched, which neither tool launched: through the counting relay
-//! ([`super::relay`]), each tool's CDP commands are counted the same way,
-//! from outside it, and the browser's own processes are left out of each
-//! tool's CPU and memory. What that leaves out of the Sessions cell is the
-//! browser's launch, which `just counts` times for Collie at its defaults
-//! (issue 2319).
+//! In the six cells every tool attaches over CDP to one Chrome for Testing
+//! that xtask launched, which no tool launched: through the counting relay
+//! ([`super::relay`]), each tool's CDP commands, and the rounds it waited
+//! on the browser, are counted the same way, from outside it, and the
+//! browser's own processes are left out of each tool's CPU and memory.
+//! Stagehand's extension runs in the browser's processes, so its CPU and
+//! memory are not Stagehand's, while its CDP commands pass the relay.
+//! agent-browser's commands each start a process that hands the command to
+//! a daemon the first one started; the driver adopts the daemon, so its
+//! CPU and memory are agent-browser's, and the CPU of each command's
+//! process counts once the driver has waited for it.
+//! What that leaves out of the Sessions cell is the browser's launch, which
+//! `just counts` times for Collie at its defaults.
 //!
 //! Each trial runs one tool in a fresh process, against a fresh Proving
 //! ground and a fresh browser, and takes its figures between the marks the
@@ -28,9 +40,8 @@
 )]
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
@@ -42,27 +53,37 @@ use sha2::{Digest as _, Sha256};
 
 use crate::check::Finding;
 
-use super::relay::Relay;
+use super::relay::{Mark, Relay};
 use super::sampler::{self, Sampler};
 use super::trial::{self, Outcome};
-use super::trials::{CollieScenario, CollieTrial, Contender, Ended, Exercise, PageDone};
+use super::trials::{
+    CollieScenario, CollieTrial, Contender, DriverApart, Ended, Exercise, PageDone,
+};
 
+pub(crate) mod page_load;
 mod section;
+mod tools;
+
+use tools::adopt_orphans;
+pub(crate) use tools::{Tools, browser_flags, skipped};
 
 pub(crate) use section::{Section, markdown, section};
 
 /// The cells, in the order the report gives them.
-pub(crate) const EXERCISES: [Exercise; 5] = [
+pub(crate) const EXERCISES: [Exercise; 6] = [
     Exercise::Click,
     Exercise::Form,
     Exercise::Navigation,
     Exercise::Sessions,
     Exercise::AtOnce,
+    Exercise::Opening,
 ];
 /// How long an action waits for its target, in both tools.
 pub(crate) const ACTION_TIMEOUT_MILLISECONDS: u64 = 1000;
 /// The Sessions the Sessions cell opens, after one outside the marks.
 pub(crate) const SESSIONS: u64 = 10;
+/// The pages the opening cell opens, after one outside the marks.
+pub(crate) const OPENINGS: u64 = 10;
 /// The register's row the click and form cells give (ADR 0140).
 pub(crate) const RATIO_ROW: &str = "collie.playwright_command_ratio";
 /// The cells whose command ratio the row reads.
@@ -112,30 +133,43 @@ pub(crate) enum Cell {
     },
     /// So many Sessions opened one after another, each with one page.
     Sessions(u64),
+    /// So many pages opened one after another in one Session, each kept
+    /// open until the last is.
+    Openings(u64),
 }
 
 impl Cell {
-    /// Its pages; none in the Sessions cell.
+    /// Its pages; none in the Sessions and opening cells.
     pub(crate) fn pages(&self) -> &[Planned] {
         match self {
             Self::Pages { pages, .. } => pages,
-            Self::Sessions(_) => &[],
+            Self::Sessions(_) | Self::Openings(_) => &[],
         }
     }
 
-    /// The Sessions it opens; none in a cell of pages.
+    /// The Sessions it opens; none in the other cells.
     pub(crate) fn sessions(&self) -> u64 {
         match self {
-            Self::Pages { .. } => 0,
+            Self::Pages { .. } | Self::Openings(_) => 0,
             Self::Sessions(sessions) => *sessions,
         }
     }
 
-    /// Its actions: each step, or each Session opened.
+    /// The pages it opens with nothing to do on them; none in the other
+    /// cells.
+    pub(crate) fn openings(&self) -> u64 {
+        match self {
+            Self::Pages { .. } | Self::Sessions(_) => 0,
+            Self::Openings(openings) => *openings,
+        }
+    }
+
+    /// Its actions: each step, each Session opened or each page opened.
     pub(crate) fn actions(&self) -> u64 {
         match self {
             Self::Pages { pages, .. } => pages.iter().map(|page| page.steps.len() as u64).sum(),
             Self::Sessions(sessions) => *sessions,
+            Self::Openings(openings) => *openings,
         }
     }
 
@@ -156,6 +190,7 @@ impl Cell {
             "pages": pages,
             "at_once": matches!(self, Self::Pages { at_once: true, .. }),
             "sessions": self.sessions(),
+            "openings": self.openings(),
             "action_timeout": ACTION_TIMEOUT_MILLISECONDS,
         }))
     }
@@ -245,6 +280,7 @@ pub(crate) fn cell(exercise: Exercise) -> Cell {
             false,
         ),
         Exercise::Sessions => return Cell::Sessions(SESSIONS),
+        Exercise::Opening => return Cell::Openings(OPENINGS),
         Exercise::AtOnce => (
             pages(
                 "actionability",
@@ -265,6 +301,7 @@ impl Exercise {
             Self::Navigation => "navigation",
             Self::Sessions => "sessions",
             Self::AtOnce => "at_once",
+            Self::Opening => "opening",
         }
     }
 }
@@ -312,19 +349,6 @@ pub(crate) fn configuration(urls: &[String]) -> Result<String> {
     Ok(text)
 }
 
-/// The executables and files a trial takes.
-pub(crate) struct Tools<'a> {
-    pub(crate) proving_ground: &'a Path,
-    /// Collie's Attached engine.
-    pub(crate) engine: &'a Path,
-    /// `xtask/compare-collie/act.ts`, which Node.js runs, as an absolute path.
-    pub(crate) driver: PathBuf,
-    /// Chrome for Testing's folder.
-    pub(crate) browser: &'a Path,
-    /// xtask's own `GOODFETCH_*` variables, which the tool runs without.
-    pub(crate) goodfetch_variables: &'a [OsString],
-}
-
 /// A browser xtask launched, its whole tree stopped when dropped.
 struct Browser {
     child: Child,
@@ -338,9 +362,10 @@ impl Drop for Browser {
 }
 
 /// Launches Chrome for Testing from `folder`, headless, with its profile
-/// in `profile` and every `.test` host resolved to loopback; returns it with
-/// its remote-debugging port and the browser endpoint's path.
-fn launch(folder: &Path, profile: &Path) -> Result<(Browser, u16, String)> {
+/// in `profile`, every `.test` host resolved to loopback and `flags`
+/// besides; returns it with its remote-debugging port and the browser
+/// endpoint's path.
+fn launch(folder: &Path, profile: &Path, flags: &[&str]) -> Result<(Browser, u16, String)> {
     let child = Command::new(folder.join(trial::CHROME))
         .args([
             "--headless",
@@ -349,6 +374,7 @@ fn launch(folder: &Path, profile: &Path) -> Result<(Browser, u16, String)> {
             "--remote-debugging-port=0",
             "--host-resolver-rules=MAP *.test 127.0.0.1",
         ])
+        .args(flags)
         .arg(format!("--user-data-dir={}", profile.display()))
         .arg("about:blank")
         .stdin(Stdio::null())
@@ -418,11 +444,16 @@ fn oracle_outcome(address: &str, page: &PageDone) -> Result<OracleOutcome> {
         .with_context(|| format!("the oracle's answer has no outcome: {answer}"))
 }
 
-/// What the driver printed: each page, and the Sessions it opened.
+/// What the driver printed: each page, the Sessions it opened, the pages
+/// it opened with nothing to do on them and, a Collie driver alone, the
+/// JSON-RPC messages it sent the engine between the marks.
 #[derive(serde::Deserialize)]
 struct Printed {
     pages: Vec<DriverPage>,
     sessions: u64,
+    opened: u64,
+    #[serde(default)]
+    messages: Option<u64>,
 }
 
 #[derive(serde::Deserialize)]
@@ -475,6 +506,80 @@ fn waited(child: &mut Child) -> Result<Outcome<std::process::ExitStatus>> {
     }
 }
 
+/// Points `command` at a Goodfetch home in `folder` whose user
+/// configuration is `configuration`, at Collie's engine and at the
+/// run-state key.
+fn collie_home(
+    command: &mut Command,
+    folder: &Path,
+    tools: &Tools<'_>,
+    configuration: &str,
+) -> Result<()> {
+    let home = folder.join("home");
+    let lined = home.join(version_line()?);
+    std::fs::create_dir_all(&lined).context("creating the Goodfetch home")?;
+    std::fs::write(lined.join("configuration.toml"), configuration)
+        .context("writing Collie's configuration")?;
+    command
+        .env("GOODFETCH_HOME", &home)
+        .env("GOODFETCH_COLLIE_ENGINE_PATH", tools.engine)
+        .env(RUN_STATE_KEY_VARIABLE, RUN_STATE_KEY);
+    Ok(())
+}
+
+/// What a driver run left: its one line of output, and the relay's marks
+/// with the peak memory of its process tree.
+struct Driven {
+    printed: String,
+    start: Mark,
+    end: Mark,
+    peak_bytes: u64,
+}
+
+/// Runs the driver `command` in `folder`, its process tree followed by a
+/// sampler and by `relay`, and returns what it printed between the marks
+/// it asked `relay` for; or why the comparison stopped it. `subject` names
+/// the trial when the driver fails.
+fn drive(
+    mut command: Command,
+    folder: &Path,
+    relay: &Relay,
+    subject: &str,
+) -> Result<Outcome<Driven>> {
+    let printed = folder.join("printed.json");
+    let errors = folder.join("errors.txt");
+    let watcher = Sampler::start(trial::now(), false);
+    let mut child = command
+        .current_dir(folder)
+        .stdin(Stdio::null())
+        .stdout(std::fs::File::create(&printed).context("creating the tool's output")?)
+        .stderr(std::fs::File::create(&errors).context("creating the tool's errors")?)
+        .spawn()
+        .context("running the driver")?;
+    watcher.follow(child.id());
+    relay.follow(child.id());
+    let status = waited(&mut child);
+    let samples = watcher.finish().unwrap_or_default();
+    let status = match status? {
+        Outcome::Done(status) => status,
+        Outcome::Stopped(reason) => return Ok(Outcome::Stopped(reason)),
+    };
+    if !status.success() {
+        let stderr = std::fs::read_to_string(&errors).unwrap_or_default();
+        bail!("{subject} failed ({status}): {}", stderr.trim());
+    }
+    let text = std::fs::read_to_string(&printed).context("reading the tool's output")?;
+    let (Some(start), Some(end)) = relay.marks() else {
+        bail!("the driver did not ask for both marks");
+    };
+    Ok(Outcome::Done(Driven {
+        printed: text.trim().to_owned(),
+        start,
+        end,
+        peak_bytes: sampler::figures(&samples, &[]).peak_bytes,
+    }))
+}
+
 /// One trial of `exercise` by `tool`: a fresh Proving ground and browser,
 /// the tool attached through the counting relay, its figures between its
 /// marks, and the oracle's outcome on each `actionability.test` page; or
@@ -493,70 +598,42 @@ pub(crate) fn trial(
     let folder = tempfile::tempdir().context("creating the trial's folder")?;
     let plan_file = folder.path().join("plan.json");
     std::fs::write(&plan_file, serde_json::to_vec(&plan)?).context("writing the plan")?;
-    let (browser, port, path) = launch(tools.browser, &folder.path().join("profile"))?;
+    let (browser, port, path) = launch(
+        tools.browser,
+        &folder.path().join("profile"),
+        browser_flags(tool),
+    )?;
     let relay = Relay::start(port)?;
     let relayed = relay.address();
-    let mut command = Command::new("node");
+    let mut command = tools.command(tool);
+    adopt_orphans(&mut command);
     command
-        .arg(&tools.driver)
-        .args(["--tool", tool.name(), "--plan"])
+        .arg("--plan")
         .arg(&plan_file)
         .arg("--cdp")
         .arg(format!("ws://{relayed}{path}"))
         .arg("--marks")
-        .arg(format!("http://{relayed}"))
-        .current_dir(folder.path());
-    for name in tools.goodfetch_variables {
-        command.env_remove(name);
-    }
-    if tool == Contender::Collie {
-        let home = folder.path().join("home");
-        let lined = home.join(version_line()?);
-        std::fs::create_dir_all(&lined).context("creating the Goodfetch home")?;
+        .arg(format!("http://{relayed}"));
+    if tool.drives_collie() {
         let page_urls: Vec<String> = cell
             .pages()
             .iter()
             .filter_map(|page| urls.get(&page.task).cloned())
             .collect();
-        std::fs::write(lined.join("configuration.toml"), configuration(&page_urls)?)
-            .context("writing Collie's configuration")?;
-        command
-            .env("GOODFETCH_HOME", &home)
-            .env("GOODFETCH_COLLIE_ENGINE_PATH", tools.engine)
-            .env(RUN_STATE_KEY_VARIABLE, RUN_STATE_KEY);
+        collie_home(
+            &mut command,
+            folder.path(),
+            tools,
+            &configuration(&page_urls)?,
+        )?;
     }
-    let printed = folder.path().join("printed.json");
-    let errors = folder.path().join("errors.txt");
-    let watcher = Sampler::start(trial::now(), false);
-    let mut child = command
-        .stdin(Stdio::null())
-        .stdout(std::fs::File::create(&printed).context("creating the tool's output")?)
-        .stderr(std::fs::File::create(&errors).context("creating the tool's errors")?)
-        .spawn()
-        .context("running the driver with Node.js")?;
-    watcher.follow(child.id());
-    relay.follow(child.id());
-    let status = waited(&mut child);
-    let samples = watcher.finish().unwrap_or_default();
-    let status = match status? {
-        Outcome::Done(status) => status,
+    let subject = format!("{} {} trial {number}", tool.name(), exercise.name());
+    let driven = match drive(command, folder.path(), &relay, &subject)? {
+        Outcome::Done(driven) => driven,
         Outcome::Stopped(reason) => return Ok(Outcome::Stopped(reason)),
     };
-    let stderr = std::fs::read_to_string(&errors).unwrap_or_default();
-    if !status.success() {
-        bail!(
-            "{} {} trial {number} failed ({status}): {}",
-            tool.name(),
-            exercise.name(),
-            stderr.trim()
-        );
-    }
-    let text = std::fs::read_to_string(&printed).context("reading the tool's output")?;
-    let done: Printed = serde_json::from_str(text.trim())
-        .with_context(|| format!("parsing the tool's output: {}", text.trim()))?;
-    let (Some(start), Some(end)) = relay.marks() else {
-        bail!("the driver did not ask for both marks");
-    };
+    let done: Printed = serde_json::from_str(&driven.printed)
+        .with_context(|| format!("parsing the tool's output: {}", driven.printed))?;
     drop(relay);
     drop(browser);
     let pages = done
@@ -567,7 +644,9 @@ pub(crate) fn trial(
     let actions = match &cell {
         Cell::Pages { .. } => pages.iter().map(|page| page.steps).sum(),
         Cell::Sessions(_) => done.sessions,
+        Cell::Openings(_) => done.opened,
     };
+    let (start, end) = (driven.start, driven.end);
     Ok(Outcome::Done(CollieTrial {
         exercise,
         tool,
@@ -576,9 +655,17 @@ pub(crate) fn trial(
         actions,
         sessions: done.sessions,
         commands: end.commands - start.commands,
+        rounds: end.rounds - start.rounds,
         cpu_seconds: (end.cpu_seconds - start.cpu_seconds).max(0.0),
         wall_seconds: end.at.duration_since(start.at).as_secs_f64(),
-        peak_bytes: sampler::figures(&samples, &[]).peak_bytes,
+        peak_bytes: driven.peak_bytes,
+        driver: done
+            .messages
+            .filter(|_| tool.drives_collie())
+            .map(|messages| DriverApart {
+                cpu_seconds: (end.driver_cpu_seconds - start.driver_cpu_seconds).max(0.0),
+                messages,
+            }),
         pages,
         retried: None,
     }))
@@ -604,18 +691,61 @@ fn other_steps(done: &PageDone, planned: &Planned) -> bool {
     done.steps > steps || done.ended == Ended::Success && done.steps != steps
 }
 
+/// How `trial` acted otherwise than its cell `planned` plans: other
+/// Sessions, other pages opened, or a page's other steps
+/// ([`other_steps`]); none when it acted as planned.
+fn other_actions(trial: &CollieTrial, planned: &Cell) -> Option<String> {
+    let stepped: Vec<String> = trial
+        .pages
+        .iter()
+        .zip(planned.pages())
+        .filter(|(done, plan)| other_steps(done, plan))
+        .map(|(done, plan)| {
+            format!(
+                "{} took {} steps of {}",
+                done.task,
+                done.steps,
+                plan.steps.len()
+            )
+        })
+        .collect();
+    let opened = matches!(planned, Cell::Openings(_)) && trial.actions != planned.actions();
+    if stepped.is_empty() && trial.sessions == planned.sessions() && !opened {
+        return None;
+    }
+    let mut parts = vec![format!(
+        "{} Sessions, where its cell plans {}",
+        trial.sessions,
+        planned.sessions()
+    )];
+    if opened {
+        parts.push(format!(
+            "{} pages opened, where it plans {}",
+            trial.actions,
+            planned.actions()
+        ));
+    }
+    parts.extend(stepped);
+    Some(parts.join("; "))
+}
+
 /// Each finding that keeps the Collie scenario's figures from counting: a
-/// cell short of or past its declared trials of a tool, unless a trial of
-/// it was stopped twice; a trial whose pages or Sessions are not its
+/// cell short of or past its declared trials of a tool the run ran, unless
+/// a trial of it was stopped twice or the tool runs none there
+/// ([`skipped`]); a trial whose pages or Sessions are not its
 /// cell's, whose page took other steps than its plan's (more, or fewer
 /// though they all succeeded), or that counted no command; and a trial
 /// whose page saw another status or text than most trials of both tools
-/// saw, every trial named on a tie.
+/// saw, every trial named on a tie; and the page-load cell's
+/// ([`page_load::check`]).
 pub(crate) fn check(scenario: &CollieScenario) -> Vec<Finding> {
     let CollieScenario::Measured {
         trials,
+        tools,
         trials_run,
         stopped,
+        loads,
+        loads_stopped,
     } = scenario
     else {
         return Vec::new();
@@ -633,12 +763,17 @@ pub(crate) fn check(scenario: &CollieScenario) -> Vec<Finding> {
             .filter(|trial| trial.exercise == exercise)
             .collect();
         ran.sort_by_key(|trial| (trial.tool, trial.number));
-        for tool in Contender::ALL {
+        for &tool in tools {
             let count = ran.iter().filter(|trial| trial.tool == tool).count();
             let was_stopped = stopped
                 .iter()
                 .any(|run| run.exercise == exercise && run.tool == tool);
-            if !was_stopped && u32::try_from(count).ok() != Some(*trials) {
+            let declared = if skipped(tool, exercise).is_some() {
+                0
+            } else {
+                *trials
+            };
+            if !was_stopped && u32::try_from(count).ok() != Some(declared) {
                 findings.push(Finding::new(
                     "trial_count",
                     format!("collie {} {}", exercise.name(), tool.name()),
@@ -657,35 +792,8 @@ pub(crate) fn check(scenario: &CollieScenario) -> Vec<Finding> {
                 ));
                 continue;
             }
-            let stepped: Vec<String> = trial
-                .pages
-                .iter()
-                .zip(planned.pages())
-                .filter(|(done, plan)| other_steps(done, plan))
-                .map(|(done, plan)| {
-                    format!(
-                        "{} took {} steps of {}",
-                        done.task,
-                        done.steps,
-                        plan.steps.len()
-                    )
-                })
-                .collect();
-            if !stepped.is_empty() || trial.sessions != planned.sessions() {
-                findings.push(Finding::new(
-                    "different_actions",
-                    subject(trial),
-                    format!(
-                        "{} Sessions, where its cell plans {}{}",
-                        trial.sessions,
-                        planned.sessions(),
-                        if stepped.is_empty() {
-                            String::new()
-                        } else {
-                            format!("; {}", stepped.join("; "))
-                        }
-                    ),
-                ));
+            if let Some(detail) = other_actions(trial, &planned) {
+                findings.push(Finding::new("different_actions", subject(trial), detail));
                 continue;
             }
             if trial.commands == 0 {
@@ -700,6 +808,7 @@ pub(crate) fn check(scenario: &CollieScenario) -> Vec<Finding> {
         }
         findings.extend(other_work(&whole));
     }
+    findings.extend(page_load::check(*trials, loads, loads_stopped));
     findings
 }
 
@@ -756,21 +865,31 @@ fn other_work(trials: &[&CollieTrial]) -> Vec<Finding> {
         .collect()
 }
 
-/// Every trial of the Collie scenario, `trials` of each tool in each cell,
-/// in one random order drawn from `state` by `next`.
+/// Every trial of the Collie scenario, `trials` of each of `tools` in each
+/// cell it runs ([`skipped`]), in one random order drawn from `state` by
+/// `next`.
 pub(crate) fn order(
+    tools: &[Contender],
     trials: u32,
     state: &mut u64,
     next: fn(&mut u64) -> u64,
 ) -> Vec<(Exercise, Contender, u32)> {
-    let mut order: Vec<_> = EXERCISES
+    let order: Vec<_> = EXERCISES
         .into_iter()
         .flat_map(|exercise| {
-            Contender::ALL
-                .into_iter()
+            tools
+                .iter()
+                .copied()
+                .filter(move |&tool| skipped(tool, exercise).is_none())
                 .flat_map(move |tool| (1..=trials).map(move |number| (exercise, tool, number)))
         })
         .collect();
+    shuffled(order, state, next)
+}
+
+/// `order` in one random order drawn from `state` by `next`
+/// (Fisher–Yates).
+fn shuffled<T>(mut order: Vec<T>, state: &mut u64, next: fn(&mut u64) -> u64) -> Vec<T> {
     for last in (1..order.len()).rev() {
         let pick = usize::try_from(next(state) % (last as u64 + 1))
             .expect("invariant: an index below the trial count fits a usize");

@@ -50,6 +50,7 @@ mod network;
 mod observations;
 mod oracle;
 mod pacing;
+mod page_load;
 mod pages;
 mod parameters;
 mod plain_hosts;

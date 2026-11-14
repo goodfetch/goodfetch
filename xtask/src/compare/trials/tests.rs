@@ -1,6 +1,7 @@
 use super::{
-    CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, PAGESIFT_VERSION, PLAYWRIGHT_VERSION,
-    SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SPIDER_VERSION, Work,
+    AGENT_BROWSER_VERSION, CHROMIUMOXIDE_VERSION, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION,
+    PAGESIFT_VERSION, PLAYWRIGHT_VERSION, PUPPETEER_VERSION, SCRAPY_PLAYWRIGHT_VERSION,
+    SCRAPY_VERSION, SPIDER_VERSION, STAGEHAND_VERSION, Work,
 };
 
 /// The Spider version Spider's side pins in its manifest, `=<version>`.
@@ -53,6 +54,20 @@ fn the_declared_pagesift_is_the_version_its_side_pins() {
     );
 }
 
+/// The trials declare the chromiumoxide the Collie scenario's arm builds:
+/// the exact version `xtask/compare-chromiumoxide/Cargo.toml` holds it to.
+#[test]
+fn the_declared_chromiumoxide_is_the_version_its_side_pins() {
+    let manifest: toml::Table = include_str!("../../../compare-chromiumoxide/Cargo.toml")
+        .parse()
+        .unwrap();
+
+    assert_eq!(
+        manifest["dependencies"]["chromiumoxide"]["version"].as_str(),
+        Some(format!("={CHROMIUMOXIDE_VERSION}").as_str())
+    );
+}
+
 /// The trials declare the Crawlee its side installs: `@crawlee/cheerio`'s
 /// exact version in `xtask/compare-crawlee/package.json`.
 #[test]
@@ -63,6 +78,28 @@ fn the_declared_crawlee_is_the_one_its_side_pins() {
     assert_eq!(
         manifest["dependencies"]["@crawlee/cheerio"].as_str(),
         Some(CRAWLEE_VERSION)
+    );
+}
+
+/// The report names the Puppeteer, the Stagehand and the agent-browser the
+/// Collie scenario's arms install: each exact version in
+/// `xtask/compare-collie-arms/package.json`.
+#[test]
+fn the_declared_arms_are_the_ones_their_side_pins() {
+    let manifest: serde_json::Value =
+        serde_json::from_str(include_str!("../../../compare-collie-arms/package.json")).unwrap();
+
+    assert_eq!(
+        manifest["dependencies"]["puppeteer-core"].as_str(),
+        Some(PUPPETEER_VERSION)
+    );
+    assert_eq!(
+        manifest["dependencies"]["@browserbasehq/stagehand"].as_str(),
+        Some(STAGEHAND_VERSION)
+    );
+    assert_eq!(
+        manifest["dependencies"]["agent-browser"].as_str(),
+        Some(AGENT_BROWSER_VERSION)
     );
 }
 

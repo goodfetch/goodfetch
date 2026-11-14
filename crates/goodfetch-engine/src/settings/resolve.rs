@@ -15,10 +15,18 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
+use goodfetch_protocol::entries::YIELDING;
+use goodfetch_protocol::run::durability::{
+    BATCH_THRESHOLD_SHAPE, BatchThreshold, durability_preset,
+};
+use goodfetch_protocol::run::{
+    RUN_STATE_BATCH_BYTES, RUN_STATE_BATCH_INTERVAL, RUN_STATE_BATCH_PAGES, RUN_STATE_DURABILITY,
+    RUN_STATE_MEMORY_BUDGET,
+};
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::{
-    ExplainedSetting, Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsExplanation,
-    SettingsFile, SettingsLayer, WeakenedSetting,
+    ExplainedSetting, Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingPreset,
+    SettingsExplanation, SettingsFile, SettingsLayer, WeakenedSetting,
 };
 use serde_json::Value;
 
@@ -142,6 +150,11 @@ impl HostDefaults {
         self
     }
 
+    /// Whether this host gives `setting` a default of its own.
+    fn gives(&self, setting: &Setting) -> bool {
+        self.0.contains_key(setting.name)
+    }
+
     /// The default of `setting` on this host.
     pub fn of(&self, setting: &Setting) -> Value {
         self.0
@@ -177,6 +190,8 @@ pub struct Effective {
     pub layer: SettingsLayer,
     /// For the run layer, where it came from.
     pub origin: Option<RunOrigin>,
+    /// When a level's preset gave it, at `layer`, that level (ADR 0142).
+    pub preset: Option<SettingPreset>,
     /// Whether a Client acting for a model gave it: in the run layer, or
     /// in the project configuration it sent (ADR 0092).
     pub for_model: bool,
@@ -362,6 +377,7 @@ impl Resolved {
                 value: effective.value.clone(),
                 layer: effective.layer,
                 origin: effective.origin,
+                preset: effective.preset.clone(),
             })
             .collect()
     }
@@ -388,11 +404,13 @@ impl Resolved {
                 value: effective.value.clone(),
                 layer: effective.layer,
                 origin: effective.origin,
+                preset: effective.preset.clone(),
                 locked_by: effective.locked_by,
                 cap: effective.cap.clone(),
                 weakens: effective.weakens,
                 user_settable: effective.locked_by.is_none() && user_settable(key),
                 fixed_for_run: keys::fixed_for_run(key),
+                yields_to: self.yields_to(key, &effective.value),
             })
             .chain(
                 self.unapplied
@@ -404,11 +422,13 @@ impl Resolved {
                         value: unapplied.value.clone(),
                         layer: unapplied.layer,
                         origin: None,
+                        preset: None,
                         locked_by: None,
                         cap: None,
                         weakens: false,
                         user_settable: false,
                         fixed_for_run: keys::fixed_for_run(key),
+                        yields_to: None,
                     }),
             )
             .filter(|setting| wanted(&setting.key))
@@ -419,6 +439,24 @@ impl Resolved {
             files,
             settings,
         }
+    }
+
+    /// The setting `key`'s `value` yields to, with its value and layer:
+    /// the first rule of [`YIELDING`] whose values hold `value` and whose
+    /// setting is set for the Run (#2418).
+    fn yields_to(&self, key: &str, value: &Value) -> Option<SettingLimit> {
+        YIELDING
+            .into_iter()
+            .filter(|rule| rule.key.name == key && (rule.when)(value))
+            .find_map(|rule| {
+                self.effective(rule.to)
+                    .filter(|to| !to.value.is_null())
+                    .map(|to| SettingLimit {
+                        key: rule.to.name.to_owned(),
+                        value: to.value.clone(),
+                        layer: to.layer,
+                    })
+            })
     }
 }
 
@@ -473,6 +511,16 @@ impl<'a> SettingValue<'a> for &'a str {
 
     fn read(value: &'a Value) -> Option<Self> {
         value.as_str()
+    }
+}
+
+impl SettingValue<'_> for BatchThreshold {
+    fn reads(kind: &ValueKind) -> bool {
+        matches!(kind, ValueKind::Shape(shape) if **shape == BATCH_THRESHOLD_SHAPE)
+    }
+
+    fn read(value: &Value) -> Option<Self> {
+        Self::read(value).ok()
     }
 }
 
@@ -602,15 +650,70 @@ pub fn resolve(layers: &Layers, engine: Product, run: Product) -> Result<Resolve
             }
         }
     }
+    let honoured = |key: &Key| engine.contains(key.product) && run.contains(key.product);
+    let level = keys::find(RUN_STATE_DURABILITY.name)
+        .filter(honoured)
+        .map(|key| resolve_key(layers, key, None))
+        .transpose()?;
     let mut settings = BTreeMap::new();
-    for key in keys::all().filter(|key| engine.contains(key.product) && run.contains(key.product)) {
-        settings.insert(key.setting.name, resolve_key(layers, key)?);
+    for key in keys::all().filter(honoured) {
+        let effective = match &level {
+            Some(level) if key.setting.name == RUN_STATE_DURABILITY.name => level.clone(),
+            _ => resolve_key(
+                layers,
+                key,
+                level
+                    .as_ref()
+                    .and_then(|level| unfolded(level, key))
+                    .as_ref(),
+            )?,
+        };
+        settings.insert(key.setting.name, effective);
     }
+    refuse_unbounded_memory(&settings)?;
     Ok(Resolved {
         settings,
         unapplied: unapplied(layers),
         policy_version: layers.operator_policy.version.clone(),
         recipe_run: layers.recipe.is_some(),
+    })
+}
+
+/// Refuses a memory budget of 0 with every batch threshold `none`: no
+/// batch would be sealed and nothing written may stay in memory, so nothing
+/// would ever leave it (spec #2138, G-11 Q9).
+///
+/// # Errors
+///
+/// `setting_invalid` naming the budget, at its layer, and the three
+/// thresholds.
+fn refuse_unbounded_memory(
+    settings: &BTreeMap<&'static str, Effective>,
+) -> Result<(), SettingsError> {
+    let thresholds = [
+        &RUN_STATE_BATCH_PAGES,
+        &RUN_STATE_BATCH_INTERVAL,
+        &RUN_STATE_BATCH_BYTES,
+    ];
+    let Some(budget) = settings.get(RUN_STATE_MEMORY_BUDGET.name) else {
+        return Ok(());
+    };
+    let never = |setting: &Setting| {
+        settings.get(setting.name).is_some_and(|effective| {
+            BatchThreshold::read(&effective.value) == Ok(BatchThreshold::Never)
+        })
+    };
+    if budget.value.as_u64() != Some(0) || !thresholds.into_iter().all(never) {
+        return Ok(());
+    }
+    Err(SettingsError::Invalid {
+        key: RUN_STATE_MEMORY_BUDGET.name.to_owned(),
+        layer: Some(budget.layer),
+        reason: format!(
+            "a budget of 0 with `{}`, `{}` and `{}` all `none` never lets anything leave memory; \
+             set a budget above 0 or one of those thresholds",
+            RUN_STATE_BATCH_PAGES.name, RUN_STATE_BATCH_INTERVAL.name, RUN_STATE_BATCH_BYTES.name
+        ),
     })
 }
 
@@ -652,6 +755,40 @@ fn unapplied(layers: &Layers) -> BTreeMap<&'static str, Unapplied> {
     unapplied
 }
 
+/// A Durability level's value for one key of its preset, carried into that
+/// key's resolution: the level unfolds at the layer that set it, and a lock
+/// on it locks the key (ADR 0142).
+struct Unfolded {
+    preset: SettingPreset,
+    value: Value,
+    layer: SettingsLayer,
+    /// Who gave the level, which gives the key as well.
+    given: Given,
+    locked_by: Option<SettingsLayer>,
+}
+
+/// What `level`, the effective Durability level, gives `key`, when its
+/// preset sets that key.
+fn unfolded(level: &Effective, key: Key) -> Option<Unfolded> {
+    let name = level.value.as_str()?;
+    let preset = durability_preset(name)
+        .iter()
+        .find(|preset| preset.setting.name == key.setting.name)?;
+    Some(Unfolded {
+        preset: SettingPreset {
+            key: RUN_STATE_DURABILITY.name.to_owned(),
+            value: level.value.clone(),
+        },
+        value: (preset.value)(),
+        layer: level.layer,
+        given: Given {
+            origin: level.origin,
+            for_model: level.for_model,
+        },
+        locked_by: level.locked_by,
+    })
+}
+
 /// The value so far and what holds it.
 struct State {
     effective: Effective,
@@ -660,45 +797,41 @@ struct State {
     exposure: Option<Exposure>,
 }
 
-fn resolve_key(layers: &Layers, key: Key) -> Result<Effective, SettingsError> {
+impl Unfolded {
+    /// The level's value for the key, when the level was set at `layer`.
+    fn at(unfolded: Option<&Self>, layer: SettingsLayer) -> Option<&Self> {
+        unfolded.filter(|unfolded| unfolded.layer == layer)
+    }
+
+    /// Whether `layer` locks the level, and so the key.
+    fn locks_at(unfolded: Option<&Self>, layer: SettingsLayer) -> bool {
+        unfolded.is_some_and(|unfolded| unfolded.locked_by == Some(layer))
+    }
+}
+
+fn resolve_key(
+    layers: &Layers,
+    key: Key,
+    unfolded: Option<&Unfolded>,
+) -> Result<Effective, SettingsError> {
     let setting = key.setting;
     let name = setting.name;
     let policy = &layers.operator_policy;
-    let default = layers.host.of(setting);
-    let mut state = State {
-        effective: Effective {
-            value: default.clone(),
-            layer: SettingsLayer::Default,
-            origin: None,
-            for_model: false,
-            locked_by: None,
-            cap: None,
-            product: key.product,
-            weakens: false,
-        },
-        locked: None,
-        cap: None,
-        exposure: None,
-    };
-    if matches!(setting.authority, Authority::Fixed) {
-        state.locked = Some(limit(name, &default, SettingsLayer::Default));
-    }
-    if let Some(cap) = policy.cap.get(name) {
-        state.cap = Some(limit(name, cap, SettingsLayer::OperatorPolicy));
-        state.effective.cap = Some(cap.clone());
-    }
+    let mut state = State::start(layers, key, unfolded);
+    unfold(&mut state, key, unfolded, SettingsLayer::OperatorPolicy)?;
     let locked = policy.lock.get(name);
     let set = locked.or_else(|| policy.settings.get(name));
     if let Some(value) = set {
         take(&mut state, key, SettingsLayer::OperatorPolicy, value, None)?;
     }
-    if locked.is_some() {
+    if locked.is_some() || Unfolded::locks_at(unfolded, SettingsLayer::OperatorPolicy) {
         state.locked = Some(limit(
             name,
             &state.effective.value,
             SettingsLayer::OperatorPolicy,
         ));
     }
+    unfold(&mut state, key, unfolded, SettingsLayer::UserConfiguration)?;
     if let Some(value) = layers.user_configuration.get(name) {
         take(
             &mut state,
@@ -708,6 +841,12 @@ fn resolve_key(layers: &Layers, key: Key) -> Result<Effective, SettingsError> {
             None,
         )?;
     }
+    unfold(
+        &mut state,
+        key,
+        unfolded,
+        SettingsLayer::ProjectConfiguration,
+    )?;
     if let Some(value) = layers.project_configuration.get(name) {
         take(
             &mut state,
@@ -718,18 +857,9 @@ fn resolve_key(layers: &Layers, key: Key) -> Result<Effective, SettingsError> {
         )?;
     }
     if let Some(recipe) = &layers.recipe {
-        if let Some(value) = recipe.declared.get(name) {
-            recipe_may_set(policy, setting, &state.effective)?;
-            take(&mut state, key, SettingsLayer::Recipe, value, None)?;
-        }
-        match recipe.expose.get(name) {
-            Some(exposure) => state.exposure = Some(exposure.clone()),
-            None if recipe.declared.get(name).is_some() && state.locked.is_none() => {
-                state.locked = Some(limit(name, &state.effective.value, SettingsLayer::Recipe));
-            }
-            None => {}
-        }
+        from_recipe(&mut state, policy, recipe, key, unfolded)?;
     }
+    unfold(&mut state, key, unfolded, SettingsLayer::Run)?;
     if let Some(value) = layers.run.get(name) {
         take(
             &mut state,
@@ -754,6 +884,88 @@ fn resolve_key(layers: &Layers, key: Key) -> Result<Effective, SettingsError> {
         .weakens
         .is_some_and(|weakens| weakens(&state.effective.value));
     Ok(state.effective)
+}
+
+impl State {
+    /// `key` at its default, which a level set by no layer gives unless the
+    /// host gives the key, with its fixed lock and its Operator policy's cap.
+    fn start(layers: &Layers, key: Key, unfolded: Option<&Unfolded>) -> Self {
+        let setting = key.setting;
+        let name = setting.name;
+        let (default, preset) = match Unfolded::at(unfolded, SettingsLayer::Default) {
+            Some(unfolded) if !layers.host.gives(setting) => {
+                (unfolded.value.clone(), Some(unfolded.preset.clone()))
+            }
+            _ => (layers.host.of(setting), None),
+        };
+        let mut state = Self {
+            effective: Effective {
+                value: default.clone(),
+                layer: SettingsLayer::Default,
+                origin: None,
+                preset,
+                for_model: false,
+                locked_by: None,
+                cap: None,
+                product: key.product,
+                weakens: false,
+            },
+            locked: None,
+            cap: None,
+            exposure: None,
+        };
+        if matches!(setting.authority, Authority::Fixed) {
+            state.locked = Some(limit(name, &default, SettingsLayer::Default));
+        }
+        if let Some(cap) = layers.operator_policy.cap.get(name) {
+            state.cap = Some(limit(name, cap, SettingsLayer::OperatorPolicy));
+            state.effective.cap = Some(cap.clone());
+        }
+        state
+    }
+}
+
+/// Takes the level's value for `key` at `layer`, when the level was set
+/// there, naming the level's preset as its source.
+fn unfold(
+    state: &mut State,
+    key: Key,
+    unfolded: Option<&Unfolded>,
+    layer: SettingsLayer,
+) -> Result<(), SettingsError> {
+    if let Some(unfolded) = Unfolded::at(unfolded, layer) {
+        take(state, key, layer, &unfolded.value, Some(unfolded.given))?;
+        state.effective.preset = Some(unfolded.preset.clone());
+    }
+    Ok(())
+}
+
+/// The Recipe's layer: its value for `key`, and the lock or the bounds it
+/// puts on the run layer; a Recipe that declares the level declares the
+/// keys of its preset.
+fn from_recipe(
+    state: &mut State,
+    policy: &Policy,
+    recipe: &Recipe,
+    key: Key,
+    unfolded: Option<&Unfolded>,
+) -> Result<(), SettingsError> {
+    let name = key.setting.name;
+    unfold(state, key, unfolded, SettingsLayer::Recipe)?;
+    if let Some(value) = recipe.declared.get(name) {
+        recipe_may_set(policy, key.setting, &state.effective)?;
+        take(state, key, SettingsLayer::Recipe, value, None)?;
+    }
+    let declared =
+        recipe.declared.get(name).is_some() || Unfolded::locks_at(unfolded, SettingsLayer::Recipe);
+    match recipe.expose.get(name) {
+        Some(exposure) => state.exposure = Some(exposure.clone()),
+        None if declared && state.locked.is_none() => {
+            state.locked = Some(limit(name, &state.effective.value, SettingsLayer::Recipe));
+        }
+        None => {}
+    }
+    Ok(())
 }
 
 /// Refuses a Recipe's value for `setting`, whose effective value below the
@@ -855,6 +1067,7 @@ fn take(
     state.effective.value = value.clone();
     state.effective.layer = layer;
     state.effective.origin = given.origin;
+    state.effective.preset = None;
     state.effective.for_model = given.for_model;
     Ok(())
 }

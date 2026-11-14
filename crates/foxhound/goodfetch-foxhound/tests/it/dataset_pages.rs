@@ -60,6 +60,13 @@ fn seeds(site: &Site, n: u64) -> Value {
         .collect()
 }
 
+/// Settings under which each attempt's Records are committed as it ends: at
+/// `batch` a reader sees a Record only once its batch is written, and these
+/// tests read while the crawl commits (ADR 0142).
+fn at_full() -> Value {
+    json!({ "run_state": { "durability": "full" } })
+}
+
 /// The request number of the crawl request `handle` gave, from its URL.
 fn page_of(handle: &Value) -> u64 {
     handle["crawl_request"]["url"]
@@ -95,7 +102,7 @@ fn a_crawls_datasets_list_their_schema_key_and_committed_dropped_and_rejected_co
     let mut live = Value::Null;
     let report = crawl_from(
         &mut engine,
-        &json!({ "run_id": "listed", "seeds": seeds(&site, 3), "datasets": declared() }),
+        &json!({ "run_id": "listed", "seeds": seeds(&site, 3), "datasets": declared(), "settings": at_full() }),
         &mut |inside, handle| {
             let n = page_of(handle);
             if n == 3 {
@@ -165,7 +172,7 @@ fn paging_by_key_under_concurrent_commits_never_repeats_or_skips_a_record() {
     let mut pages: Vec<Value> = Vec::new();
     let report = crawl_from(
         &mut engine,
-        &json!({ "run_id": "paged", "seeds": seeds(&site, 20), "datasets": declared() }),
+        &json!({ "run_id": "paged", "seeds": seeds(&site, 20), "datasets": declared(), "settings": at_full() }),
         &mut |inside, handle| {
             let n = page_of(handle);
             if n >= 9

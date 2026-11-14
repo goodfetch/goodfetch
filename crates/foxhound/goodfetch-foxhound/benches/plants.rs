@@ -84,8 +84,10 @@ fn writer(counted: &Counted<'_>) -> (&'static Runtime, Arc<tempfile::TempDir>, R
 /// The plant of the row named `name`, one of the run-state writer's.
 pub(crate) fn run_state_plant(name: &str, counted: &Counted<'_>) -> Plant {
     match name {
-        // One job more on a writer: a commit, which at `full` syncs.
-        "F2.transactions" | "F2.syncs" => {
+        // One job more on a writer: a commit, which at `full` syncs. The
+        // planted writer batches, as a Run that sets nothing does (ADR
+        // 0142), and the job is a barrier, so it also seals a batch early.
+        "F2.transactions" | "F2.syncs" | "F2.batches" => {
             let (runtime, folder, state) = writer(counted);
             Arc::new(move |_: &str| {
                 let _kept = &folder;
@@ -102,6 +104,13 @@ pub(crate) fn run_state_plant(name: &str, counted: &Counted<'_>) -> Plant {
         "F2.writer_reads" => {
             let work = counted.work.clone();
             Arc::new(move |_: &str| work.count(Row::WriterReads))
+        }
+        // A page waits for the writer inside the crawl's own tasks, which
+        // nothing beside the crawl enters: the rows' counted seam is the
+        // count alone, held at `batch` and `off`, and at `full`.
+        "F2.page_waits" | "F2.page_waits.full" => {
+            let work = counted.work.clone();
+            Arc::new(move |_: &str| work.count(Row::RunPageWaits))
         }
         // The Frontier reads its evidence inside a page's learning, which
         // nothing beside the crawl enters: the row's counted seam is the

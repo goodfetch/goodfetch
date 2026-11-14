@@ -3546,6 +3546,18 @@
           "arrived_in": "0.1",
           "description": "For the run layer, where the value came from."
         },
+        "preset": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingPreset"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When a level's preset gave the value, at `layer`, that level, which\n`config explain` shows as \"preset of `run_state.durability: full`\"\nin place of the layer (ADR 0142)."
+        },
         "products": {
           "arrived_in": "0.1",
           "description": "The Products that honour it, from its Product mark (ADR 0095).",
@@ -3567,6 +3579,18 @@
           "arrived_in": "0.1",
           "description": "Whether its value weakens a guarantee class or switches off a costly\ncontrol, which the results it touches are marked with (ADR 0028).",
           "type": "boolean"
+        },
+        "yields_to": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingLimit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The setting its value yields to, with that setting's value and\nlayer, when one that is set keeps its value from taking effect:\n`fetch.http_from` away from `browser` yields to the Run's\n`session.source`, whose Sessions hold a login and so send their HTTP\nfrom the browser (#2418)."
         }
       },
       "required": [
@@ -11591,6 +11615,25 @@
       ],
       "type": "object"
     },
+    "SettingPreset": {
+      "description": "The setting whose value names the preset that gave another setting its\nvalue: `run_state.durability` and its level unfold into the\n`run_state.batch.*` keys at the layer that set the level (ADR 0142).",
+      "properties": {
+        "key": {
+          "arrived_in": "0.1",
+          "description": "The key that names the preset, such as `run_state.durability`.",
+          "type": "string"
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "Its value, the preset's name, such as `full`."
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "type": "object"
+    },
     "SettingsExplanation": {
       "description": "What `config.explain` answers and `config explain --json` prints:\nevery setting's effective value, the layer that set it and the layer\nthat locked it (ADR 0028), and the files read.",
       "properties": {
@@ -12509,6 +12552,18 @@
             "string",
             "null"
           ]
+        },
+        "calls_sent_on": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FetchTier"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "For `discovered_api`, where its replayed calls left from: `http`\nwhen the Session's own HTTP transport sent them, `browser_fetch`\nwhen they left from inside its browser."
         },
         "chosen": {
           "$ref": "#/$defs/TierChosen",
@@ -13537,6 +13592,18 @@
           ],
           "arrived_in": "0.1",
           "description": "For the run layer, where the value came from."
+        },
+        "preset": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingPreset"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When a level's preset gave the value, at `layer`, that level, such\nas `run_state.durability: off` (ADR 0142)."
         },
         "value": {
           "arrived_in": "0.1",
@@ -15458,6 +15525,7 @@
             "actor_round_trips",
             "analysis_handoffs",
             "answers",
+            "batches",
             "block_classifications",
             "builds",
             "calls",
@@ -15497,6 +15565,7 @@
             "messages_no_hook",
             "opening_commands",
             "opens",
+            "page_waits",
             "parses",
             "plugin_answer_parses",
             "plugin_serializations",
@@ -15680,6 +15749,16 @@
       "product": "collie",
       "stability": "stable",
       "unit": "{run}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The rows each Run-state batch of a run file wrote as its writer committed it, one a write, at a Durability level that batches attempts (`run_state.batch.per_attempt: false`, ADR 0142).",
+      "instrument": "histogram",
+      "labels": [],
+      "name": "goodfetch.run_state.batch_rows",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "{row}"
     },
     {
       "arrived_in": "0.1",
@@ -19327,7 +19406,7 @@
       "authority": "every",
       "clearable": false,
       "default": "browser",
-      "description": "Where a Label's HTTP leaves from where the engine chooses its tier, under `fetch.tier: auto`, set for the Run or for one of its Labels; a forced `fetch.tier` ignores it. `browser` (the default) sends a sample's `http` run and a Label learned onto `http` from inside the Session's browser, recorded as `browser_fetch`, so the site meets one TLS fingerprint and one cookie jar. `transport` sends them from a Session's own HTTP transport, over its own TLS fingerprint and headers, recorded as `http`: a sample's `http` run and its `browser` run are drawn from two Sessions, one of each client, which share no cookie, storage or local address, and a Label learned onto `http` sends its documents, their redirect hops and its served pages' requests from a Session's own transport. `learned` behaves as `transport` until the engine learns per Label which client a site accepts. A choice learned under one value is sampled again under another that no longer allows its sender. `learned` and `transport` are a weakened control, named in the Run report's `weakened` and recorded in the Audit log as `feature_switched_off`.",
+      "description": "Where a Label's HTTP leaves from where the engine chooses its tier, under `fetch.tier: auto`, set for the Run or for one of its Labels; a forced `fetch.tier` ignores it. `browser` (the default) sends a sample's `http` run and a Label learned onto `http` from inside the Session's browser, recorded as `browser_fetch`, so the site meets one TLS fingerprint and one cookie jar. `transport` sends them from a Session's own HTTP transport, over its own TLS fingerprint and headers, recorded as `http`: a sample's `http` run and its `browser` run are drawn from two Sessions, one of each client, which share no cookie, storage or local address, and a Label learned onto `http` sends its documents, their redirect hops and its served pages' requests from a Session's own transport. `learned` behaves as `transport` until the engine learns per Label which client a site accepts: a sample whose `http` run differed runs once more from inside the browser, as does its replay of its browser's calls on `discovered_api`, and its Label keeps the cheapest client that matched every sample. Under either, a request a Session's own transport sent on the tier its Label's comparison chose, which the site refuses as `ip_block` (a 403 whose page says the visitor is blocked; a bare 401 or 403 is no block), retires that Session and drops the Label's choice on the domain: the request runs again as a sample, retried under the Run's retry policy, whose comparison may move the Label to `browser_fetch` or `browser`, and the domain's proxy tier moves up only where the browser's run is refused too. A choice learned under one value is sampled again under another that no longer allows its sender. A pool whose Sessions hold a login, set by a `session.source` or, for a Label's own pool, by its `login`, sends from the browser whatever this says, so the login is never shown under a second client: `config explain` names the Run's `session.source` in this key's `yields_to`, and a `transport` set where such a pool's Sessions open, by the Run on its own pool or by a Label on its pool, fails the crawl's start with `setting_locked`; HTTP credentials and secrets alone hold no login. `learned` and `transport` are a weakened control, named in the Run report's `weakened` and recorded in the Audit log as `feature_switched_off`.",
       "name": "fetch.http_from",
       "product": "foxhound",
       "products": [
@@ -19470,7 +19549,7 @@
       "authority": "every",
       "clearable": false,
       "default": "auto",
-      "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose, whether set or left at the built-in default: it learns the tier per Label on each domain by sample comparison, the first `fetch.sample.count` requests (3) of a Label on a domain each run on `http` and then on `browser`, whose run commits (sent from one Session, or from two that share nothing where `fetch.http_from` sends the Label's HTTP from the transport), the Label moving to `http` once all of them staged the same Records (compared after Unicode NFC and whitespace normalization of their strings, in any order) and the same enqueues, the browser's run never matching where it ended on another URL or read its document in another `document.characterSet`, and staying on `browser` for the Run where its browser sample met a consent wall; split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; a choice is sampled again as `fetch.sample.refresh_after` says; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records the tier that sent each attempt's document, `browser_fetch` where a document tier's request left from inside the Session's browser, as it does under `auto` unless `fetch.http_from` sends it from the Session's own transport, and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; a `standard` Session forced onto `http` sends from its own transport, which presents its browser's `User-Agent` and document request headers (where the browser is an installed one, such as the distribution's Chromium on Linux arm64 and musl, those of the version its executable prints for `--version`, read once per Run without starting a browser; none, with the Run warned `browser_version_unread`, where no browser is installed or it does not print a version and exit within 10 seconds), as do the reads of robots.txt, sitemaps and AI-use signal files that transport sends under every tier, and keeps the Session's cookies in a jar of its own, over reqwest's TLS fingerprint, not the browser's; `light_browser` forces the Lightpanda tier where `fetch.light_browser` allows it, and under `auto` a Run that allows it also runs a sample on `light_browser` where its `http` run differed, the Label moving to `light_browser` once every sample matched there or over `http`; under `auto`, a sample whose `http` run escalated at a network wait also runs on `discovered_api` once its browser run answered: the JSON calls the browser's page made, read as a page-number or cursor plan, are replayed over HTTP for the same request, a `page.wait_for_response` armed before a navigation of its page answered from the calls that navigation replays and any other escalating, and a Label whose samples all matched there, or over `http`, moves to `discovered_api`, its later requests replaying the plan for their own pages; `browser_fetch` forces the HTTP tier sent from inside the Session's browser context, the one tier that sends HTTP with the browser's own TLS fingerprint, its cookies the Session's, nothing escalating; forcing `discovered_api` is refused with `capability_unavailable` at the crawl's start until a forced tier takes its browser sample.",
+      "description": "The tier that fetches each crawl request's document, set for the Run or for one of its Labels: `auto` (the default) lets the engine choose, whether set or left at the built-in default: it learns the tier per Label on each domain by sample comparison, the first `fetch.sample.count` requests (3) of a Label on a domain each run on `http` and then on `browser`, whose run commits (sent from one Session, or from two that share nothing where `fetch.http_from` sends the Label's HTTP from the transport), the Label moving to `http` once all of them staged the same Records (compared after Unicode NFC and whitespace normalization of their strings, in any order) and the same enqueues, the browser's run never matching where it ended on another URL or read its document in another `document.characterSet`, and staying on `browser` for the Run where its browser sample met a consent wall; split by the first segment of its URL paths when its samples disagree by segment (a segment whose own samples disagree stays on `browser`; at most 16 segments per Label and domain, the rest on `browser`), and on `browser` otherwise; a choice is sampled again as `fetch.sample.refresh_after` says; the choice is kept in the run file, so a resumed crawl takes it again, and Provenance records the tier that sent each attempt's document, `browser_fetch` where a document tier's request left from inside the Session's browser, as it does under `auto` unless `fetch.http_from` sends it from the Session's own transport, and whether it was forced; a request on `http` escalates to the browser at the first call that tier cannot serve exactly; `http` and `browser` force those tiers, nothing escalating, and a call the forced tier cannot serve fails with `browser_required`; a `standard` Session forced onto `http` sends from its own transport, which presents its browser's `User-Agent` and document request headers (where the browser is an installed one, such as the distribution's Chromium on Linux arm64 and musl, those of the version its executable prints for `--version`, read once per Run without starting a browser; none, with the Run warned `browser_version_unread`, where no browser is installed or it does not print a version and exit within 10 seconds), as do the reads of robots.txt, sitemaps and AI-use signal files that transport sends under every tier, and keeps the Session's cookies in a jar of its own, over reqwest's TLS fingerprint, not the browser's; `light_browser` forces the Lightpanda tier where `fetch.light_browser` allows it, and under `auto` a Run that allows it also runs a sample on `light_browser` where its `http` run differed, the Label moving to `light_browser` once every sample matched there or over `http`; under `auto`, a sample whose `http` run escalated at a network wait also runs on `discovered_api` once its browser run answered: the JSON calls the browser's page made, read as a page-number or cursor plan, are replayed over HTTP for the same request, from the client its `http` run was sent from, and under `fetch.http_from: learned` once more from inside the Session's browser where that replay differed, each replayed call passing the navigation gate, a `page.wait_for_response` armed before a navigation of its page answered from the calls that navigation replays and any other escalating, and a Label whose samples all matched there, or over `http`, moves to `discovered_api`, its later requests replaying the plan for their own pages from the client every sample's replay matched from, its own transport where each matched there and the browser otherwise, which Provenance names in `calls_sent_on`; `browser_fetch` forces the HTTP tier sent from inside the Session's browser context, the one tier that sends HTTP with the browser's own TLS fingerprint, its cookies the Session's, nothing escalating; forcing `discovered_api` is refused with `capability_unavailable` at the crawl's start until a forced tier takes its browser sample.",
       "name": "fetch.tier",
       "product": "foxhound",
       "products": [
@@ -20828,8 +20907,128 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": 8388608,
+      "description": "Write the Run's changes once they hold this many bytes of rows. This bounds the memory that changes not yet written take.",
+      "name": "run_state.batch.bytes",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "oneOf": [
+          {
+            "description": "Attempts, milliseconds or bytes, by the key, at which a batch is sealed.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "const": "none",
+            "description": "No batch is sealed by this threshold."
+          }
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 1000,
+      "description": "Write the Run's changes at least this often. A crash loses at most about this much work.",
+      "name": "run_state.batch.interval",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "oneOf": [
+          {
+            "description": "Attempts, milliseconds or bytes, by the key, at which a batch is sealed.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "const": "none",
+            "description": "No batch is sealed by this threshold."
+          }
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 1000,
+      "description": "Write the Run's changes once this many attempts have ended since the last batch. Lower loses less to a crash and writes more often.",
+      "name": "run_state.batch.pages",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "oneOf": [
+          {
+            "description": "Attempts, milliseconds or bytes, by the key, at which a batch is sealed.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "const": "none",
+            "description": "No batch is sealed by this threshold."
+          }
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "description": "Write each attempt's claim before its fetch and its outcome before anything is told outside, as its own batch. Slowest, and a crash then loses only the attempts in flight.",
+      "name": "run_state.batch.per_attempt",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "each",
+      "description": "Which batches reach the disk before the next one starts. `each` survives a power cut; `interval` syncs one batch per `run_state.commit_interval`; `never` survives a process crash only; `off` syncs nothing, so a crash discards the run file and the Run starts again.",
+      "name": "run_state.batch.sync",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "enum": [
+          "each",
+          "interval",
+          "never",
+          "off"
+        ]
+      },
+      "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": 5000,
-      "description": "At `run_state.durability = periodic`, how long a commit may wait for the next synced one: a power cut loses at most this much work. A writer with nothing to write syncs what it committed once the interval ends. Read at no other Durability level. 5 s.",
+      "description": "How often `run_state.batch.sync: interval` syncs a batch, and an idle Run's last changes.",
       "name": "run_state.commit_interval",
       "product": "collie",
       "products": [
@@ -20847,8 +21046,8 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
-      "default": "full",
-      "description": "How a Run's commits reach the disk, its Durability level: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state; `periodic` is `fast` with one synced commit every `run_state.commit_interval`, so a power cut loses at most that interval of work; `off` (`synchronous=OFF`) syncs nothing, and a run file a crash or a power cut left is discarded when the Run is next started or resumed, so the Run starts again from nothing. At every level a clean stop leaves a consistent run file and Checkpoint, so a paused Run resumes. A Run below `full` names it in its run report's `weakened`.",
+      "default": "batch",
+      "description": "How a Run's state reaches the disk, its Durability level, each value a preset of `run_state.batch.*` and `run_state.commit_interval`: `batch`, the default, writes the Run's changes in Run-state batches, of 1,000 attempts, 1 s or 8 MiB, whichever comes first, each synced, so a crash or a power cut loses at most the last batch; `full` writes each attempt's claim and outcome as a synced batch of its own (`synchronous=FULL`, with `fullfsync` on macOS), so only the attempts in flight are lost; `fast` is `full` unsynced (`synchronous=NORMAL`): it survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state; `periodic` is `fast` with one synced batch every `run_state.commit_interval`, so a power cut loses at most that interval of work; `off` writes as `batch` does and syncs nothing (`synchronous=OFF`), and a run file a crash or a power cut left is discarded when the Run is next started or resumed, so the Run starts again from nothing. A level unfolds into its preset's keys at the layer that set it: a key set at that layer or a higher one overrides the preset's value, and a lock on the level locks every key of its preset. At every level a clean stop writes and syncs everything, so a paused Run resumes. The run report's `weakened` names `off`, and each preset key whose value weakens the Run.",
       "name": "run_state.durability",
       "product": "collie",
       "products": [
@@ -20860,6 +21059,7 @@
           "full",
           "fast",
           "periodic",
+          "batch",
           "off"
         ]
       },
@@ -20918,6 +21118,24 @@
       ],
       "value": {
         "type": "string"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 67108864,
+      "description": "The most memory this Run's Frontier, Leases and changes not yet written may hold, in bytes. Past it, or under memory pressure, state already written leaves memory and is read back from the run file. 0 keeps the Frontier in the run file. A budget of 0 with `run_state.batch.pages`, `.interval` and `.bytes` all `none` is refused, since nothing would ever leave memory.",
+      "name": "run_state.memory.budget",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
       },
       "weakens": false
     },

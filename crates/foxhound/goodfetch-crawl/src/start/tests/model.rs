@@ -21,8 +21,14 @@
 //! after a crash, the file the next process opens passes `PRAGMA
 //! integrity_check` (in `after_crash`) and still does. The handler takes
 //! one work item at a time, so a handler request means the previous
-//! attempt's outcome was committed. 16 cases in the Quick suite and 256 in
-//! the Pre-merge suite (`proptest_config`).
+//! attempt's outcome was answered. Each case runs at a level it draws
+//! (`run_state.durability`): at `full` that outcome is in the file; at
+//! `batch` it is in the open batch, which the interval, the abort's write
+//! or the Run's end writes, so the file holds for sure only the Records
+//! answered before the last such barrier the model knows of, the abort,
+//! and the others it shows are each Dataset's next ones in commit order.
+//! 16 cases in the Quick suite and 256 in the Pre-merge suite
+//! (`proptest_config`).
 //! Each case's folder lies in memory (`TestEnv::in_memory`): on a busy
 //! disk its files' syncs passed the Quick kill (fix-queue 123).
 
@@ -33,6 +39,7 @@ use goodfetch_engine::runs::lifecycle::{self, Next, RunEvent};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_protocol::run::Lifecycle;
+use goodfetch_protocol::run::durability::MEMORY_BUDGET;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
@@ -104,9 +111,28 @@ struct Model {
     crashed: bool,
     /// The Run's Lifecycle, as the Run's table changes it.
     lifecycle: Lifecycle,
+    /// Whether the Run batches attempts (`batch`) or writes each attempt's
+    /// outcome as it is answered (`full`).
+    batching: bool,
+    /// The bytes of what it wrote that the Run keeps in memory
+    /// (`run_state.memory.budget`): none, a few visits' worth, or the
+    /// default, which an outcome never shows (#2169).
+    budget: u64,
+    /// How many of `committed` a barrier wrote, at `batch`.
+    sealed: usize,
 }
 
 impl Model {
+    /// The Records the file holds for sure: every committed one at `full`,
+    /// those a barrier wrote at `batch`.
+    fn sure(&self) -> &[Value] {
+        if self.batching {
+            &self.committed[..self.sealed]
+        } else {
+            &self.committed
+        }
+    }
+
     /// The work item the next handler request leases, and its attempt;
     /// none once the Run ended. A work item whose attempts panic ends
     /// before any handler request, so none leases it.
@@ -169,8 +195,12 @@ impl ReferenceStateMachine for Model {
     type Transition = Transition;
 
     fn init_state() -> BoxedStrategy<Self> {
-        prop::collection::vec(prop::bool::weighted(0.25), 1..4)
-            .prop_map(|panics| Self {
+        (
+            prop::collection::vec(prop::bool::weighted(0.25), 1..4),
+            any::<bool>(),
+            prop::sample::select(vec![0, 512, MEMORY_BUDGET]),
+        )
+            .prop_map(|(panics, batching, budget)| Self {
                 items: panics
                     .into_iter()
                     .map(|panics| Item {
@@ -184,6 +214,9 @@ impl ReferenceStateMachine for Model {
                 last_answer: Vec::new(),
                 crashed: false,
                 lifecycle: Lifecycle::Running,
+                batching,
+                budget,
+                sealed: 0,
             })
             .boxed()
     }
@@ -216,6 +249,9 @@ impl ReferenceStateMachine for Model {
             Transition::Deliver(behaviour) => behaviour,
             Transition::Abort => {
                 model.lifecycle = model.after(&[RunEvent::Abort]);
+                // The abort's write is a barrier: it writes every outcome
+                // answered before it.
+                model.sealed = model.committed.len();
                 return model;
             }
             Transition::Crash(_) => {
@@ -338,7 +374,10 @@ impl Subject {
 
     /// Has the run file refuse the Records of the `attempt`th attempt of
     /// the work item at `index`, through a trigger planted beside the
-    /// writer: a write the run file refuses, with no storage failure.
+    /// writer: a write the run file refuses, with no storage failure. At
+    /// `batch` the writer holds the open batch's transaction until the
+    /// interval writes it, which only the engine's runtime, on the paused
+    /// clock, brings: each try that finds the file busy lets it run.
     fn refuse_records(&self, index: usize, attempt: u32) {
         let connection = Connection::open_with_flags_and_vfs(
             self.path(),
@@ -346,18 +385,28 @@ impl Subject {
             self.vfs.name(),
         )
         .unwrap();
-        connection
-            .busy_timeout(std::time::Duration::from_secs(10))
-            .unwrap();
+        connection.busy_timeout(std::time::Duration::ZERO).unwrap();
         let item = index + 1;
-        connection
-            .execute_batch(&format!(
-                "CREATE TRIGGER IF NOT EXISTS refuse_{item}_{attempt} BEFORE INSERT ON records
-                 WHEN NEW.work_item = '{item}'
-                     AND (SELECT attempts FROM work_items WHERE id = NEW.work_item) = {attempt}
-                 BEGIN SELECT RAISE(ABORT, 'refused by the model'); END"
-            ))
-            .unwrap();
+        let trigger = format!(
+            "CREATE TRIGGER IF NOT EXISTS refuse_{item}_{attempt} BEFORE INSERT ON records
+             WHEN NEW.work_item = '{item}'
+                 AND (SELECT attempts FROM work_items WHERE id = NEW.work_item) = {attempt}
+             BEGIN SELECT RAISE(ABORT, 'refused by the model'); END"
+        );
+        for _ in 0..600 {
+            match connection.execute_batch(&trigger) {
+                Ok(()) => return,
+                Err(rusqlite::Error::SqliteFailure(error, _))
+                    if error.code == rusqlite::ErrorCode::DatabaseBusy =>
+                {
+                    self.runtime.block_on(async {
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    });
+                }
+                Err(error) => panic!("the trigger was not planted: {error}"),
+            }
+        }
+        panic!("the run file stayed busy for a minute of the paused clock");
     }
 
     /// The Records the run file holds now, read beside the writer.
@@ -451,7 +500,7 @@ fn check(stored: &[Stored], model: &Model) {
         seen.values().all(|count| *count == 1),
         "a Record is visible twice: {records:?}"
     );
-    for record in &model.committed {
+    for record in model.sure() {
         assert!(
             records.contains(record),
             "committed {record} is gone: {records:?}"
@@ -514,9 +563,17 @@ impl StateMachineTest for Subject {
                 json!({ "url": url, "label": "page" })
             })
             .collect();
+        let level = if model.batching { "batch" } else { "full" };
         let params = as_sent(
             "crawl.start",
-            json!({ "run_id": "model", "seeds": seeds, "datasets": [{ "name": "pages" }, { "name": "links" }] }),
+            json!({
+                "run_id": "model",
+                "seeds": seeds,
+                "datasets": [{ "name": "pages" }, { "name": "links" }],
+                "settings": {
+                    "run_state": { "durability": level, "memory": { "budget": model.budget } },
+                },
+            }),
         );
         subject.send(
             &json!({ "jsonrpc": "2.0", "id": "start", "method": "crawl.start", "params": params }),
@@ -729,7 +786,8 @@ fn next_from_engine(subject: &mut Subject) -> Value {
 prop_state_machine! {
     #![proptest_config(goodfetch_test_support::proptest_config())]
 
-    /// Covers: story:3-41, story:3-26, story:3-151, story:6-268
+    /// Covers: story:3-41, story:3-26, story:3-151, story:6-268,
+    /// setting:run_state.memory.budget
     #[test]
     fn delivery_commits_each_answered_attempt_once_through_failures_lost_leases_and_crashes(
         sequential 1..20 => Subject

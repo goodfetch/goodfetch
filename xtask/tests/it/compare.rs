@@ -1777,7 +1777,7 @@ fn a_tool_that_counted_no_instructions_fails() {
 }
 
 /// The Collie scenario's cells, each with its pages and actions.
-const COLLIE_CELLS: [(&str, &str, &[u32], u64); 5] = [
+const COLLIE_CELLS: [(&str, &str, &[u32], u64); 6] = [
     (
         "click",
         "actionability",
@@ -1793,6 +1793,18 @@ const COLLIE_CELLS: [(&str, &str, &[u32], u64); 5] = [
         &[1, 2, 3, 4, 5, 6, 15, 18, 26, 27, 20, 21, 22, 23, 24, 28],
         81,
     ),
+    ("opening", "", &[], 10),
+];
+
+/// The rows of the Collie scenario's page-load cell.
+const LOAD_ROWS: [&str; 7] = [
+    "defaults",
+    "live_hiding_off",
+    "consent_off",
+    "filter_lists_off",
+    "egress_relay_off",
+    "playwright",
+    "playwright_routed",
 ];
 
 /// The steps the Collie scenario plans on `family`'s page `number`: a
@@ -1809,7 +1821,8 @@ fn collie_steps(family: &str, number: u32) -> u64 {
 
 /// A Collie scenario of two trials of each tool in each cell, every page
 /// done and verified, Collie sending `collie` commands per action and
-/// Playwright one.
+/// Playwright one; and two trials of each row on each page of its
+/// page-load cell, each its page's work.
 fn collie(collie: u64) -> Value {
     let mut trials_run = Vec::new();
     for (exercise, family, numbers, actions) in COLLIE_CELLS {
@@ -1837,6 +1850,7 @@ fn collie(collie: u64) -> Value {
                     "actions": actions,
                     "sessions": if exercise == "sessions" { 10 } else { 0 },
                     "commands": actions * per_action,
+                    "rounds": actions,
                     "cpu_seconds": 0.5,
                     "wall_seconds": 1.0,
                     "peak_bytes": 100 * MIB,
@@ -1845,7 +1859,26 @@ fn collie(collie: u64) -> Value {
             }
         }
     }
-    json!({ "status": "measured", "trials": 2, "trials_run": trials_run })
+    let mut loads = Vec::new();
+    for (page, own) in [("plain", 150), ("ads", 120)] {
+        for row in LOAD_ROWS {
+            for number in 1..=2 {
+                loads.push(json!({
+                    "page": page,
+                    "row": row,
+                    "number": number,
+                    "status": 200,
+                    "read": "digest of the content",
+                    "own": own,
+                    "sent": own + 1,
+                    "cpu_seconds": 0.5,
+                    "wall_seconds": 1.0,
+                    "peak_bytes": 100 * MIB,
+                }));
+            }
+        }
+    }
+    json!({ "status": "measured", "trials": 2, "tools": ["collie", "playwright"], "trials_run": trials_run, "loads": loads })
 }
 
 /// TESTING.md's register, its Collie row's Today `today`.

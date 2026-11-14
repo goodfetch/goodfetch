@@ -50,7 +50,8 @@ pub(crate) struct Sample {
     /// once. None when a live process of the tree kept its own from the
     /// sampler, so the sum would leave it out.
     pub(crate) pss_bytes: Option<u64>,
-    /// CPU seconds of the tree's live processes so far.
+    /// CPU seconds of the tree's live processes so far, with those of the
+    /// children each waited for.
     pub(crate) cpu_seconds: f64,
     pub(crate) threads: u64,
     pub(crate) open_files: u64,
@@ -120,14 +121,30 @@ pub(crate) fn tree(pid: u32) -> Vec<u32> {
 }
 
 /// The CPU seconds the live processes of the tree under `pid` have spent
-/// so far, user and system: zero on an OS without `/proc`.
+/// so far, user and system, with those of the children each waited for,
+/// which the OS adds to the parent's as they leave the tree: zero on an OS
+/// without `/proc`.
 pub(crate) fn cpu_seconds(pid: u32) -> f64 {
     let (ticks_per_second, page) = system();
     let ticks: u64 = tree(pid)
         .into_iter()
         .filter_map(|pid| process(pid, page))
-        .map(|process| process.cpu_ticks)
+        .map(|process| process.spent_ticks())
         .sum();
+    seconds(ticks, ticks_per_second)
+}
+
+/// The CPU seconds `pid`'s own process has spent so far, user and system,
+/// without its children's, waited for or not: zero on an OS without
+/// `/proc` (issue 2406).
+pub(crate) fn own_cpu_seconds(pid: u32) -> f64 {
+    let (ticks_per_second, page) = system();
+    let ticks = process(pid, page).map_or(0, |process| process.cpu_ticks);
+    seconds(ticks, ticks_per_second)
+}
+
+/// `ticks` of the OS's clock, in seconds.
+fn seconds(ticks: u64, ticks_per_second: f64) -> f64 {
     #[expect(
         clippy::cast_precision_loss,
         reason = "clock ticks stay far below 2^52"
@@ -145,8 +162,19 @@ struct Process {
     /// None when the OS refuses the sampler its memory map's totals.
     pss_bytes: Option<u64>,
     cpu_ticks: u64,
+    /// The CPU ticks of the children it waited for, theirs included.
+    waited_ticks: u64,
     threads: u64,
     open_files: u64,
+}
+
+impl Process {
+    /// Its CPU ticks with those of the children it waited for. The OS adds a
+    /// child's to its parent's as the child leaves the tree, so the tree's
+    /// sum keeps them.
+    fn spent_ticks(&self) -> u64 {
+        self.cpu_ticks + self.waited_ticks
+    }
 }
 
 /// The `Pss:` line of a `smaps_rollup` file, in bytes: the kernel writes it
@@ -189,6 +217,8 @@ fn process(pid: u32, page: u64) -> Option<Process> {
     let resident: u64 = pages.next()?.parse().ok()?;
     let shared: u64 = pages.next()?.parse().ok()?;
     let ticks: u64 = fields.get(11)?.parse::<u64>().ok()? + fields.get(12)?.parse::<u64>().ok()?;
+    let waited_ticks: u64 =
+        fields.get(13)?.parse::<u64>().ok()? + fields.get(14)?.parse::<u64>().ok()?;
     let threads: u64 = fields.get(17)?.parse().ok()?;
     let open_files =
         std::fs::read_dir(format!("/proc/{pid}/fd")).map_or(0, |entries| entries.count() as u64);
@@ -197,6 +227,7 @@ fn process(pid: u32, page: u64) -> Option<Process> {
         private_bytes: resident.saturating_sub(shared) * page,
         pss_bytes: pss(pid),
         cpu_ticks: ticks,
+        waited_ticks,
         threads,
         open_files,
     })
@@ -247,7 +278,7 @@ impl Sampler {
                                 .pss_bytes
                                 .zip(process.pss_bytes)
                                 .map(|(tree, own)| tree + own);
-                            ticks += process.cpu_ticks;
+                            ticks += process.spent_ticks();
                             sample.threads += process.threads;
                             sample.open_files += process.open_files;
                         }

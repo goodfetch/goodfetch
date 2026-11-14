@@ -199,6 +199,14 @@ export type ResponseOrigin =
  */
 export type RobotsTxtMark = "ignored";
 /**
+ * A tier that fetches a crawl request's document (ADR 0020), from the
+ * cheapest up.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FetchTier".
+ */
+export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
+/**
  * Which scope's `fetch.tier` forced a tier.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -310,14 +318,6 @@ export type World = "main" | "isolated";
  * via the `definition` "Product".
  */
 export type Product = "collie" | "foxhound";
-/**
- * A tier that fetches a crawl request's document (ADR 0020), from the
- * cheapest up.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "FetchTier".
- */
-export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
 /**
  * The form a Client's user writes names in (ADR 0099), which the engine
  * renders the names and targets of its messages in.
@@ -2153,6 +2153,12 @@ export interface TierProvenance {
    */
   call?: string | null;
   /**
+   * For `discovered_api`, where its replayed calls left from: `http`
+   * when the Session's own HTTP transport sent them, `browser_fetch`
+   * when they left from inside its browser.
+   */
+  calls_sent_on?: FetchTier | null;
+  /**
    * How it was chosen.
    */
   chosen: "forced" | "compared" | "sample" | "escalation" | "race";
@@ -2161,10 +2167,8 @@ export interface TierProvenance {
    */
   forced_by?: ForcedBy | null;
   /**
-   * The tier that sent the document's request, whoever chose it:
-   * `browser_fetch` when it left from inside the Session's browser, as
-   * under `auto`, and `http` when the Session's own HTTP transport sent
-   * it.
+   * A tier that fetches a crawl request's document (ADR 0020), from the
+   * cheapest up.
    */
   tier: "http" | "discovered_api" | "browser_fetch" | "light_browser" | "browser";
 }
@@ -2689,6 +2693,12 @@ export interface ExplainedSetting {
    */
   origin?: RunOrigin | null;
   /**
+   * When a level's preset gave the value, at `layer`, that level, which
+   * `config explain` shows as "preset of `run_state.durability: full`"
+   * in place of the layer (ADR 0142).
+   */
+  preset?: SettingPreset | null;
+  /**
    * The Products that honour it, from its Product mark (ADR 0095).
    */
   products: Product[];
@@ -2710,6 +2720,57 @@ export interface ExplainedSetting {
    * control, which the results it touches are marked with (ADR 0028).
    */
   weakens: boolean;
+  /**
+   * The setting its value yields to, with that setting's value and
+   * layer, when one that is set keeps its value from taking effect:
+   * `fetch.http_from` away from `browser` yields to the Run's
+   * `session.source`, whose Sessions hold a login and so send their HTTP
+   * from the browser (#2418).
+   */
+  yields_to?: SettingLimit | null;
+}
+/**
+ * The setting whose value names the preset that gave another setting its
+ * value: `run_state.durability` and its level unfold into the
+ * `run_state.batch.*` keys at the layer that set the level (ADR 0142).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingPreset".
+ */
+export interface SettingPreset {
+  /**
+   * The key that names the preset, such as `run_state.durability`.
+   */
+  key: string;
+  /**
+   * Its value, the preset's name, such as `full`.
+   */
+  value: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * A setting that decided an outcome: its key, its value and the layer that
+ * set it (ADRs 0028 and 0079).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingLimit".
+ */
+export interface SettingLimit {
+  /**
+   * The setting's key.
+   */
+  key: string;
+  /**
+   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
+   */
+  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  /**
+   * Its value.
+   */
+  value: {
+    [k: string]: unknown;
+  };
 }
 /**
  * What `locator.fill` takes: the locator whose field it fills, and the
@@ -3911,16 +3972,17 @@ export interface ModelAllowance {
    * What remains of it, spent and reserved taken off.
    */
   remains: number;
-  source: SettingLimit;
+  source: SettingLimit1;
   /**
    * What it allows: a count, or millionths of the currency.
    */
   value: number;
 }
 /**
- * The setting that set it, its value and its layer.
+ * A setting that decided an outcome: its key, its value and the layer that
+ * set it (ADRs 0028 and 0079).
  */
-export interface SettingLimit {
+export interface SettingLimit1 {
   /**
    * The setting's key.
    */
@@ -6432,6 +6494,11 @@ export interface WeakenedSetting {
    */
   origin?: RunOrigin | null;
   /**
+   * When a level's preset gave the value, at `layer`, that level, such
+   * as `run_state.durability: off` (ADR 0142).
+   */
+  preset?: SettingPreset | null;
+  /**
    * Its value.
    */
   value: {
@@ -6942,29 +7009,6 @@ export interface SetLogLevelParams {
    * it and above; `off`, the default, receives none.
    */
   log_level: "off" | "error" | "warn" | "info" | "debug" | "trace";
-}
-/**
- * A setting that decided an outcome: its key, its value and the layer that
- * set it (ADRs 0028 and 0079).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "SettingLimit".
- */
-export interface SettingLimit1 {
-  /**
-   * The setting's key.
-   */
-  key: string;
-  /**
-   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
-   */
-  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
-  /**
-   * Its value.
-   */
-  value: {
-    [k: string]: unknown;
-  };
 }
 /**
  * What `config.explain` answers and `config explain --json` prints:

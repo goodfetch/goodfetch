@@ -1,9 +1,12 @@
 //! The rung site on `rungs.localhost`: pages of three kinds, each needing
-//! one rung of `auto`'s ladder. A static page is the same to every client;
-//! a browser-identity page answers its content only to the TLS fingerprint
-//! of the Chrome for Testing build Collie pins, and refuses any other
-//! client; a script-rendered page holds its Record only once its script
-//! ran. Its manifest lists every page with its kind and its expected
+//! one rung of `auto`'s ladder, and two that refuse part way. A static page
+//! is the same to every client; a browser-identity page answers its content
+//! only to the TLS fingerprint of the Chrome for Testing build Collie pins,
+//! and refuses any other client; a script-rendered page holds its Record
+//! only once its script ran. A transport-refused page is static up to page
+//! 3, then a browser-identity page whose refusal says the address is
+//! blocked; an every-client-refused page gives that refusal to every
+//! client from page 4. Its manifest lists every page with its kind and its expected
 //! Records. It belongs to no task and declares no Feature.
 //!
 //! The pinned browser here is the build test support lays out in a
@@ -30,7 +33,7 @@ const HOST: &str = "rungs.localhost";
 /// The switch Collie starts its browsers with that changes their TLS
 /// fingerprint: without the field-trial configuration built into the
 /// binary, Chrome sends one extension fewer.
-const AS_COLLIE_STARTS_IT: &[&str] = &["--disable-field-trial-config"];
+pub(crate) const AS_COLLIE_STARTS_IT: &[&str] = &["--disable-field-trial-config"];
 
 /// The browsers started at once by a crawl.
 const BROWSERS_AT_ONCE: usize = 6;
@@ -58,11 +61,20 @@ fn links(html: &str) -> BTreeSet<String> {
 /// What reqwest gets for `path` over TLS, on a rustls configuration with
 /// the ring provider, as the HTTP fetch tier's is: the status and the body.
 fn reqwest_gets(proving_ground: &ProvingGround, path: &str) -> (u16, String) {
+    reqwest_gets_on(proving_ground, HOST, path)
+}
+
+/// As [`reqwest_gets`], from `host`.
+pub(crate) fn reqwest_gets_on(
+    proving_ground: &ProvingGround,
+    host: &str,
+    path: &str,
+) -> (u16, String) {
     let tls = clients::trusting(&proving_ground.certificate_authority(), &["h2", "http/1.1"]);
     let client = reqwest::Client::builder()
         .tls_backend_preconfigured((*tls).clone())
         .resolve(
-            HOST,
+            host,
             proving_ground.address().parse().expect("a socket address"),
         )
         .no_proxy()
@@ -78,7 +90,7 @@ fn reqwest_gets(proving_ground: &ProvingGround, path: &str) -> (u16, String) {
         .expect("a runtime");
     runtime.block_on(async {
         let response = client
-            .get(format!("https://{HOST}:{}{path}", proving_ground.port()))
+            .get(format!("https://{host}:{}{path}", proving_ground.port()))
             .send()
             .await
             .expect("the Proving ground answers");
@@ -92,21 +104,33 @@ fn reqwest_gets(proving_ground: &ProvingGround, path: &str) -> (u16, String) {
 }
 
 /// The pinned Chrome for Testing build, in a Browser cache of the test's
-/// folder, loading pages of one Proving ground.
-struct PinnedBrowser<'a> {
+/// folder, loading pages of one host of one Proving ground.
+pub(crate) struct PinnedBrowser<'a> {
     env: &'a TestEnv,
     proving_ground: &'a ProvingGround,
     cache: PathBuf,
     switches: &'a [&'a str],
+    host: &'a str,
 }
 
 impl<'a> PinnedBrowser<'a> {
     fn new(env: &'a TestEnv, proving_ground: &'a ProvingGround, switches: &'a [&'a str]) -> Self {
+        Self::on(env, proving_ground, switches, HOST)
+    }
+
+    /// The browser, loading pages of `host`.
+    pub(crate) fn on(
+        env: &'a TestEnv,
+        proving_ground: &'a ProvingGround,
+        switches: &'a [&'a str],
+        host: &'a str,
+    ) -> Self {
         Self {
             env,
             proving_ground,
             cache: browser_cache(env).expect("the pinned build is installed"),
             switches,
+            host,
         }
     }
 
@@ -121,9 +145,9 @@ impl<'a> PinnedBrowser<'a> {
         chrome_for_testing_dumping_dom(
             self.env,
             &self.cache,
-            (HOST, address.ip()),
+            (self.host, address.ip()),
             self.switches,
-            &format!("https://{HOST}:{}{path}", address.port()),
+            &format!("https://{}:{}{path}", self.host, address.port()),
         )
         .expect("Chrome starts")
     }
@@ -141,7 +165,7 @@ impl<'a> PinnedBrowser<'a> {
     }
 
     /// The DOM of `path` once loaded.
-    fn loads(&self, path: &str) -> String {
+    pub(crate) fn loads(&self, path: &str) -> String {
         Self::dom(&self.start(path))
     }
 }
@@ -184,6 +208,48 @@ fn a_browser_identity_page_refuses_reqwest() {
             records(&plain.body)
         ),
         (403, vec![], 403, vec![])
+    );
+}
+
+/// A refusing page answers reqwest its Record up to page 3, then a `403`
+/// that says the visitor's address is blocked and holds no Record; a
+/// transport-refused page answers that Record to the pinned browser.
+#[test]
+fn a_refusing_page_refuses_reqwest_from_page_4_saying_its_address_is_blocked() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(SEED);
+    let browser = PinnedBrowser::new(&env, &proving_ground, AS_COLLIE_STARTS_IT);
+    let read = |path: &str| {
+        let (status, body) = reqwest_gets(&proving_ground, path);
+        let blocked = body.contains("Your IP address has been blocked.");
+        (status, records(&body).len(), blocked)
+    };
+
+    assert_eq!(
+        [
+            read("/refused/3"),
+            read("/refused/4"),
+            read("/blocked/3"),
+            read("/blocked/9"),
+        ],
+        [
+            (200, 1, false),
+            (403, 0, true),
+            (200, 1, false),
+            (403, 0, true)
+        ]
+    );
+    assert_eq!(
+        records(&browser.loads("/refused/4")),
+        expected_records(&proving_ground, "/refused/4")
+    );
+    let blocked = browser.loads("/blocked/4");
+    assert_eq!(
+        (
+            records(&blocked).len(),
+            blocked.contains("Your IP address has been blocked.")
+        ),
+        (0, true)
     );
 }
 
@@ -267,6 +333,24 @@ fn the_manifest_lists_every_page_with_its_kind_and_its_records() {
         ("/scripted/4", "script_rendered", Some("scripted-4")),
         ("/scripted/5", "script_rendered", Some("scripted-5")),
         ("/scripted/6", "script_rendered", Some("scripted-6")),
+        ("/refused/1", "transport_refused", Some("refused-1")),
+        ("/refused/2", "transport_refused", Some("refused-2")),
+        ("/refused/3", "transport_refused", Some("refused-3")),
+        ("/refused/4", "transport_refused", Some("refused-4")),
+        ("/refused/5", "transport_refused", Some("refused-5")),
+        ("/refused/6", "transport_refused", Some("refused-6")),
+        ("/refused/7", "transport_refused", Some("refused-7")),
+        ("/refused/8", "transport_refused", Some("refused-8")),
+        ("/refused/9", "transport_refused", Some("refused-9")),
+        ("/blocked/1", "every_client_refused", Some("blocked-1")),
+        ("/blocked/2", "every_client_refused", Some("blocked-2")),
+        ("/blocked/3", "every_client_refused", Some("blocked-3")),
+        ("/blocked/4", "every_client_refused", None),
+        ("/blocked/5", "every_client_refused", None),
+        ("/blocked/6", "every_client_refused", None),
+        ("/blocked/7", "every_client_refused", None),
+        ("/blocked/8", "every_client_refused", None),
+        ("/blocked/9", "every_client_refused", None),
     ]
     .map(|(path, kind, id)| {
         (
@@ -281,10 +365,11 @@ fn the_manifest_lists_every_page_with_its_kind_and_its_records() {
         [
             status("/static/01"),
             status("/static/7"),
+            status("/refused/10"),
             status("/static"),
             status("/other/1")
         ],
-        [404; 4]
+        [404; 5]
     );
 }
 

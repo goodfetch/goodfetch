@@ -246,6 +246,18 @@ impl State {
         self.distribute(index);
     }
 
+    /// `run` has nothing of kind `index` to admit: it waits no more, and
+    /// what was set aside for it goes to the Runs that wait.
+    fn pass(&mut self, run: u64, index: usize) {
+        let kind = &mut self.kinds[index];
+        kind.waiting.remove(&run);
+        if let Some(member) = self.runs.get_mut(&run) {
+            kind.reserved -= member.reserved[index];
+            member.reserved[index] = 0;
+        }
+        self.distribute(index);
+    }
+
     /// `run` left: what was set aside for it goes to the others; each
     /// admission it still holds is given back as it drops.
     fn leave(&mut self, run: u64) {
@@ -274,6 +286,14 @@ impl RunShare {
                 run: self.run,
                 kind,
             })
+    }
+
+    /// The Run has nothing of `kind` to admit now: it waits for no turn,
+    /// and what was set aside for it goes to the Runs that wait, so an
+    /// admission it would not use never holds them back. Its next try asks
+    /// again.
+    pub fn pass(&self, kind: WorkKind) {
+        self.shares.state().pass(self.run, index(kind));
     }
 
     /// Whether the Run waits for its turn for `kind`: a try found none, and

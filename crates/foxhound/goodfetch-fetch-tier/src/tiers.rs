@@ -2626,7 +2626,8 @@ pub enum Chosen {
 /// 0023): `forced`, with who forced it, the Run or the Label; `compared`
 /// under `auto`, the sample comparison's choice; `sample`, one run of a
 /// sample; `escalation` to the browser, naming the call the cheaper tier
-/// could not serve; or `race`, the winner of a tier race.
+/// could not serve; or `race`, the winner of a tier race. It names no
+/// client for replayed calls: the attempt that replays them does.
 pub fn tier_provenance(choice: &TierChoice, how: Chosen) -> TierProvenance {
     let (chosen, call) = match how {
         Chosen::AsChosen if choice.forced.is_some() => (TierChosen::Forced, None),
@@ -2646,6 +2647,7 @@ pub fn tier_provenance(choice: &TierChoice, how: Chosen) -> TierProvenance {
             }
         }),
         call: call.map(str::to_owned),
+        calls_sent_on: None,
     }
 }
 
@@ -2697,6 +2699,9 @@ pub async fn record_tier(
         if call == ENCODING_CALL && encoding.is_none() {
             entry["encoding_source"] = serde_json::json!(EncodingSource::Detected);
         }
+    }
+    if let Some(calls_sent_on) = tier.calls_sent_on {
+        entry["calls_sent_on"] = serde_json::json!(calls_sent_on);
     }
     goodfetch_page::provenance(run, entry).await;
     encoding

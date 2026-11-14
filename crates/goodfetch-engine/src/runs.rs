@@ -69,10 +69,11 @@ use goodfetch_protocol::politeness::POLITENESS_SHARING;
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, HumanPause, Lifecycle,
     LimitScope, MAX_PROGRESS_MESSAGE_CHARACTERS, NotUnderstoodLimit, NothingDone, PointInTime,
-    Presence, ProgressMessage, RUN_IN_USE, RUN_STATE_COMMIT_INTERVAL, RUN_STATE_DURABILITY,
-    ReachedLimit, RunAxes, RunId, RunIndexRow, RunKind, RunListParams, RunOwner, RunProgress,
-    RunReport, RunStarted, RunStorage, RunUsage, RunWarning, RunWriter, StartInput, StartedAs,
-    StopReason, Tags,
+    Presence, ProgressMessage, RUN_IN_USE, RUN_STATE_BATCH_BYTES, RUN_STATE_BATCH_INTERVAL,
+    RUN_STATE_BATCH_PAGES, RUN_STATE_BATCH_PER_ATTEMPT, RUN_STATE_BATCH_SYNC,
+    RUN_STATE_COMMIT_INTERVAL, RUN_STATE_MEMORY_BUDGET, ReachedLimit, RunAxes, RunId, RunIndexRow,
+    RunKind, RunListParams, RunOwner, RunProgress, RunReport, RunStarted, RunStorage, RunUsage,
+    RunWarning, RunWriter, StartInput, StartedAs, StopReason, Tags,
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
@@ -112,7 +113,7 @@ pub(crate) use self::slices::Limits;
 use self::takeover::TakeOver;
 use self::writer::{LockError, retried, take_lock, try_lock};
 use crate::CallError;
-use crate::admission::{Admission, Gates};
+use crate::admission::{self, Admission, Gates};
 use crate::audit::{AuditLog, Origin};
 use crate::body;
 use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
@@ -140,7 +141,7 @@ use crate::run_index::{self, RunIndex};
 use crate::run_key::{self, KeyError, RunKey, Sealed, StoredKey};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{
-    self, Durability, RUN_FILE, ReservedWrite, RunState, RunStateError, RunStateOptions,
+    self, BatchSync, Durability, RUN_FILE, ReservedWrite, RunState, RunStateError, RunStateOptions,
     RunStateTables, SecretColumn, Syncing,
 };
 use crate::run_trace;
@@ -609,7 +610,7 @@ async fn warn_over_charged(run: &Run) {
         .read(move |connection| slices::reclaimed_beyond(connection, epoch))
         .await;
     let message = match beyond {
-        Ok(Some(slices::OverCharge::WholeSlices)) => "the Run ended uncleanly at a Durability level that syncs no commit, so the Usage ledger charged the whole of its earlier Slices: its Limits may be over-charged by what it did not use of them".to_owned(),
+        Ok(Some(slices::OverCharge::WholeSlices)) => "the Run ended uncleanly and its charges were answered before they were synced, in a Run-state batch or at a `run_state.batch.sync` other than `each`, so the Usage ledger charged the whole of its earlier Slices: its Limits may be over-charged by what it did not use of them".to_owned(),
         Ok(Some(slices::OverCharge::UpTo(requests))) => format!(
             "the Run ended uncleanly, so the Usage ledger charged its earlier Slices up to {requests} past what its journal held, for the requests that may have been in flight: its Limits may be over-charged by as much"
         ),
@@ -658,7 +659,7 @@ pub enum ChargeError {
 
 /// What a Run charged with [`Run::charge_unjournaled`] that no journal
 /// holds yet: the Slices its charges took from, and what they counted in
-/// the Run's Usage, which [`Run::write_charged`] journals.
+/// the Run's Usage, which [`Run::queue_charged`] journals.
 #[derive(Debug, Default)]
 pub struct UnjournaledCharges {
     slices: Vec<SliceId>,
@@ -1232,6 +1233,8 @@ pub struct Runs {
     controls: Arc<Controls>,
     /// The runtime's metrics.
     metrics: Metrics,
+    /// The gates the composition passes in, if any.
+    gates: Option<Arc<dyn Gates>>,
     /// The owner of the registry's own task, whose panic stops the engine
     /// at once (ADR 0148).
     registry: Arc<TaskOwner>,
@@ -1751,9 +1754,34 @@ impl Run {
     /// Dropping the future does not withdraw a write already queued: the
     /// warning may still be handed over.
     pub async fn warn_once(&self, warning: RunWarning) -> Result<(), RunStateError> {
+        self.warn_once_with(Syncing::Required, warning).await
+    }
+
+    /// Hands `warning` over as [`Run::warn_once`] does, in the open batch,
+    /// with no sync of its own: for a warning the Run hands over again each
+    /// time it opens, such as one its settings decide, which a crash that
+    /// loses it loses only until the resume (ADR 0142).
+    ///
+    /// # Errors
+    ///
+    /// When its run state cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Run::warn_once`]'s.
+    pub async fn warn_once_deferred(&self, warning: RunWarning) -> Result<(), RunStateError> {
+        self.warn_once_with(Syncing::Deferred { charged: 0 }, warning)
+            .await
+    }
+
+    async fn warn_once_with(
+        &self,
+        syncing: Syncing,
+        warning: RunWarning,
+    ) -> Result<(), RunStateError> {
         let warning = self.masked(warning);
         self.state
-            .write(move |connection| {
+            .write_with(syncing, move |connection| {
                 if report::warned(connection, &warning.code, warning.folder.as_deref())? {
                     return Ok(());
                 }
@@ -2281,7 +2309,7 @@ impl Run {
 
     /// Charges `amount` of `usage_kind` as [`Run::charge`] does, without
     /// journaling it: what it charged joins `charges`, which
-    /// [`Run::write_charged`] journals in the write that uses it, so the
+    /// [`Run::queue_charged`] journals in the write that uses it, so the
     /// journal and that write commit as one job of the run state's writer.
     ///
     /// # Errors
@@ -2331,27 +2359,32 @@ impl Run {
     /// with what the Run has now used of each Slice they took from, read
     /// under its charging's lock as the write takes its place in the queue,
     /// so journals reach the run state in the order of the changes. A Run
-    /// whose charging ended journals nothing. Answers what `work` returned
-    /// once the write's commit is acknowledged, before a sync of its own:
-    /// it is an attempt's claim, which a power cut may take, and the
-    /// writer bounds what such writes charge by [`DEFERRED_CHARGES`] (ADR
-    /// 0138's note of #1926).
+    /// whose charging ended journals nothing. Answers once the write is
+    /// queued, with the write, which answers what `work` returned once its
+    /// commit is acknowledged, before a sync of its own: it is an attempt's
+    /// claim, which a power cut may take, and the writer bounds what such
+    /// writes charge by [`DEFERRED_CHARGES`] (ADR 0138's note of #1926). At
+    /// a level that batches attempts it rides the open batch once the file
+    /// declares its charges unsynced: answered once its savepoint is
+    /// released, and seen by a reader only once the batch commits (ADR 0142).
+    /// The caller need not wait for it: dropping it does not withdraw the
+    /// write, and every write queued after it runs after it.
     ///
     /// [`DEFERRED_CHARGES`]: crate::run_state::DEFERRED_CHARGES
     ///
     /// # Errors
     ///
-    /// `State` when `work` or its commit failed, or the run state's writer
-    /// stopped.
+    /// `State` when the run state's writer stopped; the write answers
+    /// `State` when `work` or its commit failed, or the writer stopped.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future once the write is queued does not withdraw it.
-    pub async fn write_charged<T, F>(
+    pub async fn queue_charged<T, F>(
         &self,
         charges: UnjournaledCharges,
         work: F,
-    ) -> Result<T, ChargeError>
+    ) -> Result<impl Future<Output = Result<T, ChargeError>> + Send + 'static, ChargeError>
     where
         T: Send + 'static,
         F: FnOnce(&rusqlite::Connection) -> rusqlite::Result<T> + Send + 'static,
@@ -2388,7 +2421,7 @@ impl Run {
                 })
             })
             .await;
-        Ok(written.await?)
+        Ok(async move { Ok(written.await?) })
     }
 
     /// Reserves ahead an amount of `usage_kind` the Run is about to use, as
@@ -2796,6 +2829,7 @@ impl Runs {
             clean_up: CleanUpRules::of(&setup),
             controls: Arc::new(setup.controls.clone()),
             metrics: setup.metrics.clone(),
+            gates: setup.gates.clone(),
             registry: Arc::new(owner.part("Run registry")),
         };
         let politeness = SharedPoliteness {
@@ -2847,6 +2881,14 @@ impl Runs {
     /// records in (ADR 0050).
     pub fn metrics(&self) -> &Metrics {
         &self.metrics
+    }
+
+    /// How the gate in admission of a Run with the settings `settings`
+    /// keys a request's URL, before the Run exists: a start keys the work
+    /// items it adds as its gate will. `None` when the composition passes
+    /// in no gate.
+    pub fn keys(&self, settings: &Resolved) -> Option<admission::Keys> {
+        self.gates.as_ref().map(|gates| gates.keys(settings))
     }
 
     /// The scope of the Client connection these Runs stand in, as the
@@ -5020,6 +5062,9 @@ impl Registry {
     fn opened_with(&self, settings: Option<&RunSettings>) -> RunStateOptions {
         RunStateOptions {
             durability: durability_of(settings),
+            memory_budget: settings.map_or(self.setup.run_state.memory_budget, |settings| {
+                settings.resolved().get(&RUN_STATE_MEMORY_BUDGET)
+            }),
             clock: self.setup.engine.clock(),
             ..self.setup.run_state.clone()
         }
@@ -5559,8 +5604,8 @@ impl Registry {
         self.setup.driving.get(&kind).copied().unwrap_or_default()
     }
 
-    /// How the start of a Run of `kind` commits: synced, and declaring the
-    /// bound of its deferred charges when its claims defer them.
+    /// How the start of a Run of `kind` commits: synced, and declaring how
+    /// its charges reach the run file when its claims defer them.
     fn start_syncing(&self, kind: RunKind) -> Syncing {
         if self.driving(kind).defers_charges {
             Syncing::Declaring
@@ -5679,6 +5724,7 @@ impl Registry {
             clean_up: CleanUpRules::of(&self.setup),
             controls: Arc::new(self.setup.controls.clone()),
             metrics: self.setup.metrics.clone(),
+            gates: self.setup.gates.clone(),
             registry: Arc::clone(&self.itself),
         }
     }
@@ -5885,11 +5931,12 @@ impl Registry {
         answer: oneshot::Sender<Result<Checkpoint, RunError>>,
     ) {
         let folder = self.folder(&run_id);
-        let live_epoch = self
+        let live_state = self
             .live
             .get(&run_id)
             .and_then(|live| live.run.as_ref())
-            .map(|run| run.state.epoch());
+            .map(|run| run.state.clone());
+        let live_epoch = live_state.as_ref().map(RunState::epoch);
         let state = match self.live.get(&run_id) {
             Some(live) => live.lifecycle,
             None => match self.existing(&run_id).await {
@@ -5922,6 +5969,7 @@ impl Registry {
             events: self.setup.events.clone(),
             tasks: Arc::new(self.ending_owner.child()),
             governor: self.setup.governor.clone(),
+            sealing: live_state,
         };
         let registry = self.runs.clone();
         self.ending_owner.spawn(async move {
@@ -6386,6 +6434,10 @@ struct Taking {
     tasks: Arc<TaskOwner>,
     /// What tells whether its destination's filesystem is at `critical`.
     governor: Governor,
+    /// A live Run's writer, whose open batch it seals before it copies the
+    /// run file, so the copy holds every write answered before it (ADR
+    /// 0142); none once the Run's end was written.
+    sealing: Option<RunState>,
 }
 
 impl Taking {
@@ -6424,6 +6476,11 @@ impl Taking {
                     &checkpointing,
                 )
                 .await;
+        }
+        if let Some(state) = &self.sealing {
+            state.seal().await.map_err(|error| {
+                RunError::of_write(&self.run_id, &self.folder, WriteError::Source(error))
+            })?;
         }
         let (folder, destination, vfs, nonce) = (
             self.folder.clone(),
@@ -6805,6 +6862,7 @@ impl Closing {
                 tasks: Arc::clone(&writer),
                 folder,
                 governor: to.governor,
+                sealing: None,
             };
             match taking.take(Some(state.epoch())).await {
                 Ok(checkpoint) => report.checkpoint = Some(checkpoint),
@@ -6886,15 +6944,23 @@ impl SharedPoliteness {
     }
 }
 
-/// The Durability level a Run's `settings` name (`run_state.durability`,
-/// with `run_state.commit_interval` at `periodic`), `full` when it has none.
+/// How a Run's `settings` write its run file: `run_state.durability`'s
+/// preset as the resolver unfolded it into the `run_state.batch.*` keys,
+/// with `run_state.commit_interval` at `sync: interval` (ADR 0142); `batch`
+/// when it has none.
 fn durability_of(settings: Option<&RunSettings>) -> Durability {
-    settings.map_or(Durability::Full, |settings| {
+    settings.map_or_else(Durability::default, |settings| {
         let resolved = settings.resolved();
         let interval = resolved.get(&RUN_STATE_COMMIT_INTERVAL);
-        Durability::named(resolved.get(&RUN_STATE_DURABILITY), interval).expect(
-            "invariant: the settings resolver lets only `run_state.durability`'s choices through",
-        )
+        Durability {
+            per_attempt: resolved.get(&RUN_STATE_BATCH_PER_ATTEMPT),
+            pages: resolved.get(&RUN_STATE_BATCH_PAGES),
+            interval: resolved.get(&RUN_STATE_BATCH_INTERVAL),
+            bytes: resolved.get(&RUN_STATE_BATCH_BYTES),
+            sync: BatchSync::named(resolved.get(&RUN_STATE_BATCH_SYNC), interval).expect(
+                "invariant: the settings resolver lets only `run_state.batch.sync`'s choices through",
+            ),
+        }
     })
 }
 

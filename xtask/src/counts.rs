@@ -186,7 +186,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 114] = [
+const ROWS: [Row; 117] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -309,6 +309,32 @@ const ROWS: [Row; 114] = [
         name: "F2.writer_reads",
         family: "B1",
         unit: "pages",
+        happens: false,
+        valgrind: None,
+    },
+    // A page's waits for the run file's writer, held per page at the levels
+    // that batch attempts and, apart, at `full` (ADR 0140's note on
+    // batching): each row's unit is its own cells' pages, none elsewhere.
+    Row {
+        name: "F2.page_waits",
+        family: "B1",
+        unit: "batched_pages",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "F2.page_waits.full",
+        family: "B1",
+        unit: "full_pages",
+        happens: false,
+        valgrind: None,
+    },
+    // The batches sealed before their plan, less one for each call the
+    // crawl was made that no page will make again, per Run.
+    Row {
+        name: "F2.batches",
+        family: "B1",
+        unit: "runs",
         happens: false,
         valgrind: None,
     },
@@ -1524,9 +1550,9 @@ fn one_of(unit: &str) -> &str {
         LINKS_BATCHES => "links batch",
         "audit_entries" => "audit_entry",
         "entries" => "entry",
+        "batched_pages" | "full_pages" | CALLGRIND_PAGES => "page",
         ADDED_PAGES => "page added",
         ATTEMPTS_ENDED => "attempt",
-        CALLGRIND_PAGES => "page",
         CALLGRIND_CRAWLS => "crawl",
         unit => unit.trim_end_matches('s'),
     }

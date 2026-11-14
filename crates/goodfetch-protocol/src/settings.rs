@@ -142,6 +142,24 @@ pub struct WeakenedSetting {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub origin: Option<RunOrigin>,
+    /// When a level's preset gave the value, at `layer`, that level, such
+    /// as `run_state.durability: off` (ADR 0142).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub preset: Option<SettingPreset>,
+}
+
+/// The setting whose value names the preset that gave another setting its
+/// value: `run_state.durability` and its level unfold into the
+/// `run_state.batch.*` keys at the layer that set the level (ADR 0142).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SettingPreset {
+    /// The key that names the preset, such as `run_state.durability`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub key: String,
+    /// Its value, the preset's name, such as `full`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub value: Value,
 }
 
 /// An unknown key, or an unknown `GOODFETCH_` variable (ADR 0083).
@@ -319,6 +337,12 @@ pub struct ExplainedSetting {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub origin: Option<RunOrigin>,
+    /// When a level's preset gave the value, at `layer`, that level, which
+    /// `config explain` shows as "preset of `run_state.durability: full`"
+    /// in place of the layer (ADR 0142).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub preset: Option<SettingPreset>,
     /// The layer that locked it, if any: an Operator policy's lock, a
     /// Recipe that declares it without exposing it, or the default for an
     /// honesty guarantee.
@@ -345,6 +369,14 @@ pub struct ExplainedSetting {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub fixed_for_run: bool,
+    /// The setting its value yields to, with that setting's value and
+    /// layer, when one that is set keeps its value from taking effect:
+    /// `fetch.http_from` away from `browser` yields to the Run's
+    /// `session.source`, whose Sessions hold a login and so send their HTTP
+    /// from the browser (#2418).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub yields_to: Option<SettingLimit>,
 }
 
 /// What `config.explain` answers and `config explain --json` prints:

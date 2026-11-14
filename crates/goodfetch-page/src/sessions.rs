@@ -862,7 +862,10 @@ impl Sessions {
     }
 
     /// The Session `session` ended: it leaves, whatever pages it still
-    /// held go, and its run state records it closed.
+    /// held go, and its run state records it closed. A Session of a
+    /// crawl's Session pool, which the run file never records, writes
+    /// nothing: at `batch`, its retirement is no barrier that commits the
+    /// crawl's open batch (#2168).
     async fn session_ended(
         &self,
         open: &Session,
@@ -889,6 +892,9 @@ impl Sessions {
         self.dialogs.close(&pages);
         self.interception.close_session(session, &pages);
         self.hiding.close(session).await;
+        if open.life.pooled() {
+            return Ok(());
+        }
         let position = open.position;
         open.run
             .state()

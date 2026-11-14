@@ -28,11 +28,18 @@ use crate::connection::{DaemonEndpoint, PrivateEndpoint, StoppedBy};
 use crate::settings::{ProjectSettings, SettingLimit};
 
 pub mod completeness;
+pub mod durability;
 mod list;
 mod progress;
 mod report;
 pub mod warning;
 
+pub use self::durability::{
+    DURABILITY_BATCH, DURABILITY_FAST, DURABILITY_FULL, DURABILITY_OFF, DURABILITY_PERIODIC,
+    RUN_STATE_BATCH_BYTES, RUN_STATE_BATCH_INTERVAL, RUN_STATE_BATCH_PAGES,
+    RUN_STATE_BATCH_PER_ATTEMPT, RUN_STATE_BATCH_SYNC, RUN_STATE_COMMIT_INTERVAL,
+    RUN_STATE_DURABILITY, RUN_STATE_MEMORY_BUDGET,
+};
 pub use self::list::{
     CREATOR_TAG, OCCURRENCE_TAG, RECIPE_TAG, RESERVED_TAG_PREFIX, ROLE_TAG, RUN_LIST, RunList,
     RunListParams, RunSortKey, RunTrigger, SCHEDULE_TAG, SortOrder, TRIGGER_TAG, TimeRange,
@@ -1072,65 +1079,6 @@ pub const RUN_STATE_LOCATION: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
-fn full_durability() -> serde_json::Value {
-    serde_json::Value::String(DURABILITY_FULL.to_owned())
-}
-
-/// `run_state.durability`'s default: an acknowledged commit survives a
-/// power cut (ADRs 0002 and 0138).
-pub const DURABILITY_FULL: &str = "full";
-/// `run_state.durability`'s opt-in: an acknowledged commit survives a
-/// process crash only (ADRs 0002 and 0138).
-pub const DURABILITY_FAST: &str = "fast";
-/// `run_state.durability`'s opt-in: as `fast`, with one synced commit every
-/// `run_state.commit_interval` (ADR 0138).
-pub const DURABILITY_PERIODIC: &str = "periodic";
-/// `run_state.durability`'s opt-in: nothing synced, and a run file a crash
-/// left is discarded, so the Run starts again (ADR 0138).
-pub const DURABILITY_OFF: &str = "off";
-
-/// Every Durability level below `full` weakens a guarantee (ADR 0138).
-fn below_full(value: &serde_json::Value) -> bool {
-    value.as_str() != Some(DURABILITY_FULL)
-}
-
-/// `run_state.durability` (ADRs 0002 and 0138).
-pub const RUN_STATE_DURABILITY: Setting = Setting {
-    name: "run_state.durability",
-    description: "How a Run's commits reach the disk, its Durability level: `full`, the default, keeps every acknowledged commit through a power cut (`synchronous=FULL`, with `fullfsync` on macOS); `fast` (`synchronous=NORMAL`) survives a process crash only, since an OS crash or a power cut may roll back recent commits, possibly many, without damaging the run state; `periodic` is `fast` with one synced commit every `run_state.commit_interval`, so a power cut loses at most that interval of work; `off` (`synchronous=OFF`) syncs nothing, and a run file a crash or a power cut left is discarded when the Run is next started or resumed, so the Run starts again from nothing. At every level a clean stop leaves a consistent run file and Checkpoint, so a paused Run resumes. A Run below `full` names it in its run report's `weakened`.",
-    kind: ValueKind::Choice(&[
-        DURABILITY_FULL,
-        DURABILITY_FAST,
-        DURABILITY_PERIODIC,
-        DURABILITY_OFF,
-    ]),
-    default: full_durability,
-    clearable: false,
-    authority: Authority::Every,
-    weakens: Some(below_full),
-    fixed_for_run: false,
-    unbuilt: None,
-    arrived_in: ARRIVED_IN,
-};
-
-fn five_seconds() -> serde_json::Value {
-    serde_json::json!(5_000)
-}
-
-/// `run_state.commit_interval` (ADR 0138).
-pub const RUN_STATE_COMMIT_INTERVAL: Setting = Setting {
-    name: "run_state.commit_interval",
-    description: "At `run_state.durability = periodic`, how long a commit may wait for the next synced one: a power cut loses at most this much work. A writer with nothing to write syncs what it committed once the interval ends. Read at no other Durability level. 5 s.",
-    kind: ValueKind::Duration,
-    default: five_seconds,
-    clearable: false,
-    authority: Authority::Every,
-    weakens: None,
-    fixed_for_run: false,
-    unbuilt: None,
-    arrived_in: ARRIVED_IN,
-};
-
 fn per_run_layout() -> serde_json::Value {
     serde_json::Value::String(LAYOUT_PER_RUN.to_owned())
 }
@@ -1349,6 +1297,12 @@ pub const ENTRIES: Entries = Entries {
         RUN_STATE_LOCATION,
         RUN_STATE_DURABILITY,
         RUN_STATE_COMMIT_INTERVAL,
+        RUN_STATE_BATCH_PER_ATTEMPT,
+        RUN_STATE_BATCH_PAGES,
+        RUN_STATE_BATCH_INTERVAL,
+        RUN_STATE_BATCH_BYTES,
+        RUN_STATE_BATCH_SYNC,
+        RUN_STATE_MEMORY_BUDGET,
         RUN_STATE_LAYOUT,
     ],
     hook_stages: &[],

@@ -16,7 +16,9 @@ use crate::hostile::{
 };
 use crate::locales::LocaleTable;
 use crate::proving_ground::ProvingGroundDescription;
-use crate::proving_ground_format::{Observations, OracleSubmission, ROUTES, Routes, ServeLine};
+use crate::proving_ground_format::{
+    ArticleAnswers, Observations, OracleSubmission, ROUTES, Routes, ServeLine,
+};
 use crate::script::Script;
 use crate::snapshot::SnapshotFilters;
 use crate::ssrf::{SsrfLayers, SsrfTable};
@@ -128,6 +130,10 @@ pub fn schemas() -> BTreeMap<&'static str, serde_json::Value> {
         (
             "proving-ground/routes.json",
             serde_json::to_value(ROUTES).expect("invariant: the routes serialize"),
+        ),
+        (
+            "schemas/proving-ground-article-answers.schema.json",
+            schemars::schema_for!(ArticleAnswers).to_value(),
         ),
         (
             "schemas/proving-ground-observations.schema.json",

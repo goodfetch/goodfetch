@@ -287,6 +287,12 @@ impl Families {
     }
 }
 
+/// The right answer of each page of the comparison's article site of `size`
+/// pages, as `size` is written in a path; none when it names no such site.
+pub(crate) fn article_answers(seed: u64, size: &str) -> Option<crate::interface::ArticleAnswers> {
+    comparison::article_answers(seed, size)
+}
+
 /// The family whose host name, or one of whose task host names, `host` is.
 fn family_of(host: &str) -> Option<&'static str> {
     if comparison::serves(host) {

@@ -36,6 +36,9 @@ pub struct Routes {
     pub client_certificate: &'static str,
     /// `GET`: that certificate's private key.
     pub client_key: &'static str,
+    /// `GET <path>/<size>`: the right answer of each page of the article
+    /// site of `<size>` pages ([`ArticleAnswers`]).
+    pub article_answers: &'static str,
 }
 
 /// The Proving ground's own routes.
@@ -46,7 +49,35 @@ pub const ROUTES: Routes = Routes {
     observations: "/observations",
     client_certificate: "/client-certificate",
     client_key: "/client-key",
+    article_answers: "/article-answers",
 };
+
+/// What `GET /article-answers/<size>` serves: the right answer of each page
+/// of the article site of `<size>` pages (`article.localhost/sites/<size>/`),
+/// which a comparison checks each tool's title and Main content against.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ArticleAnswers {
+    /// Each page's answer, in the pages' order.
+    pub pages: Vec<ArticleAnswer>,
+    /// The markers of each page's header, nav, aside and footer: text no
+    /// Main content holds.
+    pub boilerplate: Vec<String>,
+    /// The marker of each page's ad, which a Clean-up rule removes.
+    pub ad: String,
+}
+
+/// One page's right answer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ArticleAnswer {
+    /// The page's path on the site's host.
+    pub path: String,
+    /// Its title: character references decoded, white space collapsed.
+    pub title: String,
+    /// The paragraphs of its article, each as its text reads.
+    pub paragraphs: Vec<String>,
+}
 
 /// The first line `serve` prints once its listeners are bound: where it
 /// answers, what it serves and where its network fixtures listen.

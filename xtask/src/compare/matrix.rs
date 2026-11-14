@@ -79,8 +79,9 @@ pub(crate) enum Scenario {
     /// second between request starts on each domain, on the multi-domain
     /// site, so throughput is not just the delay.
     Polite,
-    /// Scenario 4, extraction to a dataset: scenario 1 with each page's
-    /// title and main text written to the tool's dataset or output.
+    /// Scenario 4, extraction to a dataset: scenario 1 on the article
+    /// site, with each page's title and Main content written to the tool's
+    /// dataset or output and held to the page's right answer (#2136).
     Extraction,
     /// Scenario 5, headless browser: the script-rendered site, whose links
     /// only a browser sees.
@@ -129,6 +130,10 @@ pub(crate) enum Site {
     Rendered,
     /// The realistic-page site on `realistic.localhost`.
     Realistic,
+    /// The article site on `article.localhost` (#2136): `scale.test`'s tree
+    /// of pages, each an article whose right title and Main content the
+    /// Proving ground holds.
+    Article,
     /// The hostile pages: each task's host, reached on the Proving
     /// ground's address with its host name sent as each request's `Host`.
     Hostile,
@@ -154,6 +159,7 @@ impl Site {
             Self::MultiDomain => format!("polite-{}.localhost", (page - 1) % DOMAINS + 1),
             Self::Rendered => "rendered.localhost".to_owned(),
             Self::Realistic => "realistic.localhost".to_owned(),
+            Self::Article => "article.localhost".to_owned(),
             Self::Hostile => super::hostile::TRAPS.host.to_owned(),
         }
     }
@@ -161,7 +167,9 @@ impl Site {
     /// Every host of the site.
     pub(crate) fn hosts(self) -> Vec<String> {
         match self {
-            Self::Scale | Self::Rendered | Self::Realistic => vec![self.host_of(1)],
+            Self::Scale | Self::Rendered | Self::Realistic | Self::Article => {
+                vec![self.host_of(1)]
+            }
             Self::MultiDomain => (1..=DOMAINS).map(|page| self.host_of(page)).collect(),
             Self::Hostile => Scenario::Hostile
                 .hostile_tasks()
@@ -287,12 +295,8 @@ impl Scenario {
     /// The site its trials crawl.
     pub(crate) fn site(self) -> Site {
         match self {
-            Self::Raw
-            | Self::Durable
-            | Self::Extraction
-            | Self::Long
-            | Self::Raw64
-            | Self::Raw256 => Site::Scale,
+            Self::Raw | Self::Durable | Self::Long | Self::Raw64 | Self::Raw256 => Site::Scale,
+            Self::Extraction => Site::Article,
             Self::Polite => Site::MultiDomain,
             Self::Browser => Site::Rendered,
             Self::Realistic => Site::Realistic,
@@ -311,7 +315,7 @@ impl Scenario {
         }
         match self.site() {
             Site::MultiDomain => pages.max(DOMAINS * PAGES_PER_DOMAIN),
-            Site::Scale | Site::Rendered | Site::Realistic | Site::Hostile => pages,
+            Site::Scale | Site::Article | Site::Rendered | Site::Realistic | Site::Hostile => pages,
         }
     }
 
@@ -333,7 +337,7 @@ impl Scenario {
                 "3. Polite: robots.txt obeyed, 1 in flight per domain, 1 s delay, on the multi-domain site (10,000 pages on 1,000 domains)"
             }
             Self::Extraction => {
-                "4. Extraction to a dataset: title and main text per page, written to the tool's dataset or output"
+                "4. Extraction to a dataset: title and Main content per page of the article site, written to the tool's dataset or output and held to the page's right answer"
             }
             Self::Browser => {
                 "5. Headless browser: the script-rendered site, whose links an HTTP-only crawl never finds"
@@ -360,13 +364,6 @@ impl Scenario {
     pub(crate) fn resumes(self) -> bool {
         matches!(self, Self::Durable)
     }
-
-    /// Whether its cells write content that no check reads, so the report
-    /// gives them no standing: the extraction scenario's, until #2136's
-    /// output check lands.
-    pub(crate) fn content_unverified(self) -> bool {
-        matches!(self, Self::Extraction)
-    }
 }
 
 /// The capacity of the broadcast channel Spider's rows read its pages
@@ -391,10 +388,15 @@ pub(crate) const SPIDER_CAPACITY: usize = 64;
 /// 12, 15 lost pages at 64 and none at 128, 256 or 512.
 pub(crate) const SPIDER_CAPACITY_AT_64: usize = 128;
 
-/// The same for the extraction scenario, whose reader also writes each
-/// page: of 40 crawls at each capacity, 3 lost pages at 32, 2 at 64, 1 at
-/// 128 and none at 256, 512 or 1,024.
-pub(crate) const SPIDER_EXTRACTION_CAPACITY: usize = 256;
+/// The same for the extraction scenario, whose reader starts a task for
+/// each page, which reads its Main content, and writes each page read
+/// (#2136), on the gate host on 2026-11-13 at a 1-minute load of 10 to 22:
+/// 16 of 30 crawls lost pages at 32, and none of 40 at 64. With
+/// `llm_readability` run in the reader itself, 7 or 8 of 8 crawls lost
+/// pages at each capacity from 256 to 4,096: the reader, not the channel,
+/// was what fell behind. A counted run takes a channel that holds the
+/// whole site instead (`trial::output::traced`).
+pub(crate) const SPIDER_EXTRACTION_CAPACITY: usize = 64;
 
 /// The capacity Spider's rows had before #2213, kept as a sensitivity row.
 pub(crate) const SPIDER_CAPACITY_BEFORE: usize = 4096;
@@ -424,13 +426,19 @@ pub(crate) enum SpiderBuild {
     /// On `tikv-jemallocator`, the allocator Spider's README recommends
     /// for a pure crawl.
     Jemalloc,
-    /// On `mimalloc`, the allocator Spider's README recommends for a crawl
-    /// that also parses, and the one Foxhound's executable sets.
-    Mimalloc,
+    /// With `llm_readability`, the readability step of
+    /// `spider_transformations`, which reads each page's Main content, and
+    /// the title's decoding: the extraction scenario's (#2136).
+    Extraction,
+    /// [`Self::Extraction`] on `mimalloc`, the allocator Spider's README
+    /// recommends for a crawl that also parses, and the one Foxhound's
+    /// executable sets.
+    ExtractionMimalloc,
 }
 
 impl SpiderBuild {
-    /// The feature of `xtask/compare-spider` the build turns on, if any.
+    /// The features of `xtask/compare-spider` the build turns on, if any, as
+    /// `cargo build --features` takes them.
     pub(crate) fn feature(self) -> Option<&'static str> {
         match self {
             Self::Http => None,
@@ -438,7 +446,8 @@ impl SpiderBuild {
             Self::Defaults => Some("defaults"),
             Self::Bloom => Some("bloom"),
             Self::Jemalloc => Some("jemalloc"),
-            Self::Mimalloc => Some("mimalloc"),
+            Self::Extraction => Some("extraction"),
+            Self::ExtractionMimalloc => Some("extraction,mimalloc"),
         }
     }
 
@@ -446,7 +455,7 @@ impl SpiderBuild {
     pub(crate) fn folder(self) -> String {
         self.feature().map_or_else(
             || "spider".to_owned(),
-            |feature| format!("spider-{feature}"),
+            |features| format!("spider-{}", features.replace(',', "-")),
         )
     }
 }
@@ -545,7 +554,7 @@ pub(crate) struct Cell {
 }
 
 /// Every cell, in the report's order.
-pub(crate) const CELLS: [Cell; 66] = [
+pub(crate) const CELLS: [Cell; 67] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
@@ -858,9 +867,27 @@ pub(crate) const CELLS: [Cell; 66] = [
         tool: Tool::Foxhound,
         name: "foxhound",
         mapping: "scenario 1's settings with `formats: { text: true }`, the text of each page's \
-                  main content, and the field `title` (the CSS selector `title`), with \
-                  `dataset.records` on, each page's Record committed to the code-free crawl's \
-                  Dataset `pages` in its run file",
+                  Main content as Foxhound reads it by default (its Clean-up rules, the Filter \
+                  lists at their defaults, then dom_smoothie), and the field `title` (the CSS \
+                  selector `title`), with `dataset.records` on, each page's Record committed to \
+                  the code-free crawl's Dataset `pages` in its run file",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Foxhound {
+            durability: "off",
+            commit_interval: None,
+            auto: false,
+        }),
+    },
+    Cell {
+        scenario: Scenario::Extraction,
+        tool: Tool::Foxhound,
+        name: FILTER_LISTS_OFF,
+        mapping: "the foxhound row's settings with `filter_lists.ads`, `filter_lists.trackers` \
+                  and `filter_lists.annoyances` off, so no Clean-up rule removes the page's ad \
+                  and dom_smoothie alone reads its Main content: the like-for-like row against \
+                  a tool that removes no ad, held to the right answer with the ad allowed; no \
+                  bar reads it",
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Foxhound {
@@ -873,14 +900,20 @@ pub(crate) const CELLS: [Cell; 66] = [
         scenario: Scenario::Extraction,
         tool: Tool::Spider,
         name: "spider",
-        mapping: "scenario 1's settings, each page's URL, title (Spider's page metadata) and HTML \
-                  written as one JSON line to `pages.jsonl`: Spider reads no main content, so \
-                  its page content is what it writes; its pages read from `subscribe(256)`, the \
-                  smallest capacity at which this scenario's 10,000-page crawl lost no page",
+        mapping: "scenario 1's settings, each page's URL, title and Main content written as one \
+                  JSON line to `pages.jsonl`: its Main content is the text `llm_readability` \
+                  0.0.17 reads (`extractor::extract`'s `Product.text`), the readability step of \
+                  `spider_transformations` 2.39.13, Spider's only path to one, which removes no \
+                  ad; its title is its page metadata's, character references decoded and white \
+                  space collapsed in its own process; each page read in a task of its own, as \
+                  `Website::subscribe`'s example does, from `subscribe(64)`, the smallest \
+                  capacity at which this scenario's 10,000-page crawl lost no page; under \
+                  strace and Callgrind, which slow those tasks unevenly, from a channel that \
+                  holds the whole site",
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Spider {
-            build: SpiderBuild::Http,
+            build: SpiderBuild::Extraction,
             capacity: SPIDER_EXTRACTION_CAPACITY,
         }),
     },
@@ -923,13 +956,13 @@ pub(crate) const CELLS: [Cell; 66] = [
         scenario: Scenario::Extraction,
         tool: Tool::Spider,
         name: "spider mimalloc",
-        mapping: "the spider row's settings (`subscribe(256)`), with `mimalloc` as its global \
+        mapping: "the spider row's settings (`subscribe(64)`), with `mimalloc` as its global \
                   allocator, which Spider's README recommends for a crawl that also parses, and \
                   the allocator Foxhound's executable sets; the spider row runs on the system's",
         pending: &[],
         row: Row::Sensitivity,
         status: Status::Measured(Config::Spider {
-            build: SpiderBuild::Mimalloc,
+            build: SpiderBuild::ExtractionMimalloc,
             capacity: SPIDER_EXTRACTION_CAPACITY,
         }),
     },
@@ -1412,23 +1445,41 @@ const SPIDER_NOT_POLITE: &str = "Spider's `with_delay` waits between any two req
      102 requests over 101.5 s, one a second across all 50 domains the site then had, read robots.txt on 1 of them, \
      and fetched the page that robots.txt disallows (`Disallow: /sites/*/private`)";
 
-/// The tools' cells declared, in a scenario, as not doing the Product's
-/// work, each with why: the report gives them no standing, and the
-/// instruction ratio reads scenario 1 only, where none is declared.
-const UNLIKE_WORK: &[(Scenario, Tool, &str)] = &[(
-    Scenario::Extraction,
-    Tool::Spider,
-    "it writes each page's raw HTML, where the others write the text of its main content \
-     (until #2136)",
-)];
+/// The name of Foxhound's row of the extraction scenario with its Filter
+/// lists off (#2136).
+pub(crate) const FILTER_LISTS_OFF: &str = "foxhound filter lists off";
+
+/// What the output check holds a cell's pages to (#2136; see
+/// `extracted`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OutputCheck {
+    /// The whole right answer: the title, every paragraph, and neither the
+    /// boilerplate's markers nor the ad's.
+    Whole,
+    /// The same with the ad's marker allowed, since nothing removes the ad
+    /// there.
+    AdAllowed,
+}
 
 impl Cell {
-    /// Why the cell does not do the Product's work, when it is declared so.
-    pub(crate) fn unlike_work(&self) -> Option<&'static str> {
-        UNLIKE_WORK
-            .iter()
-            .find(|(scenario, tool, _)| *scenario == self.scenario && *tool == self.tool)
-            .map(|(_, _, reason)| *reason)
+    /// Whether the cell runs Foxhound with `filter_lists.ads`,
+    /// `filter_lists.trackers` and `filter_lists.annoyances` off.
+    pub(crate) fn filter_lists_off(&self) -> bool {
+        self.scenario == Scenario::Extraction && self.name == FILTER_LISTS_OFF
+    }
+
+    /// What the output check holds the cell's pages to, on the article
+    /// site: Foxhound's row with its Filter lists off with the ad allowed,
+    /// every other cell to the whole right answer. A Foxhound trial that
+    /// differs is refused; a competitor's keeps its figures, labelled.
+    pub(crate) fn output_check(&self) -> Option<OutputCheck> {
+        (self.scenario.site() == Site::Article).then(|| {
+            if self.filter_lists_off() {
+                OutputCheck::AdAllowed
+            } else {
+                OutputCheck::Whole
+            }
+        })
     }
 }
 

@@ -4,15 +4,17 @@
 //! OS's accounting of its waited-for children is the tool's alone, samples
 //! the tool's process tree meanwhile, and once the tool exited reads the
 //! Proving ground's observations, the data folder it left and, for
-//! Foxhound, its Records' commit times. It prints the trial's figures as one
-//! JSON line. A counted trial runs the tool under strace or Callgrind
-//! instead, and prints its counts with the same work.
+//! Foxhound, its Records' commit times. On the article site, it also holds
+//! the pages the tool wrote to the right answers the Proving ground serves
+//! (#2136; see `extracted`). It prints the trial's figures as one JSON
+//! line. A counted trial runs the tool under strace or Callgrind instead,
+//! and prints its counts with the same work and the same check.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous: a trial runs the tool as a blocking child process and reads its files (STYLE.md)"
 )]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
@@ -25,6 +27,7 @@ use serde_json::Value;
 
 use crate::rss::crawl::Site;
 
+use super::extracted::Extracted;
 use super::foxhound::Engine;
 use super::matrix::{Cell, Config, Scenario, Site as SiteKind};
 use super::observed::{self, MARKER, Observed};
@@ -52,6 +55,9 @@ pub(crate) struct Counted {
     pub(crate) count: u64,
     pub(crate) syncs: u64,
     pub(crate) work: Work,
+    /// What the output check found, on the article site.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) extracted: Option<Extracted>,
 }
 
 /// strace's program name, and the system calls that sync a file or the
@@ -451,7 +457,8 @@ impl Plan<'_> {
         url: &str,
         host: Option<&str>,
     ) -> Result<Driven> {
-        let mut command = command(&invocation(self.config, self.executable), mode, process);
+        let config = output::traced(self.cell, self.config, mode, self.site.pages);
+        let mut command = command(&invocation(config, self.executable), mode, process);
         command.stderr(Stdio::inherit());
         // No tool reads Goodfetch's variables a shell may hold, such as a
         // test's: Foxhound refuses one it does not deploy with.
@@ -585,7 +592,7 @@ impl Plan<'_> {
             if let Some(engine) = driven.engine.as_mut() {
                 engine.start(
                     &self.site,
-                    self.cell.scenario,
+                    self.cell,
                     &self.start_url(),
                     self.durability(),
                     self.config.samples(),
@@ -637,7 +644,7 @@ impl Plan<'_> {
             Some(engine) => engine
                 .resume(
                     &self.site,
-                    self.cell.scenario,
+                    self.cell,
                     self.durability(),
                     self.config.samples(),
                 )
@@ -657,45 +664,6 @@ impl Plan<'_> {
             bail!("the resumed tool exited with {status}");
         }
         Ok(2)
-    }
-
-    /// Foxhound's Records' commit times, in seconds from `started`, by
-    /// path, and the pages whose Record came from a sample's browser run,
-    /// read by an engine of their own on `home` once the measured processes
-    /// are gone.
-    fn records(&self, home: &Path, started: jiff::Timestamp) -> Result<Records> {
-        let mut driven = self.spawn(home, 1, &Mode::Timed, None)?;
-        let engine = driven.engine.as_mut().context("Foxhound's engine")?;
-        let read = engine.records(&self.site);
-        if let Some(engine) = driven.engine.take() {
-            engine.close();
-        }
-        let _ = driven.child.wait();
-        let mut times = HashMap::new();
-        let mut samples = HashSet::new();
-        for record in read? {
-            let committed: jiff::Timestamp = record
-                .committed_at
-                .parse()
-                .with_context(|| format!("a Record's commit time: {}", record.committed_at))?;
-            let seconds = committed.duration_since(started).as_secs_f64();
-            let path = record
-                .url
-                .split_once("://")
-                .and_then(|(_, rest)| rest.find('/').map(|slash| rest[slash..].to_owned()))
-                .unwrap_or(record.url);
-            if record.sample {
-                samples.insert(path.clone());
-            }
-            times
-                .entry(path)
-                .and_modify(|first: &mut f64| *first = first.min(seconds))
-                .or_insert(seconds);
-        }
-        Ok(Records {
-            times,
-            sample_pages: samples.len() as u64,
-        })
     }
 
     /// What the Proving ground observed of the trial on the site's hosts.
@@ -743,7 +711,7 @@ impl Plan<'_> {
         let keeps_records = super::foxhound::keeps_records(self.cell.scenario);
         let records = match self.config {
             Config::Foxhound { .. } if keeps_records || self.config.samples() => {
-                Some(self.records(home.path(), started_wall)?)
+                Some(self.records(home.path())?)
             }
             Config::Foxhound { .. }
             | Config::Spider { .. }
@@ -751,19 +719,23 @@ impl Plan<'_> {
             | Config::Scrapy
             | Config::CrawleeRs => None,
         };
+        let read = records
+            .as_deref()
+            .map(|records| output::read(records, started_wall))
+            .transpose()?;
         // An `auto` row's Records are read for its samples only: its pages'
         // times run to their fetch, as its scenario's main row's do.
         let observed = self.observe(
             seconds,
-            records
-                .as_ref()
+            read.as_ref()
                 .filter(|_| keeps_records)
-                .map(|records| &records.times),
+                .map(|read| &read.times),
         )?;
-        let sample_pages = records
+        let sample_pages = read
             .as_ref()
             .filter(|_| self.config.samples())
-            .map(|records| records.sample_pages);
+            .map(|read| read.sample_pages);
+        let extracted = self.extracted(home.path(), records)?;
         let milestones: Vec<(u64, f64)> = MILESTONES
             .iter()
             .filter_map(|&pages| {
@@ -775,6 +747,7 @@ impl Plan<'_> {
         let peak_bytes = usage.peak_bytes;
         Ok(Measured {
             sample_pages,
+            extracted,
             ..measured(
                 seconds,
                 processes,
@@ -799,6 +772,15 @@ impl Plan<'_> {
             cache.as_ref().map(tempfile::TempDir::path),
         )?;
         let work = self.observe(1.0, None)?.work;
+        let records = match self.config {
+            Config::Foxhound { .. } if self.checks_output() => Some(self.records(home.path())?),
+            Config::Foxhound { .. }
+            | Config::Spider { .. }
+            | Config::Crawlee
+            | Config::Scrapy
+            | Config::CrawleeRs => None,
+        };
+        let extracted = self.extracted(home.path(), records)?;
         let (count, syncs) = match &self.mode {
             Mode::Syscalls(output) => {
                 let (mut count, mut syncs) = (0, 0);
@@ -824,7 +806,12 @@ impl Plan<'_> {
             Mode::Timed => bail!("a timed trial counts nothing"),
             Mode::Rules => bail!("a hostile pages' run counts nothing"),
         };
-        Ok(Counted { count, syncs, work })
+        Ok(Counted {
+            count,
+            syncs,
+            work,
+            extracted,
+        })
     }
 }
 
@@ -868,16 +855,8 @@ fn measured(
         latency: observed.latency,
         latency_end: observed.latency_end,
         sample_pages: None,
+        extracted: None,
     }
-}
-
-/// What a trial reads of Foxhound's Records.
-struct Records {
-    /// Each Record's commit time, in seconds from the trial's start, by
-    /// path.
-    times: HashMap<String, f64>,
-    /// The pages whose Record came from a sample's browser run.
-    sample_pages: u64,
 }
 
 /// Why this host cannot run a counted cell under `program`, when it
@@ -957,6 +936,7 @@ pub(crate) fn cell_of(scenario: Scenario, name: &str) -> Result<(&'static Cell, 
 }
 
 mod chrome;
+mod output;
 mod rules;
 
 use chrome::browser_cache;

@@ -17,18 +17,17 @@ use crate::rss::page_cache;
 
 use self::machine::{load, machine, quiet};
 use self::watch::{Retried, Watch, retried, watched};
-use super::collie;
 use super::matrix::{self, Cell, Config, Row, Scenario, SpiderBuild};
 use super::trial::{self, Counted, Outcome, Ruled, callgrind_missing, strace_missing};
 use super::trials::{
-    CONCURRENCY, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, CollieScenario, CollieStopped, Comparison,
-    CountedCell, CountedRun, Declared, GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS,
-    INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS, Measured, PAGESIFT_VERSION, PLAYWRIGHT_VERSION,
-    RULE_RUNS, RuledRun, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES,
-    SIZE_TOOLS, SIZES, SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint, StoppedRun, Trial,
-    size_not_run,
+    CONCURRENCY, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, CollieScenario, Comparison, CountedCell,
+    CountedRun, Declared, GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS, INSTRUCTION_SCENARIOS,
+    INSTRUCTION_TOOLS, Measured, PAGESIFT_VERSION, PLAYWRIGHT_VERSION, RULE_RUNS, RuledRun,
+    SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES,
+    SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint, StoppedRun, Trial, size_not_run,
 };
 
+mod collie;
 mod machine;
 mod watch;
 
@@ -50,7 +49,7 @@ pub(crate) struct Executables<'a> {
     /// browser scenario runs.
     pub(crate) browser: &'a Path,
     /// The Collie scenario's, when the run asked for it.
-    pub(crate) collie: Option<collie::Tools<'a>>,
+    pub(crate) collie: Option<super::collie::Tools<'a>>,
 }
 
 /// What a run was asked for.
@@ -788,90 +787,6 @@ fn rules(
     Ok(runs)
 }
 
-/// The Collie scenario's trials, when the run asked for it (`tools`):
-/// `options.trials` of each tool in each of its cells, in one random order
-/// drawn from `state`, each waiting for a quiet machine as a timed trial
-/// does.
-fn collie_trials(
-    tools: Option<&collie::Tools<'_>>,
-    options: &Options,
-    state: &mut u64,
-) -> Result<CollieScenario> {
-    let Some(tools) = tools else {
-        return Ok(CollieScenario::NotRun {
-            reason: "the run asked for no Collie cell".to_owned(),
-        });
-    };
-    let mut trials_run = Vec::new();
-    let mut stopped: Vec<CollieStopped> = Vec::new();
-    for (exercise, tool, number) in collie::order(options.trials, state, next) {
-        if stopped
-            .iter()
-            .any(|run| run.exercise == exercise && run.tool == tool)
-        {
-            continue;
-        }
-        let measured = retried(|| {
-            let load = if waits_for_quiet(options) {
-                quiet()
-            } else {
-                load()
-            };
-            collie::trial(tools, exercise, tool, number, load)
-        })
-        .with_context(|| {
-            format!(
-                "running the Collie scenario's {} cell, {} trial {number}",
-                exercise.name(),
-                tool.name()
-            )
-        })?;
-        match measured {
-            Retried::Done {
-                measured: mut done,
-                retried,
-            } => {
-                if let Some(reason) = &retried {
-                    output::line(&format!(
-                        "collie {} {} trial {number} was stopped, then retried: {reason}",
-                        exercise.name(),
-                        tool.name()
-                    ));
-                }
-                output::line(&format!(
-                    "collie {} {} trial {number}: {} actions, {} CDP commands in {:.3} s, peak {} bytes",
-                    exercise.name(),
-                    tool.name(),
-                    done.actions,
-                    done.commands,
-                    done.wall_seconds,
-                    done.peak_bytes,
-                ));
-                done.retried = retried;
-                trials_run.push(done);
-            }
-            Retried::Stopped(reason) => {
-                output::line(&format!(
-                    "collie {} {} trial {number} was stopped twice, and the cell measures it no further: {reason}",
-                    exercise.name(),
-                    tool.name()
-                ));
-                stopped.push(CollieStopped {
-                    exercise,
-                    tool,
-                    number,
-                    reason,
-                });
-            }
-        }
-    }
-    Ok(CollieScenario::Measured {
-        trials: options.trials,
-        trials_run,
-        stopped,
-    })
-}
-
 /// Runs every declared trial and returns the trials file's contents. `keep`
 /// is handed them as they stand once the timed trials are in, again once
 /// the Collie scenario's are, again once the sizes cell is, again once the
@@ -923,7 +838,8 @@ pub(crate) fn run(
         rules: Vec::new(),
     };
     keep(&comparison)?;
-    comparison.collie = collie_trials(executables.collie.as_ref(), options, &mut state)?;
+    comparison.collie =
+        self::collie::collie_trials(executables.collie.as_ref(), options, &mut state)?;
     keep(&comparison)?;
     comparison.sizes = sizes(executables, options, &mut state)?;
     keep(&comparison)?;

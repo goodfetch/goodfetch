@@ -285,18 +285,24 @@ impl Scenario {
         }
     }
 
-    /// Whether its cells carry no bar until the owner sets one: #2316's
-    /// and the crawl-like scenario's (#2252 Q11) and the hostile pages'
-    /// (#2439, Q3).
-    pub(crate) fn carries_no_bar(self) -> bool {
-        self.settings() != self || self.hostile()
+    /// The issue that says why its cells carry no bar until the owner sets
+    /// one: #2316's four scenarios (#2252 Q11), the crawl-like scenario
+    /// (#2284) and the hostile pages' (#2439, Q3); `None` for a scenario
+    /// whose cells carry one.
+    pub(crate) fn no_bar(self) -> Option<&'static str> {
+        match self {
+            Self::Raw | Self::Durable | Self::Polite | Self::Extraction | Self::Browser => None,
+            Self::Realistic | Self::Long | Self::Raw64 | Self::Raw256 => Some("#2316"),
+            Self::CrawlLike => Some("#2284"),
+            Self::Hostile | Self::Hostile16 => Some("#2439, Q3"),
+        }
     }
 
-    /// The issue that says why its cells carry no bar, for one that does.
-    pub(crate) fn no_bar_issue(self) -> &'static str {
+    /// How its trials reach the Proving ground: over TLS under a 20 ms
+    /// round trip in the crawl-like scenario, on loopback otherwise.
+    pub(crate) fn network(self) -> Network {
         match self {
-            Self::Hostile | Self::Hostile16 => "#2439, Q3",
-            Self::CrawlLike => "#2284",
+            Self::CrawlLike => Network::TlsUnderRtt20,
             Self::Raw
             | Self::Durable
             | Self::Polite
@@ -305,17 +311,9 @@ impl Scenario {
             | Self::Realistic
             | Self::Long
             | Self::Raw64
-            | Self::Raw256 => "#2316",
-        }
-    }
-
-    /// How its trials reach the Proving ground: over TLS under a 20 ms
-    /// round trip in the crawl-like scenario, on loopback otherwise.
-    pub(crate) fn network(self) -> Network {
-        if self == Self::CrawlLike {
-            Network::TlsUnderRtt20
-        } else {
-            Network::Loopback
+            | Self::Raw256
+            | Self::Hostile
+            | Self::Hostile16 => Network::Loopback,
         }
     }
 

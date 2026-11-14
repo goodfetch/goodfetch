@@ -118,8 +118,9 @@ async fn crawl(arguments: Arguments) -> Result<u64, String> {
         }
     };
     // crawlee-rs accepts any certificate by default: outside the hostile
-    // pass, an `https` site's is verified against the platform's roots
-    // and `SSL_CERT_FILE`.
+    // pass, an `https` site's is verified through the platform's
+    // verifier, which on Linux reads `SSL_CERT_FILE` in place of the
+    // system's roots (macOS's ignores it).
     let mut options = HttpCrawlerOptions::default();
     if scenario != Scenario::Hostile {
         options.ignore_tls_errors = false;

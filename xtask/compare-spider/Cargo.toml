@@ -61,8 +61,9 @@ extraction = ["dep:spider_transformations", "dep:llm_readability", "dep:html-esc
 # SQLite (`sqlx`), which is OpenSSL on Linux: built from its source there,
 # so no system OpenSSL is needed; macOS's native TLS is the system's own.
 # Spider's crawl client is `reqwest`'s rustls, which verifies the
-# crawl-like scenario's certificates (#2284) against the platform's roots
-# and `SSL_CERT_FILE`.
+# crawl-like scenario's certificates (#2284) through the platform's
+# verifier: on Linux it reads `SSL_CERT_FILE` in place of the system's
+# roots; on macOS the system's verifier ignores it.
 # Also a build dependency, so the proc-macros Spider's `disk` feature
 # builds for the host (sqlx's) link the same vendored OpenSSL.
 [target.'cfg(target_os = "linux")'.dependencies]

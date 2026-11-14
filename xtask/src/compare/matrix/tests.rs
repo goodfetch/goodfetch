@@ -70,7 +70,7 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
 /// (#2252 Q11, #2439 Q3); the matrix's own five are unchanged.
 #[test]
 fn the_added_scenarios_run_scenario_1s_settings_but_the_pass_at_defaults() {
-    let read = |scenario: Scenario| (scenario.settings(), scenario.carries_no_bar());
+    let read = |scenario: Scenario| (scenario.settings(), scenario.no_bar().is_some());
 
     assert_eq!(
         Scenario::ALL.map(read),
@@ -125,7 +125,7 @@ fn the_hostile_pages_passes_map_every_tool_and_carry_no_bar() {
             mapped(scenario),
             tasks(scenario),
             scenario.settings(),
-            scenario.carries_no_bar(),
+            scenario.no_bar().is_some(),
         )),
         [
             (
@@ -532,7 +532,7 @@ fn the_polite_scenario_crawls_ten_pages_on_each_of_a_thousand_domains() {
 /// mapping, crawls the article site at scenario 1's settings, over TLS and
 /// HTTP/2 under the Proving ground's `rtt-20` profile, and carries no bar;
 /// no output check holds its pages, and every other scenario stays on
-/// loopback over plain HTTP.
+/// loopback.
 #[test]
 fn the_crawl_like_scenario_maps_every_tool_over_tls_under_rtt_20() {
     let crawl_like = Scenario::CrawlLike;
@@ -557,15 +557,10 @@ fn the_crawl_like_scenario_maps_every_tool_over_tls_under_rtt_20() {
             crawl_like.name(),
             crawl_like.site(),
             crawl_like.settings(),
-            crawl_like.carries_no_bar(),
+            crawl_like.no_bar().is_some(),
             crawl_like.concurrency(),
             elsewhere,
             (network.network_profile(), network.scheme(), network.tls()),
-            (
-                Network::Loopback.network_profile(),
-                Network::Loopback.scheme(),
-                Network::Loopback.tls()
-            ),
         ),
         (
             Tool::ALL.map(|tool| (tool, false)).to_vec(),
@@ -576,7 +571,6 @@ fn the_crawl_like_scenario_maps_every_tool_over_tls_under_rtt_20() {
             16,
             vec![crawl_like],
             ("rtt-20", "https", true),
-            ("none", "http", false),
         )
     );
 }

@@ -519,10 +519,12 @@ impl Plan<'_> {
             if let Some(host) = host {
                 command.args(["--host", host]);
             }
-            // Each tool verifies the site's certificate against its
-            // platform's roots and this authority: rustls's native roots,
-            // OpenSSL's and Python's read `SSL_CERT_FILE`, Node.js's
-            // `NODE_EXTRA_CA_CERTS`.
+            // Each tool verifies the site's certificate against this
+            // authority: OpenSSL, Python and, on Linux, rustls's platform
+            // verifier read `SSL_CERT_FILE` (in place of the system's
+            // roots), Node.js adds `NODE_EXTRA_CA_CERTS` to its own.
+            // macOS's verifier ignores `SSL_CERT_FILE`, so Spider and
+            // crawlee-rs there reject the site's certificate.
             if let Some(authority) = self.certificate_authority {
                 command
                     .env("SSL_CERT_FILE", authority)

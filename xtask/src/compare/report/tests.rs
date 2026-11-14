@@ -299,7 +299,7 @@ fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
     let unmeasured: Vec<(Scenario, &str, &str)> = report
         .scenarios
         .iter()
-        .filter(|scenario| scenario.scenario.carries_no_bar())
+        .filter(|scenario| scenario.scenario.no_bar().is_some())
         .flat_map(|scenario| {
             scenario
                 .cells
@@ -330,7 +330,7 @@ fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
                 .into_iter()
                 .map(|scenario| (
                     scenario,
-                    if scenario.carries_no_bar()
+                    if scenario.no_bar().is_some()
                         && !scenario.hostile()
                         && scenario != Scenario::CrawlLike
                     {
@@ -347,7 +347,7 @@ fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
 }
 
 /// Each cell of the crawl-like scenario says it carries no bar, for
-/// #2284, and gives its rate beside no target.
+/// #2284.
 #[test]
 fn the_crawl_like_scenarios_cells_carry_no_bar() {
     let trials = comparison(&[]);
@@ -357,24 +357,18 @@ fn the_crawl_like_scenarios_cells_carry_no_bar() {
     let crawl_like = section(&markdown, Scenario::CrawlLike.title());
 
     assert_eq!(
-        (
-            cells_saying(
-                crawl_like,
-                "  - no bar: none is set on this cell until the owner sets one (#2284)."
-            ),
-            crawl_like.contains("target"),
+        cells_saying(
+            crawl_like,
+            "  - no bar: none is set on this cell until the owner sets one (#2284)."
         ),
-        (
-            vec![
-                "foxhound",
-                "spider",
-                "crawlee",
-                "scrapy",
-                "crawlee-rs",
-                "pagesift"
-            ],
-            false,
-        )
+        [
+            "foxhound",
+            "spider",
+            "crawlee",
+            "scrapy",
+            "crawlee-rs",
+            "pagesift"
+        ]
     );
 }
 

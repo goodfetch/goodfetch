@@ -63,6 +63,18 @@ fn pagesift_runs_as_its_executable() {
     );
 }
 
+/// OpenSpider's side runs as its executable, with nothing but the
+/// arguments every side takes.
+#[test]
+fn openspider_runs_as_its_executable() {
+    let openspider = invocation(Config::OpenSpider, Path::new("/r/openspider"));
+
+    assert_eq!(
+        (openspider.program.as_path(), openspider.arguments),
+        (Path::new("/r/openspider"), Vec::new())
+    );
+}
+
 /// A Spider row's capacity reaches Spider's side: the row's own, so a
 /// sensitivity row at another capacity runs the same executable with it.
 #[test]

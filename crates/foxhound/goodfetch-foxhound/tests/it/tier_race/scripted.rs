@@ -58,8 +58,9 @@ const HOST: &str = "race.test";
 /// How long the race's navigation takes to open, once it is sent.
 const NAVIGATION: Duration = Duration::from_millis(300);
 
-/// How the scripted site answers a path, on browser-fetch: its status,
-/// its headers beside its type, its markup, and how long it takes.
+/// How the scripted site answers a path, on browser-fetch and on a
+/// Session's own transport: its status, its headers beside its type (on
+/// browser-fetch), its markup, and how long it takes.
 struct Answer {
     status: u16,
     headers: Vec<(String, String)>,
@@ -76,6 +77,9 @@ type Site = BTreeMap<&'static str, Answer>;
 struct Asked {
     /// Each path browser-fetch sent.
     fetched: Vec<String>,
+    /// Each path a Session's own transport sent: a forced `http` page,
+    /// or a site file (#2422).
+    sent: Vec<String>,
     /// Each path a navigation opened, the race's or a browser run's.
     opened: Vec<String>,
     /// How many times the document request was asked for.
@@ -234,8 +238,9 @@ impl BrowserPages for Scripted {
     }
 }
 
-/// The HTTP tier's site, for a Label forced onto `http`: the same pages,
-/// at once.
+/// The HTTP tier's site, for a Label forced onto `http` and the site
+/// files every tier reads from a Session's own transport (#2422): the same
+/// pages, after the same time.
 struct Plain(Arc<Scripted>);
 
 /// A body sent whole.
@@ -249,11 +254,14 @@ impl Body for Whole {
 
 impl Transport for Plain {
     fn send<'a>(&'a self, hop: &'a Hop, _reuse: Reuse) -> Sending<'a, Sent> {
-        let answer = self.0.site.get(hop.url.path());
-        let (status, html) = answer.map_or((404, String::new()), |answer| {
-            (answer.status, answer.html.clone())
+        let path = hop.url.path();
+        self.0.ask(|asked| asked.sent.push(path.to_owned()));
+        let answer = self.0.site.get(path);
+        let (status, html, after) = answer.map_or((404, String::new(), Duration::ZERO), |answer| {
+            (answer.status, answer.html.clone(), answer.after)
         });
         Box::pin(async move {
+            tokio::time::sleep(after).await;
             Ok(Sent {
                 status,
                 headers: vec![
@@ -275,8 +283,9 @@ impl Transport for Plain {
 /// How a scripted crawl ended.
 #[derive(Debug)]
 pub(super) struct Ended {
-    /// What the scripted browser was asked.
+    /// What the scripted browser and the transport were asked.
     fetched: Vec<String>,
+    sent: Vec<String>,
     opened: Vec<String>,
     document_requests: usize,
     /// `run.finish`'s result, none when it never answered.
@@ -415,6 +424,7 @@ fn crawl_unread(
         .collect();
     Ended {
         fetched: asked.fetched,
+        sent: asked.sent,
         opened: asked.opened,
         document_requests: asked.document_requests,
         finished,
@@ -502,7 +512,8 @@ fn seed(path: &str, label: &str) -> Value {
 
 /// The race's navigation answers while browser-fetch's served page is
 /// still judged: here, while the RSL license its response names is
-/// fetched, before the Run's AI-use signals are weighed. The navigation
+/// fetched, from a Session's own transport since #2422, before the Run's
+/// AI-use signals are weighed. The navigation
 /// wins, and browser-fetch's page, dropped with its future, is closed as
 /// it drops: no served page is left, `run.finish` answers, and the engine
 /// ends once its Connection closes. Today the page stays served, and holds
@@ -542,7 +553,7 @@ fn a_page_browser_fetch_served_is_closed_when_the_navigation_wins_while_it_is_ju
 
     assert_eq!(
         (
-            ended.fetched.contains(&"/licence.xml".to_owned()),
+            ended.sent.contains(&"/licence.xml".to_owned()),
             ended.opened.iter().filter(|path| *path == "/").count(),
             ended
                 .finished

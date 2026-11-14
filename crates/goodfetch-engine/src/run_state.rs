@@ -1004,8 +1004,9 @@ impl RunState {
     /// Prepares each of `statements` on every connection the writer commits
     /// on, in no transaction, so that no later write prepares one of them,
     /// whichever connection its group commits on (ADR 0138's note of
-    /// #1926): what a Run does once, as it starts or resumes, for the
-    /// statements its units run later (ADR 0140).
+    /// #1926), and on each of its readers' connections before its next read,
+    /// so that no read does either: what a Run does once, as it starts or
+    /// resumes, for the statements its units run later (ADR 0140).
     ///
     /// # Errors
     ///
@@ -1016,6 +1017,7 @@ impl RunState {
     ///
     /// Dropping the future does not withdraw a preparation already queued.
     pub async fn prepare(&self, statements: Vec<&'static str>) -> Result<(), RunStateError> {
+        self.readers.prepare(statements.clone()).await;
         let (write, answered) = preparation();
         self.mailbox
             .send(Queued {

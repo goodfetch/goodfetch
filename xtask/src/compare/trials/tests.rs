@@ -1,7 +1,7 @@
 use super::{
     AGENT_BROWSER_VERSION, CHROMIUMOXIDE_VERSION, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION,
-    PAGESIFT_VERSION, PLAYWRIGHT_VERSION, PUPPETEER_VERSION, SCRAPY_PLAYWRIGHT_VERSION,
-    SCRAPY_VERSION, SPIDER_VERSION, STAGEHAND_VERSION, Work,
+    OPENSPIDER_COMMIT, PAGESIFT_VERSION, PLAYWRIGHT_VERSION, PUPPETEER_VERSION,
+    SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SPIDER_VERSION, STAGEHAND_VERSION, Work,
 };
 
 /// The Spider version Spider's side pins in its manifest, `=<version>`.
@@ -51,6 +51,27 @@ fn the_declared_pagesift_is_the_version_its_side_pins() {
     assert_eq!(
         ["pagesift", "pagesift-sys", "pagesift-cdp", "pagesift-net"].map(pinned),
         [exact.clone(), exact.clone(), exact.clone(), exact]
+    );
+}
+
+/// The trials declare the OpenSpider commit its side builds: the `rev`
+/// `xtask/compare-openspider/Cargo.toml` takes each of OpenSpider's crates
+/// at.
+#[test]
+fn the_declared_openspider_is_the_commit_its_side_pins() {
+    let manifest: toml::Table = include_str!("../../../compare-openspider/Cargo.toml")
+        .parse()
+        .unwrap();
+    let pinned = |name: &str| {
+        manifest["dependencies"][name]["rev"]
+            .as_str()
+            .map(str::to_owned)
+    };
+
+    let commit = Some(OPENSPIDER_COMMIT.to_owned());
+    assert_eq!(
+        ["os-engine", "os-fetch", "os-model", "os-store"].map(pinned),
+        [commit.clone(), commit.clone(), commit.clone(), commit]
     );
 }
 

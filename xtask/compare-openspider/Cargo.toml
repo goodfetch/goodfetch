@@ -1,0 +1,59 @@
+# OpenSpider's side of `just compare` (#2216, spec #2212): one crawl of a
+# Proving ground site with OpenSpider (Apache-2.0), an SEO spider written in
+# Rust, through its engine's library, `os_engine::start_crawl`, the entry
+# point its own command line starts a crawl with, with each scenario's
+# settings. It is fetched and run by the comparison alone, never linked into
+# a Product.
+#
+# The pin: OpenSpider's release v1.0.0-rc.1, the newest on 2026-11-14, which
+# is not on crates.io, so its four crates below are taken from the release
+# tag's commit of its repository; the Cargo.lock beside this file pins every
+# crate under them, resolved as OpenSpider's own lock is. Move the pin by
+# changing `rev` below (four times) and the commit
+# `xtask/src/compare/trials.rs` declares (`OPENSPIDER_COMMIT`, which a test
+# holds equal to this `rev`), then `cargo update --manifest-path
+# xtask/compare-openspider/Cargo.toml`.
+#
+# The build: the repository's pinned toolchain (`rust-toolchain.toml`,
+# found above this folder) and the workspace's release profile below, as
+# Spider's side is built, so no Rust tool has more optimization than
+# Foxhound. `just compare` runs
+#
+#   cargo build --locked --manifest-path xtask/compare-openspider/Cargo.toml \
+#     --profile release --target-dir target/compare-spider/openspider
+#
+# and the comparison runs
+# `target/compare-spider/openspider/release/goodfetch-compare-openspider`
+# (`GOODFETCH_COMPARE_SPIDER_BUILDS` moves the folder, as for Spider's).
+[package]
+name = "goodfetch-compare-openspider"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[dependencies]
+os-engine = { git = "https://github.com/wojcikdominik/openspider", rev = "2d25a7d627df4cedeb5ec657243765c0e09b4239" }
+os-fetch = { git = "https://github.com/wojcikdominik/openspider", rev = "2d25a7d627df4cedeb5ec657243765c0e09b4239" }
+os-model = { git = "https://github.com/wojcikdominik/openspider", rev = "2d25a7d627df4cedeb5ec657243765c0e09b4239" }
+os-store = { git = "https://github.com/wojcikdominik/openspider", rev = "2d25a7d627df4cedeb5ec657243765c0e09b4239" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+serde_json = "1"
+
+[workspace]
+
+# The workspace's release profile, so no Rust tool is built with more
+# optimization than another.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+panic = "unwind"
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = "debuginfo"
+
+# The workspace's `ci` profile, for `just compare ci`'s quicker try.
+[profile.ci]
+inherits = "release"
+lto = "thin"

@@ -2,7 +2,8 @@ use super::{CELLS, Config, Network, OutputCheck, Row, Scenario, Site, SpiderBuil
 
 /// #2316's scenarios: the realistic-page site, the long site and scenario
 /// 1 at 64 and 256 in flight. Each gives every tool a main cell with its
-/// mapping, and the cell at the catalog's defaults (#2175) stands at each
+/// mapping, but OpenSpider at 64 and 256, beyond the 6 it keeps in flight
+/// on a host (#2216), and the cell at the catalog's defaults (#2175) stands at each
 /// of the sweep's three points, 16, 64 and 256 in flight, pending until
 /// #2175 brings it.
 #[test]
@@ -38,6 +39,11 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
             )
         })
         .collect();
+    let within_six: Vec<Tool> = Tool::ALL
+        .iter()
+        .copied()
+        .filter(|tool| *tool != Tool::OpenSpider)
+        .collect();
 
     assert_eq!(
         (
@@ -50,8 +56,8 @@ fn the_realistic_long_and_sweep_scenarios_map_every_tool() {
             [
                 Tool::ALL.to_vec(),
                 Tool::ALL.to_vec(),
-                Tool::ALL.to_vec(),
-                Tool::ALL.to_vec()
+                within_six.clone(),
+                within_six
             ],
             [Site::Realistic, Site::Scale, Site::Scale, Site::Scale],
             [(16, 1000), (16, 100_000), (64, 1000), (256, 1000)],
@@ -314,7 +320,7 @@ fn the_extraction_scenario_crawls_the_article_site_and_names_each_extractor() {
             pinned("spider_transformations")
         ),
     ];
-    let extractors: [(&str, &[&str]); 8] = [
+    let extractors: [(&str, &[&str]); 9] = [
         ("foxhound", &["Clean-up rules", "dom_smoothie"]),
         (
             "foxhound filter lists off",
@@ -325,6 +331,7 @@ fn the_extraction_scenario_crawls_the_article_site_and_names_each_extractor() {
         ("scrapy", &["the text of its `main`"]),
         ("crawlee-rs", &["the text of its `main`"]),
         ("pagesift", &["`onlyMainContent`"]),
+        ("openspider", &["the text of its `main`"]),
         ("spider mimalloc", &["the spider row's settings"]),
     ];
     let unnamed: Vec<(&str, &str)> = extractors
@@ -399,6 +406,7 @@ fn foxhounds_filter_lists_off_row_is_checked_with_the_ad_allowed() {
                 ("scrapy", false, whole),
                 ("crawlee-rs", false, whole),
                 ("pagesift", false, whole),
+                ("openspider", false, whole),
                 ("spider mimalloc", false, whole),
             ],
             Row::Main,
@@ -492,6 +500,68 @@ fn just_compare_builds_pagesifts_side_into_its_folder() {
         "cargo build --quiet --locked --manifest-path xtask/compare-pagesift/Cargo.toml \
          --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
         super::PAGESIFT_FOLDER
+    )));
+}
+
+/// OpenSpider runs on its side in every scenario but three, each its main
+/// row (#2216): its polite cell is not supported, since its one pace
+/// setting is the whole crawl's, nor are the cells of 64 and 256 requests
+/// in flight, since it keeps at most 6 on a host. In the durable
+/// scenario, where Spider's cell is not supported, it is measured.
+#[test]
+fn openspider_runs_every_scenario_on_its_side_but_polite_raw_64_and_raw_256() {
+    let cells: Vec<(Scenario, &str, Row, Option<Config>)> = CELLS
+        .iter()
+        .filter(|cell| cell.tool == Tool::OpenSpider)
+        .map(|cell| {
+            let config = match cell.status {
+                Status::Measured(config) => Some(config),
+                Status::NotSupported(_) | Status::Pending(_) => None,
+            };
+            (cell.scenario, cell.name, cell.row, config)
+        })
+        .collect();
+    let durable = |tool: Tool| {
+        CELLS
+            .iter()
+            .filter(|cell| {
+                cell.scenario == Scenario::Durable && cell.tool == tool && cell.row == Row::Main
+            })
+            .map(|cell| matches!(cell.status, Status::Measured(_)))
+            .collect::<Vec<_>>()
+    };
+
+    assert_eq!(
+        (cells, durable(Tool::Spider), durable(Tool::OpenSpider)),
+        (
+            Scenario::ALL
+                .map(|scenario| (
+                    scenario,
+                    "openspider",
+                    Row::Main,
+                    (!matches!(
+                        scenario,
+                        Scenario::Polite | Scenario::Raw64 | Scenario::Raw256
+                    ))
+                    .then_some(Config::OpenSpider)
+                ))
+                .to_vec(),
+            vec![false],
+            vec![true],
+        )
+    );
+}
+
+/// `just compare` builds OpenSpider's side, locked, at the run's profile,
+/// into the folder the run reads its executable from.
+#[test]
+fn just_compare_builds_openspiders_side_into_its_folder() {
+    let recipes = include_str!("../../../../justfile");
+
+    assert!(recipes.contains(&format!(
+        "cargo build --quiet --locked --manifest-path xtask/compare-openspider/Cargo.toml \
+         --profile {{{{ profile }}}} --target-dir {{{{ compare_spider_builds }}}}/{}\n",
+        super::OPENSPIDER_FOLDER
     )));
 }
 

@@ -1,8 +1,9 @@
 use std::path::Path;
 
 use super::{
-    Executables, Options, chromiumoxide_executable, counted_output, crawlee_rs_executable, order,
-    pagesift_executable, run, set_aside, size_points, spider_executable,
+    Executables, Options, chromiumoxide_executable, counted_output, crawlee_rs_executable,
+    openspider_executable, order, pagesift_executable, run, set_aside, size_points,
+    spider_executable,
 };
 use crate::compare::matrix::{self, Config, Scenario, SpiderBuild};
 use crate::compare::trials::{
@@ -74,6 +75,16 @@ fn pagesift_runs_the_executable_built_in_its_folder() {
     assert_eq!(
         pagesift_executable(Path::new("/t/compare-spider"), "release"),
         Path::new("/t/compare-spider/pagesift/release/goodfetch-compare-pagesift")
+    );
+}
+
+/// OpenSpider's side runs the executable Cargo left in its own folder
+/// among the Rust sides' builds, under the profile's (#2216).
+#[test]
+fn openspider_runs_the_executable_built_in_its_folder() {
+    assert_eq!(
+        openspider_executable(Path::new("/t/compare-spider"), "release"),
+        Path::new("/t/compare-spider/openspider/release/goodfetch-compare-openspider")
     );
 }
 
@@ -473,7 +484,8 @@ fn the_sizes_cell_runs_spider_at_16_and_at_64_on_a_wider_channel() {
                 | Config::Crawlee
                 | Config::Scrapy
                 | Config::CrawleeRs
-                | Config::Pagesift => None,
+                | Config::Pagesift
+                | Config::OpenSpider => None,
             };
             (config.tool(), crawl.concurrency, capacity)
         })

@@ -82,6 +82,8 @@ goodfetch-counted-work.workspace = true
 # the moment a benchmark's Limit is set at (benches/scenarios.rs).
 jiff.workspace = true
 gungraun.workspace = true
+# The instruction benchmarks' allocator, as the executable ships (benches/instructions.rs).
+mimalloc.workspace = true
 # The refusals' messages through the executables (tests/it/daemon.rs).
 insta.workspace = true
 # The run-state and Politeness file corpus writers (examples/compat-*.rs):
@@ -121,6 +123,11 @@ harness = false
 # ADR 0134: the bytes a crawled page allocates, a crawl fed from memory.
 [[bench]]
 name = "heap"
+harness = false
+
+# ADR 0071: the instructions of a crawl's seed admission (#2167).
+[[bench]]
+name = "instructions"
 harness = false
 
 [lints]

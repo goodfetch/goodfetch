@@ -26,6 +26,10 @@
 //! one small page more; and, for the one cell that asks for them, pages
 //! `/item?id=<n>` that differ by one parameter, which the Frontier's
 //! learning reads its evidence for.
+//!
+//! [`start_with_seeds`] starts a crawl from a thousand seeds and aborts it
+//! once its start answered: the seed admission of the crawl's Run state,
+//! which the `admit_seeds` benchmarks bound their figures to (#2167).
 #![expect(
     clippy::disallowed_types,
     reason = "the site's one counter of the bytes it sent, read once the crawl ended: no lock and no order to test under loom (ADR 0060)"
@@ -704,6 +708,114 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
     }
 }
 
+/// `count` links of the site as a shop's pages write them: every fourth one a
+/// spelling of the one before (tracking parameters, another order, a
+/// fragment, a `;jsessionid=`), the rest distinct pages with encoded
+/// characters, so the URL key's every rule runs and identities meet.
+pub(crate) fn shop_links(count: usize) -> Vec<String> {
+    (0..count)
+        .map(|link| {
+            let page = link / 4 * 3 + link % 4;
+            match link % 4 {
+                3 => format!(
+                    "http://{HOST}/item/{};jsessionid=0A1B?utm_source=mail&size=m&colour=%7eblue#reviews",
+                    page - 1
+                ),
+                2 => format!("http://{HOST}/item/{page}?colour=%c3%a9t%c3%a9&size=m&&gclid=x"),
+                _ => format!("http://{HOST}/item/{page}?size=m&colour=%7eblue"),
+            }
+        })
+        .collect()
+}
+
+/// Starts a code-free crawl from `urls`, each a seed, on the fixture's
+/// engine, home, clock and entropy, and aborts it once its start answered:
+/// the Run's start admits every seed through the crawl's Run state as it
+/// makes the run file, which the `admit_seeds` benchmark counts. Answers
+/// how many seeds it sent.
+pub(crate) fn start_with_seeds(
+    home: &Path,
+    start: SystemTime,
+    seed: u64,
+    urls: &[String],
+) -> usize {
+    let tiers = FetchTiers::serving(Arc::new(Site {
+        sent: Arc::default(),
+        attempts: Arc::default(),
+        plant: None,
+        frontier: None,
+        second_hop: false,
+        small_pages: true,
+        hops: Arc::default(),
+        sitemaps: Arc::default(),
+        largest: None,
+        robots_txt: false,
+        requests: Arc::default(),
+        linked: 0,
+    }));
+    let engine = foxhound(tiers, Metrics::default());
+    let seeds: Vec<Value> = urls
+        .iter()
+        .map(|url| json!({ "url": url, "label": "page" }))
+        .collect();
+    let started = json!({
+        "jsonrpc": "2.0",
+        "id": "start",
+        "method": "crawl.start",
+        "params": {
+            "run_id": "pages",
+            "seeds": seeds,
+            "datasets": [],
+            "extraction": {
+                "formats": {},
+                "follow": "scope",
+                "fields": { "title": { "locator": { "kind": "css", "selector": "h1" } } },
+            },
+            "settings": {
+                "fetch": { "tier": "http" },
+                "politeness": { "domain": { "delay": 0 } },
+                "network": { "resolve": { HOST: ["127.0.0.1"] } },
+                "egress": { "private_ranges": [HOST] },
+            },
+        },
+    });
+    goodfetch_test_support::runtime().block_on(async {
+        let (network, dialer) = transport::in_memory();
+        let client = async {
+            let (reader, mut writer) = dialer
+                .connect()
+                .await
+                .expect("invariant: the engine listens")
+                .split();
+            let mut lines = BufReader::new(reader).lines();
+            send(&mut writer, &hello()).await;
+            send(&mut writer, &started.to_string()).await;
+            while let Ok(Some(line)) = lines.next_line().await {
+                let message: Value =
+                    serde_json::from_str(&line).expect("invariant: the engine writes JSON");
+                if message["id"] == "start" {
+                    assert!(message.get("result").is_some(), "{message}");
+                    send(&mut writer, ABORT).await;
+                } else if message["id"] == "abort" {
+                    assert!(message.get("result").is_some(), "{message}");
+                    break;
+                }
+            }
+            writer.shutdown().await.expect("invariant: in memory");
+            while let Ok(Some(_)) = lines.next_line().await {}
+        };
+        let (served, ()) = tokio::join!(
+            engine.run_attached(
+                Network::InMemory(network),
+                dependencies(home, start, seed, None)
+            ),
+            client
+        );
+        served.expect("invariant: the engine got its Connection");
+    });
+    urls.len()
+}
+
 /// What the engine runs on: the Goodfetch home `home`, a paused clock from
 /// `start`, entropy seeded with `seed`, blocking work inline and its run
 /// files opened through `run_state_vfs`.
@@ -732,6 +844,10 @@ fn dependencies(
 /// `run.finish`, which answers once the crawl's work items are done.
 const FINISH: &str =
     r#"{"jsonrpc":"2.0","id":"finish","method":"run.finish","params":{"run_id":"pages"}}"#;
+
+/// `run.abort`, which a Run that only had to start ends with.
+const ABORT: &str =
+    r#"{"jsonrpc":"2.0","id":"abort","method":"run.abort","params":{"run_id":"pages"}}"#;
 
 /// `run.records` of `pages`, once the Run ended: it answers once every
 /// Record is sent.

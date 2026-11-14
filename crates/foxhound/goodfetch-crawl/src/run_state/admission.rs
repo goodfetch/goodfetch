@@ -10,7 +10,8 @@
 //! The visited set and the pending work items are still the run file's
 //! (#2167), so each part here reads and writes it, in the job the actor
 //! queues for it; none of them is called from outside the Run state's own
-//! jobs, the commit of an attempt that deferred one, and tests.
+//! jobs, the commit of an attempt that deferred one, the Run's start, which
+//! admits its seeds as it makes the run file, and tests.
 
 use std::sync::Arc;
 
@@ -29,7 +30,7 @@ use rusqlite::Connection;
 
 use crate::invariants::Invariants;
 use crate::staging::{Answered, Staging};
-use crate::work_items::{self, Adding, Positions};
+use crate::work_items::{self, Adding, CheckedSeed, Positions};
 
 /// A handler's enqueue as its call's task read it: its params, its Payload
 /// serialized once, and the base URL of the document it names, if any.
@@ -115,11 +116,10 @@ pub(crate) fn seed(
         Ok(checked) => checked,
         Err(refused) => return Ok(Some(Err(refused))),
     };
-    let mut answers = work_items::admit_seeds(
+    let mut answers = admit_seeds(
         connection,
         positions,
-        invariants,
-        egress,
+        (egress, invariants),
         std::slice::from_ref(&checked),
     )?;
     Ok(Some(Ok(answers
@@ -141,7 +141,23 @@ pub(crate) fn seeds(
         Ok(checked) => checked,
         Err(refused) => return Ok(Err(refused)),
     };
-    work_items::admit_seeds(connection, positions, invariants, egress, &checked).map(Ok)
+    admit_seeds(connection, positions, (egress, invariants), &checked).map(Ok)
+}
+
+/// Admits each of `checked`, seeds whose Payloads were checked, within the
+/// Run's `invariants` and under its domain policy `egress`, at its position
+/// from `positions`, and answers each one's answer in order: the last step
+/// of every seed's admission, a Run's start's among them. It is never
+/// inlined, so the `admit_seeds` benchmark bounds its count to it (ADR
+/// 0071).
+#[inline(never)]
+pub(crate) fn admit_seeds(
+    connection: &Connection,
+    positions: &mut Positions,
+    (egress, invariants): (&Policy, &Invariants),
+    checked: &[CheckedSeed],
+) -> rusqlite::Result<Vec<Enqueued>> {
+    work_items::admit_seeds(connection, positions, invariants, egress, checked)
 }
 
 /// What a links call's admission reads of its params.

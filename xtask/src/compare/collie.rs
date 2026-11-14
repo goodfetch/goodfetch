@@ -4,8 +4,10 @@
 //! opened, pages at once, pages opened), each tool carrying out the same
 //! plan through `xtask/compare-collie/act.ts`; beside them the arms,
 //! Puppeteer's two rows and Stagehand with no model, through
-//! `xtask/compare-collie-arms/act.ts` (issues 2443 and 2441), each read
-//! against the Collie row the pages it got right place it at; and the
+//! `xtask/compare-collie-arms/act.ts` (issues 2443 and 2441), and
+//! chromiumoxide, through the Rust program `xtask/compare-chromiumoxide`
+//! builds (issue 2444), each read against the Collie row the pages it got
+//! right place it at; and the
 //! page-load cell ([`page_load`], issue 2319), in which each tool launches
 //! its own browser.
 //!
@@ -347,9 +349,12 @@ pub(crate) struct Tools<'a> {
     /// `xtask/compare-collie/act.ts`, which Node.js runs for Collie and
     /// Playwright, as an absolute path.
     pub(crate) driver: PathBuf,
-    /// `xtask/compare-collie-arms/act.ts`, which it runs for the arms
-    /// (issues 2441 and 2443), as an absolute path.
+    /// `xtask/compare-collie-arms/act.ts`, which it runs for Puppeteer's
+    /// and Stagehand's arms (issues 2441 and 2443), as an absolute path.
     pub(crate) arms_driver: PathBuf,
+    /// chromiumoxide's side's executable ([`chromiumoxide_executable`],
+    /// issue 2444).
+    pub(crate) chromiumoxide: PathBuf,
     /// Chrome for Testing's folder.
     pub(crate) browser: &'a Path,
     /// xtask's own `GOODFETCH_*` variables, which the tool runs without.
@@ -357,15 +362,35 @@ pub(crate) struct Tools<'a> {
 }
 
 impl Tools<'_> {
-    /// The driver that runs `tool`.
-    pub(crate) fn script(&self, tool: Contender) -> &Path {
+    /// The driver that runs `tool`, none of this process's Goodfetch
+    /// variables in its environment: Node.js running its script, or
+    /// chromiumoxide's side's own executable.
+    pub(crate) fn command(&self, tool: Contender) -> Command {
         match tool {
-            Contender::Collie | Contender::Playwright => &self.driver,
+            Contender::Collie | Contender::Playwright => node(self, &self.driver),
             Contender::PuppeteerLocator | Contender::PuppeteerPage | Contender::Stagehand => {
-                &self.arms_driver
+                node(self, &self.arms_driver)
             }
+            Contender::Chromiumoxide => without_goodfetch_variables(self, &self.chromiumoxide),
         }
     }
+}
+
+/// The folder of chromiumoxide's side's build among the Rust sides' builds,
+/// beside Spider's (`just compare`).
+const CHROMIUMOXIDE_FOLDER: &str = "chromiumoxide";
+
+/// chromiumoxide's side's executable in `builds`: `just compare` builds it
+/// into the target folder [`CHROMIUMOXIDE_FOLDER`] names, where Cargo puts
+/// it under `profile`'s folder.
+pub(crate) fn chromiumoxide_executable(builds: &Path, profile: &str) -> PathBuf {
+    builds
+        .join(CHROMIUMOXIDE_FOLDER)
+        .join(profile)
+        .join(format!(
+            "goodfetch-compare-chromiumoxide{}",
+            std::env::consts::EXE_SUFFIX
+        ))
 }
 
 /// The flags `tool`'s browser is launched with past every tool's: Stagehand
@@ -380,7 +405,8 @@ pub(crate) fn browser_flags(tool: Contender) -> &'static [&'static str] {
         Contender::Collie
         | Contender::Playwright
         | Contender::PuppeteerLocator
-        | Contender::PuppeteerPage => &[],
+        | Contender::PuppeteerPage
+        | Contender::Chromiumoxide => &[],
     }
 }
 
@@ -578,8 +604,15 @@ struct Driven {
 /// Node.js running the driver `script`, none of this process's Goodfetch
 /// variables in its environment.
 fn node(tools: &Tools<'_>, script: &Path) -> Command {
-    let mut command = Command::new("node");
+    let mut command = without_goodfetch_variables(tools, Path::new("node"));
     command.arg(script);
+    command
+}
+
+/// `program`, none of this process's Goodfetch variables in its
+/// environment.
+fn without_goodfetch_variables(tools: &Tools<'_>, program: &Path) -> Command {
+    let mut command = Command::new(program);
     for name in tools.goodfetch_variables {
         command.env_remove(name);
     }
@@ -605,7 +638,7 @@ fn drive(
         .stdout(std::fs::File::create(&printed).context("creating the tool's output")?)
         .stderr(std::fs::File::create(&errors).context("creating the tool's errors")?)
         .spawn()
-        .context("running the driver with Node.js")?;
+        .context("running the driver")?;
     watcher.follow(child.id());
     relay.follow(child.id());
     let status = waited(&mut child);
@@ -655,7 +688,7 @@ pub(crate) fn trial(
     )?;
     let relay = Relay::start(port)?;
     let relayed = relay.address();
-    let mut command = node(tools, tools.script(tool));
+    let mut command = tools.command(tool);
     command
         .args(["--tool", tool.name(), "--plan"])
         .arg(&plan_file)

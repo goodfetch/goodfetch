@@ -75,6 +75,10 @@ pub(crate) const SCRAPY_PLAYWRIGHT_VERSION: &str = "0.0.48";
 /// `xtask/compare-collie-arms/package.json` (unit tests hold each equal).
 pub(crate) const PUPPETEER_VERSION: &str = "25.17.0";
 pub(crate) const STAGEHAND_VERSION: &str = "4.4.0";
+/// chromiumoxide's pinned version, the exact one
+/// `xtask/compare-chromiumoxide/Cargo.toml` holds it to (issue 2444; a unit
+/// test holds them equal).
+pub(crate) const CHROMIUMOXIDE_VERSION: &str = "0.9.1";
 
 /// Runs of each tool in the Callgrind cell, whose figure is their median:
 /// fewer than the timed trials, since a count barely varies and a run under
@@ -441,8 +445,9 @@ pub(crate) enum Exercise {
 }
 
 /// A tool of the Collie scenario, which its driver runs: Collie's and
-/// Playwright's `xtask/compare-collie/act.ts`, the arms'
-/// `xtask/compare-collie-arms/act.ts`.
+/// Playwright's `xtask/compare-collie/act.ts`, Puppeteer's and Stagehand's
+/// `xtask/compare-collie-arms/act.ts`, chromiumoxide's the program
+/// `xtask/compare-chromiumoxide` builds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Contender {
@@ -458,20 +463,28 @@ pub(crate) enum Contender {
     /// Stagehand's locators with no model, whose click neither waits nor
     /// checks (issue 2441).
     Stagehand,
+    /// chromiumoxide, a Rust library, whose click neither waits nor checks
+    /// (issue 2444).
+    Chromiumoxide,
 }
 
 impl Contender {
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 6] = [
         Self::Collie,
         Self::Playwright,
         Self::PuppeteerLocator,
         Self::PuppeteerPage,
         Self::Stagehand,
+        Self::Chromiumoxide,
     ];
     /// The scenario's arms, each read against the Collie row the pages it
-    /// got right place it at (issues 2441 and 2443).
-    pub(crate) const ARMS: [Self; 3] =
-        [Self::PuppeteerLocator, Self::PuppeteerPage, Self::Stagehand];
+    /// got right place it at (issues 2441, 2443 and 2444).
+    pub(crate) const ARMS: [Self; 4] = [
+        Self::PuppeteerLocator,
+        Self::PuppeteerPage,
+        Self::Stagehand,
+        Self::Chromiumoxide,
+    ];
 
     pub(crate) fn name(self) -> &'static str {
         match self {
@@ -480,6 +493,7 @@ impl Contender {
             Self::PuppeteerLocator => "puppeteer_locator",
             Self::PuppeteerPage => "puppeteer_page",
             Self::Stagehand => "stagehand",
+            Self::Chromiumoxide => "chromiumoxide",
         }
     }
 }

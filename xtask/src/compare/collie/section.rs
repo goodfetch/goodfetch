@@ -15,8 +15,8 @@ use crate::register::document;
 
 use super::super::report::{Figure, Unit, cell_text, float, median, spread};
 use super::super::trials::{
-    CollieScenario, CollieStopped, CollieTrial, Contender, Exercise, PLAYWRIGHT_VERSION,
-    PUPPETEER_VERSION, PageDone, STAGEHAND_VERSION,
+    CHROMIUMOXIDE_VERSION, CollieScenario, CollieStopped, CollieTrial, Contender, Exercise,
+    PLAYWRIGHT_VERSION, PUPPETEER_VERSION, PageDone, STAGEHAND_VERSION,
 };
 use super::page_load::{self, LoadSection};
 use super::{ACTION_TIMEOUT_MILLISECONDS, EXERCISES, RATIO_CELLS, RATIO_ROW};
@@ -415,6 +415,12 @@ fn mapping(tool: Contender) -> String {
             "Stagehand {STAGEHAND_VERSION} with no model, `page.locator(…).click()` and \
              `.fill()`, and a focus then `page.keyPress()`; its click neither waits nor checks"
         ),
+        Contender::Chromiumoxide => format!(
+            "chromiumoxide {CHROMIUMOXIDE_VERSION}, `page.find_element(…)` then \
+             `Element::click()`, `.click()` then `.type_str()`, and `.focus()` then \
+             `.press_key()`; its click scrolls, finds a clickable point and sends the mouse \
+             events, and neither waits nor checks"
+        ),
     }
 }
 
@@ -561,7 +567,8 @@ pub(crate) fn markdown(section: &Section) -> String {
     if !placements.is_empty() {
         text.push_str(
             "Beside them the arms, each through its own library attached the same way: \
-             Puppeteer's locators and its page methods, and Stagehand with no model, whose \
+             Puppeteer's locators and its page methods, chromiumoxide, a Rust program, and \
+             Stagehand with no model, whose \
              browser is launched with `--enable-unsafe-extension-debugging` and \
              `--remote-allow-origins=*` for the extension it drives the browser through. That \
              extension runs in the browser's processes, so Stagehand's CPU and memory leave its \

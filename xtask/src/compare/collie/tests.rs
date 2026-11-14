@@ -480,7 +480,8 @@ fn measured_section(today: &str) -> Section {
             Contender::Playwright => actions * 5 / 4,
             arm @ (Contender::PuppeteerLocator
             | Contender::PuppeteerPage
-            | Contender::Stagehand) => {
+            | Contender::Stagehand
+            | Contender::Chromiumoxide) => {
                 unreachable!("`every` runs no {}", arm.name())
             }
         };
@@ -658,7 +659,8 @@ fn the_scenario_runs_each_arm_in_every_cell_but_stagehand_in_the_sessions_cell()
             "playwright",
             "puppeteer_locator",
             "puppeteer_page",
-            "stagehand"
+            "stagehand",
+            "chromiumoxide"
         ]
     );
     for tool in Contender::ALL {
@@ -672,6 +674,7 @@ fn the_scenario_runs_each_arm_in_every_cell_but_stagehand_in_the_sessions_cell()
     assert_eq!(order.len(), EXERCISES.len() * Contender::ALL.len() - 1);
     assert!(!order.contains(&(Exercise::Sessions, Contender::Stagehand, 1)));
     assert!(order.contains(&(Exercise::Sessions, Contender::PuppeteerPage, 1)));
+    assert!(order.contains(&(Exercise::Sessions, Contender::Chromiumoxide, 1)));
     assert!(order.contains(&(Exercise::Click, Contender::Stagehand, 1)));
     // A run of every tool, Stagehand's Sessions not run, did its cells'
     // work.
@@ -688,15 +691,42 @@ fn each_tool_runs_its_own_driver_against_the_browser_xtask_launched() {
         engine: Path::new("engine"),
         driver: PathBuf::from("compare-collie/act.ts"),
         arms_driver: PathBuf::from("compare-collie-arms/act.ts"),
+        chromiumoxide: PathBuf::from("builds/goodfetch-compare-chromiumoxide"),
         browser: Path::new("chrome"),
-        goodfetch_variables: &[],
+        goodfetch_variables: &[OsString::from("GOODFETCH_TEST_SUITE")],
+    };
+    let run = |tool| {
+        let command = tools.command(tool);
+        let removed: Vec<_> = command
+            .get_envs()
+            .filter(|(_, value)| value.is_none())
+            .map(|(name, _)| name.to_owned())
+            .collect();
+        assert_eq!(removed, [OsString::from("GOODFETCH_TEST_SUITE")]);
+        let mut words = vec![command.get_program().to_owned()];
+        words.extend(command.get_args().map(ToOwned::to_owned));
+        words
     };
     for tool in [Contender::Collie, Contender::Playwright] {
-        assert_eq!(tools.script(tool), Path::new("compare-collie/act.ts"));
+        assert_eq!(run(tool), ["node", "compare-collie/act.ts"]);
     }
-    for arm in Contender::ARMS {
-        assert_eq!(tools.script(arm), Path::new("compare-collie-arms/act.ts"));
+    for arm in [
+        Contender::PuppeteerLocator,
+        Contender::PuppeteerPage,
+        Contender::Stagehand,
+    ] {
+        assert_eq!(run(arm), ["node", "compare-collie-arms/act.ts"]);
     }
+    // chromiumoxide is a Rust library: its side is a program of its own,
+    // built beside the other Rust sides.
+    assert_eq!(
+        run(Contender::Chromiumoxide),
+        ["builds/goodfetch-compare-chromiumoxide"]
+    );
+    assert_eq!(
+        chromiumoxide_executable(Path::new("/t/compare-spider"), "release"),
+        Path::new("/t/compare-spider/chromiumoxide/release/goodfetch-compare-chromiumoxide")
+    );
     // Stagehand's extension speaks CDP over a WebSocket of its own, which
     // Chrome opens to it only with flags of its own; every other tool's
     // browser is launched as it was.
@@ -706,6 +736,7 @@ fn each_tool_runs_its_own_driver_against_the_browser_xtask_launched() {
         Contender::Playwright,
         Contender::PuppeteerLocator,
         Contender::PuppeteerPage,
+        Contender::Chromiumoxide,
     ] {
         assert!(browser_flags(tool).is_empty(), "{}", tool.name());
     }
@@ -721,6 +752,7 @@ fn the_report_lists_each_arm_and_the_calls_its_steps_map_to() {
         ("puppeteer_locator", "`Locator.click()`"),
         ("puppeteer_page", "`page.click()`"),
         ("stagehand", "`page.locator(…).click()`"),
+        ("chromiumoxide", "`Element::click()`"),
     ] {
         assert!(
             text.lines()

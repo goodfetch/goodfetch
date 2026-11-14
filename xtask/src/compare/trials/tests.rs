@@ -1,6 +1,7 @@
 use super::{
-    CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, PAGESIFT_VERSION, PLAYWRIGHT_VERSION, PUPPETEER_VERSION,
-    SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SPIDER_VERSION, STAGEHAND_VERSION, Work,
+    CHROMIUMOXIDE_VERSION, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, PAGESIFT_VERSION,
+    PLAYWRIGHT_VERSION, PUPPETEER_VERSION, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION,
+    SPIDER_VERSION, STAGEHAND_VERSION, Work,
 };
 
 /// The Spider version Spider's side pins in its manifest, `=<version>`.
@@ -50,6 +51,20 @@ fn the_declared_pagesift_is_the_version_its_side_pins() {
     assert_eq!(
         ["pagesift", "pagesift-sys", "pagesift-cdp", "pagesift-net"].map(pinned),
         [exact.clone(), exact.clone(), exact.clone(), exact]
+    );
+}
+
+/// The trials declare the chromiumoxide the Collie scenario's arm builds:
+/// the exact version `xtask/compare-chromiumoxide/Cargo.toml` holds it to.
+#[test]
+fn the_declared_chromiumoxide_is_the_version_its_side_pins() {
+    let manifest: toml::Table = include_str!("../../../compare-chromiumoxide/Cargo.toml")
+        .parse()
+        .unwrap();
+
+    assert_eq!(
+        manifest["dependencies"]["chromiumoxide"]["version"].as_str(),
+        Some(format!("={CHROMIUMOXIDE_VERSION}").as_str())
     );
 }
 

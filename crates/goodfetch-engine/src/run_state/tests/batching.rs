@@ -243,3 +243,24 @@ fn a_power_cut_inside_an_open_batch_leaves_the_file_as_of_the_batch_before() {
 
     assert_eq!(items(&after).unwrap(), vec![1]);
 }
+
+/// At `off`, the writer's last write rides the batch open when the writer
+/// stops, which its stop writes as one batch; the sync that clears the
+/// "unclean" mark then writes nothing of the batch's.
+///
+/// Covers: story:3-27, setting:run_state.durability
+#[test]
+fn at_off_the_last_write_rides_the_open_batch_its_stop_writes() {
+    let env = TestEnv::new();
+    let options = options(Durability::OFF);
+    let work = options.work.clone();
+
+    let batches = with_writer_options(&env, &options, async |state| {
+        let before = work.read(Row::RunBatches);
+        ended(state, 1).await;
+        state.write_last(insert(2)).await.unwrap();
+        work.read(Row::RunBatches) - before
+    });
+
+    assert_eq!(batches, 1);
+}

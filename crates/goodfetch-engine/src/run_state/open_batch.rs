@@ -166,16 +166,16 @@ impl Writer {
             .is_some_and(|interval| interval.plan(ticked, last).synced);
         let unsynced_stop =
             last && matches!(self.durability.sync, BatchSync::Never | BatchSync::Off);
-        // A sync falls due, or the writer stops: a batch open on a
-        // connection that does not sync commits first, since a connection
-        // switches to syncing outside a transaction only.
-        if (sync_due || unsynced_stop) && self.open_batch().is_some_and(|open| !open.synced) {
-            let sealed = if sync_due {
-                Sealed::Planned
-            } else {
-                Sealed::Early
-            };
-            self.commit_batch(sealed, false, false);
+        let open_unsynced = self.open_batch().is_some_and(|open| !open.synced);
+        if unsynced_stop && open_unsynced {
+            self.stop_in_open_batch(group);
+            return;
+        }
+        // A sync falls due: a batch open on a connection that does not sync
+        // commits first, since a connection switches to syncing outside a
+        // transaction only.
+        if sync_due && open_unsynced {
+            self.commit_batch(Sealed::Planned, false, false);
         }
         let synced_stop = self.synced_stop(last);
         let clean = self.marked && synced_stop;
@@ -334,12 +334,73 @@ impl Writer {
     /// the "unclean" mark when `clean`, as the writer's `last` commit or
     /// not, then answers its barriers.
     fn commit_batch(&mut self, sealed: Sealed, clean: bool, last: bool) {
-        let Some(batching) = &mut self.batching else {
+        if let Some((answer, owed)) = self.write_open(sealed, clean, last) {
+            for completion in owed {
+                completion(answer.clone());
+            }
+        }
+    }
+
+    /// Stops the writer at a level that syncs no batch while a batch is
+    /// open on a connection that does not sync: `group`, which holds the
+    /// writer's last write, rides the open batch, which commits as the
+    /// last batch; then [`Writer::sync_stop`] syncs it. The batch's
+    /// barriers, the last write's among them, are answered once that sync
+    /// is in the file.
+    fn stop_in_open_batch(&mut self, group: Vec<Queued>) {
+        if !self.run_in_batch(group) {
+            return;
+        }
+        let Some((answer, owed)) = self.write_open(Sealed::Early, false, false) else {
             return;
         };
-        let Some(open) = batching.open.take() else {
-            return;
+        let answer = answer.and_then(|()| self.sync_stop());
+        for completion in owed {
+            completion(answer.clone());
+        }
+    }
+
+    /// Syncs what the writer committed unsynced before it stops, in a
+    /// commit of its own that writes no batch's rows and clears the
+    /// "unclean" mark: a connection switches to syncing outside a
+    /// transaction only, so the batch committed before the switch. Without
+    /// the switch, the stop syncs nothing and the mark stays, as a crash
+    /// would leave it.
+    fn sync_stop(&mut self) -> Result<(), RunStateError> {
+        if !self.synced_stop(true) {
+            return Ok(());
+        }
+        let connection = &self.connection.connection;
+        let marks = Marks {
+            declare: self.deferral.declaring(false),
+            clean: self.marked,
         };
+        let committed = begin(connection, &self.path, self.epoch)
+            .and_then(|()| finish(connection, &self.path, marks));
+        match committed {
+            Ok(declared) => {
+                self.deferral.declared(declared);
+                self.signals.commits.send_modify(|count| *count += 1);
+                self.committed(true, true);
+                Ok(())
+            }
+            Err(error) => {
+                self.signals.failed(&self.path, &error);
+                Err(error)
+            }
+        }
+    }
+
+    /// Commits the open batch, if one is open, as [`Writer::commit_batch`]
+    /// does: what its barriers are owed, and those barriers, unanswered.
+    fn write_open(
+        &mut self,
+        sealed: Sealed,
+        clean: bool,
+        last: bool,
+    ) -> Option<(Result<(), RunStateError>, Vec<Completion>)> {
+        let batching = self.batching.as_mut()?;
+        let open = batching.open.take()?;
         batching.opened.send_replace(None);
         let connection = self.connection.for_group(open.synced);
         let marks = Marks {
@@ -365,9 +426,7 @@ impl Writer {
         if committed.is_ok() {
             self.committed(open.synced, last);
         }
-        for completion in open.owed {
-            completion(answer.clone());
-        }
+        Some((answer, open.owed))
     }
 
     /// Rolls the open batch back on `error`, which its barriers are

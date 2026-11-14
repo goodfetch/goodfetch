@@ -36,9 +36,15 @@
 //!   reads otherwise on `www.learning.test` than on `learning.test`; the
 //!   index links the first two on both hosts, and each of those links the
 //!   next.
+//! - `/moved/`: a page that moved (ADR 0120). `/moved/old` redirects with
+//!   a 301 to `/moved/old/`, which differs from it only by its trailing
+//!   slash and links `/moved/next` and then `/moved/next/`, one page
+//!   under both URLs.
 //! - `/`: the home page, which links nothing.
 
 use std::fmt::Write as _;
+
+use hyper::StatusCode;
 
 use super::{Page, Visit, canonical_number, document};
 
@@ -71,6 +77,9 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
     }
     if let Some(form) = path.strip_prefix("/forms/") {
         return forms(form, request.host, request.authority).unwrap_or_else(Page::not_found);
+    }
+    if let Some(moved) = path.strip_prefix("/moved/") {
+        return self::moved(moved).unwrap_or_else(Page::not_found);
     }
     if let Some(pairs) = path.strip_prefix("/shop/").and_then(canonical_number) {
         return shop(pairs, request.parameter("n"), request.parameter("ref"))
@@ -272,6 +281,26 @@ fn forms(form: &str, host: &str, authority: &str) -> Option<Page> {
                 &article(&heading, &format!("Page {page} of {side}."), &links),
             )))
         }
+        _ => None,
+    }
+}
+
+/// The page at `/moved/<moved>`: the old page's redirect to its slashed
+/// URL, that URL's page, and the next page under both its URLs.
+fn moved(moved: &str) -> Option<Page> {
+    match moved {
+        "old" => Some(Page::redirect(StatusCode::MOVED_PERMANENTLY, "/moved/old/")),
+        "old/" => {
+            let links = link("/moved/next", "Next") + &link("/moved/next/", "Next");
+            Some(Page::ok(document(
+                "Moved",
+                &article("Moved", "The club's page, at its new address.", &links),
+            )))
+        }
+        "next" | "next/" => Some(Page::ok(document(
+            "Next",
+            &article("Next", "The club's next page.", ""),
+        ))),
         _ => None,
     }
 }

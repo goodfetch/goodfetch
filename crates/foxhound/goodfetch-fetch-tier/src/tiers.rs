@@ -49,7 +49,7 @@ use goodfetch_engine::settings::{Effective, Resolved, RunSettings, get_or_defaul
 use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, Trust,
 };
-use goodfetch_engine::{Answered, CallContext, CallError, GuardAnswer, Params};
+use goodfetch_engine::{Answered, CallContext, CallError, GuardAnswer, ReadParams};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_page::blocks::Block;
 use goodfetch_page::document_request::{DocumentRequest, Unread};
@@ -94,7 +94,9 @@ use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_CLIENT_CERTIFICATES}
 use url::Url;
 
 use crate::canonical::canonical;
-use crate::chain::{Following, HopRead, Reading, Skip, Stop, follow_reading};
+use crate::chain::{
+    Followed, Following, HopRead, Reading, Redirected, Skip, Stop, Unfollowed, follow_reading,
+};
 use crate::charset::{Kind, Read, Text};
 use crate::choice::{
     ENCODING_CALL, LabelSettings, SetTier, TierChoice, Unserved, undeclared, unserved,
@@ -290,6 +292,9 @@ struct ServedPage {
     /// What the attempt it belongs to handed over: the navigation gate and
     /// the lease its navigations and `page.request`s go through.
     hand_over: Arc<HandOver>,
+    /// Each redirect hop its crawl request's chain followed to its
+    /// document, in order, which the Frontier learns from (ADR 0120).
+    redirects: Arc<[Redirected]>,
 }
 
 impl ServedPage {
@@ -644,7 +649,18 @@ pub struct FieldElements {
     pub elements: Vec<Option<FieldElement>>,
 }
 
-/// What the Frontier learns from a served page (ADRs 0005 and 0120).
+/// What the Frontier learns from a served page (ADRs 0005 and 0120): the
+/// redirect hops its crawl request's chain followed, and its document.
+#[derive(Clone, Debug)]
+pub struct Lesson {
+    /// Each redirect hop its chain followed to its document, in order.
+    pub redirects: Arc<[Redirected]>,
+    /// Its document's URL, page signature and `rel=canonical`; `None` for
+    /// a page holding no document, which teaches nothing more.
+    pub signed: Option<Signed>,
+}
+
+/// What the Frontier learns from a served page's document.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Signed {
     /// The URL it was fetched at.
@@ -1024,7 +1040,8 @@ impl FetchTiers {
     /// page already escalated at `fetch.encoding` instead (ADR 0119);
     /// [`Stop::Skipped`] for a hop the Frontier or
     /// the gate refuses, and with `domain_policy` for one the transport's
-    /// egress check refuses.
+    /// egress check refuses; each with the redirect hops its chain followed
+    /// ([`Unfollowed`]).
     ///
     /// # Cancel safety
     ///
@@ -1038,7 +1055,7 @@ impl FetchTiers {
         requester: &Requester<'_>,
         choice: &TierChoice,
         hand_over: &Arc<HandOver>,
-    ) -> Result<PageId, Stop> {
+    ) -> Result<PageId, Unfollowed> {
         let hop = first_hop(request)?;
         let gate = ChainGate {
             hand_over: Arc::clone(hand_over),
@@ -1091,32 +1108,31 @@ impl FetchTiers {
         // The document's fetch ended: the page being analysed holds no
         // place among the requests in flight (ADR 0138).
         hand_over.fetch_admission.give_back();
-        let (fetched, opened) = fetched?;
-        if let Some(refused) = &fetched.unaccepted {
-            return Err(Stop::Skipped(Skip {
-                reason: SkipReason::ContentType,
-                message: format!(
-                    "`{}` answered `{refused}`, which its Label's `crawl.content_types` does not list: its body was not read.",
-                    fetched.url
-                ),
-            }));
+        let followed = fetched?;
+        if let Some(refused) = &followed.fetched.unaccepted {
+            return Err(Unfollowed {
+                stop: Stop::Skipped(Skip {
+                    reason: SkipReason::ContentType,
+                    message: format!(
+                        "`{}` answered `{refused}`, which its Label's `crawl.content_types` does not list: its body was not read.",
+                        followed.fetched.url
+                    ),
+                }),
+                redirects: followed.redirects.into(),
+            });
         }
-        self.open_served(
-            tier,
-            run,
-            choice,
-            (fetched, opened),
-            (hand_over, hand_over.encoding),
-        )
-        .await
+        self.open_served(tier, run, choice, followed, (hand_over, hand_over.encoding))
+            .await
+            .map_err(Unfollowed::from)
     }
 
     /// Opens a page served from `fetched` on `tier` for `run`, its calls
     /// served as `choice` says and gated by `hand_over`, the attempt's, its
     /// document read with `forced` from `fetch.encoding`, its formats with
     /// the hand-over's extractor, its Label's `content.extractor`, and its
-    /// untouched page with the hand-over's readers: `opened` when its
-    /// chain read it already.
+    /// untouched page with the hand-over's readers: `followed`, the
+    /// document its chain ended on, with what the chain read of it and the
+    /// redirect hops it followed.
     ///
     /// # Errors
     ///
@@ -1133,7 +1149,11 @@ impl FetchTiers {
         tier: &HttpTier,
         run: &Run,
         choice: &TierChoice,
-        (fetched, opened): (crate::driver::Fetched, Option<Opened>),
+        Followed {
+            fetched,
+            read: opened,
+            redirects,
+        }: Followed<Opened>,
         (hand_over, forced): (&Arc<HandOver>, Option<&'static Encoding>),
     ) -> Result<PageId, Stop> {
         let status = fetched.status;
@@ -1196,6 +1216,7 @@ impl FetchTiers {
                 own: Some((response, body)),
                 certificate_exception,
                 hand_over: Arc::clone(hand_over),
+                redirects: redirects.into(),
             }),
         );
         pages.opened(&page_id, opened);
@@ -1288,7 +1309,13 @@ impl FetchTiers {
             certificate_exception: None,
             text: None,
         };
-        self.open_served(tier, run, choice, (fetched, None), (hand_over, None))
+        // Lightpanda follows its redirects itself: the chain records none.
+        let followed = Followed {
+            fetched,
+            read: None,
+            redirects: Vec::new(),
+        };
+        self.open_served(tier, run, choice, followed, (hand_over, None))
             .await
     }
 
@@ -1315,16 +1342,26 @@ impl FetchTiers {
         })
     }
 
-    /// The URL, the page signature and the `rel=canonical` of the served
-    /// page `page_id`, which the Frontier learns from (ADRs 0005 and
-    /// 0120), read on its Run's blocking owner; `None` once the page
-    /// closed, or for a page holding no document, which teaches nothing.
+    /// What the served page `page_id` teaches the Frontier (ADRs 0005 and
+    /// 0120): the redirect hops its chain followed, and its document's URL,
+    /// page signature and `rel=canonical`, read on its Run's blocking
+    /// owner; `None` once the page closed.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future loses only what it reads; the page stays open.
-    pub async fn signature(&self, page_id: &PageId) -> Option<Signed> {
+    pub async fn lesson(&self, page_id: &PageId) -> Option<Lesson> {
         let page = self.served_page(page_id)?;
+        Some(Lesson {
+            redirects: Arc::clone(&page.redirects),
+            signed: self.signed(page_id, &page).await,
+        })
+    }
+
+    /// The URL, the page signature and the `rel=canonical` of `page`, the
+    /// served page `page_id`, read on its Run's blocking owner; `None` for
+    /// a page holding no document.
+    async fn signed(&self, page_id: &PageId, page: &ServedPage) -> Option<Signed> {
         if page.not_document.is_some() {
             return None;
         }
@@ -2049,7 +2086,7 @@ impl HandlerPages for FetchTiers {
         &self,
         page_id: &PageId,
         operation: &'static str,
-        params: Params<'_>,
+        params: ReadParams<'_>,
         context: &CallContext,
     ) -> Option<GuardAnswer> {
         let served = calls::on_browser(self, page_id, operation, params)

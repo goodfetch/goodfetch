@@ -318,7 +318,7 @@ fn composition(plant: Option<Plant>) -> Composition {
     match plant {
         None => Composition::default().with(engine).with(stand_ins),
         Some(plant) => {
-            let guard: Guard = Arc::new(move |_operation, params, _context| {
+            let guard: Guard = Arc::new(move |_operation, params, _read, _context| {
                 plant(params);
                 None
             });

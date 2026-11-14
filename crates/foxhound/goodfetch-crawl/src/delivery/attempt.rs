@@ -85,8 +85,8 @@ use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
     Capture, Chosen, FetchFailure, FetchTiers, HandOver, HopChecks, HttpTier, Judged,
-    PAGE_CHECK_CALL, PageFacts, PooledSession, ReplayPlan, Request, Requester, RunHandOver,
-    SitePreferences, Stop, TierChoice, infer_plan, tier_serves,
+    PAGE_CHECK_CALL, PageFacts, PooledSession, Redirected, ReplayPlan, Request, Requester,
+    RunHandOver, SitePreferences, Stop, TierChoice, Unfollowed, infer_plan, tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -126,8 +126,8 @@ mod race;
 mod site_preferences;
 mod sitemap_fetch;
 
-use learning::learn;
 pub(super) use learning::{Taught, learns};
+use learning::{learn, skipped};
 use site_preferences::{escaped_refusal, share_robots_txt};
 
 /// The Error code of a page the site refused, which Collie's page raises
@@ -138,6 +138,23 @@ const BLOCKED: &str = goodfetch_protocol::page::BLOCKED.name;
 /// The Error code of a page that failed its Page check (ADR 0006), which
 /// scores its Session down.
 const PAGE_CHECK_FAILED: &str = goodfetch_protocol::page::PAGE_CHECK_FAILED.name;
+
+/// How an attempt's document ended unserved: its answer, with the redirect
+/// hops its chain followed before a hop ended it `skipped`, which still
+/// teach (ADR 0120); none for any other ending.
+pub(super) struct Unserved {
+    pub(super) answer: Answer,
+    pub(super) redirects: Arc<[Redirected]>,
+}
+
+impl From<Answer> for Unserved {
+    fn from(answer: Answer) -> Self {
+        Self {
+            answer,
+            redirects: Arc::new([]),
+        }
+    }
+}
 
 /// How an attempt ended, before its outcome is committed.
 pub(super) enum Answer {
@@ -941,7 +958,15 @@ impl On<'_> {
         let (served, facts) = self
             .document(tiering, http, choice, hand_over)
             .await
-            .map_err(|answer| (answer, Taught::default()))?;
+            .map_err(|Unserved { answer, redirects }| {
+                // A sample's runs teach nothing, as [`Self::taught`] says.
+                let taught = if matches!(how, Chosen::Sample(_)) {
+                    Taught::default()
+                } else {
+                    skipped(run, leased, redirects)
+                };
+                (answer, taught)
+            })?;
         // `served` is held until its handler answered: an attempt abandoned
         // while its handler runs, as an abort abandons it, closes its page
         // as it drops, so the page never holds the Run's handles past the
@@ -1122,7 +1147,7 @@ impl On<'_> {
         http: &HttpTier,
         choice: &TierChoice,
         hand_over: &Arc<HandOver>,
-    ) -> Result<(Served<'t>, PageFacts), Answer> {
+    ) -> Result<(Served<'t>, PageFacts), Unserved> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let requester = Requester {
             request_id: &leased.crawl_request.id,
@@ -1145,7 +1170,7 @@ impl On<'_> {
                     self.site_preferences_judged(http, Request::CrawlRequest, &url)
                         .await?;
                 }
-                let served = if choice.tier == FetchTier::LightBrowser {
+                let served: Result<PageId, Unfollowed> = if choice.tier == FetchTier::LightBrowser {
                     let identity = self.context.identity();
                     let pinned_by = PinnedBy {
                         product: identity.product,
@@ -1161,29 +1186,34 @@ impl On<'_> {
                             (self.context.engine().home(), &pinned_by),
                         )
                         .await
+                        .map_err(Unfollowed::from)
                 } else {
                     tiers
                         .serve(http, run, &leased.crawl_request, &requester, choice, hand_over)
                         .await
                 };
-                served
-                    .map_err(|stop| match stop {
-                        Stop::Failed(failure) => fetch_failed(&failure),
-                        Stop::RobotsTxtUnreachable {
-                            message,
-                            on_own_domain: true,
-                        } => Answer::RobotsTxtUnreachable(message),
-                        Stop::RobotsTxtUnreachable {
-                            message,
-                            on_own_domain: false,
-                        } => Answer::HopsRobotsTxtUnreachable(message),
-                        Stop::Skipped(skip) => {
-                            tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, reason = ?skip.reason, message = skip.message, "a redirect hop ended its request skipped");
-                            Answer::Refused(skip.reason)
+                served.map_err(|Unfollowed { stop, redirects }| match stop {
+                    Stop::Failed(failure) => fetch_failed(&failure).into(),
+                    Stop::RobotsTxtUnreachable {
+                        message,
+                        on_own_domain: true,
+                    } => Answer::RobotsTxtUnreachable(message).into(),
+                    Stop::RobotsTxtUnreachable {
+                        message,
+                        on_own_domain: false,
+                    } => Answer::HopsRobotsTxtUnreachable(message).into(),
+                    // A failed chain's hops are followed again by its
+                    // retry; a skipped request's are taught now (ADR 0120).
+                    Stop::Skipped(skip) => {
+                        tracing::debug!(run_id = %run.id(), work_item = %leased.crawl_request.id, reason = ?skip.reason, message = skip.message, "a redirect hop ended its request skipped");
+                        Unserved {
+                            answer: Answer::Refused(skip.reason),
+                            redirects,
                         }
-                    })
+                    }
+                })
             } => document,
-            _ = lease.ended() => Err(Answer::LeaseEnded),
+            _ = lease.ended() => Err(Answer::LeaseEnded.into()),
         };
         let served = Served {
             tiers,
@@ -1193,7 +1223,7 @@ impl On<'_> {
             .facts(served.page_id())
             .expect("invariant: a served page is open while it is held");
         if let Some(refused) = self.document_refusal(http, &facts.use_signals).await {
-            return Err(refused);
+            return Err(refused.into());
         }
         Ok((served, facts))
     }

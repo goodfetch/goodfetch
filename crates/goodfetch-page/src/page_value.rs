@@ -48,7 +48,7 @@ use bytestring::ByteString;
 pub use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::response_limits::LimitExceeded;
 use goodfetch_engine::runs::Run;
-use goodfetch_engine::{CallContext, CallError, GuardAnswer, Params};
+use goodfetch_engine::{CallContext, CallError, GuardAnswer, ReadParams};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_protocol::page::{
     FormatsRequest, Navigated, PageFormats, PageId, PageResponse, SessionId, SitePreference,
@@ -769,16 +769,19 @@ pub trait HandlerPages: Send + Sync {
         None
     }
 
-    /// The answer to the call `operation`, its params `params`, on the
-    /// page `page_id`, when a fetch tier serves that page from a document
-    /// and answers the call itself: served, escalated or refused (ADR
-    /// 0093); `None` lets the page crate answer it, as it answers
-    /// `page.formats` from [`HandlerPages::document`]. None by default.
+    /// The answer to the call `operation`, its params `params` as its
+    /// handler's type read them, on the page `page_id`, when a fetch tier
+    /// serves that page from a document and answers the call itself:
+    /// served, escalated or refused (ADR 0093); `None` lets the page crate
+    /// answer it, as it answers `page.formats` from
+    /// [`HandlerPages::document`], and answers params that did not read.
+    /// It reads no params of its own, so the call decodes them once (ADR
+    /// 0140's E1). None by default.
     fn call(
         &self,
         page_id: &PageId,
         operation: &'static str,
-        params: Params<'_>,
+        params: ReadParams<'_>,
         context: &CallContext,
     ) -> Option<GuardAnswer> {
         let _ = (page_id, operation, params, context);

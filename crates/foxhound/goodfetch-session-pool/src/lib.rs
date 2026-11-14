@@ -21,7 +21,7 @@ use goodfetch_engine::Contribution;
 pub use labels::{LabelPools, PoolKey};
 pub use pool::{Effect, LocalAddressing, Rotated, SessionPool};
 pub use settings::PoolSettings;
-pub use store::{Changes, TABLES};
+pub use store::{Changes, SendsFrom, TABLES};
 
 /// What the Session pool adds to the engine: the tables that keep a
 /// crawl's Sessions and its domains' proxy tiers in every run file.

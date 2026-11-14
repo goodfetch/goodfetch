@@ -19,8 +19,8 @@ use goodfetch_test_support::{CrashKind, CrashVfs, IoFault, TestEnv};
 use rusqlite::Connection;
 
 use super::{
-    DEFERRED_CHARGES, Durability, PAGE_CACHE_KIB, RunState, RunStateError, RunStateOptions,
-    RunStateTables, Syncing, open_reader, unclean,
+    Charges, DEFERRED_CHARGES, Durability, PAGE_CACHE_KIB, RunState, RunStateError,
+    RunStateOptions, RunStateTables, Syncing, open_reader, unclean,
 };
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -878,9 +878,11 @@ fn run_row(connection: &Connection) -> rusqlite::Result<()> {
         .map(drop)
 }
 
-/// What the run file declares a power cut may take of a Slice's charges.
-fn declared(connection: &Connection) -> rusqlite::Result<i64> {
-    connection.query_row("SELECT deferred_charges FROM run", [], |row| row.get(0))
+/// What the run file declares of how the Run's charges reach it.
+fn declared(connection: &Connection) -> rusqlite::Result<Charges> {
+    connection.query_row("SELECT charges FROM run", [], |row| {
+        Ok(Charges::stored(&row.get::<_, String>(0)?))
+    })
 }
 
 /// Runs `test` on a writer at `durability` whose file holds a Run row,
@@ -984,10 +986,7 @@ fn deferred_charges_defer_only_within_the_bound_a_synced_commit_declared() {
 
     // The first declares; the two halves fill the bound; the last would
     // pass it, so its group syncs.
-    assert_eq!(
-        (added, bound),
-        (vec![1, 0, 0, 1], i64::try_from(DEFERRED_CHARGES).unwrap())
-    );
+    assert_eq!((added, bound), (vec![1, 0, 0, 1], Charges::Deferred));
 }
 
 /// A declaring write, a crawl's start, syncs and declares the bound in its
@@ -1042,8 +1041,91 @@ fn a_declaring_write_declares_the_bound_the_first_deferred_charges_defer_within(
     // 1 and a half fit the bound; the second half would pass it.
     assert_eq!(
         (added, declared(&after).unwrap()),
-        (vec![1, 0, 0, 1], i64::try_from(DEFERRED_CHARGES).unwrap())
+        (vec![1, 0, 0, 1], Charges::Deferred)
     );
+}
+
+/// What a run file declares of the Run's charges once its Run's row is
+/// written, before any write charges (ADR 0142's note of G-11 Q3): nothing
+/// at a level whose charges are synced as they are answered, `unsynced`
+/// at a `run_state.batch.sync` other than `each`, whatever writes it.
+///
+/// Covers: story:3-25, setting:run_state.durability, setting:run_state.batch.sync
+#[rstest::rstest]
+#[case::full(Durability::FULL, Charges::Synced)]
+#[case::batch(Durability::BATCH, Charges::Synced)]
+#[case::fast(Durability::FAST, Charges::Unsynced)]
+#[case::periodic(Durability::periodic(Duration::from_secs(60)), Charges::Unsynced)]
+#[case::off(Durability::OFF, Charges::Unsynced)]
+fn a_run_file_declares_its_charges_unsynced_from_its_start_at_a_sync_other_than_each(
+    #[case] durability: Durability,
+    #[case] charges: Charges,
+) {
+    let declared = with_counted_writer(durability, async |state, _| {
+        state.write(insert(1)).await.unwrap();
+        state.read(declared).await.unwrap()
+    });
+
+    assert_eq!(declared, charges);
+}
+
+/// At `batch`, a deferred write that charges before the file declares its
+/// charges unsynced declares them, answered once its batch is in the file;
+/// the charges after it ride the open batch (ADR 0142's note of G-11 Q3).
+///
+/// Covers: story:3-25, setting:run_state.durability
+#[test]
+fn at_batch_the_first_charge_declares_the_charges_unsynced_and_the_next_ride() {
+    let found = with_counted_writer(Durability::BATCH, async |state, _| {
+        let mut found = Vec::new();
+        for value in [1, 2] {
+            state
+                .write_with(Syncing::Deferred { charged: 1 }, insert(value))
+                .await
+                .unwrap();
+            found.push((
+                state.read(items).await.unwrap(),
+                state.read(declared).await.unwrap(),
+            ));
+        }
+        found
+    });
+
+    assert_eq!(
+        found,
+        vec![(vec![1], Charges::Unsynced), (vec![1], Charges::Unsynced)]
+    );
+}
+
+/// A run file's declaration only rises: a Run that declared its charges
+/// unsynced at `batch` and resumes at `full` keeps them declared so, and
+/// its charges defer within [`DEFERRED_CHARGES`] without declaring again.
+///
+/// Covers: story:3-25
+#[test]
+fn a_declaration_only_rises_when_the_run_resumes_at_another_level() {
+    let env = TestEnv::new();
+    let at = |durability| RunStateOptions {
+        durability,
+        ..RunStateOptions::default()
+    };
+    with_writer_options(&env, &at(Durability::BATCH), async |state| {
+        state.write_with(Syncing::Declaring, run_row).await.unwrap();
+    });
+
+    let resumed = with_writer_options(&env, &at(Durability::FULL), async |state| {
+        state
+            .write_with(Syncing::Declaring, |_| Ok(()))
+            .await
+            .unwrap();
+        state
+            .write_with(Syncing::Deferred { charged: 1 }, |_| Ok(()))
+            .await
+            .unwrap();
+        state.read(declared).await.unwrap()
+    });
+
+    assert_eq!(resumed, Charges::Unsynced);
 }
 
 /// What a run file at `durability` syncs through a counting VFS (ADR 0140)

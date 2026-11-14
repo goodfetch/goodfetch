@@ -3,7 +3,9 @@
 //! open across its groups. A write that needs no sync before it is answered,
 //! an attempt's ([`Syncing::Attempt`]) or a deferred one, rides it: it is
 //! answered once its savepoint is released, and a reader sees it only once
-//! the batch commits. Any other write is a barrier: the batch commits at the
+//! the batch commits. A deferred write that charges before the file
+//! declares its charges unsynced ([`super::Charges`]) declares it, a
+//! barrier. Any other write is a barrier: the batch commits at the
 //! end of its group, and the barrier is answered then. The batch also
 //! commits once the attempts it ended reach `run_state.batch.pages`, its
 //! writes' bytes `run_state.batch.bytes`, or its age
@@ -54,7 +56,8 @@ struct OpenBatch {
     rows: u64,
     /// The answers its barriers wait for, sent once it commits.
     owed: Vec<Completion>,
-    /// Whether its commit declares [`super::DEFERRED_CHARGES`].
+    /// Whether its writes ask its commit to declare how the Run's charges
+    /// reach the file.
     declare: bool,
 }
 
@@ -118,9 +121,14 @@ enum Answered {
     Barrier { declaring: bool },
 }
 
-fn answered(queued: &Queued) -> Answered {
+/// How `queued` is answered in the open batch while the file `owes` the
+/// writer's declaration of its charges or not.
+fn answered(queued: &Queued, owes: bool) -> Answered {
     match (&queued.job, queued.syncing) {
         (Job::Write, Syncing::Attempt { ended, bytes }) => Answered::Riding { ended, bytes },
+        (Job::Write, Syncing::Deferred { charged }) if charged > 0 && owes => {
+            Answered::Barrier { declaring: true }
+        }
         (Job::Write, Syncing::Deferred { .. }) => Answered::Riding { ended: 0, bytes: 0 },
         (_, Syncing::Declaring) => Answered::Barrier { declaring: true },
         _ => Answered::Barrier { declaring: false },
@@ -214,7 +222,7 @@ impl Writer {
     /// Runs `group`'s writes in the open batch: whether it is still open,
     /// a write having ended it on a full disk or an I/O error.
     fn run_in_batch(&mut self, group: Vec<Queued>) -> bool {
-        let declared = self.deferral.declared;
+        let owes = self.deferral.owes();
         let Some(open) = self
             .batching
             .as_mut()
@@ -226,7 +234,7 @@ impl Writer {
         let mut jobs = group.into_iter();
         let mut ended = None;
         while let Some(queued) = jobs.next() {
-            let answered = answered(&queued);
+            let answered = answered(&queued, owes);
             let (completion, ends_batch) = (queued.write)(Some((connection, &self.path)));
             open.rows += 1;
             if let Some(error) = ends_batch {
@@ -245,7 +253,7 @@ impl Writer {
                     completion(Ok(()));
                 }
                 Answered::Barrier { declaring } => {
-                    open.declare |= declaring && !declared;
+                    open.declare |= declaring;
                     open.owed.push(completion);
                 }
             }
@@ -308,14 +316,14 @@ impl Writer {
         batching.opened.send_replace(None);
         let connection = self.connection.for_group(open.synced);
         let marks = Marks {
-            declare: open.declare,
+            declare: self.deferral.declaring(open.declare),
             clean,
         };
         let committed = finish(connection, &self.path, marks);
         let answer = match &committed {
             Ok(declared) => {
                 batching.rows.record(open.rows, &[]);
-                self.deferral.declared |= *declared;
+                self.deferral.declared(*declared);
                 self.signals.commits.send_modify(|count| *count += 1);
                 Ok(())
             }

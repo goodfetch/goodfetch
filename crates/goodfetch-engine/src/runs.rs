@@ -610,7 +610,7 @@ async fn warn_over_charged(run: &Run) {
         .read(move |connection| slices::reclaimed_beyond(connection, epoch))
         .await;
     let message = match beyond {
-        Ok(Some(slices::OverCharge::WholeSlices)) => "the Run ended uncleanly at a Durability level that syncs no commit, so the Usage ledger charged the whole of its earlier Slices: its Limits may be over-charged by what it did not use of them".to_owned(),
+        Ok(Some(slices::OverCharge::WholeSlices)) => "the Run ended uncleanly and its charges were answered before they were synced, in a Run-state batch or at a `run_state.batch.sync` other than `each`, so the Usage ledger charged the whole of its earlier Slices: its Limits may be over-charged by what it did not use of them".to_owned(),
         Ok(Some(slices::OverCharge::UpTo(requests))) => format!(
             "the Run ended uncleanly, so the Usage ledger charged its earlier Slices up to {requests} past what its journal held, for the requests that may have been in flight: its Limits may be over-charged by as much"
         ),
@@ -5560,8 +5560,8 @@ impl Registry {
         self.setup.driving.get(&kind).copied().unwrap_or_default()
     }
 
-    /// How the start of a Run of `kind` commits: synced, and declaring the
-    /// bound of its deferred charges when its claims defer them.
+    /// How the start of a Run of `kind` commits: synced, and declaring how
+    /// its charges reach the run file when its claims defer them.
     fn start_syncing(&self, kind: RunKind) -> Syncing {
         if self.driving(kind).defers_charges {
             Syncing::Declaring

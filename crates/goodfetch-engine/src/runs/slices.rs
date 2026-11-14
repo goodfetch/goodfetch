@@ -13,8 +13,7 @@ use std::sync::Arc;
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::run::{LimitScope, RUN_STATE_BATCH_SYNC, RUN_STATE_DURABILITY, RunId};
-use goodfetch_protocol::settings::WeakenedSetting;
+use goodfetch_protocol::run::{LimitScope, RunId};
 use goodfetch_protocol::usage::{CONNECTION, DAEMON, INSTALL, PERSON};
 use jiff::Timestamp;
 use rusqlite::Connection;
@@ -25,6 +24,7 @@ use super::writer::{Writer, test_writer};
 use crate::clock::Clock;
 use crate::engine_context::CALLER;
 use crate::ledger::{Charging, Holder, Ledger, Placement, Probed, SliceId, SliceSizing};
+use crate::run_state::{Charges, DEFERRED_CHARGES};
 use crate::tasks::TaskOwner;
 
 /// What every run of one engine charges against: the user's Usage ledger,
@@ -160,11 +160,8 @@ pub(super) fn reclaimed_beyond(
     if !charged {
         return Ok(None);
     }
-    let (declared, weakened): (i64, String) =
-        connection.query_row("SELECT deferred_charges, weakened FROM run", [], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })?;
-    Ok(match beyond(declared, &weakened) {
+    let declared: String = connection.query_row("SELECT charges FROM run", [], |row| row.get(0))?;
+    Ok(match beyond(&declared) {
         0 => None,
         u64::MAX => Some(OverCharge::WholeSlices),
         bound => Some(OverCharge::UpTo(bound)),
@@ -174,32 +171,23 @@ pub(super) fn reclaimed_beyond(
 /// What a reclaim may have charged of each Slice past a Run's journal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum OverCharge {
-    /// The whole Slice, at a Durability level that syncs no commit.
+    /// The whole Slice, for charges answered before they were synced.
     WholeSlices,
-    /// Up to this much more: the bound the run file declares at `full`.
+    /// Up to this much more: the bound of the charges deferred at `full`.
     UpTo(u64),
 }
 
-/// What a run file whose `deferred_charges` is `declared` and whose
-/// `weakened` listing is `weakened` may have charged of each Slice past its
-/// journal: every Slice whole when its Durability level is weakened, which
-/// syncs no commit, else the bound it declares.
-fn beyond(declared: i64, weakened: &str) -> u64 {
-    let unsynced = serde_json::from_str::<Vec<WeakenedSetting>>(weakened)
-        .map_or(true, |weakened| {
-            weakened.iter().any(|setting| unsynced(&setting.key))
-        });
-    if unsynced {
-        u64::MAX
-    } else {
-        u64::try_from(declared).unwrap_or_default()
+/// What a run file whose `run.charges` is `declared` may have charged of
+/// each Slice past its journal (ADR 0142's note of G-11 Q3): nothing when
+/// each charge was synced as it was answered, [`DEFERRED_CHARGES`] when
+/// they were deferred at `full`, and every Slice whole when they were
+/// answered before they were synced.
+fn beyond(declared: &str) -> u64 {
+    match Charges::stored(declared) {
+        Charges::Synced => 0,
+        Charges::Deferred => DEFERRED_CHARGES,
+        Charges::Unsynced => u64::MAX,
     }
-}
-
-/// Whether a weakened setting named `key` leaves commits unsynced: `off`,
-/// or a `run_state.batch.sync` other than `each` (ADR 0142).
-fn unsynced(key: &str) -> bool {
-    key == RUN_STATE_DURABILITY.name || key == RUN_STATE_BATCH_SYNC.name
 }
 
 /// What a reclaimer finds of the run `holder` names, its state in `file`
@@ -224,9 +212,9 @@ struct Read {
     /// What the run journaled of each Slice under the epoch asked for.
     used: BTreeMap<SliceId, u64>,
     /// What it may have charged of each Slice past that in writes a power
-    /// cut took (ADR 0138's note of #1926): the bound its file declares
-    /// for its deferred claims at `full`, and every Slice whole at a lower
-    /// Durability level, which commits nothing synced.
+    /// cut took (ADR 0138's note of #1926): as its file declares its
+    /// charges reach it, nothing, the bound of its deferred claims at
+    /// `full`, or every Slice whole.
     beyond: u64,
 }
 
@@ -237,12 +225,10 @@ fn read(file: &Path, vfs: Option<&str>, epoch: u64) -> Result<Read, ()> {
         let Some(connection) = open_reader(file, vfs)? else {
             return Ok(None);
         };
-        let (now, declared, weakened): (i64, i64, String) = connection
-            .prepare_cached("SELECT epoch, deferred_charges, weakened FROM run")
-            .and_then(|mut cached| {
-                cached.query_row([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-            })?;
-        let beyond = beyond(declared, &weakened);
+        let (now, declared): (i64, String) = connection
+            .prepare_cached("SELECT epoch, charges FROM run")
+            .and_then(|mut cached| cached.query_row([], |row| Ok((row.get(0)?, row.get(1)?))))?;
+        let beyond = beyond(&declared);
         let mut statement =
             connection.prepare_cached("SELECT slice_id, used FROM usage WHERE epoch = ?1")?;
         let used = statement

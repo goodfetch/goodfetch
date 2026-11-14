@@ -37,8 +37,11 @@
 //!
 //! Its own syncs fold into the commits it acknowledges (#2117): a new
 //! file's opening commits its tables unsynced below `off`, and the first
-//! synced commit covers them; that commit also declares the bound of the
-//! charges its deferred commits may hold ([`DEFERRED_CHARGES`]).
+//! synced commit covers them. The file also declares how the Run's
+//! charges of the Usage ledger reach it ([`Charges`]): each synced before
+//! it is answered, deferred within [`DEFERRED_CHARGES`], or unsynced, in a
+//! Run-state batch or at a `run_state.batch.sync` other than `each`; the
+//! declaration only rises, in the commit of the first write it covers.
 //!
 //! Size: one concern, the run file's writer on its one connection: how it
 //! opens, queues jobs and commits each group, which read side by side.
@@ -118,7 +121,7 @@ const SCHEMA: &[&str] = &[
         progress_message TEXT,
         nothing_done TEXT,
         report TEXT,
-        deferred_charges INTEGER NOT NULL DEFAULT 0
+        charges TEXT NOT NULL DEFAULT 'synced' CHECK (charges IN ('synced', 'deferred', 'unsynced'))
     ) STRICT",
     "CREATE TABLE IF NOT EXISTS tags (position INTEGER NOT NULL PRIMARY KEY, tag TEXT NOT NULL) STRICT",
     // The "unclean" mark of a run file at `off` (ADR 0138): set in a synced
@@ -212,6 +215,44 @@ pub const DEFERRING_PAGE_CACHE_KIB: u32 = 128;
 /// holds. The first deferred write that charges declares it in a synced
 /// commit, and a group that would pass it syncs.
 pub const DEFERRED_CHARGES: u64 = 64;
+
+/// How a run file says the Run's charges of the Usage ledger (ADR 0041)
+/// reach it, which a reclaim after an unclean end reads (ADR 0142's note of
+/// G-11 Q3): `run.charges`. A file declares more only: from `synced` to
+/// `deferred` to `unsynced`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Charges {
+    /// Each synced before it is answered: nothing was declared.
+    Synced,
+    /// Deferred at `full`, at most [`DEFERRED_CHARGES`] of a Slice since
+    /// the last synced commit.
+    Deferred,
+    /// Answered before they were synced, in a Run-state batch or at a
+    /// `run_state.batch.sync` other than `each`: a power cut may take any
+    /// of them.
+    Unsynced,
+}
+
+impl Charges {
+    /// Its value in `run.charges`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Synced => "synced",
+            Self::Deferred => "deferred",
+            Self::Unsynced => "unsynced",
+        }
+    }
+
+    /// The declaration `run.charges` holds as `value`: `unsynced`, the
+    /// most, for a value it never holds.
+    pub fn stored(value: &str) -> Self {
+        match value {
+            "synced" => Self::Synced,
+            "deferred" => Self::Deferred,
+            _ => Self::Unsynced,
+        }
+    }
+}
 
 /// How many bytes of WAL the writer lets grow before it asks its
 /// checkpointer for a `PASSIVE` checkpoint (ADR 0138). Past twice as many
@@ -390,6 +431,17 @@ impl Durability {
         }
     }
 
+    /// How the writer's charges reach the file when they are not each
+    /// synced as they are answered: deferred within [`DEFERRED_CHARGES`]
+    /// when each attempt is a batch synced as it comes, else unsynced.
+    fn charges(self) -> Charges {
+        if self.per_attempt && self.sync == BatchSync::Each {
+            Charges::Deferred
+        } else {
+            Charges::Unsynced
+        }
+    }
+
     /// Whether nothing is synced and a crash discards the file: `sync: off`.
     pub(crate) fn unsynced(self) -> bool {
         self.sync == BatchSync::Off
@@ -436,14 +488,16 @@ pub enum Syncing {
     /// acknowledges: the default.
     #[default]
     Required,
-    /// As `Required`, its group also declaring [`DEFERRED_CHARGES`] at
-    /// `full` when the file does not yet: the start of a Run whose claims
-    /// defer their charges, so that no claim's group syncs to declare it
-    /// (#2117).
+    /// As `Required`, its group also declaring how the Run's charges reach
+    /// the file ([`Charges`]) when the file does not yet: the start of a
+    /// Run whose claims defer their charges, so that no claim's group syncs
+    /// to declare it (#2117).
     Declaring,
     /// Committed without a sync of its own at `full`: a power cut before
     /// the next synced commit may take it, as it may an attempt's claim.
-    /// Without `per_attempt`, answered once it is in the open batch.
+    /// Without `per_attempt`, answered once it is in the open batch, unless
+    /// it charges before the file declares [`Charges::Unsynced`]: then it
+    /// declares it, answered once its batch commits.
     Deferred {
         /// The most it charges of any one Slice of the Usage ledger, which
         /// counts against [`DEFERRED_CHARGES`].
@@ -753,6 +807,8 @@ impl RunState {
             deferral: Deferral {
                 deferring: options.durability.sync == BatchSync::Each,
                 declared,
+                declares: options.durability.charges(),
+                from_start: options.durability.sync != BatchSync::Each,
                 uncovered: 0,
             },
             interval: Interval::of(options),
@@ -1127,7 +1183,7 @@ impl Writer {
         let group: Vec<QueuedWrite> = group.into_iter().map(|queued| queued.write).collect();
         let on = self.connection.for_group(planned.synced);
         let marks = Marks {
-            declare: planned.declare,
+            declare: self.deferral.declaring(planned.declare),
             clean,
         };
         if let Some(declared) =
@@ -1164,12 +1220,18 @@ impl Writer {
 }
 
 /// What the writer knows of the charges its unsynced commits hold, against
-/// [`DEFERRED_CHARGES`].
+/// [`DEFERRED_CHARGES`], and of what the file declares of them.
 struct Deferral {
     /// Whether it defers at all: at `full` only, as `fast` syncs no group.
     deferring: bool,
-    /// Whether the file declares [`DEFERRED_CHARGES`] in a synced commit.
-    declared: bool,
+    /// What the file declares.
+    declared: Charges,
+    /// What the writer declares once a charge may reach the file unsynced.
+    declares: Charges,
+    /// Whether every charge may: at a `run_state.batch.sync` other than
+    /// `each`, where the writer declares with its first commit of the Run's
+    /// row.
+    from_start: bool,
     /// What its commits since the last synced one charged.
     uncovered: u64,
 }
@@ -1179,7 +1241,7 @@ struct Deferral {
 struct Planned {
     /// On the synced connection.
     synced: bool,
-    /// Declaring [`DEFERRED_CHARGES`] in the file as it commits.
+    /// Declaring how the Run's charges reach the file as it commits.
     declare: bool,
     /// What its deferred writes charge.
     charged: u64,
@@ -1212,14 +1274,14 @@ impl Deferral {
         if !self.deferring {
             synced(false)
         } else if required {
-            synced(declaring && !self.declared)
+            synced(declaring && self.owes())
         } else if charged == 0 {
             Planned {
                 synced: false,
                 declare: false,
                 charged,
             }
-        } else if !self.declared {
+        } else if self.owes() {
             synced(true)
         } else if self.uncovered.saturating_add(charged) > DEFERRED_CHARGES {
             synced(false)
@@ -1232,10 +1294,29 @@ impl Deferral {
         }
     }
 
-    /// Notes that a group planned as `planned` committed, the bound
-    /// `declared` in its commit or not.
+    /// Whether the file declares less than the writer would.
+    fn owes(&self) -> bool {
+        self.declared < self.declares
+    }
+
+    /// What a commit declares, its writes asking to (`asked`) or not: what
+    /// the writer declares while the file owes it, at every commit when
+    /// every charge may reach the file unsynced.
+    fn declaring(&self, asked: bool) -> Option<Charges> {
+        ((asked || self.from_start) && self.owes()).then_some(self.declares)
+    }
+
+    /// Notes that a commit declared what [`Self::declaring`] gave, or not.
+    fn declared(&mut self, declared: bool) {
+        if declared {
+            self.declared = self.declared.max(self.declares);
+        }
+    }
+
+    /// Notes that a group planned as `planned` committed, the writer's
+    /// declaration in its commit or not.
     fn committed(&mut self, planned: Planned, declared: bool) {
-        self.declared |= declared;
+        self.declared(declared);
         self.uncovered = if planned.synced {
             0
         } else {
@@ -1330,13 +1411,13 @@ fn idle_timer(
 }
 
 /// Opens the writer's connections on the run file at `path`: its own, the
-/// deferring one at the levels that defer, whether the file declares
-/// [`DEFERRED_CHARGES`], and its checkpointer's. It blocks.
+/// deferring one at the levels that defer, what the file declares of the
+/// Run's charges, and its checkpointer's. It blocks.
 fn open_connections(
     path: &Path,
     options: &RunStateOptions,
     tables: &[RunStateTables],
-) -> Result<(Connection, Option<Connection>, bool, Connection), RunStateError> {
+) -> Result<(Connection, Option<Connection>, Charges, Connection), RunStateError> {
     let connection = open_file(path, options, tables)?;
     // It replaces SQLite's automatic checkpoint, which this connection then
     // never runs (ADR 0138).
@@ -1346,7 +1427,7 @@ fn open_connections(
         .defers()
         .then(|| open_deferring(path, options))
         .transpose()?;
-    let declared = declared_deferral(&connection).map_err(|error| sqlite_error(path, &error))?;
+    let declared = declared_charges(&connection).map_err(|error| sqlite_error(path, &error))?;
     // Opened beside the writer's, before any write: once the writer closed,
     // an open would meet its last close.
     let checkpointing = open_wal_checkpointer(path, options.vfs.as_deref(), options.durability)
@@ -1371,14 +1452,12 @@ fn without_ticks(group: &mut Vec<Queued>) -> bool {
     group.len() != before
 }
 
-/// Whether the file at `connection` declares [`DEFERRED_CHARGES`]: a Run's
-/// earlier run epoch may have.
-fn declared_deferral(connection: &Connection) -> rusqlite::Result<bool> {
-    match connection.query_row("SELECT deferred_charges FROM run", [], |row| {
-        row.get::<_, i64>(0)
-    }) {
-        Ok(declared) => Ok(declared > 0),
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
+/// What the file at `connection` declares of the Run's charges: a Run's
+/// earlier run epoch may have declared them.
+fn declared_charges(connection: &Connection) -> rusqlite::Result<Charges> {
+    match connection.query_row("SELECT charges FROM run", [], |row| row.get::<_, String>(0)) {
+        Ok(declared) => Ok(Charges::stored(&declared)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(Charges::Synced),
         Err(error) => Err(error),
     }
 }
@@ -1656,21 +1735,21 @@ struct Signals {
 /// What a group's commit also writes in the run file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Marks {
-    /// [`DEFERRED_CHARGES`], declared.
-    declare: bool,
+    /// How the Run's charges reach the file, declared.
+    declare: Option<Charges>,
     /// The "unclean" mark, cleared: `off`'s clean stop.
     clean: bool,
 }
 
-/// Commits `group` in one transaction under `epoch`, declaring
-/// [`DEFERRED_CHARGES`] in the file when `marks` say so and clearing its
+/// Commits `group` in one transaction under `epoch`, declaring how the
+/// Run's charges reach the file when `marks` say so and clearing its
 /// "unclean" mark when they say so, counts the commit in
 /// `commits`, then answers each write: all of them with the failure when
 /// the transaction fails or the file holds another epoch, and a full disk or
 /// an I/O error also goes to `failures`. The commit hook counts the commit,
 /// and each other job of its group counts here: a transaction is one job,
 /// whatever group it commits in (ADR 0138's note). Answers, once it
-/// committed, whether it declared the bound.
+/// committed, whether it declared what `marks` say.
 fn commit_group(
     connection: &Connection,
     path: &Path,
@@ -1777,8 +1856,9 @@ fn begin(connection: &Connection, path: &Path, epoch: u64) -> Result<(), RunStat
 }
 
 /// Writes `marks` and the journal's position in the transaction open on
-/// `connection`, then commits it: answers whether it declared
-/// [`DEFERRED_CHARGES`]. A failure rolls the transaction back.
+/// `connection`, then commits it: answers whether it declared how the Run's
+/// charges reach the file, which needs the Run's row. A failure rolls the
+/// transaction back.
 fn finish(connection: &Connection, path: &Path, marks: Marks) -> Result<bool, RunStateError> {
     let mut declared = false;
     let cleared = if marks.clean {
@@ -1787,14 +1867,12 @@ fn finish(connection: &Connection, path: &Path, marks: Marks) -> Result<bool, Ru
         Ok(())
     };
     let written = cleared.and_then(|()| {
-        if marks.declare {
+        if let Some(charges) = marks.declare {
             connection
                 .prepare_cached(
-                    "UPDATE run SET journal_position = journal_position + 1, deferred_charges = ?1",
+                    "UPDATE run SET journal_position = journal_position + 1, charges = ?1",
                 )
-                .and_then(|mut statement| {
-                    statement.execute([i64::try_from(DEFERRED_CHARGES).unwrap_or(i64::MAX)])
-                })
+                .and_then(|mut statement| statement.execute([charges.as_str()]))
                 .map(|changed| declared = changed == 1)
         } else {
             run_cached(

@@ -2053,6 +2053,26 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The bytes the Frontiers of the Daemon's open Runs hold in memory beside their run files, summed over them: each visit a batch not committed yet made, and those committed that memory keeps within `run_state.memory.budget`, at a Durability level that batches attempts (`run_state.batch.per_attempt: false`, ADR 0142).",
+      "instrument": "up_down_counter",
+      "labels": [],
+      "name": "goodfetch.run_state.memory",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "By"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The visited-set lookups a Frontier's memory could not answer and that read the run file, because memory does not hold every visit the file holds: the file held more than `run_state.memory.budget` keeps as the Run opened, or a visit left memory past it since. While memory holds every visit, a lookup reads nothing (ADR 0142).",
+      "instrument": "counter",
+      "labels": [],
+      "name": "goodfetch.run_state.spilled_lookups",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "{lookup}"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The bytes the write-ahead logs of the Daemon's open run files hold, summed over them, each as of its writer's last commit. A run file's log stays under twice its checkpoint threshold (32 MiB) unless a reader holds an old snapshot of it (ADR 0138).",
       "instrument": "up_down_counter",
       "labels": [],

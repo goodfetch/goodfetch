@@ -264,6 +264,31 @@ pub const RUN_STATE_BATCH_ROWS: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
+/// `goodfetch.run_state.memory`: what the Frontiers of the open Runs hold
+/// in memory beside their run files, which Prometheus names
+/// `goodfetch_run_state_memory_bytes`.
+pub const RUN_STATE_MEMORY: Metric = Metric {
+    name: "goodfetch.run_state.memory",
+    description: "The bytes the Frontiers of the Daemon's open Runs hold in memory beside their run files, summed over them: each visit a batch not committed yet made, and those committed that memory keeps within `run_state.memory.budget`, at a Durability level that batches attempts (`run_state.batch.per_attempt: false`, ADR 0142).",
+    instrument: Instrument::UpDownCounter,
+    unit: "By",
+    labels: &[],
+    stability: Stability::Experimental,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `goodfetch.run_state.spilled_lookups`: the visited-set lookups that
+/// read a run file because memory does not hold all of its visits.
+pub const RUN_STATE_SPILLED_LOOKUPS: Metric = Metric {
+    name: "goodfetch.run_state.spilled_lookups",
+    description: "The visited-set lookups a Frontier's memory could not answer and that read the run file, because memory does not hold every visit the file holds: the file held more than `run_state.memory.budget` keeps as the Run opened, or a visit left memory past it since. While memory holds every visit, a lookup reads nothing (ADR 0142).",
+    instrument: Instrument::Counter,
+    unit: "{lookup}",
+    labels: &[],
+    stability: Stability::Experimental,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -284,6 +309,8 @@ pub const ENTRIES: Entries = Entries {
         RUN_STATE_WAL_SIZE,
         RUN_STATE_BLOCKED_CHECKPOINTS,
         RUN_STATE_BATCH_ROWS,
+        RUN_STATE_MEMORY,
+        RUN_STATE_SPILLED_LOOKUPS,
         ENGINE_PANICS,
     ],
     settings: &[ADDRESS, OTLP_METRICS_ENDPOINT],

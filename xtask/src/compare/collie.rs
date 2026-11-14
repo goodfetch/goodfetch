@@ -3,13 +3,12 @@
 //! `portal.test` pages, in six cells (click, form, navigation, Sessions
 //! opened, pages at once, pages opened), each tool carrying out the same
 //! plan through `xtask/compare-collie/act.ts`; beside them the arms,
-//! Puppeteer's two rows and Stagehand with no model, through
-//! `xtask/compare-collie-arms/act.ts` (issues 2443 and 2441), and
-//! chromiumoxide, through the Rust program `xtask/compare-chromiumoxide`
-//! builds (issue 2444), each read against the Collie row the pages it got
-//! right place it at; and the
-//! page-load cell ([`page_load`], issue 2319), in which each tool launches
-//! its own browser.
+//! Puppeteer's two rows, Stagehand with no model and agent-browser's
+//! command line, through `xtask/compare-collie-arms/act.ts` (issues 2443,
+//! 2441 and 2442), and chromiumoxide, through the Rust program
+//! `xtask/compare-chromiumoxide` builds (issue 2444), each read against the
+//! Collie row the pages it got right place it at; and the page-load cell
+//! ([`page_load`], issue 2319), in which each tool launches its own browser.
 //!
 //! In the six cells every tool attaches over CDP to one Chrome for Testing
 //! that xtask launched, which no tool launched: through the counting relay
@@ -18,6 +17,10 @@
 //! browser's own processes are left out of each tool's CPU and memory.
 //! Stagehand's extension runs in the browser's processes, so its CPU and
 //! memory are not Stagehand's, while its CDP commands pass the relay.
+//! agent-browser's commands each start a process that hands the command to
+//! a daemon the first one started; the driver adopts the daemon, so its
+//! CPU and memory are agent-browser's, and the CPU of each command's
+//! process counts once the driver has waited for it.
 //! What that leaves out of the Sessions cell is the browser's launch, which
 //! `just counts` times for Collie at its defaults.
 //!
@@ -368,9 +371,10 @@ impl Tools<'_> {
     pub(crate) fn command(&self, tool: Contender) -> Command {
         match tool {
             Contender::Collie | Contender::Playwright => node(self, &self.driver),
-            Contender::PuppeteerLocator | Contender::PuppeteerPage | Contender::Stagehand => {
-                node(self, &self.arms_driver)
-            }
+            Contender::PuppeteerLocator
+            | Contender::PuppeteerPage
+            | Contender::Stagehand
+            | Contender::AgentBrowser => node(self, &self.arms_driver),
             Contender::Chromiumoxide => without_goodfetch_variables(self, &self.chromiumoxide),
         }
     }
@@ -406,15 +410,33 @@ pub(crate) fn browser_flags(tool: Contender) -> &'static [&'static str] {
         | Contender::Playwright
         | Contender::PuppeteerLocator
         | Contender::PuppeteerPage
+        | Contender::AgentBrowser
         | Contender::Chromiumoxide => &[],
     }
 }
 
 /// Why `tool` runs no trial of `exercise`, when it runs none: Stagehand
-/// opens no Session of its own (issue 2441).
+/// and agent-browser open no Session of their own (issues 2441 and 2442).
 pub(crate) fn skipped(tool: Contender, exercise: Exercise) -> Option<&'static str> {
-    (tool == Contender::Stagehand && exercise == Exercise::Sessions)
-        .then_some("Stagehand drives the browser's one context, so it opens no Session")
+    if exercise != Exercise::Sessions {
+        return None;
+    }
+    match tool {
+        Contender::Stagehand => {
+            Some("Stagehand drives the browser's one context, so it opens no Session")
+        }
+        // Its instances share the default context over `--cdp`; its binary
+        // creates browser contexts but never disposes of one.
+        Contender::AgentBrowser => Some(
+            "agent-browser has no command that closes a context it opened, so it opens no \
+             Session",
+        ),
+        Contender::Collie
+        | Contender::Playwright
+        | Contender::PuppeteerLocator
+        | Contender::PuppeteerPage
+        | Contender::Chromiumoxide => None,
+    }
 }
 
 /// A browser xtask launched, its whole tree stopped when dropped.
@@ -619,6 +641,38 @@ fn without_goodfetch_variables(tools: &Tools<'_>, program: &Path) -> Command {
     command
 }
 
+/// Makes the process `command` starts adopt what its descendants leave
+/// behind, such as the daemon agent-browser's command starts in a session
+/// of its own and leaves when it exits: Linux reparents each to it rather
+/// than to init, so they stay in its tree, in its figures and in
+/// [`trial::kill_tree`]'s reach.
+#[cfg(target_os = "linux")]
+#[expect(
+    unsafe_code,
+    reason = "the child marks itself a subreaper through the OS's C interface, prctl, between \
+              fork and exec"
+)]
+fn adopt_orphans(command: &mut Command) {
+    use std::os::unix::process::CommandExt as _;
+    // SAFETY: the closure runs in the forked child before exec, where only
+    // async-signal-safe calls may run: `prctl` is a system call that sets a
+    // flag on the calling process, which exec keeps, and the closure
+    // allocates nothing and takes no lock.
+    unsafe {
+        command.pre_exec(|| {
+            let on: libc::c_ulong = 1;
+            if libc::prctl(libc::PR_SET_CHILD_SUBREAPER, on) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
+/// Elsewhere a process left behind leaves the tree, as it did.
+#[cfg(not(target_os = "linux"))]
+fn adopt_orphans(_command: &mut Command) {}
+
 /// Runs the driver `command` in `folder`, its process tree followed by a
 /// sampler and by `relay`, and returns what it printed between the marks
 /// it asked `relay` for; or why the comparison stopped it. `subject` names
@@ -689,6 +743,7 @@ pub(crate) fn trial(
     let relay = Relay::start(port)?;
     let relayed = relay.address();
     let mut command = tools.command(tool);
+    adopt_orphans(&mut command);
     command
         .args(["--tool", tool.name(), "--plan"])
         .arg(&plan_file)

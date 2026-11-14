@@ -324,6 +324,7 @@ pub(crate) fn trial(
         Contender::PuppeteerLocator
         | Contender::PuppeteerPage
         | Contender::Stagehand
+        | Contender::AgentBrowser
         | Contender::Chromiumoxide => {
             bail!("the page-load cell has no row of {}", tool.name())
         }
@@ -605,6 +606,7 @@ pub(crate) fn markdown(text: &mut String, section: &LoadSection) {
             | Contender::PuppeteerLocator
             | Contender::PuppeteerPage
             | Contender::Stagehand
+            | Contender::AgentBrowser
             | Contender::Chromiumoxide => "n/a".to_owned(),
         };
         let _ = writeln!(

@@ -70,11 +70,13 @@ pub(crate) const PAGESIFT_VERSION: &str = "1.3.0";
 /// in the latter (unit tests hold each equal).
 pub(crate) const PLAYWRIGHT_VERSION: &str = "1.64.1";
 pub(crate) const SCRAPY_PLAYWRIGHT_VERSION: &str = "0.0.48";
-/// The Collie scenario's arms' pinned versions (issues 2441 and 2443):
-/// `puppeteer-core`'s and `@browserbasehq/stagehand`'s in
-/// `xtask/compare-collie-arms/package.json` (unit tests hold each equal).
+/// The Collie scenario's arms' pinned versions (issues 2441, 2442 and
+/// 2443): `puppeteer-core`'s, `@browserbasehq/stagehand`'s and
+/// `agent-browser`'s in `xtask/compare-collie-arms/package.json` (unit
+/// tests hold each equal).
 pub(crate) const PUPPETEER_VERSION: &str = "25.17.0";
 pub(crate) const STAGEHAND_VERSION: &str = "4.4.0";
+pub(crate) const AGENT_BROWSER_VERSION: &str = "0.43.0";
 /// chromiumoxide's pinned version, the exact one
 /// `xtask/compare-chromiumoxide/Cargo.toml` holds it to (issue 2444; a unit
 /// test holds them equal).
@@ -445,9 +447,9 @@ pub(crate) enum Exercise {
 }
 
 /// A tool of the Collie scenario, which its driver runs: Collie's and
-/// Playwright's `xtask/compare-collie/act.ts`, Puppeteer's and Stagehand's
-/// `xtask/compare-collie-arms/act.ts`, chromiumoxide's the program
-/// `xtask/compare-chromiumoxide` builds.
+/// Playwright's `xtask/compare-collie/act.ts`, Puppeteer's, Stagehand's and
+/// agent-browser's `xtask/compare-collie-arms/act.ts`, chromiumoxide's the
+/// program `xtask/compare-chromiumoxide` builds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Contender {
@@ -463,26 +465,31 @@ pub(crate) enum Contender {
     /// Stagehand's locators with no model, whose click neither waits nor
     /// checks (issue 2441).
     Stagehand,
+    /// agent-browser's command line, whose click checks its target once
+    /// and does not wait (issue 2442).
+    AgentBrowser,
     /// chromiumoxide, a Rust library, whose click neither waits nor checks
     /// (issue 2444).
     Chromiumoxide,
 }
 
 impl Contender {
-    pub(crate) const ALL: [Self; 6] = [
+    pub(crate) const ALL: [Self; 7] = [
         Self::Collie,
         Self::Playwright,
         Self::PuppeteerLocator,
         Self::PuppeteerPage,
         Self::Stagehand,
+        Self::AgentBrowser,
         Self::Chromiumoxide,
     ];
     /// The scenario's arms, each read against the Collie row the pages it
-    /// got right place it at (issues 2441, 2443 and 2444).
-    pub(crate) const ARMS: [Self; 4] = [
+    /// got right place it at (issues 2441, 2442, 2443 and 2444).
+    pub(crate) const ARMS: [Self; 5] = [
         Self::PuppeteerLocator,
         Self::PuppeteerPage,
         Self::Stagehand,
+        Self::AgentBrowser,
         Self::Chromiumoxide,
     ];
 
@@ -493,6 +500,7 @@ impl Contender {
             Self::PuppeteerLocator => "puppeteer_locator",
             Self::PuppeteerPage => "puppeteer_page",
             Self::Stagehand => "stagehand",
+            Self::AgentBrowser => "agent_browser",
             Self::Chromiumoxide => "chromiumoxide",
         }
     }

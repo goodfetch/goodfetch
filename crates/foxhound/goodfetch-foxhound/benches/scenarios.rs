@@ -176,8 +176,10 @@ const MOVED: &str = "/moved";
 /// Where [`MOVED`] leads first, and which leads to [`MOVED_TO`], on a site
 /// whose chain takes a second hop.
 const MOVED_ON: &str = "/moved-on";
-/// Where [`MOVED`] leads.
-const MOVED_TO: &str = "/moved-to";
+/// Where [`MOVED`] leads: its own URL with a trailing slash, so its one
+/// hop teaches the Frontier an equivalent form (ADR 0120), work every
+/// redirect a crawl follows between two forms does.
+const MOVED_TO: &str = "/moved/";
 /// The sitemap seed, whose one entry is [`FROM_SITEMAP`].
 const SITEMAP: &str = "/sitemap.xml";
 /// The sitemap's entry.

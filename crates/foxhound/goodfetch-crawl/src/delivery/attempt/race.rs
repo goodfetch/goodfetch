@@ -83,7 +83,12 @@ impl On<'_> {
             );
         }
         let document = Box::pin(async {
-            let (served, facts) = self.document(tiering, &fetching, &RACED, hand_over).await?;
+            // A raced chain a hop ends `skipped` teaches nothing: the
+            // navigation may still serve the request.
+            let (served, facts) = self
+                .document(tiering, &fetching, &RACED, hand_over)
+                .await
+                .map_err(|unserved| unserved.answer)?;
             let latency = run.clock().now().duration_since(started);
             // Browser-fetch's page is checked as a run on `http` checks
             // its own. A document only a guess could read never wins: the

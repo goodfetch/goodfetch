@@ -25,6 +25,8 @@ pub(crate) enum Step {
     Perf,
     Linux,
     Visual,
+    Tlc,
+    Miri,
     Lint,
     FeatureCombinations,
     FuzzCheck,
@@ -34,10 +36,8 @@ pub(crate) enum Step {
     Stress,
     JourneysTasks,
     FeaturesTests,
-    Tlc,
     Kennel,
     Msrv,
-    Miri,
 }
 
 /// What a step's result depends on, besides the gate's own inputs.
@@ -72,6 +72,8 @@ impl Step {
         Self::Perf,
         Self::Linux,
         Self::Visual,
+        Self::Tlc,
+        Self::Miri,
         Self::Lint,
         Self::FeatureCombinations,
         Self::FuzzCheck,
@@ -81,10 +83,8 @@ impl Step {
         Self::Stress,
         Self::JourneysTasks,
         Self::FeaturesTests,
-        Self::Tlc,
         Self::Kennel,
         Self::Msrv,
-        Self::Miri,
     ];
 
     /// The step's name in the plan, the record and `ci/pre-merge.sh`.
@@ -158,10 +158,22 @@ impl Step {
         self.reads_the_commits() || matches!(self, Self::Audit | Self::Notices)
     }
 
-    /// Whether the step needs Linux and runs beside the host's, in a
-    /// container of its own.
+    /// Whether the step runs beside the host's: those that need Linux, in
+    /// a container of their own where the host is not Linux, and TLC and
+    /// Miri (#2090's F7). Each builds and writes in folders of its own
+    /// (`target/tlc/`, `target/miri/`), and its verdict follows from the
+    /// tree and its pinned tools, whatever runs beside it; what it shares
+    /// with the host's steps, it only reads or waits for (ADR 0135's note
+    /// of 2026-11-13). The Kennel's
+    /// check stays on the host, after the suites: it builds the test tools
+    /// into the build folder the suites' own are in, with the features of
+    /// its own build (`kennel/scripts/check.sh`), so beside them each could
+    /// replace an executable under the other's tests.
     pub(crate) const fn beside(self) -> bool {
-        matches!(self, Self::Perf | Self::Linux | Self::Visual)
+        matches!(
+            self,
+            Self::Perf | Self::Linux | Self::Visual | Self::Tlc | Self::Miri
+        )
     }
 
     /// Whether the step runs each member's tests separately.

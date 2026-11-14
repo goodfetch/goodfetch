@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rstest::rstest;
 
-use super::host::step_variables;
+use super::host::{REMOVED_BY_THE_GATE, step_variables};
 use super::plan::{
     Action, EarnedPasses, GateRun, Head, LintReads, MAX_AGE, Outcome, Planned, Step, Touched,
     UNOWNED, gate_input, narrowed, plan, unit,
@@ -184,6 +184,36 @@ fn a_variable_whose_name_only_starts_as_the_launchers_stays() {
     let launched = "GOODFETCH_GATE_MIN_FREE_GB_PER_STEP=2\nNEXTEST_DOUBLE_SPAWN=0";
 
     assert_eq!(step_variables(launched), launched);
+}
+
+#[test]
+fn a_variable_the_gate_removes_before_its_steps_is_not_one_of_the_steps() {
+    let launched = "CARGO_BUILD_JOBS=4\nCARGO_INCREMENTAL=0\nNEXTEST_TEST_THREADS=4";
+
+    assert_eq!(step_variables(launched), "CARGO_INCREMENTAL=0");
+}
+
+/// The fingerprint may leave a variable out as removed only while
+/// `ci/pre-merge.sh` does remove it before its steps: one the script kept
+/// would reach them, and a result under another value of it would be reused.
+/// Read from the repository's own script, whose loop names those it removes.
+#[test]
+fn every_variable_the_fingerprint_leaves_out_as_removed_is_one_the_gate_removes() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask sits in the repository");
+    let script = std::fs::read_to_string(root.join("ci/pre-merge.sh")).expect("the repository's");
+    let removed: Vec<&str> = script
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("for variable in "))
+        .filter_map(|rest| rest.strip_suffix("; do"))
+        .filter(|names| !names.contains("GOODFETCH_"))
+        .flat_map(str::split_whitespace)
+        .collect();
+
+    for variable in REMOVED_BY_THE_GATE {
+        assert!(removed.contains(&variable), "{variable}: {removed:?}");
+    }
 }
 
 #[test]
@@ -1077,6 +1107,8 @@ const FULL_STEPS: [&str; 22] = [
     "perf",
     "linux",
     "visual",
+    "tlc",
+    "miri",
     "lint",
     "feature-combinations",
     "fuzz-check",
@@ -1086,10 +1118,8 @@ const FULL_STEPS: [&str; 22] = [
     "stress",
     "journeys-tasks",
     "features-tests",
-    "tlc",
     "kennel",
     "msrv",
-    "miri",
 ];
 
 /// The steps that judge the whole change in seconds.
@@ -1102,8 +1132,9 @@ const WHOLE_CHANGE_STEPS: [&str; 6] = [
     "notices",
 ];
 
-/// The steps that run beside the host's, in a container of their own.
-const BESIDE_STEPS: [&str; 3] = ["perf", "linux", "visual"];
+/// The steps that run beside the host's: each builds and writes in folders
+/// no host step reads, and its verdict is the one it gives after them.
+const BESIDE_STEPS: [&str; 5] = ["perf", "linux", "visual", "tlc", "miri"];
 
 /// The quick form's steps, in order: those that judge every change, never a
 /// test of the Pre-merge suite or a step beside the host's.
@@ -1154,6 +1185,31 @@ fn the_whole_changes_checks_end_the_full_gate_before_any_step_beside(#[case] for
         .min();
 
     assert!(last_check < first_beside, "{last_check:?} {first_beside:?}");
+}
+
+/// A step beside the host's that started after lint, the first of the
+/// host's steps that takes minutes, would wait behind it: each starts
+/// before it, after the checks of the whole change.
+#[rstest]
+#[case::all(Form::All)]
+#[case::changed(Form::Changed)]
+fn the_steps_beside_are_these_and_start_before_lint(#[case] form: Form) {
+    let list = entries(form);
+    let beside: Vec<&str> = list
+        .iter()
+        .filter(|entry| entry.kind == Kind::Beside)
+        .map(|entry| entry.name)
+        .collect();
+    let last_beside = BESIDE_STEPS
+        .map(|step| position(form, step))
+        .into_iter()
+        .max();
+
+    assert_eq!(beside, BESIDE_STEPS);
+    assert!(
+        last_beside < Some(position(form, "lint")),
+        "{last_beside:?}"
+    );
 }
 
 #[test]

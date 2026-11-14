@@ -10771,6 +10771,7 @@
             "file_opens",
             "fill_commands",
             "formatting_off",
+            "handler_analysis_handoffs",
             "host_cache_bytes",
             "host_cache_entries",
             "in_flight_serializations",

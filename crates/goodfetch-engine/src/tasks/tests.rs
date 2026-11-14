@@ -256,9 +256,10 @@ fn an_analysis_runs_inline_under_the_inline_policy() {
 }
 
 /// Each analysis is one hand-off to the analysis pool, counted on the
-/// Counted work it is given (`F1.analysis_handoffs`) under either policy:
-/// under the Inline one its work runs in place, and the hand-off is still
-/// the page's.
+/// Counted work it is given under either policy, a page's own on
+/// `F1.analysis_handoffs` and a handler's read apart, on
+/// `F1.analysis_handoffs.handler`: under the Inline one its work runs in
+/// place, and the hand-off is still counted.
 #[rstest]
 #[case::inline(BlockingPolicy::Inline)]
 #[case::threads(BlockingPolicy::Threads)]
@@ -269,10 +270,12 @@ fn each_analysis_counts_one_handoff(#[case] policy: BlockingPolicy) {
         let owner = TaskOwner::root(policy);
         owner.analysis(&work, || ()).await;
         owner.analysis(&work, || ()).await;
+        owner.handler_analysis(&work, || ()).await;
         owner.stop().await;
     });
 
     assert_eq!(work.read(Row::PageAnalysisHandoffs), 2);
+    assert_eq!(work.read(Row::HandlerAnalysisHandoffs), 1);
 }
 
 /// How long an Inline test waits, on the paused clock, for what an owner

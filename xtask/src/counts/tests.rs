@@ -8,15 +8,16 @@ use super::{NOT_RUN_YET, ROWS};
 
 /// The rows whose figure a benchmark reads outside Counted work: Callgrind's
 /// call counts of SQLite's prepare and of `CountedWork`'s constructor, its
-/// instructions beneath the clean-up's removal and beneath a selector's
-/// compilation, a counting VFS's syncs, E6's sum over its off cell, and the
-/// page waits at `full`, which `F2.page_waits`' counter counts in the cells
-/// at that level.
-const READ_ELSEWHERE: [&str; 12] = [
+/// instructions beneath the clean-up's removal, beneath a selector's
+/// compilation and beneath the generic set's build, a counting VFS's syncs,
+/// E6's sum over its off cell, and the page waits at `full`, which
+/// `F2.page_waits`' counter counts in the cells at that level.
+const READ_ELSEWHERE: [&str; 13] = [
     "E2.prepares",
     "E3.prepares",
     "E6.off_work",
     "F1.clean_up_instructions",
+    "F1.generic_set_instructions",
     "F1.selector_compilation_instructions",
     "F2.page_waits.full",
     "F2.prepares",

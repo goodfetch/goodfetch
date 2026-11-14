@@ -267,17 +267,33 @@ pub(crate) struct Followed<T> {
     pub(crate) redirects: Vec<Redirected>,
 }
 
-/// What a hop's document is read into on the CPU pool, when the chain reads
-/// its markup for a refresh directive: its refresh directive first, then,
-/// on the document the chain ends on, whatever else its reader reads of
-/// it, on the same tree (ADR 0138).
+/// What a hop's document is read into when the chain reads its markup for
+/// a refresh directive: decoded on the chain's task, then read, on the CPU
+/// pool when the read needs it: its refresh directive first, then, on the
+/// document the chain ends on, whatever else its reader reads of it, on
+/// the same tree (ADR 0138; issue 2189).
 pub(crate) trait Reading: Send + Sync + 'static {
     /// What it reads of the document the chain ends on.
     type Read: Send + 'static;
 
-    /// Reads `fetched`'s document, an HTML one by its type: its refresh
-    /// directive, which ends the read when `follows` follows it.
-    fn read(&self, fetched: Fetched, follows: &dyn Fn(&Refresh) -> bool) -> HopRead<Self::Read>;
+    /// A hop's document, decoded for its read.
+    type Decoded: Send + 'static;
+
+    /// Decodes `fetched`'s document, an HTML one by its type, on the
+    /// chain's task: work that takes no hand-off to the CPU pool.
+    fn decode(&self, fetched: Fetched) -> Self::Decoded;
+
+    /// Whether the read of `decoded` runs on the CPU pool, as one that
+    /// parses or reads a tree does.
+    fn on_pool(&self, decoded: &Self::Decoded) -> bool;
+
+    /// Reads `decoded`: its refresh directive, which ends the read when
+    /// `follows` follows it.
+    fn read(
+        &self,
+        decoded: Self::Decoded,
+        follows: &dyn Fn(&Refresh) -> bool,
+    ) -> HopRead<Self::Read>;
 
     /// The Counted work its reads count on, and each read's hand-off to
     /// the CPU pool with them.
@@ -298,6 +314,16 @@ struct MarkupRefresh(CountedWork);
 
 impl Reading for MarkupRefresh {
     type Read = ();
+    type Decoded = Fetched;
+
+    fn decode(&self, fetched: Fetched) -> Fetched {
+        fetched
+    }
+
+    /// Its read parses the body.
+    fn on_pool(&self, _: &Fetched) -> bool {
+        true
+    }
 
     fn read(&self, fetched: Fetched, follows: &dyn Fn(&Refresh) -> bool) -> HopRead<()> {
         match refresh::in_markup(&fetched.url, &fetched.body, &self.0) {
@@ -427,9 +453,10 @@ enum Step<T> {
 
 /// The hop `fetched`, the answer of `hop`, leads to: a redirect's, or,
 /// while `following` follows refresh stubs, an HTTP(S) refresh stub's
-/// within `fetch.refresh.max_delay`, its markup read by `reading` on
-/// `owner`'s blocking pool; [`Step::End`] when it is the chain's document.
-/// The read takes the pass `fetched` holds, which only it reads.
+/// within `fetch.refresh.max_delay`, its markup decoded by `reading` on
+/// the chain's task, then read on `owner`'s blocking pool when the read
+/// needs it; [`Step::End`] when it is the chain's document. The read takes
+/// the pass `fetched` holds, which only it reads.
 async fn next_hop<R: Reading>(
     hop: &Hop,
     fetched: &mut Fetched,
@@ -469,13 +496,18 @@ async fn next_hop<R: Reading>(
                 pass,
                 ..fetched.clone()
             };
-            let reading = Arc::clone(reading);
-            let read = owner
-                .analysis(counted, move || {
-                    let at = read.url.clone();
-                    reading.read(read, &|refresh| follows(refresh, max_delay, &at))
-                })
-                .await;
+            let at = read.url.clone();
+            let decoded = reading.decode(read);
+            let read = if reading.on_pool(&decoded) {
+                let reading = Arc::clone(reading);
+                owner
+                    .analysis(counted, move || {
+                        reading.read(decoded, &|refresh| follows(refresh, max_delay, &at))
+                    })
+                    .await
+            } else {
+                reading.read(decoded, &|refresh| follows(refresh, max_delay, &at))
+            };
             match read {
                 HopRead::Refresh(refresh) => refresh,
                 HopRead::Document(read) => return Ok(Step::End(Some(read))),

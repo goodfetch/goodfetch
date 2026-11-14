@@ -487,8 +487,10 @@ fn learning_off() -> Cell {
 /// each against the default cell: the Provenance log, whose Run trace then
 /// holds no entry; the Records, none of which is then validated, serialized
 /// or committed, nor its fields read; and the Block classification, which
-/// then reads no document (#1921).
-fn switched_off() -> [Cell; 3] {
+/// then reads no document (#1921); and the Block classification with
+/// `frontier.learning` off, scenario 1's combination, whose pages no reader
+/// needs a tree of and which then hands none to the analysis pool (#2189).
+fn switched_off() -> [Cell; 4] {
     [
         Cell {
             name: "provenance_off",
@@ -517,6 +519,23 @@ fn switched_off() -> [Cell; 3] {
             })),
             frontier: FRONTIER,
             removes: &[Row::PageBlockClassifications],
+            removes_syncs: false,
+            handler: false,
+            limit: false,
+        },
+        Cell {
+            name: "learning_and_block_classification_off",
+            settings: scoped(json!({
+                "frontier": { "learning": false },
+                "fetch": { "tier": "http", "block_classification": false },
+            })),
+            frontier: FRONTIER,
+            removes: &[
+                Row::PageParses,
+                Row::PageReadabilityRuns,
+                Row::PageBlockClassifications,
+                Row::PageAnalysisHandoffs,
+            ],
             removes_syncs: false,
             handler: false,
             limit: false,
@@ -783,6 +802,7 @@ fn crawl(cell: &Cell, planted: Option<&str>, bypassed: Option<&str>, pages: Page
             limit: cell.limit.then_some(LIMIT),
             robots_txt: true,
             setup_vfs: Some(setup.name().to_owned()),
+            formats: Map::new(),
             after_start: if BARRIER_CELLS.contains(&cell.name) {
                 AfterStart::BarrierCalls
             } else {

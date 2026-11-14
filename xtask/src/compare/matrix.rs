@@ -642,7 +642,9 @@ pub(crate) const CELLS: [Cell; 77] = [
                   maximum) and its sitemap not read (`sitemap: skip`); `maxConcurrency: 16`, its \
                   limiter starting at 16 in flight and capped there (`global_concurrency`, \
                   `global_ceiling`), its controller moving under the cap; `politeness` off, its \
-                  administrator's switch, so no interval and no cap per site; robots.txt not obeyed \
+                  administrator's switch, so no interval between a site's requests, and \
+                  `per_host_concurrency` 16 where its default is 2, the pages its crawl holds \
+                  in flight on a site with `politeness` off too; robots.txt not obeyed \
                   (`ignoreRobotsTxt`, `respect_robots: false`); nothing kept on disk; on its own \
                   allocator (`SmallCache`, tuned at start as its executable does)",
         pending: &[],
@@ -902,7 +904,10 @@ pub(crate) const CELLS: [Cell; 77] = [
                   robots.txt fetched outside that interval, just before the first, and \
                   `per_host_concurrency` 1 where its default is 2; 16 in flight in all \
                   (`maxConcurrency`, `global_ceiling`); every link followed (`allowExternalLinks`), \
-                  since the site spans 1,000 domains and links nothing else; nothing kept on disk",
+                  since the site spans 1,000 domains and links nothing else; nothing kept on \
+                  disk. Its frontier ranks a domain's pages after its first four as repeats of one \
+                  template, since the site's pages differ only in their numbers, and takes those \
+                  last, from one queue for every domain, whose head waits for its domain's interval",
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Pagesift),
@@ -1281,8 +1286,8 @@ pub(crate) const CELLS: [Cell; 77] = [
         scenario: Scenario::Raw64,
         tool: Tool::Pagesift,
         name: "pagesift",
-        mapping: "scenario 1's crawl with `maxConcurrency: 64`, its limiter starting at 64 in \
-                  flight and capped there",
+        mapping: "scenario 1's crawl with `maxConcurrency: 64` and `per_host_concurrency` 64, \
+                  its limiter starting at 64 in flight and capped there",
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Pagesift),
@@ -1350,8 +1355,8 @@ pub(crate) const CELLS: [Cell; 77] = [
         scenario: Scenario::Raw256,
         tool: Tool::Pagesift,
         name: "pagesift",
-        mapping: "scenario 1's crawl with `maxConcurrency: 256`, its limiter starting at 256 in \
-                  flight and capped there",
+        mapping: "scenario 1's crawl with `maxConcurrency: 256` and `per_host_concurrency` 256, \
+                  its limiter starting at 256 in flight and capped there",
         pending: &[],
         row: Row::Main,
         status: Status::Measured(Config::Pagesift),

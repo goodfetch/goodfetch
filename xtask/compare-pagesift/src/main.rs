@@ -11,8 +11,11 @@
 //! loopback address. `--scenario` names the matrix's scenario:
 //!
 //! - `raw`: nothing kept on disk, robots.txt not obeyed, no per-site pacing
-//!   (`politeness` off, its administrator's switch), each page's links its
-//!   only format, links followed on the same host (`crawlEntireDomain`);
+//!   (`politeness` off, its administrator's switch) and `--concurrency`
+//!   pages in flight on the site (`per_host_concurrency`, 2 by default,
+//!   which its crawl holds a site to with `politeness` off too), each
+//!   page's links its only format, links followed on the same host
+//!   (`crawlEntireDomain`);
 //! - `durable`: `raw` run as a job of its HTTP API, in process, whose store
 //!   under `./store` keeps the job, its frontier and its pages: the process
 //!   the comparison starts again after a kill opens the store, which resumes
@@ -22,7 +25,11 @@
 //!   default 1 s interval, with `per_host_concurrency` 1 where its default
 //!   is 2; it fetches a site's robots.txt outside that interval), every
 //!   link followed (`allowExternalLinks`), since the multi-domain site
-//!   spans many hosts and links nothing else;
+//!   spans many hosts and links nothing else. Its frontier ranks a site's
+//!   pages after its first four as repeats of one template, since the
+//!   Proving ground's pages differ only in their numbers, and takes those
+//!   last, from one queue for every site, whose head waits for its site's
+//!   interval;
 //! - `extraction`: `raw` with each page's main content as Markdown (its
 //!   `onlyMainContent`, the default), its URL, title and Markdown written
 //!   to `./pages.jsonl`;
@@ -199,6 +206,10 @@ fn settings(arguments: &Arguments) -> Result<(String, ScraperConfig), String> {
         rate.per_host_concurrency = 1;
     } else {
         rate.politeness = false;
+        // Its crawl holds a site to this many pages in flight, 2 by
+        // default, with `politeness` off too: the scenario's count on the
+        // one site.
+        rate.per_host_concurrency = arguments.concurrency;
         config.policy.respect_robots = false;
     }
     if let Some(browser) = &arguments.browser {

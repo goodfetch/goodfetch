@@ -136,7 +136,8 @@ struct Row {
     /// The family that counts it. A row the register puts on two
     /// families is counted on the one its entry names (`E5.file_opens`, on
     /// B1), or has an entry for each, which holds each family's count to
-    /// that family's own figure (`F1.analysis_handoffs`, on B1 and B4).
+    /// that family's own figure (`F1.analysis_handoffs` and `F1.parses`, on
+    /// B1 and B4).
     family: &'static str,
     /// The key of the units of the outcome that does the work, in its
     /// benchmark's line.
@@ -185,7 +186,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 111] = [
+const ROWS: [Row; 113] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -258,6 +259,12 @@ const ROWS: [Row; 111] = [
     },
     b1("F1.analysis_handoffs", "pages", true),
     b4("F1.analysis_handoffs", "pages", true),
+    // A handler's own reads of its page's tree, counted apart from the
+    // page's hand-off (#2189): B1's default cell runs no handler.
+    b1("F1.analysis_handoffs.handler", "pages", false),
+    // A code-free crawl that asks for a format reads it in its page's one
+    // hand-off, on a copy of the tree its untouched readers parsed (#2189).
+    b4("F1.parses", "pages", true),
     b4("F1.rule_list_builds", "pages", true),
     b4("F1.rule_tests", "pages", true),
     // Read as each cell's crawl ended.

@@ -55,7 +55,7 @@ use goodfetch_page::blocks::Block;
 use goodfetch_page::document_request::{DocumentRequest, Unread};
 use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, KeptFrom, KeptTree, Observer, PageValue, PooledSession,
-    ProgramPages, Reader, ServedDocument,
+    ProgramPages, Reader, ServedDocument, ServedFormatsAhead,
 };
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Setting;
@@ -283,6 +283,10 @@ struct ServedPage {
     /// own document, while the page holds it; nothing once a navigation
     /// replaced it.
     untouched: Arc<untouched::Read>,
+    /// The Block cause its document's hand-off to the CPU pool classified
+    /// (issue 2189); not classified once a navigation replaced the
+    /// document.
+    classified: Classified,
     /// The response of its crawl request's own document and its body,
     /// stored in the Run's folder only once `response.body` asks for it.
     own: Option<(PageResponse, Bytes)>,
@@ -359,6 +363,50 @@ struct Opened {
     /// What the readers of the untouched page read of a crawl request's
     /// own document; nothing of a handler's own navigation's.
     untouched: Arc<untouched::Read>,
+    /// The Block cause its hand-off to the CPU pool classified.
+    classified: Classified,
+}
+
+/// What a served document's hand-off to the CPU pool read of its Block
+/// cause (issue 2189).
+#[derive(Clone, Copy, Debug)]
+enum Classified {
+    /// The hand-off did not classify it: Block classification reads it in a
+    /// hand-off of its own when asked.
+    NotRead,
+    /// The hand-off classified it: its Block cause, none for a document no
+    /// rule classifies.
+    Read(Option<Block>),
+}
+
+/// What a crawl request's own document's one hand-off to the CPU pool
+/// reads beside its untouched readers (issue 2189): its formats, ahead of
+/// the code-free crawl's `page.formats`, and its Block cause. Neither
+/// takes a hand-off of its own when the document has one.
+#[derive(Clone, Default)]
+struct ReadAhead {
+    /// The reader of the formats a code-free crawl reads of each page.
+    formats: Option<Arc<dyn ServedFormatsAhead>>,
+    /// The Block classification of the engine's pages, under
+    /// `fetch.block_classification`.
+    blocks: Option<Arc<dyn BrowserPages>>,
+}
+
+/// A document a fetch answered, decoded, and read by the readers of its
+/// untouched page in one streaming pass when they can, on the page's own
+/// task (issue 2189): what its hand-off to the CPU pool, when it takes
+/// one, reads on.
+struct Decoding {
+    /// The response's type when it is no HTML or XHTML document.
+    not_document: Option<String>,
+    encoding: &'static Encoding,
+    read: Option<Read>,
+    /// Its text: empty for a response holding no document; a UTF-8 body
+    /// read in place, the bytes the fetch kept (issue 2187).
+    html: ByteString,
+    /// What the readers of its untouched page read of it in one streaming
+    /// pass; none when they read its tree.
+    streamed: Option<untouched::StreamRead>,
 }
 
 /// A document a fetch answered, decoded and parsed once, before the
@@ -383,19 +431,15 @@ enum Untouched {
     Streamed(untouched::StreamRead),
 }
 
-impl Decoded {
+impl Decoding {
     /// The document `fetched` answered for `run`, decoded in the encoding
     /// ADR 0119's order finds, `forced` being `fetch.encoding`'s: a
     /// response with no `Content-Type` is typed as Chromium's MIME sniffer
     /// types it, and one of a type that is no HTML or XHTML holds no
-    /// document. `readers` read it in one streaming pass when they can,
-    /// else on its tree: `passed`, the pass the fetch read its text in as
-    /// it arrived, when that text is the one read here and `readers` read
-    /// it (issue 2188), else a pass over the whole text.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "ADR 0138: a fetched document's one parse, for its untouched readers, when their streaming pass cannot vouch for it"
-    )]
+    /// document. `readers` read it in one streaming pass when they can:
+    /// `passed`, the pass the fetch read its text in as it arrived, when
+    /// that text is the one read here and `readers` read it (issue 2188),
+    /// else a pass over the whole text.
     fn of(
         run: &Run,
         fetched: &crate::driver::Fetched,
@@ -435,6 +479,36 @@ impl Decoded {
             read.encoding
         });
         let streamed = passed.map_or_else(|| readers.stream(&html), Passed::read);
+        Self {
+            not_document,
+            encoding,
+            read,
+            html,
+            streamed,
+        }
+    }
+
+    /// Whether reading it further needs the CPU pool, its one hand-off
+    /// (issue 2189): its readers need its tree, or `ahead` reads its
+    /// formats, which a document only a guess could read never has.
+    fn on_pool(&self, ahead: &ReadAhead) -> bool {
+        self.streamed.is_none()
+            || (ahead.formats.is_some() && self.not_document.is_none() && self.read.is_some())
+    }
+
+    /// It, parsed once when its streaming pass did not read it.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ADR 0138: a fetched document's one parse, for its untouched readers, when their streaming pass cannot vouch for it"
+    )]
+    fn parsed(self, run: &Run) -> Decoded {
+        let Self {
+            not_document,
+            encoding,
+            read,
+            html,
+            streamed,
+        } = self;
         let untouched = match streamed {
             Some(streamed) => Untouched::Streamed(streamed),
             None => Untouched::Tree(
@@ -443,7 +517,7 @@ impl Decoded {
                     .parse_html(Row::PageParses, &html),
             ),
         };
-        Self {
+        Decoded {
             not_document,
             encoding,
             read,
@@ -451,7 +525,9 @@ impl Decoded {
             untouched,
         }
     }
+}
 
+impl Decoded {
     /// The refresh directive the markup of the HTML hop `fetched` holds,
     /// read on its tree with `readers`: a body whose type sniffs as no
     /// document is read whole for it, as the chain reads every HTML hop.
@@ -473,13 +549,15 @@ impl Decoded {
     /// The served page's read of this document, which `fetched` answered
     /// for `run`, its formats read with `extractor`, its Label's
     /// `content.extractor`: its `<base>` and AI-use signals, then, for a
-    /// crawl request's `own` document, what `readers` read of it, its
-    /// Page signature last, which consumes the tree.
+    /// crawl request's `own` document, what `ahead` reads of it on the
+    /// CPU pool, its formats on a copy of its tree, and what `readers`
+    /// read of it, its Page signature last, which consumes the tree.
     fn opened(
         self,
         run: &Run,
         fetched: &crate::driver::Fetched,
         (extractor, readers, own): (Option<BuiltIn>, &UntouchedReaders, bool),
+        ahead: Option<&ReadAhead>,
     ) -> Opened {
         let Self {
             not_document,
@@ -497,9 +575,18 @@ impl Decoded {
             .map_or_else(|| url.clone(), |base| base.to_string());
         let signals = UseSignals::of(&fetched.headers);
         let work = run.metrics().counted_work();
-        let (use_signals, untouched, kept) = match untouched {
+        // What the hand-off reads ahead, of a crawl request's own document.
+        let ahead = ahead.filter(|_| own && not_document.is_none());
+        let formats_of = |tree: Option<&goodfetch_counted_work::ParsedHtml>| {
+            let reader = ahead?.formats.as_ref().filter(|_| read.is_some())?;
+            Some(reader.read((&html, &url, &base_url), tree, work))
+        };
+        let (use_signals, untouched, kept, formats) = match untouched {
             Untouched::Tree(tree) => {
                 let use_signals = readers.use_signals(signals, (&html, &tree), &fetched.url);
+                // The formats read a copy of the tree, before the Page
+                // signature takes it as served.
+                let formats = formats_of(Some(&tree));
                 let (untouched, kept) = if own {
                     let signed = |tree| {
                         goodfetch_extractor::page_signature_of(
@@ -518,7 +605,7 @@ impl Decoded {
                 } else {
                     (untouched::Read::default(), Some(tree))
                 };
-                (use_signals, untouched, kept.map(KeptFrom::Tree))
+                (use_signals, untouched, kept.map(KeptFrom::Tree), formats)
             }
             Untouched::Streamed(streamed) => (
                 UntouchedReaders::streamed_use_signals(signals, &fetched.url),
@@ -528,8 +615,22 @@ impl Decoded {
                     untouched::Read::default()
                 },
                 None,
+                formats_of(None),
             ),
         };
+        let classified =
+            ahead
+                .and_then(|ahead| ahead.blocks.as_ref())
+                .map_or(Classified::NotRead, |pages| {
+                    work.count(Row::PageBlockClassifications);
+                    let response = calls::page_response(
+                        &fetched.url,
+                        fetched.status,
+                        fetched.headers.clone(),
+                        String::new(),
+                    );
+                    Classified::Read(pages.classify(&response, &html))
+                });
         // A handler's reads keep the page's untouched tree, or its HTML,
         // which the first read that needs a tree parses (ADR 0138).
         let tree = (readers.keeps() && not_document.is_none())
@@ -548,6 +649,7 @@ impl Decoded {
                 html,
                 extractor,
                 tree,
+                formats,
             }),
             not_document,
             encoding,
@@ -555,49 +657,73 @@ impl Decoded {
             links,
             use_signals,
             untouched: Arc::new(untouched),
+            classified,
         }
     }
 }
 
 impl Opened {
-    /// The document `fetched` answered for `run`, as [`Decoded::of`] reads
-    /// it with `forced` and the pass it holds, and [`Decoded::opened`] with
-    /// `extractor`, `readers` and `own`.
-    fn of(
+    /// The document `fetched` answered a handler's own navigation of
+    /// `run`, as [`Decoding::of`] reads it with the pass it holds, and
+    /// [`Decoded::opened`] with `extractor` and `readers`, on the CPU pool.
+    fn navigated(
         run: &Run,
         mut fetched: crate::driver::Fetched,
-        (forced, extractor): (Option<&'static Encoding>, Option<BuiltIn>),
-        (readers, own): (&UntouchedReaders, bool),
+        extractor: Option<BuiltIn>,
+        readers: &UntouchedReaders,
     ) -> Self {
         let passed = fetched.pass.take();
-        Decoded::of(run, &fetched, (forced, readers, passed)).opened(
-            run,
-            &fetched,
-            (extractor, readers, own),
-        )
+        Decoding::of(run, &fetched, (None, readers, passed))
+            .parsed(run)
+            .opened(run, &fetched, (extractor, readers, false), None)
     }
 }
 
-/// How a crawl request's chain reads each HTML hop's document: its refresh
-/// directive on its one tree, and the document the chain ends on whole, on
-/// the same tree (ADR 0138).
+/// How a crawl request's chain reads each HTML hop's document: decoded and
+/// streamed on the page's own task, then its refresh directive on its one
+/// tree, and the document the chain ends on whole, on the same tree, with
+/// what `ahead` reads of it, in one hand-off to the CPU pool when it needs
+/// one (ADR 0138; issue 2189).
 struct OpenedReading {
     run: Run,
     forced: Option<&'static Encoding>,
     extractor: Option<BuiltIn>,
     readers: Arc<UntouchedReaders>,
+    ahead: ReadAhead,
+}
+
+impl OpenedReading {
+    /// Whether reading `decoding`, the document `fetched` answered, needs
+    /// the CPU pool: its readers need its tree, `ahead` reads its formats,
+    /// or its body, typed as no document, is parsed for a refresh
+    /// directive.
+    fn pooled(&self, decoding: &Decoding) -> bool {
+        decoding.not_document.is_some() || decoding.on_pool(&self.ahead)
+    }
 }
 
 impl Reading for OpenedReading {
     type Read = Opened;
+    type Decoded = (crate::driver::Fetched, Decoding);
+
+    fn decode(&self, mut fetched: crate::driver::Fetched) -> Self::Decoded {
+        let passed = fetched.pass.take();
+        let decoding = Decoding::of(&self.run, &fetched, (self.forced, &self.readers, passed));
+        (fetched, decoding)
+    }
+
+    fn on_pool(&self, (_, decoding): &Self::Decoded) -> bool {
+        self.pooled(decoding)
+    }
 
     fn read(
         &self,
-        mut fetched: crate::driver::Fetched,
+        (fetched, decoding): Self::Decoded,
         follows: &dyn Fn(&crate::refresh::Refresh) -> bool,
     ) -> HopRead<Opened> {
-        let passed = fetched.pass.take();
-        let decoded = Decoded::of(&self.run, &fetched, (self.forced, &self.readers, passed));
+        // `ahead` reads only in a hand-off the document takes anyway.
+        let ahead = self.pooled(&decoding).then_some(&self.ahead);
+        let decoded = decoding.parsed(&self.run);
         let work = self.run.metrics().counted_work();
         if let Some(refresh) = decoded
             .refresh(&fetched, &self.readers, work)
@@ -609,6 +735,7 @@ impl Reading for OpenedReading {
             &self.run,
             &fetched,
             (self.extractor, &self.readers, true),
+            ahead,
         ))
     }
 
@@ -1088,11 +1215,13 @@ impl FetchTiers {
         };
         let clock = run.clock();
         let mut first = true;
+        let ahead = self.read_ahead(run, hand_over).await;
         let reading = Arc::new(OpenedReading {
             run: run.clone(),
             forced: hand_over.encoding,
             extractor: hand_over.extractor,
             readers: Arc::clone(&hand_over.untouched),
+            ahead: ahead.clone(),
         });
         let on = (&clock, run.owner(), &reading);
         let own = OwnDocument {
@@ -1143,18 +1272,48 @@ impl FetchTiers {
                 redirects: followed.redirects.into(),
             });
         }
-        self.open_served(tier, run, choice, followed, (hand_over, hand_over.encoding))
-            .await
-            .map_err(Unfollowed::from)
+        self.open_served(
+            tier,
+            run,
+            choice,
+            followed,
+            (hand_over, hand_over.encoding, ahead),
+        )
+        .await
+        .map_err(Unfollowed::from)
+    }
+
+    /// What the hand-off of each document a crawl request of `run` ends on
+    /// reads beside its untouched readers (issue 2189): a code-free crawl's
+    /// formats, which the hand-over's readers name, read with its
+    /// extractor, and its Block cause, under `fetch.block_classification`.
+    /// Nothing before the engine's pages were handed over.
+    async fn read_ahead(&self, run: &Run, hand_over: &HandOver) -> ReadAhead {
+        let Some(pages) = self.served.browser.get() else {
+            return ReadAhead::default();
+        };
+        let formats = match hand_over.untouched.formats() {
+            Some(request) => {
+                pages
+                    .served_formats(run, request, hand_over.extractor)
+                    .await
+            }
+            None => None,
+        };
+        ReadAhead {
+            formats,
+            blocks: classifies_blocks(run).then(|| Arc::clone(pages)),
+        }
     }
 
     /// Opens a page served from `fetched` on `tier` for `run`, its calls
     /// served as `choice` says and gated by `hand_over`, the attempt's, its
     /// document read with `forced` from `fetch.encoding`, its formats with
     /// the hand-over's extractor, its Label's `content.extractor`, and its
-    /// untouched page with the hand-over's readers: `followed`, the
-    /// document its chain ended on, with what the chain read of it and the
-    /// redirect hops it followed.
+    /// untouched page with the hand-over's readers, and what `ahead` reads
+    /// of it in its hand-off to the CPU pool: `followed`, the document its
+    /// chain ended on, with what the chain read of it and the redirect hops
+    /// it followed.
     ///
     /// # Errors
     ///
@@ -1176,7 +1335,7 @@ impl FetchTiers {
             read: opened,
             redirects,
         }: Followed<Opened>,
-        (hand_over, forced): (&Arc<HandOver>, Option<&'static Encoding>),
+        (hand_over, forced, ahead): (&Arc<HandOver>, Option<&'static Encoding>, ReadAhead),
     ) -> Result<PageId, Stop> {
         let status = fetched.status;
         let (url, headers, body) = (
@@ -1185,18 +1344,33 @@ impl FetchTiers {
             fetched.body.clone(),
         );
         let certificate_exception = fetched.certificate_exception.as_ref().map(mark);
-        // The document is decoded and parsed on the CPU pool, never on an
-        // async worker (STYLE.md; ADR 0138).
+        // The document is decoded and streamed on the page's own task, and
+        // parsed and read on the CPU pool, in one hand-off, never on an
+        // async worker (STYLE.md; ADR 0138; issue 2189).
         let opened = if let Some(opened) = opened {
             opened
         } else {
             let (reading, extractor) = (run.clone(), hand_over.extractor);
             let readers = Arc::clone(&hand_over.untouched);
-            run.owner()
-                .analysis(run.metrics().counted_work(), move || {
-                    Opened::of(&reading, fetched, (forced, extractor), (&readers, true))
-                })
-                .await
+            let mut fetched = fetched;
+            let passed = fetched.pass.take();
+            let decoding = Decoding::of(run, &fetched, (forced, &readers, passed));
+            if decoding.on_pool(&ahead) {
+                run.owner()
+                    .analysis(run.metrics().counted_work(), move || {
+                        decoding.parsed(&reading).opened(
+                            &reading,
+                            &fetched,
+                            (extractor, &readers, true),
+                            Some(&ahead),
+                        )
+                    })
+                    .await
+            } else {
+                decoding
+                    .parsed(run)
+                    .opened(run, &fetched, (extractor, &readers, true), None)
+            }
         };
         // A document only a guess could read is never served: under a
         // forced tier it fails, and under `auto` its page escalates before
@@ -1235,6 +1409,7 @@ impl FetchTiers {
                 not_document: opened.not_document.clone(),
                 read: opened.read,
                 untouched: Arc::clone(&opened.untouched),
+                classified: opened.classified,
                 own: Some((response, body)),
                 certificate_exception,
                 hand_over: Arc::clone(hand_over),
@@ -1338,7 +1513,8 @@ impl FetchTiers {
             read: None,
             redirects: Vec::new(),
         };
-        self.open_served(tier, run, choice, followed, (hand_over, None))
+        let ahead = self.read_ahead(run, hand_over).await;
+        self.open_served(tier, run, choice, followed, (hand_over, None, ahead))
             .await
     }
 
@@ -1719,6 +1895,11 @@ impl FetchTiers {
         }
         let response = page.own.as_ref().map(|(response, _)| response.clone())?;
         let run = page.document.run.clone();
+        // Its document's hand-off classified it, when it took one.
+        if let Classified::Read(classified) = page.classified {
+            let received = run.clock().wall();
+            return classified.map(|block| (block, blocked(block, &response, received)));
+        }
         self.classified(&run, response, Arc::clone(&page.document))
             .await
     }
@@ -2021,6 +2202,7 @@ impl FetchTiers {
         page.not_document.clone_from(&opened.not_document);
         page.read = opened.read;
         page.untouched = Arc::clone(&opened.untouched);
+        page.classified = Classified::NotRead;
         pages.opened(page_id, opened);
     }
 

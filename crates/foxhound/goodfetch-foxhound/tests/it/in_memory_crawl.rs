@@ -321,6 +321,82 @@ fn a_crawl_that_needs_no_tree_parses_no_page() {
     );
 }
 
+/// A page makes one hand-off to the analysis pool when a reader needs its
+/// tree, and none otherwise (issue 2189): its Block cause is read in that
+/// hand-off, a code-free crawl's formats on a copy of its tree there, and a
+/// handler's reads are counted apart. A page no reader needs a tree of keeps
+/// Block classification's hand-off of its own, and with it off makes none.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "five crawls of a dozen pages side by side, each on its own paused runtime, none waiting on another"
+)]
+fn a_page_makes_one_analysis_hand_off_when_a_reader_needs_its_tree_and_none_otherwise() {
+    let settings = |value: Value| value.as_object().unwrap().clone();
+    let text = Map::from_iter([("text".to_owned(), json!(true))]);
+    let cells = [
+        Options::default(),
+        Options {
+            settings: settings(json!({ "frontier": { "learning": false } })),
+            ..Options::default()
+        },
+        Options {
+            settings: settings(json!({
+                "frontier": { "learning": false },
+                "fetch": { "tier": "http", "block_classification": false },
+            })),
+            ..Options::default()
+        },
+        Options {
+            handler: true,
+            ..Options::default()
+        },
+        Options {
+            formats: text,
+            ..Options::default()
+        },
+    ];
+
+    let worked: Vec<CountedWork> = std::thread::scope(|scope| {
+        let crawls: Vec<_> = cells
+            .into_iter()
+            .map(|options| scope.spawn(|| worked(options)))
+            .collect();
+        crawls
+            .into_iter()
+            .map(|crawl| crawl.join().unwrap())
+            .collect()
+    });
+
+    let pages = u64::try_from(PAGES.len() + 1).unwrap();
+    let read = |work: &CountedWork| {
+        (
+            work.read(Row::PageAnalysisHandoffs),
+            work.read(Row::HandlerAnalysisHandoffs),
+            work.read(Row::PageParses),
+            work.read(Row::PageTreeCopies),
+        )
+    };
+    // The default cell learns, so its Page signature reads each page's tree
+    // in its one hand-off. With learning off each page is read in one
+    // streaming pass, and only Block classification hands it off. The
+    // handler's two waits a page read its kept tree, each in a hand-off of
+    // the handler's. Asking for a format, the formats read takes a copy of
+    // the page's tree in its one hand-off, and the Page signature the tree;
+    // the main-content step's landmarks fallback takes a second copy, until
+    // issue 2639 copies the tree for it only when the Extractor finds nothing.
+    assert_eq!(
+        worked.iter().map(read).collect::<Vec<_>>(),
+        [
+            (pages, 0, pages, 0),
+            (pages, 0, 0, 0),
+            (0, 0, 0, 0),
+            (pages, 2 * pages, pages, pages),
+            (pages, 0, pages, 2 * pages),
+        ]
+    );
+}
+
 /// The parses of a crawl with `settings` and, when `planted`, one more parse
 /// per page served through the one counted function, each on its own engine.
 fn parses(settings: &Value, planted: bool) -> u64 {

@@ -39,6 +39,7 @@ use std::sync::Arc;
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
 use goodfetch_extractor::{Pass, Query, StreamSelector, Streamed, Streaming};
 use goodfetch_protocol::foxhound::crawl::FieldLocator;
+use goodfetch_protocol::page::FormatsRequest;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use url::Url;
 
@@ -72,6 +73,10 @@ pub struct UntouchedDemand {
     /// then kept for the attempt's later reads, the Page signature reading
     /// a copy of it (spec #1577's #1918).
     pub keeps: bool,
+    /// The formats a code-free crawl reads of each page, read ahead in its
+    /// document's hand-off to the CPU pool (issue 2189); the default, no
+    /// format, for a crawl reading none.
+    pub formats: FormatsRequest,
 }
 
 /// The readers of the untouched page, built once per Run for a Label.
@@ -88,6 +93,7 @@ pub struct UntouchedReaders {
     page_check: Option<(PageCheck, CheckMatchers)>,
     signs: bool,
     keeps: bool,
+    formats: FormatsRequest,
     /// The streaming path's selectors, when it serves every reader.
     stream: Option<StreamReaders>,
     /// The streaming pass's selectors of the AI-use signals' markup, which
@@ -331,6 +337,7 @@ impl UntouchedReaders {
             page_check,
             signs,
             keeps,
+            formats,
         } = demand;
         let page_check = page_check.map(|check| {
             let selectors = expected_page::selectors(&check)
@@ -363,6 +370,7 @@ impl UntouchedReaders {
             page_check,
             signs,
             keeps,
+            formats,
             stream: None,
             signal_stream: SignalStream::of(work),
         };
@@ -534,6 +542,13 @@ impl UntouchedReaders {
     /// kept for its reads.
     pub(crate) fn keeps(&self) -> bool {
         self.keeps
+    }
+
+    /// The formats a code-free crawl reads of each page, which its
+    /// document's hand-off reads ahead (issue 2189); none for a crawl
+    /// reading none.
+    pub(crate) fn formats(&self) -> Option<FormatsRequest> {
+        (self.formats != FormatsRequest::default()).then_some(self.formats)
     }
 
     /// What the readers of a crawl request's own document read of

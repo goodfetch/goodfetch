@@ -514,6 +514,8 @@ pub(crate) struct Options {
     pub(crate) plant: Option<Plant>,
     /// The fields the crawl reads beside `title`.
     pub(crate) fields: serde_json::Map<String, Value>,
+    /// The formats the crawl's extraction asks for: none by default.
+    pub(crate) formats: serde_json::Map<String, Value>,
     /// A handler serves each page, on its document tier, in place of the
     /// code-free extraction: it waits on the page's `h1` as attached, then as
     /// visible, which the tier answers from the page's own document.
@@ -613,6 +615,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         settings,
         plant,
         fields,
+        formats,
         handler,
         frontier,
         small_pages,
@@ -646,7 +649,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
     });
     let (records, handled) = drive(
         site,
-        &crawl_start(settings, fields, handler, frontier, linked),
+        &crawl_start(settings, (fields, formats), handler, frontier, linked),
         Driven {
             home,
             start,
@@ -913,10 +916,14 @@ const CREDITS: u64 = 1000;
 /// followed, each page's `h1` its Record's `title`, no Politeness delay,
 /// and the site's host mapped to an address the egress policy lets
 /// through, which no connection reaches. A cell's own settings, `cell`,
-/// replace a key of these whole.
+/// replace a key of these whole; its `fields` join `title`, and its
+/// extraction asks for its `formats`.
 fn crawl_start(
     cell: serde_json::Map<String, Value>,
-    mut fields: serde_json::Map<String, Value>,
+    (mut fields, formats): (
+        serde_json::Map<String, Value>,
+        serde_json::Map<String, Value>,
+    ),
     handler: bool,
     frontier: Option<Frontier>,
     linked: usize,
@@ -998,7 +1005,7 @@ fn crawl_start(
             "labels": labels,
             "datasets": [],
             "extraction": {
-                "formats": {},
+                "formats": formats,
                 "follow": "scope",
                 "fields": fields,
             },

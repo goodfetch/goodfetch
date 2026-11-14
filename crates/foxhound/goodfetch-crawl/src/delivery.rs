@@ -730,6 +730,9 @@ impl Untouched {
             // A program's handler reads its pages: each keeps its untouched
             // tree for the handler's calls (spec #1577's #1918).
             keeps: code_free.is_none(),
+            // A code-free crawl's formats are read ahead in each document's
+            // hand-off to the CPU pool (issue 2189).
+            formats: code_free.map(CodeFree::formats).unwrap_or_default(),
         };
         let readers =
             |page_check| std::sync::Arc::new(UntouchedReaders::of(demand(page_check), work));

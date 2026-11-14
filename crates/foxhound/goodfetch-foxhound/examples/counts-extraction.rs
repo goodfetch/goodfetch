@@ -28,12 +28,17 @@
 //!   seed and no link followed, since a host enters the host cache only
 //!   through a page: more hosts than the cache's default bound.
 //!
-//! The rows are those B4 holds: `F1.rule_list_builds`, `F1.rule_tests` and
-//! `F1.analysis_handoffs` per page, and `F1.host_cache_entries` and
-//! `F1.host_cache_bytes` per crawl, read as the crawl ended. It prints no
-//! `F1.parses` and no `F1.readability_runs`: a code-free crawl that asks
-//! for a format parses its page twice and runs the main-content step twice
-//! (Exception X1), and those rows stay B1's.
+//! The rows are those B4 holds: `F1.rule_list_builds`, `F1.rule_tests`,
+//! `F1.analysis_handoffs` and `F1.parses` per page, and
+//! `F1.host_cache_entries` and `F1.host_cache_bytes` per crawl, read as the
+//! crawl ended. A code-free crawl that asks for a format reads its formats
+//! ahead in its page's one hand-off, on a copy of the tree its untouched
+//! readers parsed (#2189): one parse a page. It prints no
+//! `F1.readability_runs`, 2 a page here, the formats' main-content step on
+//! the cleaned tree beside the Page signature's on the tree as served (ADR
+//! 0138), which stays B1's row; and no `F1.tree_copies` until the landmarks
+//! fallback copies the tree only for a page the extractor finds nothing in,
+//! which spec #2164's sub-issue after #2189 builds.
 //!
 //! `F1.clean_up_instructions` is the instructions Callgrind counts in the
 //! clean-up's removal and whatever it calls, on the `default` cell, for
@@ -52,7 +57,10 @@
 //! selector, the one counted function every compilation goes through
 //! (`CountedWork::compile_selector`), over one crawl of the `default` cell
 //! on an engine whose cache of compilations starts empty, for which this
-//! example runs again as `--callgrind-compilations default`. It is paid
+//! example runs again as `--callgrind-compilations default`. A crawl on
+//! an engine of its own runs first and goes uncounted: what the process
+//! sets up once, such as the table of HTML names a first compilation
+//! would otherwise fill, is no crawl's compilation. It is paid
 //! once per engine and rules version whatever the pages that follow (ADR
 //! 0138), so it is read per crawl: the Clean-up rules' selectors and the
 //! engine's own, compiled as the crawl starts. The cache's insert of each
@@ -115,10 +123,11 @@ const HOSTS: usize = 2_048;
 const AD: &str = "Sponsored offer from Harbourline Freight";
 
 /// The rows B4 holds per page.
-const PER_PAGE: [Row; 3] = [
+const PER_PAGE: [Row; 4] = [
     Row::PageRuleListBuilds,
     Row::PageRuleTests,
     Row::PageAnalysisHandoffs,
+    Row::PageParses,
 ];
 
 /// The rows B4 holds per crawl, read as the crawl ended.
@@ -375,7 +384,8 @@ fn crawl(cell: &Cell, planted: Option<&str>) -> CountedWork {
 const COUNTED_FROM: &str = "counts_extraction::counted_from_here";
 
 /// Entered once the engine's cache holds the Clean-up rules' selectors
-/// compiled ([`COUNTED_FROM`]).
+/// compiled, or, before the compilations are counted, once a first crawl
+/// has set up what the process sets up once ([`COUNTED_FROM`]).
 #[inline(never)]
 fn counted_from_here() {
     std::hint::black_box(());
@@ -481,7 +491,7 @@ fn compilation_instructions(planted: Option<&str>) -> Option<u64> {
     if let Some(planted) = planted {
         arguments.extend(["--plant", planted]);
     }
-    match callgrind::instructions_beneath(&[COMPILE], None, &program, &arguments) {
+    match callgrind::instructions_beneath(&[COMPILE], Some(COUNTED_FROM), &program, &arguments) {
         Ok(Some(instructions)) => Some(instructions),
         // A function renamed would otherwise read as free, and pass.
         Ok(None) => {
@@ -513,9 +523,15 @@ fn main() {
     };
     let planted = value_of("--plant");
     if let Some(name) = value_of("--callgrind-compilations") {
-        // One crawl, its engine's cache empty as it starts: each selector
-        // it meets is compiled once.
-        crawl_on(&cell_named(name), planted, Metrics::none());
+        // A first crawl on an engine of its own sets up what the process
+        // sets up once whatever its engines, the table of HTML names among
+        // them, which no crawl's compilation pays; the counted crawl's
+        // engine starts with its cache of compilations empty, so each
+        // selector it meets is compiled once.
+        let cell = cell_named(name);
+        crawl_on(&cell, None, Metrics::none());
+        counted_from_here();
+        crawl_on(&cell, planted, Metrics::none());
         return;
     }
     if let Some(name) = value_of("--callgrind") {

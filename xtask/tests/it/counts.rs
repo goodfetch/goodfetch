@@ -701,6 +701,7 @@ const OTHER_B1_ROWS: &str = "\
 | `F1.share_readability_runs` | share readability runs per page | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F1.block_classifications` | Block classifications per page | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
 | `F1.analysis_handoffs` | analysis hand-offs per page | at most 1 | B1 2, B4 3 | B1, B4 | must not grow | `just counts` | implementer done |
+| `F1.analysis_handoffs.handler` | a handler's analysis hand-offs per page | one per read | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.declaration_reads` | declaration reads per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.validator_builds` | validator builds per Record | 0 | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F4.validations` | validations per Record | ≤ 1 | 1 | B1 | must not grow | `just counts` | implementer done |
@@ -773,6 +774,7 @@ fn whole_b1(parses: u64, extra: &str) -> (Workspace, String) {
         ("F1.share_readability_runs", 0),
         ("F1.block_classifications", 13),
         ("F1.analysis_handoffs", 26),
+        ("F1.analysis_handoffs.handler", 0),
         ("F4.declaration_reads", 0),
         ("F4.validator_builds", 0),
         ("F4.validations", 13),
@@ -1381,6 +1383,7 @@ fn each_action_kind_is_held_to_its_own_figure(
 /// instructions and its selectors' compilations' instructions.
 const EXTRACTION_ROWS: &str = "\
 | `F1.analysis_handoffs` | hand-offs to the analysis pool per page | at most 1, and 0 when no reader needs a tree | B1 2, B4 3; until #2189 | B1, B4 | must not grow | `just counts` | implementer done |
+| `F1.analysis_handoffs.handler` | a handler's analysis hand-offs per page | one per read | 0 | B1 | must not grow | `just counts` | implementer done |
 | `F1.clean_up_instructions` | instructions in the clean-up's removal per page | no cap (ratchet) | 1000 | B4 | must not grow | `just counts --family B4` | implementer done |
 | `F1.selector_compilation_instructions` | instructions in a crawl's selector compilations per crawl | no cap (ratchet) | 1000 | B4 | must not grow | `just counts --family B4` | implementer done |
 ";
@@ -1394,11 +1397,17 @@ fn extraction_benchmark(
     handoffs: u64,
     instructions: u64,
 ) -> String {
+    // B1 also counts a handler's own hand-offs, a row of B1's alone.
+    let handler = if family == "B1" {
+        ",\"F1.analysis_handoffs.handler\":0"
+    } else {
+        ""
+    };
     let path = executable_script(
         workspace,
         &format!("{family}.sh"),
         &format!(
-            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"callgrind_pages\":1,\"callgrind_crawls\":1}},\"counts\":{{\"F1.analysis_handoffs\":{handoffs},\"F1.clean_up_instructions\":{instructions},\"F1.selector_compilation_instructions\":{instructions}}}}}'\n"
+            "#!/bin/sh\necho '{{\"cell\":\"default\",\"units\":{{\"pages\":13,\"callgrind_pages\":1,\"callgrind_crawls\":1}},\"counts\":{{\"F1.analysis_handoffs\":{handoffs},\"F1.clean_up_instructions\":{instructions},\"F1.selector_compilation_instructions\":{instructions}{handler}}}}}'\n"
         ),
     );
     format!("{family}={}", path.display())

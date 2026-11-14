@@ -123,6 +123,9 @@ rows! {
     /// `F1.analysis_handoffs`: a page's parsing or reading handed to the
     /// analysis pool (`TaskOwner::analysis`).
     PageAnalysisHandoffs => "F1.analysis_handoffs", "page_analysis", "analysis_handoffs";
+    /// `F1.analysis_handoffs.handler`: a handler's read of its page handed
+    /// to the analysis pool, apart from the page's own (#2189).
+    HandlerAnalysisHandoffs => "F1.analysis_handoffs.handler", "page_analysis", "handler_analysis_handoffs";
     /// `F1.host_cache_entries`: a host whose Clean-up rules a Run's host
     /// cache holds as the Run ends.
     PageHostCacheEntries => "F1.host_cache_entries", "page_analysis", "host_cache_entries";

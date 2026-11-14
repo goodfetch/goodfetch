@@ -266,8 +266,9 @@ fn a_change_to_one_package_reruns_its_tests_and_the_jobs_it_selects() {
             ("stress", only)
         ])
     );
-    // Perf, TLC, the MSRV build and Miri read nothing the change reaches.
-    for step in [Step::Perf, Step::Tlc, Step::Msrv, Step::Miri] {
+    // Perf, TLC, the MSRV build, Miri and loom read nothing the change
+    // reaches.
+    for step in [Step::Perf, Step::Tlc, Step::Msrv, Step::Miri, Step::Loom] {
         assert!(
             matches!(action(&plan, step), Action::Reuse { .. }),
             "{step:?}"
@@ -295,7 +296,7 @@ fn a_change_reaching_a_crate_reruns_the_crate_builds() {
 
     let (full, _) = reruns(&planned(Some(&record), &touched_since_earlier(touched)));
 
-    for step in ["perf", "linux", "msrv", "miri"] {
+    for step in ["perf", "linux", "msrv", "miri", "loom"] {
         assert!(full.contains(&step), "{step} in {full:?}");
     }
     assert!(!full.contains(&"tlc") && !full.contains(&"visual"));
@@ -321,6 +322,7 @@ fn a_change_reaching_the_kennel_alone_reruns_its_checks_and_no_products_tests() 
         "tlc",
         "msrv",
         "miri",
+        "loom",
         "quick",
         "pre-merge",
         "stress",
@@ -1097,7 +1099,7 @@ fn position(form: Form, name: &str) -> usize {
 /// The full gate's steps, in order. Each form's list is spelled here, never
 /// read from the predicates that choose it: a step dropped from a form takes
 /// a check off a gate that merges on its verdict, so it has to fail a test.
-const FULL_STEPS: [&str; 22] = [
+const FULL_STEPS: [&str; 23] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -1109,6 +1111,7 @@ const FULL_STEPS: [&str; 22] = [
     "visual",
     "tlc",
     "miri",
+    "loom",
     "lint",
     "feature-combinations",
     "fuzz-check",
@@ -1134,7 +1137,7 @@ const WHOLE_CHANGE_STEPS: [&str; 6] = [
 
 /// The steps that run beside the host's: each builds and writes in folders
 /// no host step reads, and its verdict is the one it gives after them.
-const BESIDE_STEPS: [&str; 5] = ["perf", "linux", "visual", "tlc", "miri"];
+const BESIDE_STEPS: [&str; 6] = ["perf", "linux", "visual", "tlc", "miri", "loom"];
 
 /// The quick form's steps, in order: those that judge every change, never a
 /// test of the Pre-merge suite or a step beside the host's.

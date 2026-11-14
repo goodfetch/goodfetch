@@ -968,8 +968,8 @@ quick-steps:
 # proofs (`all`: the whole workspace). The checks that need Linux run beside
 # the other steps, each in its own container, with their lines marked:
 # `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
-# projects in the pinned Playwright image, ADR 0073); TLC and Miri run
-# beside them too, on the host, in folders of their own. The suite waits for
+# projects in the pinned Playwright image, ADR 0073); TLC, Miri and loom
+# run beside them too, on the host, in folders of their own. The suite waits for
 # them and fails when one fails (ci/pre-merge.sh). A red step ends no form:
 # every other step still runs, and the end names each red step. `quick` runs only the
 # checks every change needs, for a change no test reads (ADR 0135). `all`
@@ -992,6 +992,7 @@ release:
     "$just" test release
     "$just" features-audit
     "$just" _tlc all
+    "$just" loom
     "$just" _kennel all
     "$just" proofs
     "$just" rss
@@ -1595,6 +1596,26 @@ miri:
     IFS=$'\n'
     for module in $modules; do
       cargo "+$toolchain" miri test --package "${module%%$'\t'*}" --lib -- "${module#*$'\t'}"
+    done
+
+# loom over the modules that opt in through ci/loom.toml (ADR 0060): each
+# crate's unit tests built with `--cfg goodfetch_loom`, under which its
+# `sync` module maps its locks to loom's, in a build folder of their own,
+# `target/loom/`, which no other step reads.
+loom:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    read_list() { uv run --frozen --quiet python -c "import tomllib; loom = tomllib.load(open('ci/loom.toml', 'rb')); $1"; }
+    modules=$(read_list 'print("\n".join(m["crate"] + "\t" + m["filter"] for m in loom["module"]))')
+    preemptions=$(read_list 'print(loom["preemptions"])')
+    # Each module runs once; a `for` loop with no `break` retries nothing
+    # (xtask no-retry).
+    set -f
+    IFS=$'\n'
+    for module in $modules; do
+      RUSTFLAGS="${RUSTFLAGS:-} --cfg goodfetch_loom" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}/loom" \
+        LOOM_MAX_PREEMPTIONS="$preemptions" \
+        cargo test --locked --package "${module%%$'\t'*}" --lib -- "${module#*$'\t'}"
     done
 
 # Builds Miri's sysroot, which fetches the standard library's dependencies,

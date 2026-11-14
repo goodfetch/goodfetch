@@ -19745,6 +19745,25 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 4,
+      "description": "The most threads the engine starts for work that waits on the operating system, such as reading files: 4, a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
+      "name": "governor.blocking_threads",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "description": "The most blocking threads.",
+        "minimum": 1,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
       "default": 8,
@@ -20083,6 +20102,33 @@
         "description": "A duration in milliseconds.",
         "minimum": 0,
         "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 2,
+      "description": "How many worker threads run the engine's async tasks: 2, a whole number of at least 1, or `per_core` for one a core. A crawl's parsing runs on threads of its own, one a core at most, so few workers keep its memory low without slowing it. Read once, when the engine starts.",
+      "name": "governor.worker_threads",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "oneOf": [
+          {
+            "description": "This many worker threads.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "const": "per_core",
+            "description": "One worker thread a core."
+          }
+        ]
       },
       "weakens": false
     },

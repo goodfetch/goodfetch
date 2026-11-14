@@ -39,7 +39,8 @@ use goodfetch_protocol::daemon::{
     DRAIN_GRACE, DaemonEndpoint, DaemonRuntimeFile, DaemonToken, IDLE_TIMEOUT,
 };
 
-use super::{Failure, Machine, multi_thread_runtime, now_of, per_install, unavailable};
+use super::super::runtime;
+use super::{Failure, Machine, now_of, per_install, unavailable};
 use crate::executable::output;
 
 /// Starts the Daemon's process from `executable`, the versioned copy of
@@ -161,7 +162,7 @@ pub(in crate::executable) fn launched(
     // An installed service keeps its major's Daemon running (ADR 0024).
     let installed = files.service().ok().flatten().is_some();
     let pid = std::process::id();
-    let runtime = multi_thread_runtime();
+    let runtime = runtime::multi_thread(runtime::Threads::of(Some(settings)));
     let ended = runtime.block_on(async {
         let (listener, endpoint, token, activated) =
             take_listener(machine, &files, &socket, service).await?;

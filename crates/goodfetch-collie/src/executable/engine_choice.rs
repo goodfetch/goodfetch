@@ -40,11 +40,6 @@
 //! engine, `hello`, and the one call loop that interleaves the call's
 //! answers, its credits, the stream it sends and the interrupts, kept
 //! whole so a change to one of them is checked against the others.
-#![expect(
-    clippy::disallowed_methods,
-    reason = "the CLI builds its runtime before and outside any async worker, as main does (ADR 0060)"
-)]
-
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::transport::{self, Connection, ConnectionReader, ConnectionWriter, Network};
 use goodfetch_engine::{CallError, Dependencies, Engine, Identity};
@@ -66,6 +61,7 @@ use tokio::sync::mpsc;
 
 use super::daemon::{Machine, NotOpened, Wanted};
 use super::exit_codes;
+use super::runtime::{self, Threads};
 
 /// The id of `hello`.
 const HELLO_ID: i64 = 0;
@@ -396,7 +392,8 @@ impl Interrupt {
 
 /// Calls `call` on the engine `reach` chooses: the Daemon, or an Attached
 /// engine in this process, `engine` on `dependencies`; either opened by a
-/// Client that needs `needs`.
+/// Client that needs `needs`, on a runtime whose threads the machine's
+/// settings choose.
 ///
 /// # Panics
 ///
@@ -408,13 +405,18 @@ pub fn call(
     reach: &EngineChoice<'_>,
     call: CommandCall<'_>,
 ) -> Answer {
+    // Settings it cannot read leave their defaults here: the engine, or
+    // the Daemon, refuses the call with their Error code.
+    let threads = Threads::of(reach.machine.settings().ok());
     let start = match (reach.choice, reach.lifetime) {
-        (Choice::Attached, _) => return call_attached(engine, dependencies, needs, call),
+        (Choice::Attached, _) => {
+            return call_attached(engine, dependencies, needs, threads, call);
+        }
         (Choice::Daemon, _) | (Choice::Auto, Lifetime::Lasting) => true,
         (Choice::Auto, Lifetime::Passing) => false,
     };
     let reads = call.reads();
-    let runtime = runtime();
+    let runtime = runtime::multi_thread(threads);
     let wanted = Wanted {
         start,
         remote: true,
@@ -428,7 +430,7 @@ pub fn call(
         Ok(Some(opened)) => opened,
         Ok(None) => {
             drop(runtime);
-            return call_attached(engine, dependencies, needs, call);
+            return call_attached(engine, dependencies, needs, threads, call);
         }
         Err(NotOpened::Interrupted(interrupt)) => return Answer::Interrupted(interrupt),
         Err(NotOpened::Refused(refusal)) => return Answer::Error(refusal),
@@ -445,7 +447,7 @@ pub fn call(
                 refusal.data.details["fix"].as_str().unwrap_or_default()
             ));
             drop(runtime);
-            return call_attached(engine, dependencies, needs, call);
+            return call_attached(engine, dependencies, needs, threads, call);
         }
     };
     let answer = runtime.block_on(async {
@@ -473,19 +475,21 @@ pub fn unreachable(message: String, fix: &str) -> ErrorObject {
 }
 
 /// Calls `call` on an Attached engine in this process, `engine` on
-/// `dependencies`, opened by a Client that needs `needs`.
+/// `dependencies` and a runtime of `threads`, opened by a Client that
+/// needs `needs`.
 ///
 /// # Panics
 ///
 /// If Tokio cannot build its runtime.
-pub fn call_attached(
+fn call_attached(
     engine: &Engine,
     dependencies: Dependencies,
     needs: Product,
+    threads: Threads,
     call: CommandCall<'_>,
 ) -> Answer {
     let reads = call.reads();
-    let runtime = runtime();
+    let runtime = runtime::multi_thread(threads);
     let hello = hello(engine.identity(), needs, None);
     let (network, dialer) = transport::in_memory();
     let answer = runtime.block_on(async {
@@ -510,15 +514,6 @@ pub fn call_attached(
     });
     end(runtime, reads);
     answer
-}
-
-/// The runtime a command's Connection runs on, with the signals an
-/// interrupt arrives by.
-fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .expect("invariant: the OS gives the runtime its threads")
 }
 
 /// Ends the runtime of a command's call once the call ended: waiting for

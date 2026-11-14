@@ -4,12 +4,15 @@
 //! ladder ends a page with. One governor per engine process of either
 //! Product, so everything here is Collie's.
 
+use std::num::NonZeroUsize;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Event, EventClass, Instrument, Metric,
-    MetricLabel, ProtocolVersion, Setting, Stability, ValueKind, schema_of,
+    MetricLabel, ProtocolVersion, Setting, Stability, ValueKind, ValueShape, schema_of,
 };
 use crate::page::PageId;
 use crate::settings::SettingLimit;
@@ -265,6 +268,148 @@ pub const HUGE_PAGES: Setting = Setting {
     description: "Whether the engine's own memory may be backed by the operating system's transparent huge pages: off, so the allocator reserves no memory the engine never touches, and the engine's resident memory is smaller. On, huge pages may back it, which is faster for some workloads and holds more memory. Read once, when the engine starts, on Linux; elsewhere it changes nothing. The browsers and other programs the engine starts keep the state the engine itself was started with either way.",
     kind: ValueKind::Boolean,
     default: off,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `governor.worker_threads`' word for one worker a core.
+pub const PER_CORE: &str = "per_core";
+
+/// `governor.worker_threads`' default: 2 workers.
+pub const DEFAULT_WORKER_THREADS: usize = 2;
+
+/// `governor.blocking_threads`' default: 4 threads.
+pub const DEFAULT_BLOCKING_THREADS: usize = 4;
+
+/// How many workers the engine's runtime has (#2200).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkerThreads {
+    /// This many.
+    Count(NonZeroUsize),
+    /// `per_core`: one a core, as Tokio chooses.
+    PerCore,
+}
+
+impl WorkerThreads {
+    /// The count `value` gives.
+    ///
+    /// # Errors
+    ///
+    /// When `value` is neither a whole number of at least 1 nor `per_core`.
+    pub fn read(value: &Value) -> Result<Self, String> {
+        if value.as_str() == Some(PER_CORE) {
+            return Ok(Self::PerCore);
+        }
+        whole_from_one(value).map(Self::Count).ok_or_else(|| {
+            format!("expected a whole number of at least 1, or `{PER_CORE}`, found `{value}`")
+        })
+    }
+}
+
+/// A value of `governor.worker_threads`.
+pub const WORKER_THREADS_SHAPE: ValueShape = ValueShape {
+    name: "WorkerThreads",
+    check: |value| WorkerThreads::read(value).map(drop),
+    schema: || {
+        serde_json::json!({
+            "oneOf": [
+                {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "This many worker threads.",
+                },
+                {
+                    "const": PER_CORE,
+                    "description": "One worker thread a core.",
+                },
+            ],
+        })
+    },
+    examples: || {
+        vec![
+            serde_json::json!(DEFAULT_WORKER_THREADS),
+            serde_json::json!(PER_CORE),
+        ]
+    },
+};
+
+/// The most threads the engine's runtime starts for work that waits
+/// (#2200).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BlockingThreadCap(NonZeroUsize);
+
+impl BlockingThreadCap {
+    /// The cap `value` gives.
+    ///
+    /// # Errors
+    ///
+    /// When `value` is not a whole number of at least 1.
+    pub fn read(value: &Value) -> Result<Self, String> {
+        whole_from_one(value)
+            .map(Self)
+            .ok_or_else(|| format!("expected a whole number of at least 1, found `{value}`"))
+    }
+
+    /// The cap.
+    pub fn get(self) -> usize {
+        self.0.get()
+    }
+}
+
+/// A value of `governor.blocking_threads`.
+pub const BLOCKING_THREADS_SHAPE: ValueShape = ValueShape {
+    name: "BlockingThreadCap",
+    check: |value| BlockingThreadCap::read(value).map(drop),
+    schema: || {
+        serde_json::json!({
+            "type": "integer",
+            "minimum": 1,
+            "description": "The most blocking threads.",
+        })
+    },
+    examples: || vec![serde_json::json!(DEFAULT_BLOCKING_THREADS)],
+};
+
+/// A whole number of at least 1 that `value` holds.
+fn whole_from_one(value: &Value) -> Option<NonZeroUsize> {
+    value
+        .as_u64()
+        .and_then(|whole| usize::try_from(whole).ok())
+        .and_then(NonZeroUsize::new)
+}
+
+fn two() -> Value {
+    serde_json::json!(DEFAULT_WORKER_THREADS)
+}
+
+fn four() -> Value {
+    serde_json::json!(DEFAULT_BLOCKING_THREADS)
+}
+
+/// `governor.worker_threads` (#2200).
+pub const WORKER_THREADS: Setting = Setting {
+    name: "governor.worker_threads",
+    description: "How many worker threads run the engine's async tasks: 2, a whole number of at least 1, or `per_core` for one a core. A crawl's parsing runs on threads of its own, one a core at most, so few workers keep its memory low without slowing it. Read once, when the engine starts.",
+    kind: ValueKind::Shape(&WORKER_THREADS_SHAPE),
+    default: two,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `governor.blocking_threads` (#2200).
+pub const BLOCKING_THREADS: Setting = Setting {
+    name: "governor.blocking_threads",
+    description: "The most threads the engine starts for work that waits on the operating system, such as reading files: 4, a whole number of at least 1. Each such thread holds its own stack; a Page analysis never runs on one. Read once, when the engine starts.",
+    kind: ValueKind::Shape(&BLOCKING_THREADS_SHAPE),
+    default: four,
     clearable: false,
     authority: Authority::Machine,
     weakens: None,
@@ -635,7 +780,7 @@ pub const PRESSURE_SOURCE: Metric = Metric {
 };
 
 /// Every setting of the governor, each under `governor.`.
-pub const SETTINGS: [Setting; 19] = [
+pub const SETTINGS: [Setting; 21] = [
     HTTP_FLOOR,
     HTTP_CEILING,
     BROWSER_PAGE_FLOOR,
@@ -647,6 +792,8 @@ pub const SETTINGS: [Setting; 19] = [
     CRITICAL,
     HOST_MEMORY,
     HUGE_PAGES,
+    WORKER_THREADS,
+    BLOCKING_THREADS,
     SAMPLE_INTERVAL,
     LAST_RESORT_AFTER,
     RUN_SHARE,

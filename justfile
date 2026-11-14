@@ -1145,8 +1145,9 @@ rss-propose *scenarios:
 # reports that cell as not run. The Collie scenario (issue 2282) runs Collie
 # over raw JSON-RPC, with its TypeScript SDK program arm beside it (issue
 # 2406), against Playwright, Guard on, and the arms, Puppeteer 25.17.0's locators
-# and page methods and Stagehand 4.4.0 with no model
-# (xtask/compare-collie-arms, its own lock) and chromiumoxide 0.9.1
+# and page methods, Stagehand 4.4.0 with no model and agent-browser
+# 0.43.0's command line (xtask/compare-collie-arms, its own lock) and
+# chromiumoxide 0.9.1
 # (xtask/compare-chromiumoxide, a Rust program built like Spider's side),
 # all attached to one Chrome for
 # Testing xtask launched through a relay that counts each tool's CDP

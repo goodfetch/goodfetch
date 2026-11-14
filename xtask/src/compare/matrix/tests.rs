@@ -643,7 +643,7 @@ fn just_compare_builds_fastcrws_server_and_side_into_its_folder() {
 /// crawlberg runs on its side in every scenario but two, each its main row
 /// (#2218): its durable cell is not supported, since its frontier lives in
 /// memory and no crawl of its resumes; nor its polite cell, since it
-/// follows no link off its first page's host and that host's subdomains.
+/// follows no page link off its first page's host.
 #[test]
 fn crawlberg_runs_every_scenario_on_its_side_but_durable_and_polite() {
     let cells: Vec<(Scenario, &str, Row, Result<Config, &str>)> = CELLS
@@ -658,20 +658,25 @@ fn crawlberg_runs_every_scenario_on_its_side_but_durable_and_polite() {
         })
         .collect();
 
+    let measured = Ok(Config::Crawlberg);
     assert_eq!(
         cells,
-        Scenario::ALL
-            .map(|scenario| (
-                scenario,
-                "crawlberg",
-                Row::Main,
-                match scenario {
-                    Scenario::Durable => Err(super::CRAWLBERG_IN_MEMORY),
-                    Scenario::Polite => Err(super::CRAWLBERG_ONE_HOST),
-                    _ => Ok(Config::Crawlberg),
-                }
-            ))
-            .to_vec()
+        [
+            (Scenario::Raw, measured),
+            (Scenario::Durable, Err(super::CRAWLBERG_IN_MEMORY)),
+            (Scenario::Polite, Err(super::CRAWLBERG_ONE_HOST)),
+            (Scenario::Extraction, measured),
+            (Scenario::Browser, measured),
+            (Scenario::Realistic, measured),
+            (Scenario::Long, measured),
+            (Scenario::Raw64, measured),
+            (Scenario::Raw256, measured),
+            (Scenario::Hostile, measured),
+            (Scenario::Hostile16, measured),
+            (Scenario::CrawlLike, measured),
+        ]
+        .map(|(scenario, status)| (scenario, "crawlberg", Row::Main, status))
+        .to_vec()
     );
 }
 

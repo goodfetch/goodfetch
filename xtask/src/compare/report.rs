@@ -1047,8 +1047,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
          site; Spider {}, Crawlee {} (`@crawlee/cheerio`, and `@crawlee/playwright` on Playwright \
          {}) on Node.js, Scrapy {} (and scrapy-playwright {} on Playwright {}) on CPython, \
          crawlee-rs at commit `{}`, pagesift {}, OpenSpider at commit `{}`, fastCRW {} and crawlberg {}, \
-         every tool of the \
-         headless browser scenario \
+         every tool of the headless browser scenario \
          running Chrome for Testing {}; each \
          figure the {}. Every figure is measured from outside the tools: \
          the OS's accounting of the waited-for children (CPU, peak RSS, bytes read and written), `/proc` \

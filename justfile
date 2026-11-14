@@ -138,7 +138,7 @@ lint:
     # fastCRW's driver side, the same; fastCRW's server (AGPL-3.0) is in no
     # lock of this repository: `just compare` installs it from its own.
     step cargo-deny-fastcrw 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-fastcrw/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
-    # crawlberg's side, read like OpenSpider's, its `browser` feature included.
+    # crawlberg's side, the same, its `browser` feature included.
     step cargo-deny-crawlberg 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-crawlberg/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     step cargo-deny-chromiumoxide 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-chromiumoxide/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     # Crawlee's, Scrapy's and the Collie scenario's arms' sides, no

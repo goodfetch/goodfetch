@@ -24,13 +24,12 @@
 //!   (`browser.mode: always`, `browser.chrome_path`), its Chrome backend;
 //! - `hostile`: the hostile pages' pass at each tool's defaults (#2439):
 //!   its defaults but for the private addresses and the `Host` above:
-//!   robots.txt not obeyed, 200 ms between requests to a domain, 10
+//!   robots.txt not obeyed, 200 ms between requests to a host, 10
 //!   requests in flight; `--concurrency` is unread.
 //!
 //! crawlberg has no durable cell: its frontier lives in memory and no crawl
-//! resumes; nor a polite one: it follows no page link off its seed's host
-//! and its subdomains, and the multi-domain site spans 1,000 domains (the
-//! matrix says why).
+//! resumes; nor a polite one: it follows no page link off its seed's host,
+//! and the multi-domain site spans 1,000 domains (the matrix says why).
 //!
 //! The crawl-like scenario (#2284) runs `raw` on an `https` site, whose
 //! certificate authority `SSL_CERT_FILE` names, which crawlberg's TLS

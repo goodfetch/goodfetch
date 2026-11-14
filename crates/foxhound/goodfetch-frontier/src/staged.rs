@@ -146,6 +146,26 @@ impl Admitting {
         }
     }
 
+    /// The requests the attempt's staged admissions counted against
+    /// `crawl.max_requests`, its earlier calls' and this one's, while it
+    /// stages.
+    pub(crate) fn staged_admitted(&self) -> u64 {
+        match self {
+            Self::Staging { earlier, now } => earlier.admitted + now.admitted,
+            Self::RunFile | Self::Commit { .. } => 0,
+        }
+    }
+
+    /// The requests the attempt's staged admissions counted against the
+    /// path budget of `pattern`, its earlier calls' and this one's, while
+    /// it stages.
+    pub(crate) fn staged_budget(&self, pattern: &str) -> u64 {
+        match self {
+            Self::Staging { earlier, now } => earlier.budget(pattern) + now.budget(pattern),
+            Self::RunFile | Self::Commit { .. } => 0,
+        }
+    }
+
     /// Whether what it admits stays in the run file: a staging's is rolled
     /// back.
     pub(crate) const fn writes(&self) -> bool {

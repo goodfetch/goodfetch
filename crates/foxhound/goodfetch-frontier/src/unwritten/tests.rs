@@ -9,12 +9,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::run_state::WriteWatch;
-use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason};
+use goodfetch_protocol::foxhound::frontier::{Enqueued, HttpMethod, NotAddedReason, PathBudget};
 use rusqlite::Connection;
 use tempfile::TempDir;
 use url::Url;
 
-use crate::admit::{Candidate, admit};
+use crate::admit::{Candidate, admit, admit_in};
 use crate::bounds::{self, Bounds};
 use crate::identity::{
     self, Declared, Fixed, Hop, Key, Reached, Seen, admit_hop, admit_reached, fixed_only,
@@ -22,6 +22,7 @@ use crate::identity::{
 };
 use crate::invariants::Invariants;
 use crate::scope::{self, Scope};
+use crate::staged::{Admitting, Staged};
 
 /// A run file on disk in WAL mode, with the writer's connection and a
 /// reader's, as a Run's writer and readers hold it.
@@ -511,4 +512,235 @@ fn a_miss_reads_the_file_again_once_a_visit_left_memory() {
 
     assert!(matches!(before, Ok(Seen::New)));
     assert!(after.is_err());
+}
+
+/// The Run's invariants under `bounds`, holding the visits its writer has
+/// not committed against `commits`, within a budget that keeps them all.
+fn bounded(bounds: Bounds, commits: &Arc<AtomicU64>) -> Invariants {
+    let invariants = Invariants::new(Scope::default(), bounds).unwrap();
+    let commits = Arc::clone(commits);
+    invariants.hold_unwritten(
+        1 << 20,
+        move || commits.load(Ordering::SeqCst),
+        &Metrics::none(),
+    );
+    invariants
+}
+
+/// `crawl.max_requests` at `max_requests`, and one path budget of one
+/// request on `/b/*`.
+fn bounds(max_requests: u64) -> Bounds {
+    Bounds {
+        max_requests: Some(max_requests),
+        path_budgets: vec![PathBudget {
+            pattern: "/b/*".to_owned(),
+            max_requests: 1,
+        }],
+        ..Bounds::default()
+    }
+}
+
+/// Admits each of `paths` on the shop as a seed on the writer, its path
+/// its request's ID, answering whether each was added or why not.
+fn seeds(file: &RunFile, invariants: &Invariants, paths: &[&str]) -> Vec<String> {
+    paths
+        .iter()
+        .map(|path| answer(&seed(&file.writer, invariants, &shop(path), path)))
+        .collect()
+}
+
+/// Admits each of `paths` on the shop as a seed on the writer, while an
+/// attempt stages, against what its earlier calls did, `earlier`;
+/// answers what this call did, and whether each was added or why not.
+fn staged(
+    file: &RunFile,
+    invariants: &Invariants,
+    earlier: Staged,
+    paths: &[&str],
+) -> (Staged, Vec<String>) {
+    let get = HttpMethod::get();
+    let mut admitting = Admitting::Staging {
+        earlier: Arc::new(earlier),
+        now: Staged::default(),
+    };
+    let answers = paths
+        .iter()
+        .map(|path| {
+            let url = shop(path);
+            let enqueued = admit_in(
+                &file.writer,
+                invariants,
+                &every_host(),
+                Candidate::Seed {
+                    url: &url,
+                    declared: Declared {
+                        method: &get,
+                        body: None,
+                        key: None,
+                        keeps_fragment: false,
+                    },
+                },
+                &mut admitting,
+                |_| Ok((*path).to_owned()),
+            )
+            .unwrap();
+            answer(&enqueued)
+        })
+        .collect();
+    let Admitting::Staging { now, .. } = admitting else {
+        unreachable!("the admissions staged")
+    };
+    (now, answers)
+}
+
+fn shop(path: &str) -> String {
+    format!("http://shop.test/{path}")
+}
+
+/// `added`, or the reason it was not.
+fn answer(enqueued: &Enqueued) -> String {
+    match enqueued {
+        Enqueued::Added { .. } => "added".to_owned(),
+        Enqueued::NotAdded { reason, .. } => format!("{reason:?}"),
+    }
+}
+
+thread_local! {
+    static RAN: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn record(event: rusqlite::trace::TraceEvent<'_>) {
+    if let rusqlite::trace::TraceEvent::Stmt(statement, _) = event {
+        RAN.with_borrow_mut(|ran| ran.push(statement.sql().into_owned()));
+    }
+}
+
+/// What `act` answers, and each statement it ran on `connection` that
+/// reads a count of the Bounds.
+fn count_reads<T>(connection: &Connection, act: impl FnOnce() -> T) -> (T, Vec<String>) {
+    RAN.with_borrow_mut(Vec::clear);
+    connection.trace_v2(
+        rusqlite::trace::TraceEventCodes::SQLITE_TRACE_STMT,
+        Some(record),
+    );
+    let answered = act();
+    connection.trace_v2(rusqlite::trace::TraceEventCodes::empty(), None);
+    let reads = RAN
+        .with_borrow_mut(std::mem::take)
+        .into_iter()
+        .filter(|statement| {
+            statement.trim_start().starts_with("SELECT")
+                && (statement.contains("bounds_admitted")
+                    || statement.contains("bounds_path_counts"))
+        })
+        .collect();
+    (answered, reads)
+}
+
+/// Memory counts the requests admitted against `crawl.max_requests` and
+/// each path budget (#2169): the first admission reads the run file's
+/// counts, its seed among them, and none reads them again, while the
+/// bounds admit exactly as many as they allow.
+#[test]
+fn memory_counts_the_requests_admitted_once_it_read_the_files_counts() {
+    let file = run_file();
+    let commits = Arc::new(AtomicU64::new(0));
+    let invariants = bounded(bounds(4), &commits);
+
+    file.writer.execute_batch("BEGIN").unwrap();
+    let (first, read) = count_reads(&file.writer, || seeds(&file, &invariants, &["a"]));
+    let (then, read_again) = count_reads(&file.writer, || {
+        seeds(&file, &invariants, &["b/1", "b/2", "c", "d"])
+    });
+
+    assert_eq!(
+        (first, read.len(), then, read_again),
+        (
+            vec!["added".to_owned()],
+            2,
+            vec![
+                "added".to_owned(),
+                "PathBudget".to_owned(),
+                "added".to_owned(),
+                "MaxRequests".to_owned(),
+            ],
+            Vec::<String>::new(),
+        )
+    );
+}
+
+/// A writer job whose work failed takes back what it counted, as it takes
+/// back what it visited: the next job admits up to the bound again.
+#[test]
+fn a_failed_job_takes_back_what_it_counted() {
+    let file = run_file();
+    let commits = Arc::new(AtomicU64::new(0));
+    let invariants = bounded(bounds(3), &commits);
+    let watch = invariants.unwritten().unwrap();
+
+    file.writer.execute_batch("BEGIN").unwrap();
+    watch.began();
+    let kept = seeds(&file, &invariants, &["a"]);
+    watch.began();
+    file.writer.execute_batch("SAVEPOINT write").unwrap();
+    let failed = seeds(&file, &invariants, &["b/1"]);
+    file.writer
+        .execute_batch("ROLLBACK TO write; RELEASE write")
+        .unwrap();
+    watch.failed();
+    watch.began();
+    let again = seeds(&file, &invariants, &["b/2", "c"]);
+
+    assert_eq!(
+        (kept, failed, again),
+        (
+            vec!["added".to_owned()],
+            vec!["added".to_owned()],
+            vec!["added".to_owned(), "MaxRequests".to_owned()],
+        )
+    );
+}
+
+/// An attempt's staged admissions, rolled back, leave memory's counts as
+/// they were, and count against the bounds with them: its earlier calls'
+/// and this call's own.
+#[test]
+fn staged_admissions_count_beside_memory_and_leave_it_unchanged() {
+    let file = run_file();
+    let commits = Arc::new(AtomicU64::new(0));
+    let invariants = bounded(bounds(5), &commits);
+
+    file.writer.execute_batch("BEGIN").unwrap();
+    let written = seeds(&file, &invariants, &["a"]);
+    file.writer.execute_batch("SAVEPOINT stage").unwrap();
+    let (earlier, first_call) = staged(&file, &invariants, Staged::default(), &["b/1"]);
+    file.writer
+        .execute_batch("ROLLBACK TO stage; RELEASE stage")
+        .unwrap();
+    file.writer.execute_batch("SAVEPOINT stage").unwrap();
+    let (_, second_call) = staged(&file, &invariants, earlier, &["b/2", "c", "d", "e"]);
+    file.writer
+        .execute_batch("ROLLBACK TO stage; RELEASE stage")
+        .unwrap();
+    let after = seeds(&file, &invariants, &["f", "g", "h", "i"]);
+
+    assert_eq!(
+        (written, first_call, second_call, after),
+        (
+            vec!["added".to_owned()],
+            vec!["added".to_owned()],
+            vec![
+                "PathBudget".to_owned(),
+                "added".to_owned(),
+                "added".to_owned(),
+                "MaxRequests".to_owned(),
+            ],
+            vec![
+                "added".to_owned(),
+                "added".to_owned(),
+                "added".to_owned(),
+                "MaxRequests".to_owned(),
+            ],
+        )
+    );
 }

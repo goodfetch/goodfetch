@@ -19,9 +19,12 @@
 //!
 //! A reference model of the work items says what each step answers and
 //! leaves. After every step the run file holds the model's work items,
-//! each page once whatever gave it again (the exact duplicate check), and
-//! the requests by state the Run state counted in memory are the run
-//! file's and the model's. A clean stop leaves exactly the model; after a
+//! each page once whatever gave it again (the exact duplicate check),
+//! each counted once against `crawl.max_requests` and a path budget, both
+//! set at as many pages as a case may give, so a page counted twice would
+//! refuse the last (#2169), and the requests by state the Run state
+//! counted in memory are the run file's and the model's. A clean stop
+//! leaves exactly the model; after a
 //! process crash the resumed crawl goes on from every write, each attempt
 //! in flight counted as `handler_lost`; after a power cut the file the
 //! next process opens passes `PRAGMA integrity_check` (in `after_crash`)
@@ -64,7 +67,7 @@ use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
 use proptest::sample::Index;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension as _};
 use tokio::runtime::Runtime;
 
 use crate::attempt_outcome::{Ended, Ending, Outcome};
@@ -740,6 +743,39 @@ fn durability(batching: bool) -> Durability {
     }
 }
 
+/// Bounds the crawl in the run file `connection` holds at as many
+/// requests as it may be given pages, its whole and under `/p/*`: each
+/// page counted once is never refused, and a page counted twice refuses
+/// the last (#2169).
+fn bound(connection: &Connection) -> rusqlite::Result<()> {
+    let max = i64::try_from(PAGES).unwrap();
+    connection.execute(
+        "INSERT INTO bounds (id, max_requests, learning) VALUES (1, ?1, ?2)",
+        (max, goodfetch_frontier::Bounds::default().learning),
+    )?;
+    connection.execute(
+        "INSERT INTO bounds_path_budgets (position, pattern, max_requests) VALUES (0, '/p/*', ?1)",
+        [max],
+    )?;
+    Ok(())
+}
+
+/// The requests the run file `connection` counted as admitted, its whole
+/// and under `/p/*`.
+fn admitted(connection: &Connection) -> (u64, u64) {
+    let count = |sql: &str| {
+        connection
+            .query_row(sql, [], |row| row.get::<_, i64>(0))
+            .optional()
+            .unwrap()
+            .map_or(0, |count| u64::try_from(count).unwrap())
+    };
+    (
+        count("SELECT count FROM bounds_admitted WHERE id = 1"),
+        count("SELECT admitted FROM bounds_path_counts WHERE pattern = '/p/*'"),
+    )
+}
+
 /// The seed of the page `page`.
 fn seed(page: usize) -> Seed {
     Seed::Request(RequestSeed {
@@ -896,6 +932,9 @@ impl Subject {
             let resumed = start.is_none();
             let invariants = writer
                 .write(move |connection| {
+                    if start.is_some() {
+                        bound(connection)?;
+                    }
                     let invariants =
                         fixture::within(connection, goodfetch_frontier::Scope::default())?;
                     match start {
@@ -1294,9 +1333,10 @@ impl Subject {
     }
 
     /// Checks that the run file holds the work items `written`, the last
-    /// commit's, that the requests by state the Run state counts in memory
-    /// are those of `items`, every write's, and the run file's those of
-    /// `written`; with nothing left to commit, the two counts are one.
+    /// commit's, each counted once as admitted, that the requests by state
+    /// the Run state counts in memory are those of `items`, every write's,
+    /// and the run file's those of `written`; with nothing left to commit,
+    /// the two counts are one.
     fn holds(&self, items: &[Item], written: &[Item]) {
         let connection = self.reader();
         let crawl = self
@@ -1305,9 +1345,20 @@ impl Subject {
             .expect("invariant: the crawl runs until the case ends");
         let tally = crawl.state.tally();
         let read = Tally::read(&connection).unwrap();
+        let items_written = u64::try_from(written.len()).unwrap();
         assert_eq!(
-            (view(&connection), counts(&tally), counts(&read)),
-            (view_of(written), counts_of(items), counts_of(written))
+            (
+                view(&connection),
+                admitted(&connection),
+                counts(&tally),
+                counts(&read)
+            ),
+            (
+                view_of(written),
+                (items_written, items_written),
+                counts_of(items),
+                counts_of(written)
+            )
         );
         if view_of(items) == view_of(written) {
             assert_eq!(*tally, read);

@@ -37,6 +37,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use futures_util::FutureExt as _;
+use goodfetch_counted_work::{CountedWork, Row};
 use tokio::sync::{Semaphore, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -258,15 +259,20 @@ impl TaskOwner {
     /// requests in flight (ADR 0138); inline under
     /// [`BlockingPolicy::Inline`]. A panic in `work` resumes in the caller.
     ///
+    /// Each call is one hand-off to the pool, counted on `counted` as
+    /// `F1.analysis_handoffs` under either policy: an owner holds no
+    /// Counted work, so its caller gives it its Run's.
+    ///
     /// # Cancel safety
     ///
     /// Dropping the future while it waits for a permit runs nothing;
     /// once `work` started, as [`TaskOwner::blocking`].
-    pub async fn analysis<T, F>(&self, work: F) -> T
+    pub async fn analysis<T, F>(&self, counted: &CountedWork, work: F) -> T
     where
         F: FnOnce() -> T + Send + 'static,
         T: Send + 'static,
     {
+        counted.count(Row::PageAnalysisHandoffs);
         match self.policy {
             BlockingPolicy::Inline => work(),
             BlockingPolicy::Threads => {

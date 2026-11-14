@@ -591,6 +591,10 @@ impl Reading for OpenedReading {
         }
         HopRead::Document(decoded.opened(&self.run, fetched, (self.extractor, &self.readers, true)))
     }
+
+    fn work(&self) -> &CountedWork {
+        self.run.metrics().counted_work()
+    }
 }
 
 impl Pages {
@@ -1148,7 +1152,7 @@ impl FetchTiers {
             let (reading, extractor) = (run.clone(), hand_over.extractor);
             let readers = Arc::clone(&hand_over.untouched);
             run.owner()
-                .analysis(move || {
+                .analysis(run.metrics().counted_work(), move || {
                     Opened::of(&reading, &fetched, (forced, extractor), (&readers, true))
                 })
                 .await
@@ -1349,7 +1353,7 @@ impl FetchTiers {
         let extractor = chosen_extractor(&run, served.extractor);
         let signed = run
             .owner()
-            .analysis(move || {
+            .analysis(run.metrics().counted_work(), move || {
                 let signature = goodfetch_extractor::page_signature(
                     &goodfetch_extractor::Document {
                         html: &served.html,
@@ -1619,7 +1623,7 @@ impl FetchTiers {
             let check = check.clone();
             let work = run.metrics().counted_work().clone();
             run.owner()
-                .analysis(move || {
+                .analysis(run.metrics().counted_work(), move || {
                     expected_page::judge(&check, &document.url, &document.html, &headers, &work)
                 })
                 .await
@@ -1683,7 +1687,7 @@ impl FetchTiers {
         let received = run.clock().wall();
         let (block, response) = run
             .owner()
-            .analysis(move || {
+            .analysis(run.metrics().counted_work(), move || {
                 let block = pages.classify(&response, &document.html);
                 block.map(|block| (block, response))
             })

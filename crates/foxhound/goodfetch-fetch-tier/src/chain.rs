@@ -221,6 +221,10 @@ pub(crate) trait Reading: Send + Sync + 'static {
     /// Reads `fetched`'s document, an HTML one by its type: its refresh
     /// directive, which ends the read when `follows` follows it.
     fn read(&self, fetched: &Fetched, follows: &dyn Fn(&Refresh) -> bool) -> HopRead<Self::Read>;
+
+    /// The Counted work its reads count on, and each read's hand-off to
+    /// the CPU pool with them.
+    fn work(&self) -> &CountedWork;
 }
 
 /// What a [`Reading`] read of a hop's document.
@@ -243,6 +247,10 @@ impl Reading for MarkupRefresh {
             Some(refresh) if follows(&refresh) => HopRead::Refresh(refresh),
             Some(_) | None => HopRead::Document(()),
         }
+    }
+
+    fn work(&self) -> &CountedWork {
+        &self.0
     }
 }
 
@@ -372,9 +380,10 @@ async fn next_hop<R: Reading>(
     let refresh = match refresh::in_header(&fetched.url, &fetched.headers) {
         Some(refresh) => refresh,
         None if html => {
+            let counted = reading.work();
             let (reading, read) = (Arc::clone(reading), fetched.clone());
             let read = owner
-                .analysis(move || {
+                .analysis(counted, move || {
                     let at = read.url.clone();
                     reading.read(&read, &|refresh| follows(refresh, max_delay, &at))
                 })

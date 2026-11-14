@@ -177,6 +177,37 @@ fn pages_that_share_the_engines_cache_compile_each_selector_of_their_rules_once(
     );
 }
 
+/// Removal counts its page's rule list as one build (`F1.rule_list_builds`)
+/// and each rule it tests against an element as one test (`F1.rule_tests`),
+/// at least one an element while a rule is left to test; a page with no
+/// list on builds no rule list and tests no rule.
+#[test]
+fn removal_counts_its_pages_rule_list_and_each_rule_it_tests() {
+    let url = "https://news.example/article";
+    let counted = |work: &CountedWork| {
+        (
+            work.read(Row::PageRuleListBuilds),
+            work.read(Row::PageRuleTests),
+        )
+    };
+    let elements = CountedWork::default()
+        .parse_html(Row::PageParses, PAGE)
+        .select("*")
+        .length() as u64;
+    let work = CountedWork::default();
+    let off = CountedWork::default();
+
+    let _ = removed(PAGE, url, &defaults(), &work);
+    let (builds, tests) = counted(&work);
+    let _ = removed(PAGE, url, &defaults(), &work);
+    let _ = removed(PAGE, url, &Choices::default(), &off);
+
+    assert_eq!(builds, 1);
+    assert!(tests >= elements, "{tests} tests of {elements} elements");
+    assert_eq!(counted(&work), (2, 2 * tests));
+    assert_eq!(counted(&off), (0, 0));
+}
+
 /// Covers: story:5-98
 #[test]
 fn a_list_turned_off_removes_nothing() {

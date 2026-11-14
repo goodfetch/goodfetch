@@ -1104,11 +1104,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                 let _ = writeln!(
                     text,
                     "  - no bar: none is set on this cell until the owner sets one ({}).",
-                    if scenario.scenario.hostile() {
-                        "#2439, Q3"
-                    } else {
-                        "#2316"
-                    }
+                    scenario.scenario.no_bar_issue()
                 );
             }
             output_line(&mut text, scenario.scenario, cell);

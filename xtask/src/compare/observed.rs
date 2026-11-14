@@ -39,10 +39,12 @@ pub(crate) struct Observed {
     pub(crate) page_times: Vec<f64>,
 }
 
-/// The site a trial crawled: its hosts, and its pages.
+/// The site a trial crawled: its hosts, its pages, and whether its
+/// scenario serves it over TLS and HTTP/2 (#2284).
 pub(crate) struct Site<'a> {
     pub(crate) hosts: &'a [&'a str],
     pub(crate) pages: u64,
+    pub(crate) tls: bool,
 }
 
 impl Site<'_> {
@@ -187,9 +189,16 @@ pub(crate) fn observe(
         if !site_get {
             continue;
         }
-        let bytes = request["bytes"]["sent"]
+        // Over TLS and HTTP/2, a request's framed bytes depend on the
+        // client's frames and header compression, so its work is its
+        // body's bytes.
+        let counted = if site.tls { "body" } else { "bytes" };
+        let bytes = request[counted]["sent"]
             .as_u64()
-            .with_context(|| format!("the request for {target} counts no bytes sent"))?;
+            .with_context(|| format!("the request for {target} counts no {counted} sent"))?;
+        if site.tls && (request["tls"].is_null() || request["protocol"] != "h2") {
+            observed.work.other_protocol += 1;
+        }
         observed.work.requests += 1;
         observed.work.bytes += bytes;
         if redirect {

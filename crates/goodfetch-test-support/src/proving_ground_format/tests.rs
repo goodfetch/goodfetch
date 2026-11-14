@@ -11,6 +11,7 @@ fn listed() -> Value {
         "cookies": [], "message_signature": null, "tls": null, "http2": null, "status": 200,
         "timing": { "arrived_microseconds": 10, "answered_microseconds": 12 },
         "bytes": { "received": 1, "sent": 2 },
+        "body": { "received": 0, "sent": 1 },
     })
 }
 

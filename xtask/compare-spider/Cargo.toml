@@ -57,9 +57,12 @@ mimalloc = ["dep:mimalloc"]
 # no other row's Spider is built with what `spider_transformations` turns on.
 extraction = ["dep:spider_transformations", "dep:llm_readability", "dep:html-escape"]
 
-# Spider's `basic` features take native TLS, which is OpenSSL on Linux:
-# built from its source there, so no system OpenSSL is needed. The crawl is
-# plain HTTP, so TLS never runs; macOS's native TLS is the system's own.
+# Spider's `basic` features take native TLS for its `disk` feature's
+# SQLite (`sqlx`), which is OpenSSL on Linux: built from its source there,
+# so no system OpenSSL is needed; macOS's native TLS is the system's own.
+# Spider's crawl client is `reqwest`'s rustls, which verifies the
+# crawl-like scenario's certificates (#2284) against the platform's roots
+# and `SSL_CERT_FILE`.
 # Also a build dependency, so the proc-macros Spider's `disk` feature
 # builds for the host (sqlx's) link the same vendored OpenSSL.
 [target.'cfg(target_os = "linux")'.dependencies]

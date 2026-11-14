@@ -19,6 +19,9 @@
 //   defaults (`maxConcurrency` 200, robots.txt not obeyed, its storage on
 //   disk), `--concurrency` unread.
 //
+// The crawl-like scenario (#2284) runs `raw` on an `https` site, which
+// `got-scraping` fetches over HTTP/2 when ALPN offers it, its default.
+//
 // Scenario 2's cell says why Crawlee has none. It prints one line,
 // `pages=<n>`, the pages Crawlee says it handled; the comparison's same-work
 // check reads the Proving ground's own observations instead.
@@ -63,8 +66,11 @@ let pages = 0;
 // At most 16 in flight, as the other tools. Its autoscaled pool starts at
 // the crawler's desired concurrency and grows toward the limit as the system
 // allows: Crawlee's own behaviour, kept. At its defaults, no limit is set.
+// Outside the hostile pass, an `https` site's certificate is verified, which
+// Crawlee skips by default, against Node.js's roots and the Proving ground's
+// authority `NODE_EXTRA_CA_CERTS` names.
 const options = {
-  ...(scenario === "hostile" ? {} : { maxConcurrency: concurrency }),
+  ...(scenario === "hostile" ? {} : { maxConcurrency: concurrency, ignoreSslErrors: false }),
   preNavigationHooks: values.host
     ? [
         (_context, gotOptions) => {

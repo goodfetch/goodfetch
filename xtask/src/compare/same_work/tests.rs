@@ -16,6 +16,7 @@ fn whole(pages: u64) -> Work {
         requests: pages,
         bytes: 600 * pages,
         first_bytes: 600 * pages,
+        other_protocol: 0,
     }
 }
 
@@ -123,6 +124,28 @@ fn a_first_trial_served_other_bytes_is_the_one_named() {
     );
 }
 
+/// A crawl-like trial (#2284) that sent some of its requests for the site's
+/// pages over anything but TLS and HTTP/2 did other work, though it
+/// fetched the site's pages and its bytes match: it is named, and the
+/// other trials are held to the work they share.
+#[test]
+fn a_crawl_like_trial_that_left_tls_and_http2_did_other_work() {
+    let mut trials = comparison(|_, _| work(0));
+    let trial = trials
+        .trials
+        .iter_mut()
+        .find(|trial| {
+            trial.scenario == Scenario::CrawlLike && trial.cell == "scrapy" && trial.number == 2
+        })
+        .expect("invariant: the fixture holds the crawl-like scenario's scrapy trials");
+    trial.measured.work.other_protocol = 3;
+
+    assert_eq!(
+        named(&trials),
+        vec![("other_protocol", "crawl-like scrapy trial 2".to_owned())]
+    );
+}
+
 /// Every trial that misses the same page is named, though they agree with
 /// each other.
 #[test]
@@ -135,6 +158,7 @@ fn trials_that_all_miss_a_page_are_each_named() {
             requests: 3,
             bytes: 1800,
             first_bytes: 1800,
+            other_protocol: 0,
         },
         _ => work(0),
     });
@@ -289,6 +313,7 @@ fn a_browser_trial_that_never_rendered_the_links_misses_the_script_rendered_page
                 requests: 1,
                 bytes: 600,
                 first_bytes: 600,
+                other_protocol: 0,
             }
         } else {
             work(0)
@@ -360,6 +385,7 @@ fn short() -> Work {
         requests: 3,
         bytes: 1800,
         first_bytes: 1800,
+        other_protocol: 0,
     }
 }
 
@@ -543,6 +569,7 @@ fn sizes() -> SizesCell {
                                         requests: fetched,
                                         bytes: 600 * fetched,
                                         first_bytes: 600 * fetched,
+                                        other_protocol: 0,
                                     },
                                     ..Measured::default()
                                 },

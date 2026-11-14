@@ -115,6 +115,45 @@ pub(crate) enum Scenario {
     #[serde(rename = "hostile-16")]
     #[value(name = "hostile-16")]
     Hostile16,
+    /// Scenario 1 on the article site over TLS and HTTP/2, under the
+    /// Proving ground's 20 ms round trip (#2284), where requests in flight
+    /// and connection reuse decide the result.
+    #[serde(rename = "crawl-like")]
+    #[value(name = "crawl-like")]
+    CrawlLike,
+}
+
+/// How a scenario's trials reach the Proving ground.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Network {
+    /// Plain HTTP on loopback, with no latency added.
+    Loopback,
+    /// TLS from the Proving ground's local certificate authority, with
+    /// HTTP/2 offered first, through its latency proxy at a 20 ms round
+    /// trip (#2284).
+    TlsUnderRtt20,
+}
+
+impl Network {
+    /// The Proving ground's `--network-profile`.
+    pub(crate) fn network_profile(self) -> &'static str {
+        match self {
+            Self::Loopback => "none",
+            Self::TlsUnderRtt20 => "rtt-20",
+        }
+    }
+
+    /// The scheme of the site's URLs.
+    pub(crate) fn scheme(self) -> &'static str {
+        if self.tls() { "https" } else { "http" }
+    }
+
+    /// Whether the site is served over TLS, so each tool trusts the
+    /// Proving ground's certificate authority and each request for the
+    /// site's pages is held to TLS and HTTP/2.
+    pub(crate) fn tls(self) -> bool {
+        self == Self::TlsUnderRtt20
+    }
 }
 
 /// The pages of the long scenario's site.
@@ -192,7 +231,7 @@ impl Site {
 }
 
 impl Scenario {
-    pub(crate) const ALL: [Self; 11] = [
+    pub(crate) const ALL: [Self; 12] = [
         Self::Raw,
         Self::Durable,
         Self::Polite,
@@ -204,6 +243,7 @@ impl Scenario {
         Self::Raw256,
         Self::Hostile,
         Self::Hostile16,
+        Self::CrawlLike,
     ];
 
     pub(crate) fn name(self) -> &'static str {
@@ -219,18 +259,23 @@ impl Scenario {
             Self::Raw256 => "raw-256",
             Self::Hostile => "hostile",
             Self::Hostile16 => "hostile-16",
+            Self::CrawlLike => "crawl-like",
         }
     }
 
     /// The scenario whose settings each tool runs: scenario 1's for
-    /// #2316's, which change only the site or the requests in flight, and
-    /// for the hostile pages' `traps` pass, so each tool's side takes them
-    /// as `raw`.
+    /// #2316's, which change only the site or the requests in flight, for
+    /// the hostile pages' `traps` pass and for the crawl-like scenario,
+    /// which changes only the site and the network, so each tool's side
+    /// takes them as `raw`.
     pub(crate) fn settings(self) -> Self {
         match self {
-            Self::Realistic | Self::Long | Self::Raw64 | Self::Raw256 | Self::Hostile16 => {
-                Self::Raw
-            }
+            Self::Realistic
+            | Self::Long
+            | Self::Raw64
+            | Self::Raw256
+            | Self::Hostile16
+            | Self::CrawlLike => Self::Raw,
             Self::Raw
             | Self::Durable
             | Self::Polite
@@ -241,9 +286,37 @@ impl Scenario {
     }
 
     /// Whether its cells carry no bar until the owner sets one: #2316's
-    /// (#2252 Q11) and the hostile pages' (#2439, Q3).
+    /// and the crawl-like scenario's (#2252 Q11) and the hostile pages'
+    /// (#2439, Q3).
     pub(crate) fn carries_no_bar(self) -> bool {
         self.settings() != self || self.hostile()
+    }
+
+    /// The issue that says why its cells carry no bar, for one that does.
+    pub(crate) fn no_bar_issue(self) -> &'static str {
+        match self {
+            Self::Hostile | Self::Hostile16 => "#2439, Q3",
+            Self::CrawlLike => "#2284",
+            Self::Raw
+            | Self::Durable
+            | Self::Polite
+            | Self::Extraction
+            | Self::Browser
+            | Self::Realistic
+            | Self::Long
+            | Self::Raw64
+            | Self::Raw256 => "#2316",
+        }
+    }
+
+    /// How its trials reach the Proving ground: over TLS under a 20 ms
+    /// round trip in the crawl-like scenario, on loopback otherwise.
+    pub(crate) fn network(self) -> Network {
+        if self == Self::CrawlLike {
+            Network::TlsUnderRtt20
+        } else {
+            Network::Loopback
+        }
     }
 
     /// The Proving ground's tasks its trials crawl, each counted for the
@@ -261,7 +334,8 @@ impl Scenario {
             | Self::Realistic
             | Self::Long
             | Self::Raw64
-            | Self::Raw256 => &[],
+            | Self::Raw256
+            | Self::CrawlLike => &[],
         }
     }
 
@@ -285,7 +359,8 @@ impl Scenario {
             | Self::Realistic
             | Self::Long
             | Self::Hostile
-            | Self::Hostile16 => crate::rss::crawl::CONCURRENCY,
+            | Self::Hostile16
+            | Self::CrawlLike => crate::rss::crawl::CONCURRENCY,
         }
     }
 
@@ -300,7 +375,7 @@ impl Scenario {
     pub(crate) fn site(self) -> Site {
         match self {
             Self::Raw | Self::Durable | Self::Long | Self::Raw64 | Self::Raw256 => Site::Scale,
-            Self::Extraction => Site::Article,
+            Self::Extraction | Self::CrawlLike => Site::Article,
             Self::Polite => Site::MultiDomain,
             Self::Browser => Site::Rendered,
             Self::Realistic => Site::Realistic,
@@ -357,6 +432,9 @@ impl Scenario {
             }
             Self::Hostile16 => {
                 "Hostile pages at one pace: the rules each tool broke on the `traps` family at scenario 1's settings, 16 in flight and no delay"
+            }
+            Self::CrawlLike => {
+                "Crawl-like: scenario 1 on the article site over TLS and HTTP/2, under the Proving ground's 20 ms round trip"
             }
         }
     }
@@ -564,7 +642,7 @@ pub(crate) struct Cell {
 }
 
 /// Every cell, in the report's order.
-pub(crate) const CELLS: [Cell; 78] = [
+pub(crate) const CELLS: [Cell; 84] = [
     Cell {
         scenario: Scenario::Raw,
         tool: Tool::Foxhound,
@@ -1548,6 +1626,86 @@ pub(crate) const CELLS: [Cell; 78] = [
         row: Row::Main,
         status: Status::Measured(Config::Pagesift),
     },
+    Cell {
+        scenario: Scenario::CrawlLike,
+        tool: Tool::Foxhound,
+        name: "foxhound",
+        mapping: "scenario 1's settings (its maximum-throughput combination, 16 in flight) on the \
+                  article site over `https`, HTTP/2 negotiated by ALPN, the Proving ground's \
+                  certificate authority trusted for `article.localhost` in its user configuration \
+                  (`tls.trusted_cas`)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Foxhound {
+            durability: "off",
+            commit_interval: None,
+            auto: false,
+        }),
+    },
+    Cell {
+        scenario: Scenario::CrawlLike,
+        tool: Tool::Spider,
+        name: "spider",
+        mapping: "scenario 1's settings (`with_concurrency_limit(16)`, `subscribe(64)`) on the \
+                  article site over `https`, its `reqwest` client's HTTP/2 negotiated by ALPN, the \
+                  certificate authority trusted through `SSL_CERT_FILE` and certificates verified \
+                  (its default)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Spider {
+            build: SpiderBuild::Http,
+            capacity: SPIDER_CAPACITY,
+        }),
+    },
+    Cell {
+        scenario: Scenario::CrawlLike,
+        tool: Tool::Crawlee,
+        name: "crawlee",
+        mapping: "scenario 1's `CheerioCrawler` (`maxConcurrency: 16`) on the article site over \
+                  `https`, its `got-scraping` client's HTTP/2 negotiated by ALPN, the certificate \
+                  authority trusted through `NODE_EXTRA_CA_CERTS` and certificates verified \
+                  (`ignoreSslErrors: false`)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Crawlee),
+    },
+    Cell {
+        scenario: Scenario::CrawlLike,
+        tool: Tool::Scrapy,
+        name: "scrapy",
+        mapping: "scenario 1's `scrapy.Spider` (`CONCURRENT_REQUESTS` and \
+                  `CONCURRENT_REQUESTS_PER_DOMAIN` 16) on the article site over `https`, through \
+                  its HTTP/2 download handler (`H2DownloadHandler`, the `twisted-http2` extra), \
+                  the certificate authority trusted through `SSL_CERT_FILE` and certificates \
+                  verified (`DOWNLOAD_VERIFY_CERTIFICATES`)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Scrapy),
+    },
+    Cell {
+        scenario: Scenario::CrawlLike,
+        tool: Tool::CrawleeRs,
+        name: "crawlee-rs",
+        mapping: "scenario 1's `HtmlCrawler` (`max_concurrency(16)`, `persist_storage: false`) on \
+                  the article site over `https`, its `reqwest` client's HTTP/2 negotiated by ALPN, \
+                  the certificate authority trusted through `SSL_CERT_FILE` and certificates \
+                  verified (`ignore_tls_errors: false`)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::CrawleeRs),
+    },
+    Cell {
+        scenario: Scenario::CrawlLike,
+        tool: Tool::Pagesift,
+        name: "pagesift",
+        mapping: "scenario 1's crawl (`maxConcurrency: 16`, `politeness` off) on the article site \
+                  over `https`, its `pagesift-net` client's HTTP/2 negotiated by ALPN, the \
+                  certificate authority trusted through `SSL_CERT_FILE` and certificates verified \
+                  (its default)",
+        pending: &[],
+        row: Row::Main,
+        status: Status::Measured(Config::Pagesift),
+    },
 ];
 
 /// The cell at the catalog's defaults (#2175) in `scenario`, one of
@@ -1640,12 +1798,14 @@ impl Cell {
         self.scenario == Scenario::Extraction && self.name == FILTER_LISTS_OFF
     }
 
-    /// What the output check holds the cell's pages to, on the article
-    /// site: Foxhound's row with its Filter lists off with the ad allowed,
-    /// every other cell to the whole right answer. A Foxhound trial that
-    /// differs is refused; a competitor's keeps its figures, labelled.
+    /// What the output check holds the cell's pages to, in the extraction
+    /// scenario: Foxhound's row with its Filter lists off with the ad
+    /// allowed, every other cell to the whole right answer. A Foxhound
+    /// trial that differs is refused; a competitor's keeps its figures,
+    /// labelled. The crawl-like scenario crawls the same site at scenario
+    /// 1's settings, which extract nothing.
     pub(crate) fn output_check(&self) -> Option<OutputCheck> {
-        (self.scenario.site() == Site::Article).then(|| {
+        (self.scenario == Scenario::Extraction).then(|| {
             if self.filter_lists_off() {
                 OutputCheck::AdAllowed
             } else {

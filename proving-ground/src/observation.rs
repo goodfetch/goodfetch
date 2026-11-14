@@ -121,6 +121,17 @@ impl ByteCount {
     }
 }
 
+/// Which part of a request's messages counted bytes are.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Part {
+    /// Heads and framing: an HTTP/1.1 head or chunk line, an HTTP/2 frame
+    /// header or a frame that carries no body.
+    Framing,
+    /// The body's data: an HTTP/1.1 body's, or an HTTP/2 `DATA` frame's
+    /// payload.
+    Body,
+}
+
 /// The application protocol a request came on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub(crate) enum Protocol {
@@ -182,7 +193,11 @@ struct Request {
     http2: Option<Http2Stream>,
     status: Option<u16>,
     timing: Timing,
+    /// Every byte of its messages, as framed.
     bytes: ByteCount,
+    /// Its messages' body bytes alone, which no client's framing or header
+    /// compression changes.
+    body: ByteCount,
     /// The earlier request of the same host, method and target this one
     /// repeats, the latest of them.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -860,6 +875,7 @@ impl Connection {
                 answered_microseconds: None,
             },
             bytes: ByteCount::default(),
+            body: ByteCount::default(),
             repeats,
             followed_by: None,
             delivery: None,
@@ -890,10 +906,15 @@ impl Connection {
         });
     }
 
-    /// Counts bytes of a request's own messages.
-    pub(crate) fn request_bytes(&self, request: RequestId, bytes: ByteCount) {
-        self.observations
-            .update(request, |record| record.bytes.add(bytes));
+    /// Counts bytes of a request's own messages, and of their bodies when
+    /// they are `part` [`Part::Body`].
+    pub(crate) fn request_bytes(&self, request: RequestId, bytes: ByteCount, part: Part) {
+        self.observations.update(request, |record| {
+            record.bytes.add(bytes);
+            if part == Part::Body {
+                record.body.add(bytes);
+            }
+        });
     }
 
     /// Records the status of a request's final answer, as its head leaves.

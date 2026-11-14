@@ -371,54 +371,73 @@ fn short_or_past(pass: &Pass<'_>) -> Vec<Finding> {
     findings
 }
 
-/// Every trial of a pass that did other work, with its finding: each whose
-/// pages are not the site's, and every other whose work is not the one
-/// most of its scenario's trials share. A trial of a scenario that resumes,
-/// or of a row whose samples fetch pages twice, is held to the pages first
-/// served and their bytes; every other to the requests served and their
-/// bytes.
+/// The finding of a trial that did not fetch the site of `site_pages`
+/// pages over its scenario's protocol: one that left it (#2284), one of the
+/// script-rendered site that missed pages only a script links, and every
+/// other whose pages are not the site's; `None` for a trial that fetched
+/// the whole site.
+fn off_the_site(
+    pass: &Pass<'_>,
+    scenario: Scenario,
+    site_pages: u64,
+    done: &Done<'_>,
+) -> Option<Finding> {
+    let work = done.work;
+    if work.other_protocol > 0 {
+        return Some(Finding::new(
+            "other_protocol",
+            pass.subject(done),
+            format!(
+                "{} of its requests for the site's pages came over no TLS and HTTP/2",
+                work.other_protocol
+            ),
+        ));
+    }
+    if work.is_the_site_of(site_pages) {
+        return None;
+    }
+    // On the script-rendered site, every page past the first is linked
+    // only by a script: a trial that missed some never rendered their
+    // links.
+    if scenario.renders_links() && work.extra.is_empty() && work.pages > 0 {
+        return Some(Finding::new(
+            "unrendered_pages",
+            pass.subject(done),
+            format!(
+                "{} of the site's {} pages its script links not reached",
+                work.missing.len(),
+                site_pages.saturating_sub(1)
+            ),
+        ));
+    }
+    Some(Finding::new(
+        "different_pages",
+        pass.subject(done),
+        format!(
+            "{} of the site's {} pages missing and {} other pages fetched",
+            work.missing.len(),
+            site_pages,
+            work.extra.len()
+        ),
+    ))
+}
+
+/// Every trial of a pass that did other work, with its finding: each that
+/// did not fetch the site over its scenario's protocol ([`off_the_site`]),
+/// and every other whose work is not the one most of its scenario's trials
+/// share. A trial of a scenario that resumes, or of a
+/// row whose samples fetch pages twice, is held to the pages first served
+/// and their bytes; every other to the requests served and their bytes.
 fn other_work<'a, 'b>(pass: &'a Pass<'b>) -> Vec<(&'a Done<'b>, Finding)> {
     let mut findings = Vec::new();
     for scenario in pass.scenarios {
         let site_pages = scenario.site_pages(pass.site_pages);
         let mut whole = Vec::new();
         for done in pass.done.iter().filter(|done| done.scenario == *scenario) {
-            let work = done.work;
-            if work.is_the_site_of(site_pages) {
-                whole.push(done);
-                continue;
+            match off_the_site(pass, *scenario, site_pages, done) {
+                Some(finding) => findings.push((done, finding)),
+                None => whole.push(done),
             }
-            // On the script-rendered site, every page past the first is
-            // linked only by a script: a trial that missed some never
-            // rendered their links.
-            if scenario.renders_links() && work.extra.is_empty() && work.pages > 0 {
-                findings.push((
-                    done,
-                    Finding::new(
-                        "unrendered_pages",
-                        pass.subject(done),
-                        format!(
-                            "{} of the site's {} pages its script links not reached",
-                            work.missing.len(),
-                            site_pages.saturating_sub(1)
-                        ),
-                    ),
-                ));
-                continue;
-            }
-            findings.push((
-                done,
-                Finding::new(
-                    "different_pages",
-                    pass.subject(done),
-                    format!(
-                        "{} of the site's {} pages missing and {} other pages fetched",
-                        work.missing.len(),
-                        site_pages,
-                        work.extra.len()
-                    ),
-                ),
-            ));
         }
         let first_served = |done: &Done<'_>| scenario.resumes() || samples(done);
         let key = |work: &Work, first_served: bool| {

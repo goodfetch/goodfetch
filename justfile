@@ -1086,11 +1086,13 @@ rss-propose *scenarios:
 # on the Proving ground's article site, each page held to its right answer
 # (#2136: a Foxhound trial that differs is refused, a competitor's is
 # labelled), with a second Foxhound row whose Filter lists are off; 5,
-# headless browser, on its script-rendered site. Four more run scenario
+# headless browser, on its script-rendered site. Five more run scenario
 # 1's settings and carry no bar (#2316): `realistic`, on the realistic-page
 # site, pages of tens of kilobytes with 30 to 100 links; `long`, over a
-# 100,000-page site, its timed trials only; and `raw-64` and `raw-256`, at
-# 64 and 256 requests at once. Foxhound against Spider
+# 100,000-page site, its timed trials only; `raw-64` and `raw-256`, at 64
+# and 256 requests at once; and `crawl-like` (#2284), the article site over
+# TLS and HTTP/2 behind the Proving ground's `rtt-20` profile, each tool
+# trusting its local authority. Foxhound against Spider
 # 2.53.9 (xtask/compare-spider, no workspace member: its HTTP mode, and its
 # `chrome` feature's executable for scenario 5, and its `extraction`
 # feature's, which reads each page with `llm_readability`, for scenario 4;

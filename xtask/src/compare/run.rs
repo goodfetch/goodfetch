@@ -239,7 +239,10 @@ fn trial<T: serde::de::DeserializeOwned>(
     for path in &run {
         page_cache::drop_cached(path)?;
     }
-    let serving = serve(executables.proving_ground)?;
+    let serving = serve(
+        executables.proving_ground,
+        cell.scenario.network().network_profile(),
+    )?;
     let probe = std::env::current_exe().context("finding xtask's own executable")?;
     let mut command = Command::new(probe);
     command

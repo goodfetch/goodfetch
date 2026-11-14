@@ -22,6 +22,9 @@
 //!   the `Host` it sends, so `max_concurrency` 200 (its default), robots.txt
 //!   not obeyed and links on the same hostname; `--concurrency` is unread.
 //!
+//! The crawl-like scenario (#2284) runs `raw` on an `https` site, which
+//! its `reqwest` client fetches over HTTP/2 when ALPN offers it.
+//!
 //! The working folder is the trial's home. It prints one line, `pages=<n>`,
 //! the requests crawlee-rs's statistics count as handled (after a resume,
 //! the killed process's too), and its failed requests' errors on stderr;
@@ -114,7 +117,13 @@ async fn crawl(arguments: Arguments) -> Result<u64, String> {
             ..Configuration::default()
         }
     };
+    // crawlee-rs accepts any certificate by default: outside the hostile
+    // pass, an `https` site's is verified against the platform's roots
+    // and `SSL_CERT_FILE`.
     let mut options = HttpCrawlerOptions::default();
+    if scenario != Scenario::Hostile {
+        options.ignore_tls_errors = false;
+    }
     if let Some(host) = arguments.host {
         options = options.pre_navigation_hook(move |mut context| {
             let host = host.clone();

@@ -79,6 +79,7 @@ fn work_on(pages: u64, again: u64) -> Value {
         "requests": pages + again,
         "bytes": 600 * (pages + again),
         "first_bytes": 600 * pages,
+        "other_protocol": 0,
     })
 }
 
@@ -413,6 +414,7 @@ fn sized_trials() -> Value {
                             "requests": pages,
                             "bytes": 600 * pages,
                             "first_bytes": 600 * pages,
+                            "other_protocol": 0,
                         }),
                     );
                     trial["site_pages"] = json!(pages);

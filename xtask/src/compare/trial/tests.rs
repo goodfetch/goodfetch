@@ -1,8 +1,9 @@
 use std::path::Path;
 
 use super::output::traced;
-use super::{Mode, instructions_of, invocation, system_calls_of};
+use super::{Mode, Plan, cell_of, instructions_of, invocation, system_calls_of};
 use crate::compare::matrix::{self, Config, Scenario, SpiderBuild};
+use crate::rss::crawl::Site;
 
 fn spider(capacity: usize) -> Config {
     Config::Spider {
@@ -103,6 +104,67 @@ fn a_counted_run_on_the_article_site_gives_spiders_channel_the_whole_site() {
             capacity(Scenario::Raw, 64, Mode::Syscalls("counts".into())),
         ],
         [64, 1000, 1000, 4096, 64]
+    );
+}
+
+/// A crawl-like trial of `cell` (#2284) trusting the authority at
+/// `authority`.
+fn crawl_like<'a>(cell: &str, authority: &'a Path) -> Plan<'a> {
+    let (cell, config) = cell_of(Scenario::CrawlLike, cell).unwrap();
+    Plan {
+        cell,
+        config,
+        executable: Path::new("/f/goodfetch"),
+        site: Site {
+            address: "127.0.0.1:4000",
+            pages: 1000,
+            concurrency: 16,
+        },
+        mode: Mode::Timed,
+        goodfetch_variables: &[],
+        browser: None,
+        executable_pages: false,
+        certificate_authority: Some(authority),
+    }
+}
+
+/// A crawl-like trial's Foxhound trusts the Proving ground's authority for
+/// the article site's host from its user configuration, the one place
+/// `tls.trusted_cas` is taken from; another tool's home holds none.
+#[test]
+fn a_crawl_like_trials_foxhound_trusts_the_authority_from_its_user_configuration() {
+    let home = tempfile::tempdir().unwrap();
+    let other = tempfile::tempdir().unwrap();
+    let authority = Path::new("/tmp/proving ground/\"authority\".pem");
+
+    crawl_like("foxhound", authority)
+        .configure(home.path())
+        .unwrap();
+    crawl_like("scrapy", authority)
+        .configure(other.path())
+        .unwrap();
+
+    let version =
+        goodfetch_protocol::connection::ProductVersion::parse(env!("CARGO_PKG_VERSION")).unwrap();
+    let file = goodfetch_protocol::home::per_major(home.path(), &version)
+        .join(goodfetch_protocol::home::USER_CONFIGURATION_FILE);
+    let configuration: toml::Table =
+        toml::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+    assert_eq!(
+        (
+            configuration["version"].as_str(),
+            configuration["settings"]["tls"]["trusted_cas"]
+                .as_table()
+                .map(|trusted| trusted.keys().cloned().collect::<Vec<_>>()),
+            configuration["settings"]["tls"]["trusted_cas"]["article.localhost"][0].as_str(),
+            std::fs::read_dir(other.path()).unwrap().count(),
+        ),
+        (
+            Some("0.1"),
+            Some(vec!["article.localhost".to_owned()]),
+            authority.to_str(),
+            0,
+        )
     );
 }
 

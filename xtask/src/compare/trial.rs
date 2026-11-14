@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::fmt::Write as _;
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -24,6 +25,9 @@ use std::time::{Duration, Instant};
 use anyhow::{Context as _, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::home::{USER_CONFIGURATION_FILE, per_major};
 
 use crate::rss::crawl::Site;
 
@@ -123,6 +127,24 @@ pub(crate) fn request_count(address: &str) -> Result<u64> {
     answer["requests"]
         .as_u64()
         .context("the request count holds no count")
+}
+
+/// The Proving ground's certificate authority, which signs each host's
+/// leaf it serves over TLS, written to a PEM file the trial holds.
+pub(crate) fn certificate_authority(address: &str) -> Result<tempfile::NamedTempFile> {
+    let pem = ureq::get(&format!("http://{address}/certificate-authority"))
+        .call()
+        .context("reading the Proving ground's certificate authority")?
+        .body_mut()
+        .read_to_string()
+        .context("reading the Proving ground's certificate authority")?;
+    let mut file = tempfile::Builder::new()
+        .suffix(".pem")
+        .tempfile()
+        .context("creating the certificate authority's file")?;
+    file.write_all(pem.as_bytes())
+        .context("writing the certificate authority's file")?;
+    Ok(file)
 }
 
 /// The Proving ground's observations.
@@ -408,6 +430,10 @@ pub(crate) struct Plan<'a> {
     /// Whether a timed trial's sampler reads the tool's executable's own
     /// pages: the sizes cell's trials do (spec #2165).
     pub(crate) executable_pages: bool,
+    /// The Proving ground's certificate authority, a PEM file, which a
+    /// scenario served over TLS (#2284) has each tool trust: none
+    /// otherwise.
+    pub(crate) certificate_authority: Option<&'a Path>,
 }
 
 impl Plan<'_> {
@@ -476,6 +502,8 @@ impl Plan<'_> {
             if let Some(cache) = cache {
                 command.env(goodfetch_protocol::settings::BROWSERS_PATH_VARIABLE, cache);
             }
+            // Foxhound trusts the certificate authority from its user
+            // configuration, which `configure` writes.
         } else {
             // The other tools crawl from their arguments, in their data
             // folder, and print their count last on stdout.
@@ -490,6 +518,15 @@ impl Plan<'_> {
                 .stdout(Stdio::piped());
             if let Some(host) = host {
                 command.args(["--host", host]);
+            }
+            // Each tool verifies the site's certificate against its
+            // platform's roots and this authority: rustls's native roots,
+            // OpenSSL's and Python's read `SSL_CERT_FILE`, Node.js's
+            // `NODE_EXTRA_CA_CERTS`.
+            if let Some(authority) = self.certificate_authority {
+                command
+                    .env("SSL_CERT_FILE", authority)
+                    .env("NODE_EXTRA_CA_CERTS", authority);
             }
             if let Some(browser) = self.browser()? {
                 let chrome = browser.join(CHROME);
@@ -536,14 +573,20 @@ impl Plan<'_> {
         if self.kind().by_name() {
             self.start_url()
         } else {
-            format!("http://{}/sites/{}/1", self.site.address, self.site.pages)
+            format!(
+                "{}://{}/sites/{}/1",
+                self.cell.scenario.network().scheme(),
+                self.site.address,
+                self.site.pages
+            )
         }
     }
 
     /// The site's first page on its host's name.
     fn start_url(&self) -> String {
         format!(
-            "http://{}:{}/sites/{}/1",
+            "{}://{}:{}/sites/{}/1",
+            self.cell.scenario.network().scheme(),
             self.kind().host_of(1),
             self.site.port(),
             self.site.pages
@@ -681,6 +724,7 @@ impl Plan<'_> {
             &observed::Site {
                 hosts: &hosts,
                 pages: self.site.pages,
+                tls: self.cell.scenario.network().tls(),
             },
             seconds,
             records,
@@ -696,9 +740,38 @@ impl Plan<'_> {
         }
     }
 
+    /// Writes Foxhound's user configuration in `home`, where a scenario
+    /// served over TLS has it trust the Proving ground's certificate
+    /// authority for the site's hosts: `tls.trusted_cas` has Configuration
+    /// authority, so a Run's settings cannot carry it (ADR 0042). Every
+    /// other home has none, as shipped.
+    fn configure(&self, home: &Path) -> Result<()> {
+        let (Config::Foxhound { .. }, Some(authority)) = (self.config, self.certificate_authority)
+        else {
+            return Ok(());
+        };
+        let authority = authority
+            .to_str()
+            .with_context(|| format!("the authority's path {} is no text", authority.display()))?;
+        // A JSON string is a TOML basic string.
+        let authority = serde_json::to_string(authority)?;
+        let mut configuration = String::from("version = \"0.1\"\n\n[settings]\n");
+        for host in self.kind().hosts() {
+            let host = serde_json::to_string(&host)?;
+            writeln!(configuration, "tls.trusted_cas.{host} = [{authority}]")?;
+        }
+        let version = ProductVersion::parse(env!("CARGO_PKG_VERSION"))
+            .context("reading the workspace's Product version")?;
+        let major = per_major(home, &version);
+        std::fs::create_dir_all(&major).with_context(|| format!("creating {}", major.display()))?;
+        let file = major.join(USER_CONFIGURATION_FILE);
+        std::fs::write(&file, configuration).with_context(|| format!("writing {}", file.display()))
+    }
+
     /// Runs a timed trial.
     pub(crate) fn timed(&self) -> Result<Measured> {
         let home = tempfile::tempdir().context("creating the tool's data folder")?;
+        self.configure(home.path())?;
         let cache = self.cache()?;
         mark(&self.site, &self.kind().host_of(1))?;
         let started_wall = wall();
@@ -771,6 +844,7 @@ impl Plan<'_> {
     /// Runs a counted trial: its count and the work it did.
     pub(crate) fn counted(&self) -> Result<Counted> {
         let home = tempfile::tempdir().context("creating the tool's data folder")?;
+        self.configure(home.path())?;
         let cache = self.cache()?;
         mark(&self.site, &self.kind().host_of(1))?;
         let processes = self.crawl(

@@ -15,6 +15,7 @@ fn work() -> Work {
         requests: PAGES,
         bytes: 600 * PAGES,
         first_bytes: 600 * PAGES,
+        other_protocol: 0,
     }
 }
 
@@ -260,7 +261,7 @@ fn a_run_given_no_name_says_machine_not_named() {
 /// Each cell of #2316's scenarios says it carries no bar, and each measured
 /// one gives its rate, latency percentiles and peak memory; no cell of the
 /// matrix's own five says so, and the hostile pages' cells say it for
-/// #2439 (their own test). The cell at the catalog's defaults says it is
+/// #2439 and the crawl-like scenario's for #2284 (their own tests). The cell at the catalog's defaults says it is
 /// pending #2175 and gives no figure.
 #[test]
 fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
@@ -329,7 +330,10 @@ fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
                 .into_iter()
                 .map(|scenario| (
                     scenario,
-                    if scenario.carries_no_bar() && !scenario.hostile() {
+                    if scenario.carries_no_bar()
+                        && !scenario.hostile()
+                        && scenario != Scenario::CrawlLike
+                    {
                         every(scenario)
                     } else {
                         Vec::new()
@@ -338,6 +342,38 @@ fn the_new_scenarios_cells_carry_no_bar_and_give_their_figures() {
                 .collect::<Vec<_>>(),
             Vec::new(),
             vec!["foxhound defaults"],
+        )
+    );
+}
+
+/// Each cell of the crawl-like scenario says it carries no bar, for
+/// #2284, and gives its rate beside no target.
+#[test]
+fn the_crawl_like_scenarios_cells_carry_no_bar() {
+    let trials = comparison(&[]);
+
+    let report = of(&trials);
+    let markdown = markdown(&report, &trials);
+    let crawl_like = section(&markdown, Scenario::CrawlLike.title());
+
+    assert_eq!(
+        (
+            cells_saying(
+                crawl_like,
+                "  - no bar: none is set on this cell until the owner sets one (#2284)."
+            ),
+            crawl_like.contains("target"),
+        ),
+        (
+            vec![
+                "foxhound",
+                "spider",
+                "crawlee",
+                "scrapy",
+                "crawlee-rs",
+                "pagesift"
+            ],
+            false,
         )
     );
 }

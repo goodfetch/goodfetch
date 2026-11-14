@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
+use std::ffi::OsString;
+use std::path::PathBuf;
 
 use serde_json::json;
 
-use super::super::trials::CollieStopped;
+use super::super::trials::{CollieStopped, DriverApart};
 use super::*;
 
 #[test]
@@ -187,6 +189,7 @@ fn done(exercise: Exercise, tool: Contender, number: u32, commands: u64) -> Coll
         cpu_seconds: 0.5,
         wall_seconds: 1.0,
         peak_bytes: 100 << 20,
+        driver: None,
         pages: cell
             .pages()
             .iter()
@@ -478,10 +481,12 @@ fn measured_section(today: &str) -> Section {
         trial.commands = match trial.tool {
             Contender::Collie => actions * 3 / 2,
             Contender::Playwright => actions * 5 / 4,
-            arm @ (Contender::PuppeteerLocator
+            arm @ (Contender::CollieProgram
+            | Contender::PuppeteerLocator
             | Contender::PuppeteerPage
             | Contender::Stagehand
-            | Contender::AgentBrowser) => {
+            | Contender::AgentBrowser
+            | Contender::Chromiumoxide) => {
                 unreachable!("`every` runs no {}", arm.name())
             }
         };
@@ -656,11 +661,13 @@ fn the_scenario_runs_each_arm_in_every_cell_but_stagehand_and_agent_browser_in_t
         Contender::ALL.map(Contender::name),
         [
             "collie",
+            "collie_program",
             "playwright",
             "puppeteer_locator",
             "puppeteer_page",
             "stagehand",
-            "agent_browser"
+            "agent_browser",
+            "chromiumoxide"
         ]
     );
     for tool in Contender::ALL {
@@ -676,6 +683,8 @@ fn the_scenario_runs_each_arm_in_every_cell_but_stagehand_and_agent_browser_in_t
     assert!(!order.contains(&(Exercise::Sessions, Contender::AgentBrowser, 1)));
     assert!(order.contains(&(Exercise::AtOnce, Contender::AgentBrowser, 1)));
     assert!(order.contains(&(Exercise::Sessions, Contender::PuppeteerPage, 1)));
+    assert!(order.contains(&(Exercise::Sessions, Contender::Chromiumoxide, 1)));
+    assert!(order.contains(&(Exercise::Sessions, Contender::CollieProgram, 1)));
     assert!(order.contains(&(Exercise::Click, Contender::Stagehand, 1)));
     // A run of every tool, Stagehand's and agent-browser's Sessions not
     // run, did its cells' work.
@@ -692,25 +701,62 @@ fn each_tool_runs_its_own_driver_against_the_browser_xtask_launched() {
         engine: Path::new("engine"),
         driver: PathBuf::from("compare-collie/act.ts"),
         arms_driver: PathBuf::from("compare-collie-arms/act.ts"),
+        chromiumoxide: PathBuf::from("builds/goodfetch-compare-chromiumoxide"),
         browser: Path::new("chrome"),
-        goodfetch_variables: &[],
+        goodfetch_variables: &[OsString::from("GOODFETCH_TEST_SUITE")],
     };
-    for tool in [Contender::Collie, Contender::Playwright] {
-        assert_eq!(tools.script(tool), Path::new("compare-collie/act.ts"));
+    let run = |tool| {
+        let command = tools.command(tool);
+        let removed: Vec<_> = command
+            .get_envs()
+            .filter(|(_, value)| value.is_none())
+            .map(|(name, _)| name.to_owned())
+            .collect();
+        assert_eq!(removed, [OsString::from("GOODFETCH_TEST_SUITE")]);
+        let mut words = vec![command.get_program().to_owned()];
+        words.extend(command.get_args().map(ToOwned::to_owned));
+        words
+    };
+    // A Node.js driver carries out the plan for whichever tool `--tool`
+    // names.
+    for tool in [
+        Contender::Collie,
+        Contender::CollieProgram,
+        Contender::Playwright,
+    ] {
+        assert_eq!(
+            run(tool),
+            ["node", "compare-collie/act.ts", "--tool", tool.name()]
+        );
     }
-    for arm in Contender::ARMS {
-        assert_eq!(tools.script(arm), Path::new("compare-collie-arms/act.ts"));
+    for arm in Contender::ARMS
+        .into_iter()
+        .filter(|&arm| arm != Contender::Chromiumoxide)
+    {
+        assert_eq!(
+            run(arm),
+            ["node", "compare-collie-arms/act.ts", "--tool", arm.name()]
+        );
     }
+    // chromiumoxide is a Rust library: its side is a program of its own,
+    // built beside the other Rust sides, which runs that one tool and takes
+    // no `--tool`.
+    assert_eq!(
+        run(Contender::Chromiumoxide),
+        ["builds/goodfetch-compare-chromiumoxide"]
+    );
     // Stagehand's extension speaks CDP over a WebSocket of its own, which
     // Chrome opens to it only with flags of its own; every other tool's
     // browser is launched as it was.
     assert!(browser_flags(Contender::Stagehand).contains(&"--enable-unsafe-extension-debugging"));
     for tool in [
         Contender::Collie,
+        Contender::CollieProgram,
         Contender::Playwright,
         Contender::PuppeteerLocator,
         Contender::PuppeteerPage,
         Contender::AgentBrowser,
+        Contender::Chromiumoxide,
     ] {
         assert!(browser_flags(tool).is_empty(), "{}", tool.name());
     }
@@ -727,6 +773,7 @@ fn the_report_lists_each_arm_and_the_calls_its_steps_map_to() {
         ("puppeteer_page", "`page.click()`"),
         ("stagehand", "`page.locator(…).click()`"),
         ("agent_browser", "`agent-browser click`"),
+        ("chromiumoxide", "`Element::click()`"),
     ] {
         assert!(
             text.lines()
@@ -812,6 +859,94 @@ fn stagehand_is_not_measured_in_the_sessions_cell_and_an_arm_stopped_twice_is_no
     let text = markdown(&section);
     assert!(
         text.contains("- puppeteer_page: not placed, its click cell was not measured."),
+        "{text}"
+    );
+}
+
+/// Collie's program arm runs the plan as Collie's raw row does: a page it
+/// did otherwise fails the same-work check, named (issue 2406).
+#[test]
+fn a_program_arm_trial_of_other_work_is_refused_and_named() {
+    let mut trials = every_tool(2);
+    let at = trials
+        .iter()
+        .position(|trial| {
+            trial.exercise == Exercise::Navigation
+                && trial.tool == Contender::CollieProgram
+                && trial.number == 1
+        })
+        .unwrap();
+    trials[at].pages[0].status = Some(404);
+    assert_eq!(
+        kinds(&check(&measured_every_tool(trials, Vec::new()))),
+        [("different_work", "collie navigation collie_program trial 1")]
+    );
+}
+
+/// Each of Collie's rows gives, per action, its program's CPU and its
+/// engine's apart and the JSON-RPC messages it sent (issue 2406).
+#[test]
+fn collies_rows_give_the_programs_and_the_engines_cpu_apart_and_the_messages_sent() {
+    let mut trials = every_tool(2);
+    for trial in &mut trials {
+        let messages = match trial.tool {
+            Contender::Collie => 1,
+            Contender::CollieProgram => 2,
+            _ => continue,
+        };
+        // Of the tree's 0.5 s, the program's own process spent 0.125 s.
+        trial.driver = Some(DriverApart {
+            cpu_seconds: 0.125,
+            messages: trial.actions * messages,
+        });
+    }
+    let section = section(&measured_every_tool(trials, Vec::new()), "");
+    let report = serde_json::to_value(&section).unwrap();
+    let click = &report["cells"][0]["tools"];
+    let program = &click["collie_program"]["engine_apart"];
+    assert_eq!(program["program_cpu_seconds"]["median"], 0.125 / 62.0);
+    assert_eq!(program["engine_cpu_seconds"]["median"], 0.375 / 62.0);
+    assert_eq!(program["messages"]["median"], 2.0);
+    assert_eq!(click["collie"]["engine_apart"]["messages"]["median"], 1.0);
+    assert!(click["playwright"]["engine_apart"].is_null());
+    let text = markdown(&section);
+    assert!(
+        text.contains(
+            "| click | collie_program | 16.1 ms (16.1 ms–16.1 ms) | 2.0 ms (2.0 ms–2.0 ms) \
+             | 6.0 ms (6.0 ms–6.0 ms) | 2 (2–2) |"
+        ),
+        "{text}"
+    );
+}
+
+/// The program arm is placed against no Collie row, and the report says it
+/// carries no bar: ADR 0019's target is read on the raw row (issue 2406).
+#[test]
+fn the_program_arm_is_placed_against_no_row_and_carries_no_bar() {
+    let section = section(&measured_every_tool(every_tool(2), Vec::new()), "");
+    let report = serde_json::to_value(&section).unwrap();
+    assert!(report["placements"].get("collie_program").is_none());
+    let text = markdown(&section);
+    assert!(text.contains("collie_program carries no bar"), "{text}");
+}
+
+/// The report's mapping says how each of Collie's rows drives the engine:
+/// the raw row over JSON-RPC, the program arm through the SDK (issue 2406).
+#[test]
+fn each_collie_rows_mapping_says_how_it_drives_the_engine() {
+    let text = markdown(&section(
+        &measured_every_tool(every_tool(2), Vec::new()),
+        "",
+    ));
+    assert!(
+        text.lines().any(
+            |line| line.starts_with("- collie_program: ") && line.contains("@goodfetch/collie")
+        ),
+        "{text}"
+    );
+    assert!(
+        text.lines()
+            .any(|line| line.starts_with("- collie: ") && line.contains("raw JSON-RPC")),
         "{text}"
     );
 }

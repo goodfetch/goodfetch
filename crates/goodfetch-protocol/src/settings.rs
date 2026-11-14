@@ -369,6 +369,14 @@ pub struct ExplainedSetting {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub fixed_for_run: bool,
+    /// The setting its value yields to, with that setting's value and
+    /// layer, when one that is set keeps its value from taking effect:
+    /// `fetch.http_from` away from `browser` yields to the Run's
+    /// `session.source`, whose Sessions hold a login and so send their HTTP
+    /// from the browser (#2418).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub yields_to: Option<SettingLimit>,
 }
 
 /// What `config.explain` answers and `config explain --json` prints:

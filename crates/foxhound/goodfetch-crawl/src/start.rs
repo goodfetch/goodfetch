@@ -208,7 +208,8 @@ async fn start(
     let label_settings = goodfetch_fetch_tier::LabelSettings::of(&params.labels)?;
     servable::check(settings.resolved(), &label_settings)?;
     let fragments = labels::Fragments::of(settings.resolved(), &label_settings);
-    let labels = labels::Declared::of(&params.labels, fragments.clone())?;
+    let labels = labels::Declared::of(&params.labels, fragments.clone(), settings.resolved())?;
+    labels.sends_from_login_pools(settings.resolved())?;
     let datasets = pages.map_or_else(|| Datasets::declare(&params.datasets), Ok)?;
     FetchTiers::check(settings.resolved(), &labels.settings)?;
     let invariants = Invariants::of_settings(settings.resolved(), &params.labels, fragments)?;

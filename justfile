@@ -133,6 +133,7 @@ lint:
     step cargo-deny-crawlee-rs 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-crawlee-rs/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     # pagesift's side, the same.
     step cargo-deny-pagesift 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-pagesift/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
+    step cargo-deny-chromiumoxide 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-chromiumoxide/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     # Crawlee's, Scrapy's and the Collie scenario's arms' sides, no
     # workspace member either: their locks' licenses against the same
     # allowlist, read from what their frozen installs leave beside them, with
@@ -394,6 +395,7 @@ fetch:
     cargo fetch --locked --manifest-path xtask/compare-spider/Cargo.toml
     cargo fetch --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml
     cargo fetch --locked --manifest-path xtask/compare-pagesift/Cargo.toml
+    cargo fetch --locked --manifest-path xtask/compare-chromiumoxide/Cargo.toml
     pnpm install --frozen-lockfile --dir xtask/compare-crawlee
     pnpm install --frozen-lockfile --dir xtask/compare-collie-arms
     uv sync --frozen --directory xtask/compare-scrapy
@@ -1141,9 +1143,13 @@ rss-propose *scenarios:
 # the machine `--machine "<name>"` names, with the command that reruns it;
 # otherwise it fails naming the trial. A host without strace or Valgrind
 # reports that cell as not run. The Collie scenario (issue 2282) runs Collie
-# against Playwright, Guard on, and the arms, Puppeteer 25.17.0's locators
-# and page methods and Stagehand 4.4.0 with no model
-# (xtask/compare-collie-arms, its own lock), all attached to one Chrome for
+# over raw JSON-RPC, with its TypeScript SDK program arm beside it (issue
+# 2406), against Playwright, Guard on, and the arms, Puppeteer 25.17.0's locators
+# and page methods, Stagehand 4.4.0 with no model and agent-browser
+# 0.43.0's command line (xtask/compare-collie-arms, its own lock) and
+# chromiumoxide 0.9.1
+# (xtask/compare-chromiumoxide, a Rust program built like Spider's side),
+# all attached to one Chrome for
 # Testing xtask launched through a relay that counts each tool's CDP
 # commands, on the Proving ground's actionability.test and portal.test
 # pages in its cells, and gives per action the commands, CPU and wall time,
@@ -1152,8 +1158,9 @@ rss-propose *scenarios:
 # register row's Today;
 # `--scenario collie` runs it alone. It gates nothing and is no Live check;
 # run it when the 1-minute load is under 4.
-# Spider's, crawlee-rs's and pagesift's crates and the sides' packages are
-# downloaded once, free. Spider's seven builds, crawlee-rs's and pagesift's go to
+# Spider's, crawlee-rs's, pagesift's and chromiumoxide's crates and the
+# sides' packages are downloaded once, free. Spider's seven builds,
+# crawlee-rs's, pagesift's and chromiumoxide's go to
 # target/compare-spider/, or to the folder GOODFETCH_COMPARE_SPIDER_BUILDS
 # names: one outside every checkout keeps them from one measurement to the
 # next, whichever worktree measures and whatever sweeps its target/ (Cargo
@@ -1182,6 +1189,7 @@ compare profile="release" *args:
     cargo build --quiet --locked --manifest-path xtask/compare-spider/Cargo.toml --profile {{ profile }} --features extraction,mimalloc --target-dir {{ compare_spider_builds }}/spider-extraction-mimalloc
     cargo build --quiet --locked --manifest-path xtask/compare-crawlee-rs/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/crawlee-rs
     cargo build --quiet --locked --manifest-path xtask/compare-pagesift/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/pagesift
+    cargo build --quiet --locked --manifest-path xtask/compare-chromiumoxide/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/chromiumoxide
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
     uv sync --frozen --quiet --directory xtask/compare-scrapy
     pnpm install --frozen-lockfile --reporter=silent --filter goodfetch-compare-collie...
@@ -1464,7 +1472,8 @@ notices *arguments:
 # workspace's, and the sides of `just compare`: Spider's xtask/compare-spider,
 # crawlee-rs's xtask/compare-crawlee-rs, pagesift's xtask/compare-pagesift,
 # Crawlee's xtask/compare-crawlee, Scrapy's xtask/compare-scrapy and the
-# Collie scenario's arms' xtask/compare-collie-arms), against
+# Collie scenario's arms' xtask/compare-collie-arms and
+# xtask/compare-chromiumoxide), against
 # the advisory snapshot ci/advisories.toml pins (ADR 0064), offline:
 # cargo-deny's and cargo-audit's over RustSec's pinned commit, OSV-Scanner's
 # over OSV's pinned npm and PyPI databases (ci/audit.sh). Its first run
@@ -1475,6 +1484,7 @@ audit:
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-spider/Cargo.toml
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-crawlee-rs/Cargo.toml
     ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-pagesift/Cargo.toml
+    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-chromiumoxide/Cargo.toml
     ci/tool.sh osv-scanner ci/audit.sh npm xtask/compare-crawlee/pnpm-lock.yaml
     ci/tool.sh osv-scanner ci/audit.sh npm xtask/compare-collie-arms/pnpm-lock.yaml
     ci/tool.sh osv-scanner ci/audit.sh python xtask/compare-scrapy/uv.lock

@@ -3806,63 +3806,6 @@ class EventEnvelope(BaseModel):
     """Its position."""
 
 
-class ExplainedSetting(BaseModel):
-    """One setting as `config explain` shows it."""
-
-    model_config = ConfigDict(
-        extra="allow",
-    )
-    applied: bool
-    """
-    Whether this engine applies it: `false` for a key only the other
-    Product honours, which a shared file may hold (ADR 0087).
-    """
-    cap: Any | None = None
-    """An Operator policy's cap on it, if any."""
-    fixed_for_run: bool | None = None
-    """
-    Whether it is fixed for a Run's life: a resume that changes it is
-    refused with `setting_not_applicable`, and only a new Run takes
-    another value (ADRs 0102 and 0120).
-    """
-    key: str
-    """Its key."""
-    layer: SettingsLayer
-    """The layer that set it."""
-    locked_by: SettingsLayer | None = None
-    """
-    The layer that locked it, if any: an Operator policy's lock, a
-    Recipe that declares it without exposing it, or the default for an
-    honesty guarantee.
-    """
-    origin: RunOrigin | None = None
-    """For the run layer, where the value came from."""
-    preset: SettingPreset | None = None
-    """
-    When a level's preset gave the value, at `layer`, that level, which
-    `config explain` shows as "preset of `run_state.durability: full`"
-    in place of the layer (ADR 0142).
-    """
-    products: list[Product]
-    """The Products that honour it, from its Product mark (ADR 0095)."""
-    user_settable: bool | None = None
-    """
-    Whether user configuration may set it: its authority lets user
-    configuration hold it and no lower layer locked it, so a person
-    surface may offer its user-level value for editing (ADR 0031).
-    """
-    value: Any
-    """
-    The effective value, or for a key this engine does not apply, the
-    value its highest layer wrote.
-    """
-    weakens: bool
-    """
-    Whether its value weakens a guarantee class or switches off a costly
-    control, which the results it touches are marked with (ADR 0028).
-    """
-
-
 class ExportedAuditEntry(BaseModel):
     """
     One entry of an exported Audit log, one line of its JSONL: the entry
@@ -5540,6 +5483,71 @@ class EventsSubscribeParams(BaseModel):
     Whether it also takes `engine.system_info`, the Resource governor's
     periodic readings; false by default, so a subscription that reads
     only what changes sees no periodic event.
+    """
+
+
+class ExplainedSetting(BaseModel):
+    """One setting as `config explain` shows it."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    applied: bool
+    """
+    Whether this engine applies it: `false` for a key only the other
+    Product honours, which a shared file may hold (ADR 0087).
+    """
+    cap: Any | None = None
+    """An Operator policy's cap on it, if any."""
+    fixed_for_run: bool | None = None
+    """
+    Whether it is fixed for a Run's life: a resume that changes it is
+    refused with `setting_not_applicable`, and only a new Run takes
+    another value (ADRs 0102 and 0120).
+    """
+    key: str
+    """Its key."""
+    layer: SettingsLayer
+    """The layer that set it."""
+    locked_by: SettingsLayer | None = None
+    """
+    The layer that locked it, if any: an Operator policy's lock, a
+    Recipe that declares it without exposing it, or the default for an
+    honesty guarantee.
+    """
+    origin: RunOrigin | None = None
+    """For the run layer, where the value came from."""
+    preset: SettingPreset | None = None
+    """
+    When a level's preset gave the value, at `layer`, that level, which
+    `config explain` shows as "preset of `run_state.durability: full`"
+    in place of the layer (ADR 0142).
+    """
+    products: list[Product]
+    """The Products that honour it, from its Product mark (ADR 0095)."""
+    user_settable: bool | None = None
+    """
+    Whether user configuration may set it: its authority lets user
+    configuration hold it and no lower layer locked it, so a person
+    surface may offer its user-level value for editing (ADR 0031).
+    """
+    value: Any
+    """
+    The effective value, or for a key this engine does not apply, the
+    value its highest layer wrote.
+    """
+    weakens: bool
+    """
+    Whether its value weakens a guarantee class or switches off a costly
+    control, which the results it touches are marked with (ADR 0028).
+    """
+    yields_to: SettingLimit | None = None
+    """
+    The setting its value yields to, with that setting's value and
+    layer, when one that is set keeps its value from taking effect:
+    `fetch.http_from` away from `browser` yields to the Run's
+    `session.source`, whose Sessions hold a login and so send their HTTP
+    from the browser (#2418).
     """
 
 

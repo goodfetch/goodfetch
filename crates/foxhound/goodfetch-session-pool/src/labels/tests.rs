@@ -81,3 +81,36 @@ fn a_labels_session_source_that_is_no_source_is_invalid() {
         Err(SETTING_INVALID.name.to_owned())
     );
 }
+
+/// A Label's own pool holds a login when its Sessions open from a
+/// `session.source` or it declares a `login` of its own, which logs in
+/// through the browser; a fresh source, HTTP credentials or a secret alone
+/// hold none, and the Run's pool is the Run's settings' to say (#2418).
+///
+/// Covers: setting:session.source
+#[rstest]
+#[case::a_saved_identity(
+    json!({ "session": { "source": { "kind": "saved_identity", "name": "shop" } } }),
+    Some(json!({ "key": "session.source", "value": { "kind": "saved_identity", "name": "shop" }, "layer": "run" }))
+)]
+#[case::a_login_step(
+    json!({ "login": { "url": "https://shop.test/login" } }),
+    Some(json!({ "key": "login", "value": { "url": "https://shop.test/login" }, "layer": "run" }))
+)]
+#[case::a_fresh_source(json!({ "session": { "source": null } }), None)]
+#[case::http_credentials(json!({ "session": { "http_credentials": { "user": "a" } } }), None)]
+#[case::a_secret(json!({ "secrets": { "api": { "ref": "env:API" } } }), None)]
+fn a_labels_pool_holds_a_login_from_its_source_or_its_login_step(
+    #[case] settings: Value,
+    #[case] expected: Option<Value>,
+) {
+    let pools = LabelPools::of(&declared(&settings)).unwrap();
+
+    let held = (
+        pools.login(&PoolKey::Label("account".to_owned())),
+        pools.login(&PoolKey::Run),
+    );
+
+    let own = held.0.map(|login| serde_json::to_value(login).unwrap());
+    assert_eq!((own, held.1), (expected, None));
+}

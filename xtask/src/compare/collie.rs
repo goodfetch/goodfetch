@@ -5,9 +5,10 @@
 //! plan through `xtask/compare-collie/act.ts`; beside them the arms,
 //! Puppeteer's two rows, Stagehand with no model and agent-browser's
 //! command line, through `xtask/compare-collie-arms/act.ts` (issues 2443,
-//! 2441 and 2442), each read against the Collie row the pages it got
-//! right place it at; and the page-load cell ([`page_load`], issue 2319),
-//! in which each tool launches its own browser.
+//! 2441 and 2442), and chromiumoxide, through the Rust program
+//! `xtask/compare-chromiumoxide` builds (issue 2444), each read against the
+//! Collie row the pages it got right place it at; and the page-load cell
+//! ([`page_load`], issue 2319), in which each tool launches its own browser.
 //!
 //! In the six cells every tool attaches over CDP to one Chrome for Testing
 //! that xtask launched, which no tool launched: through the counting relay
@@ -39,9 +40,8 @@
 )]
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
@@ -56,10 +56,16 @@ use crate::check::Finding;
 use super::relay::{Mark, Relay};
 use super::sampler::{self, Sampler};
 use super::trial::{self, Outcome};
-use super::trials::{CollieScenario, CollieTrial, Contender, Ended, Exercise, PageDone};
+use super::trials::{
+    CollieScenario, CollieTrial, Contender, DriverApart, Ended, Exercise, PageDone,
+};
 
 pub(crate) mod page_load;
 mod section;
+mod tools;
+
+use tools::adopt_orphans;
+pub(crate) use tools::{Tools, browser_flags, skipped};
 
 pub(crate) use section::{Section, markdown, section};
 
@@ -343,76 +349,6 @@ pub(crate) fn configuration(urls: &[String]) -> Result<String> {
     Ok(text)
 }
 
-/// The executables and files a trial takes.
-pub(crate) struct Tools<'a> {
-    pub(crate) proving_ground: &'a Path,
-    /// Collie's Attached engine.
-    pub(crate) engine: &'a Path,
-    /// `xtask/compare-collie/act.ts`, which Node.js runs for Collie and
-    /// Playwright, as an absolute path.
-    pub(crate) driver: PathBuf,
-    /// `xtask/compare-collie-arms/act.ts`, which it runs for the arms
-    /// (issues 2441 and 2443), as an absolute path.
-    pub(crate) arms_driver: PathBuf,
-    /// Chrome for Testing's folder.
-    pub(crate) browser: &'a Path,
-    /// xtask's own `GOODFETCH_*` variables, which the tool runs without.
-    pub(crate) goodfetch_variables: &'a [OsString],
-}
-
-impl Tools<'_> {
-    /// The driver that runs `tool`.
-    pub(crate) fn script(&self, tool: Contender) -> &Path {
-        match tool {
-            Contender::Collie | Contender::Playwright => &self.driver,
-            Contender::PuppeteerLocator
-            | Contender::PuppeteerPage
-            | Contender::Stagehand
-            | Contender::AgentBrowser => &self.arms_driver,
-        }
-    }
-}
-
-/// The flags `tool`'s browser is launched with past every tool's: Stagehand
-/// drives it through an extension that speaks CDP over a WebSocket of its
-/// own, which Chrome opens to it only with these (issue 2441).
-pub(crate) fn browser_flags(tool: Contender) -> &'static [&'static str] {
-    match tool {
-        Contender::Stagehand => &[
-            "--enable-unsafe-extension-debugging",
-            "--remote-allow-origins=*",
-        ],
-        Contender::Collie
-        | Contender::Playwright
-        | Contender::PuppeteerLocator
-        | Contender::PuppeteerPage
-        | Contender::AgentBrowser => &[],
-    }
-}
-
-/// Why `tool` runs no trial of `exercise`, when it runs none: Stagehand
-/// and agent-browser open no Session of their own (issues 2441 and 2442).
-pub(crate) fn skipped(tool: Contender, exercise: Exercise) -> Option<&'static str> {
-    if exercise != Exercise::Sessions {
-        return None;
-    }
-    match tool {
-        Contender::Stagehand => {
-            Some("Stagehand drives the browser's one context, so it opens no Session")
-        }
-        // Its instances share the default context over `--cdp`; its binary
-        // creates browser contexts but never disposes of one.
-        Contender::AgentBrowser => Some(
-            "agent-browser has no command that closes a context it opened, so it opens no \
-             Session",
-        ),
-        Contender::Collie
-        | Contender::Playwright
-        | Contender::PuppeteerLocator
-        | Contender::PuppeteerPage => None,
-    }
-}
-
 /// A browser xtask launched, its whole tree stopped when dropped.
 struct Browser {
     child: Child,
@@ -508,13 +444,16 @@ fn oracle_outcome(address: &str, page: &PageDone) -> Result<OracleOutcome> {
         .with_context(|| format!("the oracle's answer has no outcome: {answer}"))
 }
 
-/// What the driver printed: each page, the Sessions it opened and the
-/// pages it opened with nothing to do on them.
+/// What the driver printed: each page, the Sessions it opened, the pages
+/// it opened with nothing to do on them and, a Collie driver alone, the
+/// JSON-RPC messages it sent the engine between the marks.
 #[derive(serde::Deserialize)]
 struct Printed {
     pages: Vec<DriverPage>,
     sessions: u64,
     opened: u64,
+    #[serde(default)]
+    messages: Option<u64>,
 }
 
 #[derive(serde::Deserialize)]
@@ -597,49 +536,6 @@ struct Driven {
     peak_bytes: u64,
 }
 
-/// Node.js running the driver `script`, none of this process's Goodfetch
-/// variables in its environment.
-fn node(tools: &Tools<'_>, script: &Path) -> Command {
-    let mut command = Command::new("node");
-    command.arg(script);
-    for name in tools.goodfetch_variables {
-        command.env_remove(name);
-    }
-    command
-}
-
-/// Makes the process `command` starts adopt what its descendants leave
-/// behind, such as the daemon agent-browser's command starts in a session
-/// of its own and leaves when it exits: Linux reparents each to it rather
-/// than to init, so they stay in its tree, in its figures and in
-/// [`trial::kill_tree`]'s reach.
-#[cfg(target_os = "linux")]
-#[expect(
-    unsafe_code,
-    reason = "the child marks itself a subreaper through the OS's C interface, prctl, between \
-              fork and exec"
-)]
-fn adopt_orphans(command: &mut Command) {
-    use std::os::unix::process::CommandExt as _;
-    // SAFETY: the closure runs in the forked child before exec, where only
-    // async-signal-safe calls may run: `prctl` is a system call that sets a
-    // flag on the calling process, which exec keeps, and the closure
-    // allocates nothing and takes no lock.
-    unsafe {
-        command.pre_exec(|| {
-            let on: libc::c_ulong = 1;
-            if libc::prctl(libc::PR_SET_CHILD_SUBREAPER, on) != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
-}
-
-/// Elsewhere a process left behind leaves the tree, as it did.
-#[cfg(not(target_os = "linux"))]
-fn adopt_orphans(_command: &mut Command) {}
-
 /// Runs the driver `command` in `folder`, its process tree followed by a
 /// sampler and by `relay`, and returns what it printed between the marks
 /// it asked `relay` for; or why the comparison stopped it. `subject` names
@@ -659,7 +555,7 @@ fn drive(
         .stdout(std::fs::File::create(&printed).context("creating the tool's output")?)
         .stderr(std::fs::File::create(&errors).context("creating the tool's errors")?)
         .spawn()
-        .context("running the driver with Node.js")?;
+        .context("running the driver")?;
     watcher.follow(child.id());
     relay.follow(child.id());
     let status = waited(&mut child);
@@ -709,16 +605,16 @@ pub(crate) fn trial(
     )?;
     let relay = Relay::start(port)?;
     let relayed = relay.address();
-    let mut command = node(tools, tools.script(tool));
+    let mut command = tools.command(tool);
     adopt_orphans(&mut command);
     command
-        .args(["--tool", tool.name(), "--plan"])
+        .arg("--plan")
         .arg(&plan_file)
         .arg("--cdp")
         .arg(format!("ws://{relayed}{path}"))
         .arg("--marks")
         .arg(format!("http://{relayed}"));
-    if tool == Contender::Collie {
+    if tool.drives_collie() {
         let page_urls: Vec<String> = cell
             .pages()
             .iter()
@@ -763,6 +659,13 @@ pub(crate) fn trial(
         cpu_seconds: (end.cpu_seconds - start.cpu_seconds).max(0.0),
         wall_seconds: end.at.duration_since(start.at).as_secs_f64(),
         peak_bytes: driven.peak_bytes,
+        driver: done
+            .messages
+            .filter(|_| tool.drives_collie())
+            .map(|messages| DriverApart {
+                cpu_seconds: (end.driver_cpu_seconds - start.driver_cpu_seconds).max(0.0),
+                messages,
+            }),
         pages,
         retried: None,
     }))

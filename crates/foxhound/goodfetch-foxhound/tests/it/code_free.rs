@@ -21,6 +21,7 @@ use goodfetch_test_support::{
     BROWSERS_PATH_VARIABLE, ProvingGround, ReceivedRequests, TestEnv, browser_cache,
 };
 use rstest::rstest;
+use rusqlite::Connection;
 use serde_json::{Value, json};
 
 use crate::attached;
@@ -781,12 +782,23 @@ fn rungs_run(
     run_id: &str,
     http_from: &str,
 ) -> (Vec<(String, Value)>, Value) {
+    let kinds = RUNGS.map(|kind| (kind, RUNG_PAGES));
+    rung_pages_run((engine, proving_ground), run_id, http_from, &kinds)
+}
+
+/// As [`rungs_run`], crawling pages 1 to `pages` of each of `kinds`.
+fn rung_pages_run(
+    (engine, proving_ground): (&mut Attached, &ProvingGround),
+    run_id: &str,
+    http_from: &str,
+    kinds: &[(&str, u32)],
+) -> (Vec<(String, Value)>, Value) {
     let origin = format!("https://{RUNGS_HOST}:{}", proving_ground.address().port());
-    let seeds: Vec<Value> = RUNGS
+    let seeds: Vec<Value> = kinds
         .iter()
-        .flat_map(|kind| {
+        .flat_map(|&(kind, pages)| {
             let origin = &origin;
-            (1..=RUNG_PAGES)
+            (1..=pages)
                 .map(move |page| json!({ "url": format!("{origin}/{kind}/{page}"), "label": kind }))
         })
         .collect();
@@ -855,6 +867,148 @@ fn rungs_learned(identity: &str) -> BTreeMap<String, BTreeSet<String>> {
     .collect()
 }
 
+/// An engine that trusts the Proving ground's authority for the rung site
+/// and starts the pinned browser from `env`'s Browser cache.
+fn rungs_engine(env: &TestEnv, proving_ground: &ProvingGround) -> Attached {
+    env.user_configuration(&format!(
+        "tls.trusted_cas.\"{RUNGS_HOST}\" = ['{}']\n",
+        proving_ground.description().ca.display()
+    ));
+    let cache = browser_cache(env).expect("Playwright's Chrome for Testing is installed");
+    attached_with(env, Some(Duration::from_secs(60)), |command| {
+        command.env(BROWSERS_PATH_VARIABLE, &cache);
+    })
+}
+
+/// The rung site's manifest: each page of `kinds` by path, with the
+/// Record a right reading of it gives, null where it gives none.
+fn rung_records(proving_ground: &ProvingGround, kinds: &[&str]) -> Vec<(String, Value)> {
+    let manifest: Value = serde_json::from_str(
+        &crate::frontier::fetch(
+            proving_ground,
+            &format!("http://{RUNGS_HOST}/manifest.json"),
+        )
+        .body,
+    )
+    .unwrap();
+    let mut expected: Vec<(String, Value)> = manifest["pages"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{manifest}"))
+        .iter()
+        .map(|page| {
+            (
+                page["path"].as_str().unwrap_or_default().to_owned(),
+                page["records"][0].clone(),
+            )
+        })
+        .filter(|(path, _)| {
+            kinds
+                .iter()
+                .any(|kind| path.starts_with(&format!("/{kind}/")))
+        })
+        .collect();
+    expected.sort_by(|left, right| left.0.cmp(&right.0));
+    expected
+}
+
+/// The proxy tier each domain's pool of `run_id` stands at, as its run
+/// file keeps it.
+fn proxy_tiers(env: &TestEnv, run_id: &str) -> BTreeMap<String, String> {
+    let connection = Connection::open(HomeLayout::of(env.home()).run_file(run_id)).unwrap();
+    let mut statement = connection
+        .prepare("SELECT domain_key, proxy_tier FROM pool_tiers")
+        .unwrap();
+    statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+/// Under `auto` and `fetch.http_from: learned` (#2419), a refusal of a
+/// Label's transport answers on the fetch tier first: the rung site's
+/// page that refuses the transport from page 4, saying its address is
+/// blocked, after 3 pages the transport read alike, retires the Session
+/// whose transport it refused and drops the Label's choice, so the next
+/// requests are samples, whose comparison moves the Label to
+/// `browser_fetch`; every page commits its Record, the refused one once
+/// retried, and the proxy tier stays where it was. Where the browser's
+/// run of such a sample is refused too, the proxy tier moves up and the
+/// request ends `blocked`.
+///
+/// Covers: setting:fetch.http_from, story:6-251
+#[test]
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+fn under_learned_a_refusal_of_the_transport_resamples_its_label_before_moving_the_proxy_tier() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = rungs_engine(&env, &proving_ground);
+
+    let (refused, _) = rung_pages_run(
+        (&mut engine, &proving_ground),
+        "transport-refused",
+        "learned",
+        &[("refused", 9)],
+    );
+    let (blocked, _) = rung_pages_run(
+        (&mut engine, &proving_ground),
+        "every-client-refused",
+        "learned",
+        &[("blocked", 4)],
+    );
+    let outcomes = crate::fetch_tiers::outcomes(&mut engine, "every-client-refused");
+    assert!(engine.finished());
+
+    let chosen = |run_id: &str| -> Vec<String> {
+        tiers(&env, run_id)
+            .iter()
+            .map(|entry| {
+                format!(
+                    "{}:{}",
+                    entry[1].as_str().unwrap_or_default(),
+                    entry[2].as_str().unwrap_or_default()
+                )
+            })
+            .collect()
+    };
+    let raised = |run_id: &str| -> BTreeSet<String> {
+        proxy_tiers(&env, run_id)
+            .into_values()
+            .filter(|tier| tier != "none")
+            .collect()
+    };
+    assert_eq!(
+        (
+            &refused,
+            learned_onto(&env, "transport-refused"),
+            raised("transport-refused"),
+            raised("every-client-refused"),
+            blocked.len(),
+            outcomes
+                .iter()
+                .map(|(_, kind, _)| kind.as_str().unwrap_or_default())
+                .collect::<Vec<_>>(),
+        ),
+        (
+            &rung_records(&proving_ground, &["refused"]),
+            BTreeMap::from([(
+                "refused".to_owned(),
+                BTreeSet::from(["browser_fetch".to_owned(), "http".to_owned()])
+            )]),
+            BTreeSet::new(),
+            BTreeSet::from(["datacenter".to_owned()]),
+            3,
+            vec!["succeeded", "succeeded", "succeeded", "blocked"],
+        ),
+        "{:?}\n{:?}\n{blocked:?}\n{outcomes:?}",
+        chosen("transport-refused"),
+        chosen("every-client-refused"),
+    );
+}
+
 /// Under `auto` and `fetch.http_from: learned` (#2417), a sample whose
 /// `http` run differed from its browser's runs once more, on
 /// `browser_fetch` from its browser Session's hop page, and a Label whose
@@ -877,14 +1031,7 @@ fn rungs_learned(identity: &str) -> BTreeMap<String, BTreeSet<String>> {
 fn under_learned_a_label_whose_http_differs_but_browser_fetch_matches_is_served_on_browser_fetch() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    env.user_configuration(&format!(
-        "tls.trusted_cas.\"{RUNGS_HOST}\" = ['{}']\n",
-        proving_ground.description().ca.display()
-    ));
-    let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
-    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
-        command.env(BROWSERS_PATH_VARIABLE, &cache);
-    });
+    let mut engine = rungs_engine(&env, &proving_ground);
 
     let (learned, learned_requests) =
         rungs_run((&mut engine, &proving_ground), "rungs-learned", "learned");
@@ -896,27 +1043,7 @@ fn under_learned_a_label_whose_http_differs_but_browser_fetch_matches_is_served_
     );
     assert!(engine.finished());
 
-    let manifest: Value = serde_json::from_str(
-        &crate::frontier::fetch(
-            &proving_ground,
-            &format!("http://{RUNGS_HOST}/manifest.json"),
-        )
-        .body,
-    )
-    .unwrap();
-    let mut expected: Vec<(String, Value)> = manifest["pages"]
-        .as_array()
-        .unwrap_or_else(|| panic!("{manifest}"))
-        .iter()
-        .filter(|page| page["path"] != "/")
-        .map(|page| {
-            (
-                page["path"].as_str().unwrap_or_default().to_owned(),
-                page["records"][0].clone(),
-            )
-        })
-        .collect();
-    expected.sort_by(|left, right| left.0.cmp(&right.0));
+    let expected = rung_records(&proving_ground, &RUNGS);
     // Each request the site received for `path` in the learned Run, by its
     // TLS fingerprint.
     let fingerprints = |path: &str| -> Vec<Option<String>> {
@@ -1012,6 +1139,50 @@ fn config_explain_lists_where_a_labels_http_leaves_from(
         .collect();
     assert_eq!(listed, vec![explained], "{document}");
 }
+
+/// `config explain` says why a Run whose Sessions hold a login sends its
+/// HTTP from the browser: its `fetch.http_from` away from `browser` yields
+/// to the Run's `session.source`, named with its value and its layer; a
+/// Run with no `session.source`, or that sends from the browser, yields to
+/// nothing (#2418).
+///
+/// Covers: setting:fetch.http_from, setting:session.source, command:config.explain
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+#[rstest]
+#[case::learned_with_a_login(
+    &["fetch.http_from=learned", SAVED_IDENTITY],
+    json!({"key": "session.source", "value": {"kind": "saved_identity", "name": "shop"}, "layer": "run"}),
+)]
+#[case::browser_with_a_login(&["fetch.http_from=browser", SAVED_IDENTITY], Value::Null)]
+#[case::learned_without_a_login(&["fetch.http_from=learned"], Value::Null)]
+fn config_explain_says_a_login_sends_from_the_browser(
+    #[case] set: &[&str],
+    #[case] yields_to: Value,
+) {
+    let env = TestEnv::new();
+    let output = goodfetch_test_support::cli(&env, env!("CARGO_BIN_EXE_goodfetch-foxhound"))
+        .args(["config", "explain", "fetch.http_from", "--json"])
+        .args(set.iter().flat_map(|value| ["--set", value]))
+        .run()
+        .unwrap();
+
+    assert_eq!(output.exit, Some(0), "{}", output.stderr);
+    let document: Value = serde_json::from_str(&output.stdout).unwrap();
+    let explained: Vec<&Value> = document["settings"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{document}"))
+        .iter()
+        .filter(|setting| setting["key"] == "fetch.http_from")
+        .map(|setting| &setting["yields_to"])
+        .collect();
+    assert_eq!(explained, vec![&yields_to], "{document}");
+}
+
+/// A `--set` of the Run's `session.source` to a Saved identity.
+const SAVED_IDENTITY: &str = r#"session.source={"kind":"saved_identity","name":"shop"}"#;
 
 /// The headers of each request `host` received for `target`, their names
 /// in lowercase, in order, without `host`, which each client places

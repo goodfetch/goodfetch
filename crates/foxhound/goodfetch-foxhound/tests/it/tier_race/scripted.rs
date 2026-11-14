@@ -7,7 +7,10 @@
 //! no real browser times. A program handler answers each request with no
 //! Record, and on a page of the Label `home` first enqueues the page's
 //! links under the Label `list`. Judged by what the scripted browser was
-//! asked, what the Run answered, and whether the engine ended.
+//! asked, what the Run answered, and whether the engine ended. The
+//! scripted browser opens a Session from any `session.source`, so a pool
+//! that holds a login crawls here as no installed engine yet lets it
+//! (#2418).
 #![expect(
     clippy::disallowed_methods,
     reason = "the tests run on the test Clock and Entropy (ADR 0059)"
@@ -17,7 +20,7 @@
     reason = "the scripted browser's one record of what it was asked, read once the Run ended: no order to test under loom (ADR 0060)"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -58,8 +61,9 @@ const HOST: &str = "race.test";
 /// How long the race's navigation takes to open, once it is sent.
 const NAVIGATION: Duration = Duration::from_millis(300);
 
-/// How the scripted site answers a path, on browser-fetch: its status,
-/// its headers beside its type, its markup, and how long it takes.
+/// How the scripted site answers a path, on browser-fetch and on a
+/// Session's own transport: its status, its headers beside its type (on
+/// browser-fetch), its markup, and how long it takes.
 struct Answer {
     status: u16,
     headers: Vec<(String, String)>,
@@ -76,8 +80,14 @@ type Site = BTreeMap<&'static str, Answer>;
 struct Asked {
     /// Each path browser-fetch sent.
     fetched: Vec<String>,
+    /// Each path a Session's own transport sent: a forced `http` page,
+    /// or a site file (#2422).
+    sent: Vec<String>,
     /// Each path a navigation opened, the race's or a browser run's.
     opened: Vec<String>,
+    /// Each path browser-fetch sent or a navigation opened in a Session
+    /// that opened from a `session.source`.
+    logged_in: Vec<String>,
     /// How many times the document request was asked for.
     document_requests: usize,
 }
@@ -98,6 +108,11 @@ impl Scripted {
     }
 }
 
+/// Whether `pooled` opened from a `session.source`.
+fn logged_in(pooled: &PooledSession) -> bool {
+    pooled.source.as_ref().is_some_and(Option::is_some)
+}
+
 /// `url`'s path.
 fn path_of(url: &str) -> String {
     goodfetch_frontier::Url::parse(url)
@@ -109,12 +124,17 @@ impl BrowserPages for Scripted {
     fn open<'a>(
         &'a self,
         _run_id: &'a RunId,
-        _pooled: &'a PooledSession,
+        pooled: &'a PooledSession,
         url: &'a str,
         _context: &'a CallContext,
     ) -> Opening<'a, Result<(PageId, Navigated), CallError>> {
         Box::pin(async move {
-            self.ask(|asked| asked.opened.push(path_of(url)));
+            self.ask(|asked| {
+                asked.opened.push(path_of(url));
+                if logged_in(pooled) {
+                    asked.logged_in.push(path_of(url));
+                }
+            });
             tokio::time::sleep(NAVIGATION).await;
             let number = {
                 let mut pages = self.pages.lock().unwrap();
@@ -175,14 +195,19 @@ impl BrowserPages for Scripted {
     fn fetch<'a>(
         &'a self,
         _run_id: &'a RunId,
-        _pooled: &'a PooledSession,
+        pooled: &'a PooledSession,
         _value: PageValue,
         request: &'a EngineFetch,
         _context: &'a CallContext,
     ) -> Opening<'a, Result<EngineFetched, CallError>> {
         Box::pin(async move {
             let path = path_of(&request.url);
-            self.ask(|asked| asked.fetched.push(path.clone()));
+            self.ask(|asked| {
+                asked.fetched.push(path.clone());
+                if logged_in(pooled) {
+                    asked.logged_in.push(path.clone());
+                }
+            });
             let Some(answer) = self.site.get(path.as_str()) else {
                 return Ok(EngineFetched {
                     url: request.url.clone(),
@@ -234,8 +259,9 @@ impl BrowserPages for Scripted {
     }
 }
 
-/// The HTTP tier's site, for a Label forced onto `http`: the same pages,
-/// at once.
+/// The HTTP tier's site, for a Label forced onto `http` and the site
+/// files every tier reads from a Session's own transport (#2422): the same
+/// pages, after the same time.
 struct Plain(Arc<Scripted>);
 
 /// A body sent whole.
@@ -249,11 +275,14 @@ impl Body for Whole {
 
 impl Transport for Plain {
     fn send<'a>(&'a self, hop: &'a Hop, _reuse: Reuse) -> Sending<'a, Sent> {
-        let answer = self.0.site.get(hop.url.path());
-        let (status, html) = answer.map_or((404, String::new()), |answer| {
-            (answer.status, answer.html.clone())
+        let path = hop.url.path();
+        self.0.ask(|asked| asked.sent.push(path.to_owned()));
+        let answer = self.0.site.get(path);
+        let (status, html, after) = answer.map_or((404, String::new(), Duration::ZERO), |answer| {
+            (answer.status, answer.html.clone(), answer.after)
         });
         Box::pin(async move {
+            tokio::time::sleep(after).await;
             Ok(Sent {
                 status,
                 headers: vec![
@@ -275,9 +304,11 @@ impl Transport for Plain {
 /// How a scripted crawl ended.
 #[derive(Debug)]
 pub(super) struct Ended {
-    /// What the scripted browser was asked.
+    /// What the scripted browser and the transport were asked.
     fetched: Vec<String>,
+    sent: Vec<String>,
     opened: Vec<String>,
+    logged_in: Vec<String>,
     document_requests: usize,
     /// `run.finish`'s result, none when it never answered.
     finished: Option<Value>,
@@ -312,12 +343,18 @@ fn engine(tiers: &FetchTiers) -> Engine {
     Engine::new(identity, &composition).unwrap()
 }
 
-/// The `crawl.start` of `seeds`, with `settings` over a racing Run's: one
+/// The Labels a crawl declares unless its case says: `home`, forced onto
+/// `http`, and `list`.
+fn labels() -> Value {
+    json!({ "home": { "settings": { "fetch": { "tier": "http" } } }, "list": {} })
+}
+
+/// The `crawl.start` of `seeds` of `labels`, with `settings` over a racing Run's: one
 /// sample per Label on a domain, one handler at a time, two requests at a
 /// time on a domain with no delay, so a race's navigation has room beside
 /// its browser-fetch, and the site's host mapped to an address the egress
 /// policy lets through, which no connection reaches.
-fn start(seeds: &[Value], settings: &Value) -> Value {
+fn start((seeds, labels): (&[Value], &Value), settings: &Value) -> Value {
     let mut racing = json!({
         "fetch": { "tier_race": true, "sample": { "count": 1 } },
         "politeness": { "domain": { "concurrency": 2, "delay": 0 } },
@@ -335,7 +372,7 @@ fn start(seeds: &[Value], settings: &Value) -> Value {
         "params": {
             "run_id": "race",
             "seeds": seeds,
-            "labels": { "home": { "settings": { "fetch": { "tier": "http" } } }, "list": {} },
+            "labels": labels,
             "datasets": [{ "name": "pages" }],
             "settings": racing,
         },
@@ -346,16 +383,16 @@ fn start(seeds: &[Value], settings: &Value) -> Value {
 /// the scripted browser serving `site`, with `settings` over a racing
 /// Run's, then finishes the Run.
 fn crawl(env: &TestEnv, site: Site, seeds: &[Value], settings: &Value) -> Ended {
-    crawl_unread(env, site, None, seeds, settings)
+    crawl_unread(env, site, None, (seeds, &labels()), settings)
 }
 
 /// As [`crawl`], the scripted browser's document request not read for
-/// `unread`, where some.
+/// `unread`, where some, and the seeds of `seeding` of its Labels.
 fn crawl_unread(
     env: &TestEnv,
     site: Site,
     unread: Option<Unread>,
-    seeds: &[Value],
+    seeding: (&[Value], &Value),
     settings: &Value,
 ) -> Ended {
     let scripted = Arc::new(Scripted {
@@ -369,7 +406,7 @@ fn crawl_unread(
     // as the engine is composed, are ignored.
     tiers.opened(Arc::clone(&scripted) as Arc<dyn BrowserPages>);
     let engine = engine(&tiers);
-    let start = start(seeds, settings);
+    let start = start(seeding, settings);
     let (finished, exited) = goodfetch_test_support::runtime().block_on(async {
         let clock = Clock::paused(env.start_time());
         let _subscriber =
@@ -415,7 +452,9 @@ fn crawl_unread(
         .collect();
     Ended {
         fetched: asked.fetched,
+        sent: asked.sent,
         opened: asked.opened,
+        logged_in: asked.logged_in,
         document_requests: asked.document_requests,
         finished,
         exited,
@@ -502,7 +541,8 @@ fn seed(path: &str, label: &str) -> Value {
 
 /// The race's navigation answers while browser-fetch's served page is
 /// still judged: here, while the RSL license its response names is
-/// fetched, before the Run's AI-use signals are weighed. The navigation
+/// fetched, from a Session's own transport since #2422, before the Run's
+/// AI-use signals are weighed. The navigation
 /// wins, and browser-fetch's page, dropped with its future, is closed as
 /// it drops: no served page is left, `run.finish` answers, and the engine
 /// ends once its Connection closes. Today the page stays served, and holds
@@ -542,7 +582,7 @@ fn a_page_browser_fetch_served_is_closed_when_the_navigation_wins_while_it_is_ju
 
     assert_eq!(
         (
-            ended.fetched.contains(&"/licence.xml".to_owned()),
+            ended.sent.contains(&"/licence.xml".to_owned()),
             ended.opened.iter().filter(|path| *path == "/").count(),
             ended
                 .finished
@@ -665,7 +705,7 @@ fn a_run_whose_browsers_version_was_not_read_is_warned_and_still_crawls() {
         &env,
         forced_site(),
         Some(unread.clone()),
-        &[seed("/one", "list"), seed("/two", "list")],
+        (&[seed("/one", "list"), seed("/two", "list")], &labels()),
         &forced(),
     );
 
@@ -682,6 +722,85 @@ fn a_run_whose_browsers_version_was_not_read_is_warned_and_still_crawls() {
         (
             vec![json!([BROWSER_VERSION_UNREAD, unread.to_string()])],
             json!("finished")
+        ),
+        "{ended:?}"
+    );
+}
+
+/// A pool whose Sessions open from a Saved identity sends its HTTP from
+/// the browser under `fetch.http_from: learned` (#2418): its Label's
+/// samples compare `browser_fetch` with the browser, so the site gets none
+/// of its pages from a Session's own transport, every one of them asked of
+/// a Session that holds the login, and it ends on `browser_fetch`. In the
+/// same crawl, the Label `list`, on the Run's pool, which holds none, takes
+/// the ladder: its sample sends its `http` run from the transport, and its
+/// next page is sent from the transport too, on `http`. The tiers are read
+/// from what the site was asked: `/account/1`, the sample, is opened and fetched from the
+/// browser, and `/account/2` only fetched from it, on `browser_fetch`.
+///
+/// Covers: setting:fetch.http_from, setting:session.source
+#[test]
+fn a_login_pool_sends_from_the_browser_while_the_runs_pool_takes_the_ladder() {
+    let env = TestEnv::new();
+    let site = Site::from([
+        (LEARN, page("<p>learn</p>", Duration::ZERO)),
+        ("/list/2", page("<p>list</p>", Duration::ZERO)),
+        ("/account/1", page("<p>orders</p>", Duration::ZERO)),
+        ("/account/2", page("<p>invoices</p>", Duration::ZERO)),
+    ]);
+    let shop = json!({ "kind": "saved_identity", "name": "shop" });
+
+    let ended = crawl_unread(
+        &env,
+        site,
+        None,
+        (
+            &[
+                seed(LEARN, "list"),
+                seed("/list/2", "list"),
+                seed("/account/1", "account"),
+                seed("/account/2", "account"),
+            ],
+            &json!({ "list": {}, "account": { "settings": { "session": { "source": shop } } } }),
+        ),
+        &json!({
+            "fetch": { "http_from": "learned", "sample": { "count": 1 } },
+            "politeness": { "domain": { "concurrency": 1, "delay": 0 } },
+        }),
+    );
+
+    let account = |paths: &[String]| -> BTreeSet<String> {
+        paths
+            .iter()
+            .filter(|path| path.starts_with("/account/"))
+            .cloned()
+            .collect()
+    };
+    let both = BTreeSet::from(["/account/1".to_owned(), "/account/2".to_owned()]);
+    assert_eq!(
+        (
+            account(&ended.sent),
+            [LEARN, "/list/2"].map(|path| ended.sent.contains(&path.to_owned())),
+            account(&ended.fetched),
+            account(&ended.opened),
+            account(&ended.logged_in),
+            ended
+                .logged_in
+                .iter()
+                .all(|path| path.starts_with("/account/")),
+            ended
+                .finished
+                .as_ref()
+                .map(|report| report["lifecycle"].clone()),
+        ),
+        (
+            BTreeSet::new(),
+            [true, true],
+            both.clone(),
+            BTreeSet::from(["/account/1".to_owned()]),
+            both,
+            true,
+            Some(json!("finished")),
         ),
         "{ended:?}"
     );

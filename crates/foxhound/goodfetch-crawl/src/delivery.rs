@@ -678,9 +678,9 @@ pub(crate) async fn resume(
         })
         .await;
     let left = left.map(|(left, declared, fragments, choices, declarations)| {
-        let labels = labels::Declared::of(&declared, fragments).unwrap_or_else(|error| {
+        let labels = labels::Declared::of(&declared, fragments, settings.resolved()).unwrap_or_else(|error| {
             tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier and pool");
-            labels::Declared::default()
+            labels::Declared::none(settings.resolved())
         });
         (left, (labels, choices, declarations))
     });
@@ -1383,10 +1383,21 @@ fn scored(
     let mut settlings = Vec::with_capacity(ended.len());
     let mut scores = Vec::with_capacity(ended.len());
     for mut attempt in ended {
-        let chosen = attempt.sampled.take().map(|(sampled, weighed)| {
+        let mut chosen = attempt.sampled.take().map(|(sampled, weighed)| {
             let unit = state.classify(&sampled, weighed, wall_ms(run));
             (sampled.label, sampled.domain_key, unit)
         });
+        // A refusal of the transport drops its Label's choice on the
+        // domain, which its outcome writes (#2419): never a sample's.
+        if attempt.refused {
+            let (label, domain_key) = (
+                &attempt.leased.crawl_request.label,
+                &attempt.leased.waiting.key,
+            );
+            chosen = state
+                .invalidate(label, domain_key)
+                .map(|unit| (label.clone(), domain_key.clone(), unit));
+        }
         if let Some((raced, latency)) = attempt.raced.take() {
             state.time(&raced.label, &raced.domain_key, latency);
         }
@@ -1412,18 +1423,19 @@ fn scored(
         // An attempt that escalated from its Session's own transport ran
         // again in a Session of the browser, whose answer is the attempt's:
         // the first met what only a browser serves, which says nothing of
-        // how its client fares until #2419 scores a transport's blocks.
+        // how its client fares. One its site refused on the transport
+        // retires its Session and moves no proxy tier (#2419).
+        let effect = if attempt.refused {
+            Effect::TransportRefused
+        } else {
+            effect(&attempt.answer)
+        };
         match &attempt.escalated {
             Some(escalated) => {
-                pool.settle(escalated, &waiting.key, effect(&attempt.answer), &read.pool);
+                pool.settle(escalated, &waiting.key, effect, &read.pool);
                 pool.settle(&attempt.session, &waiting.key, Effect::Neutral, &read.pool);
             }
-            None => pool.settle(
-                &attempt.session,
-                &waiting.key,
-                effect(&attempt.answer),
-                &read.pool,
-            ),
+            None => pool.settle(&attempt.session, &waiting.key, effect, &read.pool),
         }
         // A sample's `http` run sent from a Session of its own: the
         // attempt's answer is its browser run's, which says nothing of it.
@@ -1887,6 +1899,7 @@ async fn queue_outcome(
         lease,
         answer,
         taught,
+        refused: transport_refused,
         ..
     } = attempt;
     let (work_item, lease_epoch) = (leased.crawl_request.id.clone(), leased.lease_epoch);
@@ -1952,6 +1965,12 @@ async fn queue_outcome(
             let (why, retryable) = (failed.why().clone(), failed.retryable);
             let kept = kept_failure(&masks, failed.code, &failed.message, failed.details);
             match why {
+                // A refusal of the transport runs again as a sample of its
+                // Label, whose comparison may move it off the transport
+                // (#2419).
+                Why::Blocked(_) if transport_refused && policy.may_retry(tries) => {
+                    Unsuccessful::Retried(kept)
+                }
                 Why::Blocked(cause) => Unsuccessful::Blocked(cause),
                 _ if held => Unsuccessful::Failed(kept.with_fix(RETRY_AFTER_FIX)),
                 why => failure(kept, &why, retryable),

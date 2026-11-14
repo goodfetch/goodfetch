@@ -3,7 +3,9 @@
 //! each tool got right, `collie.playwright_command_ratio` beside the
 //! register row's Today, the Collie row each arm is read against (issues
 //! 2443 and 2441), the opening cell's wall time beside the commands
-//! awaited one after another, and the page-load cell's rows (issue 2319).
+//! awaited one after another, the page-load cell's rows (issue 2319), and
+//! Collie's rows' program and engine CPU apart with the JSON-RPC messages
+//! they sent (issue 2406).
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -15,8 +17,8 @@ use crate::register::document;
 
 use super::super::report::{Figure, Unit, cell_text, float, median, spread};
 use super::super::trials::{
-    AGENT_BROWSER_VERSION, CollieScenario, CollieStopped, CollieTrial, Contender, Exercise,
-    PLAYWRIGHT_VERSION, PUPPETEER_VERSION, PageDone, STAGEHAND_VERSION,
+    AGENT_BROWSER_VERSION, CHROMIUMOXIDE_VERSION, CollieScenario, CollieStopped, CollieTrial,
+    Contender, Exercise, PLAYWRIGHT_VERSION, PUPPETEER_VERSION, PageDone, STAGEHAND_VERSION,
 };
 use super::page_load::{self, LoadSection};
 use super::{ACTION_TIMEOUT_MILLISECONDS, EXERCISES, RATIO_CELLS, RATIO_ROW};
@@ -51,6 +53,20 @@ pub(crate) struct ToolFigures {
     pub(crate) peak_bytes: Figure,
     /// None in a cell of no `actionability.test` page.
     pub(crate) pages_right: Option<Tally>,
+    /// Collie's rows' alone, and only while every trial gave them.
+    pub(crate) engine_apart: Option<EngineApart>,
+}
+
+/// A Collie row's figures per action of what its program and the engine
+/// it drives each spent, and of what one sent the other (issue 2406).
+#[derive(Serialize)]
+pub(crate) struct EngineApart {
+    /// The CPU time of the driver's own process.
+    pub(crate) program_cpu_seconds: Figure,
+    /// The rest of its tree's: the engine's, which the driver started.
+    pub(crate) engine_cpu_seconds: Figure,
+    /// The JSON-RPC messages the driver sent the engine.
+    pub(crate) messages: Figure,
 }
 
 /// One cell's figures.
@@ -212,6 +228,7 @@ fn none_measured(reason: &str) -> ToolFigures {
         wall_seconds_per_action: figure(),
         peak_bytes: figure(),
         pages_right: None,
+        engine_apart: None,
     }
 }
 
@@ -236,8 +253,42 @@ fn figures(ran: &[&CollieTrial]) -> (ToolFigures, f64) {
             Unit::Bytes,
         ),
         pages_right: right(ran),
+        engine_apart: engine_apart(ran),
     };
     (figures, median(&commands))
+}
+
+/// One trial's figures of [`EngineApart`], per action.
+struct TrialApart {
+    program: f64,
+    engine: f64,
+    messages: f64,
+}
+
+/// A Collie row's program and engine apart over its trials `ran`, each per
+/// action it took; none unless every trial gave both.
+fn engine_apart(ran: &[&CollieTrial]) -> Option<EngineApart> {
+    let apart = ran
+        .iter()
+        .map(|trial| {
+            let actions = float(trial.actions);
+            let driver = trial.driver?;
+            Some(TrialApart {
+                program: driver.cpu_seconds / actions,
+                engine: (trial.cpu_seconds - driver.cpu_seconds).max(0.0) / actions,
+                messages: float(driver.messages) / actions,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    if apart.is_empty() {
+        return None;
+    }
+    let column = |pick: fn(&TrialApart) -> f64| apart.iter().map(pick).collect::<Vec<_>>();
+    Some(EngineApart {
+        program_cpu_seconds: spread(&column(|apart| apart.program), Unit::Seconds),
+        engine_cpu_seconds: spread(&column(|apart| apart.engine), Unit::Seconds),
+        messages: spread(&column(|apart| apart.messages), Unit::Count),
+    })
 }
 
 /// The Collie scenario's section of the report, its ratio held to the
@@ -394,10 +445,13 @@ fn placement(arm: Contender, trials_run: &[CollieTrial], stopped: &[CollieStoppe
 /// The calls each tool's steps map to, as the drivers make them.
 fn mapping(tool: Contender) -> String {
     match tool {
-        Contender::Collie => {
-            "Collie's TypeScript SDK, `locator(…).click()`, `.fill()` and `.press()`, the Guard on"
-                .to_owned()
-        }
+        Contender::Collie => "Collie's Attached engine over raw JSON-RPC, `locator.click`, \
+            `locator.fill` and `locator.press` as the protocol's catalog names them, the Guard on"
+            .to_owned(),
+        Contender::CollieProgram => "Collie's TypeScript SDK `@goodfetch/collie`, \
+            `locator(…).click()`, `.fill()` and `.press()`, the Guard on, its Connection over the \
+            Attached engine the driver starts, whose stderr the program does not read"
+            .to_owned(),
         Contender::Playwright => format!(
             "Playwright {PLAYWRIGHT_VERSION}, `locator(…).click()`, `.fill()` and `.press()`, \
              its actionability checks on"
@@ -409,7 +463,8 @@ fn mapping(tool: Contender) -> String {
         ),
         Contender::PuppeteerPage => format!(
             "Puppeteer {PUPPETEER_VERSION}'s page methods, `page.click()`, `page.type()`, and \
-             `page.focus()` then `page.keyboard.press()`; its click checks nothing"
+             `page.focus()` then `page.keyboard.press()`; its click waits for nothing and \
+             fails at once on a target that is missing or has no box"
         ),
         Contender::Stagehand => format!(
             "Stagehand {STAGEHAND_VERSION} with no model, `page.locator(…).click()` and \
@@ -421,6 +476,13 @@ fn mapping(tool: Contender) -> String {
              daemon, with an `eval` after each `open` for the status `open` does not answer; its \
              click checks once that its target is visible, enabled, in the viewport and not \
              covered, and does not wait"
+        ),
+        Contender::Chromiumoxide => format!(
+            "chromiumoxide {CHROMIUMOXIDE_VERSION}, `page.find_element(…)` then \
+             `Element::click()`, `.click()` then `.type_str()`, and `.focus()` then \
+             `.press_key()`; its click scrolls, finds a clickable point and sends the mouse \
+             events, waits for nothing and fails at once on a target that is detached or has \
+             no box"
         ),
     }
 }
@@ -529,10 +591,11 @@ fn ratios_text(text: &mut String, ratios: &[CommandRatio], today: &Today) {
 /// placed any.
 const ARMS_INTRO: &str = "Beside them the arms, each attached the same way, through its own \
     library or, for agent-browser, its command line: Puppeteer's locators and its page methods, \
-    agent-browser's command line, and Stagehand with no model, whose browser is launched with \
-    `--enable-unsafe-extension-debugging` and `--remote-allow-origins=*` for the extension it \
-    drives the browser through. That extension runs in the browser's processes, so Stagehand's \
-    CPU and memory leave its work out, while its CDP commands pass the relay and are counted. \
+    agent-browser's command line, chromiumoxide through a Rust program of its own, and Stagehand \
+    with no model, whose browser is launched with `--enable-unsafe-extension-debugging` and \
+    `--remote-allow-origins=*` for the extension it drives the browser through. That extension \
+    runs in the browser's processes, so Stagehand's CPU and memory leave its work out, while its \
+    CDP commands pass the relay and are counted. \
     Stagehand drives the browser's one context, so it is not measured in the Sessions cell. \
     agent-browser runs each step as a command, a process of its own that hands it to a daemon the \
     first one started; the daemon is in agent-browser's process tree, and each command's CPU \
@@ -568,7 +631,7 @@ pub(crate) fn markdown(section: &Section) -> String {
     };
     let _ = writeln!(
         text,
-        "Collie's Attached engine, through its TypeScript SDK, against Playwright with its \
+        "Collie's Attached engine, over raw JSON-RPC, against Playwright with its \
          actionability checks on (no `force`), both attached over CDP to one Chrome for Testing \
          {} that xtask launched, through the counting relay. {trials} trials of each tool in each \
          cell, interleaved in random order, each in a fresh process against a fresh Proving ground \
@@ -602,6 +665,7 @@ pub(crate) fn markdown(section: &Section) -> String {
         }
     }
     opening_text(&mut text, cells);
+    program_text(&mut text, cells);
     text.push_str("\nPages of `actionability.test` right, over every cell:\n\n");
     for (tool, right) in pages_right {
         let _ = write!(text, "- {tool}: {} of {}", right.right, right.ran);
@@ -630,6 +694,59 @@ pub(crate) fn markdown(section: &Section) -> String {
     ratios_text(&mut text, ratios, today);
     page_load::markdown(&mut text, loads);
     text
+}
+
+/// Collie's rows' program and engine CPU apart and the JSON-RPC messages
+/// they sent, per action, appended to `text` when the program arm ran; it
+/// has no bar (issue 2406).
+fn program_text(text: &mut String, cells: &[CellFigures]) {
+    let (raw, program) = (Contender::Collie.name(), Contender::CollieProgram.name());
+    if !cells.iter().any(|cell| cell.tools.contains_key(program)) {
+        return;
+    }
+    let _ = writeln!(
+        text,
+        "\n{program} drives the same engine as {raw} through the TypeScript SDK, its Connection \
+         over the engine the driver starts: unlike the SDK's own start of the engine, the \
+         program does not read the engine's stderr. {program} carries no bar: ADR \
+         0019's target is read on the {raw} row alone, over raw JSON-RPC. Per action, the \
+         program's CPU is its driver's own process, the engine's the rest of the tree, and the \
+         messages are those the driver sent the engine:\n"
+    );
+    text.push_str(
+        "| Cell | Tool | Wall | Program CPU | Engine CPU | JSON-RPC messages |\n\
+         |---|---|---:|---:|---:|---:|\n",
+    );
+    for cell in cells {
+        for tool in [raw, program] {
+            let Some(figures) = cell.tools.get(tool) else {
+                continue;
+            };
+            let apart = figures.engine_apart.as_ref().map_or_else(
+                || {
+                    [
+                        "not measured".to_owned(),
+                        "not measured".to_owned(),
+                        "not measured".to_owned(),
+                    ]
+                },
+                |apart| {
+                    [
+                        cell_text(&apart.program_cpu_seconds),
+                        cell_text(&apart.engine_cpu_seconds),
+                        cell_text(&apart.messages),
+                    ]
+                },
+            );
+            let _ = writeln!(
+                text,
+                "| {} | {tool} | {} | {} |",
+                cell.exercise.name(),
+                cell_text(&figures.wall_seconds_per_action),
+                apart.join(" | ")
+            );
+        }
+    }
 }
 
 /// The opening cell's wall time per page opened beside the CDP commands

@@ -1532,6 +1532,118 @@ fn a_label_whose_settings_can_never_be_served_is_refused_at_the_runs_start(
     );
 }
 
+/// A Saved identity's Session source, which gives the Sessions that open
+/// from it a login.
+fn shop() -> Value {
+    json!({ "kind": "saved_identity", "name": "shop" })
+}
+
+/// A pool whose Sessions hold a login, from a `session.source` (#2418),
+/// never sends from a Session's own transport, so an explicit
+/// `fetch.http_from: transport` where its Sessions open, the Run's for the
+/// Run's pool and a Label's own for its requests, conflicts with the
+/// identity `session.source` fixed: the start is refused with
+/// `setting_locked`, whose `limit` names `session.source`, its value and
+/// the layer that set it (ADR 0083).
+///
+/// Covers: setting:fetch.http_from, setting:session.source, error:setting_locked
+#[rstest::rstest]
+#[case::a_labels_own_login_pool(
+    json!({}),
+    json!({ "account": { "settings": { "session": { "source": shop() }, "fetch": { "http_from": "transport" } } } })
+)]
+#[case::the_runs_login_pool(
+    json!({ "session": { "source": shop() }, "fetch": { "http_from": "transport" } }),
+    json!({})
+)]
+#[case::a_label_on_the_runs_login_pool(
+    json!({ "session": { "source": shop() } }),
+    json!({ "list": { "settings": { "fetch": { "http_from": "transport" } } } })
+)]
+fn transport_on_a_pool_that_holds_a_login_is_refused_at_the_runs_start(
+    #[case] settings: Value,
+    #[case] labels: Value,
+) {
+    let env = TestEnv::new();
+
+    let refused = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "login",
+                        "seeds": seeds(1),
+                        "labels": labels,
+                        "settings": settings,
+                    }),
+                    &mut |_| Reply::Silent,
+                )
+                .await
+        },
+    );
+
+    let refusal = &refused["error"]["data"];
+    let message = refused["error"]["message"].as_str().unwrap_or_default();
+    assert_eq!(
+        (
+            json!([refusal["code"], refusal["key"], refusal["layer"]]),
+            &refusal["limit"],
+            message.contains("`fetch.http_from`") && message.contains("`session.source`"),
+        ),
+        (
+            json!(["setting_locked", "fetch.http_from", "run"]),
+            &json!({ "key": "session.source", "value": shop(), "layer": "run" }),
+            true,
+        ),
+        "{refused}"
+    );
+}
+
+/// An inherited `fetch.http_from` yields to a pool's login (ADR 0083): a
+/// Label whose own pool holds one under the Run's `transport`, and a
+/// login pool under `learned`, start, their requests sent from the
+/// browser (#2418).
+///
+/// Covers: setting:fetch.http_from, setting:session.source
+#[rstest::rstest]
+#[case::a_labels_login_pool_under_the_runs_transport(
+    json!({ "fetch": { "http_from": "transport" } }),
+    json!({ "account": { "settings": { "session": { "source": shop() } } } })
+)]
+#[case::the_runs_login_pool_under_learned(
+    json!({ "session": { "source": shop() }, "fetch": { "http_from": "learned" } }),
+    json!({})
+)]
+#[case::a_labels_login_pool_under_its_own_learned(
+    json!({}),
+    json!({ "account": { "settings": { "session": { "source": shop() }, "fetch": { "http_from": "learned" } } } })
+)]
+fn a_login_pool_under_a_value_that_yields_starts(#[case] settings: Value, #[case] labels: Value) {
+    let env = TestEnv::new();
+
+    let started = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "login",
+                        "seeds": seeds(1),
+                        "labels": labels,
+                        "settings": settings,
+                    }),
+                    &mut |_| Reply::Silent,
+                )
+                .await
+        },
+    );
+
+    assert_eq!(started["result"]["run_id"], "login", "{started}");
+}
+
 /// A Label keeping its URLs' fragments on a tier that runs the page's
 /// scripts, forced or chosen by the engine, starts, as does a Label
 /// dropping them on a forced `http` tier (ADR 0120).

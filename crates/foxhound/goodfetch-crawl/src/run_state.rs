@@ -127,9 +127,10 @@ pub(crate) struct Drawn {
     pub(crate) transport: Option<DrawnSession>,
     /// The Session whose own transport reads the site files the attempt
     /// reads, robots.txt and the AI-use signal files, when neither of the
-    /// others sends from one (#2422); none when its pool has no room for
-    /// one and none is open, and the attempt's Session reads them from
-    /// its own transport.
+    /// others sends from one (#2422), of the Run's pool when the attempt's
+    /// pool holds a login (#2418); none when its pool has no room for one
+    /// and none is open, and the attempt's Session reads them from its own
+    /// transport, which never happens to a pool that holds a login.
     pub(crate) site_files: Option<DrawnSession>,
 }
 
@@ -225,6 +226,20 @@ impl Learned {
         self.counted
             .0
             .remove(&(sampled.label.clone(), sampled.domain_key.clone()));
+        unit
+    }
+
+    /// Samples `label` on `domain_key` again at once, its transport having
+    /// been refused (#2419); answers the unit its choice was dropped for,
+    /// which its attempt's outcome writes into the run file in place of
+    /// any count kept for it.
+    pub(crate) fn invalidate(&mut self, label: &str, domain_key: &str) -> Option<Unit> {
+        let unit = self.choices.invalidate(label, domain_key).cloned();
+        if unit.is_some() {
+            self.counted
+                .0
+                .remove(&(label.to_owned(), domain_key.to_owned()));
+        }
         unit
     }
 
@@ -701,7 +716,8 @@ impl RunState {
     /// there (ADR 0021), else, when the Run races its tiers, as a sample
     /// while its Label on its domain is due one, else as a race, else as
     /// its Label on its domain learned, its HTTP sent from the client its
-    /// Label's `fetch.http_from`, else the Run's, says. A sample whose
+    /// Label's `fetch.http_from`, else the Run's, says, or from the browser
+    /// when its pool holds a login (#2418). A sample whose
     /// `http` run is sent from the transport draws a second Session for
     /// that run in the same draw. While the Run reads site files, an
     /// attempt whose Sessions all send from the browser draws, in the same
@@ -726,7 +742,7 @@ impl RunState {
             tier: FetchTier::Browser,
             forced: None,
         });
-        let http_from = labels.settings.http_from(&request.label, drawing.http_from);
+        let http_from = labels.http_from(&request.label, drawing.http_from);
         let from = if http_from.from_transport() {
             SendsFrom::Transport
         } else {
@@ -782,21 +798,37 @@ impl RunState {
             self.drawn_session((&labels.pools, &key), transport, SendsFrom::Transport)
         });
         // A site file is never read from a browser page, nor from a client
-        // other than a Session's own transport (#2422).
+        // other than a Session's own transport (#2422). A pool that holds a
+        // login has its read by a Session of the Run's pool, drawn even
+        // when it must make room, so its own Sessions' transports send
+        // nothing (#2418).
+        let login = labels.login(&request.label).is_some();
+        let reading = if login { PoolKey::Run } else { key.clone() };
         let site_files = (drawing.reads_site_files
             && sends_from == SendsFrom::Browser
             && transport.is_none())
         .then(|| {
-            self.pool.draw_reusing(
-                &key,
-                domain_key,
-                SendsFrom::Transport,
-                &drawing.settings,
-                drawing.wall.0,
-            )
+            let (key, wall) = (&reading, drawing.wall.0);
+            if login {
+                Some(self.pool.draw(
+                    key,
+                    domain_key,
+                    SendsFrom::Transport,
+                    &drawing.settings,
+                    wall,
+                ))
+            } else {
+                self.pool.draw_reusing(
+                    key,
+                    domain_key,
+                    SendsFrom::Transport,
+                    &drawing.settings,
+                    wall,
+                )
+            }
         })
         .flatten()
-        .map(|reader| self.drawn_session((&labels.pools, &key), reader, SendsFrom::Transport));
+        .map(|reader| self.drawn_session((&labels.pools, &reading), reader, SendsFrom::Transport));
         Drawn {
             leased,
             session,
@@ -837,6 +869,12 @@ impl RunState {
     /// Takes the sample `sampled`, as [`Learned::classify`] does.
     pub(crate) fn classify(&mut self, sampled: &Sampled, weighed: Weighed, now: u64) -> Unit {
         self.learned.classify(sampled, weighed, now)
+    }
+
+    /// Samples `label` on `domain_key` again at once, its transport having
+    /// been refused ([`Learned::invalidate`]).
+    pub(crate) fn invalidate(&mut self, label: &str, domain_key: &str) -> Option<Unit> {
+        self.learned.invalidate(label, domain_key)
     }
 
     /// Takes `latency`, the browser-fetch latency of a race of `label` on

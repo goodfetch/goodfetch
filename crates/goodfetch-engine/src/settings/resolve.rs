@@ -15,6 +15,7 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
+use goodfetch_protocol::entries::YIELDING;
 use goodfetch_protocol::run::RUN_STATE_DURABILITY;
 use goodfetch_protocol::run::durability::{
     BATCH_THRESHOLD_SHAPE, BatchThreshold, durability_preset,
@@ -406,6 +407,7 @@ impl Resolved {
                 weakens: effective.weakens,
                 user_settable: effective.locked_by.is_none() && user_settable(key),
                 fixed_for_run: keys::fixed_for_run(key),
+                yields_to: self.yields_to(key, &effective.value),
             })
             .chain(
                 self.unapplied
@@ -423,6 +425,7 @@ impl Resolved {
                         weakens: false,
                         user_settable: false,
                         fixed_for_run: keys::fixed_for_run(key),
+                        yields_to: None,
                     }),
             )
             .filter(|setting| wanted(&setting.key))
@@ -433,6 +436,24 @@ impl Resolved {
             files,
             settings,
         }
+    }
+
+    /// The setting `key`'s `value` yields to, with its value and layer:
+    /// the first rule of [`YIELDING`] whose values hold `value` and whose
+    /// setting is set for the Run (#2418).
+    fn yields_to(&self, key: &str, value: &Value) -> Option<SettingLimit> {
+        YIELDING
+            .into_iter()
+            .filter(|rule| rule.key.name == key && (rule.when)(value))
+            .find_map(|rule| {
+                self.effective(rule.to)
+                    .filter(|to| !to.value.is_null())
+                    .map(|to| SettingLimit {
+                        key: rule.to.name.to_owned(),
+                        value: to.value.clone(),
+                        layer: to.layer,
+                    })
+            })
     }
 }
 

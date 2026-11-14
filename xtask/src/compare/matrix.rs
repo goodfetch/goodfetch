@@ -547,6 +547,10 @@ pub(crate) const CRAWLEE_RS_FOLDER: &str = "crawlee-rs";
 /// The folder of pagesift's side's build among the Rust sides' builds.
 pub(crate) const PAGESIFT_FOLDER: &str = "pagesift";
 
+/// The folder of chromiumoxide's side's build among the Rust sides' builds,
+/// for the Collie scenario's chromiumoxide arm (issue 2444).
+pub(crate) const CHROMIUMOXIDE_FOLDER: &str = "chromiumoxide";
+
 /// What a cell's row is read for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]

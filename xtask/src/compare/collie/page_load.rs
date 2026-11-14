@@ -288,7 +288,7 @@ pub(crate) fn trial(
     let folder = tempfile::tempdir().context("creating the trial's folder")?;
     let relay = Relay::marks_only()?;
     let tool = row.tool();
-    let mut command = super::node(tools, &tools.driver.with_file_name("load.ts"));
+    let mut command = super::tools::node(tools, &tools.driver.with_file_name("load.ts"));
     command
         .args(["--tool", tool.name(), "--url"])
         .arg(format!("http://{HOST}:{port}{}", page.path()))
@@ -321,10 +321,12 @@ pub(crate) fn trial(
                 command.arg("--routed");
             }
         }
-        Contender::PuppeteerLocator
+        Contender::CollieProgram
+        | Contender::PuppeteerLocator
         | Contender::PuppeteerPage
         | Contender::Stagehand
-        | Contender::AgentBrowser => {
+        | Contender::AgentBrowser
+        | Contender::Chromiumoxide => {
             bail!("the page-load cell has no row of {}", tool.name())
         }
     }
@@ -601,11 +603,13 @@ pub(crate) fn markdown(text: &mut String, section: &LoadSection) {
     for figures in &section.rows {
         let counters = match figures.row.tool() {
             Contender::Collie => format!("missing ({COUNTERS_ISSUE})"),
-            Contender::Playwright
+            Contender::CollieProgram
+            | Contender::Playwright
             | Contender::PuppeteerLocator
             | Contender::PuppeteerPage
             | Contender::Stagehand
-            | Contender::AgentBrowser => "n/a".to_owned(),
+            | Contender::AgentBrowser
+            | Contender::Chromiumoxide => "n/a".to_owned(),
         };
         let _ = writeln!(
             text,

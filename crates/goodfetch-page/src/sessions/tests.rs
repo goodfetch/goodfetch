@@ -8,7 +8,8 @@
 //! hold the Run, its browsers and its egress relay forever. The other ends
 //! a page past its memory cap as its watch does: a page found in neither
 //! the open pages nor the ended ones would answer `closed`. A last one
-//! reads which Sessions interception alone holds (#2435).
+//! reads which Sessions interception alone holds (#2435), and one which
+//! Session's end the run file waits for (#2168).
 #![expect(
     clippy::disallowed_methods,
     reason = "tests run on the test Clock and Entropy (ADR 0059)"
@@ -39,6 +40,7 @@ use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::run::{RunId, RunKind, Tags};
 use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 use goodfetch_test_support::TestEnv;
+use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::sync::watch;
@@ -76,6 +78,13 @@ const STOPPED_OPEN: Operation = Operation {
 const ENDED_PAST_CAP: Operation = Operation {
     name: "test.ended_past_cap",
     description: "Ends a page past its memory cap and reads it after.",
+    ..STOPPED_OPEN
+};
+
+/// Opens a Session as its opener says and ends it.
+const SESSION_ENDED: Operation = Operation {
+    name: "test.session_ended",
+    description: "Opens a Session and ends it, counting the commits its end made.",
     ..STOPPED_OPEN
 };
 
@@ -198,6 +207,35 @@ async fn stopped_open(params: Value, context: CallContext) -> Result<Value, Call
     Ok(json!({ "opened": opened.is_ok(), "left": left }))
 }
 
+/// `test.session_ended`: starts the Run `run_id`, reaches it in a
+/// Sessions table of its own and opens a Session as `opener` says, the
+/// Run's default one or one of its crawl's Session pool; then ends it as a
+/// close or a retirement does. Answers how many commits of the Run's run
+/// state its end made.
+async fn session_ended(params: Value, context: CallContext) -> Result<Value, CallError> {
+    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
+    let run = started(&run_id, &context).await?;
+    let sessions = table();
+    sessions.reach(&run, &context).await?;
+    let opener = match params["opener"].as_str().unwrap() {
+        "default" => Opener::Default,
+        _ => Opener::Pool {
+            address_ordinal: None,
+        },
+    };
+    let position = sessions.open_held(&run, None, opener, &context).await?;
+    let session = super::session_id(run.id(), position);
+    let open = Arc::clone(&sessions.state.lock().await.sessions[&session]);
+    let commits = run.state().commits();
+    let before = *commits.borrow();
+
+    sessions.session_ended(&open, &session).await.unwrap();
+
+    let made = *commits.borrow() - before;
+    run.cancellation().cancel();
+    Ok(json!({ "commits": made }))
+}
+
 /// The engine's operations, the page crate's and the test's.
 fn engine() -> Engine {
     let identity = Identity {
@@ -211,7 +249,8 @@ fn engine() -> Engine {
         .with(
             Contribution::new("test")
                 .with_handler(Handler::new(&STOPPED_OPEN, stopped_open))
-                .with_handler(Handler::new(&ENDED_PAST_CAP, ended_past_cap)),
+                .with_handler(Handler::new(&ENDED_PAST_CAP, ended_past_cap))
+                .with_handler(Handler::new(&SESSION_ENDED, session_ended)),
         );
     Engine::new(identity, &composition).unwrap()
 }
@@ -354,4 +393,24 @@ fn interception_alone_holds_every_session_no_relay_is_under_and_never_a_relayed_
             "borrowed",
         ]
     );
+}
+
+/// A Session the Run's run file records, its default one, ends in a
+/// commit of the run file, which records it closed; a Session of the
+/// crawl's Session pool, which the run file never records, ends in none:
+/// at `batch`, retiring one is no barrier that commits the open batch
+/// (#2168).
+#[rstest]
+#[case::the_runs_default_session("default", 1)]
+#[case::a_session_of_its_crawls_pool("pool", 0)]
+fn only_a_session_the_run_file_records_commits_its_end(#[case] opener: &str, #[case] commits: u64) {
+    let env = TestEnv::new();
+
+    let reply = call(
+        &env,
+        "test.session_ended",
+        json!({ "run_id": "session-ended", "opener": opener }),
+    );
+
+    assert_eq!(reply["result"], json!({ "commits": commits }), "{reply}");
 }

@@ -14,8 +14,14 @@
 //! so a crawl fetches each origin's robots.txt once for all its pages; the
 //! fetch itself, which the caller gives, is sent under a Permit of its
 //! domain key, so it counts in the domain's Politeness. Within one engine,
-//! the readers of one origin wait for one fetch, and an origin is held in
-//! memory only while a reader of it is in flight.
+//! the readers of one origin wait for one fetch, and an origin's reading is
+//! held in memory only while a reader of it is in flight. A Run keeps the
+//! parse of each copy it read while that copy is fresh, at most
+//! [`KEPT_BYTES`] of them, so it reads and parses each origin's robots.txt
+//! once a day (ADR 0140's E6): a fresh copy another run replaced meanwhile
+//! is not read again until this one ages, and a copy that is not kept,
+//! a failed fetch's or one the file did not take, is not kept in memory
+//! either, so the next reader reads the file and fetches as before.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -33,6 +39,18 @@ use tokio::sync::OnceCell;
 /// How long a copy is used before its origin's robots.txt is fetched
 /// again (ADR 0086).
 pub(crate) const FRESH_FOR: Duration = Duration::from_hours(24);
+
+/// The most a Run's kept parses weigh, each the bytes of its URL and of
+/// its file, at most [`MAX_SIZE`], and [`PARSE_BYTES`]: 32 files of the
+/// largest size, or thousands of the few kilobytes most sites serve. Past
+/// the bound the cache does not grow: moka's `TinyLFU` admits a parse by
+/// how often its origin is read, so it evicts parses kept before or keeps
+/// the new one out, and an origin not kept is read and parsed again by its
+/// next reader.
+pub(crate) const KEPT_BYTES: u64 = 16 * 1024 * 1024;
+
+/// What a kept parse weighs beside its URL and file: its groups and rules.
+const PARSE_BYTES: usize = 1024;
 
 /// The table the copies live in, in the per-user Politeness file.
 pub const TABLES: PolitenessTables = PolitenessTables {
@@ -67,11 +85,15 @@ impl Copy {
 /// Whether `copy` is used as it is at `now`, in milliseconds: it was
 /// fetched less than [`FRESH_FOR`] before, and not after `now`.
 pub(crate) fn fresh(copy: Option<&Copy>, now: i64) -> bool {
+    copy.is_some_and(|copy| fresh_since(copy.fetched_at, now))
+}
+
+/// Whether a copy fetched at `fetched_at` is used as it is at `now`, both
+/// in milliseconds.
+fn fresh_since(fetched_at: i64, now: i64) -> bool {
     let lasts = i64::try_from(FRESH_FOR.as_millis()).unwrap_or(i64::MAX);
-    copy.is_some_and(|copy| {
-        now.checked_sub(copy.fetched_at)
-            .is_some_and(|age| (0..lasts).contains(&age))
-    })
+    now.checked_sub(fetched_at)
+        .is_some_and(|age| (0..lasts).contains(&age))
 }
 
 /// The copy kept after a fetch answered `answer` at `now`: the answer,
@@ -125,17 +147,29 @@ pub(crate) fn store(connection: &Connection, location: &str, copy: &Copy) -> rus
 }
 
 /// The robots.txt copy a user's runs share, in the Politeness file they
-/// share, read at the `Clock`'s wall time. Clones share its fetches in
-/// flight.
+/// share, read at the `Clock`'s wall time, one per Run. Clones share its
+/// fetches in flight and its kept parses.
 #[derive(Clone)]
 pub struct SharedRobotsTxt {
     politeness: Politeness,
     clock: Clock,
+    /// The parse of each copy the Run read, by its URL, while the copy is
+    /// fresh, at most [`KEPT_BYTES`].
+    parses: moka::sync::Cache<String, Parse>,
     /// The reading in flight of each origin a reader waits on, so readers
     /// of one engine wait for one fetch; an origin leaves once no reader
     /// waits on it, so the map holds at most one entry per reader in
     /// flight.
     in_flight: InFlight,
+}
+
+/// A copy's parse a Run keeps: what applies, and when the copy was
+/// fetched, in milliseconds since the Unix epoch.
+#[derive(Clone)]
+struct Parse {
+    applies: Arc<Fetched>,
+    fetched_at: i64,
+    weight: u32,
 }
 
 /// The readings in flight, by origin.
@@ -215,6 +249,10 @@ impl SharedRobotsTxt {
         Self {
             politeness,
             clock,
+            parses: moka::sync::Cache::builder()
+                .max_capacity(KEPT_BYTES)
+                .weigher(|_, parse: &Parse| parse.weight)
+                .build(),
             in_flight: Arc::default(),
         }
     }
@@ -223,7 +261,8 @@ impl SharedRobotsTxt {
     /// is fresh; else what `fetch` answered, kept when it applies as it is.
     /// A file that cannot be read or written costs only a fetch. A
     /// concurrent reader of the same origin waits for the first one's
-    /// reading and answers it.
+    /// reading and answers it, and a later reader of the Run, while the copy
+    /// is fresh, its kept parse.
     ///
     /// # Cancel safety
     ///
@@ -231,6 +270,14 @@ impl SharedRobotsTxt {
     /// and keeps nothing: a waiting or later reader reads again with its
     /// own.
     async fn read(&self, location: &Url, fetch: Fetch<'_>) -> Arc<Fetched> {
+        if let Some(applies) = self.kept_parse(location.as_str()) {
+            // Yields once, as the file read it replaces did: a crawl whose
+            // every origin is kept would otherwise run page after page in
+            // one poll, and the tasks beside it, the Connection answering
+            // the SDK's calls among them, wait until it idles.
+            tokio::task::yield_now().await;
+            return applies;
+        }
         let held = Held::on(&self.in_flight, location.as_str().to_owned());
         let applied = held
             .reading()
@@ -239,9 +286,14 @@ impl SharedRobotsTxt {
         Arc::clone(applied)
     }
 
-    /// What applies at `location`, from the copy while it is fresh, else
-    /// from what `fetch` answered.
+    /// What applies at `location`, the parse the Run keeps, else from the
+    /// copy while it is fresh, else from what `fetch` answered. The parse
+    /// is looked for again here, under the origin's reading, as the reader
+    /// before may have kept it after this one first looked.
     async fn fetched(&self, location: &Url, fetch: Fetch<'_>) -> Arc<Fetched> {
+        if let Some(applies) = self.kept_parse(location.as_str()) {
+            return applies;
+        }
         let key = location.as_str().to_owned();
         self.politeness.work().count(Row::RobotsReads);
         let copy = self
@@ -256,23 +308,54 @@ impl SharedRobotsTxt {
             .as_ref()
             .filter(|copy| fresh(Some(copy), milliseconds(self.clock.wall())))
         {
-            return self.parsed(copy.applies());
+            let applies = self.parsed(copy.applies());
+            self.keep(location.as_str(), copy, &applies);
+            return applies;
         }
         let answer = fetch.await;
-        let applied = applies(copy.as_ref(), &answer);
+        let applied = self.parsed(applies(copy.as_ref(), &answer));
         if answer.usable()
             && let Some(kept) = kept(copy, &answer, milliseconds(self.clock.wall()))
         {
             let key = location.as_str().to_owned();
-            if let Err(error) = self
+            match self
                 .politeness
-                .transact(move |connection| store(connection, &key, &kept))
+                .transact(move |connection| store(connection, &key, &kept).map(|()| kept))
                 .await
             {
-                tracing::warn!(%error, "the shared robots.txt copy was not kept; it is fetched again");
+                Ok(kept) => self.keep(location.as_str(), &kept, &applied),
+                Err(error) => {
+                    tracing::warn!(%error, "the shared robots.txt copy was not kept; it is fetched again");
+                }
             }
         }
-        self.parsed(applied)
+        applied
+    }
+
+    /// The parse the Run keeps of `location`'s copy, while the copy is
+    /// fresh.
+    fn kept_parse(&self, location: &str) -> Option<Arc<Fetched>> {
+        let parse = self.parses.get(location)?;
+        if fresh_since(parse.fetched_at, milliseconds(self.clock.wall())) {
+            return Some(parse.applies);
+        }
+        self.parses.invalidate(location);
+        None
+    }
+
+    /// Keeps `applies`, the parse of `copy`, as `location`'s while `copy`
+    /// is fresh.
+    fn keep(&self, location: &str, copy: &Copy, applies: &Arc<Fetched>) {
+        let weight =
+            u32::try_from(location.len() + copy.body.len() + PARSE_BYTES).unwrap_or(u32::MAX);
+        self.parses.insert(
+            location.to_owned(),
+            Parse {
+                applies: Arc::clone(applies),
+                fetched_at: copy.fetched_at,
+                weight,
+            },
+        );
     }
 
     /// `fetched`, a file parsed counted as such (ADR 0140's E6): a robots.txt

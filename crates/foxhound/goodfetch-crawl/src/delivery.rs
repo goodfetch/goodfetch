@@ -1569,7 +1569,7 @@ async fn open(
     };
     let stored = Stored::new(run.state().clone(), within, admission.keys(), run.metrics());
     stored
-        .read_visits()
+        .fill_memory()
         .await
         .map_err(|error| error.to_string())?;
     key_new(&stored, &mut admission, Unkeyed::Opening)

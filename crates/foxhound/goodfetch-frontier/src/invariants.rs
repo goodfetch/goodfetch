@@ -151,6 +151,21 @@ impl Invariants {
         self.unwritten.get()
     }
 
+    /// Has the Frontier's memory, when the Run holds the batches' visits
+    /// ([`Self::hold_unwritten`]), read the Scope's seeds and the visits
+    /// the run file `connection` holds, a reader's, as the crawl opens,
+    /// within the memory budget: a lookup it then answers reads nothing
+    /// (#2169).
+    ///
+    /// # Errors
+    ///
+    /// When the run file cannot be read.
+    pub fn fill_memory(&self, connection: &Connection) -> rusqlite::Result<()> {
+        self.unwritten().map_or(Ok(()), |unwritten| {
+            unwritten.read(connection, self.scope.strategy().seed_keys())
+        })
+    }
+
     /// The first path budget whose pattern the path and query of `url`
     /// match: the one that counts it.
     pub(crate) fn budget_of(&self, url: &Url) -> Option<&PathBudget> {

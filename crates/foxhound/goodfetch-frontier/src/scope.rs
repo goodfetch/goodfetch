@@ -36,6 +36,7 @@ use rusqlite::{Connection, OptionalExtension as _};
 use url::{Host, Url};
 
 use crate::staged::Staged;
+use crate::unwritten::UnwrittenVisits;
 
 /// The scope's strategy and patterns, one row, and the measures of the
 /// seeds that widened it.
@@ -108,6 +109,20 @@ impl Strategy {
                     WHERE host = ?1 AND port = ?2
                       AND (scheme = ?3 OR (scheme = 'http' AND ?3 = 'https')))",
             ),
+            Self::All => None,
+        }
+    }
+
+    /// The query that reads each seed of the run file by the measure this
+    /// strategy compares, as [`Asked::key`] writes it, for memory to hold;
+    /// none for `all`, which measures no seed.
+    pub(crate) fn seed_keys(self) -> Option<&'static str> {
+        match self {
+            Self::SameHostname => Some("SELECT DISTINCT host FROM scope_seeds"),
+            Self::SameDomain => Some("SELECT DISTINCT domain FROM scope_seeds"),
+            Self::SameOrigin => {
+                Some("SELECT scheme || '://' || host || ':' || port FROM scope_seeds")
+            }
             Self::All => None,
         }
     }
@@ -209,6 +224,27 @@ pub(crate) enum Asked {
         /// Its scheme.
         scheme: String,
     },
+}
+
+impl Asked {
+    /// The measure it asks, as memory holds a seed's (#2169), and as
+    /// [`Strategy::seed_keys`] reads one from the run file: the host, the
+    /// registrable domain, or the origin as `scheme://host:port`; none
+    /// when it asks nothing of a seed.
+    fn key(&self) -> Option<String> {
+        match self {
+            Self::Nothing | Self::NoHost => None,
+            Self::Host(host) => Some(host.clone()),
+            Self::Domain(domain) => Some(domain.clone()),
+            Self::Origin { host, port, scheme } => Some(origin_key(scheme, host, *port)),
+        }
+    }
+}
+
+/// The origin of `scheme`, `host` and `port`, or 0 for the scheme's
+/// default, as memory holds a seed's under `same_origin`.
+fn origin_key(scheme: &str, host: &str, port: u16) -> String {
+    format!("{scheme}://{host}:{port}")
 }
 
 /// URL patterns, each a glob read as Playwright reads one (ADR 0081),
@@ -375,7 +411,7 @@ impl Scope {
         staged: Option<&Staged>,
     ) -> rusqlite::Result<bool> {
         Ok(self.lets_through(url, narrowing)
-            && self.reached(connection, url, &self.asks(url), staged)?)
+            && self.reached(connection, url, &self.asks(url), staged, None)?)
     }
 
     /// Whether the scope's patterns, and `narrowing`'s, let `url` through:
@@ -411,7 +447,9 @@ impl Scope {
     /// a seed of the run file `connection` holds, or one of `staged`, an
     /// attempt's earlier staged admissions. The seeds are the Run's state,
     /// each seed admitted while the crawl runs widening them, so this is
-    /// asked where that state is held (#2244).
+    /// asked where that state is held (#2244): in `held`, the Frontier's
+    /// memory, when the Run keeps one, which reads the file only for a
+    /// seed that left it (#2169).
     ///
     /// # Errors
     ///
@@ -422,6 +460,7 @@ impl Scope {
         url: &Url,
         asked: &Asked,
         staged: Option<&Staged>,
+        held: Option<&UnwrittenVisits>,
     ) -> rusqlite::Result<bool> {
         if staged.is_some_and(|staged| {
             staged
@@ -431,27 +470,47 @@ impl Scope {
         }) {
             return Ok(true);
         }
-        let port;
-        let params: &[&dyn rusqlite::ToSql] = match asked {
+        // The measures memory holds a seed that reaches it by: its own,
+        // and under `same_origin` an `https` origin's `http` one too.
+        let (port, origin, http);
+        let (params, keys): (&[&dyn rusqlite::ToSql], [Option<&str>; 2]) = match asked {
             Asked::Nothing => return Ok(true),
             Asked::NoHost => return Ok(false),
-            Asked::Host(host) => &[host],
-            Asked::Domain(domain) => &[domain],
+            Asked::Host(host) => (&[host], [Some(host.as_str()), None]),
+            Asked::Domain(domain) => (&[domain], [Some(domain.as_str()), None]),
             Asked::Origin {
                 host,
                 port: asked,
                 scheme,
             } => {
                 port = i64::from(*asked);
-                &[host, &port, scheme]
+                origin = origin_key(scheme, host, *asked);
+                http = (scheme == "https").then(|| origin_key("http", host, *asked));
+                (
+                    &[host, &port, scheme],
+                    [Some(origin.as_str()), http.as_deref()],
+                )
             }
         };
         let Some(query) = self.strategy.query() else {
             return Ok(true);
         };
-        connection
-            .prepare_cached(query)
-            .and_then(|mut cached| cached.query_row(params, |row| row.get::<_, bool>(0)))
+        let read = || {
+            connection
+                .prepare_cached(query)
+                .and_then(|mut cached| cached.query_row(params, |row| row.get::<_, bool>(0)))
+        };
+        match held {
+            Some(held) => held.lock().seed_or(keys.into_iter().flatten(), read),
+            None => read(),
+        }
+    }
+
+    /// The measure memory holds the seed `seed` by under this scope's
+    /// strategy ([`Asked::key`]); none under `all`, or for a seed with no
+    /// host.
+    pub(crate) fn seed_key(&self, seed: &Url) -> Option<String> {
+        self.asks(seed).key()
     }
 
     /// Widens the scope of the run file `connection` holds by the seed

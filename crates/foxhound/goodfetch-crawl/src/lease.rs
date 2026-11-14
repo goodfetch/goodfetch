@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_counted_work::CountedWork;
-use goodfetch_dataset::Datasets;
+use goodfetch_dataset::{Checked, Datasets};
 use goodfetch_engine::CallError;
 use goodfetch_engine::admission::Keys;
 use goodfetch_engine::clock::Clock;
@@ -239,7 +239,9 @@ pub(crate) struct Commit {
     masks: Masks,
     clean_up_rules: CleanUpRules,
     folder: std::path::PathBuf,
-    records: Vec<PushedRecord>,
+    /// Its answer's Records, checked against their Datasets on the page's
+    /// task rather than on the writer's thread, or the first refusal.
+    records: Result<Checked, CallError>,
     ended_at: PointInTime,
 }
 
@@ -284,7 +286,7 @@ impl Commit {
         if work_items::attempt(connection, &work_item, epoch)?.is_none() {
             return Ok(None);
         }
-        let answered = match declared.check(records, &counted_work) {
+        let answered = match records {
             Ok(answered) => answered,
             Err(refused) => return Ok(Some(Err(refused))),
         };
@@ -550,6 +552,9 @@ impl WorkItemLease {
             return Err(CommitError::LeaseLost);
         }
         let leases = &self.0.leases;
+        // A Record is checked here, on the page's task: no Record is
+        // validated on the run file's writer thread.
+        let records = leases.datasets.check(records, &leases.work);
         Ok(Commit {
             work_item: self.0.work_item.to_string(),
             epoch: lease.epoch(),

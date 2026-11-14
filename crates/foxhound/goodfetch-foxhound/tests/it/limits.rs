@@ -272,3 +272,43 @@ fn engines_of_one_user_never_charge_past_a_limit_through_a_killed_engine(
         "{slices:?}"
     );
 }
+
+/// A crawl at a Durability level whose charges ride its batches (`batch`)
+/// or are never synced (`fast`) is charged each Slice whole once its engine
+/// dies holding them: its journal may lack charges it made, so the next
+/// engine to open the Usage ledger charges what each Slice held, never what
+/// the journal says (ADR 0142's note of G-11 Q3).
+///
+/// Covers: story:3-72, setting:run_state.durability
+#[rstest]
+#[case::batch("batch")]
+#[case::fast("fast")]
+fn the_next_engine_charges_each_slice_of_a_crawl_killed_below_full_whole(#[case] level: &str) {
+    let env = TestEnv::new();
+    env.user_configuration(&in_flight_whatever_the_machine(OCCURRENCES));
+    let moment = Moment::drawn(env.seed(), &["crawl_request.handle"], OCCURRENCES);
+    let mut log = ObservationLog::<Value>::for_test(&env);
+    let site = Site::start(&env);
+    let mut victim = crawl_of(&site, "victim", "shop.test", VICTIM_SEEDS);
+    victim["settings"]["run_state"] = json!({ "durability": level });
+    killed_at(&env, &victim, &moment, &mut log);
+
+    // An engine reclaims the Slices of dead runs before it answers its
+    // first Run call.
+    let mut engine = attached(&env);
+    engine.call("list", "run.list", &json!({}), &mut |_| None);
+
+    let slices = slices(&env);
+    assert!(!slices.is_empty(), "the killed crawl took no Slice");
+    assert_eq!(
+        slices
+            .iter()
+            .map(|(_, charged, state)| (*charged, state.as_str()))
+            .collect::<Vec<_>>(),
+        slices
+            .iter()
+            .map(|(size, ..)| (Some(*size), "reclaimed"))
+            .collect::<Vec<_>>(),
+        "{slices:?}"
+    );
+}

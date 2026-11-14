@@ -193,9 +193,9 @@ pub fn contribution_with(
     // A call on a page a fetch tier serves from a document is the
     // Product's to answer, serve or refuse (ADR 0093).
     let product = Arc::clone(&pages.product);
-    let guard: Guard = Arc::new(move |operation, params, context| {
+    let guard: Guard = Arc::new(move |operation, params, read, context| {
         let page_id = PageId(params.page()?.into_owned());
-        product.call(&page_id, operation.name, params, context)
+        product.call(&page_id, operation.name, read, context)
     });
     contribution.guarded(&guard)
 }

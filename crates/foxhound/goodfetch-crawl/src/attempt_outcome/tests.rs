@@ -21,7 +21,7 @@ use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 use serde_json::json;
 
-use super::{Ended, Ending, Learning, Outcome, Written};
+use super::{Document, Ended, Ending, Learning, Outcome, Written};
 use crate::invariants::fixture;
 use crate::lease::{Leases, WorkItemLease};
 use crate::staging::Staging;
@@ -136,9 +136,12 @@ async fn pages(env: &TestEnv, without_lessons: bool) -> Pages {
 fn learning(leased: &Leased, signature: u8) -> Learning {
     Learning {
         request: leased.crawl_request.clone(),
-        url: goodfetch_frontier::Url::parse(&leased.crawl_request.url).unwrap(),
-        signature: [signature; 32],
-        canonical: None,
+        redirects: Vec::new().into(),
+        document: Some(Document {
+            url: goodfetch_frontier::Url::parse(&leased.crawl_request.url).unwrap(),
+            signature: [signature; 32],
+            canonical: None,
+        }),
         ended_at: ended_at(),
         work: goodfetch_counted_work::CountedWork::default(),
     }

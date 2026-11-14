@@ -119,6 +119,7 @@ CREATE TABLE pool_sessions (
             pool TEXT NOT NULL,
             position INTEGER NOT NULL,
             proxy_tier TEXT NOT NULL,
+            sends_from TEXT NOT NULL,
             opened_at INTEGER NOT NULL,
             uses INTEGER NOT NULL,
             error_score REAL NOT NULL,

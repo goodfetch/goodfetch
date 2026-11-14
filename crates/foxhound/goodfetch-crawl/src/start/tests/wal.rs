@@ -2,7 +2,9 @@
 //! public interface over the in-memory network (spec #213's Seam 3): a
 //! reader that reads its Records all along, each read a snapshot of its
 //! own, does not let the WAL grow past twice its checkpoint threshold and
-//! one commit (#2323, ADR 0138).
+//! one commit (#2323, ADR 0138). The Run writes a batch each four pages
+//! (`run_state.batch.pages`), so the reader sees Records as the crawl runs
+//! and a commit stays far under the threshold (ADR 0142).
 
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_test_support::TestEnv;
@@ -17,6 +19,9 @@ const CHECKPOINT_AFTER: u64 = 65_536;
 
 /// How many pages the crawl handles, each with a Record of 8 KiB.
 const PAGES: usize = 64;
+
+/// How many ended attempts each batch holds: 32 KiB of Records.
+const BATCH_PAGES: u64 = 4;
 
 #[expect(
     clippy::disallowed_methods,
@@ -44,7 +49,11 @@ fn a_crawl_read_all_along_ends_with_its_wal_under_the_bound() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "read", "seeds": seeds(PAGES) }),
+                    json!({
+                        "run_id": "read",
+                        "seeds": seeds(PAGES),
+                        "settings": { "run_state": { "batch": { "pages": BATCH_PAGES } } },
+                    }),
                     &mut |_| Reply::Silent,
                 )
                 .await;

@@ -8,6 +8,7 @@
 )]
 
 mod batch;
+mod batching;
 mod model;
 mod wal;
 
@@ -18,8 +19,8 @@ use goodfetch_test_support::{CrashKind, CrashVfs, IoFault, TestEnv};
 use rusqlite::Connection;
 
 use super::{
-    DEFERRED_CHARGES, Durability, PAGE_CACHE_KIB, RunState, RunStateError, RunStateOptions,
-    RunStateTables, Syncing, open_reader, unclean,
+    Charges, DEFERRED_CHARGES, Durability, PAGE_CACHE_KIB, RunState, RunStateError,
+    RunStateOptions, RunStateTables, Syncing, open_reader, unclean,
 };
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -146,7 +147,7 @@ fn a_writer_opens_a_new_run_file_beside_another_write_of_it() {
 fn a_run_file_in_fast_durability_commits_with_normal_synchronous() {
     let env = TestEnv::new();
     let options = RunStateOptions {
-        durability: Durability::Fast,
+        durability: Durability::FAST,
         ..RunStateOptions::default()
     };
 
@@ -170,11 +171,11 @@ fn a_run_file_in_fast_durability_commits_with_normal_synchronous() {
 fn a_run_file_at_off_commits_unsynced_and_holds_its_unclean_mark_until_its_clean_stop() {
     let env = TestEnv::new();
     let options = RunStateOptions {
-        durability: Durability::Off,
+        durability: Durability::OFF,
         ..RunStateOptions::default()
     };
     let path = env.folder().join("run.sqlite");
-    let marked = || unclean(&path, None, Durability::Off).unwrap();
+    let marked = || unclean(&path, None, Durability::OFF).unwrap();
 
     let (synchronous, running) = with_writer_options(&env, &options, async |state| {
         let synchronous = state.write(pragma("synchronous")).await.unwrap();
@@ -194,9 +195,9 @@ fn a_run_file_at_off_commits_unsynced_and_holds_its_unclean_mark_until_its_clean
 ///
 /// Covers: story:3-27
 #[rstest::rstest]
-#[case::off(Durability::Off, true)]
-#[case::full(Durability::Full, false)]
-#[case::fast(Durability::Fast, false)]
+#[case::off(Durability::OFF, true)]
+#[case::full(Durability::FULL, false)]
+#[case::fast(Durability::FAST, false)]
 fn a_writer_that_ends_without_its_clean_stop_leaves_the_mark_only_at_off(
     #[case] durability: Durability,
     #[case] left: bool,
@@ -226,7 +227,7 @@ fn a_writer_that_ends_without_its_clean_stop_leaves_the_mark_only_at_off(
 #[test]
 fn at_periodic_commits_sync_once_the_interval_passed_even_with_the_writer_idle() {
     let interval = Duration::from_secs(5);
-    let added = with_counted_writer(Durability::Periodic { interval }, async |state, vfs| {
+    let added = with_counted_writer(Durability::periodic(interval), async |state, vfs| {
         let mut added = Vec::new();
         for value in [1, 2] {
             let before = vfs.syncs();
@@ -670,11 +671,14 @@ fn acknowledged_writes_are_there_after_the_file_opens_again() {
     assert_eq!(reopened, vec![5, 6]);
 }
 
-/// What a run file's transactions and its writer's reads count, beyond its
-/// opening, once `test` ran on its writer.
+/// What a run file's transactions and its writer's reads count at `full`,
+/// beyond its opening, once `test` ran on its writer.
 fn counted(test: impl AsyncFnOnce(&RunState)) -> (u64, u64) {
     let env = TestEnv::new();
-    let options = RunStateOptions::default();
+    let options = RunStateOptions {
+        durability: Durability::FULL,
+        ..RunStateOptions::default()
+    };
     let work = options.work.clone();
     let opening = with_writer_options(&env, &options, async |state| {
         let opening = work.read(Row::RunTransactions);
@@ -874,9 +878,11 @@ fn run_row(connection: &Connection) -> rusqlite::Result<()> {
         .map(drop)
 }
 
-/// What the run file declares a power cut may take of a Slice's charges.
-fn declared(connection: &Connection) -> rusqlite::Result<i64> {
-    connection.query_row("SELECT deferred_charges FROM run", [], |row| row.get(0))
+/// What the run file declares of how the Run's charges reach it.
+fn declared(connection: &Connection) -> rusqlite::Result<Charges> {
+    connection.query_row("SELECT charges FROM run", [], |row| {
+        Ok(Charges::stored(&row.get::<_, String>(0)?))
+    })
 }
 
 /// Runs `test` on a writer at `durability` whose file holds a Run row,
@@ -913,7 +919,7 @@ async fn deferred(state: &RunState, value: i64) {
 /// Covers: story:3-25, setting:run_state.durability
 #[test]
 fn at_full_deferred_writes_commit_unsynced_and_the_next_synced_group_syncs_once() {
-    let added = with_counted_writer(Durability::Full, async |state, vfs| {
+    let added = with_counted_writer(Durability::FULL, async |state, vfs| {
         let mut added = Vec::new();
         for value in [1, 2] {
             let before = vfs.syncs();
@@ -934,8 +940,8 @@ fn at_full_deferred_writes_commit_unsynced_and_the_next_synced_group_syncs_once(
 ///
 /// Covers: story:3-25, story:3-27, setting:run_state.durability
 #[rstest::rstest]
-#[case::full(Durability::Full, 1)]
-#[case::fast(Durability::Fast, 0)]
+#[case::full(Durability::FULL, 1)]
+#[case::fast(Durability::FAST, 0)]
 fn a_group_with_one_synced_write_syncs_once_at_full(
     #[case] durability: Durability,
     #[case] syncs: u64,
@@ -965,7 +971,7 @@ fn a_group_with_one_synced_write_syncs_once_at_full(
 #[test]
 fn deferred_charges_defer_only_within_the_bound_a_synced_commit_declared() {
     let half = DEFERRED_CHARGES / 2;
-    let (added, bound) = with_counted_writer(Durability::Full, async |state, vfs| {
+    let (added, bound) = with_counted_writer(Durability::FULL, async |state, vfs| {
         let mut added = Vec::new();
         for charged in [1, half, half, 1] {
             let before = vfs.syncs();
@@ -980,15 +986,13 @@ fn deferred_charges_defer_only_within_the_bound_a_synced_commit_declared() {
 
     // The first declares; the two halves fill the bound; the last would
     // pass it, so its group syncs.
-    assert_eq!(
-        (added, bound),
-        (vec![1, 0, 0, 1], i64::try_from(DEFERRED_CHARGES).unwrap())
-    );
+    assert_eq!((added, bound), (vec![1, 0, 0, 1], Charges::Deferred));
 }
 
 /// A declaring write, a crawl's start, syncs and declares the bound in its
-/// own commit (#2117), so the first deferred charges commit unsynced, and a
-/// power cut after them leaves the bound declared for the reclaim.
+/// own commit (#2117), so the first deferred charges commit unsynced at
+/// `full`, and a power cut after them leaves the bound declared for the
+/// reclaim.
 ///
 /// Covers: story:3-25
 #[test]
@@ -998,6 +1002,7 @@ fn a_declaring_write_declares_the_bound_the_first_deferred_charges_defer_within(
     let counting = goodfetch_test_support::CountingVfs::register();
     let options = RunStateOptions {
         vfs: Some(counting.name().to_owned()),
+        durability: Durability::FULL,
         ..RunStateOptions::default()
     };
     let added = with_writer_options(&env, &options, async |state| {
@@ -1019,6 +1024,7 @@ fn a_declaring_write_declares_the_bound_the_first_deferred_charges_defer_within(
     let vfs = CrashVfs::register(&crashed.unique_name("declared-bound"), crashed.seed()).unwrap();
     let options = RunStateOptions {
         vfs: Some(vfs.name().to_owned()),
+        durability: Durability::FULL,
         ..RunStateOptions::default()
     };
     with_writer_options(&crashed, &options, async |state| {
@@ -1035,8 +1041,91 @@ fn a_declaring_write_declares_the_bound_the_first_deferred_charges_defer_within(
     // 1 and a half fit the bound; the second half would pass it.
     assert_eq!(
         (added, declared(&after).unwrap()),
-        (vec![1, 0, 0, 1], i64::try_from(DEFERRED_CHARGES).unwrap())
+        (vec![1, 0, 0, 1], Charges::Deferred)
     );
+}
+
+/// What a run file declares of the Run's charges once its Run's row is
+/// written, before any write charges (ADR 0142's note of G-11 Q3): nothing
+/// at a level whose charges are synced as they are answered, `unsynced`
+/// at a `run_state.batch.sync` other than `each`, whatever writes it.
+///
+/// Covers: story:3-25, setting:run_state.durability, setting:run_state.batch.sync
+#[rstest::rstest]
+#[case::full(Durability::FULL, Charges::Synced)]
+#[case::batch(Durability::BATCH, Charges::Synced)]
+#[case::fast(Durability::FAST, Charges::Unsynced)]
+#[case::periodic(Durability::periodic(Duration::from_secs(60)), Charges::Unsynced)]
+#[case::off(Durability::OFF, Charges::Unsynced)]
+fn a_run_file_declares_its_charges_unsynced_from_its_start_at_a_sync_other_than_each(
+    #[case] durability: Durability,
+    #[case] charges: Charges,
+) {
+    let declared = with_counted_writer(durability, async |state, _| {
+        state.write(insert(1)).await.unwrap();
+        state.read(declared).await.unwrap()
+    });
+
+    assert_eq!(declared, charges);
+}
+
+/// At `batch`, a deferred write that charges before the file declares its
+/// charges unsynced declares them, answered once its batch is in the file;
+/// the charges after it ride the open batch (ADR 0142's note of G-11 Q3).
+///
+/// Covers: story:3-25, setting:run_state.durability
+#[test]
+fn at_batch_the_first_charge_declares_the_charges_unsynced_and_the_next_ride() {
+    let found = with_counted_writer(Durability::BATCH, async |state, _| {
+        let mut found = Vec::new();
+        for value in [1, 2] {
+            state
+                .write_with(Syncing::Deferred { charged: 1 }, insert(value))
+                .await
+                .unwrap();
+            found.push((
+                state.read(items).await.unwrap(),
+                state.read(declared).await.unwrap(),
+            ));
+        }
+        found
+    });
+
+    assert_eq!(
+        found,
+        vec![(vec![1], Charges::Unsynced), (vec![1], Charges::Unsynced)]
+    );
+}
+
+/// A run file's declaration only rises: a Run that declared its charges
+/// unsynced at `batch` and resumes at `full` keeps them declared so, and
+/// its charges defer within [`DEFERRED_CHARGES`] without declaring again.
+///
+/// Covers: story:3-25
+#[test]
+fn a_declaration_only_rises_when_the_run_resumes_at_another_level() {
+    let env = TestEnv::new();
+    let at = |durability| RunStateOptions {
+        durability,
+        ..RunStateOptions::default()
+    };
+    with_writer_options(&env, &at(Durability::BATCH), async |state| {
+        state.write_with(Syncing::Declaring, run_row).await.unwrap();
+    });
+
+    let resumed = with_writer_options(&env, &at(Durability::FULL), async |state| {
+        state
+            .write_with(Syncing::Declaring, |_| Ok(()))
+            .await
+            .unwrap();
+        state
+            .write_with(Syncing::Deferred { charged: 1 }, |_| Ok(()))
+            .await
+            .unwrap();
+        state.read(declared).await.unwrap()
+    });
+
+    assert_eq!(resumed, Charges::Unsynced);
 }
 
 /// What a run file at `durability` syncs through a counting VFS (ADR 0140)
@@ -1077,10 +1166,11 @@ fn syncs_of_a_run(durability: Durability) -> [u64; 4] {
 ///
 /// Covers: story:3-25, story:3-27, setting:run_state.durability
 #[rstest::rstest]
-#[case::full(Durability::Full, [2, 1, 1, 0])]
-#[case::fast(Durability::Fast, [2, 0, 1, 0])]
-#[case::periodic(Durability::Periodic { interval: Duration::from_secs(3600) }, [2, 0, 1, 0])]
-#[case::off(Durability::Off, [4, 0, 1, 0])]
+#[case::batch(Durability::BATCH, [2, 1, 1, 0])]
+#[case::full(Durability::FULL, [2, 1, 1, 0])]
+#[case::fast(Durability::FAST, [2, 0, 1, 0])]
+#[case::periodic(Durability::periodic(Duration::from_secs(3600)), [2, 0, 1, 0])]
+#[case::off(Durability::OFF, [4, 0, 1, 0])]
 fn a_run_file_syncs_its_switch_to_wal_what_it_acknowledges_and_its_clean_stop(
     #[case] durability: Durability,
     #[case] syncs: [u64; 4],
@@ -1097,11 +1187,12 @@ fn a_run_file_syncs_its_switch_to_wal_what_it_acknowledges_and_its_clean_stop(
 ///
 /// Covers: story:3-25, story:3-27, setting:run_state.durability
 #[rstest::rstest]
-#[case::full_synced_write(Durability::Full, false, vec![1])]
-#[case::full_clean_stop(Durability::Full, true, vec![1, 2])]
-#[case::fast_clean_stop(Durability::Fast, true, vec![1, 2])]
-#[case::periodic_clean_stop(Durability::Periodic { interval: Duration::from_secs(3600) }, true, vec![1, 2])]
-#[case::off_clean_stop(Durability::Off, true, vec![1, 2])]
+#[case::full_synced_write(Durability::FULL, false, vec![1])]
+#[case::full_clean_stop(Durability::FULL, true, vec![1, 2])]
+#[case::batch_clean_stop(Durability::BATCH, true, vec![1, 2])]
+#[case::fast_clean_stop(Durability::FAST, true, vec![1, 2])]
+#[case::periodic_clean_stop(Durability::periodic(Duration::from_secs(3600)), true, vec![1, 2])]
+#[case::off_clean_stop(Durability::OFF, true, vec![1, 2])]
 fn what_a_run_file_acknowledged_survives_a_power_cut_after_its_folded_syncs(
     #[case] durability: Durability,
     #[case] stops: bool,

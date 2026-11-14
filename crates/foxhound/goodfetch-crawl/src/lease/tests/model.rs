@@ -17,8 +17,11 @@
 //! opens passes `PRAGMA integrity_check` (in `after_crash`) and still holds
 //! every counted commit whole, no page half written, and each work item's
 //! status but that a lease whose claim a power cut took may read pending
-//! again: a lost claim costs a fetch, never an outcome that was told. 16 cases in the Quick suite and 256 in the Pre-merge suite
-//! (`proptest_config`).
+//! again: a lost claim costs a fetch, never an outcome that was told. It
+//! runs at `full`, where each attempt's writes are a batch of their own, so
+//! the file shows each commit as it is answered; the crawl's Run state
+//! model covers the open batch of `batch` (ADR 0142). 16 cases in the
+//! Quick suite and 256 in the Pre-merge suite (`proptest_config`).
 
 use std::time::Duration;
 
@@ -26,7 +29,7 @@ use goodfetch_engine::admission::Keys;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::LeaseCheck as _;
 use goodfetch_engine::mask::Masks;
-use goodfetch_engine::run_state::{RunState, RunStateOptions, Syncing};
+use goodfetch_engine::run_state::{Durability, RunState, RunStateOptions, Syncing};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::foxhound::crawl::{PushedRecord, RequestSeed, Seed};
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
@@ -360,6 +363,7 @@ impl StateMachineTest for Subject {
                 path.clone(),
                 &RunStateOptions {
                     vfs: Some(vfs.name().to_owned()),
+                    durability: Durability::FULL,
                     ..RunStateOptions::default()
                 },
                 vec![

@@ -2689,6 +2689,12 @@ export interface ExplainedSetting {
    */
   origin?: RunOrigin | null;
   /**
+   * When a level's preset gave the value, at `layer`, that level, which
+   * `config explain` shows as "preset of `run_state.durability: full`"
+   * in place of the layer (ADR 0142).
+   */
+  preset?: SettingPreset | null;
+  /**
    * The Products that honour it, from its Product mark (ADR 0095).
    */
   products: Product[];
@@ -2718,6 +2724,26 @@ export interface ExplainedSetting {
    * from the browser (#2418).
    */
   yields_to?: SettingLimit | null;
+}
+/**
+ * The setting whose value names the preset that gave another setting its
+ * value: `run_state.durability` and its level unfold into the
+ * `run_state.batch.*` keys at the layer that set the level (ADR 0142).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingPreset".
+ */
+export interface SettingPreset {
+  /**
+   * The key that names the preset, such as `run_state.durability`.
+   */
+  key: string;
+  /**
+   * Its value, the preset's name, such as `full`.
+   */
+  value: {
+    [k: string]: unknown;
+  };
 }
 /**
  * A setting that decided an outcome: its key, its value and the layer that
@@ -6463,6 +6489,11 @@ export interface WeakenedSetting {
    * For the run layer, where the value came from.
    */
   origin?: RunOrigin | null;
+  /**
+   * When a level's preset gave the value, at `layer`, that level, such
+   * as `run_state.durability: off` (ADR 0142).
+   */
+  preset?: SettingPreset | null;
   /**
    * Its value.
    */

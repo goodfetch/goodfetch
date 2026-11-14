@@ -3,12 +3,13 @@
 
 mod model;
 
+use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::run_state::{BatchRows, BatchWriter};
 use goodfetch_fetch_tier::{HttpFrom, TierChoice};
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use rusqlite::Connection;
 
-use super::Learned;
+use super::{Learned, in_queue_order};
 use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices, Weighed};
 
 const KEY: &str = "tiers.test";
@@ -100,5 +101,58 @@ fn a_sample_classified_after_a_count_drops_the_count_kept_for_the_run_file() {
     assert_eq!(
         (served, learned.counted().is_empty()),
         ([Some(FetchTier::Http), Some(FetchTier::Http)], true)
+    );
+}
+
+/// A work item of `key` at `order`, with `priority`, to the forefront or
+/// not.
+fn waiting(key: &str, order: i64, priority: i64, forefront: bool) -> Waiting {
+    Waiting {
+        id: format!("{key}{order}"),
+        key: key.to_owned(),
+        priority,
+        order,
+        forefront,
+    }
+}
+
+/// The work items the crawl knows pending, merged with those the run file
+/// holds, are bounded per key in the order the run file's read takes them
+/// (ADR 0004): the latest forefront one first, then the highest priority,
+/// then the earliest; read for every key, they come in order.
+#[test]
+fn the_items_known_pending_merge_in_the_order_the_run_file_reads() {
+    let merged = || {
+        vec![
+            waiting("b", 8, 0, false),
+            waiting("a", 1, 0, false),
+            waiting("a", 4, 0, true),
+            waiting("b", 6, 0, false),
+            waiting("a", 2, 5, false),
+            waiting("b", 5, 0, false),
+            waiting("a", 3, 0, true),
+            waiting("b", 7, 0, false),
+        ]
+    };
+    let ids = |waiting: Vec<Waiting>| {
+        waiting
+            .into_iter()
+            .map(|waiting| waiting.id)
+            .collect::<Vec<String>>()
+    };
+
+    assert_eq!(
+        (
+            ids(in_queue_order(merged(), 3, false)),
+            ids(in_queue_order(merged(), 3, true)),
+        ),
+        (
+            ["a4", "a3", "a2", "b5", "b6", "b7"]
+                .map(String::from)
+                .to_vec(),
+            ["a2", "a3", "a4", "b5", "b6", "b7"]
+                .map(String::from)
+                .to_vec(),
+        )
     );
 }

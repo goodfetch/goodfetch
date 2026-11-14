@@ -83,8 +83,9 @@ impl Invariants {
     }
 
     /// Prepares the statements an admission runs on each connection of
-    /// `run`'s run-state writer, once, as its crawl starts or resumes, so
-    /// that no page's admission, redirect hop or sitemap read prepares one
+    /// `run`'s run-state writer and of its readers, once, as its crawl
+    /// starts or resumes, so that no page's admission, redirect hop (which
+    /// a reader judges at `batch`) or sitemap read prepares one
     /// (ADR 0140, `F3.prepares`). One that is not prepared here is at its
     /// first use.
     pub(crate) async fn prepare(&self, run: &Run) {

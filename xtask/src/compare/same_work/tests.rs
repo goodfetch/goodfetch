@@ -1,7 +1,8 @@
 use super::{check, strace_runs_of_other_work_set_aside};
 use crate::compare::matrix::{self, Row, Scenario};
 use crate::compare::trials::{
-    Comparison, CountedCell, CountedRun, INSTRUCTION_TOOLS, Measured, Tool, Work, fixture,
+    Comparison, CountedCell, CountedRun, INSTRUCTION_TOOLS, Measured, SIZE_CONCURRENCIES,
+    SIZE_TOOLS, SIZES, SizesCell, Tool, Trial, Work, fixture,
 };
 
 /// The work of a trial that fetched every page of the site of `pages`
@@ -27,6 +28,20 @@ fn work(again: u64) -> Work {
     }
 }
 
+/// `work` on the 4-page site, on `scenario`'s site where the comparison's
+/// has 4 pages: on the multi-domain site, its other pages each fetched once
+/// besides.
+fn on_site(scenario: Scenario, work: Work) -> Work {
+    let more = scenario.site_pages(4) - 4;
+    Work {
+        pages: work.pages + more,
+        requests: work.requests + more,
+        bytes: work.bytes + 600 * more,
+        first_bytes: work.first_bytes + 600 * more,
+        ..work
+    }
+}
+
 /// Three trials of each measured cell over the 4-page site, each with the
 /// work `work` gives its scenario and number; the long scenario's trials
 /// crawl its own site, and each did all of its work.
@@ -36,7 +51,7 @@ fn comparison(work: impl Fn(Scenario, u32) -> Work) -> Comparison {
         work: if cell.scenario == Scenario::Long {
             whole(matrix::LONG_PAGES)
         } else {
-            work(cell.scenario, number)
+            on_site(cell.scenario, work(cell.scenario, number))
         },
         ..Measured::default()
     })
@@ -209,6 +224,30 @@ fn a_resumed_trial_whose_pages_were_first_served_other_bytes_did_other_work() {
     );
 }
 
+/// Foxhound's `auto` row fetches each sample's page twice, on `http` and in
+/// a browser, so its trials are held to the pages first served and their
+/// bytes (#2283): its extra requests are no other work, but other bytes for
+/// a page's first answer are.
+#[test]
+fn an_auto_rows_samples_fetched_twice_are_no_other_work_but_other_first_bytes_are() {
+    let mut trials = comparison(|_, _| work(0));
+    for trial in &mut trials.trials {
+        if trial.cell == "foxhound auto" {
+            let work = &mut trial.measured.work;
+            work.requests += 3000;
+            work.bytes += 600 * 3000;
+            if trial.number == 2 {
+                work.first_bytes += 1;
+            }
+        }
+    }
+
+    assert_eq!(
+        named(&trials),
+        vec![("different_bytes", "polite foxhound auto trial 2".to_owned())]
+    );
+}
+
 /// In the headless browser scenario, a trial that reached the site's
 /// first page alone never ran the script that links the others: the check
 /// names it for the script-rendered pages it missed.
@@ -272,7 +311,7 @@ fn counted(
                 number,
                 count: 9,
                 syncs: 0,
-                work: work(cell.scenario, cell.name, number),
+                work: on_site(cell.scenario, work(cell.scenario, cell.name, number)),
             })
         })
         .collect();
@@ -417,6 +456,7 @@ fn a_timed_trial_and_a_callgrind_run_of_other_work_still_fail_the_check() {
         named(&trials),
         vec![
             ("different_pages", "polite foxhound trial 1".to_owned()),
+            ("different_pages", "polite foxhound auto trial 1".to_owned()),
             ("different_pages", "polite crawlee trial 1".to_owned()),
             ("different_pages", "polite scrapy trial 1".to_owned()),
             ("different_pages", "polite crawlee-rs trial 1".to_owned()),
@@ -425,4 +465,88 @@ fn a_timed_trial_and_a_callgrind_run_of_other_work_still_fail_the_check() {
     );
     let (_, stopped) = cells_of(&trials.syscalls);
     assert_eq!(stopped, vec![]);
+}
+
+/// Three trials of each scenario 1 main cell of Foxhound and Spider at
+/// each size and concurrency, Spider's at 1 in flight aside, which the
+/// sizes cell does not run; each fetching its site's pages once, the first
+/// at 100 pages and 64 in flight short of a page.
+fn sizes() -> SizesCell {
+    let trials_run = matrix::measured()
+        .filter(|(cell, config)| {
+            cell.scenario == Scenario::Raw
+                && cell.row == Row::Main
+                && SIZE_TOOLS.contains(&config.tool())
+        })
+        .flat_map(|(cell, config)| {
+            SIZES.into_iter().flat_map(move |pages| {
+                SIZE_CONCURRENCIES
+                    .into_iter()
+                    .filter(move |&concurrency| {
+                        !(config.tool() == Tool::Spider && concurrency == 1)
+                    })
+                    .flat_map(move |concurrency| {
+                        (1..=3).map(move |number| {
+                            let short = (pages, concurrency, number) == (100, 64, 1);
+                            let fetched = if short { pages - 1 } else { pages };
+                            Trial {
+                                scenario: cell.scenario,
+                                cell: cell.name.to_owned(),
+                                tool: config.tool(),
+                                number,
+                                site_pages: pages,
+                                concurrency,
+                                load: None,
+                                retried: None,
+                                measured: Measured {
+                                    seconds: 1.0,
+                                    work: Work {
+                                        pages: fetched,
+                                        missing: if short {
+                                            vec!["/sites/100/100".to_owned()]
+                                        } else {
+                                            Vec::new()
+                                        },
+                                        extra: Vec::new(),
+                                        requests: fetched,
+                                        bytes: 600 * fetched,
+                                        first_bytes: 600 * fetched,
+                                    },
+                                    ..Measured::default()
+                                },
+                            }
+                        })
+                    })
+            })
+        })
+        .collect();
+    SizesCell::Measured {
+        trials: 3,
+        trials_run,
+        stopped: Vec::new(),
+    }
+}
+
+/// The sizes cell's trials are held to their own size's site, each size
+/// and concurrency apart: the trial short of a page at 100 pages and 64 in
+/// flight is named there, and no point is short of its trials, Spider at 1
+/// in flight, which runs none, included.
+#[test]
+fn a_sizes_trial_is_held_to_its_own_sizes_site() {
+    let mut trials = comparison(|_, _| work(0));
+    trials.sizes = sizes();
+
+    assert_eq!(
+        named(&trials),
+        vec![
+            (
+                "different_pages",
+                "raw foxhound sizes 100 pages at 64 trial 1".to_owned()
+            ),
+            (
+                "different_pages",
+                "raw spider sizes 100 pages at 64 trial 1".to_owned()
+            ),
+        ]
+    );
 }

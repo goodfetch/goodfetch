@@ -172,7 +172,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 98] = [
+const ROWS: [Row; 102] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -262,7 +262,7 @@ const ROWS: [Row; 98] = [
     Row {
         name: "F2.prepares",
         family: "B1",
-        unit: "added_pages",
+        unit: ADDED_PAGES,
         happens: false,
         valgrind: None,
     },
@@ -322,6 +322,12 @@ const ROWS: [Row; 98] = [
     b1("F3.payload_serializations", PAYLOADS, true),
     b1("F3.validations", PAYLOADS, true),
     b1("F3.actor_round_trips", ATTEMPTS_ENDED, true),
+    b1("F3.hop_round_trips", HOPS, true),
+    b1("F3.hop_round_trips.end", CHAINS, true),
+    b1("F3.in_flight_serializations", ATTEMPTS_ENDED, false),
+    // What each page more builds, read as `F2.prepares` is: the whole
+    // site's run less a run on half its pages, over the pages it adds.
+    b1("F3.counted_work_constructions", ADDED_PAGES, false),
     Row {
         name: "C1.encodes",
         family: "B2",
@@ -912,10 +918,15 @@ const NOT_RUN_YET: [NotRunYet; 26] = [
     },
 ];
 
+/// The pages B1's whole site serves beyond a run on half of it.
+const ADDED_PAGES: &str = "added_pages";
+
 /// The links batches B1's crawl admitted.
 const LINKS_BATCHES: &str = "links_batches";
 /// The redirect hops it took through the Frontier.
 const HOPS: &str = "hops";
+/// The redirected chains that ended on their document.
+const CHAINS: &str = "chains";
 /// The sitemaps it read.
 const SITEMAPS: &str = "sitemaps";
 /// The URLs it enqueued with a Payload.
@@ -1435,7 +1446,7 @@ fn one_of(unit: &str) -> &str {
         LINKS_BATCHES => "links batch",
         "audit_entries" => "audit_entry",
         "entries" => "entry",
-        "added_pages" => "page added",
+        ADDED_PAGES => "page added",
         ATTEMPTS_ENDED => "attempt",
         unit => unit.trim_end_matches('s'),
     }

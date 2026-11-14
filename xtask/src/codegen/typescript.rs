@@ -13,7 +13,7 @@ use std::fmt::Write as _;
 use anyhow::Result;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::cli::ATTACHED_ENGINE;
-use goodfetch_protocol::settings::COLLIE_ENGINE_PATH_VARIABLE;
+use goodfetch_protocol::settings::{COLLIE_ENGINE_PATH_VARIABLE, FOXHOUND_ENGINE_PATH_VARIABLE};
 
 use super::handles::{self, Form, Handle, HandleId, Member, Parameters};
 use super::layer::{Deprecation, Layer, Stability};
@@ -59,9 +59,7 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
         ("errors.ts", errors(layer)),
         ("plugins.ts", plugins(layer)),
     ];
-    if layer.product == Product::Collie {
-        files.push(("connection.ts", connection(layer)));
-    }
+    files.push(("connection.ts", connection(layer)));
     if !layer.shared_types.is_empty() {
         files.push(("shared-types.ts", shared_types(layer)));
     }
@@ -169,9 +167,7 @@ fn index(layer: &Layer, handles: &[Handle<'_>]) -> String {
             types.join(", ")
         );
     }
-    if layer.product == Product::Collie {
-        text.push_str("export * from \"./connection.ts\";\n");
-    }
+    text.push_str("export * from \"./connection.ts\";\n");
     text.push_str("export * from \"./operations.ts\";\nexport * from \"./events.ts\";\nexport * from \"./errors.ts\";\nexport * from \"./plugins.ts\";\n");
     if !layer.shared_types.is_empty() {
         text.push_str("export type * from \"./shared-types.ts\";\n");
@@ -246,20 +242,34 @@ fn shared_types(layer: &Layer) -> String {
     text
 }
 
-/// What the client package's runtime opens a Connection with: the protocol
-/// version its `hello` names (ADRs 0024 and 0066), the Product version the
-/// package carries (ADRs 0090 and 0095), and how it finds and starts the
-/// engine: Collie's executable, its engine-path variable and the hidden
-/// command that serves one Connection (ADR 0090). The Connection's messages
-/// are among the layer's types.
+/// What a package's runtime opens a Connection with. Collie's client
+/// package holds what both Products' Connections share: the protocol version
+/// its `hello` names (ADRs 0024 and 0066), the Product version the package
+/// carries (ADRs 0090 and 0095) and the hidden command that serves one
+/// Connection. Each Product's layer holds how its own engine is found: its
+/// executable and its engine-path variable (ADR 0090). The Connection's
+/// messages are among the layer's types.
 fn connection(layer: &Layer) -> String {
+    let (shared, name, constant, variable) = match layer.product {
+        Product::Collie => (
+            format!(
+                "/** The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066). */\nexport const PROTOCOL_VERSION = {:?};\n\n/** The Product version this package carries, `hello`'s `product_version`, which each Product's package pins exactly (ADRs 0090 and 0095). */\nexport const PRODUCT_VERSION = {:?};\n\n/** The executable's hidden command that serves one Connection over stdio. */\nexport const ATTACHED_ENGINE_COMMAND = {:?};\n\n",
+                layer.protocol_version, layer.product_version, ATTACHED_ENGINE,
+            ),
+            "Collie",
+            "COLLIE",
+            COLLIE_ENGINE_PATH_VARIABLE,
+        ),
+        Product::Foxhound => (
+            String::new(),
+            "Foxhound",
+            "FOXHOUND",
+            FOXHOUND_ENGINE_PATH_VARIABLE,
+        ),
+    };
     format!(
-        "{HEADER}\n/** The protocol version `major.minor` this package's `hello` names (ADRs 0024 and 0066). */\nexport const PROTOCOL_VERSION = {:?};\n\n/** The Product version this package carries, `hello`'s `product_version`, which each Product's package pins exactly (ADRs 0090 and 0095). */\nexport const PRODUCT_VERSION = {:?};\n\n/** The executable's hidden command that serves one Connection over stdio. */\nexport const ATTACHED_ENGINE_COMMAND = {:?};\n\n/** The variable naming Collie's executable (ADR 0090). */\nexport const COLLIE_ENGINE_PATH_VARIABLE = {:?};\n\n/** The name of Collie's executable (ADR 0090). */\nexport const COLLIE_EXECUTABLE = {:?};\n",
-        layer.protocol_version,
-        layer.product_version,
-        ATTACHED_ENGINE,
-        COLLIE_ENGINE_PATH_VARIABLE,
-        Product::Collie.executable_name(),
+        "{HEADER}\n{shared}/** The variable naming {name}'s executable (ADR 0090). */\nexport const {constant}_ENGINE_PATH_VARIABLE = {variable:?};\n\n/** The name of {name}'s executable (ADR 0090). */\nexport const {constant}_EXECUTABLE = {:?};\n",
+        layer.product.executable_name(),
     )
 }
 

@@ -1,0 +1,20 @@
+{
+  "name": "goodfetch-compare-collie",
+  "private": true,
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@goodfetch/collie": "workspace:*",
+    "playwright": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

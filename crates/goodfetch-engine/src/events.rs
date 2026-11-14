@@ -35,7 +35,7 @@ use goodfetch_protocol::needs_you::{NEEDS_YOU_CHANGED, NeedsYouChange, NeedsYouI
 use goodfetch_protocol::run::{Lifecycle, RUN_AXES_CHANGED, RunAxes, RunId};
 use serde::{Serialize, Serializer};
 use serde_json::value::RawValue;
-use tokio::sync::{Semaphore, mpsc, oneshot};
+use tokio::sync::{Semaphore, mpsc, oneshot, watch};
 
 use crate::tasks::TaskOwner;
 
@@ -73,6 +73,8 @@ pub struct Events {
     commands: mpsc::Sender<Command>,
     instance: EngineInstance,
     work: CountedWork,
+    /// Whether the stream holds a subscription, as its actor last said.
+    subscribed: watch::Receiver<bool>,
 }
 
 /// One event as a stream holds and sends it, an `EventEnvelope` on the
@@ -221,6 +223,7 @@ impl Events {
         work: CountedWork,
     ) -> Self {
         let (commands, mailbox) = mpsc::channel(COMMANDS);
+        let (subscribed, followed) = watch::channel(false);
         let stream = Stream {
             options,
             instance: instance.clone(),
@@ -231,6 +234,7 @@ impl Events {
             subscriptions: BTreeMap::new(),
             next_subscription: 0,
             work: work.clone(),
+            subscribed,
         };
         let token = owner.token().clone();
         owner.spawn(async move {
@@ -243,12 +247,24 @@ impl Events {
             commands,
             instance,
             work,
+            subscribed: followed,
         }
     }
 
     /// The engine instance whose positions it gives.
     pub(crate) fn instance(&self) -> &EngineInstance {
         &self.instance
+    }
+
+    /// Whether the stream holds a subscription. With none, a telemetry
+    /// event reaches no queue and is not kept, so its producer may leave
+    /// its payload unbuilt. A subscription counts from before its
+    /// [`subscribe`](Self::subscribe) is answered, so what is published
+    /// once it is answered reaches it; one still on its way to the stream
+    /// when this is read starts with the next event, as one that opens
+    /// just after a publish does.
+    pub(crate) fn subscribed(&self) -> bool {
+        *self.subscribed.borrow()
     }
 
     /// Publishes `event`, with `data` as its payload; `scope` (such as a
@@ -517,6 +533,8 @@ struct Stream {
     next_subscription: u64,
     /// Where each `events.resync` it encodes counts.
     work: CountedWork,
+    /// Tells [`Events::subscribed`] whether `subscriptions` holds one.
+    subscribed: watch::Sender<bool>,
 }
 
 impl Stream {
@@ -531,6 +549,9 @@ impl Stream {
                     answer,
                 } => {
                     let id = self.subscribe(after, system_info, alive);
+                    // Before the answer: its caller, once answered, finds
+                    // the stream subscribed.
+                    self.tell_subscribed();
                     if answer.send(id).is_err() {
                         self.subscriptions.remove(&id);
                     }
@@ -550,7 +571,16 @@ impl Stream {
                 }
             }
             self.subscriptions.retain(|_, queue| !queue.is_gone());
+            self.tell_subscribed();
         }
+    }
+
+    /// Tells [`Events::subscribed`] whether it holds a subscription now,
+    /// when that changed.
+    fn tell_subscribed(&self) {
+        let subscribed = !self.subscriptions.is_empty();
+        self.subscribed
+            .send_if_modified(|told| std::mem::replace(told, subscribed) != subscribed);
     }
 
     fn accept(&mut self, publish: Publish) {

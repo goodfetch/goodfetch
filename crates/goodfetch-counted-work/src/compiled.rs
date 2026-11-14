@@ -6,12 +6,16 @@
 //! rules' version too, as a Run holds to one version (ADR 0047). A lookup
 //! takes no lock around a page's other lookups: the cache is concurrent.
 //!
+//! Each kind's part is built the first time a text of its kind is asked for:
+//! a `CountedWork` nothing compiles through, such as the placeholder an owner
+//! holds until it is given the engine's, builds no cache.
+//!
 //! It holds at most [`CAPACITY`] compilations. One over the bound evicts one
 //! kept before, the one least likely to be asked for again (moka's `TinyLFU`),
 //! rather than grows: an evicted text asked for again is compiled again, and
 //! counted again.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use moka::Equivalent;
 
@@ -57,29 +61,48 @@ impl Lookup<'_> {
 }
 
 /// One kind's part of the cache: what its counted function answered for
-/// each text kept.
-struct Part<V>(moka::sync::Cache<Key, V>);
+/// each text kept, in a cache of at most `capacity` it builds for the first
+/// text asked for.
+struct Part<V> {
+    capacity: u64,
+    cache: OnceLock<moka::sync::Cache<Key, V>>,
+}
 
 impl<V: Clone + Send + Sync + 'static> Part<V> {
-    fn bounded(capacity: u64) -> Self {
-        Self(moka::sync::Cache::new(capacity))
+    const fn bounded(capacity: u64) -> Self {
+        Self {
+            capacity,
+            cache: OnceLock::new(),
+        }
     }
 
     /// What `compile` answers for `lookup`, compiled only when it is not
     /// kept, then kept. Two threads that miss the same text at once compile
     /// it once.
     fn kept(&self, lookup: &Lookup<'_>, compile: impl FnOnce() -> V) -> V {
-        if let Some(kept) = self.0.get(lookup) {
+        let cache = self
+            .cache
+            .get_or_init(|| moka::sync::Cache::new(self.capacity));
+        if let Some(kept) = cache.get(lookup) {
             return kept;
         }
-        self.0.get_with(lookup.owned(), compile)
+        cache.get_with(lookup.owned(), compile)
     }
 
-    /// How many it keeps now, its evictions done.
+    /// How many it keeps, as its cache counted them last; `None` before its
+    /// first text built the cache.
+    fn count(&self) -> Option<u64> {
+        self.cache.get().map(moka::sync::Cache::entry_count)
+    }
+
+    /// How many it keeps now, its evictions done; none before its first
+    /// text.
     #[cfg(test)]
     fn len(&self) -> u64 {
-        self.0.run_pending_tasks();
-        self.0.entry_count()
+        self.cache.get().map_or(0, |cache| {
+            cache.run_pending_tasks();
+            cache.entry_count()
+        })
     }
 }
 
@@ -101,12 +124,15 @@ impl Default for Compiled {
     }
 }
 
+// Each part as how many it keeps, or `None` while its cache is not built.
 impl std::fmt::Debug for Compiled {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("Compiled")
-            .field("selectors", &self.selectors.0.entry_count())
-            .finish_non_exhaustive()
+            .field("selectors", &self.selectors.count())
+            .field("regexes", &self.regexes.count())
+            .field("globs", &self.globs.count())
+            .finish()
     }
 }
 

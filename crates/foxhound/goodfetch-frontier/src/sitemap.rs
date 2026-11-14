@@ -558,8 +558,8 @@ pub enum Adding<'a> {
     Sitemap,
 }
 
-/// The statements [`read`] runs, which [`crate::prepare_admission`]
-/// prepares as the Run starts: the sitemap's row, its read, the removal of
+/// The statements [`read`] runs, which [`crate::admission_statements`]
+/// has the Run prepare as it starts: the sitemap's row, its read, the removal of
 /// its failure and its entries' counts.
 pub(crate) const READ: [&str; 4] = [
     "SELECT sitemaps.url, sitemaps.seed, sitemaps.rules, sitemaps.nesting, seeds.url

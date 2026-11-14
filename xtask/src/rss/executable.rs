@@ -57,6 +57,15 @@ pub(crate) fn file_backed_bytes(smaps: &str, executable: &Path) -> u64 {
     total_kib * 1024
 }
 
+/// The process `pid`'s file-backed resident bytes of `executable`, its
+/// own executable, now: none once it is gone. `just compare`'s sampler
+/// reads them too.
+#[cfg(target_os = "linux")]
+pub(crate) fn resident(pid: u32, executable: &Path) -> Option<u64> {
+    let smaps = std::fs::read_to_string(format!("/proc/{pid}/smaps")).ok()?;
+    Some(file_backed_bytes(&smaps, executable))
+}
+
 #[cfg(any(target_os = "linux", test))]
 /// A mapping's header line, `<start>-<end> <perms> <offset> <dev> <inode>
 /// [<path>]`, gives its path, empty for an anonymous mapping; any other
@@ -108,8 +117,7 @@ impl Sampler {
             let executable = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;
             let mut highest = None;
             loop {
-                if let Ok(smaps) = std::fs::read_to_string(format!("/proc/{pid}/smaps")) {
-                    let bytes = file_backed_bytes(&smaps, &executable);
+                if let Some(bytes) = resident(pid, &executable) {
                     highest = Some(highest.map_or(bytes, |highest: u64| highest.max(bytes)));
                 }
                 match stopped.recv_timeout(INTERVAL) {

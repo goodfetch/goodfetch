@@ -38,15 +38,30 @@
 //! (ADR 0138). Without Valgrind `F2.prepares` goes unprinted, which `xtask
 //! counts` fails as a row not counted.
 //!
+//! `F3.counted_work_constructions` is read from the same two runs, as a
+//! `CountedWork` being built has no instance to count on: Callgrind's call
+//! count of its constructor on the whole site, less on [`SHORTER`] of its
+//! pages, over the pages the whole site adds. The engine's own and each
+//! owner's placeholder are built once and count for no page; one an
+//! admission builds counts for its page. The whole run must see the engine
+//! build its own, or the constructor's name has changed. It goes unprinted
+//! without Valgrind too.
+//!
 //! The cells of the run file's own switches (`concurrency_1`,
 //! `concurrency_16`, `durability_fast`) and the handler's cell crawl without
 //! the Frontier's outcomes beyond a links batch: a hop's, a sitemap's and a
 //! Payload's rows say "no hops" there.
 //!
-//! `F3.actor_round_trips` divides by the attempts that ended, the unit
-//! `attempts_ended`: the attempts the site served a page to and the one that
-//! read each sitemap, which is a Work item's attempt as a page's is and
-//! serves no page.
+//! `F3.hop_round_trips.end` divides by the redirected chains that ended on
+//! their document, the unit `chains`: the site's redirects are one hop
+//! each, so its chains are its hops.
+//!
+//! `F3.actor_round_trips` and `F3.in_flight_serializations` divide by the
+//! attempts that ended, the unit `attempts_ended`: the attempts the site
+//! served a page to and the one that read each sitemap, which is a Work
+//! item's attempt as a page's is and serves no page. No cell reads its Run's
+//! progress or subscribes to the engine's events, so the second counts what
+//! the attempts alone serialize.
 //!
 //! The cell `varying_parameter` crawls, beside the site, as many pages
 //! `/item?id=<n>` as the site has pages, each its own, with learning on: the
@@ -155,6 +170,11 @@ fn plant(name: &str, work: &CountedWork, vfs: &str) -> Plant {
     if name.starts_with("E6.") {
         return politeness_plant(name, work);
     }
+    if name == CONSTRUCTIONS {
+        return Arc::new(|_: &str| {
+            std::hint::black_box(CountedWork::default());
+        });
+    }
     let work = work.clone();
     if name == "F1.parses" {
         return Arc::new(move |head: &str| {
@@ -206,6 +226,14 @@ fn number_field() -> Map<String, Value> {
 
 /// The run-state row Callgrind reads over a whole cell.
 const RUN_STATE_PREPARES: &str = "F2.prepares";
+
+/// The row Callgrind reads over a whole cell as the calls of
+/// [`CONSTRUCTION`] each page adds.
+const CONSTRUCTIONS: &str = "F3.counted_work_constructions";
+
+/// `CountedWork`'s constructor, as Callgrind names it.
+const CONSTRUCTION: &str =
+    "<goodfetch_counted_work::CountedWork as core::default::Default>::default";
 
 /// The row Callgrind adds the Politeness file's preparations to: those
 /// beneath its functions, but its opening's.
@@ -339,12 +367,14 @@ struct Cell {
 const FRONTIER: Option<Frontier> = Some(Frontier {
     schema: true,
     items: 0,
+    second_hop: false,
 });
 
 /// The Frontier's outcomes with a seed whose Payload has no schema to fit.
 const UNTYPED: Option<Frontier> = Some(Frontier {
     schema: false,
     items: 0,
+    second_hop: false,
 });
 
 /// How many items the cell [`VARYING_PARAMETER`]'s site serves: as many as
@@ -364,6 +394,7 @@ fn varying_parameter() -> Cell {
         frontier: Some(Frontier {
             schema: true,
             items: ITEMS,
+            second_hop: false,
         }),
         removes: &[],
         removes_syncs: false,
@@ -567,7 +598,7 @@ fn cells() -> Vec<Cell> {
     cells
 }
 
-/// What a cell's runs under Callgrind prepared.
+/// What a cell's runs under Callgrind prepared and built.
 #[derive(Clone, Copy)]
 struct Prepared {
     /// Beneath the Politeness file's functions, its opening's left out, on
@@ -576,6 +607,9 @@ struct Prepared {
     /// Beneath the `run_state` writer's, on the whole site less on
     /// [`SHORTER`] of its pages: `F2.prepares`, over [`added_pages`].
     per_added_pages: u64,
+    /// The `CountedWork` values built on the whole site less on [`SHORTER`]
+    /// of its pages: `F3.counted_work_constructions`, over [`added_pages`].
+    constructions: u64,
 }
 
 /// What one cell counted.
@@ -826,11 +860,12 @@ fn run(cell: &Cell, planted: Option<&str>, watched: Watched) -> Counted {
     ran
 }
 
-/// Runs `cell` under Callgrind for `F2.prepares` and `E6.opens` beside
-/// `beside`, which runs on this thread, when this run reads their rows and is
-/// `counted`: a plant of another row has no use for their figures and would
-/// wait for them, and `strace` would trace that run too. The run is scoped to
-/// this call, so its Valgrind child never outlives a panic of `beside`.
+/// Runs `cell` under Callgrind for `F2.prepares`, `E6.opens` and
+/// `F3.counted_work_constructions` beside `beside`, which runs on this
+/// thread, when this run reads their rows and is `counted`: a plant of
+/// another row has no use for their figures and would wait for them, and
+/// `strace` would trace that run too. The run is scoped to this call, so its
+/// Valgrind child never outlives a panic of `beside`.
 #[expect(
     clippy::disallowed_methods,
     reason = "the ADR 0140 counts harness runs Callgrind beside the crawl on a scoped thread, which nothing else waits on"
@@ -844,7 +879,9 @@ fn prepare_calls<T>(
     std::thread::scope(|scope| {
         let calls = scope.spawn(|| {
             if !counted
-                || planted.is_some_and(|row| row != RUN_STATE_PREPARES && row != POLITENESS_OPENS)
+                || planted.is_some_and(|row| {
+                    ![RUN_STATE_PREPARES, POLITENESS_OPENS, CONSTRUCTIONS].contains(&row)
+                })
             {
                 return None;
             }
@@ -858,7 +895,14 @@ fn prepare_calls<T>(
                 if let Some(row) = planted {
                     arguments.extend(["--plant", row]);
                 }
-                callgrind::calls_beneath_each(PREPARE, CALLERS, &owners, &executable, &arguments)
+                callgrind::calls_beneath_each(
+                    PREPARE,
+                    CALLERS,
+                    &owners,
+                    &[CONSTRUCTION],
+                    &executable,
+                    &arguments,
+                )
             };
             let (whole, shorter) = std::thread::scope(|scope| {
                 let shorter = scope.spawn(|| run(true));
@@ -871,15 +915,30 @@ fn prepare_calls<T>(
                 )
             });
             match whole.and_then(|whole| shorter.map(|shorter| (whole, shorter))) {
-                Ok((whole, shorter)) => Some(Prepared {
-                    politeness: whole[0].beneath,
-                    per_added_pages: whole[1]
-                        .beneath
-                        .checked_sub(shorter[1].beneath)
-                        .expect("invariant: the whole site prepares at least what half of it does"),
-                }),
+                Ok((whole, shorter)) => {
+                    // A constructor renamed or inlined would otherwise
+                    // count no construction, and pass.
+                    assert!(
+                        whole.others[0] > 0,
+                        "Callgrind saw no `CountedWork` built, not even the engine's: {CONSTRUCTION} no longer names its constructor"
+                    );
+                    Some(Prepared {
+                        politeness: whole.beneath[0].beneath,
+                        per_added_pages: whole.beneath[1]
+                            .beneath
+                            .checked_sub(shorter.beneath[1].beneath)
+                            .expect(
+                                "invariant: the whole site prepares at least what half of it does",
+                            ),
+                        constructions: whole.others[0].checked_sub(shorter.others[0]).expect(
+                            "invariant: the whole site builds at least what half of it does",
+                        ),
+                    })
+                }
                 Err(error) => {
-                    eprintln!("{RUN_STATE_PREPARES} is not read: {error}");
+                    eprintln!(
+                        "{RUN_STATE_PREPARES}, {POLITENESS_OPENS} and {CONSTRUCTIONS} are not read: {error}"
+                    );
                     None
                 }
             }
@@ -1122,6 +1181,7 @@ fn main() {
         match cell.prepare_calls {
             Some(calls) => {
                 counts.insert(RUN_STATE_PREPARES.to_owned(), json!(calls.per_added_pages));
+                counts.insert(CONSTRUCTIONS.to_owned(), json!(calls.constructions));
                 let opens = cell.count(Row::PolitenessOpens) + calls.politeness;
                 counts.insert(POLITENESS_OPENS.to_owned(), json!(opens));
             }
@@ -1138,6 +1198,9 @@ fn main() {
             "records": if cell.name == RECORDS_OFF_CELL { 0 } else { cell.pages },
             "links_batches": if cell.handler { 0 } else { cell.pages },
             "hops": cell.hops,
+            // Each of the site's redirects leads straight to a page: a
+            // chain of one hop.
+            "chains": cell.hops,
             "sitemaps": cell.sitemaps,
             "payloads": u64::from(cell.frontier),
             "attempts": cell.attempts,

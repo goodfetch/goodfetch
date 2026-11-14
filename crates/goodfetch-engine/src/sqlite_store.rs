@@ -474,6 +474,12 @@ pub(crate) fn run_cached(connection: &Connection, statement: &str) -> rusqlite::
     connection.prepare_cached(statement)?.execute([]).map(drop)
 }
 
+/// What begins an [`immediate`] transaction.
+const BEGIN_IMMEDIATE: &str = "BEGIN IMMEDIATE";
+
+/// What commits a transaction.
+const COMMIT: &str = "COMMIT";
+
 /// Runs `work` in one `BEGIN IMMEDIATE` transaction of `connection`, its
 /// `BEGIN`, `COMMIT` and `ROLLBACK` through the statement cache, as
 /// [`run_cached`] runs them: commits once `work` succeeds, and rolls back
@@ -487,7 +493,25 @@ pub(crate) fn immediate<T, E: From<rusqlite::Error>>(
     connection: &Connection,
     work: impl FnOnce(&Connection) -> Result<T, E>,
 ) -> Result<T, E> {
-    transaction(connection, "BEGIN IMMEDIATE", work)
+    transaction(connection, BEGIN_IMMEDIATE, work)
+}
+
+/// Prepares `statements` and the `BEGIN` and `COMMIT` of the [`immediate`]
+/// transaction that runs them, once in `connection`'s statement cache:
+/// done as a connection is set up, its first such transaction prepares
+/// none (ADR 0140).
+///
+/// # Errors
+///
+/// SQLite's, at a statement it cannot prepare.
+pub(crate) fn prepare_immediate(
+    connection: &Connection,
+    statements: &[&str],
+) -> rusqlite::Result<()> {
+    for statement in [BEGIN_IMMEDIATE, COMMIT].iter().chain(statements) {
+        connection.prepare_cached(statement)?;
+    }
+    Ok(())
 }
 
 /// Runs `work` in one deferred transaction of `connection`, which takes no
@@ -510,7 +534,7 @@ fn transaction<T, E: From<rusqlite::Error>>(
 ) -> Result<T, E> {
     run_cached(connection, begin)?;
     let done =
-        work(connection).and_then(|answer| Ok(run_cached(connection, "COMMIT").map(|()| answer)?));
+        work(connection).and_then(|answer| Ok(run_cached(connection, COMMIT).map(|()| answer)?));
     if done.is_err() && !connection.is_autocommit() {
         let _ = run_cached(connection, "ROLLBACK");
     }

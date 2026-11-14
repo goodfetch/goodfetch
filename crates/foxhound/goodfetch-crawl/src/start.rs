@@ -243,7 +243,6 @@ async fn start(
                 labels::record(connection, &declared)?;
                 datasets.record(connection)?;
                 code_free::record(connection, recording.as_ref())?;
-                goodfetch_frontier::prepare_admission(connection, invariants.frontier())?;
                 let answers = work_items::admit_seeds(
                     connection,
                     &mut work_items::Positions::of(connection)?,

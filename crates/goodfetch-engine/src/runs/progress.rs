@@ -2,10 +2,14 @@
 //! change of it, each change a new value at a higher position that its
 //! readers follow and the event stream carries as `run.progress`; the parts
 //! an area reads from the Run's committed state when a value is read
-//! ([`ProgressPart`]); and the progress a run file gives a Run no engine of
-//! this one's works, which is the last that comes from here.
+//! ([`ProgressPart`]); the parts its kind of Run keeps typed, which are
+//! encoded only for a value a reader takes ([`TypedPart`]); and the progress
+//! a run file gives a Run no engine of this one's works, which is the last
+//! that comes from here.
 
+use std::any::Any;
 use std::collections::BTreeMap;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use goodfetch_protocol::run::{
@@ -25,13 +29,72 @@ use crate::events::Events;
 /// of the reader's own, each time a value is read, and fills its part of
 /// `progress`. A part it has nothing for stays absent.
 pub trait ProgressPart: Send + Sync {
-    /// Fills its part of `progress`.
+    /// Fills its part of `progress`, whose live Run keeps `typed` unencoded:
+    /// a typed part it encodes into `progress` itself, as the committed
+    /// state has it, is not encoded again.
     ///
     /// # Errors
     ///
     /// When the Run's state cannot be read: the value then goes without
     /// this part, and the failure is logged.
-    fn fill(&self, connection: &Connection, progress: &mut RunProgress) -> rusqlite::Result<()>;
+    fn fill(
+        &self,
+        connection: &Connection,
+        typed: &TypedParts,
+        progress: &mut RunProgress,
+    ) -> rusqlite::Result<()>;
+}
+
+/// What a kind of Run keeps of one part of its progress, in types the
+/// engine does not know, such as a crawl's requests in flight.
+pub trait PartValue: Any + Send + Sync + Debug {
+    /// Its JSON value, as it stands.
+    fn encoded(&self) -> Value;
+}
+
+/// A part of a live Run's progress that its kind of Run keeps typed: it is
+/// encoded when a reader takes a value, once for that value, and never
+/// when it changes.
+#[derive(Clone, Debug)]
+pub struct TypedPart(Arc<dyn PartValue>);
+
+impl TypedPart {
+    /// The part that holds `value`.
+    pub fn new(value: impl PartValue) -> Self {
+        Self(Arc::new(value))
+    }
+
+    /// What it holds, when that is a `T`.
+    #[must_use]
+    pub fn value<T: PartValue>(&self) -> Option<&T> {
+        let value: &dyn Any = self.0.as_ref();
+        value.downcast_ref()
+    }
+}
+
+/// The typed parts of one value of a live Run's progress, by name; none for
+/// a Run no engine of this one's works.
+#[derive(Clone, Debug, Default)]
+pub struct TypedParts(BTreeMap<&'static str, TypedPart>);
+
+impl TypedParts {
+    /// The part `name`, when the Run keeps one.
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&TypedPart> {
+        self.0.get(name)
+    }
+
+    /// Encodes into `progress` each part it does not hold yet: those no
+    /// [`ProgressPart`] encoded from the committed state.
+    pub(super) fn encode_into(&self, progress: &mut RunProgress) {
+        for (name, part) in &self.0 {
+            if !progress.kind_parts.contains_key(*name) {
+                progress
+                    .kind_parts
+                    .insert((*name).to_owned(), part.0.encoded());
+            }
+        }
+    }
 }
 
 /// What a live Run's progress holds as it is now, beside what its parts
@@ -51,6 +114,7 @@ pub(super) struct Progressing {
     pub(super) stop_reason: Option<StopReason>,
     pub(super) last: bool,
     kind_parts: Map<String, Value>,
+    typed_parts: TypedParts,
 }
 
 impl Progressing {
@@ -72,6 +136,7 @@ impl Progressing {
             stop_reason: None,
             last: false,
             kind_parts: Map::new(),
+            typed_parts: TypedParts::default(),
         }
     }
 
@@ -81,9 +146,15 @@ impl Progressing {
     }
 
     /// The value of `run_id` it gives, read at `at`, before its parts fill
-    /// theirs.
+    /// theirs: its typed parts encoded as they stand.
     pub(super) fn value(&self, run_id: &RunId, at: PointInTime) -> RunProgress {
-        RunProgress {
+        self.unencoded(run_id, at).encoded()
+    }
+
+    /// The same with its typed parts not encoded yet, for a reader whose
+    /// parts fill theirs first.
+    pub(super) fn unencoded(&self, run_id: &RunId, at: PointInTime) -> Unencoded {
+        let value = RunProgress {
             run_id: run_id.clone(),
             position: self.position,
             at,
@@ -97,7 +168,44 @@ impl Progressing {
             stop_reason: self.stop_reason.clone(),
             last: self.last,
             kind_parts: self.kind_parts.clone(),
+        };
+        Unencoded {
+            value,
+            typed: self.typed_parts.clone(),
         }
+    }
+}
+
+/// A value of a live Run's progress whose typed parts are not encoded yet.
+#[derive(Clone, Debug)]
+pub(super) struct Unencoded {
+    value: RunProgress,
+    typed: TypedParts,
+}
+
+impl Unencoded {
+    /// Says the value is the last that comes from here.
+    pub(super) fn last(mut self) -> Self {
+        self.value.last = true;
+        self
+    }
+
+    /// The value, its typed parts encoded as they stand.
+    pub(super) fn encoded(mut self) -> RunProgress {
+        self.typed.encode_into(&mut self.value);
+        self.value
+    }
+
+    /// The value once each of `parts` filled its own from the committed
+    /// state `connection` reads, as [`fill`] does, and each typed part none
+    /// of them encoded is encoded as it stands.
+    pub(super) fn filled(
+        mut self,
+        parts: &[Arc<dyn ProgressPart>],
+        connection: &Connection,
+    ) -> RunProgress {
+        fill(parts, connection, &self.typed, &mut self.value);
+        self.value
     }
 }
 
@@ -156,6 +264,13 @@ impl Progress {
         });
     }
 
+    /// Sets the typed part `name` its kind of Run adds to `part`; a change.
+    pub(super) fn set_typed_part(&self, name: &'static str, part: TypedPart) {
+        self.change(|progressing| {
+            progressing.typed_parts.0.insert(name, part);
+        });
+    }
+
     /// Adds `pause` to the pauses waiting; a change.
     pub(super) fn pause(&self, pause: HumanPause) -> PauseHeld {
         let mut id = 0;
@@ -199,7 +314,9 @@ impl Drop for PauseHeld {
 /// Publishes each value of the live Run `run_id`'s progress that `changes`
 /// gives on `events` as `run.progress`, read at `clock`'s time, the values
 /// a slow stream misses coalesced, until its last; its parts read from
-/// committed state are the readers' own.
+/// committed state are the readers' own. While `events` holds no
+/// subscription it takes no value, since none would reach a reader: a
+/// change then encodes nothing.
 pub(super) async fn publish(
     run_id: RunId,
     mut changes: watch::Receiver<Progressing>,
@@ -207,13 +324,19 @@ pub(super) async fn publish(
     clock: Clock,
 ) {
     while changes.changed().await.is_ok() {
-        let value = changes
-            .borrow_and_update()
-            .value(&run_id, clock.point_in_time());
-        events
-            .publish(&RUN_PROGRESS, Some(run_id.as_str()), &value)
-            .await;
-        if value.last {
+        let (value, last) = {
+            let current = changes.borrow_and_update();
+            let value = events
+                .subscribed()
+                .then(|| current.value(&run_id, clock.point_in_time()));
+            (value, current.last)
+        };
+        if let Some(value) = value {
+            events
+                .publish(&RUN_PROGRESS, Some(run_id.as_str()), &value)
+                .await;
+        }
+        if last {
             return;
         }
     }
@@ -275,10 +398,12 @@ pub(super) fn committed(
 /// Fills `progress` with each of `parts`, read on `connection` in one read
 /// transaction, so every part reads the same committed state, not one
 /// that a commit changed between two of their reads; a part that fails is
-/// left out and logged.
+/// left out and logged. Each of `typed` that no part encoded is then
+/// encoded as it stands.
 pub(super) fn fill(
     parts: &[Arc<dyn ProgressPart>],
     connection: &Connection,
+    typed: &TypedParts,
     progress: &mut RunProgress,
 ) {
     // Dropped at the end, which ends the read transaction.
@@ -289,8 +414,9 @@ pub(super) fn fill(
         })
         .ok();
     for part in parts {
-        if let Err(error) = part.fill(connection, progress) {
+        if let Err(error) = part.fill(connection, typed, progress) {
             tracing::warn!(%error, run_id = %progress.run_id, "a part of the Run's progress could not be read");
         }
     }
+    typed.encode_into(progress);
 }

@@ -767,14 +767,14 @@ fn under_transport_a_label_learned_onto_http_sends_with_the_transports_tls_and_h
 /// `transport`, weakens it.
 ///
 /// Covers: setting:fetch.http_from, command:config.explain
-#[rstest]
-#[case::by_default(&[], json!(["browser", "default", false]))]
-#[case::learned(&["--set", "fetch.http_from=learned"], json!(["learned", "run", true]))]
-#[case::transport(&["--set", "fetch.http_from=transport"], json!(["transport", "run", true]))]
 #[expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
+#[rstest]
+#[case::by_default(&[], json!(["browser", "default", false]))]
+#[case::learned(&["--set", "fetch.http_from=learned"], json!(["learned", "run", true]))]
+#[case::transport(&["--set", "fetch.http_from=transport"], json!(["transport", "run", true]))]
 fn config_explain_lists_where_a_labels_http_leaves_from(
     #[case] set: &[&str],
     #[case] explained: Value,

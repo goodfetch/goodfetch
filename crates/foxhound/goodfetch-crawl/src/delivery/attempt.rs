@@ -18,17 +18,22 @@
 //! hop page of the attempt's own browser Session.
 //!
 //! Under `fetch.tier_race` (ADR 0040; the `tier_race` module), an attempt
-//! whose tier is not forced races instead: its document is fetched through
-//! browser-fetch, and a full navigation of its URL in the same Session
-//! starts its race's delay later, taking room beside the attempt's own as
-//! a second copy does, one `requests` in Usage and its domain's delay. The
-//! first page that passes the Page check, browser-fetch's only when it also
-//! agrees with its Label's comparison, wins and is handed to the handler;
-//! the other is cancelled: a browser-fetch in flight is dropped, its
-//! connection closed, and a navigation not yet sent is never sent, while
-//! one sent has its page closed, its load with it. Provenance records the race.
-//! A browser-fetch whose document arrived gives its Label on its domain one
-//! latency, which times its later races.
+//! whose tier is not forced races instead: its document is fetched by a
+//! first request on the document tier, and a full navigation of its URL in
+//! the attempt's Session starts its race's delay later, taking room beside
+//! the attempt's own as a second copy does, one `requests` in Usage and its
+//! domain's delay. The first request leaves from where its Label learned
+//! to leave from (#2421): under `fetch.http_from: learned`, from the own
+//! transport of a Session drawn for it beside the attempt's when its Label
+//! learned to send its HTTP from there, else through browser-fetch from
+//! the hop page of the attempt's Session. The first page that passes the
+//! Page check, the first request's only when it also agrees with its
+//! Label's comparison, wins and is handed to the handler; the other is
+//! cancelled: a first request in flight is dropped, its connection closed,
+//! and a navigation not yet sent is never sent, while one sent has its page
+//! closed, its load with it. Provenance records the race and names the tier
+//! that sent the first request. A first request whose document arrived
+//! gives its Label on its domain one latency, which times its later races.
 //!
 //! Under `fetch.tier: http` (spec #579), the attempt first fetches its
 //! request's document on the Run's HTTP tier, under the same lease, and
@@ -212,10 +217,11 @@ pub(super) struct Tiering {
     second_copies: SecondCopies,
     /// The client the attempt's Session sends from.
     sends_from: SendsFrom,
-    /// The Session a sample's `http` run is sent from when its Label sends
-    /// its HTTP from the transport (`fetch.http_from`): drawn beside the
-    /// attempt's, sharing nothing with it.
-    transport: Option<SampleSession>,
+    /// The Session a sample's `http` run, or a race's first request, is
+    /// sent from when its Label sends its HTTP from the transport
+    /// (`fetch.http_from`, #2421): drawn beside the attempt's, sharing
+    /// nothing with it.
+    transport: Option<TransportSession>,
     /// The Session drawn only to read the attempt's site files from its
     /// own transport, when neither the attempt's Session nor `transport`
     /// sends from one (#2422).
@@ -236,11 +242,11 @@ pub(super) struct Escalating {
     pub(super) settings: PoolSettings,
 }
 
-/// The Session a sample's `http` run is sent from, from its own transport,
-/// as it would run in the browser, with the Run's HTTP tier as it sends
-/// on it: `None` when that tier could not be built for it, which fails the
-/// sample.
-pub(super) struct SampleSession {
+/// The Session a sample's `http` run, or a race's first request, is sent
+/// from, from its own transport, as it would run in the browser, with the
+/// Run's HTTP tier as it sends on it: `None` when that tier could not be
+/// built for it, which fails the sample or the race.
+pub(super) struct TransportSession {
     pub(super) session: ServingSession,
     pub(super) in_browser: PooledSession,
     pub(super) http: Option<HttpTier>,
@@ -272,11 +278,12 @@ impl Tiering {
     }
 
     /// The same, its Session sending from `sends_from`, and a sample's
-    /// `http` run sent from `transport`'s Session when given.
+    /// `http` run, or a race's first request, sent from `transport`'s
+    /// Session when given.
     pub(super) fn sending(
         mut self,
         sends_from: SendsFrom,
-        transport: Option<SampleSession>,
+        transport: Option<TransportSession>,
     ) -> Self {
         self.sends_from = sends_from;
         self.transport = transport;
@@ -472,9 +479,14 @@ pub(super) struct Attempt {
     _counted: Counted,
     /// The Session of the crawl's Session pool that served it.
     pub(super) session: ServingSession,
-    /// The Session a sample's `http` run was sent from, from its own
-    /// transport, when its Label sends its HTTP from there.
+    /// The Session a sample's `http` run, or a race's first request, was
+    /// sent from, from its own transport, when its Label sends its HTTP
+    /// from there.
     pub(super) transport: Option<ServingSession>,
+    /// Whether its answer is that of its race's first request, sent from
+    /// `transport`'s Session (#2421), which that Session's score then
+    /// takes in place of its own Session's.
+    pub(super) transport_answered: bool,
     /// The Session drawn only to read its site files, when one was.
     pub(super) site_files: Option<ServingSession>,
     /// The Session whose client is its browser that it ran again in, when
@@ -488,7 +500,7 @@ pub(super) struct Attempt {
     /// The sample it was, with how its two runs weighed, once both
     /// answered.
     pub(super) sampled: Option<(Sampled, Weighed)>,
-    /// The race it was, with its browser-fetch's latency, once its
+    /// The race it was, with its first request's latency, once its
     /// document arrived.
     pub(super) raced: Option<(Raced, Duration)>,
     /// The site's answer to its request's own document, when the engine
@@ -581,6 +593,7 @@ pub(super) async fn attempt(
             let mut merged = Taught::default();
             let mut sampled = None;
             let mut raced = None;
+            let mut transport_answered = false;
             let answer = match (&tiering.plan, &tiering.http) {
                 (AttemptPlan::Sitemap, Some(http)) => on.sitemap(http).await,
                 (AttemptPlan::Sitemap, None) => without_http_tier("sitemap"),
@@ -606,9 +619,11 @@ pub(super) async fn attempt(
                     answer
                 }
                 (AttemptPlan::Race(race), Some(http)) => {
-                    let (answer, learned, latency) = on.race(&tiering, http, race).await;
+                    let (answer, learned, latency, from_transport) =
+                        on.race(&tiering, http, race).await;
                     merged = learned;
                     raced = latency.map(|latency| (race.clone(), latency));
+                    transport_answered = from_transport;
                     answer
                 }
                 (
@@ -619,10 +634,10 @@ pub(super) async fn attempt(
                     None,
                 ) => without_http_tier("request"),
             };
-            (answer, merged, sampled, raced)
+            (answer, merged, sampled, (raced, transport_answered))
         }))
         .await;
-    let (answer, taught, sampled, raced, ran) = match ran {
+    let (answer, taught, sampled, (raced, transport_answered), ran) = match ran {
         Ok((answer, merged, sampled, raced)) => (answer, merged, sampled, raced, true),
         // What the attempt met before it panicked says nothing of its site:
         // its domain neither backs off nor learns from it.
@@ -630,7 +645,7 @@ pub(super) async fn attempt(
             Answer::failed(AttemptFailure::panicked(&panicked)),
             Taught::default(),
             None,
-            None,
+            (None, false),
             false,
         ),
     };
@@ -643,7 +658,8 @@ pub(super) async fn attempt(
         leased,
         _counted: counted,
         session,
-        transport: tiering.transport.map(|sample| sample.session),
+        transport: tiering.transport.map(|drawn| drawn.session),
+        transport_answered: ran && transport_answered,
         site_files: tiering.site_files,
         escalated: escalated.into_inner().map(|(session, _)| session),
         lease,
@@ -946,11 +962,28 @@ impl On<'_> {
         .await
     }
 
-    /// Where a sample's `http` run is sent from, on the Run's HTTP tier as
-    /// it sends there: the Session drawn for it from the transport when
-    /// there is one, else the attempt's own on `http`; a failed answer
-    /// when that Session's tier could not be built.
-    fn sampled_from<'s>(
+    /// The client the Session was drawn for (`AttemptPlan::sends_from`)
+    /// on the Run's HTTP tier `http`: the hop page of its browser, or its
+    /// own transport, keeping its cookies.
+    fn client(&self, tiers: &FetchTiers, http: &HttpTier) -> HttpTier {
+        match self.sends_from {
+            SendsFrom::Browser => tiers.in_browser(
+                http,
+                self.run,
+                self.in_browser,
+                self.hand_over,
+                self.context,
+            ),
+            SendsFrom::Transport => http.keeping_cookies_of(&self.session.id),
+        }
+    }
+
+    /// Where a sample's `http` run, or a race's first request, is sent
+    /// from, on the Run's HTTP tier as it sends there: the Session drawn
+    /// for it from the transport when there is one, else the attempt's own
+    /// on `http`; a failed answer when that Session's tier could not be
+    /// built.
+    fn sent_from<'s>(
         &'s self,
         tiering: &'s Tiering,
         http: &'s HttpTier,
@@ -962,7 +995,7 @@ impl On<'_> {
             return Err(Answer::failed(AttemptFailure::named(
                 NAVIGATION_FAILED.name,
                 true,
-                "The crawl's HTTP tier could not be built for the sample's own Session, so the request was not fetched."
+                "The crawl's HTTP tier could not be built for the Session drawn to send the request from its own transport, so the request was not fetched."
                     .to_owned(),
             )));
         };
@@ -999,7 +1032,7 @@ impl On<'_> {
         http: &HttpTier,
         browser_fetch: bool,
     ) -> (Answer, Taught, Option<Weighed>) {
-        let (sender, sent_on) = match self.sampled_from(tiering, http) {
+        let (sender, sent_on) = match self.sent_from(tiering, http) {
             Ok(sender) => sender,
             Err(answer) => return (answer, Taught::default(), None),
         };
@@ -1225,13 +1258,7 @@ impl On<'_> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let tiers = &tiering.tiers;
         let hand_over = self.hand_over;
-        // The client the Session was drawn for (`AttemptPlan::sends_from`).
-        let http = &match self.sends_from {
-            SendsFrom::Browser => {
-                tiers.in_browser(http, run, self.in_browser, hand_over, self.context)
-            }
-            SendsFrom::Transport => http.keeping_cookies_of(&self.session.id),
-        };
+        let http = &self.client(tiers, http);
         let (served, facts) = self
             .document(tiering, http, choice, hand_over)
             .await
@@ -1400,7 +1427,7 @@ impl On<'_> {
     /// What the run `how` names on `choice` finds of its served page
     /// `page_id`, whose `facts` it read as it was served, before the
     /// Frontier learns from it or its handler runs, checked in one order on
-    /// every document tier, a tier race's browser-fetch included
+    /// every document tier, a tier race's first request included
     /// ([`Found`]).
     async fn found(
         &self,

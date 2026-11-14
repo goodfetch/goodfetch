@@ -149,7 +149,7 @@ mod politeness;
 mod watch;
 
 use attempt::{
-    Answer, Attempt, Escalating, SampleSession, Taught, Tiering, effect, handler_lease,
+    Answer, Attempt, Escalating, Taught, Tiering, TransportSession, effect, handler_lease,
     leased_count, run_hand_over,
 };
 use pages::{Pages, Start};
@@ -832,13 +832,14 @@ impl Fetching<'_> {
 
     /// How `leased`'s attempt runs in the pool Session `session`, sending
     /// from `sends_from`, as `chosen` (its Label and the Run's `fetch.tier`
-    /// chose it as its Session was drawn): a race is timed by its Label on
-    /// its domain's browser-fetch latencies; and what it fetches its
-    /// document with, a sample's `http` run on `transport`'s Session when
-    /// one was drawn for it; and the tier its site files are read on,
-    /// from the own transport of the first of its Sessions that sends from
-    /// one, the attempt's, the sample's `transport` or `site_files`, else
-    /// of the attempt's Session, keeping that Session's cookies (#2422).
+    /// chose it as its Session was drawn): a race is timed by the
+    /// latencies of its Label on its domain's first requests; and what it
+    /// fetches its document with, a sample's `http` run or a race's first
+    /// request on `transport`'s Session when one was drawn for it (#2421);
+    /// and the tier its site files are read on, from the own transport of
+    /// the first of its Sessions that sends from one, the attempt's,
+    /// `transport` or `site_files`, else of the attempt's Session, keeping
+    /// that Session's cookies (#2422).
     fn served(
         &self,
         state: &RunState,
@@ -869,7 +870,7 @@ impl Fetching<'_> {
             }),
         };
         let http = self.session_tier(session, local);
-        let transport = transport.map(|drawn| SampleSession {
+        let transport = transport.map(|drawn| TransportSession {
             http: self.session_tier(&drawn.session.id, drawn.local),
             session: drawn.session,
             in_browser: drawn.in_browser,
@@ -1430,17 +1431,22 @@ fn scored(
         } else {
             effect(&attempt.answer)
         };
-        match &attempt.escalated {
+        // The Session whose run answered takes the score, and every other
+        // one the attempt drew none: a sample's `http` run sent from a
+        // Session of its own, whose attempt's answer is its browser run's,
+        // or a race's first request sent from one, unless its answer is
+        // the attempt's (#2421).
+        let (on_session, on_transport) = match &attempt.escalated {
             Some(escalated) => {
                 pool.settle(escalated, &waiting.key, effect, &read.pool);
-                pool.settle(&attempt.session, &waiting.key, Effect::Neutral, &read.pool);
+                (Effect::Neutral, Effect::Neutral)
             }
-            None => pool.settle(&attempt.session, &waiting.key, effect, &read.pool),
-        }
-        // A sample's `http` run sent from a Session of its own: the
-        // attempt's answer is its browser run's, which says nothing of it.
+            None if attempt.transport_answered => (Effect::Neutral, effect),
+            None => (effect, Effect::Neutral),
+        };
+        pool.settle(&attempt.session, &waiting.key, on_session, &read.pool);
         if let Some(transport) = &attempt.transport {
-            pool.settle(transport, &waiting.key, Effect::Neutral, &read.pool);
+            pool.settle(transport, &waiting.key, on_transport, &read.pool);
         }
         // The Session drawn only to read the attempt's site files: what
         // they answer says nothing of how its client fares (#2422).

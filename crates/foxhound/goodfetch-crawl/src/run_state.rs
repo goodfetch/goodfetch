@@ -3,7 +3,7 @@
 //! only caller, so nothing here sits under a lock. The first state it owns
 //! is the leasing of work items: the Session each attempt is drawn from the
 //! pool, how its tier is chosen, what its Label on its domain learned and
-//! the browser-fetch latencies that time a race.
+//! the latencies of the first requests that time a race.
 //!
 //! A lease waits for no write (#2168): each work item's row is the one
 //! the crawl kept of a change the run file's readers may not see yet, a
@@ -118,8 +118,9 @@ pub(crate) struct DrawnSession {
 
 /// A work item leased, with the Session drawn for its attempt, how its
 /// tier is chosen, and, for a sample whose `http` run is sent from the
-/// transport (`fetch.http_from`), the Session drawn for that run, which
-/// shares nothing with the first.
+/// transport (`fetch.http_from`), or a race whose first request is
+/// (#2421), the Session drawn for that run or request, which shares
+/// nothing with the first.
 pub(crate) struct Drawn {
     pub(crate) leased: Leased,
     pub(crate) session: DrawnSession,
@@ -718,8 +719,10 @@ impl RunState {
     /// its Label on its domain learned, its HTTP sent from the client its
     /// Label's `fetch.http_from`, else the Run's, says, or from the browser
     /// when its pool holds a login (#2418). A sample whose
-    /// `http` run is sent from the transport draws a second Session for
-    /// that run in the same draw. While the Run reads site files, an
+    /// `http` run is sent from the transport, and a race whose Label
+    /// learned to send its HTTP from there, draw a second Session in the
+    /// same draw, for that run or the race's first request (#2421). While
+    /// the Run reads site files, an
     /// attempt whose Sessions all send from the browser draws, in the same
     /// draw, a Session of the transport to read them, one already open
     /// while there is one (#2422). A choice whose count of requests served
@@ -768,15 +771,18 @@ impl RunState {
         // The Session is drawn for the client its plan sends from, so it
         // never serves a request of the other one. A race, and a sample
         // that takes a Label's turn to race, serve their pages from the
-        // browser.
+        // browser; a race's first request leaves from where its Label
+        // learned to leave from, a Session's own transport drawn beside
+        // the race's when that is the transport (#2421).
         let sends_from = match &chosen {
             Chosen::Planned(plan) => plan.sends_from(from),
             Chosen::Racing(_) => SendsFrom::Browser,
         };
-        let sampled_from_transport = match &chosen {
+        let from_transport = match &chosen {
             Chosen::Planned(AttemptPlan::Sample(sampled))
             | Chosen::Racing(AttemptPlan::Sample(sampled)) => sampled.from == SendsFrom::Transport,
-            Chosen::Planned(_) | Chosen::Racing(_) => false,
+            Chosen::Racing(learned) => learned.sends_from(from) == SendsFrom::Transport,
+            Chosen::Planned(_) => false,
         };
         let domain_key = leased.waiting.key.as_str();
         let session = self.pool.draw(
@@ -787,7 +793,7 @@ impl RunState {
             drawing.wall.0,
         );
         let session = self.drawn_session((&labels.pools, &key), session, sends_from);
-        let transport = sampled_from_transport.then(|| {
+        let transport = from_transport.then(|| {
             let transport = self.pool.draw(
                 &key,
                 domain_key,
@@ -877,7 +883,7 @@ impl RunState {
         self.learned.invalidate(label, domain_key)
     }
 
-    /// Takes `latency`, the browser-fetch latency of a race of `label` on
+    /// Takes `latency`, that of the first request of a race of `label` on
     /// `domain_key`.
     pub(crate) fn time(&mut self, label: &str, domain_key: &str, latency: Duration) {
         self.latencies.record(label, domain_key, latency);

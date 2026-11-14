@@ -1,9 +1,14 @@
 //! An attempt's tier race (`fetch.tier_race`; ADR 0040; the crate's
-//! `tier_race` module): browser-fetch and a navigation started its race's
-//! delay later in the same Session, the first page that can win handed to
-//! the handler, the other cancelled, both counted, the race recorded. A
-//! request a hidden link reached races with no navigation: a browser tier
-//! never follows such a link (ADR 0035).
+//! `tier_race` module): its first request on the document tier and a
+//! navigation started its race's delay later, the first page that can win
+//! handed to the handler, the other cancelled, both counted, the race
+//! recorded. The first request leaves from where its Label learned to
+//! leave from (#2421): from the own transport of a Session drawn for it
+//! beside the attempt's when its Label learned to send its HTTP from
+//! there, else through browser-fetch from the hop page of the attempt's
+//! Session, which the navigation runs in either way. A request a hidden
+//! link reached races with no navigation: a browser tier never follows
+//! such a link (ADR 0035).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,6 +24,7 @@ use goodfetch_fetch_tier::{
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::page::{PageId, PageResponse};
 use goodfetch_protocol::usage::REQUESTS;
+use goodfetch_session_pool::SendsFrom;
 use tokio::sync::oneshot;
 
 use super::{
@@ -29,34 +35,35 @@ use super::{
 use crate::lease::WorkItemLease;
 use crate::tier_race::Raced;
 
-/// The tier the Provenance of a race browser-fetch won names: the
-/// `browser_fetch` its race names the winner, chosen by no one.
-const BROWSER_FETCH: TierChoice = TierChoice {
-    tier: FetchTier::BrowserFetch,
-    forced: None,
-};
-
 impl On<'_> {
-    /// A race of the attempt's tiers (`fetch.tier_race`, ADR 0040):
-    /// browser-fetch at once and a navigation `raced`'s delay later, the
+    /// A race of the attempt's tiers (`fetch.tier_race`, ADR 0040): its
+    /// first request at once and a navigation `raced`'s delay later, the
     /// first page that can win handed to the handler, the other cancelled
-    /// (the module's doc). A handler that escalates browser-fetch's page
-    /// runs again in the browser, as on `http`. Answers how it ended, the
-    /// pending requests the page's rules merged, and browser-fetch's
-    /// latency once its document arrived.
+    /// (the module's doc). A handler that escalates the first request's
+    /// page runs again in the browser, in the attempt's Session, as on
+    /// `http`. Answers how it ended, the pending requests the page's rules
+    /// merged, the first request's latency once its document arrived, and
+    /// whether the attempt's answer is that of a first request sent from a
+    /// Session's own transport.
     pub(super) async fn race(
         &self,
         tiering: &Tiering,
         http: &HttpTier,
         raced: &Raced,
-    ) -> (Answer, Taught, Option<Duration>) {
+    ) -> (Answer, Taught, Option<Duration>, bool) {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let tiers = &tiering.tiers;
+        let (first, http) = match self.sent_from(tiering, http) {
+            Ok(sent_from) => sent_from,
+            Err(answer) => return (answer, Taught::default(), None, false),
+        };
         let started = run.clock().now();
         let hand_over = self.hand_over;
         // The navigation's page takes the attempt's value as it opens.
         let handed_over = tiers.hand_over(Arc::clone(hand_over));
-        let fetching = tiers.in_browser(http, run, self.in_browser, hand_over, self.context);
+        let fetching = first.client(tiers, http);
+        // Provenance names the tier that sent the first request (#2421).
+        let sent_on = fetching.sent_on(FetchTier::Http);
         let (cancel, cancelled) = oneshot::channel::<()>();
         let (navigated, mut navigation) = oneshot::channel::<Navigated>();
         let (sending, mut sent) = oneshot::channel::<()>();
@@ -85,23 +92,23 @@ impl On<'_> {
         let document = Box::pin(async {
             // A raced chain a hop ends `skipped` teaches nothing: the
             // navigation may still serve the request.
-            let (served, facts) = self
+            let (served, facts) = first
                 .document(tiering, &fetching, &FETCHED, hand_over)
                 .await
                 .map_err(|unserved| unserved.answer)?;
             let latency = run.clock().now().duration_since(started);
-            // Browser-fetch's page is checked as a run on `http` checks
-            // its own. A document only a guess could read never wins: the
-            // browser reads it (ADR 0119). Nor does a Challenge: the
-            // navigation meets it in the browser, and the domain learns
-            // the move (`escalation`).
-            let passed = match self
+            // The first request's page is checked as a run on `http`
+            // checks its own. A document only a guess could read never
+            // wins: the browser reads it (ADR 0119). Nor does a Challenge:
+            // the navigation meets it in the browser, and the domain
+            // learns the move (`escalation`).
+            let passed = match first
                 .found(tiering, served.page_id(), &facts, (&FETCHED, Chosen::Raced))
                 .await
             {
                 Found::Unreadable(_) => false,
                 Found::Blocked(cause, _) => {
-                    self.on_block(cause, &FETCHED, Chosen::Raced);
+                    first.on_block(cause, &FETCHED, Chosen::Raced);
                     false
                 }
                 Found::Readable => matches!(
@@ -112,8 +119,8 @@ impl On<'_> {
             Ok::<_, Answer>((served, facts, latency, passed && raced.agrees))
         });
         let ended = first_to_win(document, (&mut navigation, decoy.map(Lost::Decoy)), lease).await;
-        // The loser is cancelled: browser-fetch's connection closed as its
-        // future dropped, and a navigation not yet sent is never sent.
+        // The loser is cancelled: the first request's connection closed as
+        // its future dropped, and a navigation not yet sent is never sent.
         drop(cancel);
         if !matches!(ended.won, Won::Navigation(..)) {
             navigation.close();
@@ -127,34 +134,45 @@ impl On<'_> {
                 request_id: &leased.crawl_request.id,
                 label: &leased.crawl_request.label,
                 after: raced.delay,
-                browser_fetch: ended.browser_fetch(),
+                first_sent_on: sent_on,
+                first: ended.first(),
                 navigation: ended.navigation(sent.try_recv().is_ok()),
             },
         )
         .await;
         let latency = ended.latency;
-        let (answer, merged) = self.after_race(tiers, ended).await;
+        let (answer, merged, by_first) = self.after_race(&first, (tiers, sent_on), ended).await;
         drop(handed_over);
-        (answer, merged, latency)
+        let from_transport = by_first && first.sends_from == SendsFrom::Transport;
+        (answer, merged, latency, from_transport)
     }
 
     /// The attempt once its race ended as `ended` says: the winner's page
-    /// handed to the handler, recorded as the race's, or how it ended.
-    async fn after_race(&self, tiers: &FetchTiers, ended: RaceEnded<'_>) -> (Answer, Taught) {
+    /// handed to the handler, recorded as the race's, its first request
+    /// as `first` sent it on `sent_on`, or how it ended. Answers whether
+    /// its answer is the first request's own, neither the navigation's
+    /// nor an escalation's.
+    async fn after_race(
+        &self,
+        first: &On<'_>,
+        (tiers, sent_on): (&FetchTiers, FetchTier),
+        ended: RaceEnded<'_>,
+    ) -> (Answer, Taught, bool) {
         let (run, leased) = (self.run, self.leased);
         match ended.won {
-            Won::Ended(answer) => (answer, Taught::default()),
+            Won::Ended(answer) => (answer, Taught::default(), false),
             Won::Neither => {
-                let answer = match ended.navigation_lost {
-                    Some(Lost::Failed(answer) | Lost::Decoy(answer)) => Some(answer),
-                    _ => ended.fetch_lost,
+                let (answer, by_first) = match ended.navigation_lost {
+                    Some(Lost::Failed(answer) | Lost::Decoy(answer)) => (Some(answer), false),
+                    _ => (ended.fetch_lost, true),
                 };
                 (
                     answer.expect("invariant: a race neither run won ended with a failure"),
                     Taught::default(),
+                    by_first,
                 )
             }
-            Won::BrowserFetch(served, facts) => {
+            Won::First(served, facts) => {
                 // `served` is held until its handler answered, as
                 // `On::on_http` holds its own: an attempt abandoned while
                 // its handler runs, as an abort abandons it, closes its
@@ -166,34 +184,45 @@ impl On<'_> {
                     run,
                     leased,
                     self.lease,
-                    tier_provenance(&BROWSER_FETCH, Chosen::Raced),
+                    tier_provenance(
+                        &TierChoice {
+                            tier: sent_on,
+                            forced: None,
+                        },
+                        Chosen::Raced,
+                    ),
                     facts.encoding,
                     facts.certificate_exception,
                 )
                 .await;
-                let answer = self.handle(page_id, FetchTier::Http, facts.response).await;
+                let answer = first.handle(page_id, FetchTier::Http, facts.response).await;
                 let escalated = self.escalated(served.close());
-                let answer = match escalated {
+                // An escalation runs again in the browser, in the attempt's
+                // Session, whatever sent the first request.
+                let (answer, by_first) = match escalated {
                     Some(call) if !matches!(answer, Answer::LeaseEnded | Answer::ClientGone) => {
                         // The browser's run takes a whole lease of its own, and
                         // stages anew: what the first run staged goes with it.
                         self.lease.renew(self.lease.length());
                         self.lease.restage();
-                        self.browser(tiers, &BROWSER, Chosen::Escalated(call)).await
+                        let answer = self.browser(tiers, &BROWSER, Chosen::Escalated(call)).await;
+                        (answer, false)
                     }
                     None if self.moves(&answer, &FETCHED, Chosen::Raced) => {
                         self.lease.renew(self.lease.length());
                         self.lease.restage();
-                        self.browser(tiers, &BROWSER, Chosen::Escalated(BLOCKED))
-                            .await
+                        let answer = self
+                            .browser(tiers, &BROWSER, Chosen::Escalated(BLOCKED))
+                            .await;
+                        (answer, false)
                     }
-                    _ => answer,
+                    _ => (answer, true),
                 };
-                (answer, merged)
+                (answer, merged, by_first)
             }
             Won::Navigation(page_id, response) => {
                 if let Some(refused) = refused_type(tiers, &page_id, run, leased).await {
-                    return (refused, Taught::default());
+                    return (refused, Taught::default(), false);
                 }
                 let encoding = read_by_browser(tiers, &page_id, response.as_ref());
                 let certificate_exception = match &response {
@@ -211,7 +240,7 @@ impl On<'_> {
                 .await;
                 let answer = self.handle(&page_id, FetchTier::Browser, response).await;
                 tiers.close_browser(&page_id).await;
-                (answer, Taught::default())
+                (answer, Taught::default(), false)
             }
         }
     }
@@ -220,9 +249,9 @@ impl On<'_> {
 /// How a tier race ended: which run won, and how each that lost did.
 struct RaceEnded<'t> {
     won: Won<'t>,
-    /// Browser-fetch's latency, once its document arrived.
+    /// The first request's latency, once its document arrived.
     latency: Option<Duration>,
-    /// Browser-fetch's failure, once it lost.
+    /// The first request's failure, once it lost.
     fetch_lost: Option<Answer>,
     /// How the navigation lost, once it did.
     navigation_lost: Option<Lost>,
@@ -240,9 +269,10 @@ enum Lost {
 }
 
 impl RaceEnded<'_> {
-    fn browser_fetch(&self) -> RaceEnd {
+    /// How the first request ended.
+    fn first(&self) -> RaceEnd {
         match (&self.won, &self.fetch_lost) {
-            (Won::BrowserFetch(..), _) => RaceEnd::Won,
+            (Won::First(..), _) => RaceEnd::Won,
             (_, Some(_)) => RaceEnd::Failed,
             _ => RaceEnd::Cancelled,
         }
@@ -260,12 +290,12 @@ impl RaceEnded<'_> {
     }
 }
 
-/// Waits for the first of a race's `document`, browser-fetch's page with
-/// its latency and whether it can win, and `navigation` that can win,
+/// Waits for the first of a race's `document`, its first request's page
+/// with its latency and whether it can win, and `navigation` that can win,
 /// unless it lost before it started (`lost`), or for both to lose, or for
 /// `lease` to end; `document` is dropped, and so cancelled, before it
-/// answers, closing a page it served. A browser-fetch page that cannot win
-/// is closed.
+/// answers, closing a page it served. A first request's page that cannot
+/// win is closed.
 async fn first_to_win<'t>(
     mut document: std::pin::Pin<
         Box<impl Future<Output = Result<(Served<'t>, PageFacts, Duration, bool), Answer>>>,
@@ -286,7 +316,7 @@ async fn first_to_win<'t>(
             fetched = &mut document, if ended.fetch_lost.is_none() => match fetched {
                 Ok((served, facts, took, true)) => {
                     ended.latency = Some(took);
-                    break Won::BrowserFetch(served, Box::new(facts));
+                    break Won::First(served, Box::new(facts));
                 }
                 Ok((served, _, took, false)) => {
                     ended.latency = Some(took);
@@ -294,7 +324,7 @@ async fn first_to_win<'t>(
                     ended.fetch_lost = Some(Answer::failed(AttemptFailure::named(
                         PAGE_CHECK_FAILED,
                         false,
-                        "The page browser-fetch served failed its expected page or its Label's comparison, and the race's navigation passed no page either.".to_owned(),
+                        "The page the race's first request served failed its expected page or its Label's comparison, and the race's navigation passed no page either.".to_owned(),
                     )));
                 }
                 Err(answer @ Answer::Failed(_)) => ended.fetch_lost = Some(answer),
@@ -315,14 +345,15 @@ async fn first_to_win<'t>(
 
 /// Which run of a tier race won, if one did.
 enum Won<'t> {
-    /// Browser-fetch's page, served on `http` and held until its handler
-    /// answered, and what it held of its document as it was served.
-    BrowserFetch(Served<'t>, Box<PageFacts>),
+    /// The first request's page, served on `http` and held until its
+    /// handler answered, and what it held of its document as it was
+    /// served.
+    First(Served<'t>, Box<PageFacts>),
     /// The navigation's page, in the browser, and its document's
     /// response.
     Navigation(PageId, Option<PageResponse>),
-    /// Neither: the attempt ends with the navigation's failure, else
-    /// browser-fetch's.
+    /// Neither: the attempt ends with the navigation's failure, else the
+    /// first request's.
     Neither,
     /// The attempt ended before either won: its lease, its Connection, or
     /// a refusal that holds for both, such as its robots.txt.
@@ -352,7 +383,7 @@ struct Navigation {
     context: CallContext,
     second_copies: SecondCopies,
     domain_key: String,
-    /// When it starts: the race's delay after browser-fetch started.
+    /// When it starts: the race's delay after the first request started.
     at: tokio::time::Instant,
 }
 

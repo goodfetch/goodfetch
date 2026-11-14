@@ -1,21 +1,19 @@
 //! What dispatch takes of a request's params before its handler runs: the
 //! Trace context their `_meta` holds and the Run ID and Session ID the
-//! request's span records (ADRs 0077 and 0132). The read into the handler's
-//! type notes them in its own pass ([`Params::read`](super::Params::read));
-//! a request whose params no read went through whole, as one its handler
-//! refuses, has them read here, where they are.
-
-use std::fmt;
+//! request's span records (ADRs 0077 and 0132), and the page a page call
+//! names, which its guard reads. The read into the handler's type notes
+//! them in its own pass ([`Params::read`](super::Params::read)); a request
+//! whose params no read went through whole, as one its handler refuses,
+//! has them read here, where they are.
 
 use goodfetch_protocol::jsonrpc::{META, ProtocolFailure, TraceContext};
-use serde::de::{IgnoredAny, MapAccess, Visitor};
-use serde::{Deserialize, Deserializer};
+use serde::Deserializer as _;
+use serde::de::IgnoredAny;
 use serde_json::value::RawValue;
 
-use super::without_position;
+use super::{Outer, Strict, without_position};
 use crate::call_error::CallError;
-use crate::trace::{self, ID_FIELDS};
-use crate::wire::{Key, KeySeed, text};
+use crate::trace;
 
 /// What dispatch takes of a request's params.
 #[derive(Debug, Default)]
@@ -26,8 +24,47 @@ pub(crate) struct Preamble<'a> {
     pub(crate) ids: trace::Ids<'a>,
 }
 
-/// The members of a request's params dispatch takes, where they are, each
-/// the last of its name.
+/// What a pass through a request's params notes where it is, each the
+/// last of its name: what dispatch takes of them and the page they name.
+#[derive(Default)]
+pub(super) struct Noted<'a> {
+    /// What dispatch takes of them.
+    pub(super) found: Found<'a>,
+    /// The page they name themselves, their `page_id`, not read yet.
+    pub(super) page: Option<&'a RawValue>,
+    /// The page their locator names, its `page_id`, not read yet.
+    pub(super) located: Option<&'a RawValue>,
+}
+
+impl<'a> Noted<'a> {
+    /// Notes them in `params` in a pass that skips every other member.
+    /// Params that are no object hold none, and their handler refuses
+    /// them.
+    pub(super) fn scan(params: &'a str) -> Self {
+        let mut noted = Self::default();
+        let mut json = serde_json::Deserializer::from_str(params);
+        let scanned = Strict {
+            inner: &mut json,
+            outer: Outer::Params(&mut noted),
+        }
+        .deserialize_any(IgnoredAny);
+        if scanned.is_ok() {
+            noted
+        } else {
+            Self::default()
+        }
+    }
+
+    /// The page they name: their own `page_id` when it is a string, else
+    /// their locator's.
+    pub(super) fn page(&self) -> Option<&'a RawValue> {
+        self.page
+            .filter(|page| page.get().starts_with('"'))
+            .or(self.located)
+    }
+}
+
+/// The members of a request's params dispatch takes, where they are.
 #[derive(Default)]
 pub(super) struct Found<'a> {
     /// Their `_meta`, not read yet.
@@ -40,12 +77,6 @@ pub(super) struct Found<'a> {
 }
 
 impl<'a> Found<'a> {
-    /// Reads them from `params` where they are. Params that are no object
-    /// hold none, and their handler refuses them.
-    pub(super) fn scan(params: &'a str) -> Self {
-        serde_json::from_str(params).unwrap_or_default()
-    }
-
     /// What dispatch takes of them: no Trace context when they hold no
     /// `_meta`.
     ///
@@ -59,37 +90,6 @@ impl<'a> Found<'a> {
             meta,
             ids: self.ids,
         })
-    }
-}
-
-impl<'de> Deserialize<'de> for Found<'de> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_map(FoundVisitor)
-    }
-}
-
-struct FoundVisitor;
-
-impl<'de> Visitor<'de> for FoundVisitor {
-    type Value = Found<'de>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("an object")
-    }
-
-    fn visit_map<A: MapAccess<'de>>(self, mut members: A) -> Result<Self::Value, A::Error> {
-        let mut found = Found::default();
-        while let Some(Key(key)) = members.next_key_seed(KeySeed)? {
-            if key == META {
-                found.meta = Some(members.next_value()?);
-            } else if let Some(at) = ID_FIELDS.iter().position(|field| *field == key) {
-                let value: &RawValue = members.next_value()?;
-                found.ids[at] = text(value);
-            } else {
-                members.next_value::<IgnoredAny>()?;
-            }
-        }
-        Ok(found)
     }
 }
 

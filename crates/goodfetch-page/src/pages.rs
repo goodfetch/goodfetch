@@ -1565,9 +1565,9 @@ impl Pages {
         if let Some(served) = self.product.document(&params.page_id) {
             tracing::Span::current().record("run_id", served.run.id().as_str());
             let document = SerializedDocument {
-                html: served.html,
-                url: served.url,
-                base_url: served.base_url,
+                html: served.html.clone(),
+                url: served.url.clone(),
+                base_url: served.base_url.clone(),
             };
             let request = params.formats;
             let extractor = clean_up::extractor(

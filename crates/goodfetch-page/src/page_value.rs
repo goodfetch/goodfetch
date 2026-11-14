@@ -44,6 +44,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use bytestring::ByteString;
 pub use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::response_limits::LimitExceeded;
 use goodfetch_engine::runs::Run;
@@ -717,8 +718,9 @@ pub struct ServedDocument {
     pub url: String,
     /// Its base URL.
     pub base_url: String,
-    /// Its HTML, decoded.
-    pub html: String,
+    /// Its HTML, decoded: a UTF-8 body read in place, the bytes its fetch
+    /// kept, shared by every reader of it rather than copied (issue 2187).
+    pub html: ByteString,
     /// The main-content step its crawl request's Label chooses with
     /// `content.extractor`, over its Run's; none when the Label leaves it
     /// to the Run.
@@ -762,7 +764,7 @@ pub trait HandlerPages: Send + Sync {
 
     /// The document the page `page_id` serves, when a fetch tier opened it
     /// from a document rather than in a browser; none by default.
-    fn document(&self, page_id: &PageId) -> Option<ServedDocument> {
+    fn document(&self, page_id: &PageId) -> Option<Arc<ServedDocument>> {
         let _ = page_id;
         None
     }

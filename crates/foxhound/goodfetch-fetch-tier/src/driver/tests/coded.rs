@@ -3,8 +3,9 @@
 //! fails whatever `network.max_body_size` allows, as the engine's other
 //! readers and Chromium fail it; a cut stream is `response_truncated`
 //! (ADR 0118); and a stream that cannot decode fails as soon as its bytes
-//! show it, its body never read to its end. A scripted transport answers
-//! on Tokio's paused clock.
+//! show it, its body never read to its end. The crawl request's own
+//! document is read as its bytes decode, and a body cut or past a limit
+//! leaves no text. A scripted transport answers on Tokio's paused clock.
 #![expect(
     clippy::disallowed_methods,
     reason = "tests run on the test Clock and Tokio's paused clock (ADR 0059)"
@@ -25,7 +26,11 @@ use rstest::rstest;
 use serde_json::Value;
 use url::Url;
 
-use crate::driver::{Body, FetchBounds, Hop, Reuse, Sending, Sent, Transport, fetch};
+use crate::charset::{Kind, Read, Source, Text};
+use crate::content_types::Accepts;
+use crate::driver::{
+    Body, FetchBounds, Hop, OwnDocument, Reuse, Sending, Sent, Transport, fetch, fetch_accepting,
+};
 
 /// A transport whose one answer is a `200` under `encoding`, its body
 /// `chunks`, which then ends, or never does when it is `endless`.
@@ -78,18 +83,9 @@ impl Transport for Coded {
 /// `network.max_body_size` and a ratio that lets any body through: the
 /// body's length, or its Error code and network error.
 async fn fetched(transport: &Coded) -> Result<usize, (&'static str, Option<String>)> {
-    let bounds = FetchBounds {
-        first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 30_000, SettingsLayer::Run),
-        navigation: Deadline::given(&TIMEOUT_NAVIGATION, 30_000, SettingsLayer::Run),
-        limits: Limits {
-            max_body_size: 1 << 30,
-            max_decompression_ratio: 1_000_000,
-            ..Limits::default()
-        },
-    };
     let clock = Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001));
     let hop = Hop::get(Url::parse("http://site.test/page").unwrap());
-    fetch(transport, &hop, &bounds, &clock)
+    fetch(transport, &hop, &bounds(1 << 30), &clock)
         .await
         .map(|fetched| fetched.body.len())
         .map_err(|failure| {
@@ -101,6 +97,20 @@ async fn fetched(transport: &Coded) -> Result<usize, (&'static str, Option<Strin
                 .map(str::to_owned);
             (error.code(), network)
         })
+}
+
+/// A fetch's bounds under a `network.max_body_size` of `max_body_size`
+/// and a ratio that lets any body through.
+fn bounds(max_body_size: u64) -> FetchBounds {
+    FetchBounds {
+        first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 30_000, SettingsLayer::Run),
+        navigation: Deadline::given(&TIMEOUT_NAVIGATION, 30_000, SettingsLayer::Run),
+        limits: Limits {
+            max_body_size,
+            max_decompression_ratio: 1_000_000,
+            ..Limits::default()
+        },
+    }
 }
 
 /// A zstd frame of `size` bytes asking for a window of `2^window_log`.
@@ -174,4 +184,66 @@ async fn a_body_that_cannot_decode_fails_before_it_ends() {
             Some("net::ERR_CONTENT_DECODING_FAILED".to_owned())
         ))
     );
+}
+
+/// A windows-1251 document after an 8 KB inline script, gzipped.
+fn gzipped_document() -> (Vec<u8>, Vec<u8>) {
+    let mut document = format!(
+        "<!doctype html><head><script>{}</script><meta charset=windows-1251>",
+        "var x = 1;".repeat(820)
+    )
+    .into_bytes();
+    // Привет in windows-1251.
+    document.extend_from_slice(&[0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2]);
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&document).unwrap();
+    (document, encoder.finish().unwrap())
+}
+
+/// The crawl request's own document is read as its bytes decode, as the
+/// whole body reads; a body cut or past `network.max_body_size` fails and
+/// leaves no text read.
+#[rstest]
+#[case::whole(None, 1 << 30, Ok(Read { encoding: encoding_rs::WINDOWS_1251, source: Source::Meta }))]
+#[case::cut(Some(100), 1 << 30, Err("response_truncated"))]
+#[case::past_the_size_the_run_sets(None, 4096, Err("response_limit_exceeded"))]
+#[tokio::test(start_paused = true)]
+async fn the_own_document_is_read_as_its_bytes_decode(
+    #[case] cut_at: Option<usize>,
+    #[case] max_body_size: u64,
+    #[case] expected: Result<Read, &'static str>,
+) {
+    let (document, mut gzipped) = gzipped_document();
+    if let Some(cut_at) = cut_at {
+        gzipped.truncate(cut_at);
+    }
+    let transport = Coded {
+        encoding: "gzip",
+        chunks: gzipped.chunks(7).map(Bytes::copy_from_slice).collect(),
+        endless: false,
+    };
+    let clock = Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001));
+    let hop = Hop::get(Url::parse("http://site.test/page").unwrap());
+    let own = OwnDocument {
+        accepts: &Accepts::default(),
+        encoding: None,
+    };
+
+    let fetched =
+        fetch_accepting(&transport, &hop, &bounds(max_body_size), &clock, Some(own)).await;
+
+    let read = fetched
+        .map(|fetched| {
+            let text = fetched
+                .text
+                .expect("a document's text is read")
+                .text(&fetched.body);
+            assert_eq!(
+                text,
+                Text::of(&Bytes::from(document), Kind::Html, None, None)
+            );
+            text.read.expect("its encoding is declared")
+        })
+        .map_err(|failure| failure.error().code());
+    assert_eq!(read, expected);
 }

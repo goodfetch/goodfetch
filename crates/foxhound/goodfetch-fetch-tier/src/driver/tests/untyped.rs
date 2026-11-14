@@ -26,7 +26,7 @@ use url::Url;
 
 use crate::content_types::Accepts;
 use crate::driver::{
-    Body, FetchBounds, Fetched, Hop, Reuse, Sending, Sent, Transport, fetch_accepting,
+    Body, FetchBounds, Fetched, Hop, OwnDocument, Reuse, Sending, Sent, Transport, fetch_accepting,
 };
 
 /// A PDF's opening, which the sniffer names `application/pdf`, padded past
@@ -101,7 +101,11 @@ async fn fetched(transport: &Untyped) -> Result<Fetched, goodfetch_engine::CallE
     };
     let clock = Clock::paused(UNIX_EPOCH + Duration::from_hours(491_001));
     let hop = Hop::get(Url::parse("http://files.test/download").unwrap());
-    fetch_accepting(transport, &hop, &bounds, &clock, Some(&Accepts::default()))
+    let own = OwnDocument {
+        accepts: &Accepts::default(),
+        encoding: None,
+    };
+    fetch_accepting(transport, &hop, &bounds, &clock, Some(own))
         .await
         .map_err(crate::driver::FetchFailure::into_error)
 }

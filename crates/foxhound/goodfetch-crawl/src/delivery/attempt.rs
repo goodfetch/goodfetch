@@ -848,7 +848,7 @@ impl On<'_> {
                             if tier_serves(call, FetchTier::DiscoveredApi)
                                 && !tier_serves(call, FetchTier::Http) =>
                         {
-                            self.replayed(tiering, http, &capture, &browser_run).await
+                            Box::pin(self.replayed(tiering, http, &capture, &browser_run)).await
                         }
                         _ => None,
                     };

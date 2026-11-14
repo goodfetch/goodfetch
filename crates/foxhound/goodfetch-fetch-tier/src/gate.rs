@@ -113,8 +113,9 @@ use crate::site_preferences::{self, AfterRobotsTxt, Reading, RefusedBy, Request,
 use crate::transports::AddressCheck;
 use crate::use_signals::UseSignals;
 
-/// Fetches the robots.txt at a location for a Run, as the crawl's HTTP
-/// tier does (`HttpTier::robots_txt_fetch`).
+/// Fetches a site file at a location for a Run, a robots.txt or an AI-use
+/// signal file, as a pool Session's own HTTP transport does
+/// (`HttpTier::robots_txt_fetch`).
 pub type RobotsTxtFetch = Arc<dyn Fn(Run, Url) -> Fetch<'static> + Send + Sync>;
 
 /// How long a request beside the Run's own whose domain is full waits
@@ -181,6 +182,12 @@ pub struct HandOver {
     /// makes, for the `discovered_api` tier's plan (ADR 0020); none on
     /// any other run ([`HandOver::capturing`]).
     pub capture: Option<Capture>,
+    /// How the attempt fetches a site file, a robots.txt or an AI-use
+    /// signal file, when the copy its Run reads has none: from the own
+    /// HTTP transport of a Session of the Run's pool, never from a browser
+    /// page, whatever tier the attempt runs on (#2422); none when the
+    /// attempt reads no site file, or the Run has no transport.
+    pub site_files: Option<RobotsTxtFetch>,
 }
 
 /// A redirect hop of a crawl request, as the actor that owns its crawl's
@@ -237,9 +244,6 @@ pub struct RunHandOver {
     /// own pacing: a robots.txt's Crawl-delay is recorded there for every
     /// run sharing it (ADR 0086).
     pub shared_politeness: Option<Politeness>,
-    /// How robots.txt and the AI-use signal files are fetched when the
-    /// copy the Run reads has none.
-    pub robots: Option<RobotsTxtFetch>,
     /// `politeness.domain.delay`.
     pub domain_delay: Duration,
     /// `politeness.domain.adaptive_delay`: on, each hop's latency is
@@ -302,6 +306,17 @@ impl HandOver {
     /// The attempt's Run.
     pub(crate) fn run(&self) -> &Run {
         &self.of_run.run
+    }
+
+    /// Fetches `location`, a robots.txt or an AI-use signal file, with
+    /// [`HandOver::site_files`]; unreachable without it.
+    pub async fn site_file(&self, location: Url) -> robots_txt::Answer {
+        match &self.site_files {
+            Some(fetch) => fetch(self.of_run.run.clone(), location).await,
+            None => robots_txt::Answer::Unreachable(
+                "the crawl has no transport to fetch robots.txt with".to_owned(),
+            ),
+        }
     }
 
     /// This hand-over for a sample's browser run, whose page's JSON calls
@@ -396,17 +411,6 @@ impl RunHandOver {
         match &self.addresses {
             Some(addresses) => addresses.check(url).await,
             None => judged(url, &self.egress),
-        }
-    }
-
-    /// Fetches `location`, a robots.txt or an AI-use signal file, with
-    /// [`RunHandOver::robots`]; unreachable without it.
-    async fn site_file(&self, location: Url) -> robots_txt::Answer {
-        match &self.robots {
-            Some(fetch) => fetch(self.run.clone(), location).await,
-            None => robots_txt::Answer::Unreachable(
-                "the crawl has no transport to fetch robots.txt with".to_owned(),
-            ),
         }
     }
 
@@ -559,7 +563,7 @@ impl NavigationGate for Gate {
             of_run
                 .site_preferences
                 .document_judged(response.url, &signals, |location| {
-                    of_run.site_file(location)
+                    self.0.site_file(location)
                 })
                 .await
                 .map_err(refusal)
@@ -607,7 +611,7 @@ impl Gate {
         };
         let allowed = preferences
             .judged(Request::Navigation, url, reading.as_ref(), |location| {
-                hand_over.site_file(location)
+                self.0.site_file(location)
             })
             .await?;
         let crawl_delay = allowed.crawl_delay.unwrap_or_default();
@@ -717,7 +721,7 @@ impl Gate {
         let run = &hand_over.run;
         let reading = hand_over
             .site_preferences
-            .read_robots_txt(run, url, |location| hand_over.site_file(location))
+            .read_robots_txt(run, url, |location| self.0.site_file(location))
             .await?;
         if let (Some(at), Some(politeness)) = (reading.fetched(), &hand_over.politeness)
             && let Err(error) = goodfetch_frontier::started_again(politeness, key, at).await

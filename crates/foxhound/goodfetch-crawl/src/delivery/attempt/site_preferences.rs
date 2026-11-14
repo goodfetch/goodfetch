@@ -1,7 +1,8 @@
 //! What a crawl request's attempt does with the answers of the one judge
 //! of a site's preferences (ADRs 0086, 0093 and 0138;
-//! `goodfetch_fetch_tier::SitePreferences`): its origin's robots.txt read
-//! on the attempt's own HTTP tier, its Crawl-delay recorded for the
+//! `goodfetch_fetch_tier::SitePreferences`): its origin's robots.txt and
+//! the AI-use signal files read from the own transport of a Session of the
+//! Run's pool (`HandOver::site_file`, #2422), its Crawl-delay recorded for the
 //! request's domain key, a refusal turned into the attempt's answer, a
 //! Record marked when the crawl ignores the robots.txt that disallows it,
 //! the document's start after that robots.txt waited out, and a handler's
@@ -10,12 +11,10 @@
 use std::sync::Arc;
 
 use goodfetch_engine::politeness::Politeness;
-use goodfetch_engine::robots_txt;
 use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
-    AfterRobotsTxt, HttpTier, NotAllowed, Reading, Refusal, RefusedBy, Request, UseSignals,
-    skip_reason,
+    AfterRobotsTxt, NotAllowed, Reading, Refusal, RefusedBy, Request, UseSignals, skip_reason,
 };
 use goodfetch_frontier::SharedRobotsTxt;
 use goodfetch_frontier::Url;
@@ -43,16 +42,10 @@ pub(super) async fn share_robots_txt(run: &Run, settings: &Resolved) -> Option<P
     }
 }
 
-/// Fetches `location`, a robots.txt or an AI-use signal file, on `http`
-/// for `run`.
-async fn fetched_on(http: &HttpTier, run: &Run, location: Url) -> robots_txt::Answer {
-    http.robots_txt(run, &location).await
-}
-
 impl On<'_> {
     /// What the site's preferences say of the attempt's `request` to
     /// `url` before it is sent (`SitePreferences::judged`), its origin's
-    /// robots.txt read on `http` when something uses it, and robots.txt
+    /// robots.txt read (`HandOver::site_file`) when something uses it, and robots.txt
     /// itself whatever the crawl respects for a sitemap seed that is one.
     /// While the crawl respects robots.txt, the Crawl-delay it asks for is
     /// recorded for the request's domain key, for every run sharing the
@@ -69,7 +62,6 @@ impl On<'_> {
     /// the robots.txt it read.
     pub(super) async fn site_preferences_judged(
         &self,
-        http: &HttpTier,
         request: Request,
         url: &Url,
     ) -> Result<Option<Reading>, Answer> {
@@ -89,7 +81,7 @@ impl On<'_> {
         }
         let reading = if reads || robots_seed {
             preferences
-                .read_robots_txt(run, url, |location| fetched_on(http, run, location))
+                .read_robots_txt(run, url, |location| self.hand_over.site_file(location))
                 .await
         } else {
             None
@@ -108,7 +100,7 @@ impl On<'_> {
         }
         let allowed = preferences
             .judged(request, url, reading.as_ref(), |location| {
-                fetched_on(http, run, location)
+                self.hand_over.site_file(location)
             })
             .await
             .map_err(|not_allowed| match not_allowed {
@@ -138,20 +130,16 @@ impl On<'_> {
     /// What the AI-use signals the response of the attempt's served page
     /// carried, `signals`, in its headers and its document's markup, say of
     /// it (`SitePreferences::document_judged`), the RSL license they name
-    /// fetched on `http` once for the Run: nothing when none refuses the
+    /// read once for the Run (`HandOver::site_file`): nothing when none refuses the
     /// Run's `site_preferences.purpose`, else the attempt's answer, its
     /// handler never run.
-    pub(super) async fn document_refusal(
-        &self,
-        http: &HttpTier,
-        signals: &UseSignals,
-    ) -> Option<Answer> {
+    pub(super) async fn document_refusal(&self, signals: &UseSignals) -> Option<Answer> {
         let (run, leased) = (self.run, self.leased);
         self.hand_over
             .of_run
             .site_preferences
             .document_judged(&leased.crawl_request.url, signals, |location| {
-                fetched_on(http, run, location)
+                self.hand_over.site_file(location)
             })
             .await
             .err()

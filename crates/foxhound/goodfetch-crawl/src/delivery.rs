@@ -754,13 +754,14 @@ impl Fetching<'_> {
     /// `watch`, hands over with its Run's pages, built once as it is
     /// leased: `of_run`, what every attempt of the Run hands over alike,
     /// with its own room beside the Run's requests, `second_copies`, its
-    /// HTTP admission and what its request's Label declares.
+    /// HTTP admission, what its request's Label declares, and the tier of
+    /// the Session that reads its site files, `site_files`.
     fn hand_over(
         &self,
         of_run: &std::sync::Arc<RunHandOver>,
         (leased, lease, watch): (&Leased, &WorkItemLease, &Watch),
-        second_copies: SecondCopies,
-        fetch_admission: FetchAdmission,
+        (second_copies, fetch_admission): (SecondCopies, FetchAdmission),
+        site_files: Option<&HttpTier>,
     ) -> std::sync::Arc<HandOver> {
         let label = leased.crawl_request.label.as_str();
         std::sync::Arc::new(HandOver {
@@ -781,6 +782,7 @@ impl Fetching<'_> {
                 .content_types(label, &self.run_content_types),
             untouched: std::sync::Arc::clone(self.untouched.of_label(label)),
             capture: None,
+            site_files: site_files.map(HttpTier::robots_txt_fetch),
         })
     }
 
@@ -789,15 +791,18 @@ impl Fetching<'_> {
     /// chose it as its Session was drawn): a race is timed by its Label on
     /// its domain's browser-fetch latencies; and what it fetches its
     /// document with, a sample's `http` run on `transport`'s Session when
-    /// one was drawn for it.
+    /// one was drawn for it; and the tier its site files are read on,
+    /// from the own transport of the first of its Sessions that sends from
+    /// one, the attempt's, the sample's `transport` or `site_files`, else
+    /// of the attempt's Session, keeping that Session's cookies (#2422).
     fn served(
         &self,
         state: &RunState,
         leased: &Leased,
         ((session, local, sends_from), chosen): ((&SessionId, Local, SendsFrom), Chosen),
-        transport: Option<DrawnSession>,
+        (transport, site_files): (Option<DrawnSession>, Option<DrawnSession>),
         second_copies: &SecondCopies,
-    ) -> Tiering {
+    ) -> (Tiering, Option<HttpTier>) {
         let request = &leased.crawl_request;
         let plan = match chosen {
             Chosen::Planned(plan) => plan,
@@ -825,7 +830,23 @@ impl Fetching<'_> {
             session: drawn.session,
             in_browser: drawn.in_browser,
         });
-        Tiering::of(
+        let site_files = site_files.map(|drawn| {
+            let http = self.session_tier(&drawn.session.id, drawn.local);
+            (drawn.session, http)
+        });
+        let reader = match (sends_from, &transport, &site_files) {
+            (SendsFrom::Browser, Some(sample), _) => {
+                sample.http.as_ref().map(|http| (&sample.session.id, http))
+            }
+            (SendsFrom::Browser, None, Some((drawn, http))) => {
+                http.as_ref().map(|http| (&drawn.id, http))
+            }
+            (SendsFrom::Transport, _, _) | (SendsFrom::Browser, None, None) => {
+                http.as_ref().map(|http| (session, http))
+            }
+        }
+        .map(|(session, http)| http.keeping_cookies_of(session));
+        let tiering = Tiering::of(
             self.tiers,
             http.as_ref(),
             (plan, self.light),
@@ -833,6 +854,8 @@ impl Fetching<'_> {
             second_copies,
         )
         .sending(sends_from, transport)
+        .reading_site_files(site_files.map(|(drawn, _)| drawn));
+        (tiering, reader)
     }
 
     /// The Run's HTTP tier as the pool Session `session`, holding `local`,
@@ -940,6 +963,7 @@ async fn lease_to_servers(
                     },
                 chosen,
                 transport,
+                site_files,
             } = drawn;
             let lease = run_leases.grant(
                 &leased.crawl_request.id,
@@ -949,11 +973,11 @@ async fn lease_to_servers(
             server.in_flight += 1;
             let copies = admission.second_copies();
             let fetching = &pooled.fetching;
-            let tiering = fetching.served(
+            let (tiering, reader) = fetching.served(
                 pooled.state,
                 &leased,
                 ((&session.id, local, sends_from), chosen),
-                transport,
+                (transport, site_files),
                 &copies,
             );
             let admission = FetchAdmission::holding(
@@ -965,8 +989,8 @@ async fn lease_to_servers(
             let hand_over = fetching.hand_over(
                 pooled.handing,
                 (&leased, &lease, &watch),
-                copies,
-                admission.clone(),
+                (copies, admission.clone()),
+                reader.as_ref(),
             );
             let fetches = tiering.tier().or(leased.sitemap.then_some(FetchTier::Http));
             pooled.fetching.in_flight.lock().await.began(
@@ -1282,6 +1306,11 @@ fn scored(
         // attempt's answer is its browser run's, which says nothing of it.
         if let Some(transport) = &attempt.transport {
             pool.settle(transport, &waiting.key, Effect::Neutral, &read.pool);
+        }
+        // The Session drawn only to read the attempt's site files: what
+        // they answer says nothing of how its client fares (#2422).
+        if let Some(reader) = &attempt.site_files {
+            pool.settle(reader, &waiting.key, Effect::Neutral, &read.pool);
         }
         let held = held_past_bound(
             &attempt.answer,
@@ -1628,6 +1657,11 @@ async fn leased_and_drawn(
         run_tier: fetching.run_tier,
         http_from: fetching.http_from,
         races: fetching.races,
+        reads_site_files: fetching.http.is_some()
+            && pooled
+                .handing
+                .site_preferences
+                .reads_robots_txt(goodfetch_fetch_tier::Request::CrawlRequest),
         wall: (run.clock().wall(), wall_ms(run)),
     };
     pooled.state.lease(run, charges, ids, &drawing).await

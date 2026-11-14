@@ -31,7 +31,9 @@
 //! `<meta name="tdm-reservation" content="1">`,
 //! `/catalog/3` an RSL `Link` header and `/catalog/4` an
 //! RSL `<link>` element naming `/license.xml`, an RSL license that permits
-//! `search` and prohibits `ai-all`.
+//! `search` and prohibits `ai-all`; `/catalog/5` carries the `Link` header
+//! of page 3 and sets a cookie, `visit=catalog-5`, which tells whether the
+//! license read after it left from the client the document came to.
 
 use std::time::Duration;
 
@@ -93,7 +95,7 @@ const STALLED_ROBOTS_REST: &[u8] = b"# never sent\n";
 /// markup.
 pub(super) const MARKUP_HOST: &str = "markup.access-policy.test";
 
-/// The RSL license [`MARKUP_HOST`]'s pages 3 and 4 name.
+/// The RSL license [`MARKUP_HOST`]'s pages 3, 4 and 5 name.
 const RSL_LICENSE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <rsl xmlns="https://rslstandard.org/rsl">
   <content url="/">
@@ -170,6 +172,12 @@ fn markup(request: &Request) -> Answer {
             path,
             "<link rel=\"license\" type=\"application/rsl+xml\" href=\"/license.xml\">",
         ),
+        path @ "/catalog/5" => page(path, "")
+            .with(
+                "link",
+                "</license.xml>; rel=\"license\"; type=\"application/rsl+xml\"",
+            )
+            .with("set-cookie", "visit=catalog-5; Path=/"),
         _ => Page::text(404, "not found"),
     })
 }

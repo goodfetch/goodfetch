@@ -1,13 +1,16 @@
-//! The CPU per page crawlee-rs publishes for its own benchmark, written
-//! beside the median measured here on each of its measured cells (#2214): a
-//! figure from another machine and another site, read beside ours, never
-//! compared with it.
+//! What a tool publishes of its own benchmark, written on its measured
+//! cells beside what is measured here, never compared with it: the CPU per
+//! page crawlee-rs publishes (#2214), a figure from another machine and
+//! another site, and the buffer pagesift's benchmark reads Spider's pages
+//! with (#2215), beside the capacity the scenario's spider row reads them
+//! at, which that row's mapping accounts for.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use super::Figure;
-use crate::compare::matrix::Tool;
+use crate::compare::matrix::{CELLS, Config, Row, Scenario, Status, Tool};
+use crate::compare::trials::PAGESIFT_VERSION;
 
 /// crawlee-rs's published CPU per page, with what it was measured on.
 pub(crate) const CRAWLEE_RS_CPU: &str = "1.32 ms published by crawlee-rs for its `HtmlCrawler` (its README's \
@@ -29,4 +32,36 @@ pub(super) fn cpu(text: &mut String, tool: &str, metrics: &BTreeMap<&'static str
         None => "not measured here".to_owned(),
     };
     let _ = writeln!(text, "  - CPU per page: {measured}; {CRAWLEE_RS_CPU}.");
+}
+
+/// The capacity pagesift's own crawl benchmark subscribes to each site's
+/// pages with, where it runs Spider (`site.subscribe(256)`).
+const PAGESIFT_SPIDER_CAPACITY: usize = 256;
+
+/// On a pagesift cell of a scenario whose spider row is measured, the line
+/// that puts the buffer pagesift's own benchmark reads Spider's pages with
+/// beside the capacity that row reads them at.
+pub(super) fn spider_buffer(text: &mut String, tool: &str, scenario: Scenario) {
+    if tool != Tool::Pagesift.name() {
+        return;
+    }
+    let capacity = CELLS.iter().find_map(|cell| match cell.status {
+        Status::Measured(Config::Spider { capacity, .. })
+            if cell.scenario == scenario && cell.row == Row::Main =>
+        {
+            Some(capacity)
+        }
+        Status::Measured(_) | Status::NotSupported(_) | Status::Pending(_) => None,
+    });
+    let Some(capacity) = capacity else {
+        return;
+    };
+    let _ = writeln!(
+        text,
+        "  - Spider beside it: pagesift's own crawl benchmark reads Spider's pages with \
+         `subscribe({PAGESIFT_SPIDER_CAPACITY})` on each site \
+         (`benchmarks/crawl/src/bin/spider_crawl.rs` at its release {PAGESIFT_VERSION}); the \
+         spider row here reads them with `subscribe({capacity})`, as its mapping says. Its \
+         published figures against Spider are that benchmark's, never compared with these."
+    );
 }

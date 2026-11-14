@@ -145,11 +145,13 @@ fn three_sets_of_trials_read_ahead_behind_and_overlapping() {
                 "ahead",
                 "behind",
                 "behind",
+                "behind",
                 "behind"
             ]),
             Some(&vec![
                 "Throughput: pages per second",
                 "overlapping: foxhound 11.5 (11.0–12.0), spider 15.0 (6.8–28.9)",
+                "behind",
                 "behind",
                 "behind"
             ]),
@@ -191,7 +193,8 @@ fn standings_are_against_each_competitors_main_row() {
             ("foxhound", "spider"),
             ("foxhound", "crawlee"),
             ("foxhound", "scrapy"),
-            ("foxhound", "crawlee-rs")
+            ("foxhound", "crawlee-rs"),
+            ("foxhound", "pagesift")
         ]
     );
 }
@@ -393,5 +396,38 @@ fn crawlee_rss_published_cpu_per_page_is_beside_its_measured_figure() {
             cells_saying(section(&markdown, "5. "), &line),
         ),
         (vec!["crawlee-rs"], vec!["crawlee-rs"], Vec::<&str>::new())
+    );
+}
+
+/// pagesift's own crawl benchmark reads Spider's pages with a 256-page
+/// buffer on each site (#2215): each of its measured cells says so beside
+/// the capacity the scenario's spider row reads them at, where Spider has
+/// a measured main row, and no other tool's cell does.
+#[test]
+fn pagesifts_cells_note_the_buffer_its_own_spider_benchmark_reads_with() {
+    let trials = fixture::comparison(PAGES, |_, _| Measured {
+        seconds: 1.0,
+        work: work(),
+        ..Measured::default()
+    });
+
+    let markdown = markdown(&of(&trials), &trials);
+
+    let line = |capacity: u32| {
+        format!(
+            "  - Spider beside it: pagesift's own crawl benchmark reads Spider's pages with \
+             `subscribe(256)` on each site (`benchmarks/crawl/src/bin/spider_crawl.rs` at its \
+             release 1.3.0); the spider row here reads them with `subscribe({capacity})`, as \
+             its mapping says. Its published figures against Spider are that benchmark's, \
+             never compared with these."
+        )
+    };
+    assert_eq!(
+        (
+            cells_saying(section(&markdown, "1. "), &line(64)),
+            cells_saying(section(&markdown, "3. "), &line(64)),
+            cells_saying(section(&markdown, "4. "), &line(64)),
+        ),
+        (vec!["pagesift"], Vec::<&str>::new(), vec!["pagesift"])
     );
 }

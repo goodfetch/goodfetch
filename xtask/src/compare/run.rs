@@ -23,9 +23,10 @@ use super::trial::{self, Counted, Outcome, Ruled, callgrind_missing, strace_miss
 use super::trials::{
     CONCURRENCY, CRAWLEE_RS_COMMIT, CRAWLEE_VERSION, CollieScenario, CollieStopped, Comparison,
     CountedCell, CountedRun, Declared, GROWTH_PAGES, GrowthCell, INSTRUCTION_RUNS,
-    INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS, Measured, PLAYWRIGHT_VERSION, RULE_RUNS, RuledRun,
-    SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES, SIZE_TOOLS, SIZES,
-    SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint, StoppedRun, Trial, size_not_run,
+    INSTRUCTION_SCENARIOS, INSTRUCTION_TOOLS, Measured, PAGESIFT_VERSION, PLAYWRIGHT_VERSION,
+    RULE_RUNS, RuledRun, SCRAPY_PLAYWRIGHT_VERSION, SCRAPY_VERSION, SITE_PAGES, SIZE_CONCURRENCIES,
+    SIZE_TOOLS, SIZES, SPIDER_VERSION, STATISTIC, SizesCell, StoppedPoint, StoppedRun, Trial,
+    size_not_run,
 };
 
 mod machine;
@@ -35,9 +36,10 @@ mod watch;
 pub(crate) struct Executables<'a> {
     pub(crate) proving_ground: &'a Path,
     pub(crate) foxhound: &'a Path,
-    /// The folder of the Rust sides' builds, Spider's and crawlee-rs's, and
-    /// the folder Cargo names after the profile each was built with (see
-    /// [`spider_executable`] and [`crawlee_rs_executable`]).
+    /// The folder of the Rust sides' builds, Spider's, crawlee-rs's and
+    /// pagesift's, and the folder Cargo names after the profile each was
+    /// built with (see [`spider_executable`], [`crawlee_rs_executable`] and
+    /// [`pagesift_executable`]).
     pub(crate) spider_builds: &'a Path,
     pub(crate) spider_profile: &'a str,
     /// Crawlee's side's script, run by Node.js, and Scrapy's, run by the
@@ -153,6 +155,20 @@ pub(crate) fn crawlee_rs_executable(builds: &Path, profile: &str) -> PathBuf {
         ))
 }
 
+/// pagesift's side's executable in `builds`, beside Spider's builds:
+/// `just compare` builds it into the target folder
+/// [`matrix::PAGESIFT_FOLDER`] names, where Cargo puts it under `profile`'s
+/// folder.
+pub(crate) fn pagesift_executable(builds: &Path, profile: &str) -> PathBuf {
+    builds
+        .join(matrix::PAGESIFT_FOLDER)
+        .join(profile)
+        .join(format!(
+            "goodfetch-compare-pagesift{}",
+            std::env::consts::EXE_SUFFIX
+        ))
+}
+
 /// Where a trial crawls: the site's pages and the requests it has in
 /// flight at once, and whether its samples read the tool's executable's
 /// own pages.
@@ -187,6 +203,9 @@ fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf>
         Config::Scrapy => executables.scrapy.to_owned(),
         Config::CrawleeRs => {
             crawlee_rs_executable(executables.spider_builds, executables.spider_profile)
+        }
+        Config::Pagesift => {
+            pagesift_executable(executables.spider_builds, executables.spider_profile)
         }
     };
     let program = trial::invocation(config, &executable).program;
@@ -288,7 +307,11 @@ fn pages_of(scenario: Scenario, config: Config, pages: u64, spider_pages: Option
     let pages = scenario.site_pages(pages);
     match config {
         Config::Spider { .. } => spider_pages.unwrap_or(pages),
-        Config::Foxhound { .. } | Config::Crawlee | Config::Scrapy | Config::CrawleeRs => pages,
+        Config::Foxhound { .. }
+        | Config::Crawlee
+        | Config::Scrapy
+        | Config::CrawleeRs
+        | Config::Pagesift => pages,
     }
 }
 
@@ -361,7 +384,8 @@ fn at_concurrency(config: Config, concurrency: u32) -> Config {
         | Config::Spider { .. }
         | Config::Crawlee
         | Config::Scrapy
-        | Config::CrawleeRs => config,
+        | Config::CrawleeRs
+        | Config::Pagesift => config,
     }
 }
 
@@ -617,6 +641,7 @@ fn declared(options: &Options) -> Declared {
         crawlee: CRAWLEE_VERSION.to_owned(),
         scrapy: SCRAPY_VERSION.to_owned(),
         crawlee_rs: CRAWLEE_RS_COMMIT.to_owned(),
+        pagesift: PAGESIFT_VERSION.to_owned(),
         playwright: PLAYWRIGHT_VERSION.to_owned(),
         scrapy_playwright: SCRAPY_PLAYWRIGHT_VERSION.to_owned(),
         browser: crate::test_facts::CHROME_FOR_TESTING_BUILD.to_owned(),

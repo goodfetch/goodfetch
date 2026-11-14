@@ -172,15 +172,15 @@ fn side_of(script: &Path) -> &Path {
     script.parent().unwrap_or_else(|| Path::new("."))
 }
 
-/// How `config`'s tool runs `executable`: Foxhound's, Spider's and
-/// crawlee-rs's are executables, Spider's side given its row's page channel
-/// capacity,
+/// How `config`'s tool runs `executable`: Foxhound's, Spider's,
+/// crawlee-rs's and pagesift's are executables, Spider's side given its
+/// row's page channel capacity,
 /// Crawlee's is its side's script run by Node.js from `PATH`, and Scrapy's
 /// its side's script run by the interpreter of the Python environment
 /// beside it.
 pub(crate) fn invocation(config: Config, executable: &Path) -> Invocation {
     match config {
-        Config::Foxhound { .. } | Config::CrawleeRs => Invocation {
+        Config::Foxhound { .. } | Config::CrawleeRs | Config::Pagesift => Invocation {
             program: executable.to_owned(),
             arguments: Vec::new(),
         },
@@ -212,7 +212,7 @@ fn install_bytes(config: Config, executable: &Path, browser: Option<&Path>) -> u
     };
     let browser_bytes = browser.map_or(0, footprint);
     let packages = match config {
-        Config::Foxhound { .. } | Config::Spider { .. } | Config::CrawleeRs => {
+        Config::Foxhound { .. } | Config::Spider { .. } | Config::CrawleeRs | Config::Pagesift => {
             return file_bytes(executable) + browser_bytes;
         }
         Config::Crawlee => NODE_MODULES,
@@ -521,7 +521,11 @@ impl Plan<'_> {
                     }
                 }
             }
-            Config::Spider { .. } | Config::Crawlee | Config::Scrapy | Config::CrawleeRs => None,
+            Config::Spider { .. }
+            | Config::Crawlee
+            | Config::Scrapy
+            | Config::CrawleeRs
+            | Config::Pagesift => None,
         };
         Ok(Driven { child, engine })
     }
@@ -555,9 +559,11 @@ impl Plan<'_> {
                 commit_interval,
                 ..
             } => (durability, commit_interval),
-            Config::Spider { .. } | Config::Crawlee | Config::Scrapy | Config::CrawleeRs => {
-                ("", None)
-            }
+            Config::Spider { .. }
+            | Config::Crawlee
+            | Config::Scrapy
+            | Config::CrawleeRs
+            | Config::Pagesift => ("", None),
         }
     }
 
@@ -717,7 +723,8 @@ impl Plan<'_> {
             | Config::Spider { .. }
             | Config::Crawlee
             | Config::Scrapy
-            | Config::CrawleeRs => None,
+            | Config::CrawleeRs
+            | Config::Pagesift => None,
         };
         let read = records
             .as_deref()
@@ -778,7 +785,8 @@ impl Plan<'_> {
             | Config::Spider { .. }
             | Config::Crawlee
             | Config::Scrapy
-            | Config::CrawleeRs => None,
+            | Config::CrawleeRs
+            | Config::Pagesift => None,
         };
         let extracted = self.extracted(home.path(), records)?;
         let (count, syncs) = match &self.mode {

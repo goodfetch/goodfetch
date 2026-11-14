@@ -41,7 +41,7 @@ use tokio::sync::watch;
 
 use crate::content_types::Accepts;
 use crate::driver::{
-    FetchBounds, FetchFailure, Fetched, Hop, Transport, fetch_accepting, fetch_anew,
+    FetchBounds, FetchFailure, Fetched, Hop, OwnDocument, Transport, fetch_accepting, fetch_anew,
 };
 use crate::hedging::{Budget, Latencies, repeatable};
 
@@ -145,8 +145,10 @@ impl Redundant {
 
     /// Fetches `hop` through `transport` for `requester` of `run`: the
     /// answer of an identical request in flight from its Session when one
-    /// is, else its own, hedged when its route is slow, its answer judged
-    /// by `accepts`, its Label's `crawl.content_types` (ADR 0119).
+    /// is, else its own, hedged when its route is slow, of its `own`
+    /// document as [`fetch_accepting`] says. Requests whose
+    /// `fetch.encoding` differs share an answer: each reads its text under
+    /// its own.
     ///
     /// # Errors
     ///
@@ -161,23 +163,16 @@ impl Redundant {
         transport: &dyn Transport,
         bounds: &FetchBounds,
         run: &Run,
-        (hop, accepts): (&Hop, Option<&Accepts>),
+        (hop, own): (&Hop, Option<OwnDocument<'_>>),
         requester: &Requester<'_>,
     ) -> Outcome {
         let repeatable = repeatable(&hop.method, requester.declares_effect, requester.paid);
         if !(self.coalesces && repeatable) {
             return self
-                .sent(
-                    transport,
-                    bounds,
-                    run,
-                    (hop, accepts),
-                    requester,
-                    repeatable,
-                )
+                .sent(transport, bounds, run, (hop, own), requester, repeatable)
                 .await;
         }
-        let identity = Identity::of(requester.session, hop, accepts);
+        let identity = Identity::of(requester.session, hop, own.map(|own| own.accepts));
         loop {
             match self.join_or_lead(&identity, requester.request_id) {
                 Turn::Join(request_id, mut answered) => {
@@ -193,14 +188,7 @@ impl Redundant {
                 }
                 Turn::Lead(lead) => {
                     let outcome = self
-                        .sent(
-                            transport,
-                            bounds,
-                            run,
-                            (hop, accepts),
-                            requester,
-                            repeatable,
-                        )
+                        .sent(transport, bounds, run, (hop, own), requester, repeatable)
                         .await;
                     lead.answer(outcome.clone());
                     return outcome;
@@ -238,7 +226,7 @@ impl Redundant {
         transport: &dyn Transport,
         bounds: &FetchBounds,
         run: &Run,
-        (hop, accepts): (&Hop, Option<&Accepts>),
+        (hop, own): (&Hop, Option<OwnDocument<'_>>),
         requester: &Requester<'_>,
         repeatable: bool,
     ) -> Outcome {
@@ -247,12 +235,12 @@ impl Redundant {
             lock(&hedges.budget).sent();
         }
         let Some(hedges) = self.hedges.as_ref().filter(|_| repeatable) else {
-            return fetch_accepting(transport, hop, bounds, &clock, accepts).await;
+            return fetch_accepting(transport, hop, bounds, &clock, own).await;
         };
         let route = format!("{}@{}", requester.label, requester.domain_key);
         let threshold = lock(&hedges.latencies).threshold(&route);
         let started = clock.now();
-        let first = fetch_accepting(transport, hop, bounds, &clock, accepts);
+        let first = fetch_accepting(transport, hop, bounds, &clock, own);
         tokio::pin!(first);
         let outcome = match threshold {
             None => first.await,
@@ -270,7 +258,7 @@ impl Redundant {
                             transport,
                             bounds,
                             run,
-                            (hop, accepts),
+                            (hop, own),
                             requester,
                             threshold,
                             first,
@@ -343,7 +331,7 @@ async fn hedged(
     transport: &dyn Transport,
     bounds: &FetchBounds,
     run: &Run,
-    (hop, accepts): (&Hop, Option<&Accepts>),
+    (hop, own): (&Hop, Option<OwnDocument<'_>>),
     requester: &Requester<'_>,
     threshold: Duration,
     mut first: std::pin::Pin<&mut impl Future<Output = Outcome>>,
@@ -370,7 +358,7 @@ async fn hedged(
         requester.second_copies.give_back(copy).await;
         return first.await;
     }
-    let hedge = fetch_anew(transport, hop, bounds, &clock, accepts);
+    let hedge = fetch_anew(transport, hop, bounds, &clock, own);
     tokio::pin!(hedge);
     let (outcome, answered_by) = tokio::select! {
         biased;

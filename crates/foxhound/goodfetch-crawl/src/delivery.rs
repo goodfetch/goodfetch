@@ -639,9 +639,9 @@ pub(crate) async fn resume(
         })
         .await;
     let left = left.map(|(left, declared, fragments, choices, declarations)| {
-        let labels = labels::Declared::of(&declared, fragments).unwrap_or_else(|error| {
+        let labels = labels::Declared::of(&declared, fragments, settings.resolved()).unwrap_or_else(|error| {
             tracing::warn!(%error, run_id = %run.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier and pool");
-            labels::Declared::default()
+            labels::Declared::none(settings.resolved())
         });
         (left, (labels, choices, declarations))
     });

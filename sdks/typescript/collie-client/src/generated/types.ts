@@ -2710,6 +2710,37 @@ export interface ExplainedSetting {
    * control, which the results it touches are marked with (ADR 0028).
    */
   weakens: boolean;
+  /**
+   * The setting its value yields to, with that setting's value and
+   * layer, when one that is set keeps its value from taking effect:
+   * `fetch.http_from` away from `browser` yields to the Run's
+   * `session.source`, whose Sessions hold a login and so send their HTTP
+   * from the browser (#2418).
+   */
+  yields_to?: SettingLimit | null;
+}
+/**
+ * A setting that decided an outcome: its key, its value and the layer that
+ * set it (ADRs 0028 and 0079).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SettingLimit".
+ */
+export interface SettingLimit {
+  /**
+   * The setting's key.
+   */
+  key: string;
+  /**
+   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
+   */
+  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  /**
+   * Its value.
+   */
+  value: {
+    [k: string]: unknown;
+  };
 }
 /**
  * What `locator.fill` takes: the locator whose field it fills, and the
@@ -3911,16 +3942,17 @@ export interface ModelAllowance {
    * What remains of it, spent and reserved taken off.
    */
   remains: number;
-  source: SettingLimit;
+  source: SettingLimit1;
   /**
    * What it allows: a count, or millionths of the currency.
    */
   value: number;
 }
 /**
- * The setting that set it, its value and its layer.
+ * A setting that decided an outcome: its key, its value and the layer that
+ * set it (ADRs 0028 and 0079).
  */
-export interface SettingLimit {
+export interface SettingLimit1 {
   /**
    * The setting's key.
    */
@@ -6942,29 +6974,6 @@ export interface SetLogLevelParams {
    * it and above; `off`, the default, receives none.
    */
   log_level: "off" | "error" | "warn" | "info" | "debug" | "trace";
-}
-/**
- * A setting that decided an outcome: its key, its value and the layer that
- * set it (ADRs 0028 and 0079).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "SettingLimit".
- */
-export interface SettingLimit1 {
-  /**
-   * The setting's key.
-   */
-  key: string;
-  /**
-   * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
-   */
-  layer: "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
-  /**
-   * Its value.
-   */
-  value: {
-    [k: string]: unknown;
-  };
 }
 /**
  * What `config.explain` answers and `config explain --json` prints:

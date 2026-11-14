@@ -1013,6 +1013,50 @@ fn config_explain_lists_where_a_labels_http_leaves_from(
     assert_eq!(listed, vec![explained], "{document}");
 }
 
+/// `config explain` says why a Run whose Sessions hold a login sends its
+/// HTTP from the browser: its `fetch.http_from` away from `browser` yields
+/// to the Run's `session.source`, named with its value and its layer; a
+/// Run with no `session.source`, or that sends from the browser, yields to
+/// nothing (#2418).
+///
+/// Covers: setting:fetch.http_from, setting:session.source, command:config.explain
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+#[rstest]
+#[case::learned_with_a_login(
+    &["fetch.http_from=learned", SAVED_IDENTITY],
+    json!({"key": "session.source", "value": {"kind": "saved_identity", "name": "shop"}, "layer": "run"}),
+)]
+#[case::browser_with_a_login(&["fetch.http_from=browser", SAVED_IDENTITY], Value::Null)]
+#[case::learned_without_a_login(&["fetch.http_from=learned"], Value::Null)]
+fn config_explain_says_a_login_sends_from_the_browser(
+    #[case] set: &[&str],
+    #[case] yields_to: Value,
+) {
+    let env = TestEnv::new();
+    let output = goodfetch_test_support::cli(&env, env!("CARGO_BIN_EXE_goodfetch-foxhound"))
+        .args(["config", "explain", "fetch.http_from", "--json"])
+        .args(set.iter().flat_map(|value| ["--set", value]))
+        .run()
+        .unwrap();
+
+    assert_eq!(output.exit, Some(0), "{}", output.stderr);
+    let document: Value = serde_json::from_str(&output.stdout).unwrap();
+    let explained: Vec<&Value> = document["settings"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{document}"))
+        .iter()
+        .filter(|setting| setting["key"] == "fetch.http_from")
+        .map(|setting| &setting["yields_to"])
+        .collect();
+    assert_eq!(explained, vec![&yields_to], "{document}");
+}
+
+/// A `--set` of the Run's `session.source` to a Saved identity.
+const SAVED_IDENTITY: &str = r#"session.source={"kind":"saved_identity","name":"shop"}"#;
+
 /// The headers of each request `host` received for `target`, their names
 /// in lowercase, in order, without `host`, which each client places
 /// itself.

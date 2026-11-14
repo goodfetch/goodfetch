@@ -21112,6 +21112,24 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": 67108864,
+      "description": "The most memory this Run's Frontier, Leases and changes not yet written may hold, in bytes. Past it, or under memory pressure, state already written leaves memory and is read back from the run file. 0 keeps the Frontier in the run file. A budget of 0 with `run_state.batch.pages`, `.interval` and `.bytes` all `none` is refused, since nothing would ever leave memory.",
+      "name": "run_state.memory.budget",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": 1,
       "description": "How many times the sample operation repeats a text.",
       "name": "sample.echo_repeats",

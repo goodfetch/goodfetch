@@ -326,3 +326,65 @@ fn weakened_and_explain_name_the_preset_as_the_source() {
         [(SYNC, Some(preset("fast")))]
     );
 }
+
+const BUDGET: &str = "run_state.memory.budget";
+const THRESHOLDS: [&str; 3] = [
+    "run_state.batch.pages",
+    "run_state.batch.interval",
+    "run_state.batch.bytes",
+];
+
+/// The Run's layer with `budget` and each threshold in `none` set to `none`.
+fn budget_and_none(budget: Option<u64>, none: &[&str]) -> Layers {
+    let mut set = serde_json::Map::new();
+    if let Some(budget) = budget {
+        set.insert(BUDGET.to_owned(), json!(budget));
+    }
+    for key in none {
+        set.insert((*key).to_owned(), json!("none"));
+    }
+    Layers {
+        run: values(SettingsLayer::Run, Value::Object(set)),
+        ..Layers::default()
+    }
+}
+
+/// Nothing would ever leave memory: no batch is sealed and nothing written
+/// may stay (spec #2138, G-11 Q9).
+///
+/// Covers: setting:run_state.memory.budget, setting:run_state.batch.pages,
+/// setting:run_state.batch.interval, setting:run_state.batch.bytes
+#[test]
+fn a_zero_budget_with_every_threshold_none_is_refused_naming_the_four() {
+    let refused = refusal(&budget_and_none(Some(0), &THRESHOLDS));
+
+    let SettingsError::Invalid { key, layer, reason } = &refused else {
+        panic!("{refused:?}");
+    };
+    assert_eq!(
+        (key.as_str(), *layer, refused.code()),
+        (BUDGET, Some(SettingsLayer::Run), "setting_invalid")
+    );
+    for threshold in THRESHOLDS {
+        assert!(reason.contains(threshold), "{reason}");
+    }
+}
+
+/// Covers: setting:run_state.memory.budget, setting:run_state.batch.pages,
+/// setting:run_state.batch.interval, setting:run_state.batch.bytes
+#[rstest]
+#[case::zero_budget_alone(Some(0), &[])]
+#[case::thresholds_none_alone(None, &THRESHOLDS)]
+#[case::one_threshold_left(Some(0), &THRESHOLDS[..2])]
+#[case::a_budget_of_one_byte(Some(1), &THRESHOLDS)]
+fn a_zero_budget_or_every_threshold_none_alone_is_taken(
+    #[case] budget: Option<u64>,
+    #[case] none: &[&str],
+) {
+    let effective = resolved(&budget_and_none(budget, none));
+
+    assert_eq!(
+        effective.effective(catalog_key(BUDGET)).unwrap().value,
+        json!(budget.unwrap_or(64 * 1024 * 1024))
+    );
+}

@@ -17499,6 +17499,17 @@
                     "description": "How often `run_state.batch.sync: interval` syncs a batch, and an idle Run's last changes.",
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "memory": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "budget": {
+                        "description": "The most memory this Run's Frontier, Leases and changes not yet written may hold, in bytes. Past it, or under memory pressure, state already written leaves memory and is read back from the run file. 0 keeps the Frontier in the run file. A budget of 0 with `run_state.batch.pages`, `.interval` and `.bytes` all `none` is refused, since nothing would ever leave memory.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -19290,6 +19301,17 @@
                       }
                     ],
                     "description": "The folder that holds the run folders, each named by its Run ID; by default the per-user, per-major data folder of the Goodfetch home."
+                  },
+                  "memory": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "budget": {
+                        "description": "The most memory this Run's Frontier, Leases and changes not yet written may hold, in bytes. Past it, or under memory pressure, state already written leaves memory and is read back from the run file. 0 keeps the Frontier in the run file. A budget of 0 with `run_state.batch.pages`, `.interval` and `.bytes` all `none` is refused, since nothing would ever leave memory.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -22018,6 +22040,17 @@
                       }
                     ],
                     "description": "The folder that holds the run folders, each named by its Run ID; by default the per-user, per-major data folder of the Goodfetch home."
+                  },
+                  "memory": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "budget": {
+                        "description": "The most memory this Run's Frontier, Leases and changes not yet written may hold, in bytes. Past it, or under memory pressure, state already written leaves memory and is read back from the run file. 0 keeps the Frontier in the run file. A budget of 0 with `run_state.batch.pages`, `.interval` and `.bytes` all `none` is refused, since nothing would ever leave memory.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"
@@ -24762,6 +24795,17 @@
                       }
                     ],
                     "description": "The folder that holds the run folders, each named by its Run ID; by default the per-user, per-major data folder of the Goodfetch home."
+                  },
+                  "memory": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "budget": {
+                        "description": "The most memory this Run's Frontier, Leases and changes not yet written may hold, in bytes. Past it, or under memory pressure, state already written leaves memory and is read back from the run file. 0 keeps the Frontier in the run file. A budget of 0 with `run_state.batch.pages`, `.interval` and `.bytes` all `none` is refused, since nothing would ever leave memory.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
                   }
                 },
                 "type": "object"

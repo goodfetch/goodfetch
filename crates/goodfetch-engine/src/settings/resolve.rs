@@ -16,9 +16,12 @@ use std::time::Duration;
 
 use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
 use goodfetch_protocol::entries::YIELDING;
-use goodfetch_protocol::run::RUN_STATE_DURABILITY;
 use goodfetch_protocol::run::durability::{
     BATCH_THRESHOLD_SHAPE, BatchThreshold, durability_preset,
+};
+use goodfetch_protocol::run::{
+    RUN_STATE_BATCH_BYTES, RUN_STATE_BATCH_INTERVAL, RUN_STATE_BATCH_PAGES, RUN_STATE_DURABILITY,
+    RUN_STATE_MEMORY_BUDGET,
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::{
@@ -667,11 +670,50 @@ pub fn resolve(layers: &Layers, engine: Product, run: Product) -> Result<Resolve
         };
         settings.insert(key.setting.name, effective);
     }
+    refuse_unbounded_memory(&settings)?;
     Ok(Resolved {
         settings,
         unapplied: unapplied(layers),
         policy_version: layers.operator_policy.version.clone(),
         recipe_run: layers.recipe.is_some(),
+    })
+}
+
+/// Refuses a memory budget of 0 with every batch threshold `none`: no
+/// batch would be sealed and nothing written may stay in memory, so nothing
+/// would ever leave it (spec #2138, G-11 Q9).
+///
+/// # Errors
+///
+/// `setting_invalid` naming the budget, at its layer, and the three
+/// thresholds.
+fn refuse_unbounded_memory(
+    settings: &BTreeMap<&'static str, Effective>,
+) -> Result<(), SettingsError> {
+    let thresholds = [
+        &RUN_STATE_BATCH_PAGES,
+        &RUN_STATE_BATCH_INTERVAL,
+        &RUN_STATE_BATCH_BYTES,
+    ];
+    let Some(budget) = settings.get(RUN_STATE_MEMORY_BUDGET.name) else {
+        return Ok(());
+    };
+    let never = |setting: &Setting| {
+        settings.get(setting.name).is_some_and(|effective| {
+            BatchThreshold::read(&effective.value) == Ok(BatchThreshold::Never)
+        })
+    };
+    if budget.value.as_u64() != Some(0) || !thresholds.into_iter().all(never) {
+        return Ok(());
+    }
+    Err(SettingsError::Invalid {
+        key: RUN_STATE_MEMORY_BUDGET.name.to_owned(),
+        layer: Some(budget.layer),
+        reason: format!(
+            "a budget of 0 with `{}`, `{}` and `{}` all `none` never lets anything leave memory; \
+             set a budget above 0 or one of those thresholds",
+            RUN_STATE_BATCH_PAGES.name, RUN_STATE_BATCH_INTERVAL.name, RUN_STATE_BATCH_BYTES.name
+        ),
     })
 }
 

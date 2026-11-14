@@ -1,8 +1,8 @@
 //! How a Run's state reaches its run file (ADRs 0002, 0138 and 0142): the
 //! Durability level, each value a Preset of the Run-state batch keys
 //! (`run_state.batch.*` and `run_state.commit_interval`), which a layer may
-//! also set one by one, and the threshold a batch key takes, a count or
-//! `none`.
+//! also set one by one, the threshold a batch key takes, a count or
+//! `none`, and the memory budget past which written state leaves memory.
 
 use std::num::NonZeroU64;
 
@@ -53,6 +53,8 @@ pub const BATCH_INTERVAL_MS: u64 = 1_000;
 pub const BATCH_BYTES: u64 = 8 * 1024 * 1024;
 /// `run_state.commit_interval`'s default, in milliseconds.
 pub const COMMIT_INTERVAL_MS: u64 = 5_000;
+/// `run_state.memory.budget`'s default: 64 MiB.
+pub const MEMORY_BUDGET: u64 = 64 * 1024 * 1024;
 
 fn batch_durability() -> Value {
     Value::String(DURABILITY_BATCH.to_owned())
@@ -275,6 +277,24 @@ pub const RUN_STATE_COMMIT_INTERVAL: Setting = Setting {
     description: "How often `run_state.batch.sync: interval` syncs a batch, and an idle Run's last changes.",
     kind: ValueKind::Duration,
     default: five_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn memory_budget() -> Value {
+    serde_json::json!(MEMORY_BUDGET)
+}
+
+/// `run_state.memory.budget` (ADR 0142, spec #2138).
+pub const RUN_STATE_MEMORY_BUDGET: Setting = Setting {
+    name: "run_state.memory.budget",
+    description: "The most memory this Run's Frontier, Leases and changes not yet written may hold, in bytes. Past it, or under memory pressure, state already written leaves memory and is read back from the run file. 0 keeps the Frontier in the run file. A budget of 0 with `run_state.batch.pages`, `.interval` and `.bytes` all `none` is refused, since nothing would ever leave memory.",
+    kind: ValueKind::Count,
+    default: memory_budget,
     clearable: false,
     authority: Authority::Every,
     weakens: None,

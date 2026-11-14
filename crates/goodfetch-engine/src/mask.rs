@@ -43,6 +43,7 @@ use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard, Try
 use aho_corasick::{AhoCorasick, MatchKind};
 use secrecy::zeroize::Zeroizing;
 use secrecy::{ExposeSecret as _, SecretString};
+use serde::{Serialize, Serializer};
 use serde_json::Value;
 use subtle::ConstantTimeEq as _;
 
@@ -414,6 +415,19 @@ impl Masks {
         }
     }
 
+    /// `value`'s JSON text with every string of it masked, its members'
+    /// names included, as `scope` says: the text of what
+    /// [`Masks::apply_value`] leaves, written from `value` as it is, with
+    /// no copy of it.
+    pub fn json(&self, value: &Value, scope: Scope) -> String {
+        let state = self.read();
+        match state.automaton(scope) {
+            None => value.to_string(),
+            Some(automaton) => serde_json::to_string(&MaskedJson { value, automaton })
+                .expect("invariant: a JSON value encodes"),
+        }
+    }
+
     /// `line`, one JSON message, masked as `scope` says and still one JSON
     /// message: masked as text, or string by string where a value's raw
     /// form spanned the message's own syntax. A line no mask changed comes
@@ -540,6 +554,55 @@ impl Mask {
     /// Whether the Run's values are masked in its kept outputs.
     pub fn redaction(&self) -> Redaction {
         self.0.redaction
+    }
+}
+
+/// A JSON value as [`Masks::json`] writes it: each string through
+/// `automaton`, and an object's members under their masked names, as the
+/// object [`Masks::apply_value`] leaves keeps them.
+struct MaskedJson<'a> {
+    value: &'a Value,
+    automaton: &'a Automaton,
+}
+
+impl MaskedJson<'_> {
+    fn masked<'t>(&self, text: &'t str) -> Cow<'t, str> {
+        utf8(self.automaton.replace(text.as_bytes()), text)
+    }
+}
+
+impl Serialize for MaskedJson<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let Self { value, automaton } = *self;
+        let within = |value| Self { value, automaton };
+        match value {
+            Value::String(text) => serializer.serialize_str(&self.masked(text)),
+            Value::Array(items) => serializer.collect_seq(items.iter().map(within)),
+            Value::Object(members) => {
+                let mut named: Vec<(Cow<'_, str>, &Value)> = members
+                    .iter()
+                    .map(|(name, member)| (self.masked(name), member))
+                    .collect();
+                if named.iter().any(|(name, _)| matches!(name, Cow::Owned(_))) {
+                    // A JSON object keeps its members by name, and of two
+                    // given one name the later: the sort is stable.
+                    named.sort_by(|(name, _), (other, _)| name.cmp(other));
+                    named.dedup_by(|(name, member), (earlier, kept)| {
+                        let same = name == earlier;
+                        if same {
+                            *kept = *member;
+                        }
+                        same
+                    });
+                }
+                serializer.collect_map(
+                    named
+                        .iter()
+                        .map(|(name, member)| (name.as_ref(), within(*member))),
+                )
+            }
+            Value::Null | Value::Bool(_) | Value::Number(_) => value.serialize(serializer),
+        }
     }
 }
 

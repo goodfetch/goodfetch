@@ -736,6 +736,97 @@ fn only_a_sample_under_learned_runs_on_browser_fetch() {
     );
 }
 
+/// A refusal of a Label's transport drops its choice (#2419): the Label
+/// learned onto `http` from the transport is sampled again at once, a
+/// resumed crawl too, and samples whose `http` run was refused but whose
+/// `browser_fetch` run matched move it to `browser_fetch`. A Label still
+/// sampling keeps the samples it took, and a walled Label stays walled.
+///
+/// Covers: setting:fetch.http_from, story:6-251
+#[test]
+fn a_refused_transport_samples_its_label_again_onto_browser_fetch() {
+    let connection = Connection::open_in_memory().unwrap();
+    for statement in TABLES.statements {
+        connection.execute_batch(statement).unwrap();
+    }
+    let mut choices = TierChoices::default();
+    for page in 1..=SAMPLES {
+        weigh_from(
+            &mut choices,
+            "refused",
+            &format!("/refused/{page}"),
+            HttpFrom::Learned,
+            Weighed::Matched,
+        );
+        if page < SAMPLES {
+            weigh_from(
+                &mut choices,
+                "sampling",
+                &format!("/refused/{page}"),
+                HttpFrom::Learned,
+                Weighed::Matched,
+            );
+        }
+    }
+    weigh(&mut choices, "walled", "/refused/1", Weighed::Walled);
+    let before = tier_from(&mut choices, "refused", "/refused/4", HttpFrom::Learned);
+    let dropped = choices.invalidate("refused", KEY).cloned();
+    if let Some(unit) = &dropped {
+        record(&connection, "refused", KEY, unit).unwrap();
+    }
+    let unchanged = [
+        choices.invalidate("sampling", KEY).is_none(),
+        choices.invalidate("walled", KEY).is_none(),
+    ];
+    let resumed = tier_from(
+        &mut read(&connection).unwrap(),
+        "refused",
+        "/refused/4",
+        HttpFrom::Learned,
+    );
+    for page in 4..4 + SAMPLES {
+        weigh_from(
+            &mut choices,
+            "refused",
+            &format!("/refused/{page}"),
+            HttpFrom::Learned,
+            fetched(),
+        );
+    }
+    weigh_from(
+        &mut choices,
+        "sampling",
+        "/refused/3",
+        HttpFrom::Learned,
+        Weighed::Matched,
+    );
+
+    assert_eq!(
+        (
+            before,
+            dropped,
+            unchanged,
+            resumed,
+            tier_from(&mut choices, "refused", "/refused/9", HttpFrom::Learned),
+            tier_from(&mut choices, "sampling", "/refused/9", HttpFrom::Learned),
+            tier(&mut choices, "walled", "/refused/9"),
+        ),
+        (
+            Some(FetchTier::Http),
+            Some(Unit::Sampling {
+                samples: Vec::new(),
+                plan: None,
+                from: SendsFrom::Transport,
+            }),
+            [true, true],
+            None,
+            Some(FetchTier::BrowserFetch),
+            Some(FetchTier::Http),
+            Some(FetchTier::Browser),
+        )
+    );
+}
+
 /// A resumed crawl takes its `browser_fetch` choices again: a Label
 /// learned onto it, and a split Label's segment, read back from the run
 /// file on it, and so does a segment still sampling (#2417).

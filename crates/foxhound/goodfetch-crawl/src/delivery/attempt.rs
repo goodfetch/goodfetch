@@ -500,6 +500,10 @@ pub(super) struct Attempt {
     /// Whether a Challenge met on a tier short of the browser moved it to
     /// the browser, which its domain then learns (`escalation`).
     pub(super) moved: bool,
+    /// Whether its site refused the request its Session's own transport
+    /// sent on the tier its Label's comparison chose, which drops that
+    /// choice and retries the request as a sample (`escalation`, #2419).
+    pub(super) refused: bool,
 }
 
 /// The answer of an attempt that needs the crawl's HTTP tier, which could
@@ -546,13 +550,14 @@ pub(super) async fn attempt(
     in_flight: SharedInFlight,
 ) -> Attempt {
     let (document, sent_at) = (Mutex::new(None), Mutex::new(None));
-    let moved = OnceLock::new();
+    let (moved, refused) = (OnceLock::new(), OnceLock::new());
     let escalated = OnceLock::new();
     let on = On {
         document: &document,
         escalated_to: &escalated,
         sent_at: &sent_at,
         moved: &moved,
+        refused: &refused,
         run: &run,
         context: &context,
         leased: &leased,
@@ -629,6 +634,7 @@ pub(super) async fn attempt(
         document: document.into_inner().filter(|_| ran),
         handed_at: sent_at.into_inner().filter(|_| ran),
         moved: ran && moved.into_inner().is_some(),
+        refused: ran && refused.into_inner().is_some(),
         server,
         leased,
         _counted: counted,
@@ -647,17 +653,20 @@ pub(super) async fn attempt(
 /// What a run on a document tier finds of its served page before the
 /// Frontier learns from it or its handler runs, in the one order every
 /// run checks it: a document only a guess could read first (ADR 0119), then
-/// a Challenge the Block classification finds; each caller then runs the
-/// Page check on a page that is neither ([`judged`]).
+/// a block the Block classification finds that the run stops at; each
+/// caller then runs the Page check on a page that is neither ([`judged`]).
 enum Found {
     /// The document declares no encoding and is not UTF-8: the call that
     /// escalates it to the browser, which reads it, under `auto`.
     Unreadable(&'static str),
-    /// A Challenge of this cause, which checks the browser: under `auto`
-    /// the request moves there, and under a forced tier it ends with this
-    /// `blocked` (`escalation`). Other Block causes still reach the handler
-    /// until the proxy-tier escalation ends them (#1137).
-    Challenge(BlockCause, CallError),
+    /// A block of this cause the run stops at, with the `blocked` it ends
+    /// with where it is not moved (`escalation`): a Challenge, which checks
+    /// the browser, so that under `auto` the request moves there and under
+    /// a forced tier it ends; or an IP block met by the Session's own
+    /// transport on the tier its Label's comparison chose, which drops that
+    /// choice (#2419). Other blocks still reach the handler until the
+    /// proxy-tier escalation ends them (#1137).
+    Blocked(BlockCause, CallError),
     /// Neither: the Page check comes next.
     Readable,
 }
@@ -755,6 +764,10 @@ struct On<'a> {
     /// Whether a Challenge met on a tier short of the browser moved the
     /// request to the browser, set once it did.
     moved: &'a OnceLock<()>,
+    /// Whether its site refused the request its Session's own transport
+    /// sent on the tier its Label's comparison chose, set once it did
+    /// ([`Attempt::refused`]).
+    refused: &'a OnceLock<()>,
     /// The Session whose client is its browser that the request ran again
     /// in, as that Session runs in the browser, set once its attempt
     /// escalated from a Session's own transport (#2416).
@@ -762,21 +775,35 @@ struct On<'a> {
 }
 
 impl On<'_> {
-    /// What the crawl does with the request, run as `choice` says, whose
-    /// Session met a block of `cause`, the Block classification's or one
-    /// the program's code named alike (`escalation`): a move to the
-    /// browser is noted, for its domain to learn.
-    fn on_block(&self, cause: BlockCause, choice: &TierChoice) -> Action {
-        let action = escalation::on_block(
-            cause,
-            Met {
-                tier: Some(choice.tier),
-                forced: choice.forced.is_some(),
-            },
-        );
-        if action == Action::MoveToBrowser {
-            // Set once: a second move says nothing more.
-            let _ = self.moved.set(());
+    /// Where the run `how` names on `choice` met a block (`escalation`):
+    /// from the Session's own transport when it sends from there and the
+    /// run is on the tier its Label's comparison chose, not a sample's,
+    /// an escalation's or a race's.
+    fn met(&self, choice: &TierChoice, how: Chosen) -> Met {
+        Met {
+            tier: Some(choice.tier),
+            forced: choice.forced.is_some(),
+            from_transport: self.sends_from == SendsFrom::Transport && how == Chosen::AsChosen,
+        }
+    }
+
+    /// What the crawl does with the request, run as `how` names on
+    /// `choice`, whose Session met a block of `cause`, the Block
+    /// classification's or one the program's code named alike
+    /// (`escalation`): a move to the browser is noted, for its domain to
+    /// learn, and a refusal of its transport, for its Label to be sampled
+    /// again.
+    fn on_block(&self, cause: BlockCause, choice: &TierChoice, how: Chosen) -> Action {
+        let action = escalation::on_block(cause, self.met(choice, how));
+        // Set once: a second move or refusal says nothing more.
+        match action {
+            Action::MoveToBrowser => {
+                let _ = self.moved.set(());
+            }
+            Action::Sample => {
+                let _ = self.refused.set(());
+            }
+            Action::Blocked => {}
         }
         action
     }
@@ -795,13 +822,14 @@ impl On<'_> {
         escalated
     }
 
-    /// Whether `answer`, a handler's on a run as `choice` says, names a
-    /// block that moves the request to the browser ([`On::on_block`]).
-    fn moves(&self, answer: &Answer, choice: &TierChoice) -> bool {
+    /// Whether `answer`, a handler's on a run as `how` names on `choice`,
+    /// names a block that moves the request to the browser
+    /// ([`On::on_block`]); one that refused its transport ends it as it is.
+    fn moves(&self, answer: &Answer, choice: &TierChoice, how: Chosen) -> bool {
         match answer {
             Answer::Failed(failure) => failure
                 .block_cause()
-                .is_some_and(|cause| self.on_block(cause, choice) == Action::MoveToBrowser),
+                .is_some_and(|cause| self.on_block(cause, choice, how) == Action::MoveToBrowser),
             _ => false,
         }
     }
@@ -856,8 +884,9 @@ impl On<'_> {
                 self.escalate(tiering, choice, call).await
             }
             // A Challenge the program's code named moves as one the rules
-            // found does.
-            None if self.moves(&run.answer, choice) => {
+            // found does; an IP block it named on the transport is decided
+            // as one they found is, the answer standing.
+            None if self.moves(&run.answer, choice, Chosen::AsChosen) => {
                 self.lease.renew(self.lease.length());
                 drop(self.lease.restage());
                 self.escalate(tiering, choice, BLOCKED).await
@@ -982,7 +1011,7 @@ impl On<'_> {
         }
         // A Challenge its handler named moves the domain to the browser,
         // where the sample's browser run then serves the request.
-        self.moves(&run.answer, &SAMPLED);
+        self.moves(&run.answer, &SAMPLED, Chosen::Sample(None));
         self.lease.renew(self.lease.length());
         let cheaper = self.lease.restage();
         let light = match self.light_sampled(tiering, http).await {
@@ -1280,7 +1309,7 @@ impl On<'_> {
             ..choice.clone()
         };
         let tiers = &tiering.tiers;
-        match self.found(tiering, page_id, facts).await {
+        match self.found(tiering, page_id, facts, (choice, how)).await {
             Found::Unreadable(call) => {
                 tiers.close(page_id);
                 record_tier(run, leased, lease, recorded, how, None, None).await;
@@ -1290,10 +1319,10 @@ impl On<'_> {
                     Taught::default(),
                 )));
             }
-            Found::Challenge(cause, error) => {
+            Found::Blocked(cause, error) => {
                 tiers.close(page_id);
                 record_tier(run, leased, lease, recorded, how, None, None).await;
-                return Some(match self.on_block(cause, choice) {
+                return Some(match self.on_block(cause, choice, how) {
                     Action::MoveToBrowser => Ok((
                         escalated_unhandled(
                             BLOCKED,
@@ -1302,7 +1331,7 @@ impl On<'_> {
                         ),
                         Taught::default(),
                     )),
-                    Action::Blocked => Err((failed(&error), Taught::default())),
+                    Action::Sample | Action::Blocked => Err((failed(&error), Taught::default())),
                 });
             }
             Found::Readable => {}
@@ -1336,21 +1365,26 @@ impl On<'_> {
         }
     }
 
-    /// What a run finds of its served page `page_id`, whose `facts` it
-    /// read as it was served, before the Frontier learns from it or its
-    /// handler runs, checked in one order on every document tier, a tier
-    /// race's browser-fetch included ([`Found`]).
-    async fn found(&self, tiering: &Tiering, page_id: &PageId, facts: &PageFacts) -> Found {
+    /// What the run `how` names on `choice` finds of its served page
+    /// `page_id`, whose `facts` it read as it was served, before the
+    /// Frontier learns from it or its handler runs, checked in one order on
+    /// every document tier, a tier race's browser-fetch included
+    /// ([`Found`]).
+    async fn found(
+        &self,
+        tiering: &Tiering,
+        page_id: &PageId,
+        facts: &PageFacts,
+        (choice, how): (&TierChoice, Chosen),
+    ) -> Found {
         if let Some(call) = facts.escalated {
             return Found::Unreadable(call);
         }
-        if let Some((block, error)) = tiering
-            .tiers
-            .block(page_id)
-            .await
-            .filter(|(block, _)| block.checks_the_browser())
-        {
-            return Found::Challenge(block.cause, error);
+        if let Some((block, error)) = tiering.tiers.block(page_id).await.filter(|(block, _)| {
+            block.checks_the_browser()
+                || escalation::on_block(block.cause, self.met(choice, how)) == Action::Sample
+        }) {
+            return Found::Blocked(block.cause, error);
         }
         Found::Readable
     }

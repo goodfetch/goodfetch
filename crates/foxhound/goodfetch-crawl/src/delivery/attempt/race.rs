@@ -95,10 +95,13 @@ impl On<'_> {
             // browser reads it (ADR 0119). Nor does a Challenge: the
             // navigation meets it in the browser, and the domain learns
             // the move (`escalation`).
-            let passed = match self.found(tiering, served.page_id(), &facts).await {
+            let passed = match self
+                .found(tiering, served.page_id(), &facts, (&FETCHED, Chosen::Raced))
+                .await
+            {
                 Found::Unreadable(_) => false,
-                Found::Challenge(cause, _) => {
-                    self.on_block(cause, &FETCHED);
+                Found::Blocked(cause, _) => {
+                    self.on_block(cause, &FETCHED, Chosen::Raced);
                     false
                 }
                 Found::Readable => matches!(
@@ -179,7 +182,7 @@ impl On<'_> {
                         self.lease.restage();
                         self.browser(tiers, &BROWSER, Chosen::Escalated(call)).await
                     }
-                    None if self.moves(&answer, &FETCHED) => {
+                    None if self.moves(&answer, &FETCHED, Chosen::Raced) => {
                         self.lease.renew(self.lease.length());
                         self.lease.restage();
                         self.browser(tiers, &BROWSER, Chosen::Escalated(BLOCKED))

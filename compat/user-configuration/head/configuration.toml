@@ -127,6 +127,9 @@ interval = 1000
 bytes = 1000
 sync = "each"
 
+[settings.run_state.memory]
+budget = 4
+
 [settings.checkpoint]
 interval = 30000
 

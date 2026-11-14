@@ -256,12 +256,16 @@ impl Writer {
         else {
             return false;
         };
-        let connection = self.connection.for_group(open.synced);
+        let running = super::Running {
+            connection: self.connection.for_group(open.synced),
+            path: &self.path,
+            watch: self.signals.watch(),
+        };
         let mut jobs = group.into_iter();
         let mut ended = None;
         while let Some(queued) = jobs.next() {
             let answered = answered(&queued, owes);
-            let (completion, ends_batch) = (queued.write)(Some((connection, &self.path)));
+            let (completion, ends_batch) = (queued.write)(Some(running));
             open.rows += 1;
             if let Some(error) = ends_batch {
                 open.owed.push(completion);

@@ -18,17 +18,24 @@
 //! Text and attribute values are decoded as the tokenizer decodes them
 //! (the `character_references` module); a selector that tests an
 //! attribute's value is not matched on a value lol-html reads undecoded.
+//!
+//! A pass reads a document whole ([`Streaming::read`]) or in the chunks
+//! of its text as they are decoded ([`Streaming::start`]), with the same
+//! answer however the chunks cut it (issue 2188).
+#![expect(
+    clippy::disallowed_types,
+    reason = "a pass's handlers share its state through one `std` mutex, each locking it alone for one step and never under another lock, so there is no lock order to test under loom (ADR 0060); lol-html's `Send` rewriter needs its handlers `Send`"
+)]
 
 use std::borrow::Cow;
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use goodfetch_counted_work::{CountedWork, Row};
-use lol_html::html_content::{Element, TextChunk, TextType};
-use lol_html::{
-    AsciiCompatibleEncoding, DocumentContentHandlers, ElementContentHandlers, HandlerResult,
-    HtmlRewriter, Selector, Settings,
+use lol_html::html_content::{TextChunk, TextType};
+use lol_html::send::{
+    DocumentContentHandlers, Element, ElementContentHandlers, HtmlRewriter, Settings,
 };
+use lol_html::{AsciiCompatibleEncoding, HandlerResult, Selector};
 
 use crate::character_references::{Place, decode};
 
@@ -83,25 +90,29 @@ impl Streaming {
     /// caller then reading the tree.
     #[must_use]
     pub fn read(&self, html: &str, queries: &[Query<'_>]) -> Option<Vec<Vec<Streamed>>> {
-        let rest = html.trim_start_matches(|character| WHITESPACE.contains(&character));
-        let declared = rest
-            .get(..DOCTYPE.len())
-            .is_some_and(|start| start.eq_ignore_ascii_case(DOCTYPE));
-        if !declared || html.contains('\0') {
-            return None;
-        }
+        let mut pass = self.start(queries);
+        pass.write(html.as_bytes());
+        pass.end()
+    }
+
+    /// A pass of `queries` over a document written to it in chunks of its
+    /// UTF-8 text as they arrive ([`Pass::write`]), which reads at its end
+    /// ([`Pass::end`]) what [`Self::read`] reads of the whole text. It
+    /// borrows nothing, and moves between threads.
+    #[must_use]
+    pub fn start(&self, queries: &[Query<'_>]) -> Pass {
         let tested = queries
             .iter()
             .flat_map(|query| query.selector.tested.iter().cloned())
             .collect();
-        let state = Rc::new(RefCell::new(State::new(queries, tested)));
-        let mut settings = Settings::new()
+        let state = Arc::new(Mutex::new(State::new(queries, tested)));
+        let mut settings = Settings::new_send()
             .with_strict(false)
             // The document is decoded already: a `<meta charset>` changes nothing.
             .with_adjust_charset_on_meta_tag(false)
             .with_encoding(AsciiCompatibleEncoding::utf_8());
         let every = {
-            let state = Rc::clone(&state);
+            let state = Arc::clone(&state);
             move |element: &mut Element<'_, '_>| started(&state, element)
         };
         settings = settings.append_element_content_handler((
@@ -109,20 +120,20 @@ impl Streaming {
             ElementContentHandlers::default().element(every),
         ));
         for (index, query) in queries.iter().enumerate() {
-            let state = Rc::clone(&state);
+            let state = Arc::clone(&state);
             settings = settings.append_element_content_handler((
                 Cow::Borrowed(&query.selector.selector),
                 ElementContentHandlers::default().element(
                     move |_: &mut Element<'_, '_>| -> HandlerResult {
-                        state.borrow_mut().matched(index)
+                        locked(&state)?.matched(index)
                     },
                 ),
             ));
         }
         let text = {
-            let state = Rc::clone(&state);
+            let state = Arc::clone(&state);
             move |chunk: &mut TextChunk<'_>| -> HandlerResult {
-                let mut state = state.borrow_mut();
+                let mut state = locked(&state)?;
                 state.flush_if(chunk.text_type())?;
                 state.text.push_str(chunk.as_str());
                 state.text_type = Some(chunk.text_type());
@@ -130,9 +141,9 @@ impl Streaming {
             }
         };
         let comments = {
-            let state = Rc::clone(&state);
+            let state = Arc::clone(&state);
             move |comment: &mut lol_html::html_content::Comment<'_>| -> HandlerResult {
-                let mut state = state.borrow_mut();
+                let mut state = locked(&state)?;
                 state.flush()?;
                 state.accounted += end_tags_in(&comment.text());
                 state.drop_lf = false;
@@ -140,12 +151,12 @@ impl Streaming {
             }
         };
         let doctypes = {
-            let state = Rc::clone(&state);
+            let state = Arc::clone(&state);
             move |_: &mut lol_html::html_content::Doctype<'_>| -> HandlerResult {
-                let mut state = state.borrow_mut();
+                let mut state = locked(&state)?;
                 state.doctypes += 1;
                 if state.doctypes > 1 {
-                    return Err(Box::new(Refused));
+                    return refused();
                 }
                 Ok(())
             }
@@ -156,16 +167,155 @@ impl Streaming {
                 .comments(comments)
                 .doctype(doctypes),
         );
-        let mut rewriter = HtmlRewriter::new(settings, |_: &[u8]| {});
-        let written = rewriter
-            .write(html.as_bytes())
-            .and_then(|()| rewriter.end());
-        let state = Rc::try_unwrap(state)
-            .ok()
+        Pass {
+            rewriter: Some(HtmlRewriter::new(settings, discard as fn(&[u8]))),
+            state,
+            prefix: Prefix::Leading,
+            end_tags: EndTags::default(),
+        }
+    }
+}
+
+/// The rewriter a [`Pass`] writes to: its output is discarded.
+type Rewriter = HtmlRewriter<'static, fn(&[u8])>;
+
+/// A pass over a document written in chunks ([`Streaming::start`]).
+pub struct Pass {
+    /// The rewriter, none once the pass knows the tree differs: a
+    /// rewriter whose handler failed takes no more input.
+    rewriter: Option<Rewriter>,
+    state: Arc<Mutex<State>>,
+    /// How far the text read so far starts with the doctype.
+    prefix: Prefix,
+    end_tags: EndTags,
+}
+
+impl std::fmt::Debug for Pass {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Pass")
+            .field("refused", &self.rewriter.is_none())
+            .field("prefix", &self.prefix)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Pass {
+    /// Reads `chunk`, the next bytes of the document's UTF-8 text, which
+    /// may cut a character, a tag or a reference anywhere.
+    pub fn write(&mut self, chunk: &[u8]) {
+        let Some(rewriter) = self.rewriter.as_mut() else {
+            return;
+        };
+        self.prefix = self.prefix.read(chunk);
+        if self.prefix == Prefix::Other || chunk.contains(&0) {
+            self.rewriter = None;
+            return;
+        }
+        self.end_tags.read(chunk);
+        if rewriter.write(chunk).is_err() {
+            self.rewriter = None;
+        }
+    }
+
+    /// What the document's text, written whole, reads: as [`Streaming::read`]
+    /// of that text.
+    ///
+    /// # Panics
+    ///
+    /// Never: the handlers holding the state end with the rewriter.
+    #[must_use]
+    pub fn end(self) -> Option<Vec<Vec<Streamed>>> {
+        let rewriter = self.rewriter?;
+        if self.prefix != Prefix::Declared {
+            return None;
+        }
+        let ended = rewriter.end();
+        let state = Arc::into_inner(self.state)
             .expect("invariant: the handlers holding the state ended with the rewriter")
-            .into_inner();
-        written.ok()?;
-        state.finished(end_tags_in(html))
+            .into_inner()
+            .ok()?;
+        ended.ok()?;
+        state.finished(self.end_tags.count)
+    }
+}
+
+/// The rewriter's output, which the pass does not read.
+fn discard(_: &[u8]) {}
+
+/// The state, locked; a handler that panicked left nothing to read.
+fn locked(
+    state: &Mutex<State>,
+) -> Result<MutexGuard<'_, State>, Box<dyn std::error::Error + Send + Sync>> {
+    state
+        .lock()
+        .map_err(|_| -> Box<dyn std::error::Error + Send + Sync> { Box::new(Refused) })
+}
+
+/// How far a document's text starts with [`DOCTYPE`], after HTML's ASCII
+/// white space, ASCII case-insensitively.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Prefix {
+    /// White space only, so far.
+    Leading,
+    /// The doctype's first bytes, so many.
+    Doctype(usize),
+    Declared,
+    /// Anything else: no-quirks mode is not declared.
+    Other,
+}
+
+impl Prefix {
+    fn read(self, chunk: &[u8]) -> Self {
+        let mut prefix = self;
+        for &byte in chunk {
+            prefix = match prefix {
+                Self::Declared | Self::Other => return prefix,
+                Self::Leading if WHITESPACE.contains(&char::from(byte)) => Self::Leading,
+                Self::Leading => Self::Doctype(0).next(byte),
+                Self::Doctype(_) => prefix.next(byte),
+            };
+        }
+        prefix
+    }
+
+    /// After `byte`, the doctype's `matched` bytes read.
+    fn next(self, byte: u8) -> Self {
+        let Self::Doctype(matched) = self else {
+            return self;
+        };
+        if !DOCTYPE.as_bytes()[matched].eq_ignore_ascii_case(&byte) {
+            return Self::Other;
+        }
+        if matched + 1 == DOCTYPE.len() {
+            Self::Declared
+        } else {
+            Self::Doctype(matched + 1)
+        }
+    }
+}
+
+/// The end tags' starts written so far ([`end_tags_in`]), however the
+/// chunks cut them.
+#[derive(Debug, Default)]
+struct EndTags {
+    count: usize,
+    /// The bytes read of a start: 1 after `<`, 2 after `</`.
+    read: u8,
+}
+
+impl EndTags {
+    fn read(&mut self, chunk: &[u8]) {
+        for &byte in chunk {
+            if self.read == 2 && byte.is_ascii_alphabetic() {
+                self.count += 1;
+            }
+            self.read = match byte {
+                b'<' => 1,
+                b'/' if self.read == 1 => 2,
+                _ => 0,
+            };
+        }
     }
 }
 
@@ -567,7 +717,7 @@ impl State {
 
 /// Reads `element`'s start tag, keeping an end tag handler for one with
 /// content.
-fn started(state: &Rc<RefCell<State>>, element: &mut Element<'_, '_>) -> HandlerResult {
+fn started(state: &Arc<Mutex<State>>, element: &mut Element<'_, '_>) -> HandlerResult {
     let name = element.tag_name();
     let read = Read {
         html: element.namespace_uri() == "http://www.w3.org/1999/xhtml",
@@ -581,14 +731,14 @@ fn started(state: &Rc<RefCell<State>>, element: &mut Element<'_, '_>) -> Handler
         .map(|attribute| (attribute.name(), attribute.value()))
         .collect();
     let depth = {
-        let mut state = state.borrow_mut();
+        let mut state = locked(state)?;
         state.start(name.clone(), attributes, read)?;
         state.stack.len().saturating_sub(1)
     };
     if pushed {
-        let state = Rc::clone(state);
+        let state = Arc::clone(state);
         element.on_end_tag(Box::new(move |end| {
-            state.borrow_mut().end((&name, depth), &end.name())
+            locked(&state)?.end((&name, depth), &end.name())
         }))?;
     }
     Ok(())

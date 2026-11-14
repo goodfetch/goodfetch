@@ -170,22 +170,34 @@ fn kind() -> impl Strategy<Value = Kind> {
 }
 
 /// `body` read through a [`Stream`] as its bytes arrive in pieces of
-/// `cuts`' sizes, taken in turn.
-fn streamed(
+/// `cuts`' sizes, taken in turn, and the characters it handed out.
+fn handing(
     body: &Bytes,
     (kind, charset, forced): (Kind, Option<&str>, Option<&'static Encoding>),
     cuts: &[usize],
-) -> Option<Streamed> {
+) -> (Option<Streamed>, Vec<u8>) {
     let mut stream = Stream::new(kind, charset, forced);
+    let mut handed = Vec::new();
+    let mut to = |text: &[u8]| handed.extend_from_slice(text);
     let mut arrived = 0;
     for cut in cuts.iter().cycle() {
         if arrived == body.len() {
             break;
         }
         arrived = (arrived + cut).min(body.len());
-        stream.advance(&body[..arrived]);
+        stream.advance(&body[..arrived], &mut to);
     }
-    stream.finish(body)
+    let streamed = stream.finish(body, &mut to);
+    (streamed, handed)
+}
+
+/// [`handing`]'s stream alone.
+fn streamed(
+    body: &Bytes,
+    read: (Kind, Option<&str>, Option<&'static Encoding>),
+    cuts: &[usize],
+) -> Option<Streamed> {
+    handing(body, read, cuts).0
 }
 
 proptest! {
@@ -221,12 +233,17 @@ proptest! {
             .into(),
         };
 
-        let streamed = streamed(&body, (kind, charset, forced), &cuts);
+        let (streamed, handed) = handing(&body, (kind, charset, forced), &cuts);
 
         prop_assert_eq!(Text::of(&body, kind, charset, forced), expected.clone());
         let streamed = streamed.expect("a body of 64 KiB at most is read as it arrives");
         prop_assert!(streamed.read_under(forced));
-        prop_assert_eq!(streamed.text(&body), expected);
+        let (text, as_handed) = streamed.text(&body);
+        prop_assert_eq!(&text, &expected);
+        // What it handed out as the bytes arrived is its text, unless a
+        // byte did not decode in place, and it says which.
+        prop_assert_eq!(as_handed, handed == text.html.as_bytes()[..]);
+        prop_assert!(as_handed || String::from_utf8(handed).is_err());
     }
 }
 
@@ -260,7 +277,7 @@ fn a_document_read_as_it_arrives_finds_its_encoding(
     let body = Bytes::from([markup.as_bytes(), PRIVET].concat());
 
     let text =
-        streamed(&body, (Kind::Html, None, None), &[cut]).map(|streamed| streamed.text(&body));
+        streamed(&body, (Kind::Html, None, None), &[cut]).map(|streamed| streamed.text(&body).0);
 
     assert_eq!(text.map(|text| text.read), Some(expected));
 }

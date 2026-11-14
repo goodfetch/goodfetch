@@ -277,7 +277,7 @@ pub(crate) trait Reading: Send + Sync + 'static {
 
     /// Reads `fetched`'s document, an HTML one by its type: its refresh
     /// directive, which ends the read when `follows` follows it.
-    fn read(&self, fetched: &Fetched, follows: &dyn Fn(&Refresh) -> bool) -> HopRead<Self::Read>;
+    fn read(&self, fetched: Fetched, follows: &dyn Fn(&Refresh) -> bool) -> HopRead<Self::Read>;
 
     /// The Counted work its reads count on, and each read's hand-off to
     /// the CPU pool with them.
@@ -299,7 +299,7 @@ struct MarkupRefresh(CountedWork);
 impl Reading for MarkupRefresh {
     type Read = ();
 
-    fn read(&self, fetched: &Fetched, follows: &dyn Fn(&Refresh) -> bool) -> HopRead<()> {
+    fn read(&self, fetched: Fetched, follows: &dyn Fn(&Refresh) -> bool) -> HopRead<()> {
         match refresh::in_markup(&fetched.url, &fetched.body, &self.0) {
             Some(refresh) if follows(&refresh) => HopRead::Refresh(refresh),
             Some(_) | None => HopRead::Document(()),
@@ -349,7 +349,7 @@ where
         loop {
             gate.sending(&hop, redirects.is_empty()).await?;
             let sent = clock.now();
-            let fetched = fetch(hop.clone()).await.map_err(|failure| {
+            let mut fetched = fetch(hop.clone()).await.map_err(|failure| {
                 let failure: FetchFailure = failure.into();
                 if failure.error().code() != EGRESS_REFUSED.name {
                     return Stop::Failed(failure);
@@ -372,7 +372,7 @@ where
             gate.answered(&hop, clock.now().duration_since(sent)).await;
             // The hop's answer arrived: its permit is released (ADR 0118).
             drop(permit.take());
-            let next = match next_hop(&hop, &fetched, following, (owner, reading)).await? {
+            let next = match next_hop(&hop, &mut fetched, following, (owner, reading)).await? {
                 Step::Next(next) => next,
                 Step::End(read) => {
                     if !redirects.is_empty() {
@@ -429,9 +429,10 @@ enum Step<T> {
 /// while `following` follows refresh stubs, an HTTP(S) refresh stub's
 /// within `fetch.refresh.max_delay`, its markup read by `reading` on
 /// `owner`'s blocking pool; [`Step::End`] when it is the chain's document.
+/// The read takes the pass `fetched` holds, which only it reads.
 async fn next_hop<R: Reading>(
     hop: &Hop,
-    fetched: &Fetched,
+    fetched: &mut Fetched,
     following: &Following,
     (owner, reading): (&TaskOwner, &Arc<R>),
 ) -> Result<Step<R::Read>, Stop> {
@@ -462,11 +463,17 @@ async fn next_hop<R: Reading>(
         Some(refresh) => refresh,
         None if html => {
             let counted = reading.work();
-            let (reading, read) = (Arc::clone(reading), fetched.clone());
+            // The read takes the pass, which is never cloned.
+            let pass = fetched.pass.take();
+            let read = Fetched {
+                pass,
+                ..fetched.clone()
+            };
+            let reading = Arc::clone(reading);
             let read = owner
                 .analysis(counted, move || {
                     let at = read.url.clone();
-                    reading.read(&read, &|refresh| follows(refresh, max_delay, &at))
+                    reading.read(read, &|refresh| follows(refresh, max_delay, &at))
                 })
                 .await;
             match read {

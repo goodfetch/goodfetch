@@ -8,7 +8,10 @@
     reason = "ADR 0138: a test's own parse, on no page's path"
 )]
 
+use std::fmt::Write as _;
+
 use goodfetch_counted_work::{CountedWork, Row};
+use proptest::prelude::*;
 use rstest::rstest;
 
 use super::{Held, Query, StreamSelector, Streamed, Streaming};
@@ -175,7 +178,100 @@ fn corpus() -> Vec<(String, bool)> {
         // A value a selector compares, undecoded in lol-html: see
         // `a_value_a_selector_compares_is_read_decoded`.
         streams(UNDECODED_CLASS.to_owned()),
+        // Characters of two, three and four bytes, which a chunk can cut.
+        streams(page(
+            "<title>Café 漢字</title>",
+            "<p>naïve 🦀 <a href=/é title=\"ü\">lien é</a><!-- ç --></p>",
+        )),
+        // White space and an upper-case doctype before the document.
+        streams(format!("\n\t \r\x0C<!DOCTYPE HTML>{}", &page("", "<a href=/x>x</a>")[15..])),
+        refused(format!("\n x<!doctype html>{}", &page("", "<a href=/x>x</a>")[15..])),
+        refused("<!doctype htm".to_owned()),
     ]
+}
+
+/// What one pass reads of `html` for every selector of `SELECTORS`, the
+/// body written in the chunks that `cuts`, ascending offsets, end.
+fn in_chunks(html: &str, cuts: &[usize]) -> Option<Vec<Vec<Streamed>>> {
+    let work = CountedWork::default();
+    let streaming = Streaming::new(&work);
+    let selectors: Vec<StreamSelector> = SELECTORS
+        .iter()
+        .map(|selector| StreamSelector::of(selector, &work).expect("lol_html reads it"))
+        .collect();
+    let queries: Vec<Query<'_>> = selectors
+        .iter()
+        .enumerate()
+        .map(|(at, selector)| Query {
+            selector,
+            first: at % 2 == 1,
+        })
+        .collect();
+    let mut pass = streaming.start(&queries);
+    let bytes = html.as_bytes();
+    let mut from = 0;
+    for &cut in cuts.iter().chain([&bytes.len()]) {
+        pass.write(&bytes[from..cut]);
+        from = cut;
+    }
+    let read = pass.end();
+    assert_eq!(work.read(Row::PageParses), 0, "a pass parses no tree");
+    read
+}
+
+/// A body cut into two chunks at any byte, or written a byte at a time,
+/// reads what the whole body reads, even inside a character, a tag, the
+/// doctype or an end tag.
+#[rstest]
+#[case::cut_at_every_byte(false)]
+#[case::byte_by_byte(true)]
+fn a_pass_reads_a_body_in_chunks_as_it_reads_it_whole(#[case] bytewise: bool) {
+    for (html, _) in corpus() {
+        let whole = in_chunks(&html, &[]);
+        if bytewise {
+            let every: Vec<usize> = (1..html.len()).collect();
+            assert_eq!(in_chunks(&html, &every), whole, "byte by byte: {html}");
+        } else {
+            for cut in 0..=html.len() {
+                assert_eq!(in_chunks(&html, &[cut]), whole, "cut at {cut}: {html}");
+            }
+        }
+    }
+}
+
+/// A large page of every construct the corpus streams, in several scripts.
+fn large_page() -> String {
+    let mut body = String::new();
+    for at in 0..400 {
+        write!(
+            body,
+            "<section class=nav><h1>Titre {at} — 漢字 🦀</h1><ul><li><a href=\"/p/{at}\">Lien &amp; {at}</a></li><li><a href=/q/{at} title=\"&quot;é&quot;\">ü</a></li></ul>\
+             <pre>\nligne</pre><!-- </p> {at} --><table><tbody><tr><td>{at}</td></tr></tbody></table><p>Paragraphe naïve {at}\r\nfin</p></section>\n"
+        )
+        .expect("invariant: writing to a String cannot fail");
+    }
+    page(
+        "<title>Grande page</title><script>if (a < 1) { b = '</div>'; }</script>",
+        &body,
+    )
+}
+
+proptest! {
+    #![proptest_config(goodfetch_test_support::proptest_config())]
+
+    /// A large page cut anywhere, in any number of chunks, reads what the
+    /// whole page reads.
+    #[test]
+    fn a_large_page_cut_anywhere_reads_as_it_reads_whole(
+        cuts in proptest::collection::vec(any::<prop::sample::Index>(), 0..64),
+    ) {
+        let html = large_page();
+        let mut cuts: Vec<usize> = cuts.iter().map(|cut| cut.index(html.len() + 1)).collect();
+        cuts.sort_unstable();
+        let whole = in_chunks(&html, &[]);
+        prop_assert!(whole.is_some());
+        prop_assert_eq!(in_chunks(&html, &cuts), whole);
+    }
 }
 
 /// A page whose class names a character reference.

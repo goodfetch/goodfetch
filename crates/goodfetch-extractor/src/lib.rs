@@ -37,4 +37,4 @@ pub use main_content::compile_selectors;
 pub use plan::{Demand, Plan, Product, Reader};
 pub use signature::{page_signature, page_signature_of};
 pub use social::SOCIAL_NETWORKS_VERSION;
-pub use stream::{Held, Query, StreamSelector, Streamed, Streaming};
+pub use stream::{Held, Pass, Query, StreamSelector, Streamed, Streaming};

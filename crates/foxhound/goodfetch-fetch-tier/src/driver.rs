@@ -30,6 +30,7 @@
 use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
+use std::sync::Arc;
 
 use bytes::Bytes;
 use encoding_rs::Encoding;
@@ -56,6 +57,7 @@ use crate::charset::{Kind, Stream, Streamed, content_type};
 use crate::content_types::{Accepts, declared, is_document, typed};
 use crate::decoding;
 use crate::sniffing::MAX_BYTES_TO_SNIFF;
+use crate::untouched::{Passed, UntouchedPass, UntouchedReaders};
 
 mod failure;
 #[cfg(test)]
@@ -502,6 +504,10 @@ pub struct Fetched {
     /// its `Content-Type` typed as one, as its bytes arrived (issue 2187):
     /// none for any other body, or when its encoding was still to find.
     pub(crate) text: Option<Streamed>,
+    /// What the readers of its untouched page read of that text in one
+    /// pass as it arrived (issue 2188): none when no text was read, or
+    /// when the pass cannot serve every reader.
+    pub(crate) pass: Option<Passed>,
 }
 
 /// What a crawl request's own document is fetched under.
@@ -512,6 +518,51 @@ pub(crate) struct OwnDocument<'a> {
     pub(crate) accepts: &'a Accepts,
     /// `fetch.encoding`, which its text is read under.
     pub(crate) encoding: Option<&'static Encoding>,
+    /// The readers of its untouched page, which read its text in one
+    /// pass as it arrives when they can.
+    pub(crate) readers: Option<&'a Arc<UntouchedReaders>>,
+}
+
+/// What reads a crawl request's own document as its decoded bytes arrive:
+/// its text, and the readers' pass over the text handed out.
+struct OwnRead {
+    stream: Stream,
+    pass: Option<UntouchedPass>,
+}
+
+impl OwnRead {
+    /// The read of `own`, of the type its head `declared`: none when that
+    /// type is no HTML or XHTML.
+    fn of((own, declared): (OwnDocument<'_>, &str)) -> Option<Self> {
+        let (essence, charset) = content_type(declared);
+        is_document(&essence).then(|| Self {
+            stream: Stream::new(Kind::of(&essence), charset, own.encoding),
+            pass: own.readers.and_then(UntouchedReaders::pass),
+        })
+    }
+
+    /// Reads `decoded`, the body decoded so far.
+    fn advance(&mut self, decoded: &[u8]) {
+        let Self { stream, pass } = self;
+        stream.advance(decoded, &mut |text| {
+            if let Some(pass) = pass.as_mut() {
+                pass.write(text);
+            }
+        });
+    }
+
+    /// The text of `body`, the whole body decoded, and what the pass read
+    /// of it; neither when the text is still to find.
+    fn finish(self, body: &Bytes) -> (Option<Streamed>, Option<Passed>) {
+        let Self { stream, mut pass } = self;
+        let text = stream.finish(body, &mut |text| {
+            if let Some(pass) = pass.as_mut() {
+                pass.write(text);
+            }
+        });
+        let passed = text.as_ref().and(pass).map(UntouchedPass::end);
+        (text, passed)
+    }
 }
 
 /// The engine's timeouts a fetch waits under, and the limits it reads its
@@ -731,6 +782,7 @@ async fn fetch_on(
                 unaccepted: Some(refused),
                 certificate_exception: sent.certificate_exception,
                 text: None,
+                pass: None,
             });
         }
         let codings: Vec<&str> = sent
@@ -751,11 +803,8 @@ async fn fetch_on(
             limits: &bounds.limits,
             keep,
         };
-        let mut stream = own.zip(declared.as_deref()).and_then(|(own, declared)| {
-            let (essence, charset) = content_type(declared);
-            is_document(&essence).then(|| Stream::new(Kind::of(&essence), charset, own.encoding))
-        });
-        let read = read_body(&mut *sent.body, hop, answered, (reading, stream.as_mut())).await?;
+        let mut own_read = own.zip(declared.as_deref()).and_then(OwnRead::of);
+        let read = read_body(&mut *sent.body, hop, answered, (reading, own_read.as_mut())).await?;
         let body = match read {
             Read::Whole(body) => body,
             Read::Refused(refused) => {
@@ -767,13 +816,14 @@ async fn fetch_on(
                     unaccepted: Some(refused),
                     certificate_exception: sent.certificate_exception,
                     text: None,
+                    pass: None,
                 });
             }
         };
         if decoding::still_compressed(declared.as_deref(), &body) {
             return Err(TransportFailure::ContentDecodingFailed.error(url).into());
         }
-        let text = stream.and_then(|stream| stream.finish(&body));
+        let (text, pass) = own_read.map_or((None, None), |own_read| own_read.finish(&body));
         // An untyped body shorter than the sniffer reads is judged whole.
         let unaccepted = match (accepts, &declared) {
             (Some(accepts), None) => {
@@ -793,6 +843,7 @@ async fn fetch_on(
             unaccepted,
             certificate_exception: sent.certificate_exception,
             text,
+            pass,
         })
     };
     Deadline::within(&bounds.navigation, clock, WaitedFor::NAVIGATION, whole)
@@ -827,8 +878,8 @@ struct Reading<'a> {
 /// Reads the body of `hop`'s answer, `status`, as it arrives as `reading`
 /// says, its `Content-Length` declaring `expected`, decoding its codings
 /// with the engine's one decoder ([`Decoding`]) as its bytes arrive, and
-/// its text with `stream`, when it is a crawl request's own document. The
-/// bytes received never pass `network.max_body_size`, and a body kept for
+/// its text and its untouched readers' pass with `own_read`, when it is a
+/// crawl request's own document. The bytes received never pass `network.max_body_size`, and a body kept for
 /// its first bytes stops once they are decoded. With a type to sniff, the
 /// answer named no type: once the sniffer's 1,024 bytes are decoded
 /// (`kMaxBytesToSniff`), a type the Label refuses stops the read.
@@ -844,7 +895,7 @@ async fn read_body(
     body: &mut dyn Body,
     hop: &Hop,
     (status, expected): (u16, Option<u64>),
-    (reading, mut stream): (Reading<'_>, Option<&mut Stream>),
+    (reading, mut own_read): (Reading<'_>, Option<&mut OwnRead>),
 ) -> Result<Read, CallError> {
     let url = hop.url.as_str();
     let Reading {
@@ -882,8 +933,8 @@ async fn read_body(
             break;
         }
         let decoded = decoding.decoded();
-        if let Some(stream) = stream.as_deref_mut() {
-            stream.advance(decoded);
+        if let Some(own_read) = own_read.as_deref_mut() {
+            own_read.advance(decoded);
         }
         if let Some(accepts) = sniffing.filter(|_| decoded.len() >= MAX_BYTES_TO_SNIFF) {
             if let Some(refused) = accepts.refused(status, &typed(None, decoded, hop.url.path()).0)

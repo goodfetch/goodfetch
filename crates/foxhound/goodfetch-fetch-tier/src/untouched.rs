@@ -26,9 +26,18 @@
 //! judgement, fields, Page check and robots `meta`, with no tree. A
 //! document whose markup names an AI-use signal, or whose tree the pass
 //! cannot vouch for, is parsed as before.
+//!
+//! A crawl request's own document is read in that pass as its decoded
+//! bytes arrive, on the page's own task (issue 2188):
+//! [`UntouchedReaders::pass`] starts it, the fetch writes each chunk of
+//! its text into it, and the [`Passed`] read it answers is the one
+//! [`UntouchedReaders::stream`] answers on the whole text. Its work per
+//! chunk is a tokenizer step, so it takes no hand-off to the CPU pool.
+
+use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, ParsedHtml, Row};
-use goodfetch_extractor::{Query, StreamSelector, Streamed, Streaming};
+use goodfetch_extractor::{Pass, Query, StreamSelector, Streamed, Streaming};
 use goodfetch_protocol::foxhound::crawl::FieldLocator;
 use goodfetch_protocol::settings::page_check::PageCheck;
 use url::Url;
@@ -39,7 +48,9 @@ use crate::document::{
 };
 use crate::expected_page::{self, Verdict};
 use crate::refresh::{self, Refresh};
-use crate::use_signals::{self, MarkupRead, SignalReaders, UseSignals, names_license, reserving};
+use crate::use_signals::{
+    self, MarkupRead, SignalNames, SignalReaders, UseSignals, names_license, reserving,
+};
 
 /// What a Run asks of its crawl requests' own documents, beyond what every
 /// document's readers read.
@@ -209,11 +220,44 @@ impl StreamReaders {
             page_check,
         })
     }
+
+    /// The queries of one pass, in [`StreamRead::of`]'s order, with where
+    /// its links' and its fields' answers end.
+    fn queries(&self) -> (Vec<Query<'_>>, Ends) {
+        let all = |selector| Query {
+            selector,
+            first: false,
+        };
+        let first = |selector| Query {
+            selector,
+            first: true,
+        };
+        let mut queries = vec![
+            first(&self.base),
+            all(&self.refresh),
+            all(&self.controls),
+            all(&self.robots),
+        ];
+        queries.extend(self.links.iter().flatten().map(all));
+        let links = queries.len();
+        queries.extend(self.fields.iter().flatten().map(first));
+        let fields = queries.len();
+        queries.extend(self.page_check.iter().flatten().map(first));
+        (queries, Ends { links, fields })
+    }
+}
+
+/// Where a pass's answers to its links' queries and to its fields' end,
+/// those of its [`FIXED`] readers first.
+#[derive(Clone, Copy, Debug)]
+struct Ends {
+    links: usize,
+    fields: usize,
 }
 
 /// What the readers of the untouched page read of a document in one
 /// streaming pass, before the read of a crawl request's own document.
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct StreamRead {
     base: Vec<Streamed>,
     refresh: Vec<Streamed>,
@@ -225,6 +269,32 @@ pub(crate) struct StreamRead {
 }
 
 impl StreamRead {
+    /// The read of a pass's answers, `read`, to the queries whose answers
+    /// end at `ends`.
+    fn of(read: Vec<Vec<Streamed>>, ends: Ends) -> Self {
+        let mut read = read.into_iter();
+        let mut next = |count: usize| read.by_ref().take(count).collect::<Vec<_>>();
+        let mut fixed = next(FIXED).into_iter();
+        let (base, refresh, controls, robots) = (
+            fixed.next().unwrap_or_default(),
+            fixed.next().unwrap_or_default(),
+            fixed.next().unwrap_or_default(),
+            fixed.next().unwrap_or_default(),
+        );
+        let links = next(ends.links - FIXED);
+        let fields = next(ends.fields - ends.links);
+        let page_check = next(usize::MAX);
+        Self {
+            base,
+            refresh,
+            controls,
+            robots,
+            links,
+            fields,
+            page_check,
+        }
+    }
+
     /// The refresh directive the document at `url` holds in its markup.
     pub(crate) fn refresh(&self, url: &Url) -> Option<Refresh> {
         refresh::first_of(
@@ -310,45 +380,22 @@ impl UntouchedReaders {
         if use_signals::names_signals(html) {
             return None;
         }
-        let all = |selector| Query {
-            selector,
-            first: false,
-        };
-        let first = |selector| Query {
-            selector,
-            first: true,
-        };
-        let mut queries = vec![
-            first(&stream.base),
-            all(&stream.refresh),
-            all(&stream.controls),
-            all(&stream.robots),
-        ];
-        queries.extend(stream.links.iter().flatten().map(all));
-        let links_end = queries.len();
-        queries.extend(stream.fields.iter().flatten().map(first));
-        let fields_end = queries.len();
-        queries.extend(stream.page_check.iter().flatten().map(first));
-        let mut read = stream.streaming.read(html, &queries)?.into_iter();
-        let mut next = |count: usize| read.by_ref().take(count).collect::<Vec<_>>();
-        let mut fixed = next(FIXED).into_iter();
-        let (base, refresh, controls, robots) = (
-            fixed.next().unwrap_or_default(),
-            fixed.next().unwrap_or_default(),
-            fixed.next().unwrap_or_default(),
-            fixed.next().unwrap_or_default(),
-        );
-        let links = next(links_end - FIXED);
-        let fields = next(fields_end - links_end);
-        let page_check = next(usize::MAX);
-        Some(StreamRead {
-            base,
-            refresh,
-            controls,
-            robots,
-            links,
-            fields,
-            page_check,
+        let (queries, ends) = stream.queries();
+        let read = stream.streaming.read(html, &queries)?;
+        Some(StreamRead::of(read, ends))
+    }
+
+    /// The pass that reads a crawl request's own document as its text's
+    /// chunks arrive, answering as [`UntouchedReaders::stream`] answers on
+    /// the whole text; none when the pass cannot serve every reader.
+    pub(crate) fn pass(self: &Arc<Self>) -> Option<UntouchedPass> {
+        let stream = self.stream.as_ref()?;
+        let (queries, ends) = stream.queries();
+        Some(UntouchedPass {
+            pass: stream.streaming.start(&queries),
+            readers: Arc::clone(self),
+            names: SignalNames::default(),
+            ends,
         })
     }
 
@@ -570,6 +617,72 @@ const BASE: &str = "base[href]";
 /// How many of the streaming path's queries every pass reads: the
 /// `<base>`, refresh, `aria-controls` and robots `meta` elements.
 const FIXED: usize = 4;
+
+/// A pass of the readers over a crawl request's own document, read as its
+/// text's chunks arrive ([`UntouchedReaders::pass`]).
+#[derive(Debug)]
+pub(crate) struct UntouchedPass {
+    readers: Arc<UntouchedReaders>,
+    pass: Pass,
+    /// The scan for an AI-use signal's name, which refuses the pass.
+    names: SignalNames,
+    ends: Ends,
+}
+
+impl UntouchedPass {
+    /// Reads `chunk`, the text's next bytes; a text that names an AI-use
+    /// signal is read no further.
+    pub(crate) fn write(&mut self, chunk: &[u8]) {
+        self.names.read(chunk);
+        if !self.names.named() {
+            self.pass.write(chunk);
+        }
+    }
+
+    /// What the pass read of the whole text.
+    pub(crate) fn end(self) -> Passed {
+        let read = if self.names.named() {
+            None
+        } else {
+            self.pass.end().map(|read| StreamRead::of(read, self.ends))
+        };
+        Passed {
+            readers: self.readers,
+            read,
+        }
+    }
+}
+
+/// What a pass of a crawl request's own document read of its whole text:
+/// what [`UntouchedReaders::stream`] reads of it, by the readers that
+/// read it.
+#[derive(Clone, Debug)]
+pub(crate) struct Passed {
+    readers: Arc<UntouchedReaders>,
+    read: Option<StreamRead>,
+}
+
+impl Passed {
+    /// The pass, when `readers` are the readers that read it: the readers
+    /// of another Label read another pass.
+    pub(crate) fn by(self, readers: &UntouchedReaders) -> Option<Self> {
+        std::ptr::eq(Arc::as_ptr(&self.readers), readers).then_some(self)
+    }
+
+    /// What the readers read of the text: none when the text names an
+    /// AI-use signal or the pass cannot vouch for its tree.
+    pub(crate) fn read(self) -> Option<StreamRead> {
+        self.read
+    }
+}
+
+impl PartialEq for Passed {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.readers, &other.readers) && self.read == other.read
+    }
+}
+
+impl Eq for Passed {}
 
 /// What the readers of the untouched page read of a crawl request's own
 /// document, for the steps after them.

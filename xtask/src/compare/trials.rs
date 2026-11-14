@@ -77,6 +77,10 @@ pub(crate) const SCRAPY_PLAYWRIGHT_VERSION: &str = "0.0.48";
 pub(crate) const PUPPETEER_VERSION: &str = "25.17.0";
 pub(crate) const STAGEHAND_VERSION: &str = "4.4.0";
 pub(crate) const AGENT_BROWSER_VERSION: &str = "0.43.0";
+/// chromiumoxide's pinned version, the exact one
+/// `xtask/compare-chromiumoxide/Cargo.toml` holds it to (issue 2444; a unit
+/// test holds them equal).
+pub(crate) const CHROMIUMOXIDE_VERSION: &str = "0.9.1";
 
 /// Runs of each tool in the Callgrind cell, whose figure is their median:
 /// fewer than the timed trials, since a count barely varies and a run under
@@ -443,8 +447,9 @@ pub(crate) enum Exercise {
 }
 
 /// A tool of the Collie scenario, which its driver runs: Collie's and
-/// Playwright's `xtask/compare-collie/act.ts`, the arms'
-/// `xtask/compare-collie-arms/act.ts`.
+/// Playwright's `xtask/compare-collie/act.ts`, Puppeteer's, Stagehand's and
+/// agent-browser's `xtask/compare-collie-arms/act.ts`, chromiumoxide's the
+/// program `xtask/compare-chromiumoxide` builds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Contender {
@@ -455,7 +460,8 @@ pub(crate) enum Contender {
     /// Puppeteer's locators, whose click waits for the viewport, a stable
     /// box and enabled (issue 2443).
     PuppeteerLocator,
-    /// Puppeteer's page methods, whose click checks nothing (issue 2443).
+    /// Puppeteer's page methods, whose click waits for nothing and fails at
+    /// once on a target that is missing or has no box (issue 2443).
     PuppeteerPage,
     /// Stagehand's locators with no model, whose click neither waits nor
     /// checks (issue 2441).
@@ -463,24 +469,29 @@ pub(crate) enum Contender {
     /// agent-browser's command line, whose click checks its target once
     /// and does not wait (issue 2442).
     AgentBrowser,
+    /// chromiumoxide, a Rust library, whose click waits for nothing and fails
+    /// at once on a target that is detached or has no box (issue 2444).
+    Chromiumoxide,
 }
 
 impl Contender {
-    pub(crate) const ALL: [Self; 6] = [
+    pub(crate) const ALL: [Self; 7] = [
         Self::Collie,
         Self::Playwright,
         Self::PuppeteerLocator,
         Self::PuppeteerPage,
         Self::Stagehand,
         Self::AgentBrowser,
+        Self::Chromiumoxide,
     ];
     /// The scenario's arms, each read against the Collie row the pages it
-    /// got right place it at (issues 2441, 2442 and 2443).
-    pub(crate) const ARMS: [Self; 4] = [
+    /// got right place it at (issues 2441, 2442, 2443 and 2444).
+    pub(crate) const ARMS: [Self; 5] = [
         Self::PuppeteerLocator,
         Self::PuppeteerPage,
         Self::Stagehand,
         Self::AgentBrowser,
+        Self::Chromiumoxide,
     ];
 
     pub(crate) fn name(self) -> &'static str {
@@ -491,6 +502,7 @@ impl Contender {
             Self::PuppeteerPage => "puppeteer_page",
             Self::Stagehand => "stagehand",
             Self::AgentBrowser => "agent_browser",
+            Self::Chromiumoxide => "chromiumoxide",
         }
     }
 }

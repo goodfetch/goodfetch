@@ -23,6 +23,7 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::admission::{Journal, Keys, Waiting};
 use goodfetch_engine::egress::Policy;
 use goodfetch_engine::entropy::Entropy;
+use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::run_state::{
     BatchRows as _, BatchWriter, RunStateError, SealedBatch, Syncing,
 };
@@ -110,14 +111,15 @@ pub(crate) struct Within {
 
 impl Stored {
     /// The run file `writer` writes, admitting `within`, each work item it
-    /// adds with no attempt keyed as `keys` key it, its counted work
-    /// counted on `work`.
+    /// adds with no attempt keyed as `keys` key it, measured on `metrics`,
+    /// whose counted work it counts on.
     pub(crate) fn new(
         writer: goodfetch_engine::run_state::RunState,
         within: Within,
         keys: Keys,
-        work: CountedWork,
+        metrics: &Metrics,
     ) -> Self {
+        let work = metrics.counted_work().clone();
         let Within {
             egress,
             invariants,
@@ -133,9 +135,11 @@ impl Stored {
             // on a reader (#2168), and keeps those written within the
             // memory budget, told of each write that fails (#2169).
             let commits = writer.commits();
-            let unwritten = invariants
-                .frontier()
-                .hold_unwritten(writer.memory_budget(), move || *commits.borrow());
+            let unwritten = invariants.frontier().hold_unwritten(
+                writer.memory_budget(),
+                move || *commits.borrow(),
+                metrics,
+            );
             writer.watch_writes(unwritten.watch());
         }
         Self {
@@ -511,6 +515,29 @@ impl Stored {
                 Syncing::Deferred { charged: 0 },
                 SealedBatch::of(work_items::DomainKeys(keys)),
             )
+            .await?)
+    }
+
+    /// Has the Frontier's memory read the visits the run file holds, as
+    /// the crawl opens, within the memory budget, when it holds the
+    /// batches' visits: a lookup it then answers reads nothing (#2169).
+    ///
+    /// # Errors
+    ///
+    /// The run file's.
+    pub(crate) async fn read_visits(&self) -> Result<(), StateError> {
+        if self.invariants.frontier().unwritten().is_none() {
+            return Ok(());
+        }
+        let invariants = self.invariants.clone();
+        Ok(self
+            .writer
+            .read(move |connection| {
+                invariants
+                    .frontier()
+                    .unwritten()
+                    .map_or(Ok(()), |unwritten| unwritten.read_visits(connection))
+            })
             .await?)
     }
 

@@ -169,11 +169,11 @@ enum Analysed {
     Ended(usize),
 }
 
-/// On the paused runtime, a CPU pool of two permits runs two of three
-/// analyses at once: the third waits for a permit, and starts only once
+/// On the paused runtime, a CPU pool of two threads runs two of three
+/// analyses at once: the third waits in its queue, and starts only once
 /// one of the first two returned.
 #[test]
-fn no_more_analyses_than_the_cpu_pools_permits_run_at_once() {
+fn no_more_analyses_than_the_cpu_pools_threads_run_at_once() {
     let (waiting, most) = goodfetch_test_support::runtime().block_on(async {
         let owner = Arc::new(TaskOwner::root_on_cores(
             BlockingPolicy::Threads,
@@ -205,7 +205,7 @@ fn no_more_analyses_than_the_cpu_pools_permits_run_at_once() {
         // short real wait; one the pool holds never does.
         #[expect(
             clippy::disallowed_methods,
-            reason = "the analyses run on blocking threads, which this real wait gives the time to start one the pool should hold"
+            reason = "the analyses run on the pool's threads, which this real wait gives the time to start one the pool should hold"
         )]
         std::thread::sleep(Duration::from_millis(100));
         let mut waiting = true;
@@ -238,6 +238,86 @@ fn no_more_analyses_than_the_cpu_pools_permits_run_at_once() {
     });
 
     assert_eq!((waiting, most), (true, 2));
+}
+
+/// How long a test on real threads waits for an analysis to start: a
+/// test that passes never waits it out.
+const STARTED: Duration = Duration::from_secs(10);
+
+/// Analyses run on the CPU pool's own threads, never on Tokio's blocking
+/// ones (#2200): with the runtime's one blocking thread taken, as many
+/// analyses as the pool has threads all start.
+#[test]
+fn analyses_never_wait_behind_the_runtimes_blocking_threads() {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "test helpers build the tests' runtime (ADR 0060)"
+    )]
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .max_blocking_threads(1)
+        .build()
+        .expect("the test runtime starts");
+    let started = runtime.block_on(async {
+        let owner = Arc::new(TaskOwner::root_on_cores(
+            BlockingPolicy::Threads,
+            NonZeroUsize::new(3).unwrap(),
+        ));
+        let (unblock, unblocked) = std::sync::mpsc::channel::<()>();
+        let (blocking, blocked) = oneshot::channel();
+        let on = Arc::clone(&owner);
+        owner.spawn(async move {
+            on.blocking(move || {
+                let _ = blocking.send(());
+                let _ = unblocked.recv();
+            })
+            .await;
+        });
+        blocked.await.expect("the blocking work starts");
+        let (told, mut events) = mpsc::unbounded_channel();
+        let mut releases = Vec::new();
+        for analysis in 0..3 {
+            let (release, go_on) = std::sync::mpsc::channel::<()>();
+            releases.push(release);
+            let (on, told) = (Arc::clone(&owner), told.clone());
+            owner.spawn(async move {
+                on.analysis(&CountedWork::default(), move || {
+                    let _ = told.send(analysis);
+                    let _ = go_on.recv();
+                })
+                .await;
+            });
+        }
+        let mut started = Vec::new();
+        while started.len() < 3 {
+            match tokio::time::timeout(STARTED, events.recv()).await {
+                Ok(Some(analysis)) => started.push(analysis),
+                Ok(None) | Err(_) => break,
+            }
+        }
+        drop((unblock, releases));
+        owner.stop().await;
+        started.sort_unstable();
+        started
+    });
+
+    assert_eq!(started, [0, 1, 2]);
+}
+
+#[test]
+fn an_analysis_runs_on_a_thread_of_the_cpu_pools_own() {
+    let name = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Threads);
+        let name = owner
+            .analysis(&CountedWork::default(), || {
+                std::thread::current().name().map(str::to_owned)
+            })
+            .await;
+        owner.stop().await;
+        name
+    });
+
+    assert_eq!(name.as_deref(), Some(super::cpu_pool::THREAD_NAME));
 }
 
 #[test]

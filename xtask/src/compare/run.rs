@@ -53,6 +53,9 @@ pub(crate) struct Executables<'a> {
     pub(crate) browser: &'a Path,
     /// The Collie scenario's, when the run asked for it.
     pub(crate) collie: Option<super::collie::Tools<'a>>,
+    /// The lines of its user configuration's `[settings]` every Foxhound
+    /// trial runs with (`--foxhound-setting`).
+    pub(crate) foxhound_settings: &'a [String],
 }
 
 /// What a run was asked for.
@@ -334,6 +337,9 @@ fn trial<T: serde::de::DeserializeOwned>(
     }
     if crawl.executable_pages {
         command.arg("--executable-pages");
+    }
+    for setting in executables.foxhound_settings {
+        command.args(["--foxhound-setting", setting]);
     }
     // A file rather than a pipe: a watched trial is waited for by polling,
     // with no reader of a pipe beside it.

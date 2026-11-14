@@ -176,6 +176,12 @@ pub(crate) struct RunArguments {
     /// product or model, not by its CPU's.
     #[arg(long)]
     machine: Option<String>,
+    /// A line of Foxhound's user configuration's `[settings]`,
+    /// `<key> = <TOML value>`, written in every Foxhound trial's home, such
+    /// as `governor.worker_threads = "per_core"`; repeatable. None by
+    /// default, as shipped; the report's rerun command gives each.
+    #[arg(long = "foxhound-setting")]
+    foxhound_settings: Vec<String>,
 }
 
 /// A scenario a run can be asked for: one of the crawl matrix's, by its
@@ -286,6 +292,10 @@ pub(crate) struct TrialArguments {
     /// its row's, or the sizes cell's at 64 in flight.
     #[arg(long)]
     capacity: Option<usize>,
+    /// A line of Foxhound's user configuration's `[settings]`, which
+    /// `run` gives the trial; repeatable.
+    #[arg(long = "foxhound-setting")]
+    foxhound_settings: Vec<String>,
 }
 
 /// `path` made absolute, for a child that runs in another folder.
@@ -339,6 +349,7 @@ fn measure(arguments: &RunArguments, environment: &Environment) -> Result<ExitCo
             crawlee: &environment.path(&arguments.crawlee),
             scrapy: &environment.path(&arguments.scrapy),
             collie,
+            foxhound_settings: &arguments.foxhound_settings,
         },
         String::from_utf8_lossy(&commit.stdout).trim().to_owned(),
         &run::Options {
@@ -405,6 +416,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                 browser: arguments.browser.as_deref(),
                 executable_pages: arguments.executable_pages,
                 certificate_authority: authority.as_ref().map(tempfile::NamedTempFile::path),
+                foxhound_settings: &arguments.foxhound_settings,
             };
             let line = match plan.mode {
                 trial::Mode::Timed => serde_json::to_string(&plan.timed()?)?,

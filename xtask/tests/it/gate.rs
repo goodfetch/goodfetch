@@ -471,6 +471,7 @@ const SHUFFLED: [&str; 4] = [
 #[case::ci_container("ci/container.sh", &["linux", "perf", "visual"], false)]
 #[case::ci_msrv("ci/msrv.sh", &["msrv"], false)]
 #[case::ci_miri("ci/miri.toml", &["miri"], false)]
+#[case::ci_loom("ci/loom.toml", &["loom"], false)]
 fn a_gate_input_the_map_names_reaches_only_the_steps_that_read_it(
     #[case] path: &str,
     #[case] steps: &[&str],
@@ -528,7 +529,7 @@ fn a_ci_file_a_test_names_reaches_that_tests_member() {
         second.why["pre-merge"]
     );
     // Its evidence reaches xtask's tests alone, which no crate depends on.
-    for step in ["perf", "msrv", "miri", "tlc", "visual", "kennel"] {
+    for step in ["perf", "msrv", "miri", "loom", "tlc", "visual", "kennel"] {
         assert_eq!(action(&second, step).0, "reuse", "{step}: {:?}", second.why);
     }
 }
@@ -1495,7 +1496,7 @@ fn a_red_stress_run_leaves_its_clean_members_their_passes_and_the_fix_reruns_wha
     suites.insert("xtask".to_owned());
     assert_eq!(members(&second, "quick"), suites);
     assert_eq!(members(&second, "pre-merge"), suites);
-    for step in ["perf", "visual", "tlc", "kennel", "msrv", "miri"] {
+    for step in ["perf", "visual", "tlc", "kennel", "msrv", "miri", "loom"] {
         assert_eq!(action(&second, step).0, "reuse", "{step}: {:?}", second.why);
     }
 }

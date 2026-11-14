@@ -117,6 +117,9 @@ markup5ever_htmd = { package = "markup5ever", version = "0.38.0", default-featur
 # The page formats' streaming pass over a document for its links, images and
 # media (spec #580; ADR 0007): no tree, one pass.
 lol_html = { version = "3.0.2", default-features = false }
+# Model-checks the engine CPU pool's locks under `--cfg goodfetch_loom`
+# (`just loom`, ADR 0060).
+loom = { version = "0.7.3", default-features = false }
 # An html5ever tree with CSS selectors, which Foxhound's own readers use.
 scraper = { version = "0.27.0", default-features = false }
 # The other built-in main-content step, `content.extractor = "trafilatura"`

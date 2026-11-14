@@ -122,7 +122,15 @@ fn a_counted_run_on_the_article_site_gives_spiders_channel_the_whole_site() {
 /// A crawl-like trial of `cell` (#2284) trusting the authority at
 /// `authority`.
 fn crawl_like<'a>(cell: &str, authority: &'a Path) -> Plan<'a> {
-    let (cell, config) = cell_of(Scenario::CrawlLike, cell).unwrap();
+    Plan {
+        certificate_authority: Some(authority),
+        ..trial_of(Scenario::CrawlLike, cell, &[])
+    }
+}
+
+/// A trial of `scenario`'s `cell` whose Foxhound runs with `settings`.
+fn trial_of<'a>(scenario: Scenario, cell: &str, settings: &'a [String]) -> Plan<'a> {
+    let (cell, config) = cell_of(scenario, cell).unwrap();
     Plan {
         cell,
         config,
@@ -136,8 +144,70 @@ fn crawl_like<'a>(cell: &str, authority: &'a Path) -> Plan<'a> {
         goodfetch_variables: &[],
         browser: None,
         executable_pages: false,
-        certificate_authority: Some(authority),
+        certificate_authority: None,
+        foxhound_settings: settings,
     }
+}
+
+/// The user configuration a trial wrote in `home`, if any.
+fn configuration_in(home: &Path) -> Option<toml::Table> {
+    let version =
+        goodfetch_protocol::connection::ProductVersion::parse(env!("CARGO_PKG_VERSION")).unwrap();
+    let file = goodfetch_protocol::home::per_major(home, &version)
+        .join(goodfetch_protocol::home::USER_CONFIGURATION_FILE);
+    let text = std::fs::read_to_string(file).ok()?;
+    Some(toml::from_str(&text).unwrap())
+}
+
+/// The settings a run gives Foxhound (`--foxhound-setting`, #2200) go into
+/// its trials' user configuration, served over TLS or not; another tool's
+/// home holds none, and a trial without them writes no configuration.
+#[test]
+fn a_trials_foxhound_runs_with_the_settings_the_run_gives_it() {
+    let settings = [
+        "governor.worker_threads = \"per_core\"".to_owned(),
+        "governor.blocking_threads = 512".to_owned(),
+    ];
+    let homes: Vec<tempfile::TempDir> = (0..4).map(|_| tempfile::tempdir().unwrap()).collect();
+    let authority = Path::new("/tmp/authority.pem");
+
+    trial_of(Scenario::Raw, "foxhound", &settings)
+        .configure(homes[0].path())
+        .unwrap();
+    Plan {
+        certificate_authority: Some(authority),
+        ..trial_of(Scenario::CrawlLike, "foxhound", &settings)
+    }
+    .configure(homes[1].path())
+    .unwrap();
+    trial_of(Scenario::Raw, "scrapy", &settings)
+        .configure(homes[2].path())
+        .unwrap();
+    trial_of(Scenario::Raw, "foxhound", &[])
+        .configure(homes[3].path())
+        .unwrap();
+
+    let governor = |home: &tempfile::TempDir| {
+        configuration_in(home.path()).map(|configuration| {
+            (
+                configuration["settings"]["governor"].clone(),
+                configuration["settings"].get("tls").is_some(),
+            )
+        })
+    };
+    let expected: toml::Value =
+        toml::from_str::<toml::Table>("worker_threads = \"per_core\"\nblocking_threads = 512")
+            .unwrap()
+            .into();
+    assert_eq!(
+        homes.iter().map(governor).collect::<Vec<_>>(),
+        [
+            Some((expected.clone(), false)),
+            Some((expected, true)),
+            None,
+            None
+        ]
+    );
 }
 
 /// A crawl-like trial's Foxhound trusts the Proving ground's authority for

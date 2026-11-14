@@ -592,8 +592,8 @@ pub(super) async fn attempt(
         .ended(Box::pin(async {
             let mut merged = Taught::default();
             let mut sampled = None;
-            let mut raced = None;
-            let mut transport_answered = false;
+            // Its race's latency, and whether a transport's first request answered.
+            let mut raced = (None, false);
             let answer = match (&tiering.plan, &tiering.http) {
                 (AttemptPlan::Sitemap, Some(http)) => on.sitemap(http).await,
                 (AttemptPlan::Sitemap, None) => without_http_tier("sitemap"),
@@ -619,11 +619,9 @@ pub(super) async fn attempt(
                     answer
                 }
                 (AttemptPlan::Race(race), Some(http)) => {
-                    let (answer, learned, latency, from_transport) =
-                        on.race(&tiering, http, race).await;
+                    let (answer, learned, ran) = on.race(&tiering, http, race).await;
                     merged = learned;
-                    raced = latency.map(|latency| (race.clone(), latency));
-                    transport_answered = from_transport;
+                    raced = ran;
                     answer
                 }
                 (
@@ -634,7 +632,7 @@ pub(super) async fn attempt(
                     None,
                 ) => without_http_tier("request"),
             };
-            (answer, merged, sampled, (raced, transport_answered))
+            (answer, merged, sampled, raced)
         }))
         .await;
     let (answer, taught, sampled, (raced, transport_answered), ran) = match ran {

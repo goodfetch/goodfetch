@@ -42,20 +42,20 @@ impl On<'_> {
     /// (the module's doc). A handler that escalates the first request's
     /// page runs again in the browser, in the attempt's Session, as on
     /// `http`. Answers how it ended, the pending requests the page's rules
-    /// merged, the first request's latency once its document arrived, and
-    /// whether the attempt's answer is that of a first request sent from a
-    /// Session's own transport.
+    /// merged, `raced` with its first request's latency once its document
+    /// arrived, and whether the attempt's answer is that of a first request
+    /// sent from a Session's own transport.
     pub(super) async fn race(
         &self,
         tiering: &Tiering,
         http: &HttpTier,
         raced: &Raced,
-    ) -> (Answer, Taught, Option<Duration>, bool) {
+    ) -> (Answer, Taught, (Option<(Raced, Duration)>, bool)) {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
         let tiers = &tiering.tiers;
         let (first, http) = match self.sent_from(tiering, http) {
             Ok(sent_from) => sent_from,
-            Err(answer) => return (answer, Taught::default(), None, false),
+            Err(answer) => return (answer, Taught::default(), (None, false)),
         };
         let started = run.clock().now();
         let hand_over = self.hand_over;
@@ -144,7 +144,8 @@ impl On<'_> {
         let (answer, merged, by_first) = self.after_race(&first, (tiers, sent_on), ended).await;
         drop(handed_over);
         let from_transport = by_first && first.sends_from == SendsFrom::Transport;
-        (answer, merged, latency, from_transport)
+        let latency = latency.map(|latency| (raced.clone(), latency));
+        (answer, merged, (latency, from_transport))
     }
 
     /// The attempt once its race ended as `ended` says: the winner's page

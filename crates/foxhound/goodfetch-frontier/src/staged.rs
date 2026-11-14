@@ -146,6 +146,12 @@ impl Admitting {
         }
     }
 
+    /// Whether what it admits stays in the run file: a staging's is rolled
+    /// back.
+    pub(crate) const fn writes(&self) -> bool {
+        !matches!(self, Self::Staging { .. })
+    }
+
     /// Notes, while an attempt stages, that the request `crawl_request` was
     /// admitted under `identity`, its learned identity `learned` with its
     /// rule when it has one, counted against the path budget `budget`.

@@ -253,6 +253,17 @@ pub const RUN_STATE_BLOCKED_CHECKPOINTS: Metric = Metric {
     arrived_in: ARRIVED_IN,
 };
 
+/// `goodfetch.run_state.batch_rows`: the rows each Run-state batch wrote.
+pub const RUN_STATE_BATCH_ROWS: Metric = Metric {
+    name: "goodfetch.run_state.batch_rows",
+    description: "The rows each Run-state batch of a run file wrote as its writer committed it, one a write, at a Durability level that batches attempts (`run_state.batch.per_attempt: false`, ADR 0142).",
+    instrument: Instrument::Histogram,
+    unit: "{row}",
+    labels: &[],
+    stability: Stability::Experimental,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -272,6 +283,7 @@ pub const ENTRIES: Entries = Entries {
         COUNTED_WORK,
         RUN_STATE_WAL_SIZE,
         RUN_STATE_BLOCKED_CHECKPOINTS,
+        RUN_STATE_BATCH_ROWS,
         ENGINE_PANICS,
     ],
     settings: &[ADDRESS, OTLP_METRICS_ENDPOINT],

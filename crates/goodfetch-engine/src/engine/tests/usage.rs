@@ -167,7 +167,11 @@ pub(super) fn charging() -> Contribution {
                     }
                 }
                 if !unjournaled.is_empty() {
-                    run.write_charged(unjournaled, |_| Ok(())).await.unwrap();
+                    run.queue_charged(unjournaled, |_| Ok(()))
+                        .await
+                        .unwrap()
+                        .await
+                        .unwrap();
                 }
                 Ok::<Value, CallError>(json!({ "charged": charged, "refused": refused }))
             },
@@ -269,7 +273,11 @@ async fn covered(params: Value, context: CallContext) -> Result<Value, CallError
         None => Some(another_slice.await.is_ok()),
     };
     if let Some(unjournaled) = unjournaled {
-        run.write_charged(unjournaled, |_| Ok(())).await.unwrap();
+        run.queue_charged(unjournaled, |_| Ok(()))
+            .await
+            .unwrap()
+            .await
+            .unwrap();
     }
     Ok(json!({
         "threads_held_throughout": held_throughout,
@@ -297,7 +305,10 @@ async fn charge_from_tasks(params: Value, context: CallContext) -> Result<Value,
                             .charge_unjournaled(&mut unjournaled, "requests", 1)
                             .await
                         {
-                            Ok(()) => charging.write_charged(unjournaled, |_| Ok(())).await,
+                            Ok(()) => match charging.queue_charged(unjournaled, |_| Ok(())).await {
+                                Ok(written) => written.await,
+                                Err(error) => Err(error),
+                            },
                             Err(error) => Err(error),
                         }
                     } else {

@@ -65,17 +65,19 @@ fn configure(env: &TestEnv, text: &str) {
 }
 
 /// Each Durability level below `full` commits as it says, and its run
-/// report's `weakened` names it (ADR 0138): `fast` with
-/// `synchronous=NORMAL`, `off` with `OFF`; `periodic` commits on either of
-/// its writer's connections, as its interval says.
-/// Covers: story:3-27, setting:run_state.durability
+/// report's `weakened` names the sync its preset sets, and `off` itself
+/// (ADRs 0138 and 0142): `fast` with `synchronous=NORMAL`, `off` with `OFF`;
+/// `periodic` commits on either of its writer's connections, as its
+/// interval says.
+/// Covers: story:3-27, setting:run_state.durability, setting:run_state.batch.sync
 #[rstest::rstest]
-#[case::fast("fast", Some(1))]
-#[case::periodic("periodic", None)]
-#[case::off("off", Some(0))]
+#[case::fast("fast", Some(1), "never")]
+#[case::periodic("periodic", None, "interval")]
+#[case::off("off", Some(0), "off")]
 fn a_run_below_full_commits_as_its_level_says_and_its_report_says_so(
     #[case] level: &str,
     #[case] synchronous: Option<i64>,
+    #[case] sync: &str,
 ) {
     let env = TestEnv::new();
     configure(
@@ -109,13 +111,28 @@ fn a_run_below_full_commits_as_its_level_says_and_its_report_says_so(
         ),
         (
             synchronous.map(|synchronous| json!(synchronous)),
-            &json!([{
-                "key": "run_state.durability",
-                "value": level,
-                "layer": "user_configuration",
-            }])
+            &weakened(level, sync)
         )
     );
+}
+
+/// The `weakened` list a Run at `level`, set in user configuration, reports:
+/// the sync its preset sets, and the level itself when it is `off`.
+fn weakened(level: &str, sync: &str) -> Value {
+    let mut listed = vec![json!({
+        "key": "run_state.batch.sync",
+        "value": sync,
+        "layer": "user_configuration",
+        "preset": { "key": "run_state.durability", "value": level },
+    })];
+    if level == "off" {
+        listed.push(json!({
+            "key": "run_state.durability",
+            "value": level,
+            "layer": "user_configuration",
+        }));
+    }
+    Value::Array(listed)
 }
 
 /// A Run that sets nothing commits with `synchronous=FULL` and names no
@@ -149,14 +166,18 @@ fn a_run_in_default_durability_commits_with_full_synchronous() {
     );
 }
 
-/// `config.explain` labels each level below `full` as one that weakens a
-/// guarantee (ADR 0138).
-/// Covers: story:3-27
+/// `config.explain` labels the sync each level below `full` sets as one that
+/// weakens a guarantee and names its preset as its source, and labels the
+/// level itself only at `off` (ADRs 0138 and 0142).
+/// Covers: story:3-27, setting:run_state.batch.sync
 #[rstest::rstest]
-#[case::fast("fast")]
-#[case::periodic("periodic")]
-#[case::off("off")]
-fn config_explain_labels_each_level_below_full_as_weakening(#[case] level: &str) {
+#[case::fast("fast", "never")]
+#[case::periodic("periodic", "interval")]
+#[case::off("off", "off")]
+fn config_explain_labels_each_level_below_full_as_weakening(
+    #[case] level: &str,
+    #[case] sync: &str,
+) {
     let env = TestEnv::new();
     configure(
         &env,
@@ -173,7 +194,7 @@ fn config_explain_labels_each_level_below_full_as_weakening(#[case] level: &str)
                 &mut client,
                 1,
                 "config.explain",
-                json!({ "keys": ["run_state.durability"] }),
+                json!({ "keys": ["run_state.durability", "run_state.batch.sync"] }),
             )
             .await
         },
@@ -181,15 +202,27 @@ fn config_explain_labels_each_level_below_full_as_weakening(#[case] level: &str)
 
     assert_eq!(
         explained["result"]["settings"],
-        json!([{
-            "key": "run_state.durability",
-            "products": ["collie", "foxhound"],
-            "applied": true,
-            "value": level,
-            "layer": "user_configuration",
-            "weakens": true,
-            "user_settable": true,
-        }])
+        json!([
+            {
+                "key": "run_state.batch.sync",
+                "products": ["collie", "foxhound"],
+                "applied": true,
+                "value": sync,
+                "layer": "user_configuration",
+                "preset": { "key": "run_state.durability", "value": level },
+                "weakens": true,
+                "user_settable": true,
+            },
+            {
+                "key": "run_state.durability",
+                "products": ["collie", "foxhound"],
+                "applied": true,
+                "value": level,
+                "layer": "user_configuration",
+                "weakens": level == "off",
+                "user_settable": true,
+            },
+        ])
     );
 }
 

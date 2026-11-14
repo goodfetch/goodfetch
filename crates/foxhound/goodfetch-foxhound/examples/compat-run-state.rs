@@ -853,7 +853,7 @@ fn line(message: &Value) -> Result<Vec<u8>, serde_json::Error> {
 async fn leave_unclean(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let owner = TaskOwner::root(BlockingPolicy::Inline);
     let options = RunStateOptions {
-        durability: Durability::Off,
+        durability: Durability::OFF,
         ..RunStateOptions::default()
     };
     let writer = RunState::open(path.to_owned(), &options, Vec::new(), 1, &owner).await?;

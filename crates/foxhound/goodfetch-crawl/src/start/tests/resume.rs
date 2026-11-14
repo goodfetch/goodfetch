@@ -8,6 +8,7 @@
 
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_test_support::TestEnv;
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::{
@@ -22,6 +23,13 @@ const ONE_AT_A_TIME: CrawlPolicy = CrawlPolicy {
     ..POLICY
 };
 
+/// The Run's settings at the Durability level `level` (ADR 0142): a stop
+/// writes everything at each one, so its resume fetches no page that had
+/// ended.
+fn at(level: &str) -> Value {
+    json!({ "run_state": { "durability": level } })
+}
+
 /// Each delivered work item's page and attempt, in order.
 fn delivered(client: &Client) -> Vec<(String, u64)> {
     client
@@ -35,10 +43,11 @@ fn delivered(client: &Client) -> Vec<(String, u64)> {
 /// disk their two run files, the Checkpoint and its copy took it past half
 /// the Quick kill (fix-queue 123).
 ///
-/// Covers: story:3-34, operation:run.resume
-#[test]
-fn a_crawl_resumed_elsewhere_from_its_checkpoint_redoes_only_the_work_since_and_commits_each_record_once()
- {
+/// Covers: story:3-34, operation:run.resume, setting:run_state.durability
+#[rstest]
+fn a_crawl_resumed_elsewhere_from_its_checkpoint_redoes_only_the_work_since_and_commits_each_record_once(
+    #[values("batch", "full", "fast", "periodic", "off")] level: &str,
+) {
     let (first, second) = (TestEnv::in_memory(), TestEnv::in_memory());
     let taken = first.folder().join("moved.sqlite");
     let location = taken.display().to_string();
@@ -59,7 +68,7 @@ fn a_crawl_resumed_elsewhere_from_its_checkpoint_redoes_only_the_work_since_and_
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "moved", "seeds": seeds(3) }),
+                    json!({ "run_id": "moved", "seeds": seeds(3), "settings": at(level) }),
                     &mut handler,
                 )
                 .await;
@@ -143,9 +152,11 @@ fn a_crawl_resumed_elsewhere_from_its_checkpoint_redoes_only_the_work_since_and_
 
 /// The crawl a pause stopped resumes by its Run ID on the same machine and
 /// finishes, each Record committed once across the pause.
-/// Covers: story:3-35, operation:run.pause, operation:run.resume
-#[test]
-fn a_paused_crawl_resumes_by_its_run_id_and_finishes_with_each_record_once() {
+/// Covers: story:3-35, operation:run.pause, operation:run.resume, setting:run_state.durability
+#[rstest]
+fn a_paused_crawl_resumes_by_its_run_id_and_finishes_with_each_record_once(
+    #[values("batch", "full", "fast", "periodic", "off")] level: &str,
+) {
     let env = TestEnv::new();
     let (paused, finished, handled) = crawl(
         || {
@@ -163,7 +174,7 @@ fn a_paused_crawl_resumes_by_its_run_id_and_finishes_with_each_record_once() {
             client
                 .call(
                     "crawl.start",
-                    json!({ "run_id": "paused", "seeds": seeds(2) }),
+                    json!({ "run_id": "paused", "seeds": seeds(2), "settings": at(level) }),
                     &mut first_only,
                 )
                 .await;

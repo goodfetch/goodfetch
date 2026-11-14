@@ -10,8 +10,8 @@ use goodfetch_session_pool::SendsFrom;
 use rusqlite::Connection;
 
 use super::{
-    AttemptPlan, Between, MAX_SEGMENTS, Sampled, Sampling, TABLES, TierChoices, Unit, Weighed,
-    encoded, read, record, segment,
+    AttemptPlan, Between, MAX_SEGMENTS, Replay, Sampled, Sampling, TABLES, TierChoices, Unit,
+    Weighed, encoded, read, record, segment,
 };
 
 const KEY: &str = "tiers.test";
@@ -533,6 +533,14 @@ fn replay_plan(n: u32) -> goodfetch_fetch_tier::ReplayPlan {
     goodfetch_fetch_tier::infer_plan(&document, &calls).unwrap()
 }
 
+/// [`replay_plan`]`(n)`'s calls sent `from` that client.
+fn replay(n: u32, from: SendsFrom) -> Replay {
+    Replay {
+        plan: replay_plan(n),
+        from,
+    }
+}
+
 /// A Label whose samples all matched, those that differed over `http`
 /// matching on `discovered_api`, is learned onto `discovered_api`, its
 /// later requests replaying the last such sample's plan; one with a
@@ -550,7 +558,7 @@ fn a_label_whose_samples_matched_on_discovered_api_is_learned_onto_it_with_its_p
             Weighed::Matched
         } else {
             Weighed::Differed(Between {
-                api: Some(replay_plan(number)),
+                api: Some(replay(number, SendsFrom::Browser)),
                 ..Between::default()
             })
         };
@@ -559,7 +567,7 @@ fn a_label_whose_samples_matched_on_discovered_api_is_learned_onto_it_with_its_p
             light()
         } else {
             Weighed::Differed(Between {
-                api: Some(replay_plan(number)),
+                api: Some(replay(number, SendsFrom::Browser)),
                 ..Between::default()
             })
         };
@@ -568,7 +576,7 @@ fn a_label_whose_samples_matched_on_discovered_api_is_learned_onto_it_with_its_p
 
     assert_eq!(
         plan(&mut choices, "scroll", "/scroll/9"),
-        AttemptPlan::Replayed(replay_plan(3))
+        AttemptPlan::Replayed(replay(3, SendsFrom::Browser))
     );
     assert_eq!(
         tier(&mut choices, "mixed", "/mixed/9"),
@@ -603,7 +611,7 @@ fn a_label_whose_samples_matched_only_on_browser_fetch_is_learned_onto_it() {
         };
         let scripted = if page == 3 { differed() } else { fetched() };
         let replayed = Weighed::Differed(Between {
-            api: Some(replay_plan(number)),
+            api: Some(replay(number, SendsFrom::Transport)),
             fetch: true,
             light: false,
         });
@@ -679,11 +687,84 @@ fn a_label_whose_samples_matched_only_on_browser_fetch_is_learned_onto_it() {
             Some(FetchTier::BrowserFetch),
             Some(FetchTier::Browser),
             Some(FetchTier::BrowserFetch),
-            AttemptPlan::Replayed(replay_plan(3)),
+            AttemptPlan::Replayed(replay(3, SendsFrom::Transport)),
             Some(FetchTier::BrowserFetch),
             Some(FetchTier::Http),
             Some(FetchTier::Browser),
         )
+    );
+}
+
+/// Under `fetch.http_from: learned`, a Label learned onto
+/// `discovered_api` keeps the client its samples' replays matched from
+/// (#2420): its own transport when every one matched there, the browser
+/// when one matched only from there, and its later requests replay the
+/// last plan from that client, drawing a Session that sends from it. A
+/// resumed crawl replays from the same client.
+///
+/// Covers: setting:fetch.http_from, story:5-119, story:6-257
+#[test]
+fn a_label_learned_onto_discovered_api_replays_from_the_cheapest_client_that_matched_every_sample()
+{
+    let connection = Connection::open_in_memory().unwrap();
+    for statement in TABLES.statements {
+        connection.execute_batch(statement).unwrap();
+    }
+    let mut choices = TierChoices::default();
+    for page in 1..=SAMPLES {
+        let number = u32::try_from(page).unwrap();
+        let mixed = if page == 2 {
+            SendsFrom::Browser
+        } else {
+            SendsFrom::Transport
+        };
+        for (label, from) in [
+            ("scroll", SendsFrom::Transport),
+            ("guarded", SendsFrom::Browser),
+            ("mixed", mixed),
+        ] {
+            weigh_from(
+                &mut choices,
+                label,
+                &format!("/{label}/{page}"),
+                HttpFrom::Learned,
+                Weighed::Differed(Between {
+                    api: Some(replay(number, from)),
+                    ..Between::default()
+                }),
+            );
+        }
+    }
+    let plans = |choices: &mut TierChoices| {
+        ["scroll", "guarded", "mixed"].map(|label| {
+            plan_from(
+                choices,
+                label,
+                &format!("/{label}/9"),
+                HttpFrom::Learned,
+                START,
+            )
+        })
+    };
+    let learned = plans(&mut choices);
+    for ((label, key), unit) in &choices.units {
+        record(&connection, label, key, unit).unwrap();
+    }
+    let resumed = plans(&mut read(&connection).unwrap());
+
+    let expected = [
+        replay(3, SendsFrom::Transport),
+        replay(3, SendsFrom::Browser),
+        replay(3, SendsFrom::Browser),
+    ]
+    .map(AttemptPlan::Replayed);
+    assert_eq!(learned, expected);
+    assert_eq!(resumed, expected);
+    assert_eq!(
+        expected
+            .each_ref()
+            .map(|plan| plan.sends_from(SendsFrom::Transport)),
+        [SendsFrom::Transport, SendsFrom::Browser, SendsFrom::Browser]
     );
 }
 
@@ -815,7 +896,7 @@ fn a_refused_transport_samples_its_label_again_onto_browser_fetch() {
             Some(FetchTier::Http),
             Some(Unit::Sampling {
                 samples: Vec::new(),
-                plan: None,
+                replay: None,
                 from: SendsFrom::Transport,
             }),
             [true, true],

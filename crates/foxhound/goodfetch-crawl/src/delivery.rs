@@ -67,9 +67,12 @@
 //! passes through one loop.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::pin::Pin;
 use std::time::{Duration, SystemTime};
 
+use futures_util::StreamExt as _;
 use futures_util::future::join_all;
+use futures_util::stream::FuturesUnordered;
 use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::admission::{Admission, Ended, SecondCopies, Waiting, Wakes};
@@ -315,7 +318,8 @@ const SWITCHED_OFF: [(&Setting, &str, &str); 4] = [
 ];
 
 /// Hands the Run's report, once, the warning `code` with `message`, of a
-/// per-page feature its settings switch off (ADR 0138).
+/// per-page feature its settings switch off (ADR 0138), in the open batch:
+/// the crawl hands it over again each time it opens (ADR 0142).
 async fn warn_switched_off(run: &Run, code: &str, message: &str) {
     let warning = RunWarning {
         code: code.to_owned(),
@@ -323,7 +327,7 @@ async fn warn_switched_off(run: &Run, code: &str, message: &str) {
         sessions: Vec::new(),
         folder: None,
     };
-    if let Err(error) = run.warn_once(warning).await {
+    if let Err(error) = run.warn_once_deferred(warning).await {
         tracing::warn!(%error, run_id = %run.id(), code, "the warning of a feature switched off was not kept");
     }
 }
@@ -389,6 +393,54 @@ impl Read {
     }
 }
 
+/// What the delivery's loop does once no page is open and no settlement
+/// is being written.
+enum Idled {
+    /// The Run ended: the loop returns.
+    Ended,
+    /// The loop looks for work again, stopping for the reason it holds.
+    Again(Option<StopReason>),
+    /// The loop waits for its next event.
+    Waits,
+}
+
+/// The delivery loop's turn once nothing is in flight: it ends a stopped
+/// Run, waits for a Connection while none serves, and otherwise asks the
+/// work items whether to admit more, wait, or drain the Run.
+async fn idled(
+    (run, resolved): (&Run, &Resolved),
+    (admission, state): (&mut Admission, &mut RunState),
+    (servers, arrivals, in_flight): (&mut Vec<Serving>, &mut Opened, &SharedInFlight),
+    (stop, starved): (Option<StopReason>, bool),
+) -> Idled {
+    if let Some(reason) = stop {
+        end(run, admission, Ending::Stopped(reason)).await;
+        return Idled::Ended;
+    }
+    let again = |waited| match waited {
+        Waited::Ended => Idled::Ended,
+        Waited::Stop(reason) => Idled::Again(Some(reason)),
+        Waited::Again => Idled::Again(None),
+    };
+    if !servers.iter_mut().any(Serving::serves) {
+        let state = (admission, state);
+        return again(waited(run, state, servers, arrivals, in_flight, false).await);
+    }
+    match when_idle(run, admission, state).await {
+        Ok(Idle::Admit) if !starved => Idled::Again(None),
+        Ok(Idle::Admit | Idle::Wait) => Idled::Waits,
+        Ok(Idle::Done) => {
+            let state = (admission, state);
+            again(drained(run, resolved, state, servers, arrivals, in_flight).await)
+        }
+        Err(error) => {
+            tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
+            end(run, admission, failed(run, &error)).await;
+            Idled::Ended
+        }
+    }
+}
+
 /// The delivery's loop, which returns once the Run ended or stopped, each
 /// attempt it starts handing over `handing` with its own part. It owns the
 /// crawl's Run state, which starts from the Session pool the run file
@@ -409,6 +461,7 @@ async fn deliver(
     let run_leases = leases_of(run, arrivals, &admission);
     let (mut wakes, mut queued) = (admission.wakes(), run.metrics().level(&WORK_ITEM_QUEUED));
     let mut pages = Pages::new(run, in_flight);
+    let mut settling = Settlements::new();
     // Resolved once, as the Run opened: no turn reads the settings again
     // (ADR 0138).
     let (resolved, read) = (settings.resolved(), Read::of(settings.resolved()));
@@ -431,37 +484,16 @@ async fn deliver(
         }
         let starved = run.governor().waits(WorkKind::Http);
         pages.dismiss();
-        if pages.idle() {
-            if let Some(reason) = stop {
-                end(run, &mut admission, Ending::Stopped(reason)).await;
-                return;
-            }
-            if !servers.iter_mut().any(Serving::serves) {
-                let state = (&mut admission, &mut state);
-                match waited(run, state, servers, arrivals, in_flight, false).await {
-                    Waited::Ended => return,
-                    Waited::Stop(reason) => stop = Some(reason),
-                    Waited::Again => {}
-                }
-                continue;
-            }
-            match when_idle(run, &mut admission, state.stored()).await {
-                Ok(Idle::Admit) if !starved => continue,
-                Ok(Idle::Admit | Idle::Wait) => {}
-                Ok(Idle::Done) => {
-                    let state = (&mut admission, &mut state);
-                    match drained(run, resolved, state, servers, arrivals, in_flight).await {
-                        Waited::Ended => return,
-                        Waited::Stop(reason) => stop = Some(reason),
-                        Waited::Again => {}
-                    }
+        if pages.idle() && settling.is_empty() {
+            let state = (&mut admission, &mut state);
+            let serving = (&mut *servers, &mut *arrivals, in_flight);
+            match idled((run, resolved), state, serving, (stop.take(), starved)).await {
+                Idled::Ended => return,
+                Idled::Again(reason) => {
+                    stop = reason;
                     continue;
                 }
-                Err(error) => {
-                    tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
-                    end(run, &mut admission, failed(run, &error)).await;
-                    return;
-                }
+                Idled::Waits => {}
             }
         }
         let free = stop.is_none()
@@ -474,10 +506,12 @@ async fn deliver(
         let room = [stop.is_some(), free, starved];
         let shown = (resolved, read.policy);
         show(run, (&mut admission, &mut queued), shown, servers, room);
+        let settles = !settling.is_empty();
         tokio::select! {
             biased;
             () = run.cancellation().cancelled() => {
                 pages.shutdown().await;
+                abandoned(&mut settling).await;
                 admission.close().await;
                 release(run, state.stored()).await;
                 return;
@@ -491,9 +525,14 @@ async fn deliver(
             Some(ask) = arrivals.asked.next() => {
                 answered(run, (&mut admission, &mut state), in_flight, ask).await;
             }
+            Some(written) = settling.next(), if settles => {
+                let on = (&mut admission, servers.as_mut_slice());
+                completed(run, on, (&mut state, fetching), written).await;
+            }
             ended = pages.ended() => {
                 let state = (&mut state, fetching);
-                settled(run, read, &mut admission, state, servers, ended).await;
+                let settlement = settled(run, read, state, servers, ended).await;
+                settling.push(settlement);
             }
             () = sleep_until(run.clock(), wake), if wake.is_some() => {}
             () = run.governor().turn(WorkKind::Http), if free && starved => {}
@@ -952,6 +991,13 @@ async fn lease_to_servers(
         if !server.serves() || server.in_flight >= policy.handler_concurrency {
             continue;
         }
+        // A Run with no work item ready asks the governor for nothing, and
+        // passes any turn it waits for to the Runs that wait.
+        let now = run.clock().now();
+        if admission.ready_at(now).is_none_or(|ready| ready > now) {
+            run.governor().pass(WorkKind::Http);
+            return Ok(());
+        }
         let mut permits: Vec<Permit> =
             std::iter::from_fn(|| run.governor().try_admit(WorkKind::Http))
                 .take(policy.handler_concurrency - server.in_flight)
@@ -1031,6 +1077,13 @@ async fn lease_to_servers(
                 admission,
             }));
         }
+        // Fewer were ready than the governor admitted: each admission left
+        // goes back, and the Run's turn to the Runs that wait.
+        if !permits.is_empty() {
+            drop(permits);
+            run.governor().pass(WorkKind::Http);
+            return Ok(());
+        }
     }
     Ok(())
 }
@@ -1060,6 +1113,8 @@ enum Waited {
 /// the crawl is kept alive, also
 /// writes the tier choices' counts `state` holds that the run file has not
 /// heard of: no lease follows the last draws to carry them (ADR 0142).
+/// A crawl kept alive seals the open batch before it waits, so what it
+/// did is in the file while it waits (ADR 0142).
 /// What that job changed of the crawl's requests by state is counted and
 /// shown with the requests `in_flight`.
 async fn drained(
@@ -1072,11 +1127,19 @@ async fn drained(
 ) -> Waited {
     let keeps_alive: bool = resolved.get(&CRAWL_KEEP_ALIVE);
     let counted = state.counted();
-    if keeps_alive && !run.is_let_finish() && !counted.is_empty() {
-        if let Err(error) = state.stored().count(counted).await {
+    if keeps_alive && !run.is_let_finish() {
+        if !counted.is_empty()
+            && let Err(error) = state.stored().count(counted).await
+        {
             tracing::warn!(%error, run_id = %run.id(), "the tier choices' counts were not written");
         }
-    } else if !keeps_alive || run.is_let_finish() {
+        // It waits for new work, for as long as none comes: what it did is
+        // sealed into the file first, so a reader sees it now rather than
+        // once the open batch's interval passed (ADR 0142).
+        if let Err(error) = state.seal().await {
+            tracing::warn!(%error, run_id = %run.id(), "the open batch was not sealed");
+        }
+    } else {
         let lost = AttemptFailure::outcome_not_written("its attempt ended and left it leased");
         let unwritten = Failure {
             code: lost.code,
@@ -1092,24 +1155,22 @@ async fn drained(
             .stored()
             .close_if_drained(counted, (unwritten, retry_max), ended_at)
             .await;
-        match closed {
-            Ok((closed, changed)) => {
+        let ending = match closed {
+            Ok((short, changed)) => {
                 state.changed(changed);
                 show_counted(run, state, in_flight, []).await;
-                if !closed {
-                    return Waited::Again;
+                match short {
+                    Some(reasons) => Ending::Finished(reasons),
+                    // A work item it gave back is pending in a batch the
+                    // next reads must see (ADR 0142).
+                    None => match state.seal().await {
+                        Ok(()) => return Waited::Again,
+                        Err(error) => failed(run, &error),
+                    },
                 }
             }
             Err(error) => {
                 tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
-                end(run, admission, failed(run, &error)).await;
-                return Waited::Ended;
-            }
-        }
-        let ending = match state.stored().short_of_scope().await {
-            Ok(reasons) => Ending::Finished(reasons),
-            Err(error) => {
-                tracing::error!(%error, run_id = %run.id(), "what cut the crawl could not be read");
                 failed(run, &error)
             }
         };
@@ -1171,21 +1232,23 @@ enum Idle {
 
 /// What a crawl with no attempt in flight does next: its queues filled
 /// again from the pending work items when they hold none ready, once any
-/// work item an admission left with no domain key is keyed.
+/// work item an admission left with no domain key is keyed. Its reads
+/// decide with no seal: each work item an answered write changed in the
+/// open batch is known in memory beside them (ADR 0142).
 async fn when_idle(
     run: &Run,
     admission: &mut Admission,
-    stored: &Stored,
+    state: &mut RunState,
 ) -> Result<Idle, StateError> {
     if admission.ready_at(run.clock().now()).is_some() {
         return Ok(Idle::Wait);
     }
-    key_new(stored, admission, Unkeyed::Running).await?;
-    fill(stored, admission, None).await?;
+    key_new(state.stored(), admission, Unkeyed::Running).await?;
+    fill(state, admission, None).await?;
     if admission.ready_at(run.clock().now()).is_some() {
         return Ok(Idle::Admit);
     }
-    Ok(if stored.any_pending().await? {
+    Ok(if state.any_pending().await? {
         Idle::Wait
     } else {
         Idle::Done
@@ -1193,8 +1256,10 @@ async fn when_idle(
 }
 
 /// What settling one ended attempt keeps of it once its Session is scored,
-/// for its domain's turn and queue after its commit.
+/// for its Connection's place, its domain's turn and queue after its
+/// outcome is written.
 struct Settling {
+    server: usize,
     waiting: Waiting,
     merged: Vec<(String, String)>,
     domain: Ended,
@@ -1209,28 +1274,33 @@ struct Scored {
     chosen: Option<(String, String, Unit)>,
 }
 
+/// The settlements whose outcomes the run state's writer has yet to
+/// answer, which the delivery loop polls beside its other work and never
+/// waits for alone (#2168).
+type Settlements = FuturesUnordered<Settlement>;
+
+/// A group of ended attempts whose outcomes are queued with the run
+/// state's writer: once each is answered, what each one's settling keeps
+/// and what its outcome left the delivery to do, in their order.
+type Settlement = Pin<Box<dyn Future<Output = (Vec<Settling>, Vec<Finished>)> + Send>>;
+
 /// Settles the attempts that ended, `ended`, in the order they ended,
 /// under the Run's policy and pool settings, resolved as it opened (ADR
-/// 0138): frees each one's place on its Connection and scores its
-/// Session; queues each one's outcome as one job of the run state's
+/// 0138): scores each one's Session; queues each one's outcome as one job of the run state's
 /// writer, in their order, so the writer takes them in one group rather
 /// than the loop waiting for each in turn (#1765), and each one's failure
-/// rolls back its own alone (ADR 0138); once they are written, counts what
-/// they changed of the crawl's requests by state and shows it with the
-/// attempts out of the requests in flight, as one change of the Run's
-/// progress (#2167); then returns each one's domain turn and puts each
-/// retried work item back in its queue, in their order, offers its
-/// domain's queue each work item an outcome added, keyed as it was added,
-/// and journals what the queues changed.
+/// rolls back its own alone (ADR 0138). It answers the group's
+/// settlement, which the loop polls beside its other work rather than
+/// waiting for it (#2168): at `batch` an outcome rides the writer's open
+/// batch, and no page waits for the writer. [`completed`] finishes it.
 async fn settled(
     run: &Run,
     read: Read,
-    admission: &mut Admission,
     (state, fetching): (&mut RunState, &Fetching<'_>),
     servers: &mut [Serving],
     ended: Vec<Attempt>,
-) {
-    let (attempts, mut settlings, scores) = scored(run, read, &mut *state, servers, ended);
+) -> Settlement {
+    let (attempts, settlings, scores) = scored(run, read, &mut *state, servers, ended);
     for attempt in &attempts {
         fetching
             .retire(run, state.pool(), &servers[attempt.server].context)
@@ -1242,13 +1312,39 @@ async fn settled(
         let on = (run, state.stored());
         queued.push(queue_outcome(on, read.policy, held, attempt, scored).await);
     }
-    let mut retried = Vec::with_capacity(queued.len());
+    let stored = state.stored().clone();
+    Box::pin(async move {
+        let finished = join_all(queued.into_iter().map(|queued| queued.finished(&stored))).await;
+        (settlings, finished)
+    })
+}
+
+/// Finishes a settlement once its outcomes were written: frees each
+/// attempt's place on its Connection, which its page holds until then so
+/// that a Connection's handler concurrency counts the pages it has not
+/// settled and a retried work item goes back before its place is leased
+/// again; counts what they
+/// changed of the crawl's requests by state and shows it with the
+/// attempts out of the requests in flight, as one change of the Run's
+/// progress (#2167); then returns each one's domain turn and puts each
+/// retried work item back in its queue, in their order, offers its
+/// domain's queue each work item an outcome added, keyed as it was added,
+/// and journals what the queues changed.
+async fn completed(
+    run: &Run,
+    (admission, servers): (&mut Admission, &mut [Serving]),
+    (state, fetching): (&mut RunState, &Fetching<'_>),
+    (mut settlings, finished): (Vec<Settling>, Vec<Finished>),
+) {
+    let mut retried = Vec::with_capacity(finished.len());
     let mut keyed = Vec::new();
-    let stored = state.stored();
-    let finished = join_all(queued.into_iter().map(|queued| queued.finished(stored))).await;
     for (outcome, settling) in finished.into_iter().zip(&mut settlings) {
+        servers[settling.server].in_flight -= 1;
         settling.merged.extend(outcome.merged);
-        keyed.extend(outcome.keyed);
+        // Each change is in a batch a read may not see yet (ADR 0142).
+        state.gone(settling.merged.iter().map(|(id, _)| id.clone()));
+        state.settled(outcome.leased, outcome.retried);
+        keyed.extend(state.added(outcome.keyed));
         retried.push(outcome.retried);
         state.changed(outcome.changed);
     }
@@ -1256,16 +1352,21 @@ async fn settled(
         .iter()
         .map(|settling| settling.waiting.id.as_str());
     show_counted(run, state, &fetching.in_flight, ended).await;
-    let stored = state.stored();
-    returned(run, (admission, stored), settlings.into_iter().zip(retried)).await;
+    returned(run, (admission, state), settlings.into_iter().zip(retried)).await;
     for waiting in keyed {
         admission.enqueue(waiting);
     }
-    journal(run, stored, admission).await;
+    journal(run, state.stored(), admission).await;
 }
 
-/// Frees the place of each attempt of `ended` on its Connection, counts
-/// what its lesson to the Frontier changed of the crawl's requests by
+/// Waits for every settlement in `settling`, finishing none: the crawl was
+/// cancelled, and its leases are released next.
+async fn abandoned(settling: &mut Settlements) {
+    while settling.next().await.is_some() {}
+}
+
+/// Marks the Connection of each attempt of `ended` gone when its client
+/// went, counts what its lesson to the Frontier changed of the crawl's requests by
 /// state when it taught it in a job of its own, and scores its Session in
 /// `state`'s pool under what the loop `read`, in their order, answering
 /// them with what each one's settling keeps and what its outcome writes of
@@ -1304,10 +1405,8 @@ fn scored(
             state.changed(*changed);
         }
         let pool = state.pool();
-        let server = &mut servers[attempt.server];
-        server.in_flight -= 1;
         if let Answer::ClientGone = attempt.answer {
-            server.gone = true;
+            servers[attempt.server].gone = true;
         }
         let waiting = attempt.leased.waiting.clone();
         let merged = std::mem::take(&mut attempt.taught.merged);
@@ -1354,6 +1453,7 @@ fn scored(
             read.longest_wait,
         );
         settlings.push(Settling {
+            server: attempt.server,
             waiting,
             merged,
             domain,
@@ -1376,7 +1476,7 @@ fn scored(
 /// requests a rule it stopped made pending again.
 async fn returned(
     run: &Run,
-    (admission, stored): (&mut Admission, &Stored),
+    (admission, state): (&mut Admission, &mut RunState),
     settled: impl Iterator<Item = (Settling, bool)>,
 ) {
     let mut keys = BTreeSet::new();
@@ -1386,6 +1486,7 @@ async fn returned(
             merged,
             domain,
             held,
+            ..
         } = settling;
         if let Some(asked) = held {
             let clock = run.clock();
@@ -1406,7 +1507,7 @@ async fn returned(
         }
     }
     for key in keys {
-        if let Err(error) = fill(stored, admission, Some(key)).await {
+        if let Err(error) = fill(state, admission, Some(key)).await {
             tracing::warn!(%error, run_id = %run.id(), "a queue a learned rule thinned was not filled again");
         }
     }
@@ -1466,9 +1567,15 @@ async fn open(
     key_new(&stored, &mut admission, Unkeyed::Opening)
         .await
         .map_err(|error| error.to_string())?;
-    fill(&stored, &mut admission, None)
+    // As the crawl opens it has claimed nothing: the run file holds every
+    // pending work item.
+    for waiting in stored
+        .waiting(None, admission.bound())
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())?
+    {
+        admission.enqueue(waiting);
+    }
     let (pool, tally) = stored
         .open(run.fork_entropy().await)
         .await
@@ -1546,14 +1653,17 @@ async fn warn_rotated(run: &Run, rotated: Rotated) {
 const KEYED_AT_ONCE: usize = 1024;
 
 /// Keys each work item not keyed yet, `found` as the crawl opens or once
-/// it is idle: the seeds its start wrote, which no gate had keyed. Every
-/// work item added once it runs is keyed in the write that adds it, a
-/// seed, a re-admission, an attempt's links and a sitemap's entries
-/// (#2167), so an idle crawl finds none; one an admission left so would
-/// wait outside every domain's queue for ever, and is keyed here, in a
-/// write the Run state counts. It offers each to its domain's queue, which
+/// it is idle. A start keys its seeds in the write that adds them, as its
+/// gate keys them (#2168), and every work item added once the crawl runs
+/// is keyed in the write that adds it, a seed, a re-admission, an
+/// attempt's links and a sitemap's entries (#2167), so a crawl finds none
+/// unless a start ran with no gate; one an admission left so would wait
+/// outside every domain's queue for ever, and is keyed here, in a write
+/// the Run state counts. It offers each to its domain's queue, which
 /// takes it unless full; one it refuses waits in run state until its queue
-/// fills again.
+/// fills again. At a level that batches attempts a round's keys ride the
+/// open batch, which the next read would not see, so each round that keyed
+/// any seals it (ADR 0142): the next round and the reads after it see them.
 async fn key_new(
     stored: &Stored,
     admission: &mut Admission,
@@ -1562,7 +1672,11 @@ async fn key_new(
     loop {
         let unkeyed = stored.unkeyed(KEYED_AT_ONCE).await?;
         let read = unkeyed.len();
+        if read == 0 {
+            return Ok(());
+        }
         key(stored, admission, unkeyed, found).await?;
+        stored.seal().await?;
         if read < KEYED_AT_ONCE {
             return Ok(());
         }
@@ -1598,13 +1712,13 @@ async fn key(
 }
 
 /// Fills the queue of `key`, or of every key when `None`, from the pending
-/// work items, at most its bound.
+/// work items `state` reads, at most its bound.
 async fn fill(
-    stored: &Stored,
+    state: &mut RunState,
     admission: &mut Admission,
     key: Option<String>,
 ) -> Result<(), StateError> {
-    for waiting in stored.waiting(key, admission.bound()).await? {
+    for waiting in state.waiting(key, admission.bound()).await? {
         admission.enqueue(waiting);
     }
     Ok(())
@@ -1651,19 +1765,25 @@ async fn admit(
         keys.push(admitted.key);
     }
     if !refused.is_empty() {
+        // Each ended in a batch a read may not see yet.
+        let unsent: Vec<String> = refused
+            .iter()
+            .map(|(admitted, _)| admitted.id.clone())
+            .collect();
         let changed = end_unsent(run, pooled.state.stored(), admission, refused).await?;
         pooled.state.changed(changed);
+        pooled.state.gone(unsent);
         show_counted(run, pooled.state, &pooled.fetching.in_flight, []).await;
     }
-    let asked = ids.clone();
-    let drawn = if ids.is_empty() {
+    let asked: Vec<(String, String)> = ids.into_iter().zip(keys).collect();
+    let drawn = if asked.is_empty() {
         Vec::new()
     } else {
-        leased_and_drawn(run, charges, ids, pooled).await?
+        leased_and_drawn(run, charges, asked.clone(), pooled).await?
     };
     // A work item a rule learned later merged after the gate took it is
     // no longer pending: it gives its domain's turn back unsent.
-    for (id, key) in asked.iter().zip(&keys) {
+    for (id, key) in &asked {
         if !drawn
             .iter()
             .any(|drawn| drawn.leased.crawl_request.id == *id)
@@ -1672,18 +1792,18 @@ async fn admit(
         }
     }
     for key in drained {
-        fill(pooled.state.stored(), admission, Some(key)).await?;
+        fill(pooled.state, admission, Some(key)).await?;
     }
     Ok(drawn)
 }
 
-/// Claims each pending work item of `ids` in `pooled`'s Run state, which
-/// journals `charges` with the claim and draws the Session that serves
-/// each and how its tier is chosen (ADR 0142).
+/// Leases each pending work item of `asked`, by ID with its domain key, in
+/// `pooled`'s Run state, whose claim journals `charges`, and draws the
+/// Session that serves each and how its tier is chosen (ADR 0142).
 async fn leased_and_drawn(
     run: &Run,
     charges: UnjournaledCharges,
-    ids: Vec<String>,
+    asked: Vec<(String, String)>,
     pooled: &mut Pooled<'_>,
 ) -> Result<Vec<Drawn>, StateError> {
     let fetching = pooled.fetching;
@@ -1700,7 +1820,7 @@ async fn leased_and_drawn(
                 .reads_robots_txt(goodfetch_fetch_tier::Request::CrawlRequest),
         wall: (run.clock().wall(), wall_ms(run)),
     };
-    pooled.state.lease(run, charges, ids, &drawing).await
+    pooled.state.lease(run, charges, asked, &drawing).await
 }
 
 /// Writes what the gate changed into the run file.
@@ -1745,13 +1865,15 @@ struct QueuedOutcome {
 }
 
 /// What an attempt's outcome left the delivery to do once it was written:
-/// the pending requests a rule its page taught merged, by ID with their
-/// domain key, each work item it added keyed, in order, whether its work
+/// its work item as its lease took it, the pending requests a rule its
+/// page taught merged, by ID with their domain key, each work item it
+/// added keyed, in order, as its first lease takes it, whether its work
 /// item waits again for a retry, and what its job changed of the crawl's
 /// requests by state.
 struct Finished {
+    leased: Leased,
     merged: Vec<(String, String)>,
-    keyed: Vec<Waiting>,
+    keyed: Vec<Leased>,
     retried: bool,
     changed: Changed,
 }
@@ -1907,6 +2029,7 @@ impl QueuedOutcome {
             written,
         } = self;
         let mut finished = Finished {
+            leased: leased.clone(),
             merged: Vec::new(),
             keyed: Vec::new(),
             retried: false,

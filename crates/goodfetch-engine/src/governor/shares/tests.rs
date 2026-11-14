@@ -204,3 +204,21 @@ fn a_run_waits_from_a_refused_try_until_its_turn_comes() {
 
     assert_eq!((before, refused, second.waits(Http)), (false, true, false));
 }
+
+#[test]
+fn a_run_with_nothing_to_admit_passes_its_turn_to_the_runs_that_wait() {
+    let shares = Shares::new([1, 1, 1]);
+    let (first, second) = (shares.join(100), shares.join(100));
+    let held = first.try_admit(Http).unwrap();
+    assert!(first.try_admit(Http).is_none());
+    // Given back while only the first waits, it is set aside for the first.
+    drop(held);
+    assert!(second.try_admit(Http).is_none());
+
+    first.pass(Http);
+
+    assert_eq!(
+        (first.waits(Http), second.try_admit(Http).is_some()),
+        (false, true)
+    );
+}

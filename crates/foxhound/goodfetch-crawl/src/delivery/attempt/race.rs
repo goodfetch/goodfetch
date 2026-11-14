@@ -14,7 +14,7 @@ use goodfetch_engine::admission::SecondCopies;
 use goodfetch_engine::runs::Run;
 use goodfetch_fetch_tier::{
     Chosen, FetchTiers, HandOver, HttpTier, Judged, PageFacts, PooledSession, Race, RaceEnd,
-    TierChoice, record_race, room_taken,
+    TierChoice, record_race, room_taken, tier_provenance,
 };
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::page::{PageId, PageResponse};
@@ -166,8 +166,7 @@ impl On<'_> {
                     run,
                     leased,
                     self.lease,
-                    &BROWSER_FETCH,
-                    Chosen::Raced,
+                    tier_provenance(&BROWSER_FETCH, Chosen::Raced),
                     facts.encoding,
                     facts.certificate_exception,
                 )
@@ -205,8 +204,7 @@ impl On<'_> {
                     run,
                     leased,
                     self.lease,
-                    &BROWSER,
-                    Chosen::Raced,
+                    tier_provenance(&BROWSER, Chosen::Raced),
                     encoding,
                     certificate_exception,
                 )

@@ -50,13 +50,22 @@ use crate::work_items::{self, Changed, Failure, Leased, Positions, Unsuccessful}
 pub(crate) type EndWritten = Result<Written, StateError>;
 
 /// What a write the loop waited for gave the crawl: the work items it
-/// added, each keyed as it was added, for the loop to offer their
-/// domains' queues, and what it changed of the crawl's requests by state,
+/// added, each keyed as it was added and as its first lease takes it, for
+/// the loop to offer their domains' queues, and what it changed of the crawl's requests by state,
 /// for the Run state to count.
-pub(crate) type Given = (Vec<Waiting>, Changed);
+pub(crate) type Given = (Vec<Leased>, Changed);
 
 /// An outcome's job, queued, which answers once it is written.
 pub(crate) type QueuedEnd = Pin<Box<dyn Future<Output = EndWritten> + Send>>;
+
+/// How an attempt's outcome is written: it ends one attempt. The bytes of
+/// its rows are not counted before its job runs.
+const ATTEMPT_ENDED: Syncing = Syncing::Attempt { ended: 1, bytes: 0 };
+
+/// How a handler's call staged with its attempt is written: as part of the
+/// attempt, which ends none, in its batch, and synced where each attempt's
+/// writes are a batch of their own.
+const STAGED: Syncing = Syncing::Attempt { ended: 0, bytes: 0 };
 
 /// The run file of a running crawl, as its Run state reads and writes it:
 /// the Run's run-state writer, with what each admission is judged within,
@@ -77,8 +86,9 @@ pub(crate) struct Stored {
 /// When the delivery loop found work items with no domain key.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Unkeyed {
-    /// As the crawl opens: the seeds its start wrote, which no gate had
-    /// keyed.
+    /// As the crawl opens: the seeds a start with no gate wrote, which
+    /// it could not key. A start with a gate keys each seed in the write
+    /// that adds it (#2168).
     Opening,
     /// While the crawl runs, once it is idle. Every admission keys the
     /// work items it adds, in the write that adds them (#2167), so none
@@ -114,6 +124,15 @@ impl Stored {
             staging,
             intake,
         } = within;
+        if !writer.per_attempt() {
+            // A batch's visits are in the file only once it commits: the
+            // Frontier holds them until then, so a redirect hop is judged
+            // on a reader (#2168).
+            let commits = writer.commits();
+            invariants
+                .frontier()
+                .hold_unwritten(move || *commits.borrow());
+        }
         Self {
             writer,
             egress,
@@ -190,9 +209,10 @@ impl Stored {
                 attempt,
                 answer,
             } => {
-                // No page makes this call again once its attempt ended, so
-                // it is synced as a seed added with no attempt is.
-                self.queue(answer, Syncing::Required, move |connection| {
+                // Made inside a handler, it rides its attempt's batch: a
+                // crash that takes it takes the outcome after it, so the
+                // page makes it again (ADR 0142; synced at `full`).
+                self.queue(answer, STAGED, move |connection| {
                     this.intake.admitting(|| {
                         this.staging.admit(
                             connection,
@@ -213,7 +233,7 @@ impl Stored {
                 .await;
             }
             Ask::Enqueue { enqueue, answer } => {
-                self.queue(answer, Syncing::Required, move |connection| {
+                self.queue(answer, STAGED, move |connection| {
                     this.enqueue(connection, &enqueue)
                 })
                 .await;
@@ -229,6 +249,10 @@ impl Stored {
                 .await;
             }
             Ask::Hop { hop, asks, answer } => {
+                if self.invariants.frontier().unwritten().is_some() {
+                    drop(answer.send(self.hop_on_reader(hop, asks)));
+                    return None;
+                }
                 if let HopAsk::Check = asks {
                     self.work.count(Row::HopTransactions);
                 }
@@ -249,6 +273,8 @@ impl Stored {
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
+        // The asking page's task waits for the writer's answer.
+        self.waited(1);
         let queued: Queued<T> = match self.writer.reserve().await {
             Ok(place) => {
                 let written = place.write_with(syncing, job);
@@ -257,6 +283,13 @@ impl Stored {
             Err(error) => Box::pin(std::future::ready(Err(error.into()))),
         };
         drop(answer.send(queued));
+    }
+
+    /// Counts `pages` waits of a page for the run file's writer
+    /// (`F2.page_waits`).
+    pub(crate) fn waited(&self, pages: usize) {
+        self.work
+            .count_many(Row::RunPageWaits, u64::try_from(pages).unwrap_or(u64::MAX));
     }
 
     /// Stages `enqueue` with its attempt.
@@ -327,14 +360,90 @@ impl Stored {
                 &hop.crawl_request,
                 (&hop.url, &hop.method, hop.body.as_deref()),
             ),
-            HopAsk::Reached => goodfetch_frontier::redirect_reached(
+            HopAsk::Reached => goodfetch_frontier::admit_reached(
                 connection,
+                self.invariants.frontier(),
                 &hop.crawl_request,
-                &hop.url,
-                &hop.method,
-                hop.body.as_deref(),
+                (&hop.url, &hop.method, hop.body.as_deref()),
             ),
         }
+    }
+
+    /// A redirect hop's question, answered on a reader while the writer
+    /// batches, beside the visits it has not committed (#2168): the page
+    /// waits for no write. A check that a reader finds out of the scope,
+    /// while a seed widened it in a batch the reader may not see, asks the
+    /// writer again. A chain's end held as pending queues its visit before
+    /// it answers, so its page's outcome is queued after it.
+    fn hop_on_reader(&self, hop: ChainHop, asks: HopAsk) -> Queued<goodfetch_frontier::Hop> {
+        let this = self.clone();
+        Box::pin(async move {
+            let hop = Arc::new(hop);
+            let unsynced = Syncing::Deferred { charged: 0 };
+            match asks {
+                HopAsk::Check => {
+                    let before = this.commits();
+                    let (reading, asked) = (this.clone(), Arc::clone(&hop));
+                    let answer = this
+                        .writer
+                        .read(move |connection| reading.hop(connection, &asked, HopAsk::Check))
+                        .await?;
+                    let widened = this
+                        .invariants
+                        .frontier()
+                        .unwritten()
+                        .is_some_and(|unwritten| unwritten.widened_since(before));
+                    if answer != goodfetch_frontier::Hop::OutOfScope || !widened {
+                        return Ok(answer);
+                    }
+                    this.waited(1);
+                    this.work.count(Row::HopTransactions);
+                    let place = this.writer.reserve().await?;
+                    let writing = this.clone();
+                    Ok(place
+                        .write_with(unsynced, move |connection| {
+                            writing.hop(connection, &hop, HopAsk::Check)
+                        })
+                        .await?)
+                }
+                HopAsk::Reached => {
+                    let invariants = this.invariants.clone();
+                    let reached = this
+                        .writer
+                        .read(move |connection| {
+                            let unwritten = invariants.frontier().unwritten().expect(
+                                "invariant: a hop is read only beside the unwritten visits",
+                            );
+                            goodfetch_frontier::hold_reached(
+                                unwritten,
+                                connection,
+                                &hop.crawl_request,
+                                (&hop.url, &hop.method, hop.body.as_deref()),
+                            )
+                        })
+                        .await?;
+                    let pending = match reached {
+                        goodfetch_frontier::Reached::Duplicate => {
+                            return Ok(goodfetch_frontier::Hop::Duplicate);
+                        }
+                        goodfetch_frontier::Reached::Follow(pending) => pending,
+                    };
+                    let place = this.writer.reserve().await?;
+                    let invariants = this.invariants.clone();
+                    // Queued now, in the page's order: the answer does not
+                    // wait for its batch, and dropping the future does not
+                    // withdraw the visit.
+                    drop(place.write_with(unsynced, move |connection| {
+                        goodfetch_frontier::visit_pending(
+                            connection,
+                            invariants.frontier(),
+                            pending,
+                        )
+                    }));
+                    Ok(goodfetch_frontier::Hop::Follow)
+                }
+            }
+        })
     }
 
     /// What the crawl's Run state starts from as it opens: the Session
@@ -418,29 +527,72 @@ impl Stored {
             .await?)
     }
 
-    /// Whether a work item is pending.
+    /// Writes the open batch, at a level that batches attempts, and
+    /// answers once it is in the file, so a read that follows sees every
+    /// write answered before it (ADR 0142); with none open it writes
+    /// nothing.
     ///
     /// # Errors
     ///
     /// The run file's.
-    pub(crate) async fn any_pending(&self) -> Result<bool, StateError> {
-        Ok(self.writer.read(work_items::any_pending).await?)
+    pub(crate) async fn seal(&self) -> Result<(), StateError> {
+        Ok(self.writer.seal().await?)
     }
 
-    /// The job of a claim: leases each pending work item of `ids`, in that
-    /// order, after writing the rows the draws before it decided, what
-    /// they changed in the Session pool, `changes`, and each tier choice's
-    /// count of requests served, `counted`.
+    /// How many commits the run file's writer acknowledged: a read that
+    /// starts after sees them all.
+    pub(crate) fn commits(&self) -> u64 {
+        *self.writer.commits().borrow()
+    }
+
+    /// Whether each attempt's claim is in the run file before its fetch
+    /// (`run_state.batch.per_attempt`, at `full`, `fast` and `periodic`):
+    /// the crawl then waits for it (ADR 0142).
+    pub(crate) fn claims_first(&self) -> bool {
+        self.writer.per_attempt()
+    }
+
+    /// The IDs of at most `limit` pending work items.
+    ///
+    /// # Errors
+    ///
+    /// The run file's.
+    pub(crate) async fn pending(&self, limit: usize) -> Result<Vec<String>, StateError> {
+        Ok(self
+            .writer
+            .read(move |connection| work_items::pending(connection, limit))
+            .await?)
+    }
+
+    /// Each pending work item of `ids`, in that order, as its next lease
+    /// takes it, read in one read transaction beside the writer: what the
+    /// run file's committed state holds of it.
+    ///
+    /// # Errors
+    ///
+    /// The run file's.
+    pub(super) async fn leasable(&self, ids: Vec<String>) -> Result<Vec<Leased>, StateError> {
+        Ok(self
+            .writer
+            .read(move |connection| work_items::leasable(connection, &ids))
+            .await?)
+    }
+
+    /// The job of a claim: leases each work item of `claims` still pending
+    /// under the lease epoch below the one given, in that order, after
+    /// writing the rows the draws before it decided, what they changed in
+    /// the Session pool, `changes`, and each tier choice's count of
+    /// requests served, `counted`. It answers the IDs it did not lease.
     pub(super) fn claim(
-        ids: Vec<String>,
+        claims: Vec<(String, u64)>,
         (changes, counted): (Changes, Counted),
-    ) -> impl FnOnce(&Connection) -> rusqlite::Result<Vec<Leased>> + Send + 'static {
+    ) -> impl FnOnce(&Connection) -> rusqlite::Result<Vec<String>> + Send + 'static {
         move |connection| {
             if !changes.is_empty() {
                 changes.write(connection)?;
             }
             counted.write(&BatchWriter::over(connection))?;
-            work_items::lease(connection, &ids)
+            work_items::claim(connection, &claims)
         }
     }
 
@@ -467,11 +619,14 @@ impl Stored {
 
     /// Queues `outcome`, an ended attempt's, as one job of the run-state
     /// writer (ADR 0138), now, in the loop's order, and answers the job,
-    /// which the loop waits for with the others it queued beside it.
+    /// which the loop waits for with the others it queued beside it. At a
+    /// level that batches attempts, it rides the open batch and is
+    /// answered once in it (ADR 0142).
     pub(crate) async fn end(&self, outcome: Outcome) -> QueuedEnd {
         match self.writer.reserve().await {
             Ok(place) => {
-                let written = place.write(move |connection| outcome.write(connection));
+                let written =
+                    place.write_with(ATTEMPT_ENDED, move |connection| outcome.write(connection));
                 Box::pin(async move { written.await.map_err(StateError::from) })
             }
             Err(error) => Box::pin(std::future::ready(Err(error.into()))),
@@ -480,8 +635,8 @@ impl Stored {
 
     /// Ends the attempt of `work_item` under `lease_epoch` `unsuccessful`
     /// at `ended_at`, in a job of its own: one whose outcome's job failed.
-    /// Answers how it ended, and what that changed of the crawl's requests
-    /// by state.
+    /// It rides as an outcome does. Answers how it ended, and what that
+    /// changed of the crawl's requests by state.
     ///
     /// # Errors
     ///
@@ -494,7 +649,7 @@ impl Stored {
     ) -> Result<(Ended, Changed), StateError> {
         Ok(self
             .writer
-            .write(move |connection| {
+            .write_with(ATTEMPT_ENDED, move |connection| {
                 let mut changed = Changed::default();
                 let ended = attempt_outcome::end(
                     connection,
@@ -510,8 +665,9 @@ impl Stored {
 
     /// Leases each pending work item of `unsent` and ends it `failed` with
     /// its failure at `ended_at`, in one job: a request its domain's site
-    /// asked not to send, which no attempt runs. Answers what that changed
-    /// of the crawl's requests by state.
+    /// asked not to send, which no attempt runs. It rides as an outcome
+    /// does, ending the attempts it counts. Answers what that changed of
+    /// the crawl's requests by state.
     ///
     /// # Errors
     ///
@@ -521,9 +677,13 @@ impl Stored {
         unsent: Vec<(String, Failure)>,
         ended_at: PointInTime,
     ) -> Result<Changed, StateError> {
+        let ended = Syncing::Attempt {
+            ended: u64::try_from(unsent.len()).unwrap_or(u64::MAX),
+            bytes: 0,
+        };
         Ok(self
             .writer
-            .write(move |connection| {
+            .write_with(ended, move |connection| {
                 let mut changed = Changed::default();
                 for (id, failure) in unsent {
                     for leased in work_items::lease(connection, std::slice::from_ref(&id))? {
@@ -557,13 +717,16 @@ impl Stored {
     }
 
     /// Closes the crawl's intake when no work item is pending or leased,
-    /// and answers whether it closed, in one job that first writes
-    /// `counted` and gives back each work item still leased, whose attempt
-    /// ended with its outcome unwritten: retried while it has retries left
-    /// of `retry_max`, else failed with `unwritten`, at `ended_at`, which
-    /// it answers as what it changed of the crawl's requests by state. Its
-    /// answer promises nothing outside (#2117): the Run's end, which
-    /// follows it, syncs.
+    /// and answers, once it closed, what cut the crawl short of its scope,
+    /// its bounds and caps as its Completeness reasons, in one job that
+    /// first writes `counted` and gives back each work item still leased,
+    /// whose attempt ended with its outcome unwritten: retried while it
+    /// has retries left of `retry_max`, else failed with `unwritten`, at
+    /// `ended_at`, which it answers as what it changed of the crawl's
+    /// requests by state. The job reads what cut the crawl on the writer's
+    /// connection, which holds every batch, so the crawl's end needs no
+    /// seal (ADR 0142). Its answer promises nothing outside (#2117): the
+    /// Run's end, which follows it, syncs.
     ///
     /// # Errors
     ///
@@ -573,7 +736,7 @@ impl Stored {
         counted: Counted,
         (unwritten, retry_max): (Failure, u32),
         ended_at: PointInTime,
-    ) -> Result<(bool, Changed), StateError> {
+    ) -> Result<(Option<Vec<CompletenessReason>>, Changed), StateError> {
         let intake = self.intake.clone();
         Ok(self
             .writer
@@ -590,22 +753,14 @@ impl Stored {
                     &ended_at,
                     &mut changed,
                 )?;
-                Ok((
-                    intake.close_if_drained(connection)?,
-                    changed.with_sitemaps(connection)?,
-                ))
+                let short = if intake.close_if_drained(connection)? {
+                    Some(completeness::short_of_scope(connection)?)
+                } else {
+                    None
+                };
+                Ok((short, changed.with_sitemaps(connection)?))
             })
             .await?)
-    }
-
-    /// What cut the crawl short of its scope: its bounds and caps, as its
-    /// Completeness reasons.
-    ///
-    /// # Errors
-    ///
-    /// The run file's.
-    pub(crate) async fn short_of_scope(&self) -> Result<Vec<CompletenessReason>, StateError> {
-        Ok(self.writer.read(completeness::short_of_scope).await?)
     }
 
     /// Returns the leased work items to pending, without counting them.
@@ -637,7 +792,7 @@ impl Stored {
 /// adding them changed of the crawl's requests by state.
 fn given(connection: &Connection, positions: &mut Positions) -> rusqlite::Result<Given> {
     let mut changed = Changed::default();
-    let added = changed.adds(positions);
+    let added = work_items::leasable_added(connection, &changed.adds(positions))?;
     Ok((added, changed.with_sitemaps(connection)?))
 }
 

@@ -214,12 +214,12 @@ fn a_seed_added_through_a_handlers_context_is_bound_to_its_attempt() {
 }
 
 /// The id of the `run.add_seeds` calls below.
-const STREAM: &str = "stream";
+pub(crate) const STREAM: &str = "stream";
 
 /// What came for a `run.add_seeds` call: its credits, its answers and its
 /// reply, in order.
 #[derive(Debug, PartialEq)]
-enum Came {
+pub(crate) enum Came {
     Credit(u64),
     Answers(Vec<Value>),
     Reply(Value),
@@ -228,7 +228,7 @@ enum Came {
 /// The next thing that comes for the `run.add_seeds` call, each handler
 /// request meanwhile answered by `handler`, or left unanswered when it
 /// answers `None`.
-fn next_for_stream(
+pub(crate) fn next_for_stream(
     engine: &mut Attached,
     handler: &mut impl FnMut(&Value) -> Option<Value>,
 ) -> Came {
@@ -251,7 +251,7 @@ fn next_for_stream(
 }
 
 /// Sends the `run.add_seeds` call's next batch of seeds.
-fn send_seeds(engine: &mut Attached, seeds: &[Value], end: bool) {
+pub(crate) fn send_seeds(engine: &mut Attached, seeds: &[Value], end: bool) {
     engine.send(&json!({
         "jsonrpc": "2.0", "method": "$/seeds",
         "params": { "id": STREAM, "seeds": seeds, "end": end },
@@ -279,7 +279,7 @@ fn serve_until(
 }
 
 /// The seed of `url`.
-fn seed(url: &str) -> Value {
+pub(crate) fn seed(url: &str) -> Value {
     json!({ "url": url, "label": "page" })
 }
 

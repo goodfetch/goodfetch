@@ -2428,6 +2428,22 @@ class SettingDiff(BaseModel):
     """
 
 
+class SettingPreset(BaseModel):
+    """
+    The setting whose value names the preset that gave another setting its
+    value: `run_state.durability` and its level unfold into the
+    `run_state.batch.*` keys at the layer that set the level (ADR 0142).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    key: str
+    """The key that names the preset, such as `run_state.durability`."""
+    value: Any
+    """Its value, the preset's name, such as `full`."""
+
+
 class SettingsLayer(StrEnum):
     """The layers settings resolve through, lowest first (ADRs 0028 and 0083)."""
 
@@ -2790,6 +2806,12 @@ class TierProvenance(BaseModel):
     """
     The call a cheaper tier could not serve, which moved the request
     here, for an escalation or a sample's browser run.
+    """
+    calls_sent_on: FetchTier | None = None
+    """
+    For `discovered_api`, where its replayed calls left from: `http`
+    when the Session's own HTTP transport sent them, `browser_fetch`
+    when they left from inside its browser.
     """
     chosen: TierChosen
     """How it was chosen."""
@@ -3186,6 +3208,11 @@ class WeakenedSetting(BaseModel):
     """The layer that set it."""
     origin: RunOrigin | None = None
     """For the run layer, where the value came from."""
+    preset: SettingPreset | None = None
+    """
+    When a level's preset gave the value, at `layer`, that level, such
+    as `run_state.durability: off` (ADR 0142).
+    """
     value: Any
     """Its value."""
 
@@ -5496,6 +5523,12 @@ class ExplainedSetting(BaseModel):
     """
     origin: RunOrigin | None = None
     """For the run layer, where the value came from."""
+    preset: SettingPreset | None = None
+    """
+    When a level's preset gave the value, at `layer`, that level, which
+    `config explain` shows as "preset of `run_state.durability: full`"
+    in place of the layer (ADR 0142).
+    """
     products: list[Product]
     """The Products that honour it, from its Product mark (ADR 0095)."""
     user_settable: bool | None = None

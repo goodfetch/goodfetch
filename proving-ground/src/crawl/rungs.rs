@@ -86,8 +86,9 @@ const PINNED_BROWSER_JA4: [&str; 2] = [
 const RELAYED_BROWSER_JA4: &str = "t13d1517h2_8daaf6152771_dcad5a053991";
 
 /// Whether a connection's TLS fingerprint is the pinned browser's, sent by
-/// the browser itself or mirrored by the engine's egress relay.
-fn of_the_pinned_browser(hello: &ClientHello) -> bool {
+/// the browser itself or mirrored by the engine's egress relay; the
+/// `tiers` family's guarded list asks it too.
+pub(super) fn of_the_pinned_browser(hello: &ClientHello) -> bool {
     let ja4 = hello.ja4_base.as_str();
     PINNED_BROWSER_JA4.contains(&ja4) || ja4 == RELAYED_BROWSER_JA4
 }

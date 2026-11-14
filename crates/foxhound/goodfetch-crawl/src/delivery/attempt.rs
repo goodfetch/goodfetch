@@ -89,7 +89,8 @@ use goodfetch_engine::settings::Resolved;
 use goodfetch_fetch_tier::{
     Capture, Chosen, FetchFailure, FetchTiers, HandOver, HopChecks, HttpTier, Judged,
     PAGE_CHECK_CALL, PageFacts, PooledSession, Redirected, ReplayPlan, Request, Requester,
-    RunHandOver, SitePreferences, Stop, TierChoice, Unfollowed, infer_plan, tier_serves,
+    RunHandOver, SitePreferences, Stop, TierChoice, Unfollowed, infer_plan, tier_provenance,
+    tier_serves,
 };
 use goodfetch_frontier::{DomainKeys, sitemap};
 use goodfetch_protocol::block::BlockCause;
@@ -101,7 +102,9 @@ use goodfetch_protocol::foxhound::crawl::{
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::outcomes::SkipReason;
 use goodfetch_protocol::foxhound::progress::InFlightPhase;
-use goodfetch_protocol::foxhound::provenance::{CertificateExceptionMark, EncodingProvenance};
+use goodfetch_protocol::foxhound::provenance::{
+    CertificateExceptionMark, EncodingProvenance, TierProvenance,
+};
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
 use goodfetch_protocol::foxhound::settings::{
     POLITENESS_DOMAIN_ADAPTIVE_DELAY, POLITENESS_DOMAIN_DELAY,
@@ -120,7 +123,7 @@ use crate::lease::{CommitError, SoFar, WorkItemLease};
 use crate::progress::SharedInFlight;
 use crate::run_state::{Asking, Escalated};
 use crate::tier_choice::weighing::{self, StagedRun};
-use crate::tier_choice::{AttemptPlan, Between, Sampled, Weighed};
+use crate::tier_choice::{AttemptPlan, Between, Replay, Sampled, Weighed};
 use crate::tier_race::Raced;
 use crate::work_items::{Fetched, Leased};
 
@@ -589,8 +592,9 @@ pub(super) async fn attempt(
                     merged = learned;
                     answer
                 }
-                (AttemptPlan::Replayed(plan), Some(http)) => {
-                    let (answer, learned) = on.http(&tiering, http, &REPLAYED, Some(plan)).await;
+                (AttemptPlan::Replayed(replay), Some(http)) => {
+                    let (answer, learned) =
+                        on.http(&tiering, http, &REPLAYED, Some(&replay.plan)).await;
                     merged = learned;
                     answer
                 }
@@ -986,7 +990,9 @@ impl On<'_> {
     /// on and the encoding each read in (ADRs 0118 and 0119). A browser run
     /// that met a consent wall keeps its Label on `browser` (ADR 0048).
     /// When `browser_fetch` (`fetch.http_from: learned`), a sample whose
-    /// `http` run differed runs once more on `browser_fetch` ([`Self::fetched`]).
+    /// `http` run differed runs once more on `browser_fetch`, and one whose
+    /// replay differed from the transport replays once more from the
+    /// browser ([`Self::replays`]).
     async fn sample(
         &self,
         tiering: &Tiering,
@@ -1061,13 +1067,20 @@ impl On<'_> {
                             if tier_serves(call, FetchTier::DiscoveredApi)
                                 && !tier_serves(call, FetchTier::Http) =>
                         {
-                            Box::pin(sender.replayed(tiering, sent_on, &capture, &browser_run))
-                                .await
+                            Box::pin(self.replays(
+                                tiering,
+                                (&sender, sent_on),
+                                (http, browser_fetch),
+                                &capture,
+                                &browser_run,
+                            ))
+                            .await
                         }
                         _ => None,
                     };
-                    let fetch =
-                        browser_fetch && Box::pin(self.fetched(tiering, http, &browser_run)).await;
+                    let fetch = browser_fetch
+                        && Box::pin(self.aside(tiering, http, (&FETCHED, None), &browser_run))
+                            .await;
                     Some(Weighed::Differed(Between {
                         api: replayed,
                         fetch,
@@ -1080,47 +1093,74 @@ impl On<'_> {
         (browser.answer, merged, weighed)
     }
 
-    /// A sample's run on `discovered_api`, after its browser's, whose
-    /// staging is set aside meanwhile and kept to commit: the calls the
-    /// browser's page made, `capture`, read as a plan and replayed for
-    /// the same request, its staging then discarded (ADRs 0020 and 0103).
-    /// Answers the plan when the run staged what the browser's run
-    /// `browser` did; `None` when the calls follow no plan or the run
-    /// differed, escalated or failed.
-    async fn replayed(
+    /// A sample's runs on `discovered_api`, after its browser's: the calls
+    /// the browser's page made, `capture`, read as a plan and replayed for
+    /// the same request ([`Self::aside`]; ADRs 0020 and 0103), from
+    /// `sender`, the Session its `http` run was sent from, over `sent_on`,
+    /// and, where `browser_fetch` (`fetch.http_from: learned`) and that
+    /// replay left from the transport and differed, once more from the hop
+    /// page of the attempt's own browser Session, over `http` (#2420).
+    /// Answers the plan and the client of the first run that staged what
+    /// the browser's run `browser` did; `None` when the calls follow no
+    /// plan or every run differed, escalated or failed.
+    async fn replays(
         &self,
         tiering: &Tiering,
-        http: &HttpTier,
+        (sender, sent_on): (&On<'_>, &HttpTier),
+        (http, browser_fetch): (&HttpTier, bool),
         capture: &Capture,
         browser: &StagedRun<'_>,
-    ) -> Option<ReplayPlan> {
+    ) -> Option<Replay> {
         let document = goodfetch_frontier::Url::parse(&self.leased.crawl_request.url).ok()?;
         let calls = capture.calls();
         let plan = infer_plan(&document, &calls);
         tracing::debug!(run_id = %self.run.id(), work_item = %self.leased.crawl_request.id, calls = calls.len(), ?plan, "a sample's browser calls were read as a plan");
         let plan = plan?;
-        let browsers = self.lease.set_aside()?;
+        let from = if sender
+            .aside(tiering, sent_on, (&REPLAYED, Some(&plan)), browser)
+            .await
+        {
+            sender.sends_from
+        } else if browser_fetch
+            && sender.sends_from == SendsFrom::Transport
+            && self
+                .aside(tiering, http, (&REPLAYED, Some(&plan)), browser)
+                .await
+        {
+            self.sends_from
+        } else {
+            return None;
+        };
+        Some(Replay { plan, from })
+    }
+
+    /// A sample's run on `choice`, replaying `plan` where it names one,
+    /// after its browser's, whose staging is set aside meanwhile and kept
+    /// to commit, its own staging then discarded: on `discovered_api`
+    /// ([`Self::replays`]), or on `browser_fetch` under `fetch.http_from:
+    /// learned` (#2417), the same request sent from the hop page of the
+    /// attempt's own browser Session. Answers whether the run staged what
+    /// the browser's run `browser` did; not when it differed, escalated or
+    /// failed.
+    async fn aside(
+        &self,
+        tiering: &Tiering,
+        http: &HttpTier,
+        (choice, plan): (&TierChoice, Option<&ReplayPlan>),
+        browser: &StagedRun<'_>,
+    ) -> bool {
+        let Some(browsers) = self.lease.set_aside() else {
+            return false;
+        };
         self.lease.renew(self.lease.length());
         let ran = self
-            .on_http(
-                tiering,
-                http,
-                (&REPLAYED, Some(&plan)),
-                Chosen::Sample(None),
-            )
+            .on_http(tiering, http, (choice, plan), Chosen::Sample(None))
             .await;
         let staged = self.lease.restage();
         self.lease.put_back(browsers);
-        let (run, _) = ran.ok()?;
-        matches_browser(&run, &staged, browser, self.not_compared()).then_some(plan)
+        ran.is_ok_and(|(run, _)| matches_browser(&run, &staged, browser, self.not_compared()))
     }
 
-    /// A sample's run on `browser_fetch` under `fetch.http_from: learned`
-    /// (#2417), after its browser's, whose staging is set aside meanwhile
-    /// and kept to commit: the same request sent from the hop page of the
-    /// attempt's own browser Session, its staging then discarded. Answers
-    /// whether the run staged what the browser's run `browser` did; not
-    /// when it differed, escalated or failed.
     /// Where the Run allows it, the sample's run on `light_browser`, before
     /// the browser, whose run stages what commits; `None` where it is not
     /// allowed or failed, and the answer that ends the attempt where its
@@ -1151,19 +1191,6 @@ impl On<'_> {
                 Ok(None)
             }
         }
-    }
-
-    async fn fetched(&self, tiering: &Tiering, http: &HttpTier, browser: &StagedRun<'_>) -> bool {
-        let Some(browsers) = self.lease.set_aside() else {
-            return false;
-        };
-        self.lease.renew(self.lease.length());
-        let ran = self
-            .on_http(tiering, http, (&FETCHED, None), Chosen::Sample(None))
-            .await;
-        let staged = self.lease.restage();
-        self.lease.put_back(browsers);
-        ran.is_ok_and(|(run, _)| matches_browser(&run, &staged, browser, self.not_compared()))
     }
 
     /// The fields of a Record that two runs of one attempt never hold
@@ -1228,10 +1255,19 @@ impl On<'_> {
             tiers.replay_on(&page_id, plan.clone());
         }
         // Provenance names the tier that sent the document, whoever chose
-        // it (ADR 0023).
-        let sent = http.sent_on(choice.tier);
+        // it (ADR 0023), and the one a replay's calls are sent on (#2420).
+        let recorded = TierProvenance {
+            calls_sent_on: plan.map(|_| http.sent_on(FetchTier::Http)),
+            ..tier_provenance(
+                &TierChoice {
+                    tier: http.sent_on(choice.tier),
+                    ..choice.clone()
+                },
+                how,
+            )
+        };
         if let Some(ended) = self
-            .ended_unhandled(tiering, &page_id, &facts, (choice, sent, how))
+            .ended_unhandled(tiering, &page_id, &facts, (choice, how), &recorded)
             .await
         {
             return ended;
@@ -1295,24 +1331,21 @@ impl On<'_> {
     /// How the run `how` names on `choice` ends before its handler runs,
     /// its page `page_id` served with `facts`, by what it found of the page
     /// ([`Found`]), the page closed; `None` when its handler runs. Records
-    /// the tier that sent the run's document either way, `sent`.
+    /// the run's tier either way, `recorded`.
     async fn ended_unhandled(
         &self,
         tiering: &Tiering,
         page_id: &PageId,
         facts: &PageFacts,
-        (choice, sent, how): (&TierChoice, FetchTier, Chosen),
+        (choice, how): (&TierChoice, Chosen),
+        recorded: &TierProvenance,
     ) -> Option<Result<(HttpRun, Taught), (Answer, Taught)>> {
         let (run, leased, lease) = (self.run, self.leased, self.lease);
-        let recorded = &TierChoice {
-            tier: sent,
-            ..choice.clone()
-        };
         let tiers = &tiering.tiers;
         match self.found(tiering, page_id, facts, (choice, how)).await {
             Found::Unreadable(call) => {
                 tiers.close(page_id);
-                record_tier(run, leased, lease, recorded, how, None, None).await;
+                record_tier(run, leased, lease, recorded.clone(), None, None).await;
                 let message = "The document declares no encoding and is not UTF-8: only the browser reads it.";
                 return Some(Ok((
                     escalated_unhandled(ATTEMPT_ENDED.name, message, call),
@@ -1321,7 +1354,7 @@ impl On<'_> {
             }
             Found::Blocked(cause, error) => {
                 tiers.close(page_id);
-                record_tier(run, leased, lease, recorded, how, None, None).await;
+                record_tier(run, leased, lease, recorded.clone(), None, None).await;
                 return Some(match self.on_block(cause, choice, how) {
                     Action::MoveToBrowser => Ok((
                         escalated_unhandled(
@@ -1340,8 +1373,7 @@ impl On<'_> {
             run,
             leased,
             lease,
-            recorded,
-            how,
+            recorded.clone(),
             facts.encoding.clone(),
             facts.certificate_exception.clone(),
         )
@@ -1589,8 +1621,7 @@ impl On<'_> {
             run,
             leased,
             lease,
-            &browser,
-            how,
+            tier_provenance(&browser, how),
             encoding.clone(),
             certificate_exception,
         )
@@ -1786,8 +1817,8 @@ fn reached_through_trap(leased: &Leased) -> Option<Answer> {
         .then(|| decoy::reached_through_trap(&leased.crawl_request.url))
 }
 
-/// Records in the Run's Provenance the tier `choice` names for `leased`'s
-/// attempt, how it came there, as `how` says (ADR 0023), and the
+/// Records in the Run's Provenance the `tier` of `leased`'s attempt and
+/// how it came there ([`tier_provenance`]; ADR 0023), and the
 /// `encoding` its document was read in (ADR 0119), and notes both on
 /// `lease`, with the `certificate_exception` its document's host was
 /// reached through (ADR 0042), for the Provenance of each Record the
@@ -1796,12 +1827,10 @@ async fn record_tier(
     run: &Run,
     leased: &Leased,
     lease: &WorkItemLease,
-    choice: &TierChoice,
-    how: Chosen,
+    tier: TierProvenance,
     encoding: Option<EncodingProvenance>,
     certificate_exception: Option<CertificateExceptionMark>,
 ) {
-    let tier = goodfetch_fetch_tier::tier_provenance(choice, how);
     let encoding = goodfetch_fetch_tier::record_tier(
         run,
         &leased.crawl_request.id,

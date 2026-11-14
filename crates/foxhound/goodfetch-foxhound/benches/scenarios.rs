@@ -543,7 +543,27 @@ pub(crate) struct Options {
     /// `None`: a shorter crawl of the same pages, whose difference from the
     /// whole one is what each page more costs (ADR 0140's `F2.prepares`).
     pub(crate) linked_pages: Option<usize>,
+    /// What the crawl is sent once it started.
+    pub(crate) after_start: AfterStart,
 }
+
+/// What a crawl is sent once it started.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum AfterStart {
+    /// `run.finish` at once.
+    #[default]
+    Finish,
+    /// [`BARRIER_CALLS`] calls that no page will make again, each a barrier
+    /// at a level that batches (ADR 0142): a `key_value_store.set` outside a
+    /// handler and a `run.add_seed` of its index, a duplicate. Its crawl is
+    /// `crawl.keep_alive`, so it is still running when they come, and
+    /// `run.finish` ends it once both are answered.
+    BarrierCalls,
+}
+
+/// The calls a crawl sent [`AfterStart::BarrierCalls`] is made: the batches
+/// they may each write are `F2.batches`' own term.
+pub(crate) const BARRIER_CALLS: u64 = 2;
 
 /// How the crawl meets the Frontier's outcomes beyond a links batch.
 #[derive(Clone, Copy)]
@@ -622,7 +642,13 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
         robots_txt,
         setup_vfs,
         linked_pages,
+        after_start,
     } = options;
+    let mut settings = settings;
+    if after_start == AfterStart::BarrierCalls {
+        let crawl = settings.entry("crawl").or_insert_with(|| json!({}));
+        crawl["keep_alive"] = json!(true);
+    }
     let linked = linked_pages.unwrap_or(PAGES.len());
     if let Some(amount) = limit {
         set_limit(home, start, amount, setup_vfs);
@@ -655,6 +681,7 @@ pub(crate) fn crawl_with(home: &Path, start: SystemTime, seed: u64, options: Opt
             run_state_vfs,
             handler,
             credits: CREDITS,
+            after_start,
         },
     );
     Crawled {
@@ -682,6 +709,8 @@ pub(crate) struct Driven<'a> {
     pub(crate) run_state_vfs: Option<String>,
     pub(crate) handler: bool,
     pub(crate) credits: u64,
+    /// What the crawl is sent once it started.
+    pub(crate) after_start: AfterStart,
 }
 
 /// Runs the crawl `crawl_start` starts as the Run `pages`, on a Foxhound
@@ -702,6 +731,7 @@ pub(crate) fn drive(
         run_state_vfs,
         handler,
         credits,
+        after_start,
     } = on;
     let engine = foxhound(FetchTiers::serving(site), metrics);
     let credits = json!({
@@ -722,15 +752,27 @@ pub(crate) fn drive(
             send(&mut writer, &crawl_start.to_string()).await;
             let mut records = Vec::new();
             let mut waits = Waits::default();
+            let mut calls_out = 0;
             while let Ok(Some(line)) = lines.next_line().await {
                 let message: Value =
                     serde_json::from_str(&line).expect("invariant: the engine writes JSON");
                 if waits.read(&message, &mut writer).await {
                     continue;
                 }
-                if message["id"] == "start" {
+                if message["id"] == "start" && after_start == AfterStart::BarrierCalls {
+                    assert!(message.get("result").is_some(), "{message}");
+                    send(&mut writer, SET).await;
+                    send(&mut writer, &add_seed()).await;
+                    calls_out = BARRIER_CALLS;
+                } else if message["id"] == "start" {
                     assert!(message.get("result").is_some(), "{message}");
                     send(&mut writer, FINISH).await;
+                } else if message["id"] == "set" || message["id"] == "add" {
+                    assert!(message.get("result").is_some(), "{message}");
+                    calls_out -= 1;
+                    if calls_out == 0 {
+                        send(&mut writer, FINISH).await;
+                    }
                 } else if message["id"] == "finish" {
                     assert!(message.get("result").is_some(), "{message}");
                     if handler {
@@ -901,6 +943,20 @@ const FINISH: &str =
 /// `run.abort`, which a Run that only had to start ends with.
 const ABORT: &str =
     r#"{"jsonrpc":"2.0","id":"abort","method":"run.abort","params":{"run_id":"pages"}}"#;
+
+/// `key_value_store.set` of `pages`, outside any handler: a call no page
+/// will make again.
+const SET: &str = r#"{"jsonrpc":"2.0","id":"set","method":"key_value_store.set","params":{"run_id":"pages","key":"cursor","value":3}}"#;
+
+/// `run.add_seed` of the site's index to `pages`, outside any attempt: a
+/// duplicate of its first seed, which adds no page.
+fn add_seed() -> String {
+    json!({
+        "jsonrpc": "2.0", "id": "add", "method": "run.add_seed",
+        "params": { "run_id": "pages", "seed": { "url": format!("http://{HOST}/"), "label": "page" } },
+    })
+    .to_string()
+}
 
 /// `run.records` of `pages`, once the Run ended: it answers once every
 /// Record is sent.

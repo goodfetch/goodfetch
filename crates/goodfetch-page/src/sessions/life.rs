@@ -31,7 +31,8 @@ use serde_json::json;
 use tokio::sync::watch;
 
 use super::lifecycle::{
-    self, Attributes, PageEffect, PageEvent, PageState, SessionEffect, SessionEvent, SessionState,
+    self, Attributes, Owner, PageEffect, PageEvent, PageState, SessionEffect, SessionEvent,
+    SessionState,
 };
 use crate::driver::ENDING_KNOWN_WITHIN;
 use crate::errors::{
@@ -607,6 +608,12 @@ impl SessionLife {
     /// Where the Session is.
     pub(crate) fn state(&self) -> SessionState {
         *self.shared.state.borrow()
+    }
+
+    /// Whether a crawl's Session pool opened the Session, which its Run's
+    /// run file never records.
+    pub(crate) fn pooled(&self) -> bool {
+        self.shared.attributes.owner == Owner::Pool
     }
 
     /// Waits until the Session closes or crashes.

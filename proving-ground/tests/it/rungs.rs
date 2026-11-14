@@ -33,7 +33,7 @@ const HOST: &str = "rungs.localhost";
 /// The switch Collie starts its browsers with that changes their TLS
 /// fingerprint: without the field-trial configuration built into the
 /// binary, Chrome sends one extension fewer.
-const AS_COLLIE_STARTS_IT: &[&str] = &["--disable-field-trial-config"];
+pub(crate) const AS_COLLIE_STARTS_IT: &[&str] = &["--disable-field-trial-config"];
 
 /// The browsers started at once by a crawl.
 const BROWSERS_AT_ONCE: usize = 6;
@@ -61,11 +61,20 @@ fn links(html: &str) -> BTreeSet<String> {
 /// What reqwest gets for `path` over TLS, on a rustls configuration with
 /// the ring provider, as the HTTP fetch tier's is: the status and the body.
 fn reqwest_gets(proving_ground: &ProvingGround, path: &str) -> (u16, String) {
+    reqwest_gets_on(proving_ground, HOST, path)
+}
+
+/// As [`reqwest_gets`], from `host`.
+pub(crate) fn reqwest_gets_on(
+    proving_ground: &ProvingGround,
+    host: &str,
+    path: &str,
+) -> (u16, String) {
     let tls = clients::trusting(&proving_ground.certificate_authority(), &["h2", "http/1.1"]);
     let client = reqwest::Client::builder()
         .tls_backend_preconfigured((*tls).clone())
         .resolve(
-            HOST,
+            host,
             proving_ground.address().parse().expect("a socket address"),
         )
         .no_proxy()
@@ -81,7 +90,7 @@ fn reqwest_gets(proving_ground: &ProvingGround, path: &str) -> (u16, String) {
         .expect("a runtime");
     runtime.block_on(async {
         let response = client
-            .get(format!("https://{HOST}:{}{path}", proving_ground.port()))
+            .get(format!("https://{host}:{}{path}", proving_ground.port()))
             .send()
             .await
             .expect("the Proving ground answers");
@@ -95,21 +104,33 @@ fn reqwest_gets(proving_ground: &ProvingGround, path: &str) -> (u16, String) {
 }
 
 /// The pinned Chrome for Testing build, in a Browser cache of the test's
-/// folder, loading pages of one Proving ground.
-struct PinnedBrowser<'a> {
+/// folder, loading pages of one host of one Proving ground.
+pub(crate) struct PinnedBrowser<'a> {
     env: &'a TestEnv,
     proving_ground: &'a ProvingGround,
     cache: PathBuf,
     switches: &'a [&'a str],
+    host: &'a str,
 }
 
 impl<'a> PinnedBrowser<'a> {
     fn new(env: &'a TestEnv, proving_ground: &'a ProvingGround, switches: &'a [&'a str]) -> Self {
+        Self::on(env, proving_ground, switches, HOST)
+    }
+
+    /// The browser, loading pages of `host`.
+    pub(crate) fn on(
+        env: &'a TestEnv,
+        proving_ground: &'a ProvingGround,
+        switches: &'a [&'a str],
+        host: &'a str,
+    ) -> Self {
         Self {
             env,
             proving_ground,
             cache: browser_cache(env).expect("the pinned build is installed"),
             switches,
+            host,
         }
     }
 
@@ -124,9 +145,9 @@ impl<'a> PinnedBrowser<'a> {
         chrome_for_testing_dumping_dom(
             self.env,
             &self.cache,
-            (HOST, address.ip()),
+            (self.host, address.ip()),
             self.switches,
-            &format!("https://{HOST}:{}{path}", address.port()),
+            &format!("https://{}:{}{path}", self.host, address.port()),
         )
         .expect("Chrome starts")
     }
@@ -144,7 +165,7 @@ impl<'a> PinnedBrowser<'a> {
     }
 
     /// The DOM of `path` once loaded.
-    fn loads(&self, path: &str) -> String {
+    pub(crate) fn loads(&self, path: &str) -> String {
         Self::dom(&self.start(path))
     }
 }

@@ -1,9 +1,13 @@
 //! The process tree's sampler: every [`INTERVAL_MILLISECONDS`], the resident
-//! memory, proportional set size (PSS), CPU time, threads and open files of
-//! the tool's process and every process under it, read from `/proc`
-//! (Linux), so a browser's processes count with the tool's. Summed resident
-//! memory counts a page two processes share twice; summed PSS counts it
-//! once, each process taking its share. The OS's own accounting of the
+//! memory, private memory, proportional set size (PSS), CPU time, threads
+//! and open files of the tool's process and every process under it, read
+//! from `/proc` (Linux), so a browser's processes count with the tool's;
+//! and, when asked, the followed process's executable's own file-backed
+//! pages, as `xtask rss` reads them (#2114). Private memory is what each
+//! process allocated, its resident pages less those backed by a file or
+//! shared memory (`RssAnon`, spec #2165). Summed resident memory counts a
+//! page two processes share twice; summed PSS counts it once, each process
+//! taking its share. The OS's own accounting of the
 //! waited-for children gives the totals; the samples give the peaks over
 //! the tree, the time-weighted mean and the cores used over time. An OS
 //! without `/proc` samples nothing.
@@ -35,6 +39,12 @@ pub(crate) struct Sample {
     /// Seconds from the trial's start.
     pub(crate) at: f64,
     pub(crate) resident_bytes: u64,
+    /// The tree's private memory: each process's resident pages less its
+    /// file-backed and shared ones (`RssAnon`).
+    pub(crate) private_bytes: u64,
+    /// The followed process's executable's own file-backed resident pages,
+    /// when the sampler reads them and could.
+    pub(crate) executable_bytes: Option<u64>,
     /// The tree's PSS: each resident page's bytes divided among the
     /// processes that map it, so the sum over the tree counts a shared page
     /// once. None when a live process of the tree kept its own from the
@@ -109,9 +119,29 @@ pub(crate) fn tree(pid: u32) -> Vec<u32> {
     tree
 }
 
+/// The CPU seconds the live processes of the tree under `pid` have spent
+/// so far, user and system: zero on an OS without `/proc`.
+pub(crate) fn cpu_seconds(pid: u32) -> f64 {
+    let (ticks_per_second, page) = system();
+    let ticks: u64 = tree(pid)
+        .into_iter()
+        .filter_map(|pid| process(pid, page))
+        .map(|process| process.cpu_ticks)
+        .sum();
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "clock ticks stay far below 2^52"
+    )]
+    let ticks = ticks as f64;
+    ticks / ticks_per_second
+}
+
 /// What one sample reads of one process.
 struct Process {
     resident_bytes: u64,
+    /// `RssAnon`: resident less `statm`'s shared pages, its `RssFile` and
+    /// `RssShmem`.
+    private_bytes: u64,
     /// None when the OS refuses the sampler its memory map's totals.
     pss_bytes: Option<u64>,
     cpu_ticks: u64,
@@ -155,13 +185,16 @@ fn process(pid: u32, page: u64) -> Option<Process> {
         return None;
     }
     let statm = std::fs::read_to_string(format!("/proc/{pid}/statm")).ok()?;
-    let resident: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
+    let mut pages = statm.split_whitespace().skip(1);
+    let resident: u64 = pages.next()?.parse().ok()?;
+    let shared: u64 = pages.next()?.parse().ok()?;
     let ticks: u64 = fields.get(11)?.parse::<u64>().ok()? + fields.get(12)?.parse::<u64>().ok()?;
     let threads: u64 = fields.get(17)?.parse().ok()?;
     let open_files =
         std::fs::read_dir(format!("/proc/{pid}/fd")).map_or(0, |entries| entries.count() as u64);
     Some(Process {
         resident_bytes: resident * page,
+        private_bytes: resident.saturating_sub(shared) * page,
         pss_bytes: pss(pid),
         cpu_ticks: ticks,
         threads,
@@ -169,10 +202,26 @@ fn process(pid: u32, page: u64) -> Option<Process> {
     })
 }
 
+/// The process `pid`'s executable's own file-backed resident pages; none
+/// once it is gone, or on an OS that does not give them.
+#[cfg(target_os = "linux")]
+fn executable_bytes(pid: u32) -> Option<u64> {
+    let executable = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;
+    crate::rss::executable::resident(pid, &executable)
+}
+
+/// The process `pid`'s executable's own file-backed resident pages; none
+/// once it is gone, or on an OS that does not give them.
+#[cfg(not(target_os = "linux"))]
+fn executable_bytes(_pid: u32) -> Option<u64> {
+    None
+}
+
 impl Sampler {
-    /// Starts sampling, timed from `start`; a sampler on an OS without
-    /// `/proc` takes no sample.
-    pub(crate) fn start(start: Instant) -> Self {
+    /// Starts sampling, timed from `start`, with the followed process's
+    /// executable's own pages when `executable_pages` asks for them; a
+    /// sampler on an OS without `/proc` takes no sample.
+    pub(crate) fn start(start: Instant, executable_pages: bool) -> Self {
         let root = Arc::new(AtomicU32::new(0));
         let stop = Arc::new(AtomicBool::new(false));
         let thread = Path::new("/proc/self/stat").exists().then(|| {
@@ -193,6 +242,7 @@ impl Sampler {
                         for process in tree(pid).into_iter().filter_map(|pid| process(pid, page)) {
                             live = true;
                             sample.resident_bytes += process.resident_bytes;
+                            sample.private_bytes += process.private_bytes;
                             sample.pss_bytes = sample
                                 .pss_bytes
                                 .zip(process.pss_bytes)
@@ -207,6 +257,9 @@ impl Sampler {
                         )]
                         let seconds = ticks as f64 / ticks_per_second;
                         sample.cpu_seconds = seconds;
+                        if executable_pages {
+                            sample.executable_bytes = executable_bytes(pid);
+                        }
                         // A tree with no live process, the tool exited or
                         // killed before its resume, has nothing resident to
                         // read: its sample would read as none.
@@ -275,6 +328,8 @@ pub(crate) fn figures(samples: &[Sample], milestones: &[(u64, f64)]) -> Sampled 
         .flatten();
     for sample in samples {
         figures.peak_bytes = figures.peak_bytes.max(sample.resident_bytes);
+        figures.peak_private_bytes = figures.peak_private_bytes.max(sample.private_bytes);
+        figures.peak_executable_bytes = figures.peak_executable_bytes.max(sample.executable_bytes);
         figures.peak_threads = figures.peak_threads.max(sample.threads);
         figures.peak_open_files = figures.peak_open_files.max(sample.open_files);
     }

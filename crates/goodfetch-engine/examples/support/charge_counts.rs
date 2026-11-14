@@ -1,5 +1,6 @@
 //! B3's charge scenario (ADR 0140), shared by `examples/counts.rs` and its
-//! tests: one run charges one Usage at a time against a Limit of the Usage
+//! tests: one run starts as a Run does, its Limits read on the connection
+//! it keeps, then charges one Usage at a time against a Limit of the Usage
 //! ledger, on the crash VFS, which counts its syncs. A charge its held
 //! Slices cover and a charge that takes a Slice are each their own outcome,
 //! so neither averages the other away: each charge's work goes to its own.
@@ -164,6 +165,9 @@ pub(crate) fn charges(
     }
     let ledger = setting.counting(work.clone());
     let mut charging = run_charging(&ledger, folder);
+    charging
+        .may_start(now)
+        .expect("invariant: the Limit has room for a run to start");
     let spare = Connection::open_with_flags_and_vfs(
         folder.join("spare.sqlite"),
         OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,

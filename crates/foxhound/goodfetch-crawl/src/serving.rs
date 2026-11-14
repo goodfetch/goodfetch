@@ -26,6 +26,7 @@ use goodfetch_protocol::run::RunId;
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 
 use crate::intake::Intake;
+use crate::invariants::Invariants;
 use crate::staging::Staging;
 
 /// A Connection that joined a crawl, and the sign that it left: the
@@ -43,6 +44,7 @@ pub(crate) struct Server {
 struct Live {
     run: Run,
     egress: Arc<Policy>,
+    invariants: Invariants,
     joining: mpsc::Sender<Server>,
     seeded: Arc<Notify>,
     staging: Staging,
@@ -58,6 +60,8 @@ pub(crate) struct LiveCrawl {
     pub(crate) run: Run,
     /// The Run's domain policy.
     pub(crate) egress: Arc<Policy>,
+    /// What each of its admissions reads, built once.
+    pub(crate) invariants: Invariants,
     /// Notified once seeds were added.
     pub(crate) seeded: Arc<Notify>,
     /// Where its attempts stage their outputs.
@@ -80,6 +84,8 @@ pub(crate) struct Opened {
     pub(crate) staging: Staging,
     /// The Run's domain policy, which judges each redirect hop.
     pub(crate) egress: Arc<Policy>,
+    /// What each of its admissions reads, built once.
+    pub(crate) invariants: Invariants,
     /// Whether it still takes new work, which its delivery closes before
     /// it ends the Run.
     pub(crate) intake: Intake,
@@ -103,11 +109,18 @@ pub(crate) fn keeps_records(run: &Run) -> bool {
 }
 
 impl Crawls {
-    /// Opens the crawl `run`, under its domain policy `egress` and with the
-    /// Datasets it declares, keeping Records in them as its
-    /// `dataset.records` says, to Connections that join it and to seeds
-    /// added to it, and answers where each arrives.
-    pub(crate) async fn open(&self, run: &Run, egress: Policy, datasets: Datasets) -> Opened {
+    /// Opens the crawl `run`, under its domain policy `egress`, with the
+    /// `invariants` its admissions read and the Datasets it declares,
+    /// keeping Records in them as its `dataset.records` says, to
+    /// Connections that join it and to seeds added to it, and answers where
+    /// each arrives.
+    pub(crate) async fn open(
+        &self,
+        run: &Run,
+        egress: Policy,
+        invariants: Invariants,
+        datasets: Datasets,
+    ) -> Opened {
         let datasets = datasets.keeping_records(keeps_records(run));
         let (joining, joined) = mpsc::channel(JOINING);
         let seeded = Arc::new(Notify::new());
@@ -123,6 +136,7 @@ impl Crawls {
             Live {
                 run: run.clone(),
                 egress: Arc::clone(&egress),
+                invariants: invariants.clone(),
                 joining,
                 seeded: Arc::clone(&seeded),
                 staging: staging.clone(),
@@ -135,6 +149,7 @@ impl Crawls {
             seeded,
             staging,
             egress,
+            invariants,
             intake,
             datasets,
         }
@@ -145,6 +160,7 @@ impl Crawls {
         self.0.lock().await.get(run_id).map(|live| LiveCrawl {
             run: live.run.clone(),
             egress: Arc::clone(&live.egress),
+            invariants: live.invariants.clone(),
             seeded: Arc::clone(&live.seeded),
             staging: live.staging.clone(),
             intake: live.intake.clone(),

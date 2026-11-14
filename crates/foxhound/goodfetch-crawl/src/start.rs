@@ -35,8 +35,6 @@ use goodfetch_engine::runs::{Driving, EndedBy, RunError, Start, Started};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_fetch_tier::FetchTiers;
-use goodfetch_frontier::payload::PayloadRules;
-use goodfetch_frontier::{Bounds, Scope};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound::crawl::{CRAWL_SERVE, CRAWL_START, CrawlStartParams, Seed};
 use goodfetch_protocol::foxhound::frontier::PAYLOAD_SCHEMA_CHANGED;
@@ -52,6 +50,7 @@ use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 use crate::code_free::{self, CodeFree};
 use crate::delivery;
 use crate::enqueue;
+use crate::invariants::Invariants;
 use crate::labels;
 use crate::outcomes;
 use crate::policy::domain_policy;
@@ -211,24 +210,24 @@ async fn start(
     let labels = labels::Declared::of(&params.labels, fragments.clone())?;
     let datasets = pages.map_or_else(|| Datasets::declare(&params.datasets), Ok)?;
     FetchTiers::check(settings.resolved(), &labels.settings)?;
-    let scope = Scope::of_settings(settings.resolved()).map_err(CallError::from)?;
-    let bounds = Bounds::of_settings(settings.resolved());
-    bounds.check().map_err(CallError::from)?;
+    let invariants = Invariants::of_settings(settings.resolved(), &params.labels, fragments)?;
     let egress = domain_policy(settings.resolved())?;
-    let payloads = PayloadRules::of(settings.resolved(), &params.labels)?;
-    let found =
-        schema_unchanged(&context, run_id.as_ref(), &payloads, &fragments, &datasets).await?;
+    let found = schema_unchanged(&context, run_id.as_ref(), &invariants, &datasets).await?;
     let seeding = egress.clone();
     let work = context.runs().metrics().counted_work().clone();
-    if !found {
-        work_items::check_seeds(&payloads, params.seeds.iter(), &work)?;
-    }
     let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();
     let inputs = seed_inputs(&seeds);
+    // A Run that exists goes on with its seeds admitted once (ADR 0102).
+    let checked = if found {
+        Vec::new()
+    } else {
+        work_items::check_seeds(&invariants, seeds, &work)?
+    };
     let declared = params.labels;
     let redeclaring = (datasets.clone(), params.extraction.clone());
     let opening = datasets.clone();
-    let admitted = code_free::admitted(params.extraction.as_ref(), &seeds);
+    let serving = invariants.clone();
+    let admitted = code_free::admitted(params.extraction.as_ref(), checked);
     let (recording, extraction) = (params.extraction.clone(), params.extraction);
     let started = context
         .runs()
@@ -240,17 +239,14 @@ async fn start(
             inputs,
             ended_by: DRIVING.ended_by,
             initialize: Some(Box::new(move |connection| {
-                scope.record(connection)?;
-                bounds.record(connection)?;
-                payloads.record(connection)?;
+                invariants.record(connection)?;
                 labels::record(connection, &declared)?;
-                fragments.record(connection)?;
                 datasets.record(connection)?;
                 code_free::record(connection, recording.as_ref())?;
                 let answers = work_items::admit_seeds(
                     connection,
-                    &mut work_items::Positions::counted(connection, &work)?,
-                    &scope,
+                    &mut work_items::Positions::of(connection)?,
+                    &invariants,
                     &seeding,
                     &admitted,
                 )?;
@@ -278,7 +274,7 @@ async fn start(
             run.spawn(delivery::drive(
                 run.clone(),
                 context.clone(),
-                crawls.open(&run, egress, opening).await,
+                crawls.open(&run, egress, serving, opening).await,
                 crawls,
                 settings,
                 (tiers, labels, TierChoices::default(), code_free),
@@ -292,24 +288,23 @@ async fn start(
 /// Whether a Run `run_id` exists (never when the start names none), which
 /// a start under its ID goes on with (ADR 0102), its seeds not admitted
 /// again, once it may go on under the
-/// crawl's `declared` Labels: refused with `payload_schema_changed`
-/// before any work when a Label's Payload schema changed and a pending
+/// crawl's `invariants`: refused with `payload_schema_changed` before any
+/// work when a declared Label's Payload schema changed and a pending
 /// Payload of it fails the new one (ADR 0082), with
-/// `setting_not_applicable` when `fragments` differ from those the Run
-/// began with (ADR 0120), and with `dataset_unknown` or
+/// `setting_not_applicable` when the Labels' fragments differ from those
+/// the Run began with (ADR 0120), and with `dataset_unknown` or
 /// `dataset_key_invalid` when `datasets` drop or key anew a Dataset that
 /// holds Records (ADR 0103).
 async fn schema_unchanged(
     context: &CallContext,
     run_id: Option<&RunId>,
-    declared: &PayloadRules,
-    fragments: &labels::Fragments,
+    invariants: &Invariants,
     datasets: &Datasets,
 ) -> Result<bool, CallError> {
     let Some(run_id) = run_id else {
         return Ok(false);
     };
-    let declared = declared.clone();
+    let declared = invariants.payloads().clone();
     let failed = |error: RunError| run_error(error, context);
     let mut reader = match context.runs().reader(run_id.clone()).await {
         Ok(reader) => reader,
@@ -327,7 +322,7 @@ async fn schema_unchanged(
         .await
     {
         Ok((began, began_with, changed)) => {
-            fragments.unchanged(&began, run_id.as_str())?;
+            invariants.fragments().unchanged(&began, run_id.as_str())?;
             datasets.resumes(&began_with, run_id.as_str())?;
             changed
         }

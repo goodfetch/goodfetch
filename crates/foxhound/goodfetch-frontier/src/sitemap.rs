@@ -35,12 +35,11 @@
 
 use std::collections::BTreeMap;
 
-use goodfetch_counted_work::{CountedWork, Row};
+use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::egress::{Judgment, Policy, Request, RequestKind, judge};
 use goodfetch_engine::response_limits::{BodyFailure, Decoding, GZIP_MAGIC, LimitExceeded, Limits};
 use goodfetch_engine::run_state::RunStateTables;
-use goodfetch_page::url_pattern::{UnsupportedPattern, UrlPattern};
-use goodfetch_protocol::foxhound::crawl::{SitemapRule, SitemapSeed};
+use goodfetch_protocol::foxhound::crawl::SitemapSeed;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, NotAddedReason, PathBudget};
 use goodfetch_protocol::foxhound::outcomes::{Ending, SkipReason};
 use goodfetch_protocol::foxhound::report::{
@@ -54,7 +53,8 @@ use rusqlite::{Connection, OptionalExtension as _};
 use url::Url;
 
 use crate::admit::{Candidate, admit};
-use crate::bounds::{Bounds, count_admitted, count_refused, cut_by};
+use crate::bounds::{count_admitted, count_refused, cut_by};
+use crate::invariants::{Invariants, Rules};
 use crate::scope::Scope;
 use crate::staged::Admitting;
 use crate::url::parse as parse_url;
@@ -93,37 +93,6 @@ pub const TABLES: RunStateTables = RunStateTables {
 
 /// The count of a sitemap's entries that were added, beside the reasons.
 const ADDED: &str = "added";
-
-/// A sitemap seed's rules, compiled: each a URL pattern and the Label it
-/// gives the entries it matches.
-#[derive(Clone, Debug)]
-pub struct Rules {
-    compiled: Vec<(UrlPattern, String)>,
-}
-
-impl Rules {
-    /// `rules`, compiled.
-    ///
-    /// # Errors
-    ///
-    /// The first pattern the matcher cannot read, which the call that gave
-    /// it raises as `pattern_unsupported`.
-    pub fn of(rules: &[SitemapRule]) -> Result<Self, UnsupportedPattern> {
-        let compiled = rules
-            .iter()
-            .map(|rule| Ok((UrlPattern::glob(&rule.pattern)?, rule.label.clone())))
-            .collect::<Result<_, UnsupportedPattern>>()?;
-        Ok(Self { compiled })
-    }
-
-    /// The Label of the first rule whose pattern matches `url`, if any.
-    pub fn label_of(&self, url: &Url) -> Option<&str> {
-        self.compiled
-            .iter()
-            .find(|(pattern, _)| pattern.matches(url.as_str()))
-            .map(|(_, label)| label.as_str())
-    }
-}
 
 /// What a sitemap lists.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -371,18 +340,27 @@ pub fn is_robots_txt(url: &Url) -> bool {
 /// Admits the sitemap seed `seed` into the run file `connection` holds,
 /// under the Run's domain policy `policy`, through `add`, which adds its
 /// fetch as a work item at its URL as parsed and answers its ID. An added
-/// seed widens the scope by its URL's host.
+/// seed widens the scope by its URL's host, and the Run's `invariants`
+/// keep its rules compiled for the reads of its sitemaps.
 ///
 /// # Errors
 ///
 /// When the run file cannot be read or written, or what `add` fails with.
 pub fn admit_seed(
     connection: &Connection,
+    invariants: &Invariants,
     policy: &Policy,
     seed: &SitemapSeed,
     add: impl FnOnce(&Url) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<Enqueued> {
-    admit_seed_in(connection, policy, seed, &mut Admitting::RunFile, add)
+    admit_seed_in(
+        connection,
+        invariants,
+        policy,
+        seed,
+        &mut Admitting::RunFile,
+        add,
+    )
 }
 
 /// Admits the sitemap seed `seed` as [`admit_seed`] does, against what
@@ -395,6 +373,7 @@ pub fn admit_seed(
 /// When the run file cannot be read or written, or what `add` fails with.
 pub fn admit_seed_in(
     connection: &Connection,
+    invariants: &Invariants,
     policy: &Policy,
     seed: &SitemapSeed,
     admitting: &mut Admitting,
@@ -413,6 +392,8 @@ pub fn admit_seed_in(
     {
         Scope::widen(connection, &url)?;
         admitting.widened(&url);
+        // The seed's rules were checked as it was given.
+        let _unreadable = invariants.know_sitemap_rules(&seed.rules);
     }
     Ok(answer)
 }
@@ -440,8 +421,8 @@ struct Nested<'a> {
     hosts: Option<[Option<&'a str>; 2]>,
     /// Its nesting level: one more than that of the sitemap naming it.
     level: u64,
-    /// The crawl's bounds.
-    bounds: &'a Bounds,
+    /// The Run's invariants, its bounds among them.
+    invariants: &'a Invariants,
 }
 
 impl Nested<'_> {
@@ -461,15 +442,14 @@ impl Nested<'_> {
         {
             return Ok(Some(NotAddedReason::OutOfScope));
         }
-        if self
-            .bounds
+        let bounds = self.invariants.bounds();
+        if bounds
             .max_sitemap_nesting
             .is_some_and(|max| self.level > max)
         {
             return Ok(Some(NotAddedReason::MaxSitemapNesting));
         }
-        self.bounds
-            .refuses(connection, url, self.level, budget, None)
+        bounds.refuses(connection, url, self.level, budget, None)
     }
 }
 
@@ -522,7 +502,7 @@ fn admit_fetch(
     if known {
         return Ok(not_added(admitting, NotAddedReason::Duplicate));
     }
-    let budget = nested.and_then(|nested| nested.bounds.budget_of(&url));
+    let budget = nested.and_then(|nested| nested.invariants.budget_of(&url));
     if let Some(nested) = nested
         && let Some(reason) = nested.refuses(connection, &url, budget)?
     {
@@ -578,9 +558,22 @@ pub enum Adding<'a> {
     Sitemap,
 }
 
+/// The statements [`read`] runs, which [`crate::admission_statements`]
+/// has the Run prepare as it starts: the sitemap's row, its read, the removal of
+/// its failure and its entries' counts.
+pub(crate) const READ: [&str; 4] = [
+    "SELECT sitemaps.url, sitemaps.seed, sitemaps.rules, sitemaps.nesting, seeds.url
+     FROM sitemaps JOIN sitemaps AS seeds ON seeds.work_item = sitemaps.seed
+     WHERE sitemaps.work_item = ?1",
+    "UPDATE sitemaps SET read = 1 WHERE work_item = ?1",
+    "DELETE FROM sitemap_failures WHERE url = ?1",
+    "INSERT INTO sitemap_entries (work_item, reason, count) VALUES (?1, ?2, ?3)
+     ON CONFLICT DO UPDATE SET count = count + excluded.count",
+];
+
 /// Reads `document`, what the fetch of the work item `id` gave, into the
-/// run file `connection` holds, within `scope` and under the Run's domain
-/// policy `policy`, through `add`, which adds a work item at its URL as
+/// run file `connection` holds, within the Run's `invariants` and under its
+/// domain policy `policy`, through `add`, which adds a work item at its URL as
 /// parsed and answers its ID; and keeps how many of its entries were added
 /// and why the others were not. A work item that is no sitemap's fetch
 /// reads nothing.
@@ -590,7 +583,7 @@ pub enum Adding<'a> {
 /// When the run file cannot be read or written, or what `add` fails with.
 pub fn read(
     connection: &Connection,
-    scope: &Scope,
+    invariants: &Invariants,
     policy: &Policy,
     id: &str,
     document: &Document,
@@ -598,11 +591,7 @@ pub fn read(
     mut add: impl FnMut(&Url, Adding<'_>) -> rusqlite::Result<String>,
 ) -> rusqlite::Result<()> {
     let Some((url, seed, given_rules, nesting, seed_url)) = connection
-        .prepare_cached(
-            "SELECT sitemaps.url, sitemaps.seed, sitemaps.rules, sitemaps.nesting, seeds.url
-             FROM sitemaps JOIN sitemaps AS seeds ON seeds.work_item = sitemaps.seed
-             WHERE sitemaps.work_item = ?1",
-        )
+        .prepare_cached(READ[0])
         .and_then(|mut cached| {
             cached.query_row([id], |row| {
                 Ok((
@@ -643,12 +632,11 @@ pub fn read(
             // on its seed's.
             let seed_url = stored(&seed_url)?;
             let cross_submits = id == seed && is_robots_txt(&base);
-            let bounds = Bounds::read(connection)?;
             let nested = Nested {
                 seed: &seed,
                 hosts: (!cross_submits).then(|| [seed_url.host_str(), base.host_str()]),
                 level: u64::try_from(nesting).unwrap_or(u64::MAX).saturating_add(1),
-                bounds: &bounds,
+                invariants,
             };
             for given in sitemaps {
                 let fetch = Fetch {
@@ -665,38 +653,23 @@ pub fn read(
             }
         }
         Document::Entries(entries) => {
-            let rules: Vec<SitemapRule> = serde_json::from_str(&given_rules).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    0,
-                    rusqlite::types::Type::Text,
-                    Box::new(error),
-                )
-            })?;
-            // The rules were compiled when the seed was given.
-            for _ in &rules {
-                work.count(Row::SitemapCompilations);
-            }
-            let rules = Rules::of(&rules).unwrap_or(Rules {
-                compiled: Vec::new(),
-            });
+            let rules = invariants.sitemap_rules(&given_rules, work)?;
             for given in entries {
-                let answer =
-                    admit_entry(connection, scope, policy, &base, given, &rules, &mut add)?;
+                let answer = admit_entry(
+                    connection, invariants, policy, &base, given, &rules, &mut add,
+                )?;
                 count(&answer);
             }
         }
     }
     connection
-        .prepare_cached("UPDATE sitemaps SET read = 1 WHERE work_item = ?1")
+        .prepare_cached(READ[1])
         .and_then(|mut cached| cached.execute([id]))?;
     // Read at last, after `run.retry_failed` re-admitted it.
     connection
-        .prepare_cached("DELETE FROM sitemap_failures WHERE url = ?1")
+        .prepare_cached(READ[2])
         .and_then(|mut cached| cached.execute([&url]))?;
-    let mut insert = connection.prepare_cached(
-        "INSERT INTO sitemap_entries (work_item, reason, count) VALUES (?1, ?2, ?3)
-         ON CONFLICT DO UPDATE SET count = count + excluded.count",
-    )?;
+    let mut insert = connection.prepare_cached(READ[3])?;
     for (reason, count) in counts {
         insert.execute((id, reason, i64::try_from(count).unwrap_or(i64::MAX)))?;
     }
@@ -851,7 +824,7 @@ pub fn ended(connection: &Connection, id: &str, ending: &Ending) -> rusqlite::Re
 /// of its first matching rule's Label, or answers `no_rule`.
 fn admit_entry(
     connection: &Connection,
-    scope: &Scope,
+    invariants: &Invariants,
     policy: &Policy,
     base: &Url,
     given: &str,
@@ -871,7 +844,7 @@ fn admit_entry(
     };
     admit(
         connection,
-        scope,
+        invariants,
         policy,
         Candidate::SitemapEntry {
             url: given,

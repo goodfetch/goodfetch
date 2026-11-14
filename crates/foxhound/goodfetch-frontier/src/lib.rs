@@ -24,6 +24,7 @@ mod bounds;
 mod domain_key;
 mod forms;
 mod identity;
+mod invariants;
 mod learn;
 pub mod payload;
 mod politeness;
@@ -43,13 +44,16 @@ use goodfetch_engine::Contribution;
 use goodfetch_protocol::foxhound::frontier::{FRONTIER_LEARNING, LEARNING_SWITCHED_OFF};
 use goodfetch_protocol::foxhound::settings::{POLITENESS_WEAKENED, PRESSING_HARDER};
 
-pub use admit::{Candidate, admit, admit_in};
+pub use admit::{
+    Candidate, Entering, Keyed, Link, admit, admit_in, admit_keyed, key_candidate, key_link,
+};
 pub use bounds::{Bounds, TABLES as BOUNDS_TABLES, completeness_reasons};
 pub use domain_key::DomainKeys;
 pub use identity::{
     Declared, Hop, TABLES as VISITED_TABLES, admit_hop, fuzz_url_key, redirect_hop,
     redirect_reached, rewrite, url_key,
 };
+pub use invariants::Invariants;
 pub use learn::{
     EndMerged, Ended, PageSeen, Redirect, completeness_reasons as learned_completeness_reasons,
     learn, learn_redirect,
@@ -106,4 +110,33 @@ pub fn contribution() -> Contribution {
         .fold(contribution, |contribution, key| {
             contribution.with_recorded_weakening(key.setting, &POLITENESS_WEAKENED, key.built_in)
         })
+}
+
+/// The statements a Run under `invariants` prepares once, as it starts or
+/// resumes, on each connection of its run file's writer, so that no
+/// page's admission prepares one, whichever connection it commits on
+/// (ADR 0140, `F3.prepares`). Those the Run's start runs none of: the
+/// Scope's lookup of a URL's measures, the learned rules' end of a streak,
+/// their read of a parameter's offset and of a path's paged offsets, a
+/// link seen again and a sitemap's read. And those a redirect hop's check
+/// runs beside the Scope's lookup, which the start prepares only on the
+/// connection its own write commits on, where a hop's check does not
+/// (#2246): the rule that holds, the visited set's read and a learned
+/// identity's.
+#[must_use]
+pub fn admission_statements(invariants: &Invariants) -> Vec<&'static str> {
+    invariants
+        .scope()
+        .strategy()
+        .query()
+        .into_iter()
+        .chain([
+            rules::STREAK_ENDED,
+            rules::OFFSET_SEEN,
+            rules::PAGED_OFFSETS,
+        ])
+        .chain(trap_links::SEEN_AGAIN)
+        .chain(sitemap::READ)
+        .chain([rules::HOLDING, identity::VISITOR, identity::LEARNED])
+        .collect()
 }

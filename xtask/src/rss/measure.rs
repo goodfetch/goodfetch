@@ -1,7 +1,9 @@
 //! Measuring: each scenario on each Product's executable it runs on, each
 //! run in a probe, `xtask rss probe` started anew, whose only child is the
-//! executable, so the OS's figure is that executable's alone. The crawl's
-//! Proving ground is served from here, outside every probe.
+//! executable, so the OS's figure is that executable's alone. The crawls'
+//! Proving ground is served from here, outside every probe, and each
+//! executable is dropped from the page cache before each run, so the run
+//! pages it in as a first start does (spec #2165).
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs and process bans target async crates (STYLE.md)"
@@ -18,6 +20,7 @@ use crate::output;
 use crate::test_tools::{Tool, ToolManifest};
 
 use super::crawl::{self, Site};
+use super::page_cache;
 use super::peak::{self, Resident};
 use super::peaks::{self, Peak};
 use super::platform::Platform;
@@ -29,9 +32,20 @@ pub(crate) fn measure(scenarios: &[Scenario], tools: &Path, out: &Path, runs: u3
     let tools = ToolManifest::read(tools)?;
     let platform = Platform::current()?;
     let probe = std::env::current_exe().context("finding xtask's own executable")?;
+    if !page_cache::DROPS {
+        output::line(page_cache::NOT_DROPPED);
+    }
     // Every executable a scenario runs on is measured, or none is.
     let mut measured = Vec::new();
     for &scenario in scenarios {
+        if !scenario.runs_here() {
+            output::line(&format!(
+                "{} runs on Linux alone, whose allocator `governor.huge_pages` changes: not run on {}",
+                scenario.name(),
+                platform.name()
+            ));
+            continue;
+        }
         for &product in scenario.products() {
             let Some(executable) = tools.get(Tool::of_product(product)) else {
                 bail!(
@@ -43,11 +57,14 @@ pub(crate) fn measure(scenarios: &[Scenario], tools: &Path, out: &Path, runs: u3
             measured.push((scenario, product, executable));
         }
     }
-    let serving = if scenarios.iter().any(|scenario| scenario.crawls()) {
+    let crawling = measured
+        .iter()
+        .find(|(scenario, ..)| scenario.crawl().is_some());
+    let serving = if let Some((scenario, ..)) = crawling {
         let proving_ground = tools.get(Tool::ProvingGround).with_context(|| {
             format!(
                 "the test tool manifest names no Proving ground, which {} crawls",
-                Scenario::Crawl.name()
+                scenario.name()
             )
         })?;
         Some(crawl::serve(proving_ground)?)
@@ -57,7 +74,8 @@ pub(crate) fn measure(scenarios: &[Scenario], tools: &Path, out: &Path, runs: u3
     let address = serving.as_ref().map(|serving| serving.address.as_str());
     for run in 1..=runs {
         for &(scenario, product, executable) in &measured {
-            let address = address.filter(|_| scenario.crawls());
+            let address = address.filter(|_| scenario.crawl().is_some());
+            page_cache::drop_cached(executable)?;
             let resident = run_probe(&probe, scenario, product, executable, address)?;
             let bytes = resident.peak_bytes;
             output::line(&format!(
@@ -154,12 +172,13 @@ pub(crate) fn probe(
     // A scenario measures the executable as shipped, with its own data
     // folder and its default logging.
     let home = tempfile::tempdir().context("creating the engine's data folder")?;
+    scenario.configure(home.path())?;
     super::scenario::as_shipped(&mut child, home.path(), goodfetch_variables);
     child.stdin(Stdio::piped()).stdout(Stdio::piped());
     peak::of(&mut child, |child| {
-        let site = address.map(|address| Site {
+        let site = address.zip(scenario.crawl()).map(|(address, crawl)| Site {
             address,
-            pages: crawl::PAGES,
+            pages: crawl.pages,
             concurrency: crawl::CONCURRENCY,
         });
         scenario.drive(needs, site.as_ref(), child)

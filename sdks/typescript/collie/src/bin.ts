@@ -15,7 +15,8 @@ import {
   errorCodeExitCodes,
   errorGroupExitCodes,
 } from "@goodfetch/collie-client";
-import { locateEngine, type EngineLocation } from "./engine-path.ts";
+import { locateEngine, type EngineLocation } from "@goodfetch/collie-client/runtime";
+import { collie } from "./product.ts";
 
 const args = process.argv.slice(2);
 const env = Object.fromEntries(
@@ -62,7 +63,7 @@ function fail(error: GoodfetchError): void {
 function run(): void {
   let location: EngineLocation;
   try {
-    location = locateEngine(env);
+    location = locateEngine(env, collie);
   } catch (error) {
     if (!(error instanceof GoodfetchError)) {
       throw error;

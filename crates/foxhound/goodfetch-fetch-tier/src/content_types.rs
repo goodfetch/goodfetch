@@ -18,6 +18,7 @@
 //!   reaches the handler with a page that holds no document.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use serde_json::Value;
 
@@ -42,16 +43,17 @@ enum Range {
 }
 
 /// The media types a Label's handler takes: `text/html` and
-/// `application/xhtml+xml` by default.
+/// `application/xhtml+xml` by default. Shared, not copied: each attempt's
+/// hand-over holds its Label's or the Run's (#2243).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ContentTypes(Vec<Range>);
+pub struct ContentTypes(Arc<[Range]>);
 
 impl Default for ContentTypes {
     fn default() -> Self {
-        Self(vec![
+        Self(Arc::from([
             Range::Exact(HTML.to_owned()),
             Range::Exact(XHTML.to_owned()),
-        ])
+        ]))
     }
 }
 

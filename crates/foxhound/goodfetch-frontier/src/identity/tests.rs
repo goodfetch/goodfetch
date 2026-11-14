@@ -14,12 +14,19 @@ use goodfetch_protocol::foxhound::outcomes::SkipReason;
 
 use super::{Declared, Hop, TABLES, redirect_hop, redirect_reached, rewrite, url_key};
 use crate::admit::{Candidate, admit};
-use crate::bounds;
+use crate::bounds::{self, Bounds};
+use crate::invariants::Invariants;
 use crate::scope::{self, Patterns, Scope, Strategy as ScopeStrategy};
 
 /// The domain policy that allows every host: the settings' defaults.
 fn every_host() -> Policy {
     Policy::new(&["*"], &[] as &[&str]).unwrap()
+}
+
+/// The invariants of `scope` and the built-in bounds, as the Run's start
+/// builds them.
+fn within(scope: Scope) -> Invariants {
+    Invariants::new(scope, Bounds::default()).unwrap()
 }
 
 /// A run file holding the visited set and the scope, in memory.
@@ -177,11 +184,11 @@ fn a_redirect_to_a_key_admitted_for_another_request_is_a_duplicate() {
     let connection = run_file();
     let get = HttpMethod::get();
     let mut added = 0;
-    let scope = Scope::default();
+    let invariants = within(Scope::default());
     let mut seed = |url: &str| {
         admit(
             &connection,
-            &scope,
+            &invariants,
             &every_host(),
             Candidate::Seed {
                 url,
@@ -268,7 +275,7 @@ fn of_two_chains_reaching_one_key_at_once_the_second_to_arrive_is_a_duplicate() 
     ] {
         admit(
             &connection,
-            &Scope::default(),
+            &within(Scope::default()),
             &every_host(),
             Candidate::Seed {
                 url,
@@ -345,10 +352,16 @@ fn a_redirect_hop_leaving_the_scope_is_out_of_scope() {
                 keeps_fragment: false,
             },
         };
-        admit(&connection, &scope, &every_host(), candidate, |_| {
-            added += 1;
-            Ok(added.to_string())
-        })
+        admit(
+            &connection,
+            &within(scope.clone()),
+            &every_host(),
+            candidate,
+            |_| {
+                added += 1;
+                Ok(added.to_string())
+            },
+        )
         .unwrap();
     }
     let hop = |url: &str| {
@@ -398,9 +411,13 @@ fn seeded(connection: &Connection, scope: &Scope, urls: &[&str]) {
                 keeps_fragment: false,
             },
         };
-        admit(connection, scope, &every_host(), candidate, |_| {
-            Ok((at + 1).to_string())
-        })
+        admit(
+            connection,
+            &within(scope.clone()),
+            &every_host(),
+            candidate,
+            |_| Ok((at + 1).to_string()),
+        )
         .unwrap();
     }
 }
@@ -535,7 +552,7 @@ fn added_keeping(urls: &[&str], keeps_fragment: bool) -> Vec<bool> {
             };
             let answer = admit(
                 &connection,
-                &Scope::default(),
+                &within(Scope::default()),
                 &every_host(),
                 candidate,
                 |_| {

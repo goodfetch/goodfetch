@@ -192,6 +192,7 @@ relay = []
 
 # Which of `ledger`'s own modules may import which.
 [submodules.ledger]
+changes = []
 charging = ["sizing", "standing"]
 period = []
 sizing = []

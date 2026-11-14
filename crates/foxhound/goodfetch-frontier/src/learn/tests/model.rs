@@ -30,7 +30,9 @@ use sha2::{Digest as _, Sha256};
 use tokio::runtime::Runtime;
 use url::Url;
 
+use crate::bounds::Bounds;
 use crate::identity::{self, Declared};
+use crate::invariants::Invariants;
 use crate::rules::{self, learned_rules};
 use crate::scope::{self, Scope};
 use crate::{Candidate, EndMerged, Ended, PageSeen, admit, bounds, learn};
@@ -365,7 +367,7 @@ fn admit_seed(connection: &Connection, asked: Asked) -> rusqlite::Result<Enqueue
     let every_host = Policy::new(&["*"], &[] as &[&str]).unwrap();
     admit(
         connection,
-        &Scope::read(connection)?,
+        &Invariants::new(Scope::read(connection)?, Bounds::read(connection)?).unwrap(),
         &every_host,
         candidate,
         |url| {

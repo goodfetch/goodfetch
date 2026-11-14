@@ -7,7 +7,9 @@
 //! other work, and writes no figure. A cell a tool cannot run says so, a
 //! Foxhound value that does not exist yet is pending, and the Callgrind
 //! cell gives `foxhound.spider_instruction_ratio` under the same check (ADR
-//! 0140). Trials are fixtures here.
+//! 0140). The Collie scenario (issue 2282) gives Collie's CDP commands per
+//! action over Playwright's, held to its register row's Today, under a
+//! same-work check of its own. Trials are fixtures here.
 
 use serde_json::{Value, json};
 
@@ -19,8 +21,8 @@ const MARKDOWN: &str = "target/compare/report.md";
 const MIB: u64 = 1024 * 1024;
 
 /// The measured cells: each tool's main rows by scenario, then Spider's
-/// sensitivity rows.
-const CELLS: [(&str, &str, &str); 26] = [
+/// sensitivity rows and Foxhound's `auto` row.
+const CELLS: [(&str, &str, &str); 27] = [
     ("raw", "foxhound", "foxhound"),
     ("raw", "spider", "spider"),
     ("raw", "crawlee", "crawlee"),
@@ -47,25 +49,34 @@ const CELLS: [(&str, &str, &str); 26] = [
     ("raw", "spider bloom", "spider"),
     ("raw", "spider jemalloc", "spider"),
     ("extraction", "spider mimalloc", "spider"),
+    ("polite", "foxhound auto", "foxhound"),
 ];
 
-/// The work of a trial that fetched each page of the 1,000-page site once,
+/// The pages of `scenario`'s site: the polite scenario's multi-domain site
+/// holds 10 pages on each of its 1,000 domains (#2283), every other the
+/// declared 1,000.
+fn site_pages(scenario: &str) -> u64 {
+    if scenario == "polite" { 10_000 } else { 1000 }
+}
+
+/// The work of a trial that fetched each page of a site of `pages` once,
 /// 600 bytes each, and `again` pages a second time.
-fn work(again: u64) -> Value {
+fn work_on(pages: u64, again: u64) -> Value {
     json!({
-        "pages": 1000,
+        "pages": pages,
         "missing": [],
         "extra": [],
-        "requests": 1000 + again,
-        "bytes": 600 * (1000 + again),
-        "first_bytes": 600_000,
+        "requests": pages + again,
+        "bytes": 600 * (pages + again),
+        "first_bytes": 600 * pages,
     })
 }
 
 /// A trial of `cell` in `seconds`, at `peak_bytes`, that did `work`, its
 /// figures otherwise the same for every trial: 2 s of user and 1 s of
 /// system time, 8 MiB written, 1 MiB left on disk, its tree sampled at
-/// half its peak on average, its peak PSS 1 MiB under its peak RSS.
+/// half its peak on average, its peak PSS 1 MiB and its private memory
+/// 2 MiB under its peak RSS.
 fn trial(
     scenario: &str,
     cell: &str,
@@ -80,7 +91,8 @@ fn trial(
         "cell": cell,
         "tool": tool,
         "number": number,
-        "site_pages": 1000,
+        "site_pages": site_pages(scenario),
+        "concurrency": 16,
         "seconds": seconds,
         "processes": if scenario == "durable" { 2 } else { 1 },
         "user_seconds": 2.0,
@@ -91,6 +103,7 @@ fn trial(
             "peak_bytes": peak_bytes,
             "average_bytes": peak_bytes / 2,
             "peak_pss_bytes": peak_bytes - MIB,
+            "peak_private_bytes": peak_bytes - 2 * MIB,
             "peak_cores": 1.5,
             "peak_threads": 20,
             "peak_open_files": 30,
@@ -117,26 +130,37 @@ fn trial(
     })
 }
 
+/// Trial `number` of `cell`, in `seconds` at `peak_bytes`, over its
+/// scenario's site: a durable trial fetched `number` pages again after its
+/// kill, and Foxhound's `auto` row 3,000 pages twice, its samples.
+fn cell_trial(
+    scenario: &str,
+    cell: &str,
+    tool: &str,
+    number: u32,
+    seconds: f64,
+    peak_bytes: u64,
+) -> Value {
+    let again = match (scenario, cell) {
+        ("durable", _) => u64::from(number),
+        (_, "foxhound auto") => 3000,
+        _ => 0,
+    };
+    let work = work_on(site_pages(scenario), again);
+    let mut trial = trial(scenario, cell, tool, number, seconds, peak_bytes, &work);
+    if cell == "foxhound auto" {
+        trial["sample_pages"] = json!(3000);
+    }
+    trial
+}
+
 /// A cell's three trials: in 1, 2 and 4 seconds at 20, 30 and 10 MiB.
 fn cell_trials(scenario: &str, cell: &str, tool: &str) -> Vec<Value> {
     [(1.0, 20), (2.0, 30), (4.0, 10)]
         .into_iter()
         .zip(1..)
         .map(|((seconds, mib), number)| {
-            let again = if scenario == "durable" {
-                u64::from(number)
-            } else {
-                0
-            };
-            trial(
-                scenario,
-                cell,
-                tool,
-                number,
-                seconds,
-                mib * MIB,
-                &work(again),
-            )
+            cell_trial(scenario, cell, tool, number, seconds, mib * MIB)
         })
         .collect()
 }
@@ -183,7 +207,9 @@ fn trials() -> Value {
         "rules": [],
         "syscalls": not_run("strace is not installed on this host"),
         "growth": not_run("the growth cell runs with `--growth`"),
+        "sizes": not_run("the run asked for no scenario 1 main cell of Foxhound or Spider"),
         "instructions": not_run("valgrind is not installed on this host"),
+        "collie": not_run("the run asked for no Collie cell"),
     })
 }
 
@@ -196,7 +222,7 @@ fn run(scenario: &str, cell: &str, tool: &str, number: u32, count: u64, syncs: u
         "number": number,
         "count": count,
         "syncs": syncs,
-        "work": work(0),
+        "work": work_on(site_pages(scenario), 0),
     })
 }
 
@@ -293,6 +319,126 @@ fn trials_of_the_same_work_report_each_cells_medians_with_their_spread() {
             "scrapy": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
             "crawlee-rs": { "pages_per_second": 500.0, "peak_bytes": 20 * MIB },
         })
+    );
+}
+
+/// The trials file with a sizes cell: three trials of Foxhound and Spider
+/// at each size and concurrency, Spider's at 1 in flight aside, Foxhound's
+/// peak 22 MiB, Spider's 18 MiB at 100 pages and 30 MiB above.
+fn sized_trials() -> Value {
+    let mut trials = trials();
+    let mut sized = Vec::new();
+    for pages in [100_u64, 1000, 10_000] {
+        for concurrency in [1, 16, 64] {
+            for (tool, mib) in [
+                ("foxhound", 22),
+                ("spider", if pages == 100 { 18 } else { 30 }),
+            ] {
+                if (tool, concurrency) == ("spider", 1) {
+                    continue;
+                }
+                for number in 1..=3 {
+                    let mut trial = trial(
+                        "raw",
+                        tool,
+                        tool,
+                        number,
+                        1.0,
+                        mib * MIB,
+                        &json!({
+                            "pages": pages,
+                            "missing": [],
+                            "extra": [],
+                            "requests": pages,
+                            "bytes": 600 * pages,
+                            "first_bytes": 600 * pages,
+                        }),
+                    );
+                    trial["site_pages"] = json!(pages);
+                    trial["concurrency"] = json!(concurrency);
+                    trial["requests_sent"] = json!(pages);
+                    trial["sampled"]["peak_executable_bytes"] = json!(9 * MIB);
+                    sized.push(trial);
+                }
+            }
+        }
+    }
+    trials["sizes"] = json!({
+        "status": "measured",
+        "trials": 3,
+        "trials_run": sized,
+        "stopped": [],
+    });
+    trials
+}
+
+/// The sizes cell (spec #2165): Foxhound's and Spider's scenario 1 main
+/// rows at each size and concurrency, each tool's median peak, private
+/// memory and executable's pages, and at 16 in flight alone whether
+/// Foxhound's peak is at most Spider's. Spider runs no trial at 1 in
+/// flight, and its row there says why.
+#[test]
+fn the_sizes_cell_reports_each_tools_peak_with_the_bar_at_16_in_flight() {
+    let workspace = Workspace::from_fixture("empty");
+
+    let outcome = report(&workspace, &sized_trials());
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let report = written(&workspace);
+    let points = report["sizes"]["points"].as_array().unwrap();
+    let bars: Vec<(u64, u64, Value)> = points
+        .iter()
+        .map(|point| {
+            (
+                point["site_pages"].as_u64().unwrap(),
+                point["concurrency"].as_u64().unwrap(),
+                point["bar_met"].clone(),
+            )
+        })
+        .collect();
+    let mut expected = Vec::new();
+    for concurrency in [16, 1, 64] {
+        for pages in [100, 1000, 10_000] {
+            let bar = match (concurrency, pages) {
+                (16, 100) => json!(false),
+                (16, _) => json!(true),
+                _ => Value::Null,
+            };
+            expected.push((pages, concurrency, bar));
+        }
+    }
+    assert_eq!(bars, expected);
+    assert_eq!(
+        points[0]["tools"]["foxhound"],
+        json!({
+            "status": "measured",
+            "trials": 3,
+            "peak_bytes": 22 * MIB,
+            "private_bytes": 20 * MIB,
+            "executable_bytes": 9 * MIB,
+        })
+    );
+    let spider_at_1 = &points[3]["tools"]["spider"];
+    assert_eq!(
+        (
+            &points[3]["concurrency"],
+            &spider_at_1["status"],
+            spider_at_1["reason"]
+                .as_str()
+                .is_some_and(|reason| !reason.is_empty()),
+        ),
+        (&json!(1), &json!("not_measured"), true)
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    assert!(
+        markdown.contains("| 100 | 16 | foxhound | 3 | 22.0 MiB | 20.0 MiB | 9.0 MiB | missed |")
+            && markdown.contains("| 100 | 1 | spider | not measured: "),
+        "{markdown}"
     );
 }
 
@@ -428,6 +574,7 @@ fn each_measured_cell_reports_every_metric_of_the_owners_list() {
         "duplicates",
         "errors",
         "skipped",
+        "sample_share",
     ] {
         assert!(names.contains(&name), "{name} missing from {names:?}");
     }
@@ -670,7 +817,16 @@ fn the_polite_extraction_and_browser_scenarios_report_every_metric_of_each_cell(
         [&json!("polite"), &json!("extraction"), &json!("browser")]
     );
     for (index, cells) in [
-        (2, &["foxhound", "crawlee", "scrapy", "crawlee-rs"][..]),
+        (
+            2,
+            &[
+                "foxhound",
+                "crawlee",
+                "scrapy",
+                "crawlee-rs",
+                "foxhound auto",
+            ][..],
+        ),
         (
             3,
             &["foxhound", "spider", "crawlee", "scrapy", "crawlee-rs"][..],
@@ -695,7 +851,7 @@ fn the_polite_extraction_and_browser_scenarios_report_every_metric_of_each_cell(
     );
     let markdown = workspace.read_text(MARKDOWN);
     for expected in [
-        "## 3. Polite: robots.txt obeyed, 1 in flight per domain, 1 s delay, on the multi-domain site (50 domains)",
+        "## 3. Polite: robots.txt obeyed, 1 in flight per domain, 1 s delay, on the multi-domain site (10,000 pages on 1,000 domains)",
         "## 4. Extraction to a dataset",
         "## 5. Headless browser",
         "- **crawlee**: `CheerioCrawler` with `sameDomainDelaySecs: 1`, `respectRobotsTxtFile: true`",
@@ -707,6 +863,45 @@ fn the_polite_extraction_and_browser_scenarios_report_every_metric_of_each_cell(
             "{expected} missing:\n{markdown}"
         );
     }
+}
+
+/// The polite scenario's `auto` row (#2283) reports the share of its pages
+/// that were samples, and is held to its pages' first answers, its samples
+/// fetched twice; every other cell says why it has no share.
+#[test]
+fn the_polite_auto_row_reports_the_share_of_its_pages_that_were_samples() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    trials["syscalls"] = strace();
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let report = written(&workspace);
+    assert_eq!(
+        (
+            &cell(&report, 2, "foxhound auto")["row"],
+            &cell(&report, 2, "foxhound auto")["metrics"]["sample_share"],
+            &cell(&report, 2, "foxhound")["metrics"]["sample_share"]["status"],
+        ),
+        (
+            &json!("sensitivity"),
+            &json!({ "status": "measured", "median": 0.3, "low": 0.3, "high": 0.3, "unit": "share" }),
+            &json!("not_measured"),
+        )
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    let expected = "| Tiers: share of the pages that were samples | not measured: it fetches no \
+                    sample: only Foxhound's `auto` row does | 30.0 % (30.0 %–30.0 %) |";
+    assert!(
+        markdown.contains(expected),
+        "{expected} missing:\n{markdown}"
+    );
 }
 
 /// Each trial records the 1-minute load it started at, which the trials
@@ -734,7 +929,7 @@ fn the_report_shows_the_load_each_trial_started_at() {
          Peak RSS |",
         "| raw | foxhound | 1 | 6.50 | 1.000 |",
         "| raw | foxhound | 2 | 1.25 | 2.000 |",
-        "1 of the 78 timed trials started above a 1-minute load of 4.",
+        "1 of the 81 timed trials started above a 1-minute load of 4.",
     ] {
         assert!(
             markdown.contains(expected),
@@ -1002,10 +1197,7 @@ fn a_report_of_fewer_than_10_trials_says_it_falls_short() {
     ten["trials"] = CELLS
         .iter()
         .flat_map(|(scenario, cell, tool)| {
-            (1..=10).map(move |number| {
-                let again = u64::from(*scenario == "durable");
-                trial(scenario, cell, tool, number, 2.0, 20 * MIB, &work(again))
-            })
+            (1..=10).map(move |number| cell_trial(scenario, cell, tool, number, 2.0, 20 * MIB))
         })
         .collect();
 
@@ -1170,4 +1362,148 @@ fn a_tool_that_counted_no_instructions_fails() {
         "{}",
         outcome.stderr
     );
+}
+
+/// The Collie scenario's cells, each with its pages and actions.
+const COLLIE_CELLS: [(&str, &str, &[u32], u64); 5] = [
+    (
+        "click",
+        "actionability",
+        &[1, 2, 3, 4, 5, 6, 7, 8, 9, 18, 19, 26, 27],
+        62,
+    ),
+    ("form", "actionability", &[20, 21, 22, 23, 24, 28], 22),
+    ("navigation", "portal", &[6, 7, 8, 9, 10, 11, 12, 13], 8),
+    ("sessions", "", &[], 10),
+    (
+        "at_once",
+        "actionability",
+        &[1, 2, 3, 4, 5, 6, 15, 18, 26, 27, 20, 21, 22, 23, 24, 28],
+        81,
+    ),
+];
+
+/// The steps the Collie scenario plans on `family`'s page `number`: a
+/// form's fields and its submit, fifty clicks on page 26's counter, and
+/// one click, press or read on any other.
+fn collie_steps(family: &str, number: u32) -> u64 {
+    match (family, number) {
+        ("actionability", 20..=24) => 4,
+        ("actionability", 28) => 2,
+        ("actionability", 26) => 50,
+        _ => 1,
+    }
+}
+
+/// A Collie scenario of two trials of each tool in each cell, every page
+/// done and verified, Collie sending `collie` commands per action and
+/// Playwright one.
+fn collie(collie: u64) -> Value {
+    let mut trials_run = Vec::new();
+    for (exercise, family, numbers, actions) in COLLIE_CELLS {
+        for (tool, per_action) in [("collie", collie), ("playwright", 1)] {
+            for number in 1..=2 {
+                let pages: Vec<Value> = numbers
+                    .iter()
+                    .map(|page| {
+                        let task = format!("{family}/{page}");
+                        json!({
+                            "task": task,
+                            "ended": "success",
+                            "status": 200,
+                            "steps": collie_steps(family, *page),
+                            "read": (family == "portal").then(|| format!("digest of {task}")),
+                            "error": null,
+                            "outcome": (family == "actionability").then_some("verified"),
+                        })
+                    })
+                    .collect();
+                trials_run.push(json!({
+                    "exercise": exercise,
+                    "tool": tool,
+                    "number": number,
+                    "actions": actions,
+                    "sessions": if exercise == "sessions" { 10 } else { 0 },
+                    "commands": actions * per_action,
+                    "cpu_seconds": 0.5,
+                    "wall_seconds": 1.0,
+                    "peak_bytes": 100 * MIB,
+                    "pages": pages,
+                }));
+            }
+        }
+    }
+    json!({ "status": "measured", "trials": 2, "trials_run": trials_run })
+}
+
+/// TESTING.md's register, its Collie row's Today `today`.
+fn register(today: &str) -> String {
+    format!(
+        "# Testing\n\n## Quality register\n\n### Enforced\n\n| Dimension | Rule | Checked by |\n|---|---|---|\n| a | b | c |\n\n### Measured, not yet enforced\n\n| Row | Metric, per unit | Contract | Today | Benchmark | Ratchet | Checked by | Run by |\n|---|---|---|---|---|---|---|---|\n| `collie.playwright_command_ratio` | Collie's CDP commands per action over Playwright's | ≤ 1 | {today} | the Collie scenario | must not grow | `just compare` | owner's report |\n\n### Exceptions\n\n| ID | Rule | Expires |\n|---|---|---|\n| x | y | z |\n"
+    )
+}
+
+#[test]
+fn the_collie_scenario_reports_its_command_ratio_against_the_rows_today() {
+    let workspace = Workspace::from_fixture("empty");
+    workspace.write("TESTING.md", register("1.000").as_bytes());
+    let mut trials = trials();
+    trials["collie"] = collie(2);
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (vec![], 0),
+        "{}",
+        outcome.stderr
+    );
+    let section = &written(&workspace)["collie"];
+    assert_eq!(section["status"], "measured");
+    assert_eq!(section["ratios"][0]["exercise"], "click");
+    assert_eq!(section["ratios"][0]["ratio"], 2.0);
+    assert_eq!(section["ratios"][0]["over_today"], true);
+    assert_eq!(
+        section["pages_right"]["collie"],
+        json!({"right": 20, "ran": 20, "not_right": []})
+    );
+    let markdown = workspace.read_text(MARKDOWN);
+    assert!(
+        markdown.contains("over the row's Today, 1.000, in: click (2.000), form (2.000)"),
+        "{markdown}"
+    );
+}
+
+#[test]
+fn a_collie_trial_of_other_work_fails_the_same_work_check_and_reports_no_figure() {
+    let workspace = Workspace::from_fixture("empty");
+    let mut trials = trials();
+    let mut cell = collie(1);
+    // Playwright's second trial read another text on a portal page.
+    let run = cell["trials_run"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|run| {
+            run["exercise"] == "navigation" && run["tool"] == "playwright" && run["number"] == 2
+        })
+        .unwrap();
+    run["pages"][0]["read"] = json!("another digest");
+    trials["collie"] = cell;
+
+    let outcome = report(&workspace, &trials);
+
+    assert_eq!(
+        (outcome.findings(), outcome.code),
+        (
+            vec![finding(
+                "different_work",
+                "collie navigation playwright trial 2"
+            )],
+            1
+        ),
+        "{}",
+        outcome.stdout
+    );
+    assert!(workspace.read(REPORT).is_none());
 }

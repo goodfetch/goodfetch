@@ -142,6 +142,29 @@ fn a_call_the_engine_would_not_start_is_refused_for_its_own_reason_at_the_cap() 
     );
 }
 
+/// A call whose `_meta` the engine refuses is refused for it at the cap as
+/// below it, with `invalid_params`: it is no call the engine would start.
+#[test]
+fn a_call_whose_meta_is_refused_keeps_that_refusal_at_the_cap() {
+    let engine = engine_with(Product::Collie, Some(operations()));
+    let refused = attached(&engine, |mut client: Client| async move {
+        opened(&mut client).await;
+        in_flight_at_the_cap(&mut client).await;
+        let mut call = request(IN_FLIGHT_CAP + 1, "test.wait");
+        call["params"]["_meta"] = json!({ "baggage": "user=a" });
+        client.send(&[call]).await;
+        let refused = owed(&mut client).await.expect("the call is refused");
+        client.close().await;
+        refused
+    });
+
+    assert_eq!(
+        (&refused["id"], &refused["error"]["data"]["code"]),
+        (&json!(IN_FLIGHT_CAP + 1), &json!("invalid_params")),
+        "{refused}"
+    );
+}
+
 /// At the cap, one more call is refused at once with `too_many_calls`,
 /// retryable, naming the cap; the reply to a handler request still reaches
 /// the call that waits for it.

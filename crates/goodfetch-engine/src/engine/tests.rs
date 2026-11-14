@@ -36,6 +36,7 @@ mod needs_you;
 mod ops;
 mod panics;
 mod pauses;
+mod preamble;
 mod progress;
 mod refetch_stops;
 mod refusals;

@@ -127,11 +127,13 @@ impl Stored {
         if !writer.per_attempt() {
             // A batch's visits are in the file only once it commits: the
             // Frontier holds them until then, so a redirect hop is judged
-            // on a reader (#2168).
+            // on a reader (#2168), and keeps those written within the
+            // memory budget, told of each write that fails (#2169).
             let commits = writer.commits();
-            invariants
+            let unwritten = invariants
                 .frontier()
-                .hold_unwritten(move || *commits.borrow());
+                .hold_unwritten(writer.memory_budget(), move || *commits.borrow());
+            writer.watch_writes(unwritten.watch());
         }
         Self {
             writer,

@@ -53,8 +53,8 @@ use std::path::{Path, PathBuf};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::formats::{Compatibility, RUN_STATE};
 use goodfetch_protocol::run::durability::{
-    BATCH_BYTES, BATCH_INTERVAL_MS, BATCH_PAGES, BatchThreshold, SYNC_EACH, SYNC_INTERVAL,
-    SYNC_NEVER, SYNC_OFF,
+    BATCH_BYTES, BATCH_INTERVAL_MS, BATCH_PAGES, BatchThreshold, MEMORY_BUDGET, SYNC_EACH,
+    SYNC_INTERVAL, SYNC_NEVER, SYNC_OFF,
 };
 use rusqlite::Connection;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -270,6 +270,9 @@ pub struct RunStateOptions {
     pub vfs: Option<String>,
     /// How its commits reach the disk (`run_state.durability`).
     pub durability: Durability,
+    /// The most bytes of what its writes wrote that the Run keeps in
+    /// memory beside the file (`run_state.memory.budget`, #2169).
+    pub memory_budget: u64,
     /// Where it counts its transactions and its writer's reads (ADR 0140).
     pub work: CountedWork,
     /// How many bytes of WAL its writer lets grow before its checkpointer
@@ -289,6 +292,7 @@ impl Default for RunStateOptions {
         Self {
             vfs: None,
             durability: Durability::default(),
+            memory_budget: MEMORY_BUDGET,
             work: CountedWork::default(),
             wal_checkpoint_after: WAL_CHECKPOINT_AFTER_BYTES,
             clock: Clock::system(),
@@ -584,7 +588,35 @@ type Completion = Box<dyn FnOnce(Result<(), RunStateError>) + Send>;
 /// its work met a full disk or an I/O error or left the transaction in a
 /// state the writer cannot know; given none, it reports the failure only.
 type QueuedWrite =
-    Box<dyn FnOnce(Option<(&Connection, &Path)>) -> (Completion, Option<RunStateError>) + Send>;
+    Box<dyn FnOnce(Option<Running<'_>>) -> (Completion, Option<RunStateError>) + Send>;
+
+/// What a write runs in: the transaction open on the writer's connection,
+/// the run file's path, and the watch of the writer's writes, once one is
+/// installed.
+#[derive(Clone, Copy)]
+struct Running<'a> {
+    connection: &'a Connection,
+    path: &'a Path,
+    watch: Option<&'a dyn WriteWatch>,
+}
+
+/// What keeps in memory, beside the run file, what the writer's writes
+/// change (#2169): told, on the writer's thread, as each write's work
+/// begins, and when it failed, its changes then rolled back to the
+/// savepoint it began at, so none of them reach the file. The writer runs
+/// one write at a time, so what it is told between a `began` and the next
+/// is one write's.
+pub trait WriteWatch: Send + Sync + std::fmt::Debug {
+    /// A write's work begins.
+    fn began(&self);
+    /// The write's work that began last failed: none of its changes reach
+    /// the file.
+    fn failed(&self);
+}
+
+/// Where the writer finds the watch of its writes, which a handle installs
+/// once.
+type Watching = std::sync::Arc<std::sync::OnceLock<std::sync::Arc<dyn WriteWatch>>>;
 
 /// What a job in the writer's queue is.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -658,11 +690,21 @@ where
     H: Send + 'static,
 {
     let (answer, answered) = oneshot::channel();
-    let job: QueuedWrite = Box::new(move |transaction: Option<(&Connection, &Path)>| {
+    let job: QueuedWrite = Box::new(move |transaction: Option<Running<'_>>| {
         let mut ends_group = None;
         let done = match transaction {
-            Some((connection, path)) => {
+            Some(Running {
+                connection,
+                path,
+                watch,
+            }) => {
+                if let Some(watch) = watch {
+                    watch.began();
+                }
                 run_in_savepoint(connection, work).map_err(|Failed { error, ended }| {
+                    if let Some(watch) = watch {
+                        watch.failed();
+                    }
                     if ended {
                         ends_group = Some(commit_error(path, &error));
                     }
@@ -748,6 +790,8 @@ pub struct RunState {
     readers: std::sync::Arc<RunStateReaders>,
     batches: std::sync::Arc<batch::Batches>,
     per_attempt: bool,
+    memory_budget: u64,
+    watching: Watching,
 }
 
 /// What a writer's watchers follow: its acknowledged commits and its first
@@ -790,6 +834,7 @@ impl RunState {
         let (mailbox, jobs) = mpsc::channel(MAILBOX);
         let (committed, commits) = watch::channel(0_u64);
         let (failed, failures) = watch::channel(None);
+        let watching = Watching::default();
         let readers = std::sync::Arc::new(RunStateReaders::new(
             path.clone(),
             options.vfs.clone(),
@@ -818,6 +863,7 @@ impl RunState {
                 commits: committed,
                 failures: failed,
                 work: options.work.clone(),
+                watching: std::sync::Arc::clone(&watching),
             },
             batching: open_batch::Batching::of(options, owner, &mailbox),
             // The idle writer's timer at `periodic`, which ends with the
@@ -837,6 +883,8 @@ impl RunState {
             readers,
             batches: std::sync::Arc::new(batch::Batches::new()),
             per_attempt: options.durability.per_attempt,
+            memory_budget: options.memory_budget,
+            watching,
         })
     }
 
@@ -846,6 +894,19 @@ impl RunState {
     /// is in the file before its fetch.
     pub fn per_attempt(&self) -> bool {
         self.per_attempt
+    }
+
+    /// The most bytes of what its writes wrote that the Run keeps in
+    /// memory beside the file (`run_state.memory.budget`).
+    pub fn memory_budget(&self) -> u64 {
+        self.memory_budget
+    }
+
+    /// Tells `watch`, from now on, as each write's work begins and when it
+    /// fails ([`WriteWatch`]). Once is enough; a later call changes
+    /// nothing.
+    pub fn watch_writes(&self, watch: std::sync::Arc<dyn WriteWatch>) {
+        let _installed = self.watching.get_or_init(|| watch);
     }
 
     /// The first commit that met a full disk or an I/O error, as SQLite
@@ -1742,6 +1803,8 @@ struct Signals {
     commits: watch::Sender<u64>,
     failures: watch::Sender<Option<String>>,
     work: CountedWork,
+    /// The watch of its writes, once a handle installed one.
+    watching: Watching,
 }
 
 /// What a group's commit also writes in the run file.
@@ -1771,7 +1834,13 @@ fn commit_group(
 ) -> Option<bool> {
     let grouped = u64::try_from(group.len().saturating_sub(1)).unwrap_or(u64::MAX);
     let mut declared = None;
-    let (completions, committed) = match commit_writes(connection, path, (epoch, marks), group) {
+    let watch = signals.watch();
+    let running = Running {
+        connection,
+        path,
+        watch,
+    };
+    let (completions, committed) = match commit_writes(running, (epoch, marks), group) {
         Ok((completions, declaring)) => {
             declared = Some(declaring);
             signals.work.count_many(Row::RunTransactions, grouped);
@@ -1790,6 +1859,11 @@ fn commit_group(
 }
 
 impl Signals {
+    /// The watch of the writer's writes, once a handle installed one.
+    fn watch(&self) -> Option<&dyn WriteWatch> {
+        self.watching.get().map(|watch| &**watch)
+    }
+
     /// Signals a commit of the file at `path` that failed on `error`: a
     /// full disk or an I/O error goes to the storage failures.
     fn failed(&self, path: &Path, error: &RunStateError) {
@@ -1812,11 +1886,13 @@ impl Signals {
 }
 
 fn commit_writes(
-    connection: &Connection,
-    path: &Path,
+    running: Running<'_>,
     (epoch, marks): (u64, Marks),
     group: Vec<QueuedWrite>,
 ) -> Result<(Vec<Completion>, bool), (Vec<Completion>, RunStateError)> {
+    let Running {
+        connection, path, ..
+    } = running;
     if let Err(error) = begin(connection, path, epoch) {
         let completions = group.into_iter().map(|job| job(None).0).collect();
         return Err((completions, error));
@@ -1824,7 +1900,7 @@ fn commit_writes(
     let mut completions = Vec::with_capacity(group.len());
     let mut jobs = group.into_iter();
     for job in jobs.by_ref() {
-        let (completion, ends_group) = job(Some((connection, path)));
+        let (completion, ends_group) = job(Some(running));
         completions.push(completion);
         if let Some(error) = ends_group {
             // The rest of the group never runs: in a transaction SQLite

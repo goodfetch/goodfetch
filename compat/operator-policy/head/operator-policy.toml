@@ -127,6 +127,9 @@ interval = 1000
 bytes = 1000
 sync = "each"
 
+[settings.run_state.memory]
+budget = 4
+
 [settings.checkpoint]
 interval = 30000
 
@@ -487,6 +490,9 @@ interval = 1000
 bytes = 1000
 sync = "each"
 
+[lock.run_state.memory]
+budget = 4
+
 [lock.checkpoint]
 interval = 30000
 
@@ -777,6 +783,9 @@ sticky_lifetime = 30000
 
 [cap.run_state]
 commit_interval = 30000
+
+[cap.run_state.memory]
+budget = 4
 
 [cap.checkpoint]
 interval = 30000

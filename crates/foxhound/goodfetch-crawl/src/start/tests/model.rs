@@ -39,6 +39,7 @@ use goodfetch_engine::runs::lifecycle::{self, Next, RunEvent};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_protocol::run::Lifecycle;
+use goodfetch_protocol::run::durability::MEMORY_BUDGET;
 use goodfetch_test_support::{CrashKind, CrashVfs, TestEnv, after_crash};
 use proptest::prelude::*;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
@@ -113,6 +114,10 @@ struct Model {
     /// Whether the Run batches attempts (`batch`) or writes each attempt's
     /// outcome as it is answered (`full`).
     batching: bool,
+    /// The bytes of what it wrote that the Run keeps in memory
+    /// (`run_state.memory.budget`): none, a few visits' worth, or the
+    /// default, which an outcome never shows (#2169).
+    budget: u64,
     /// How many of `committed` a barrier wrote, at `batch`.
     sealed: usize,
 }
@@ -193,8 +198,9 @@ impl ReferenceStateMachine for Model {
         (
             prop::collection::vec(prop::bool::weighted(0.25), 1..4),
             any::<bool>(),
+            prop::sample::select(vec![0, 512, MEMORY_BUDGET]),
         )
-            .prop_map(|(panics, batching)| Self {
+            .prop_map(|(panics, batching, budget)| Self {
                 items: panics
                     .into_iter()
                     .map(|panics| Item {
@@ -209,6 +215,7 @@ impl ReferenceStateMachine for Model {
                 crashed: false,
                 lifecycle: Lifecycle::Running,
                 batching,
+                budget,
                 sealed: 0,
             })
             .boxed()
@@ -563,7 +570,9 @@ impl StateMachineTest for Subject {
                 "run_id": "model",
                 "seeds": seeds,
                 "datasets": [{ "name": "pages" }, { "name": "links" }],
-                "settings": { "run_state": { "durability": level } },
+                "settings": {
+                    "run_state": { "durability": level, "memory": { "budget": model.budget } },
+                },
             }),
         );
         subject.send(
@@ -777,7 +786,8 @@ fn next_from_engine(subject: &mut Subject) -> Value {
 prop_state_machine! {
     #![proptest_config(goodfetch_test_support::proptest_config())]
 
-    /// Covers: story:3-41, story:3-26, story:3-151, story:6-268
+    /// Covers: story:3-41, story:3-26, story:3-151, story:6-268,
+    /// setting:run_state.memory.budget
     #[test]
     fn delivery_commits_each_answered_attempt_once_through_failures_lost_leases_and_crashes(
         sequential 1..20 => Subject

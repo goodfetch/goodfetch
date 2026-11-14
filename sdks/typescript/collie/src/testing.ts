@@ -7,4 +7,5 @@
 // transport the test holds, such as the Scripted engine's in-memory player,
 // so a program's tests run its code with no engine process. Importing it
 // reads, patches and logs nothing (ADR 0078).
-export { connectOver, type ConnectOverOptions } from "./collie.ts";
+export type { ConnectOverOptions } from "@goodfetch/collie-client";
+export { connectOver } from "./collie.ts";

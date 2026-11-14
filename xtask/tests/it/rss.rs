@@ -761,7 +761,7 @@ fn the_crawl_probe_fails_on_a_crawl_that_fetched_fewer_pages_than_the_site_holds
         "rss",
         "probe",
         "--scenario",
-        "crawl",
+        "crawl-1000",
         "--needs",
         "foxhound",
         "--address",
@@ -826,12 +826,34 @@ fn the_crawl_scenario_measures_foxhounds_crawl_of_the_proving_ground() {
     let workspace = Workspace::from_fixture("empty");
     real_tools(&workspace);
 
-    let outcome = measure(&workspace, "crawl");
+    let outcome = measure(&workspace, "crawl-1000");
 
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     let peaks = measured(&workspace);
-    assert_eq!(subjects(&peaks), [("foxhound", "crawl")]);
+    assert_eq!(subjects(&peaks), [("foxhound", "crawl-1000")]);
     assert!(peaks[0].2 > MIB, "{peaks:?}");
+}
+
+/// A huge-pages row's home turns `governor.huge_pages` on through its user
+/// configuration, which Foxhound's engine reads and runs with: on Linux
+/// the row's crawl is measured; elsewhere, whose allocator the setting
+/// does not change, the row is not run and says so.
+#[test]
+fn a_huge_pages_row_runs_its_crawl_with_the_setting_on_linux_alone() {
+    let workspace = Workspace::from_fixture("empty");
+    real_tools(&workspace);
+
+    let outcome = measure(&workspace, "crawl-100-huge-pages");
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    if cfg!(target_os = "linux") {
+        let peaks = measured(&workspace);
+        assert_eq!(subjects(&peaks), [("foxhound", "crawl-100-huge-pages")]);
+        assert!(peaks[0].2 > MIB, "{peaks:?}");
+    } else {
+        assert!(outcome.stdout.contains("Linux alone"), "{}", outcome.stdout);
+        assert_eq!(workspace.read("target/rss/peaks.jsonl"), None);
+    }
 }
 
 #[test]
@@ -842,7 +864,7 @@ fn the_crawl_scenario_refuses_a_manifest_without_the_proving_ground() {
         b"{\"collie\": \"/nonexistent/goodfetch-collie\", \"foxhound\": \"/nonexistent/goodfetch-foxhound\"}\n",
     );
 
-    let outcome = measure(&workspace, "crawl");
+    let outcome = measure(&workspace, "crawl-1000");
 
     assert_eq!(outcome.code, 2, "{}", outcome.stderr);
     assert!(

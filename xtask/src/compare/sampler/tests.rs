@@ -4,6 +4,8 @@ fn sample(at: f64, resident_bytes: u64, cpu_seconds: f64) -> Sample {
     Sample {
         at,
         resident_bytes,
+        private_bytes: resident_bytes / 4,
+        executable_bytes: None,
         pss_bytes: Some(resident_bytes / 2),
         cpu_seconds,
         threads: 3,
@@ -53,11 +55,10 @@ fn a_trial_without_a_sample_has_no_peak_pss() {
 #[cfg(target_os = "linux")]
 const HELD_BYTES: u64 = 64 * 1024 * 1024;
 
-/// The sampler sums the PSS of the followed process and of every process
-/// under it: a child of a known size counts whole.
+/// A shell whose child, `tail`, holds [`HELD_BYTES`] it read: the shell,
+/// its input still open, and the sampler's last sample of the tree.
 #[cfg(target_os = "linux")]
-#[test]
-fn a_child_of_known_size_counts_in_the_trees_pss() {
+fn held_tree(executable_pages: bool) -> Sample {
     use std::io::Write as _;
     use std::process::{Command, Stdio};
 
@@ -75,7 +76,7 @@ fn a_child_of_known_size_counts_in_the_trees_pss() {
     for _ in 0..2 * HELD_BYTES / block.len() as u64 {
         input.write_all(&block).unwrap();
     }
-    let sampler = Sampler::start(std::time::Instant::now());
+    let sampler = Sampler::start(std::time::Instant::now(), executable_pages);
 
     sampler.follow(shell.id());
     std::thread::sleep(std::time::Duration::from_millis(
@@ -84,13 +85,69 @@ fn a_child_of_known_size_counts_in_the_trees_pss() {
     let taken = sampler.finish().unwrap();
     drop(input);
     shell.wait().unwrap();
+    *taken.last().unwrap()
+}
 
-    let last = taken.last().unwrap();
+/// The sampler sums the PSS of the followed process and of every process
+/// under it: a child of a known size counts whole.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_child_of_known_size_counts_in_the_trees_pss() {
+    let last = held_tree(false);
+
     let pss = last.pss_bytes.unwrap();
     assert!(
         (HELD_BYTES..HELD_BYTES + HELD_BYTES / 4).contains(&pss) && pss <= last.resident_bytes,
         "{last:?}"
     );
+}
+
+/// What the child allocated to hold its input is private memory, and the
+/// executables' pages the tree maps from their files are not.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_child_allocation_counts_in_the_tree_private_memory() {
+    let last = held_tree(false);
+
+    assert!(
+        (HELD_BYTES..HELD_BYTES + HELD_BYTES / 4).contains(&last.private_bytes)
+            && last.private_bytes < last.resident_bytes,
+        "{last:?}"
+    );
+    assert_eq!(last.executable_bytes, None, "not asked for: {last:?}");
+}
+
+/// Asked for, the followed process's executable's own pages are read: the
+/// shell's code it runs is resident and backed by its file.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_followed_process_executable_pages_are_read_when_asked_for() {
+    let last = held_tree(true);
+
+    let executable = last.executable_bytes.unwrap();
+    assert!(
+        executable > 0 && executable < last.resident_bytes,
+        "{last:?}"
+    );
+}
+
+/// The peaks of private memory and of the executable's pages are their
+/// highest samples'; a trial whose samples read no executable pages has
+/// none.
+#[test]
+fn the_private_and_executable_peaks_are_the_highest_samples() {
+    let mut taken = samples();
+    taken[2].private_bytes = 900;
+    taken[1].executable_bytes = Some(40);
+    taken[3].executable_bytes = Some(70);
+
+    let sampled = figures(&taken, &[]);
+
+    assert_eq!(
+        (sampled.peak_private_bytes, sampled.peak_executable_bytes),
+        (900, Some(70))
+    );
+    assert_eq!(figures(&samples(), &[]).peak_executable_bytes, None);
 }
 
 /// Six samples 0.1 s apart: 100 bytes resident for the first half second,
@@ -151,7 +208,7 @@ fn a_tree_with_no_live_process_gives_no_sample() {
     let mut child = std::process::Command::new("true").spawn().unwrap();
     let pid = child.id();
     child.wait().unwrap();
-    let sampler = Sampler::start(std::time::Instant::now());
+    let sampler = Sampler::start(std::time::Instant::now(), false);
 
     sampler.follow(pid);
     std::thread::sleep(std::time::Duration::from_millis(
@@ -181,7 +238,7 @@ fn an_exited_process_not_yet_waited_for_gives_no_sample() {
     while !std::fs::read_to_string(&gone).is_ok_and(|stat| stat.contains(") Z ")) {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
-    let sampler = Sampler::start(std::time::Instant::now());
+    let sampler = Sampler::start(std::time::Instant::now(), false);
 
     sampler.follow(pid);
     std::thread::sleep(std::time::Duration::from_millis(

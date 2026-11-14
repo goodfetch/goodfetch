@@ -12,6 +12,7 @@
 // (ADR 0078).
 export type { Connection } from "./connection.ts";
 export type { EngineInfo, StartOptions } from "./client-connection.ts";
+export type { ConnectOptions, ConnectOverOptions } from "./product-connection.ts";
 export type { Logger } from "./logger.ts";
 export { Run } from "./run.ts";
 export { Locator, Page, Session } from "./generated/handles.ts";

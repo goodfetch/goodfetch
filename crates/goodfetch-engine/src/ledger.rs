@@ -20,14 +20,18 @@
 //! Its calls block: callers run them under their owner's blocking policy.
 //! Each call opens the file for itself, but a run's [`Charging`] keeps the
 //! connection its first call opens, each statement prepared once on it, so
-//! a run's charges, the Slices it takes, the Limits it reads back and its
-//! give-back open the file once (#1886).
+//! a run's reads of the Limits, the Slices it takes and its give-back open
+//! the file once (#1886). A run holds its Limits in memory between the
+//! ledger's own changes (ADR 0140, #1888): every [`Ledger`] of the process
+//! on one path counts the changes any of them makes to its Limits, and a
+//! run whose count moved reads them again at its next charge.
 //!
 //! Size: one concern, every statement of the one ledger file, so its
 //! transactions read side by side.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_counted_work::{CountedWork, Row as CountedRow};
@@ -39,7 +43,8 @@ use goodfetch_protocol::usage::{Limit, LimitUsage};
 use jiff::Timestamp;
 use rusqlite::{Connection, Row};
 
-pub use self::charging::{Charged, Charging, Counted, Refusal, Reservation};
+use self::changes::Changes;
+pub use self::charging::{Change, Charged, Charging, Counted, Refusal, Reservation, Unmade};
 pub use self::period::{PeriodBounds, bounds};
 pub use self::sizing::{SliceSizing, slice_size};
 pub use self::standing::{Placement, standing};
@@ -93,6 +98,20 @@ const SCHEMA: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS slices_by_limit ON slices (limit_id, period_start, state)",
     "CREATE INDEX IF NOT EXISTS slices_by_state ON slices (state)",
 ];
+
+/// The Usage charged and held against one Limit in one period: a Slice's
+/// transaction reads it, as a Limit's Usage does.
+const COUNTED: &str = "SELECT COALESCE(SUM(CASE WHEN state = 'held' THEN 0 ELSE charged END), 0),
+                    COALESCE(SUM(CASE WHEN state = 'held' THEN size ELSE 0 END), 0)
+             FROM slices WHERE limit_id = ?1 AND period_start = ?2";
+
+/// The other live runs holding Slices of one Limit in one period.
+const OTHER_HOLDERS: &str = "SELECT COUNT(DISTINCT run_id) FROM slices
+                     WHERE limit_id = ?1 AND period_start = ?2 AND state = 'held' AND run_id <> ?3";
+
+/// A Slice taken.
+const TAKE_SLICE: &str = "INSERT INTO slices (limit_id, period_start, run_id, run_epoch, run_folder, size, charged, state, taken_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, 'held', ?7)";
 
 /// A Limit's row in the ledger.
 pub type LimitId = i64;
@@ -280,6 +299,8 @@ pub struct Ledger {
     vfs: Option<String>,
     /// Where a charge's opens, statements and transactions count (ADR 0140).
     work: CountedWork,
+    /// How many times this process changed its Limits.
+    changes: Arc<Changes>,
 }
 
 impl Ledger {
@@ -287,10 +308,23 @@ impl Ledger {
     /// none in production, the crash VFS in tests (ADR 0060).
     pub fn at(path: PathBuf, vfs: Option<String>) -> Self {
         Self {
+            changes: Changes::of(&path),
             path,
             vfs,
             work: CountedWork::default(),
         }
+    }
+
+    /// How many times this process changed the ledger's Limits: a run
+    /// that read them at one count holds them until it moves.
+    fn changes(&self) -> u64 {
+        self.changes.count()
+    }
+
+    /// Counts a change of the Limits this ledger committed, so each run of
+    /// this process reads them again at its next charge.
+    fn changed(&self) {
+        self.changes.add();
     }
 
     /// The same ledger, its Usage charges' work counted on `work` (ADR
@@ -443,6 +477,7 @@ impl Ledger {
         let id = self.on_created(&mut None, |connection| {
             insert_limit(connection, limit, None, now)
         })?;
+        self.changed();
         tracing::trace!(target: TARGET, transition = "set_limit", limit = id, amount = limit.amount, "a Limit was added");
         Ok(id)
     }
@@ -505,6 +540,7 @@ impl Ledger {
                 }
             })
         })?;
+        self.changed();
         tracing::trace!(target: TARGET, transition = "set_limit", limit = id, amount = limit.amount, "a person set a Limit");
         Ok(id)
     }
@@ -526,17 +562,31 @@ impl Ledger {
         Ok(self.on(kept, false, stored_limits)?.unwrap_or_default())
     }
 
-    /// Every Limit, as [`Ledger::limits`] reads them, for a charge: its one
-    /// counted statement, on `kept`, the run's connection (the deep
-    /// review's 599-12: a run's every charge reopened the file). A ledger
-    /// no engine created yet holds no Limit, and stays uncreated: the next
-    /// read tries again, so a Limit set meanwhile holds the next charge.
+    /// Every Limit, as [`Ledger::limits`] reads them, for a charge that
+    /// needs them read: one counted statement, on `kept`, the run's
+    /// connection (the deep review's 599-12: a run's every charge reopened
+    /// the file). A ledger no engine created yet holds no Limit, runs no
+    /// statement and stays uncreated.
     fn charge_limits(
         &self,
         kept: &mut Option<Connection>,
     ) -> Result<Vec<StoredLimit>, LedgerError> {
-        self.work.count(CountedRow::ChargeStatements);
-        self.limits_on(kept)
+        let read = self.on(kept, false, stored_limits)?;
+        if read.is_some() {
+            self.work.count(CountedRow::ChargeStatements);
+        }
+        Ok(read.unwrap_or_default())
+    }
+
+    /// Prepares, on `kept` as [`Ledger::on`] reads, the statements of a
+    /// Slice's transaction, once for the connection: a run that a Limit
+    /// holds does it as it reads its Limits, so the Slices it takes prepare
+    /// none (ADR 0140's E3).
+    fn prepare_slices(&self, kept: &mut Option<Connection>) -> Result<(), LedgerError> {
+        self.on(kept, false, |connection| {
+            sqlite_store::prepare_immediate(connection, &[COUNTED, OTHER_HOLDERS, TAKE_SLICE])
+        })
+        .map(drop)
     }
 
     /// Every Limit, with what `product`'s engine makes of it and the Usage
@@ -666,6 +716,7 @@ impl Ledger {
         if written.is_none() {
             return Ok(());
         }
+        self.changed();
         tracing::trace!(target: TARGET, transition = "set_limit", major, limits = limits.len(), "a managed Operator policy's Limits were written");
         Ok(())
     }
@@ -715,6 +766,7 @@ impl Ledger {
                 Ok((taken, dropped))
             })
         })?;
+        self.changed();
         tracing::trace!(target: TARGET, transition = "set_limit", from, to, taken = counts.0, dropped = counts.1, "upgrade-files replaced older majors' managed Limits");
         Ok(counts)
     }
@@ -738,25 +790,21 @@ impl Ledger {
         needing: u64,
     ) -> Result<Option<Slice>, LedgerError> {
         let (key, _) = stored.period_key(now);
-        let taken = self.on_created(kept, |connection| immediate(connection, |transaction| {
-            let (charged, held) = counted(transaction, stored.id, &key)?;
-            let left = stored.amount.saturating_sub(charged.saturating_add(held));
-            let others: u64 = transaction
-                .prepare_cached(
-                    "SELECT COUNT(DISTINCT run_id) FROM slices
-                     WHERE limit_id = ?1 AND period_start = ?2 AND state = 'held' AND run_id <> ?3",
-                )?
-                .query_row((stored.id, &key, &holder.run_id), |row| row.get::<_, i64>(0))
-                .map(|count| u64::try_from(count).unwrap_or_default())?;
-            let size = slice_size(sizing, stored.amount, left, others + 1).max(needing);
-            if size == 0 || size > left {
-                return Ok(None);
-            }
-            transaction.prepare_cached(
-                "INSERT INTO slices (limit_id, period_start, run_id, run_epoch, run_folder, size, charged, state, taken_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, 'held', ?7)",
-            )?.execute(
-                (
+        let taken = self.on_created(kept, |connection| {
+            immediate(connection, |transaction| {
+                let (charged, held) = counted(transaction, stored.id, &key)?;
+                let left = stored.amount.saturating_sub(charged.saturating_add(held));
+                let others: u64 = transaction
+                    .prepare_cached(OTHER_HOLDERS)?
+                    .query_row((stored.id, &key, &holder.run_id), |row| {
+                        row.get::<_, i64>(0)
+                    })
+                    .map(|count| u64::try_from(count).unwrap_or_default())?;
+                let size = slice_size(sizing, stored.amount, left, others + 1).max(needing);
+                if size == 0 || size > left {
+                    return Ok(None);
+                }
+                transaction.prepare_cached(TAKE_SLICE)?.execute((
                     stored.id,
                     &key,
                     &holder.run_id,
@@ -764,11 +812,11 @@ impl Ledger {
                     holder.folder.to_string_lossy(),
                     amount(size),
                     now.to_string(),
-                ),
-            )?;
-            let id = transaction.last_insert_rowid();
-            Ok(Some(Slice { id, size }))
-        }))?;
+                ))?;
+                let id = transaction.last_insert_rowid();
+                Ok(Some(Slice { id, size }))
+            })
+        })?;
         match taken {
             Some(slice) => {
                 tracing::trace!(target: TARGET, transition = "take_slice", limit = stored.id, slice = slice.id, size = slice.size, run_id = %holder.run_id, epoch = holder.epoch, "a run took a Slice");
@@ -971,11 +1019,7 @@ fn limit_usage(
 /// `key`.
 fn counted(connection: &Connection, limit: LimitId, key: &str) -> rusqlite::Result<(u64, u64)> {
     connection
-        .prepare_cached(
-            "SELECT COALESCE(SUM(CASE WHEN state = 'held' THEN 0 ELSE charged END), 0),
-                    COALESCE(SUM(CASE WHEN state = 'held' THEN size ELSE 0 END), 0)
-             FROM slices WHERE limit_id = ?1 AND period_start = ?2",
-        )?
+        .prepare_cached(COUNTED)?
         .query_row((limit, key), |row| {
             Ok((counted_value(row, 0)?, counted_value(row, 1)?))
         })
@@ -1018,6 +1062,7 @@ fn amount(value: u64) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
 }
 
+mod changes;
 mod charging;
 mod period;
 mod sizing;

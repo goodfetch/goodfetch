@@ -31,8 +31,9 @@ use super::{Page, Visit, document};
 
 pub(super) const FAMILY: &str = "comparison";
 
-/// The domains of the multi-domain site.
-const DOMAINS: u64 = 50;
+/// The domains of the multi-domain site (#2283): ten pages on each at
+/// the polite scenario's 10,000.
+const DOMAINS: u64 = 1000;
 
 /// The script-rendered site's host.
 const RENDERED_HOST: &str = "rendered.localhost";

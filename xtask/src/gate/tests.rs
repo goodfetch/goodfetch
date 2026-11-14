@@ -7,17 +7,20 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use rstest::rstest;
 
+use super::host::step_variables;
 use super::plan::{
-    Action, EarnedPasses, GateRun, Head, MAX_AGE, Outcome, Planned, Step, Touched, UNOWNED,
-    gate_input, narrowed, plan, unit,
+    Action, EarnedPasses, GateRun, Head, LintReads, MAX_AGE, Outcome, Planned, Step, Touched,
+    UNOWNED, gate_input, narrowed, plan, unit,
 };
 use super::steps::{Entry, Form, Kind, entries};
-use super::{plan_value, render, runs, step_variables};
+use super::{plan_value, render, runs};
 use crate::affected::{Job, RepoPath};
 
 const BASE: &str = "base";
 const EARLIER: &str = "earlier";
 const HOST: &str = "host";
+/// The tree of the head every case plans for, but those on `EARLIER`'s.
+const HEAD_TREE: &str = "head-tree";
 /// Now, in seconds since the Unix epoch, for every case.
 const NOW: u64 = 1_800_000_000;
 
@@ -88,14 +91,40 @@ fn planned_shuffling(
     record: Option<&GateRun>,
     touched: &BTreeMap<String, Touched>,
 ) -> Vec<Planned> {
+    let lint_holds = || Ok(());
     let head = Head {
         base: BASE,
         members,
         shuffled,
+        tree: HEAD_TREE,
         host: HOST,
         now: NOW,
+        lint: LintReads::new(&lint_holds),
     };
     plan(&head, record, "no earlier run", touched)
+}
+
+/// The plan for a head on `EARLIER`'s tree, where what lint reads besides
+/// the tree and the host reads as `lint_holds` now.
+fn planned_on_earliers_tree(record: &GateRun, lint_holds: Result<(), &str>) -> Vec<Planned> {
+    let members = members();
+    let tree = green(EARLIER).tree;
+    let lint_holds = || lint_holds.map_err(str::to_owned);
+    let head = Head {
+        base: BASE,
+        members: &members,
+        shuffled: &BTreeSet::new(),
+        tree: &tree,
+        host: HOST,
+        now: NOW,
+        lint: LintReads::new(&lint_holds),
+    };
+    plan(
+        &head,
+        Some(record),
+        "no earlier run",
+        &touched_since_earlier(Touched::default()),
+    )
 }
 
 fn action(plan: &[Planned], step: Step) -> &Action {
@@ -124,7 +153,7 @@ fn reruns(plan: &[Planned]) -> (BTreeSet<&'static str>, BTreeMap<&'static str, V
     (full, part)
 }
 
-/// The checks every run reruns, whatever the change.
+/// The checks every run on another tree reruns, whatever the change.
 const ALWAYS: [&str; 12] = [
     "dco",
     "commit-messages",
@@ -791,6 +820,128 @@ fn a_changed_host_reruns_every_step() {
     assert!(part.is_empty());
 }
 
+/// The checks a run on the tree of their green result reuses.
+const TREE_ONLY: [Step; 4] = [
+    Step::Lint,
+    Step::FeatureCombinations,
+    Step::FuzzCheck,
+    Step::Proofs,
+];
+
+#[test]
+fn a_run_on_the_same_tree_reuses_the_checks_that_follow_from_the_tree_and_the_host() {
+    let plan = planned_on_earliers_tree(&full_green_run(), Ok(()));
+
+    for step in TREE_ONLY {
+        assert_eq!(
+            action(&plan, step),
+            &Action::Reuse {
+                origins: BTreeSet::from([EARLIER.to_owned()])
+            },
+            "{}",
+            step.name()
+        );
+    }
+    let (full, part) = reruns(&plan);
+    assert_eq!(
+        full,
+        BTreeSet::from([
+            "dco",
+            "commit-messages",
+            "floor-guard",
+            "commit-leaks",
+            "audit",
+            "notices",
+            "journeys-tasks",
+            "features-tests",
+        ])
+    );
+    assert!(part.is_empty());
+}
+
+#[test]
+fn another_tree_reruns_the_checks_that_follow_from_the_tree_and_the_host() {
+    let plan = planned(
+        Some(&full_green_run()),
+        &touched_since_earlier(Touched::default()),
+    );
+
+    for step in TREE_ONLY {
+        assert_eq!(
+            action(&plan, step),
+            &Action::Run {
+                why: "the tree changed since earlier".to_owned()
+            },
+            "{}",
+            step.name()
+        );
+    }
+}
+
+/// Lint also reads the day and GitHub (its register and quarantine checks):
+/// a result on the same tree holds only while they read as a green lint
+/// found them, and the other three checks read neither.
+#[test]
+fn lint_reruns_on_the_same_tree_when_what_it_reads_besides_the_tree_no_longer_holds() {
+    let plan = planned_on_earliers_tree(&full_green_run(), Err("issue #1601 is closed"));
+
+    assert_eq!(
+        action(&plan, Step::Lint),
+        &Action::Run {
+            why: "issue #1601 is closed".to_owned()
+        }
+    );
+    for step in [Step::FeatureCombinations, Step::FuzzCheck, Step::Proofs] {
+        assert_eq!(
+            action(&plan, step),
+            &Action::Reuse {
+                origins: BTreeSet::from([EARLIER.to_owned()])
+            },
+            "{}",
+            step.name()
+        );
+    }
+}
+
+#[rstest]
+#[case::on_another_host(
+    |record: &mut GateRun| record.host = "another host".to_owned(),
+    "the host or its tools changed since the run on earlier"
+)]
+#[case::older_than_a_day(
+    |record: &mut GateRun| {
+        for step in TREE_ONLY {
+            record.units.insert(unit(step, None), Outcome { at: NOW - MAX_AGE - 1, ..green(EARLIER) });
+        }
+    },
+    "its result on earlier is older than a day"
+)]
+#[case::red(
+    |record: &mut GateRun| {
+        for step in TREE_ONLY {
+            record.units.insert(unit(step, None), Outcome { green: false, ..green(EARLIER) });
+        }
+    },
+    "red on earlier"
+)]
+fn a_result_on_the_same_tree_reruns(#[case] change: fn(&mut GateRun), #[case] why: &str) {
+    let mut record = full_green_run();
+    change(&mut record);
+
+    let plan = planned_on_earliers_tree(&record, Ok(()));
+
+    for step in TREE_ONLY {
+        assert_eq!(
+            action(&plan, step),
+            &Action::Run {
+                why: why.to_owned()
+            },
+            "{}",
+            step.name()
+        );
+    }
+}
+
 #[test]
 fn a_result_older_than_a_day_reruns() {
     let mut record = full_green_run();
@@ -1062,9 +1213,9 @@ fn a_plan_reads_back_each_steps_action_members_and_reason() {
     assert_eq!(plan_value(&text, "unowned").unwrap(), "-");
     assert_eq!(plan_value(&text, "quick.action").unwrap(), "part");
     assert_eq!(plan_value(&text, "quick.members").unwrap(), "xtask");
-    assert_eq!(plan_value(&text, "lint.action").unwrap(), "run");
+    assert_eq!(plan_value(&text, "audit.action").unwrap(), "run");
     assert_eq!(
-        plan_value(&text, "lint.why").unwrap(),
+        plan_value(&text, "audit.why").unwrap(),
         "every run reruns it"
     );
     assert_eq!(plan_value(&text, "perf.action").unwrap(), "reuse");

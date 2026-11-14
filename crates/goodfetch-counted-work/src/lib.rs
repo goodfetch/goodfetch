@@ -157,6 +157,9 @@ rows! {
     /// `F3.actor_round_trips`: a message a page's task sends the actor that
     /// owns its crawl's Run state, whose answer the task waits for (ADR 0142).
     ActorRoundTrips => "F3.actor_round_trips", "frontier_admission", "actor_round_trips";
+    /// `F3.in_flight_serializations`: a crawl's requests in flight encoded
+    /// to JSON, for a value of its Run's progress that a reader takes.
+    InFlightSerializations => "F3.in_flight_serializations", "frontier_admission", "in_flight_serializations";
     /// `F3.invariant_reads`, of a redirect hop.
     HopInvariantReads => "F3.invariant_reads.hop", "frontier_hop", "invariant_reads";
     /// `F3.compilations`, of a redirect hop.
@@ -360,9 +363,21 @@ rows! {
 /// may count while another reads: a read sees some count that was true. It
 /// holds the engine's bounded cache of compilations too ([`Self::selector`]),
 /// which every owner it is given to compiles through, so a text compiles once
-/// for the engine and its compilation counts once.
-#[derive(Clone, Debug, Default)]
+/// for the engine and its compilation counts once. A default one builds no
+/// part of that cache before a text of its kind is asked for, so the one an
+/// owner holds until it is given the engine's costs it no cache.
+#[derive(Clone, Debug)]
 pub struct CountedWork(Arc<Shared>);
+
+impl Default for CountedWork {
+    /// Never inlined: `just counts` reads `F3.counted_work_constructions`
+    /// as Callgrind's count of this function's calls, which a copy inlined
+    /// into its caller would escape.
+    #[inline(never)]
+    fn default() -> Self {
+        Self(Arc::default())
+    }
+}
 
 /// What every clone of a [`CountedWork`] shares, behind its one `Arc`: a
 /// clone costs one reference count and its handle stays a pointer wide, as

@@ -7,14 +7,15 @@ use std::collections::BTreeSet;
 use super::{NOT_RUN_YET, ROWS};
 
 /// The rows whose figure a benchmark reads outside Counted work: Callgrind's
-/// call counts of SQLite's prepare, a counting VFS's syncs, and E6's sum over
-/// its off cell.
-const READ_ELSEWHERE: [&str; 8] = [
+/// call counts of SQLite's prepare and of `CountedWork`'s constructor, a
+/// counting VFS's syncs, and E6's sum over its off cell.
+const READ_ELSEWHERE: [&str; 9] = [
     "E2.prepares",
     "E3.prepares",
     "E6.off_work",
     "F2.prepares",
     "F2.syncs",
+    "F3.counted_work_constructions",
     "F3.prepares",
     "F3.prepares.hop",
     "F3.prepares.sitemap",

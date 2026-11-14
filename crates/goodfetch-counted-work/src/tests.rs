@@ -162,6 +162,41 @@ fn a_kept_compilation_counts_once_for_its_text_and_its_rules_version() {
     );
 }
 
+/// Whether `work` shows its selectors', its regular expressions' and its
+/// globs' cache as built, in that order: its `Debug` output shows a part
+/// whose cache is not built as `None`.
+fn caches_built(work: &CountedWork) -> [bool; 3] {
+    let shown = format!("{work:?}");
+    ["selectors", "regexes", "globs"].map(|part| !shown.contains(&format!("{part}: None")))
+}
+
+/// A `CountedWork` builds no cache as it is built, so one nothing compiles
+/// through, as an owner's placeholder, builds none; the first text of a kind
+/// asked for builds that kind's cache and no other's, and counting builds
+/// none.
+#[test]
+fn a_cache_is_built_by_the_first_text_of_its_kind_and_none_before() {
+    let work = CountedWork::default();
+    let row = Row::PageSelectorCompilations;
+    work.count(row);
+    let unused = caches_built(&work);
+    let _ = work.regex(row, "a+");
+    let regex = caches_built(&work);
+    let _ = work.glob(row, "*.rs");
+    let glob = caches_built(&work);
+    let _ = work.selector(row, "p");
+
+    assert_eq!(
+        (unused, regex, glob, caches_built(&work)),
+        (
+            [false, false, false],
+            [false, true, false],
+            [false, true, true],
+            [true, true, true]
+        )
+    );
+}
+
 /// The cache holds at most [`CAPACITY`] compilations: one over it
 /// evicts one kept before rather than grows.
 #[test]

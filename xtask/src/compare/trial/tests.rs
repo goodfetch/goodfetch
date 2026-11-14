@@ -75,6 +75,22 @@ fn openspider_runs_as_its_executable() {
     );
 }
 
+/// fastCRW's side runs as its executable, told where the server it starts
+/// is: the `crw-server` that `cargo install` left in the `bin` folder
+/// beside it.
+#[test]
+fn fastcrw_runs_as_its_executable_with_the_server_beside_it() {
+    let fastcrw = invocation(Config::FastCrw, Path::new("/r/release/fastcrw"));
+
+    assert_eq!(
+        (fastcrw.program.as_path(), fastcrw.arguments),
+        (
+            Path::new("/r/release/fastcrw"),
+            vec!["--server".into(), "/r/release/bin/crw-server".into()]
+        )
+    );
+}
+
 /// A Spider row's capacity reaches Spider's side: the row's own, so a
 /// sensitivity row at another capacity runs the same executable with it.
 #[test]

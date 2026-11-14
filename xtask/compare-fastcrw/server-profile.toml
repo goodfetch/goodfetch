@@ -1,0 +1,17 @@
+# The profiles `just compare` builds fastCRW's server with (#2217): the
+# workspace's release profile and its `ci` profile, passed to `cargo
+# install` as Cargo configuration (`--config` takes this file), since the
+# published crw-server crate carries no profile of its own. So no Rust tool
+# is built with more optimization than Foxhound, as for Spider's side.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+panic = "unwind"
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = "debuginfo"
+
+[profile.ci]
+inherits = "release"
+lto = "thin"

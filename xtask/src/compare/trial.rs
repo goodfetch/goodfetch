@@ -34,6 +34,8 @@ use super::observed::{self, MARKER, Observed};
 use super::sampler::{self, Sampler};
 use super::trials::{MILESTONES, Measured, Work};
 use super::trust;
+use invocation::install_bytes;
+pub(crate) use invocation::{Invocation, fastcrw_server, invocation};
 
 /// How a trial runs its tool.
 #[derive(Clone, Debug)]
@@ -136,98 +138,6 @@ pub(crate) fn observations(address: &str) -> Result<Value> {
         .limit(u64::MAX)
         .read_json()
         .context("parsing the Proving ground's observations")
-}
-
-/// The program that runs a cell's tool and the arguments that come before
-/// the trial's own: the executable itself, or for a tool run by an
-/// interpreter, the interpreter with the tool's script.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Invocation {
-    pub(crate) program: PathBuf,
-    pub(crate) arguments: Vec<OsString>,
-}
-
-/// Node.js's executable, which runs Crawlee's side.
-const NODE: &str = "node";
-
-/// The Python environment `uv sync` makes beside Scrapy's side, and its
-/// interpreter in it.
-const PYTHON_ENVIRONMENT: &str = ".venv";
-#[cfg(not(windows))]
-const PYTHON: &str = "bin/python";
-#[cfg(windows)]
-const PYTHON: &str = "Scripts/python.exe";
-
-/// The packages `pnpm install` leaves beside Crawlee's side.
-const NODE_MODULES: &str = "node_modules";
-
-/// The first file named `name` in a folder of `PATH`.
-fn on_path(name: &str) -> Option<PathBuf> {
-    std::env::split_paths(&std::env::var_os("PATH")?)
-        .map(|folder| folder.join(name))
-        .find(|path| path.is_file())
-}
-
-/// The folder of a side's script.
-fn side_of(script: &Path) -> &Path {
-    script.parent().unwrap_or_else(|| Path::new("."))
-}
-
-/// How `config`'s tool runs `executable`: Foxhound's, Spider's,
-/// crawlee-rs's, pagesift's and OpenSpider's are executables, Spider's side
-/// given its row's page channel capacity,
-/// Crawlee's is its side's script run by Node.js from `PATH`, and Scrapy's
-/// its side's script run by the interpreter of the Python environment
-/// beside it.
-pub(crate) fn invocation(config: Config, executable: &Path) -> Invocation {
-    match config {
-        Config::Foxhound { .. } | Config::CrawleeRs | Config::Pagesift | Config::OpenSpider => {
-            Invocation {
-                program: executable.to_owned(),
-                arguments: Vec::new(),
-            }
-        }
-        Config::Spider { capacity, .. } => Invocation {
-            program: executable.to_owned(),
-            arguments: vec!["--capacity".into(), capacity.to_string().into()],
-        },
-        Config::Crawlee => Invocation {
-            program: on_path(NODE).unwrap_or_else(|| PathBuf::from(NODE)),
-            arguments: vec![executable.as_os_str().to_owned()],
-        },
-        Config::Scrapy => Invocation {
-            program: side_of(executable).join(PYTHON_ENVIRONMENT).join(PYTHON),
-            arguments: vec![executable.as_os_str().to_owned()],
-        },
-    }
-}
-
-/// What a tool takes on disk: its executable, and for a tool run by an
-/// interpreter, the interpreter's executable and the packages its side
-/// installed (`node_modules`, or the Python environment; the Python
-/// standard library outside it is not counted); with `browser`, the
-/// browser's folder too, the same for every tool.
-fn install_bytes(config: Config, executable: &Path, browser: Option<&Path>) -> u64 {
-    let file_bytes = |path: &Path| {
-        std::fs::canonicalize(path)
-            .and_then(std::fs::metadata)
-            .map_or(0, |metadata| metadata.len())
-    };
-    let browser_bytes = browser.map_or(0, footprint);
-    let packages = match config {
-        Config::Foxhound { .. }
-        | Config::Spider { .. }
-        | Config::CrawleeRs
-        | Config::Pagesift
-        | Config::OpenSpider => {
-            return file_bytes(executable) + browser_bytes;
-        }
-        Config::Crawlee => NODE_MODULES,
-        Config::Scrapy => PYTHON_ENVIRONMENT,
-    };
-    file_bytes(&invocation(config, executable).program)
-        + footprint(&side_of(executable).join(packages))
-        + browser_bytes
 }
 
 /// The command that runs `invocation`, under `mode`'s counting tool; the
@@ -401,6 +311,21 @@ struct Driven {
     engine: Option<Engine>,
 }
 
+/// How a tool other than Foxhound reaches a host the comparison serves on
+/// the Proving ground's address.
+#[derive(Clone, Copy)]
+enum Route<'a> {
+    /// On its start URL alone: the host's name resolves to the Proving
+    /// ground, or the URL holds its address.
+    Direct,
+    /// On the Proving ground's address, sending this `host:port` as each
+    /// request's `Host`.
+    Host(&'a str),
+    /// On the host's name, through the forward proxy at this address, which
+    /// connects to the Proving ground.
+    Proxy(&'a str),
+}
+
 /// Everything one trial needs.
 pub(crate) struct Plan<'a> {
     pub(crate) cell: &'a Cell,
@@ -449,24 +374,19 @@ impl Plan<'_> {
     ) -> Result<Driven> {
         let host = (!self.kind().by_name())
             .then(|| format!("{}:{}", self.kind().host_of(1), self.site.port()));
-        self.spawn_at(
-            home,
-            (process, mode),
-            cache,
-            &self.site_url(),
-            host.as_deref(),
-        )
+        let route = host.as_deref().map_or(Route::Direct, Route::Host);
+        self.spawn_at(home, (process, mode), cache, &self.site_url(), route)
     }
 
-    /// [`Self::spawn`], a tool other than Foxhound crawling from `url`, with
-    /// `host` sent as each request's `Host` when given.
+    /// [`Self::spawn`], a tool other than Foxhound crawling from `url` on
+    /// `route`.
     fn spawn_at(
         &self,
         home: &Path,
         (process, mode): (u32, &Mode),
         cache: Option<&Path>,
         url: &str,
-        host: Option<&str>,
+        route: Route<'_>,
     ) -> Result<Driven> {
         let config = output::traced(self.cell, self.config, mode, self.site.pages);
         let mut command = command(&invocation(config, self.executable), mode, process);
@@ -501,8 +421,14 @@ impl Plan<'_> {
                 .current_dir(home)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped());
-            if let Some(host) = host {
-                command.args(["--host", host]);
+            match route {
+                Route::Direct => {}
+                Route::Host(host) => {
+                    command.args(["--host", host]);
+                }
+                Route::Proxy(proxy) => {
+                    command.args(["--proxy", proxy]);
+                }
             }
             if let Some(authority) = self.certificate_authority {
                 trust::in_environment(&mut command, authority);
@@ -542,7 +468,8 @@ impl Plan<'_> {
             | Config::Scrapy
             | Config::CrawleeRs
             | Config::Pagesift
-            | Config::OpenSpider => None,
+            | Config::OpenSpider
+            | Config::FastCrw => None,
         };
         Ok(Driven { child, engine })
     }
@@ -587,7 +514,8 @@ impl Plan<'_> {
             | Config::Scrapy
             | Config::CrawleeRs
             | Config::Pagesift
-            | Config::OpenSpider => ("", None),
+            | Config::OpenSpider
+            | Config::FastCrw => ("", None),
         }
     }
 
@@ -764,7 +692,8 @@ impl Plan<'_> {
             | Config::Scrapy
             | Config::CrawleeRs
             | Config::Pagesift
-            | Config::OpenSpider => None,
+            | Config::OpenSpider
+            | Config::FastCrw => None,
         };
         let read = records
             .as_deref()
@@ -828,7 +757,8 @@ impl Plan<'_> {
             | Config::Scrapy
             | Config::CrawleeRs
             | Config::Pagesift
-            | Config::OpenSpider => None,
+            | Config::OpenSpider
+            | Config::FastCrw => None,
         };
         let extracted = self.extracted(home.path(), records)?;
         let (count, syncs) = match &self.mode {
@@ -986,6 +916,7 @@ pub(crate) fn cell_of(scenario: Scenario, name: &str) -> Result<(&'static Cell, 
 }
 
 mod chrome;
+mod invocation;
 mod output;
 mod rules;
 

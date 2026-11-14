@@ -319,7 +319,9 @@ fn parses(settings: &Value, planted: bool) -> u64 {
 /// B1 meets a Limit (ADR 0140's E3): every page's request is charged through
 /// the counted ledger, on the crawl's own engine, which the crawl with no
 /// Limit also reads and no Slice's transaction commits; a Slice's commit is
-/// the difference.
+/// the difference. A charge the Slices the Run holds cover runs no SQL
+/// (issue 1888), so the ledger counts a statement only for a charge that
+/// reads the Limits again, the first at least, and never one per page.
 #[test]
 fn a_crawl_under_a_limit_charges_each_page_through_the_counted_ledger() {
     let charged = |limit: Option<u64>| {
@@ -345,7 +347,10 @@ fn a_crawl_under_a_limit_charges_each_page_through_the_counted_ledger() {
     let (limited, free) = (charged(Some(1_000_000)), charged(None));
 
     let pages = u64::try_from(PAGES.len() + 1).unwrap();
-    assert!(limited.0 >= pages, "{limited:?} over {pages} pages");
+    assert!(
+        (1..pages).contains(&limited.0),
+        "the Limits read on the counted ledger, and not at each page: {limited:?} over {pages} pages"
+    );
     assert!(
         limited.1 > free.1,
         "a Slice taken commits: {limited:?} with a Limit, {free:?} without"

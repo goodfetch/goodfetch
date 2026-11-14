@@ -132,7 +132,7 @@ impl On<'_> {
 
     /// The attempt once its race ended as `ended` says: the winner's page
     /// handed to the handler, recorded as the race's, or how it ended.
-    async fn after_race(&self, tiers: &FetchTiers, ended: RaceEnded) -> (Answer, Taught) {
+    async fn after_race(&self, tiers: &FetchTiers, ended: RaceEnded<'_>) -> (Answer, Taught) {
         let (run, leased) = (self.run, self.leased);
         match ended.won {
             Won::Ended(answer) => (answer, Taught::default()),
@@ -146,7 +146,13 @@ impl On<'_> {
                     Taught::default(),
                 )
             }
-            Won::BrowserFetch(page_id, facts) => {
+            Won::BrowserFetch(served, facts) => {
+                // `served` is held until its handler answered, as
+                // `On::on_http` holds its own: an attempt abandoned while
+                // its handler runs, as an abort abandons it, closes its
+                // page as it drops, so the page never holds the Run's
+                // handles past the Run.
+                let page_id = served.page_id().clone();
                 let merged = learn(run, tiers, &page_id, leased, self.code_free.is_some()).await;
                 record_tier(
                     run,
@@ -159,7 +165,7 @@ impl On<'_> {
                 )
                 .await;
                 let answer = self.handle(&page_id, FetchTier::Http, facts.response).await;
-                let escalated = self.escalated(tiers.close(&page_id));
+                let escalated = self.escalated(tiers.close(&served.keep()));
                 let answer = match escalated {
                     Some(call) if !matches!(answer, Answer::LeaseEnded | Answer::ClientGone) => {
                         // The browser's run takes a whole lease of its own, and
@@ -206,8 +212,8 @@ impl On<'_> {
 }
 
 /// How a tier race ended: which run won, and how each that lost did.
-struct RaceEnded {
-    won: Won,
+struct RaceEnded<'t> {
+    won: Won<'t>,
     /// Browser-fetch's latency, once its document arrived.
     latency: Option<Duration>,
     /// Browser-fetch's failure, once it lost.
@@ -227,7 +233,7 @@ enum Lost {
     Decoy(Answer),
 }
 
-impl RaceEnded {
+impl RaceEnded<'_> {
     fn browser_fetch(&self) -> RaceEnd {
         match (&self.won, &self.fetch_lost) {
             (Won::BrowserFetch(..), _) => RaceEnd::Won,
@@ -260,7 +266,7 @@ async fn first_to_win<'t>(
     >,
     (navigation, lost): (&mut oneshot::Receiver<Navigated>, Option<Lost>),
     lease: &WorkItemLease,
-) -> RaceEnded {
+) -> RaceEnded<'t> {
     let mut ended = RaceEnded {
         won: Won::Neither,
         latency: None,
@@ -274,7 +280,7 @@ async fn first_to_win<'t>(
             fetched = &mut document, if ended.fetch_lost.is_none() => match fetched {
                 Ok((served, facts, took, true)) => {
                     ended.latency = Some(took);
-                    break Won::BrowserFetch(served.keep(), Box::new(facts));
+                    break Won::BrowserFetch(served, Box::new(facts));
                 }
                 Ok((served, _, took, false)) => {
                     ended.latency = Some(took);
@@ -302,10 +308,10 @@ async fn first_to_win<'t>(
 }
 
 /// Which run of a tier race won, if one did.
-enum Won {
-    /// Browser-fetch's page, served on `http`, and what it held of its
-    /// document as it was served.
-    BrowserFetch(PageId, Box<PageFacts>),
+enum Won<'t> {
+    /// Browser-fetch's page, served on `http` and held until its handler
+    /// answered, and what it held of its document as it was served.
+    BrowserFetch(Served<'t>, Box<PageFacts>),
     /// The navigation's page, in the browser, and its document's
     /// response.
     Navigation(PageId, Option<PageResponse>),

@@ -65,6 +65,13 @@ Decided by the owner on 2026-11-06 ([#2142](https://github.com/goodfetch/goodfet
 - **Every key here is a per-Run setting.** Like `run_state.durability`, any layer may set it: the Run's own settings, user configuration, or an Operator policy, which may lock it (ADR 0028). It is read when the Run opens and when it resumes. `config explain` shows each key's value and where that value came from: a layer, or the preset of the Run's Durability level (below).
 - **A batch is all or nothing.** The run file holds the Run as of one batch boundary, never half of a page. ADR 0138's savepoint per page leaves the batch path, since a batch is built from changes memory already accepted.
 - **The run file keeps its tables and its format.** A batch writes the same rows that today's commits write, so Checkpoints, `run.resume`, `run.records`, the kept read-only connections, Sinks and the per-install layout read it unchanged. This keeps ADR 0002's portable file and rejects a second, log-shaped format.
+  > Note (agent decisions of [#2168](https://github.com/goodfetch/goodfetch/issues/2168), as built), 2026-11-14, open to the owner's review. A crawl seals its open batch early only at its start and its end, which `F2.batches` counts (ADR 0140):
+  >
+  > - **A start keys its seeds in the write that adds them,** asking the Run's gate how it will key each URL, so the opening finds none to key and seals nothing. A start with no gate keeps keying them at the opening, in a sealed batch.
+  > - **The loop decides that it idles or ends with no seal.** Its reads of the work items waiting and of whether any is pending leave out those it leased or ended in a batch they do not see, and add those it made pending there, a retry or a work item an attempt added, each in its queue's order.
+  > - **The end reads what cut the crawl short on the writer's connection,** in the job that closes its intake, so that read follows every write. When the intake does not close, the work items its leases gave back must be read, and the crawl seals.
+  > - **A warning that a switched-off feature cost something rides the open batch,** where it was a barrier.
+  > - **A crawl kept alive seals its open batch once it has drained, before it waits for new work,** so what it did is in the file while it waits rather than one `run_state.batch.interval` later. With no batch open, the seal writes nothing.
 
 ### Durability levels
 

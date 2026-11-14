@@ -193,7 +193,9 @@ impl Subject {
 
     /// Whether any request is pending, as the delivery loop asks when idle.
     fn any_pending(&self) -> bool {
-        self.read(super::any_pending)
+        !self
+            .read(|connection| super::pending(connection, 1))
+            .is_empty()
     }
 
     /// Adds a request of `url`, then reads the requests not keyed yet and

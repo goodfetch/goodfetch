@@ -113,7 +113,7 @@ pub(crate) use self::slices::Limits;
 use self::takeover::TakeOver;
 use self::writer::{LockError, retried, take_lock, try_lock};
 use crate::CallError;
-use crate::admission::{Admission, Gates};
+use crate::admission::{self, Admission, Gates};
 use crate::audit::{AuditLog, Origin};
 use crate::body;
 use crate::checkpoint::{self, CHECKPOINT_FILE, WriteError};
@@ -1233,6 +1233,8 @@ pub struct Runs {
     controls: Arc<Controls>,
     /// The runtime's metrics.
     metrics: Metrics,
+    /// The gates the composition passes in, if any.
+    gates: Option<Arc<dyn Gates>>,
     /// The owner of the registry's own task, whose panic stops the engine
     /// at once (ADR 0148).
     registry: Arc<TaskOwner>,
@@ -1752,9 +1754,34 @@ impl Run {
     /// Dropping the future does not withdraw a write already queued: the
     /// warning may still be handed over.
     pub async fn warn_once(&self, warning: RunWarning) -> Result<(), RunStateError> {
+        self.warn_once_with(Syncing::Required, warning).await
+    }
+
+    /// Hands `warning` over as [`Run::warn_once`] does, in the open batch,
+    /// with no sync of its own: for a warning the Run hands over again each
+    /// time it opens, such as one its settings decide, which a crash that
+    /// loses it loses only until the resume (ADR 0142).
+    ///
+    /// # Errors
+    ///
+    /// When its run state cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Run::warn_once`]'s.
+    pub async fn warn_once_deferred(&self, warning: RunWarning) -> Result<(), RunStateError> {
+        self.warn_once_with(Syncing::Deferred { charged: 0 }, warning)
+            .await
+    }
+
+    async fn warn_once_with(
+        &self,
+        syncing: Syncing,
+        warning: RunWarning,
+    ) -> Result<(), RunStateError> {
         let warning = self.masked(warning);
         self.state
-            .write(move |connection| {
+            .write_with(syncing, move |connection| {
                 if report::warned(connection, &warning.code, warning.folder.as_deref())? {
                     return Ok(());
                 }
@@ -2799,6 +2826,7 @@ impl Runs {
             clean_up: CleanUpRules::of(&setup),
             controls: Arc::new(setup.controls.clone()),
             metrics: setup.metrics.clone(),
+            gates: setup.gates.clone(),
             registry: Arc::new(owner.part("Run registry")),
         };
         let politeness = SharedPoliteness {
@@ -2850,6 +2878,14 @@ impl Runs {
     /// records in (ADR 0050).
     pub fn metrics(&self) -> &Metrics {
         &self.metrics
+    }
+
+    /// How the gate in admission of a Run with the settings `settings`
+    /// keys a request's URL, before the Run exists: a start keys the work
+    /// items it adds as its gate will. `None` when the composition passes
+    /// in no gate.
+    pub fn keys(&self, settings: &Resolved) -> Option<admission::Keys> {
+        self.gates.as_ref().map(|gates| gates.keys(settings))
     }
 
     /// The scope of the Client connection these Runs stand in, as the
@@ -5682,6 +5718,7 @@ impl Registry {
             clean_up: CleanUpRules::of(&self.setup),
             controls: Arc::new(self.setup.controls.clone()),
             metrics: self.setup.metrics.clone(),
+            gates: self.setup.gates.clone(),
             registry: Arc::clone(&self.itself),
         }
     }

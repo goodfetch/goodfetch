@@ -1221,12 +1221,12 @@ impl Subject {
         let stored = self.crawl().stored();
         let counted = self.crawl().state.counted();
         let unwritten = (failure("outcome_unwritten"), POLICY.retry_max);
-        let (closed, changed) = self
+        let (short, changed) = self
             .runtime
             .block_on(stored.close_if_drained(counted, unwritten, ended_at()))
             .unwrap();
         self.crawl().state.changed(changed);
-        Some(closed)
+        Some(short.is_some())
     }
 
     /// The crawl stops cleanly: its last write releases its leases.

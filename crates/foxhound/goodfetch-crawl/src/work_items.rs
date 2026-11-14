@@ -2016,13 +2016,14 @@ pub(crate) fn any_unsettled(connection: &Connection) -> rusqlite::Result<bool> {
         .is_some())
 }
 
-/// Whether any work item is still pending.
-pub(crate) fn any_pending(connection: &Connection) -> rusqlite::Result<bool> {
-    Ok(connection
-        .prepare_cached("SELECT 1 FROM work_items WHERE status = ?1 LIMIT 1")
-        .and_then(|mut cached| cached.query_row([PENDING], |_| Ok(())))
-        .optional()?
-        .is_some())
+/// The IDs of at most `limit` pending work items.
+pub(crate) fn pending(connection: &Connection, limit: usize) -> rusqlite::Result<Vec<String>> {
+    connection
+        .prepare_cached("SELECT id FROM work_items WHERE status = ?1 LIMIT ?2")?
+        .query_map((PENDING, i64::try_from(limit).unwrap_or(i64::MAX)), |row| {
+            row.get(0)
+        })?
+        .collect()
 }
 
 #[cfg(test)]

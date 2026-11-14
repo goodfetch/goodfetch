@@ -313,7 +313,8 @@ const SWITCHED_OFF: [(&Setting, &str, &str); 4] = [
 ];
 
 /// Hands the Run's report, once, the warning `code` with `message`, of a
-/// per-page feature its settings switch off (ADR 0138).
+/// per-page feature its settings switch off (ADR 0138), in the open batch:
+/// the crawl hands it over again each time it opens (ADR 0142).
 async fn warn_switched_off(run: &Run, code: &str, message: &str) {
     let warning = RunWarning {
         code: code.to_owned(),
@@ -321,7 +322,7 @@ async fn warn_switched_off(run: &Run, code: &str, message: &str) {
         sessions: Vec::new(),
         folder: None,
     };
-    if let Err(error) = run.warn_once(warning).await {
+    if let Err(error) = run.warn_once_deferred(warning).await {
         tracing::warn!(%error, run_id = %run.id(), code, "the warning of a feature switched off was not kept");
     }
 }
@@ -1049,6 +1050,8 @@ enum Waited {
 /// the crawl is kept alive, also
 /// writes the tier choices' counts `state` holds that the run file has not
 /// heard of: no lease follows the last draws to carry them (ADR 0142).
+/// A crawl kept alive seals the open batch before it waits, so what it
+/// did is in the file while it waits (ADR 0142).
 /// What that job changed of the crawl's requests by state is counted and
 /// shown with the requests `in_flight`.
 async fn drained(
@@ -1061,11 +1064,19 @@ async fn drained(
 ) -> Waited {
     let keeps_alive: bool = resolved.get(&CRAWL_KEEP_ALIVE);
     let counted = state.counted();
-    if keeps_alive && !run.is_let_finish() && !counted.is_empty() {
-        if let Err(error) = state.stored().count(counted).await {
+    if keeps_alive && !run.is_let_finish() {
+        if !counted.is_empty()
+            && let Err(error) = state.stored().count(counted).await
+        {
             tracing::warn!(%error, run_id = %run.id(), "the tier choices' counts were not written");
         }
-    } else if !keeps_alive || run.is_let_finish() {
+        // It waits for new work, for as long as none comes: what it did is
+        // sealed into the file first, so a reader sees it now rather than
+        // once the open batch's interval passed (ADR 0142).
+        if let Err(error) = state.seal().await {
+            tracing::warn!(%error, run_id = %run.id(), "the open batch was not sealed");
+        }
+    } else {
         let lost = AttemptFailure::outcome_not_written("its attempt ended and left it leased");
         let unwritten = Failure {
             code: lost.code,
@@ -1081,30 +1092,22 @@ async fn drained(
             .stored()
             .close_if_drained(counted, (unwritten, retry_max), ended_at)
             .await;
-        match closed {
-            Ok((closed, changed)) => {
+        let ending = match closed {
+            Ok((short, changed)) => {
                 state.changed(changed);
                 show_counted(run, state, in_flight, []).await;
-                if !closed {
-                    return Waited::Again;
+                match short {
+                    Some(reasons) => Ending::Finished(reasons),
+                    // A work item it gave back is pending in a batch the
+                    // next reads must see (ADR 0142).
+                    None => match state.seal().await {
+                        Ok(()) => return Waited::Again,
+                        Err(error) => failed(run, &error),
+                    },
                 }
             }
             Err(error) => {
                 tracing::error!(%error, run_id = %run.id(), "the crawl's work items could not be read");
-                end(run, admission, failed(run, &error)).await;
-                return Waited::Ended;
-            }
-        }
-        // What cut the crawl short is read once the last batch is in the
-        // file (ADR 0142).
-        let short = match state.seal().await {
-            Ok(()) => state.stored().short_of_scope().await,
-            Err(error) => Err(error),
-        };
-        let ending = match short {
-            Ok(reasons) => Ending::Finished(reasons),
-            Err(error) => {
-                tracing::error!(%error, run_id = %run.id(), "what cut the crawl could not be read");
                 failed(run, &error)
             }
         };
@@ -1167,8 +1170,8 @@ enum Idle {
 /// What a crawl with no attempt in flight does next: its queues filled
 /// again from the pending work items when they hold none ready, once any
 /// work item an admission left with no domain key is keyed. Its reads
-/// decide, so they follow a seal of the open batch, which every write
-/// answered before them is then in (ADR 0142).
+/// decide with no seal: each work item an answered write changed in the
+/// open batch is known in memory beside them (ADR 0142).
 async fn when_idle(
     run: &Run,
     admission: &mut Admission,
@@ -1177,13 +1180,12 @@ async fn when_idle(
     if admission.ready_at(run.clock().now()).is_some() {
         return Ok(Idle::Wait);
     }
-    state.seal().await?;
     key_new(state.stored(), admission, Unkeyed::Running).await?;
     fill(state, admission, None).await?;
     if admission.ready_at(run.clock().now()).is_some() {
         return Ok(Idle::Admit);
     }
-    Ok(if state.stored().any_pending().await? {
+    Ok(if state.any_pending().await? {
         Idle::Wait
     } else {
         Idle::Done
@@ -1556,12 +1558,13 @@ async fn warn_rotated(run: &Run, rotated: Rotated) {
 const KEYED_AT_ONCE: usize = 1024;
 
 /// Keys each work item not keyed yet, `found` as the crawl opens or once
-/// it is idle: the seeds its start wrote, which no gate had keyed. Every
-/// work item added once it runs is keyed in the write that adds it, a
-/// seed, a re-admission, an attempt's links and a sitemap's entries
-/// (#2167), so an idle crawl finds none; one an admission left so would
-/// wait outside every domain's queue for ever, and is keyed here, in a
-/// write the Run state counts. It offers each to its domain's queue, which
+/// it is idle. A start keys its seeds in the write that adds them, as its
+/// gate keys them (#2168), and every work item added once the crawl runs
+/// is keyed in the write that adds it, a seed, a re-admission, an
+/// attempt's links and a sitemap's entries (#2167), so a crawl finds none
+/// unless a start ran with no gate; one an admission left so would wait
+/// outside every domain's queue for ever, and is keyed here, in a write
+/// the Run state counts. It offers each to its domain's queue, which
 /// takes it unless full; one it refuses waits in run state until its queue
 /// fills again. At a level that batches attempts a round's keys ride the
 /// open batch, which the next read would not see, so each round that keyed

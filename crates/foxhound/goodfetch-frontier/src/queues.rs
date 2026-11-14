@@ -649,6 +649,11 @@ impl BatchRows for JournalRows {
 pub(crate) struct DomainGates;
 
 impl Gates for DomainGates {
+    fn keys(&self, settings: &Resolved) -> Keys {
+        let keys = DomainKeys::of(settings);
+        Keys::new(move |url| keys.key(url))
+    }
+
     fn open(
         &self,
         settings: &Resolved,

@@ -81,8 +81,9 @@ pub(crate) struct Stored {
 /// When the delivery loop found work items with no domain key.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Unkeyed {
-    /// As the crawl opens: the seeds its start wrote, which no gate had
-    /// keyed.
+    /// As the crawl opens: the seeds a start with no gate wrote, which
+    /// it could not key. A start with a gate keys each seed in the write
+    /// that adds it (#2168).
     Opening,
     /// While the crawl runs, once it is idle. Every admission keys the
     /// work items it adds, in the write that adds them (#2167), so none
@@ -544,13 +545,16 @@ impl Stored {
         self.writer.per_attempt()
     }
 
-    /// Whether a work item is pending.
+    /// The IDs of at most `limit` pending work items.
     ///
     /// # Errors
     ///
     /// The run file's.
-    pub(crate) async fn any_pending(&self) -> Result<bool, StateError> {
-        Ok(self.writer.read(work_items::any_pending).await?)
+    pub(crate) async fn pending(&self, limit: usize) -> Result<Vec<String>, StateError> {
+        Ok(self
+            .writer
+            .read(move |connection| work_items::pending(connection, limit))
+            .await?)
     }
 
     /// Each pending work item of `ids`, in that order, as its next lease
@@ -706,13 +710,16 @@ impl Stored {
     }
 
     /// Closes the crawl's intake when no work item is pending or leased,
-    /// and answers whether it closed, in one job that first writes
-    /// `counted` and gives back each work item still leased, whose attempt
-    /// ended with its outcome unwritten: retried while it has retries left
-    /// of `retry_max`, else failed with `unwritten`, at `ended_at`, which
-    /// it answers as what it changed of the crawl's requests by state. Its
-    /// answer promises nothing outside (#2117): the Run's end, which
-    /// follows it, syncs.
+    /// and answers, once it closed, what cut the crawl short of its scope,
+    /// its bounds and caps as its Completeness reasons, in one job that
+    /// first writes `counted` and gives back each work item still leased,
+    /// whose attempt ended with its outcome unwritten: retried while it
+    /// has retries left of `retry_max`, else failed with `unwritten`, at
+    /// `ended_at`, which it answers as what it changed of the crawl's
+    /// requests by state. The job reads what cut the crawl on the writer's
+    /// connection, which holds every batch, so the crawl's end needs no
+    /// seal (ADR 0142). Its answer promises nothing outside (#2117): the
+    /// Run's end, which follows it, syncs.
     ///
     /// # Errors
     ///
@@ -722,7 +729,7 @@ impl Stored {
         counted: Counted,
         (unwritten, retry_max): (Failure, u32),
         ended_at: PointInTime,
-    ) -> Result<(bool, Changed), StateError> {
+    ) -> Result<(Option<Vec<CompletenessReason>>, Changed), StateError> {
         let intake = self.intake.clone();
         Ok(self
             .writer
@@ -739,22 +746,14 @@ impl Stored {
                     &ended_at,
                     &mut changed,
                 )?;
-                Ok((
-                    intake.close_if_drained(connection)?,
-                    changed.with_sitemaps(connection)?,
-                ))
+                let short = if intake.close_if_drained(connection)? {
+                    Some(completeness::short_of_scope(connection)?)
+                } else {
+                    None
+                };
+                Ok((short, changed.with_sitemaps(connection)?))
             })
             .await?)
-    }
-
-    /// What cut the crawl short of its scope: its bounds and caps, as its
-    /// Completeness reasons.
-    ///
-    /// # Errors
-    ///
-    /// The run file's.
-    pub(crate) async fn short_of_scope(&self) -> Result<Vec<CompletenessReason>, StateError> {
-        Ok(self.writer.read(completeness::short_of_scope).await?)
     }
 
     /// Returns the leased work items to pending, without counting them.

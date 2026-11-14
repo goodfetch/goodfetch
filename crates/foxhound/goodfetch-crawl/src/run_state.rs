@@ -35,7 +35,7 @@
 //! answers that it changed, so a live crawl's progress is built from this
 //! state and reads no count from the run file (#2167).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -211,6 +211,31 @@ impl Learned {
     }
 }
 
+/// At most `bound` of each key of `waiting`, each key's in the order its
+/// per-domain queue admits them (`forefront` ones latest first, then
+/// highest priority first, then in order), all of them in order when
+/// `in_order`, as the run file's read of them answers.
+fn in_queue_order(mut waiting: Vec<Waiting>, bound: usize, in_order: bool) -> Vec<Waiting> {
+    waiting.sort_by_key(|waiting| {
+        (
+            waiting.key.clone(),
+            std::cmp::Reverse(waiting.forefront.then_some(waiting.order)),
+            std::cmp::Reverse(waiting.priority),
+            waiting.order,
+        )
+    });
+    let mut taken: HashMap<String, usize> = HashMap::new();
+    waiting.retain(|waiting| {
+        let count = taken.entry(waiting.key.clone()).or_default();
+        *count += 1;
+        *count <= bound
+    });
+    if in_order {
+        waiting.sort_by_key(|waiting| waiting.order);
+    }
+    waiting
+}
+
 /// The crawl's Run state, which its delivery loop owns.
 pub(crate) struct RunState {
     pool: SessionPool,
@@ -275,6 +300,26 @@ impl Unwritten {
         matches!(self.0.get(id), Some(Known::InFlight | Known::Gone(_)))
     }
 
+    /// How many work items a read may still find pending though they are
+    /// not.
+    fn held(&self) -> usize {
+        self.0
+            .values()
+            .filter(|known| matches!(known, Known::InFlight | Known::Gone(_)))
+            .count()
+    }
+
+    /// Each work item pending of `key`, or of every key when `None`, that
+    /// a read may not find so.
+    fn pending<'a>(&'a self, key: Option<&'a str>) -> impl Iterator<Item = &'a Waiting> {
+        self.0.values().filter_map(move |known| match known {
+            Known::Pending(leased, _) if key.is_none_or(|key| leased.waiting.key == key) => {
+                Some(&leased.waiting)
+            }
+            _ => None,
+        })
+    }
+
     /// Keeps `id` gone once `committed` commits were acknowledged, unless
     /// its attempt is in flight, whose settling says how it ended.
     fn gone(&mut self, id: String, committed: u64) {
@@ -315,8 +360,10 @@ impl RunState {
 
     /// The pending work items of `key`, or of every key when `None`, at
     /// most `bound` of each key, in the order its per-domain queue admits
-    /// them: the run file's, less each the crawl leased, ended or saw
-    /// merged in a change the read does not see yet (ADR 0142).
+    /// them, as the crawl knows them, with no seal (ADR 0142): the run
+    /// file's, less each the crawl leased, ended or saw merged in a change
+    /// the read does not see yet, with each it knows pending in such a
+    /// change, a retry or a work item an attempt added.
     ///
     /// # Errors
     ///
@@ -327,9 +374,40 @@ impl RunState {
         bound: usize,
     ) -> Result<Vec<Waiting>, StateError> {
         self.unwritten.seen(self.stored.commits());
-        let mut waiting = self.stored.waiting(key, bound).await?;
+        // Those it leaves out could take a key's whole bound: it reads
+        // past them.
+        let read = bound.saturating_add(self.unwritten.held());
+        let mut waiting = self.stored.waiting(key.clone(), read).await?;
         waiting.retain(|waiting| !self.unwritten.holds(&waiting.id));
-        Ok(waiting)
+        let mut known: HashSet<String> = waiting.iter().map(|waiting| waiting.id.clone()).collect();
+        for pending in self.unwritten.pending(key.as_deref()) {
+            if known.insert(pending.id.clone()) {
+                waiting.push(pending.clone());
+            }
+        }
+        Ok(in_queue_order(waiting, bound, key.is_none()))
+    }
+
+    /// Whether a work item is pending, as the crawl knows them, with no
+    /// seal (ADR 0142): one it knows pending in a change a read does not
+    /// see yet, else one the run file's read finds pending that the crawl
+    /// did not lease, end or see merged since.
+    ///
+    /// # Errors
+    ///
+    /// The run file's.
+    pub(crate) async fn any_pending(&mut self) -> Result<bool, StateError> {
+        self.unwritten.seen(self.stored.commits());
+        if self.unwritten.pending(None).next().is_some() {
+            return Ok(true);
+        }
+        let read = self.unwritten.held().saturating_add(1);
+        Ok(self
+            .stored
+            .pending(read)
+            .await?
+            .iter()
+            .any(|id| !self.unwritten.holds(id)))
     }
 
     /// Writes the open batch and answers once it is in the file, so a read
